@@ -6,6 +6,11 @@ import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { WorkbenchTabs } from '@/workbench/WorkbenchTabs';
 import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import {
+  clearWorkbenchTabStates,
+  setWorkbenchTabState,
+  useWorkbenchTabStateStore,
+} from '@/workbench/workbench-tab-state';
 import type { WorkbenchLayoutNode, WorkbenchTab } from '@/workbench/workbench-types';
 
 function rawTab(id: string): WorkbenchTab {
@@ -39,11 +44,12 @@ function renderRootTabs() {
 
 beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
+  clearWorkbenchTabStates();
   useCloseGuardStore.getState().clearPendingClose();
 });
 
 describe('workbench tabs', () => {
-  it('opens a context menu for the clicked tab and closes other tabs through the guard', async () => {
+  it('opens a context menu for the clicked tab without activating it and closes other tabs through the guard', async () => {
     const user = userEvent.setup();
     useWorkbenchStore.getState().openTab(rawTab('foyer'));
     useWorkbenchStore.getState().openTab(rawTab('kitchen'));
@@ -51,7 +57,7 @@ describe('workbench tabs', () => {
 
     fireEvent.contextMenu(screen.getByText('foyer'));
     expect(screen.getByText('Close Others')).toBeInTheDocument();
-    expect(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
+    expect(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:kitchen');
 
     await user.click(screen.getByText('Close Others'));
 
@@ -69,6 +75,37 @@ describe('workbench tabs', () => {
     await user.click(screen.getByText('Close'));
 
     expect(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
+  });
+
+  it('shows preview visibility only for supported tabs and updates the clicked tab state', async () => {
+    const user = userEvent.setup();
+    const roomTab: WorkbenchTab = {
+      ...rawTab('foyer'),
+      editorType: 'room-detail',
+    };
+    setWorkbenchTabState(roomTab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      schemaVersion: 2,
+      payload: { previewCollapsed: false },
+    });
+    useWorkbenchStore.getState().openTab(roomTab);
+    useWorkbenchStore.getState().openTab(rawTab('raw'));
+    renderRootTabs();
+
+    fireEvent.contextMenu(screen.getByText('foyer'));
+    const previewItem = screen.getByText('Show Preview');
+    expect(previewItem.closest('[role="menuitemcheckbox"]')).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await user.click(previewItem);
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[roomTab.id]).toMatchObject({
+      payload: { previewCollapsed: true },
+    });
+
+    await user.keyboard('{Escape}');
+    fireEvent.contextMenu(screen.getByText('raw'));
+    expect(screen.queryByText('Show Preview')).not.toBeInTheDocument();
   });
 
   it('runs close to the right against the clicked tab group', async () => {

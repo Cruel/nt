@@ -12,9 +12,18 @@ import {
   buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import {
+  tabSupportsPreviewVisibility,
+  toggleTabPreview,
+} from '@/workbench/preview-visibility-command';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import { SearchSelectorDialog } from './SearchSelectorDialog';
-import { buildCommandPaletteItems, type CommandPaletteItem } from './command-palette-search';
+import {
+  buildCommandPaletteItems,
+  buildTogglePreviewCommandItem,
+  type CommandPaletteItem,
+} from './command-palette-search';
 
 function nodeForRecord(item: CommandPaletteItem): AssetNode | null {
   if (!item.collection || !item.entityId) return null;
@@ -66,7 +75,16 @@ export function CommandPaletteDialog({
   onOpenTab: (tab: WorkbenchTab) => void;
 }) {
   const { t } = useTranslation('workspace');
-  const items = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
+  const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
+  const activeGroup = useWorkbenchStore((state) => state.groupsById[activeGroupId]);
+  const activeTab = useWorkbenchStore((state) =>
+    activeGroup?.activeTabId ? state.tabsById[activeGroup.activeTabId] : undefined,
+  );
+  const items = useMemo(() => {
+    const next = buildCommandPaletteItems(project, t);
+    if (tabSupportsPreviewVisibility(activeTab)) next.push(buildTogglePreviewCommandItem(t));
+    return next;
+  }, [activeTab, project, t]);
 
   function choose(item: CommandPaletteItem) {
     const tab = tabForItem(item);
@@ -84,6 +102,10 @@ export function CommandPaletteDialog({
       dispatchWorkspaceToolbarCommand(item.action);
       onOpenChange(false);
       return;
+    }
+    if (item.kind === 'action' && item.action === 'toggle-preview' && activeTab) {
+      toggleTabPreview(activeTab);
+      onOpenChange(false);
     }
   }
 

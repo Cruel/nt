@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
@@ -7,6 +7,7 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { setTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import {
   captureWorkbenchTabState,
   clearWorkbenchTabStates,
@@ -107,9 +108,14 @@ describe('RoomEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     const view = renderEditor();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse preview' }));
+    act(() => {
+      setTabPreviewVisible(tab, false);
+    });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument(),
+      expect(screen.getByRole('separator', { name: 'Resize room preview' })).toHaveAttribute(
+        'aria-valuenow',
+        '0',
+      ),
     );
     captureWorkbenchTabState(tab.id);
 
@@ -122,7 +128,10 @@ describe('RoomEditor', () => {
     view.unmount();
     renderEditor();
 
-    expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
+    expect(screen.getByRole('separator', { name: 'Resize room preview' })).toHaveAttribute(
+      'aria-valuenow',
+      '0',
+    );
   });
   it('creates a generic typed placement anchor', async () => {
     const project = createAuthoringProject();

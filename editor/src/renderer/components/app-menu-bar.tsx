@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import {
   Menubar,
+  MenubarCheckboxItem,
   MenubarContent,
   MenubarItem,
   MenubarMenu,
@@ -19,6 +20,13 @@ import {
 import { useCommandStore } from '@/commands/command-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import {
+  isPreviewVisibleFromState,
+  setTabPreviewVisible,
+  tabSupportsPreviewVisibility,
+} from '@/workbench/preview-visibility-command';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useWorkbenchTabStateStore } from '@/workbench/workbench-tab-state';
 import { recentProjectKey, useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import type { AppInfo } from '../../shared/electron-api';
@@ -114,6 +122,15 @@ export function AppMenuBar() {
   const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
   const saveDirty = projectDirty || hasDraftDirty;
   const recentProjects = useRecentProjectsStore((state) => state.recentProjects);
+  const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
+  const activeGroup = useWorkbenchStore((state) => state.groupsById[activeGroupId]);
+  const activeTab = useWorkbenchStore((state) =>
+    activeGroup?.activeTabId ? state.tabsById[activeGroup.activeTabId] : undefined,
+  );
+  const activeTabState = useWorkbenchTabStateStore((state) =>
+    activeTab ? state.tabStatesById[activeTab.id] : undefined,
+  );
+  const activeTabSupportsPreview = tabSupportsPreviewVisibility(activeTab);
 
   useEffect(() => {
     let mounted = true;
@@ -301,6 +318,15 @@ export function AppMenuBar() {
                 <MenubarShortcut>Ctrl+-</MenubarShortcut>
               </MenubarItem>
               <MenubarSeparator />
+              <MenubarCheckboxItem
+                disabled={!activeTabSupportsPreview}
+                checked={isPreviewVisibleFromState(activeTab, activeTabState)}
+                onCheckedChange={(checked) => {
+                  if (activeTab) setTabPreviewVisible(activeTab, checked);
+                }}
+              >
+                {t('menu:items.showPreview')}
+              </MenubarCheckboxItem>
               <MenubarItem onClick={() => dispatchWorkspaceToolbarCommand('command-palette')}>
                 {t('menu:items.commandPalette')}
                 <MenubarShortcut>Ctrl+Shift+P</MenubarShortcut>

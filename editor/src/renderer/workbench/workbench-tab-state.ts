@@ -300,6 +300,12 @@ export function setWorkbenchTabState(tabId: string, state: WorkbenchTabStatePayl
   useWorkbenchTabStateStore.getState().setTabState(tabId, state);
 }
 
+export function applyWorkbenchTabState(tabId: string, state: WorkbenchTabStatePayload): void {
+  useWorkbenchTabStateStore.getState().setTabState(tabId, state);
+  const handle = handlesByTabId.get(tabId);
+  if (handle) restoreHandle(tabId, handle, state);
+}
+
 export function deleteWorkbenchTabState(tabId: string): void {
   useWorkbenchTabStateStore.getState().deleteTabState(tabId);
 }

@@ -304,6 +304,8 @@ describe('LayoutEditor', () => {
       restoredView.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollLeft,
     ).toBe(4);
     expect(screen.getByLabelText('source-rml').scrollTop).toBe(11);
-    expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('separator', { name: 'Resize layout preview' }),
+    ).not.toBeInTheDocument();
   });
 });

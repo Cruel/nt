@@ -44,7 +44,8 @@ export interface SelectorItem {
     | 'comfyui-workflows'
     | 'assets'
     | 'variables'
-    | 'tests';
+    | 'tests'
+    | 'toggle-preview';
   tags: string[];
   collectionTerms: string[];
   actionTerms: string[];
@@ -145,6 +146,18 @@ function baseActions(t: TFunction): SelectorItem[] {
         ),
       }),
     );
+}
+
+export function buildTogglePreviewCommandItem(
+  t: TFunction = editorI18n.t.bind(editorI18n),
+): SelectorItem {
+  return actionItem({
+    id: 'action:toggle-preview',
+    title: t('workspace:commandPalette.actions.togglePreview.title'),
+    subtitle: t('workspace:commandPalette.actions.togglePreview.subtitle'),
+    action: 'toggle-preview',
+    search: translatedSearchTerms(t, 'workspace:commandPalette.actions.togglePreview.search'),
+  });
 }
 
 export function buildCommandPaletteItems(

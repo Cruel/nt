@@ -1,5 +1,4 @@
 import { useId, useLayoutEffect, useRef, type ReactNode } from 'react';
-import { PanelRightClose, PanelRightOpen, PanelTopClose, PanelTopOpen } from 'lucide-react';
 import {
   Group,
   Panel,
@@ -9,7 +8,6 @@ import {
 } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import type { EditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useEditorPreviewSplitSyncStore } from '@/stores/editor-preview-split-sync-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -28,8 +26,6 @@ interface EditorPreviewSplitProps {
   onLayoutChange?: (sizes: Record<string, number>) => void;
   previewCollapsed?: boolean;
   onPreviewCollapsedChange?: (collapsed: boolean) => void;
-  collapsePreviewLabel?: string;
-  expandPreviewLabel?: string;
   previewClassName?: string;
   contentClassName?: string;
 }
@@ -70,8 +66,6 @@ export function EditorPreviewSplit({
   onLayoutChange,
   previewCollapsed = false,
   onPreviewCollapsedChange,
-  collapsePreviewLabel = 'Collapse preview',
-  expandPreviewLabel = 'Expand preview',
   previewClassName,
   contentClassName,
 }: EditorPreviewSplitProps) {
@@ -180,55 +174,6 @@ export function EditorPreviewSplit({
     localResizeActiveRef.current = false;
   };
 
-  const ToggleIcon =
-    orientation === 'vertical'
-      ? previewCollapsed
-        ? PanelTopOpen
-        : PanelTopClose
-      : previewCollapsed
-        ? PanelRightOpen
-        : PanelRightClose;
-  const toggleLabel = previewCollapsed ? expandPreviewLabel : collapsePreviewLabel;
-  const togglePreview = () => {
-    if (!onPreviewCollapsedChange) return;
-    localResizeActiveRef.current = false;
-
-    if (previewCollapsed) {
-      if (previewPanelHandle?.isCollapsed()) previewPanelHandle.expand();
-      const targetSize = latestSharedPreviewSizeRef.current ?? savedPreviewSize;
-      if (previewPanelHandle && targetSize !== null) {
-        const currentSize = previewPanelHandle.getSize().asPercentage;
-        if (Math.abs(currentSize - targetSize) > PREVIEW_SPLIT_SYNC_EPSILON) {
-          previewPanelHandle.resize(`${targetSize}%`);
-        }
-      }
-      onPreviewCollapsedChange(false);
-      return;
-    }
-
-    if (previewPanelHandle && !previewPanelHandle.isCollapsed()) previewPanelHandle.collapse();
-    onPreviewCollapsedChange(true);
-  };
-  const previewToggle = previewCanCollapse ? (
-    <Button
-      type="button"
-      size="icon-xs"
-      variant="secondary"
-      className={cn(
-        'absolute z-20 cursor-pointer rounded-full border shadow-sm',
-        orientation === 'horizontal'
-          ? 'right-1 top-1/2 -translate-y-1/2'
-          : 'left-1/2 top-1 -translate-x-1/2',
-      )}
-      aria-label={toggleLabel}
-      aria-expanded={!previewCollapsed}
-      title={toggleLabel}
-      onClick={togglePreview}
-    >
-      <ToggleIcon className="size-3.5" aria-hidden="true" />
-    </Button>
-  ) : null;
-
   const previewPanel = (
     <Panel
       id="editor-preview"
@@ -252,7 +197,6 @@ export function EditorPreviewSplit({
     >
       <div className={cn('relative h-full min-h-0 overflow-hidden', contentClassName)}>
         {children}
-        {previewToggle}
       </div>
     </Panel>
   );
@@ -266,16 +210,18 @@ export function EditorPreviewSplit({
       onLayoutChanged={handleLayoutChanged}
     >
       {orientation === 'vertical' ? previewPanel : contentPanel}
-      <PanelResizeSeparator
-        orientation={orientation}
-        aria-label={resizeLabel}
-        onPointerDownCapture={() => {
-          localResizeActiveRef.current = true;
-        }}
-        onKeyDownCapture={() => {
-          localResizeActiveRef.current = true;
-        }}
-      />
+      {!previewCollapsed ? (
+        <PanelResizeSeparator
+          orientation={orientation}
+          aria-label={resizeLabel}
+          onPointerDownCapture={() => {
+            localResizeActiveRef.current = true;
+          }}
+          onKeyDownCapture={() => {
+            localResizeActiveRef.current = true;
+          }}
+        />
+      ) : null}
       {orientation === 'vertical' ? contentPanel : previewPanel}
     </Group>
   );

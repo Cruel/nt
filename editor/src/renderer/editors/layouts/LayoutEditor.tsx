@@ -32,6 +32,7 @@ import {
   type SourceEditorViewStates,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
 import {
@@ -431,7 +432,10 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
       orientation={previewSplitOrientation}
       resizeLabel="Resize layout preview"
       previewCollapsed={previewCollapsed}
-      onPreviewCollapsedChange={setPreviewCollapsed}
+      onPreviewCollapsedChange={(collapsed) => {
+        recordTabPreviewVisible(tab, !collapsed);
+        setPreviewCollapsed(collapsed);
+      }}
       previewClassName="border-l bg-background"
       preview={
         <DerivedPreviewPane

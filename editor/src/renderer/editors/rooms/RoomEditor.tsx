@@ -56,6 +56,7 @@ import {
   type ScrollViewState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command';
 
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
 type RoomEditorTabState = WorkbenchTabStatePayload & {
@@ -513,7 +514,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       orientation={previewSplitOrientation}
       resizeLabel="Resize room preview"
       previewCollapsed={previewCollapsed}
-      onPreviewCollapsedChange={setPreviewCollapsed}
+      onPreviewCollapsedChange={(collapsed) => {
+        recordTabPreviewVisible(tab, !collapsed);
+        setPreviewCollapsed(collapsed);
+      }}
       preview={
         <DerivedPreviewPane
           ownerTabId={tab.id}

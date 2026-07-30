@@ -193,6 +193,11 @@
   },
   "commandPalette": {
     "actions": {
+      "togglePreview": {
+        "search": ["alternar prévia", "mostrar prévia", "ocultar prévia"],
+        "subtitle": "Mostrar ou ocultar a prévia do editor ativo",
+        "title": "Exibir: Alternar prévia"
+      },
       "saveAll": {
         "title": "Salvar tudo",
         "subtitle": "Salvar todos os itens alterados válidos do projeto",
@@ -277,6 +282,9 @@
     "empty": "Nenhum comando ou registro corresponde à busca.",
     "placeholder": "Digite um comando ou nome de registro",
     "title": "Paleta de comandos"
+  },
+  "preview": {
+    "show": "Mostrar prévia"
   },
   "selectors": {
     "backgroundImage": {

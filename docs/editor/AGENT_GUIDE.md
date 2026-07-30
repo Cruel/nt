@@ -82,10 +82,17 @@ The latest repository-level certification record is
 
 Open tabs should preserve expected user-facing state: scroll positions, source-editor selection/scroll, selected panels, split sizes, graph viewports, and similar state. See the editor agent guide before changing tab mounting, restoration, or preview ownership.
 
-Room and Layout preview collapse is tab-scoped view state. Collapsing one tab must not collapse other
-tabs, while the expanded preview size remains an editor-wide orientation-specific preference. A
-collapsed preview releases its active preview lease so the retained dedicated host follows the same
-inactive pacing and visibility behavior as an open tab that is not currently visible.
+For any tab with a collapsible preview widget, preview collapse is tab-scoped view state. Collapsing
+one tab must not collapse other tabs, while the expanded preview size remains an editor-wide
+orientation-specific preference. A collapsed preview releases its active preview lease so the
+retained dedicated host follows the same inactive pacing and visibility behavior as an open tab that
+is not currently visible.
+
+Tabs with collapsible preview widgets expose preview visibility through the tab context menu, the
+renderer-owned View menu, and the Command Palette. These entry points share one tab-state command; do
+not add editor-local floating controls or independent visibility state. Tabs without that capability
+omit the context-menu item, while the stable View-menu item remains disabled. No default keyboard
+shortcut is assigned.
 
 Restore project-scoped tabs only after the opened document has passed the current authoring-project schema check. An unsupported or legacy project must clear project-scoped tabs instead of attempting to restore its saved editor session.
 

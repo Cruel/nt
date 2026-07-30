@@ -173,40 +173,45 @@ describe('EditorPreviewSplit', () => {
     function Harness() {
       const [collapsed, setCollapsed] = useState(false);
       return (
-        <EditorPreviewSplit
-          orientation="horizontal"
-          resizeLabel="Resize preview"
-          previewCollapsed={collapsed}
-          onPreviewCollapsedChange={setCollapsed}
-          preview="Preview"
-        >
-          Editor
-        </EditorPreviewSplit>
+        <>
+          <button type="button" onClick={() => setCollapsed(true)}>
+            Set collapsed
+          </button>
+          <button type="button" onClick={() => setCollapsed(false)}>
+            Set expanded
+          </button>
+          <EditorPreviewSplit
+            orientation="horizontal"
+            resizeLabel="Resize preview"
+            previewCollapsed={collapsed}
+            onPreviewCollapsedChange={setCollapsed}
+            preview="Preview"
+          >
+            Editor
+          </EditorPreviewSplit>
+        </>
       );
     }
 
     const view = render(<Harness />);
     const previewPanel = view.container.querySelector('[data-panel-id="editor-preview"]')!;
 
-    expect(
-      screen
-        .getByRole('button', { name: 'Collapse preview' })
-        .closest('[data-testid="preview-split-separator"]'),
-    ).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Collapse preview' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set collapsed' }));
     await waitFor(() => {
       expect(previewPanel).toHaveAttribute('data-collapsed', 'true');
-      expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
+      expect(screen.queryByRole('separator', { name: 'Resize preview' })).not.toBeInTheDocument();
     });
 
     act(() => useEditorPreviewSplitSyncStore.getState().setSize('horizontal', 56));
     expect(previewPanel).toHaveAttribute('data-collapsed', 'true');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set expanded' }));
     await waitFor(() => {
       expect(previewPanel).toHaveAttribute('data-collapsed', 'false');
       expect(previewPanel).toHaveAttribute('data-size', '56');
+      expect(screen.getByRole('separator', { name: 'Resize preview' })).toBeInTheDocument();
     });
   });
 
@@ -249,6 +254,9 @@ describe('EditorPreviewSplit', () => {
       const [collapsed, setCollapsed] = useState(true);
       return (
         <div>
+          <button type="button" onClick={() => setCollapsed(false)}>
+            Set first expanded
+          </button>
           <EditorPreviewSplit
             orientation="horizontal"
             resizeLabel="Resize first"
@@ -281,7 +289,7 @@ describe('EditorPreviewSplit', () => {
       expect(firstPreviewPanel).toHaveAttribute('data-collapsed', 'true');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set first expanded' }));
     await waitFor(() => {
       expect(firstPreviewPanel).toHaveAttribute('data-size', '56');
       expect(firstPreviewPanel).toHaveAttribute('data-collapsed', 'false');
@@ -345,7 +353,10 @@ describe('EditorPreviewSplit', () => {
     fireEvent.click(within(group).getByRole('button', { name: 'mock-finish-preview-0' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
+      expect(document.querySelector('[data-panel-id="editor-preview"]')).toHaveAttribute(
+        'data-collapsed',
+        'true',
+      );
       expect(usePreferencesStore.getState().editorPreviewSplitSizes.vertical).toBe(38);
     });
   });

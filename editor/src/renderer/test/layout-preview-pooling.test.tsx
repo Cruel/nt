@@ -12,6 +12,7 @@ import {
 } from '@/stores/editor-preview-split-sync-store';
 import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { setTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import {
   useWorkbenchTabStateStore,
   clearWorkbenchTabStates,
@@ -358,6 +359,7 @@ describe('LayoutEditor persistent layout preview', () => {
     expect(payload?.revision).toEqual(expect.any(String));
     expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-pane-id', 'main');
     expect(view.container.querySelector('[data-preview-pane-mode="layout"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Collapse preview' })).not.toBeInTheDocument();
   });
 
   it('loads without the obsolete cleanup reset bridge', async () => {
@@ -520,10 +522,11 @@ describe('LayoutEditor persistent layout preview', () => {
       return host!;
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse preview' }));
+    act(() => {
+      setTabPreviewVisible(layoutTab, false);
+    });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
       expect(layoutHost).not.toHaveAttribute('data-preview-host-claimed');
       expect(layoutHost).not.toHaveAttribute('data-preview-host-visible');
     });
@@ -532,7 +535,6 @@ describe('LayoutEditor persistent layout preview', () => {
     rerenderGroup(view, group(roomTab.id));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Collapse preview' })).toBeInTheDocument();
       expect(
         hostElements(view.container).find(
           (candidate) => candidate.dataset.previewHostOwnerTabId === roomTab.id,
@@ -548,14 +550,14 @@ describe('LayoutEditor persistent layout preview', () => {
     rerenderGroup(view, group(layoutTab.id));
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
       expect(layoutHost).not.toHaveAttribute('data-preview-host-claimed');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Expand preview' }));
+    act(() => {
+      setTabPreviewVisible(layoutTab, true);
+    });
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Collapse preview' })).toBeInTheDocument();
       expect(layoutHost).toHaveAttribute('data-preview-host-visible', 'true');
     });
   });

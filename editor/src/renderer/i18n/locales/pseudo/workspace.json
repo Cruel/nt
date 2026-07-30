@@ -197,6 +197,11 @@
   },
   "commandPalette": {
     "actions": {
+      "togglePreview": {
+        "search": ["toggle preview", "show preview", "hide preview"],
+        "subtitle": "⟦Show or hide the active editor preview⟧",
+        "title": "⟦View: Toggle Preview⟧"
+      },
       "saveAll": {
         "search": ["save all", "commit all", "project"],
         "subtitle": "⟦Save every valid dirty project item⟧",
@@ -246,6 +251,9 @@
     "empty": "⟦No commands or records match.⟧",
     "placeholder": "⟦Type a command or record name⟧",
     "title": "⟦Command Palette⟧"
+  },
+  "preview": {
+    "show": "⟦Show Preview⟧"
   },
   "selectors": {
     "backgroundImage": {

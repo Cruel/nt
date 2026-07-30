@@ -67,10 +67,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
           ).dirty;
           return (
             <ContextMenu key={tab.id}>
-              <ContextMenuTrigger
-                className="contents"
-                onContextMenuCapture={() => activateTab(group.id, tab.id)}
-              >
+              <ContextMenuTrigger className="contents">
                 <WorkbenchTabItem
                   groupId={group.id}
                   tab={tab}
