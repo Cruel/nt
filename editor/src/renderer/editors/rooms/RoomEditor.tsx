@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowRight, Image, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ColorField } from '@/components/ui/color-field';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
@@ -666,16 +667,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <div className="space-y-1.5">
                 <Label>Fallback color</Label>
-                <Input
-                  value={data.background.color ?? ''}
-                  placeholder="#000000 or empty"
-                  onChange={(event) =>
+                <ColorField
+                  value={data.background.color}
+                  ariaLabel="Fallback color"
+                  onValueChange={(color) =>
                     commit(
                       {
                         ...data,
                         background: {
                           ...data.background,
-                          color: event.currentTarget.value || null,
+                          color,
                         },
                       },
                       'Update room background color',
