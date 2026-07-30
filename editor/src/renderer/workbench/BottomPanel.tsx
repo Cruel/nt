@@ -52,7 +52,7 @@ function ProblemsPanel() {
   }
   return (
     <div className="p-3 text-xs">
-      <DiagnosticList items={diagnosticItems} showPath={developerMode} />
+      <DiagnosticList items={diagnosticItems} showPath={developerMode} compact />
     </div>
   );
 }

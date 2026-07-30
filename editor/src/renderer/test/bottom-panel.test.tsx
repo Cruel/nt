@@ -37,6 +37,11 @@ describe('BottomPanel', () => {
     ]);
 
     render(<BottomPanel />);
+    const problem = screen.getByText('Selected pose/expression has no sprite asset yet.');
+    expect(problem.closest('button')).toHaveClass('cursor-pointer', 'border-l-amber-500');
+    expect(screen.getByText('DFS')).toBeInTheDocument();
+    expect(screen.queryByText('Characters')).not.toBeInTheDocument();
+    expect(screen.queryByText('warning')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Selected pose/expression has no sprite asset yet.'));
 
     expect(
