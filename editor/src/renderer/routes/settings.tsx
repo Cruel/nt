@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -118,7 +118,7 @@ function ThemeOption({
     <button
       type="button"
       onClick={() => onSelect(value)}
-      className={`flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors hover:bg-accent ${
+      className={`flex flex-col items-center gap-1.5 rounded-lg border p-3 transition-colors hover:bg-accent ${
         selected ? 'border-primary bg-accent' : 'border-border'
       }`}
     >
@@ -356,6 +356,8 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
       icon: WandSparkles,
     },
   ];
+  const activeSettingsCategory =
+    categories.find((category) => category.id === activeCategory) ?? categories[0]!;
   const effectiveLanguage = resolveEditorLanguage(language, preferredSystemLanguages);
   const settingsAtDefaults =
     nativeFrameLoaded && preferencesAtDefaults && nativeFrame === nativeFrameDefault;
@@ -502,6 +504,7 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
       activeCategory={activeCategory}
       onCategoryChange={(category) => setActiveCategory(category as EditorSettingsCategory)}
       navigationLabel={t('settings:categories.navigationLabel')}
+      showActiveDescription={false}
       sidebarFooter={
         <Button
           className="w-full justify-start"
@@ -513,20 +516,13 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
           {t('settings:reset.action')}
         </Button>
       }
-      header={
-        <PageHeader
-          className="border-0 p-0"
-          title={t('settings:page.title')}
-          description={t('settings:page.description')}
-        />
-      }
+      header={<PageHeader className="border-0 p-0" title={activeSettingsCategory.label} />}
     >
       {activeCategory === 'appearance' ? (
         <>
-          <Card data-workbench-anchor="settings.theme">
-            <CardHeader>
+          <Card size="sm" data-workbench-anchor="settings.theme">
+            <CardHeader className="gap-0">
               <CardTitle>{t('settings:theme.title')}</CardTitle>
-              <CardDescription>{t('settings:theme.description')}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex gap-3">
@@ -555,10 +551,9 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
             </CardContent>
           </Card>
 
-          <Card data-workbench-anchor="settings.codeEditor">
-            <CardHeader>
+          <Card size="sm" data-workbench-anchor="settings.codeEditor">
+            <CardHeader className="gap-0">
               <CardTitle>{t('settings:codeEditor.title')}</CardTitle>
-              <CardDescription>{t('settings:codeEditor.description')}</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">
               <div className="flex items-center justify-between gap-6">
@@ -576,10 +571,9 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
             </CardContent>
           </Card>
 
-          <Card data-workbench-anchor="settings.language">
-            <CardHeader>
+          <Card size="sm" data-workbench-anchor="settings.language">
+            <CardHeader className="gap-0">
               <CardTitle>{t('settings:language.title')}</CardTitle>
-              <CardDescription>{t('settings:language.description')}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between gap-6">
@@ -616,10 +610,9 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
       ) : null}
 
       {activeCategory === 'window' ? (
-        <Card data-workbench-anchor="settings.window">
-          <CardHeader>
+        <Card size="sm" data-workbench-anchor="settings.window">
+          <CardHeader className="gap-0">
             <CardTitle>{t('settings:window.title')}</CardTitle>
-            <CardDescription>{t('settings:window.description')}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="grid gap-3 rounded-md border p-3 md:grid-cols-2">
@@ -746,10 +739,9 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
       ) : null}
 
       {activeCategory === 'workspace' ? (
-        <Card data-workbench-anchor="settings.workspace">
-          <CardHeader>
+        <Card size="sm" data-workbench-anchor="settings.workspace">
+          <CardHeader className="gap-0">
             <CardTitle>{t('settings:workspace.title')}</CardTitle>
-            <CardDescription>{t('settings:workspace.description')}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="grid gap-4">
@@ -824,10 +816,9 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
       ) : null}
 
       {activeCategory === 'preview' ? (
-        <Card data-workbench-anchor="settings.preview">
-          <CardHeader>
+        <Card size="sm" data-workbench-anchor="settings.preview">
+          <CardHeader className="gap-0">
             <CardTitle>{t('settings:preview.title')}</CardTitle>
-            <CardDescription>{t('settings:preview.description')}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="flex items-center justify-between gap-6">
@@ -893,13 +884,9 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
       ) : null}
 
       {activeCategory === 'export' ? (
-        <Card data-workbench-anchor="settings.export">
-          <CardHeader>
+        <Card size="sm" data-workbench-anchor="settings.export">
+          <CardHeader className="gap-0">
             <CardTitle>Export</CardTitle>
-            <CardDescription>
-              Configure machine-wide export tools and defaults. Project export profiles remain
-              committed with each project.
-            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5">
             <div className="grid gap-2">
@@ -1143,10 +1130,9 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
       ) : null}
 
       {activeCategory === 'comfyui' ? (
-        <Card data-workbench-anchor="settings.comfyui">
-          <CardHeader>
+        <Card size="sm" data-workbench-anchor="settings.comfyui">
+          <CardHeader className="gap-0">
             <CardTitle>{t('settings:comfyui.title')}</CardTitle>
-            <CardDescription>{t('settings:comfyui.description')}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4">

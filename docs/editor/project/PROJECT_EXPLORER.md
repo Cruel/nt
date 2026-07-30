@@ -2,6 +2,10 @@
 
 The Project Explorer is the left workbench sidebar for navigating and organizing authoring project content. It is intentionally an editor UI surface: hidden categories, expanded nodes, and chapters are saved under `project.editor` and are stripped from runtime package export.
 
+The empty-project sidebar lists recent projects. Their labels are refreshed from the current project
+name when a project opens, closes, or is saved as a copy. A failed attempt to open a recent project
+reports the failure and removes its stale entry.
+
 ## Persistence
 
 Explorer UI state is stored under:

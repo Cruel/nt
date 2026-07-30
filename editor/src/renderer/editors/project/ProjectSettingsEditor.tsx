@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
 import { useProjectStore } from '@/project/project-store';
@@ -399,6 +400,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const sourceEditors = useSourceEditorViewStateRefs<'startupInitScript'>();
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const developerMode = usePreferencesStore((state) => state.developerMode);
   const decodedProject = useMemo(
     () =>
       projectDocument ? decodeAuthoringProject(stripEditorProjectState(projectDocument)) : null,
@@ -685,31 +687,22 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       onCategoryChange={(category) => setActiveCategory(category as ProjectSettingsCategory)}
       navigationLabel="Project settings categories"
       contentRef={scrollRef}
+      showActiveDescription={false}
       header={
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate text-lg font-semibold">Project Settings</h2>
-            <Badge variant="outline">{project.project.id}</Badge>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Game metadata, startup entrypoint, runtime defaults, title screen options, and
-            package-facing identity.
-          </p>
-        </div>
+        <h2 className="truncate text-lg font-semibold">
+          {projectSettingsCategories.find((category) => category.id === activeCategory)?.label ??
+            'General'}
+        </h2>
       }
     >
       {activeCategory === 'general' ? (
         <>
-          <Card data-workbench-anchor="projectSettings.metadata">
-            <CardHeader>
-              <CardTitle>Metadata</CardTitle>
-              <CardDescription>
-                Project identity used by the editor, package metadata, and built-in title UI.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="project-title">Project title</Label>
+          <Card size="sm" data-workbench-anchor="projectSettings.metadata">
+            <CardContent className="grid gap-1">
+              <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
+                <Label className="whitespace-nowrap" htmlFor="project-title">
+                  Project title
+                </Label>
                 <Input
                   id="project-title"
                   aria-invalid={fieldInvalid('/project/name')}
@@ -718,8 +711,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   onChange={(event) => updateMetadata({ name: event.currentTarget.value })}
                 />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="project-version">Version</Label>
+              <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
+                <Label className="whitespace-nowrap" htmlFor="project-version">
+                  Version
+                </Label>
                 <Input
                   id="project-version"
                   aria-invalid={fieldInvalid('/project/version')}
@@ -728,28 +723,34 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   onChange={(event) => updateMetadata({ version: event.currentTarget.value })}
                 />
               </div>
-              <div className="space-y-1">
-                <Label>Author</Label>
+              <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
+                <Label className="whitespace-nowrap" htmlFor="project-author">
+                  Author
+                </Label>
                 <Input
+                  id="project-author"
                   value={project.project.author}
                   onChange={(event) => updateMetadata({ author: event.currentTarget.value })}
                 />
               </div>
-              <div className="space-y-1">
-                <Label>Project ID</Label>
+              <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
+                <Label className="whitespace-nowrap" htmlFor="project-description">
+                  Description
+                </Label>
                 <Input
-                  value={project.project.id}
-                  readOnly
-                  className="font-mono text-[11px] text-muted-foreground"
-                />
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <Label>Description</Label>
-                <Input
+                  id="project-description"
                   value={project.project.description}
                   onChange={(event) => updateMetadata({ description: event.currentTarget.value })}
                 />
               </div>
+              {developerMode ? (
+                <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-2">
+                  <span className="text-xs font-medium">Project ID</span>
+                  <code className="truncate text-xs text-muted-foreground">
+                    {project.project.id}
+                  </code>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 

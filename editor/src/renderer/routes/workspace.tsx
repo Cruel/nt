@@ -548,6 +548,7 @@ export function WorkspacePage() {
 
   async function closeProject() {
     if (!(await flushProjectEditorMetadata('close-project'))) return;
+    refreshRecentProjectEntry(project, projectPath, projectFilePath);
     await cancelAndClearComfyUiProjectJobs(projectFilePath);
     if (projectFilePath) await window.noveltea.purgeProjectTrash(projectFilePath);
     if (projectFilePath) clearAssetTrashProject(projectFilePath);
@@ -643,6 +644,7 @@ export function WorkspacePage() {
           : 'Project loaded',
       );
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Project open failed';
       clearProjectDocument();
       usePendingInputStore.getState().resetPendingInputs();
       resetCommandHistory();
@@ -652,8 +654,14 @@ export function WorkspacePage() {
       setProject(null);
       setDiagnostics([]);
       setPlaybackTests([]);
-      if (projectPathOverride) removeRecentProject(projectPathOverride);
-      setStatusMessage(error instanceof Error ? error.message : 'Project open failed');
+      if (projectPathOverride) {
+        removeRecentProject(projectPathOverride);
+        setAlert({
+          title: 'Unable to open project',
+          message: `The recent project could not be opened and was removed from Recent Projects.\n\n${message}`,
+        });
+      }
+      setStatusMessage(message);
     } finally {
       setBusy(false);
     }

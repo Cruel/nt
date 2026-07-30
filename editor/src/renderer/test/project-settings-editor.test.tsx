@@ -138,7 +138,7 @@ describe('ProjectSettingsEditor', () => {
     });
     render(<ProjectSettingsEditor tab={tab} />);
 
-    expect(screen.getByText('Project Settings')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Project title'), { target: { value: 'New Title' } });
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'New Title' } }),

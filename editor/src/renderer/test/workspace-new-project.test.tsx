@@ -20,6 +20,7 @@ import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { setLoadedEditorProjectState } from '@/workbench/project-editor-state';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildProjectSettingsTab } from '@/workbench/editor-registry';
+import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
 
 const bottomPanelRef = vi.hoisted(() => ({
@@ -85,6 +86,7 @@ beforeEach(() => {
     statusMessage: 'Preview disconnected',
   });
   useCommandStore.getState().resetCommandHistory();
+  useRecentProjectsStore.setState({ recentProjects: [] });
   setLoadedEditorProjectState(emptyEditorProjectState());
   useComfyUiStore.setState({
     config: {
@@ -234,6 +236,37 @@ describe('WorkspacePage new project modal', () => {
         'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.',
       ),
     ).toBeInTheDocument();
+  });
+
+  it('notifies the user when a missing recent project is removed', async () => {
+    useRecentProjectsStore.setState({
+      recentProjects: [
+        {
+          projectPath: '/home/test/missing-project',
+          projectFilePath: '/home/test/missing-project/project.json',
+          label: 'Missing Project',
+          openedAt: 1,
+        },
+      ],
+    });
+    vi.mocked(window.noveltea.openProject).mockRejectedValueOnce(
+      new Error(
+        "ENOENT: no such file or directory, open '/home/test/missing-project/project.json'",
+      ),
+    );
+
+    render(<WorkspacePage />);
+    dispatchOpenProject('/home/test/missing-project/project.json');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Unable to open project' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /The recent project could not be opened and was removed from Recent Projects\./,
+      ),
+    ).toBeInTheDocument();
+    expect(useRecentProjectsStore.getState().recentProjects).toEqual([]);
   });
 
   it('handles an editor shortcut forwarded from a focused preview iframe', async () => {
@@ -432,6 +465,55 @@ describe('WorkspacePage new project modal', () => {
         }),
       }),
     );
+  });
+
+  it('refreshes the recent project label from the current name when closing', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'Old Name' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useWorkspaceStore.setState({
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      project,
+    });
+    useRecentProjectsStore.setState({
+      recentProjects: [
+        {
+          projectPath: '/mock/project',
+          projectFilePath: '/mock/project/project.json',
+          label: 'Old Name',
+          openedAt: 1,
+        },
+      ],
+    });
+
+    render(<WorkspacePage />);
+    act(() => {
+      useCommandStore.getState().executeCommand({
+        type: 'project.applyPatch',
+        label: 'Rename project',
+        payload: [{ op: 'replace', path: '/project/name', value: 'New Name' }],
+        originSaveUnitId: 'project:settings',
+        persistencePolicy: 'manual-save',
+      });
+    });
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'close-project' }),
+      );
+    });
+
+    await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
+    expect(useRecentProjectsStore.getState().recentProjects).toEqual([
+      expect.objectContaining({
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.json',
+        label: 'New Name',
+      }),
+    ]);
   });
 
   it('blocks project close when recovery metadata cannot be flushed', async () => {

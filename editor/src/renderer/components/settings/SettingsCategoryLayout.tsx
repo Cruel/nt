@@ -20,6 +20,7 @@ interface SettingsCategoryLayoutProps {
   sidebarFooter?: ReactNode;
   contentRef?: Ref<HTMLDivElement>;
   className?: string;
+  showActiveDescription?: boolean;
 }
 
 export function SettingsCategoryLayout({
@@ -32,6 +33,7 @@ export function SettingsCategoryLayout({
   sidebarFooter,
   contentRef,
   className,
+  showActiveDescription = true,
 }: SettingsCategoryLayoutProps) {
   const active = categories.find((category) => category.id === activeCategory) ?? categories[0];
 
@@ -76,12 +78,12 @@ export function SettingsCategoryLayout({
       </aside>
 
       <main ref={contentRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl p-4">
+        <div className="mx-auto w-full max-w-5xl p-3 sm:p-4">
           {header}
-          {active?.description ? (
+          {showActiveDescription && active?.description ? (
             <p className="mt-1 text-xs text-muted-foreground">{active.description}</p>
           ) : null}
-          <div className="mt-4 space-y-3 [&_[data-slot=card]]:[--card-spacing:--spacing(3)]">
+          <div className="mt-3 space-y-2 [&_[data-slot=card]]:[--card-spacing:--spacing(3)]">
             {children}
           </div>
         </div>
