@@ -162,4 +162,20 @@ describe('workbench dirty state', () => {
       { op: 'remove', path: '/materials/panel' },
     ]);
   });
+
+  it('removes editor metadata when discarding a newly-created unsaved record', () => {
+    const current = {
+      materials: { panel: { id: 'panel', label: 'Panel' } },
+      editor: {
+        recordMetadata: {
+          materials: { panel: { tags: ['ui'], color: '#ffffff' } },
+        },
+      },
+    };
+
+    expect(restoreSaveUnitPatchesFromSaved(tab, current, null)).toEqual([
+      { op: 'remove', path: '/materials/panel' },
+      { op: 'remove', path: '/editor/recordMetadata/materials/panel' },
+    ]);
+  });
 });

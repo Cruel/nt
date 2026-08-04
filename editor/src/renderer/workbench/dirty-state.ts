@@ -133,7 +133,18 @@ export function restoreSaveUnitPatchesFromSaved(
 ): JsonPatchOperation[] {
   const resolution = resolveSaveUnitForTab(tab, currentDocument);
   if (resolution.status !== 'savable' || !currentDocument) return [];
-  return resolution.descriptor.ownedPaths.flatMap((path) =>
+  const restorePaths = [...resolution.descriptor.ownedPaths];
+  const resource = tab.resource;
+  if (resource?.kind === 'record' && resource.collection && resource.entityId) {
+    const metadataPath = buildJsonPointer([
+      'editor',
+      'recordMetadata',
+      resource.collection,
+      resource.entityId,
+    ]);
+    if (!restorePaths.includes(metadataPath)) restorePaths.push(metadataPath);
+  }
+  return restorePaths.flatMap((path) =>
     restorePathPatchesFromSaved(path, currentDocument, savedDocument),
   );
 }

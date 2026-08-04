@@ -2259,6 +2259,13 @@ bool Engine::Impl::shutdown()
     if (!shutdown_jobs())
         return false;
 
+    // Asset leases can own bgfx resources. Release every published lease set while the renderer is
+    // still alive; otherwise late member destruction may try to destroy textures after
+    // bgfx::shutdown.
+    m_game_host.runtime_presentation().bind_mandatory_asset_gate(nullptr);
+    m_mandatory_assets.clear_package_on_owner();
+    m_assets.clear_focused_published_leases_on_owner();
+
     m_running = false;
     if (!m_initialized) {
         m_checkpoint_thumbnail_captures.reset();
