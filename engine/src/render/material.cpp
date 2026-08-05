@@ -168,6 +168,7 @@ ShaderMaterialProject make_builtin_hotspot_material_project()
         shader.stages = {stage(ShaderStage::Vertex, program, "vs"),
                          stage(ShaderStage::Fragment, program, "fs")};
         shader.uniforms = {
+            uniform("u_time", ShaderUniformType::Float, ShaderInputSemantic::EngineTime),
             uniform("u_hotspotBounds", ShaderUniformType::Vec4,
                     ShaderInputSemantic::EngineHotspotBounds),
             uniform("u_hotspotHovered", ShaderUniformType::Bool,
@@ -188,22 +189,26 @@ ShaderMaterialProject make_builtin_hotspot_material_project()
     };
 
     ShaderMaterialProject project;
-    project.shaders.push_back(
-        make_shader("system/hotspot_alpha", "Built-in Alpha Hotspot", "hotspot_alpha", false));
-    project.shaders.push_back(
-        make_shader("system/hotspot_custom", "Built-in Custom Hotspot", "hotspot_custom", true));
-    project.materials.push_back(MaterialDefinition{.id = MaterialId("system/hotspot_alpha"),
-                                                   .role = ShaderRole::HotspotOverlay,
-                                                   .shader = ShaderId("system/hotspot_alpha"),
-                                                   .display_name = "Built-in Alpha Hotspot",
-                                                   .uniforms = {},
-                                                   .textures = {}});
-    project.materials.push_back(MaterialDefinition{.id = MaterialId("system/hotspot_custom"),
-                                                   .role = ShaderRole::HotspotOverlay,
-                                                   .shader = ShaderId("system/hotspot_custom"),
-                                                   .display_name = "Built-in Custom Hotspot",
-                                                   .uniforms = {},
-                                                   .textures = {}});
+    project.shaders.push_back(make_shader(std::string(builtin_hotspot_alpha_material_id),
+                                          "Built-in Alpha Hotspot", "hotspot_alpha", false));
+    project.shaders.push_back(make_shader(std::string(builtin_hotspot_custom_material_id),
+                                          "Built-in Custom Hotspot", "hotspot_custom", true));
+    project.materials.push_back(
+        MaterialDefinition{.id = MaterialId(std::string(builtin_hotspot_alpha_material_id)),
+                           .role = ShaderRole::HotspotOverlay,
+                           .shader = ShaderId(std::string(builtin_hotspot_alpha_material_id)),
+                           .display_name = "Built-in Alpha Hotspot",
+                           .uniforms = {},
+                           .textures = {},
+                           .fallback = true});
+    project.materials.push_back(
+        MaterialDefinition{.id = MaterialId(std::string(builtin_hotspot_custom_material_id)),
+                           .role = ShaderRole::HotspotOverlay,
+                           .shader = ShaderId(std::string(builtin_hotspot_custom_material_id)),
+                           .display_name = "Built-in Custom Hotspot",
+                           .uniforms = {},
+                           .textures = {},
+                           .fallback = true});
     return project;
 }
 

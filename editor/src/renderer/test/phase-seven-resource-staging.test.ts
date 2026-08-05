@@ -8,9 +8,11 @@ interface CommittedResource {
   byteSize: number;
   physicalPath: string;
   logicalPath: string;
+  retainAlphaCoverage?: boolean;
 }
 
 interface Harness {
+  proposed(document: Record<string, unknown>): number;
   stage(
     message: { applySequence: number },
     document: Record<string, unknown>,
@@ -69,10 +71,15 @@ function focusedStageHarness(
   },
 ): Harness {
   const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+  const proposalStart = widget.indexOf('function proposedFocusedResourceGeneration(');
+  const proposalEnd = widget.indexOf('\n    function isFocusedEditorDocumentCommand', proposalStart);
   const start = widget.indexOf('async function stageFocusedManifest(');
   const end = widget.indexOf('\n    function collectProjectAssetPaths', start);
+  expect(proposalStart).toBeGreaterThanOrEqual(0);
+  expect(proposalEnd).toBeGreaterThan(proposalStart);
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(start);
+  const proposalImplementation = widget.slice(proposalStart, proposalEnd);
   const implementation = widget.slice(start, end);
 
   const context = {
@@ -101,11 +108,14 @@ function focusedStageHarness(
         return false;
       }
     },
+    proposed: null as Harness['proposed'] | null,
     stage: null as Harness['stage'] | null,
     state: null as Harness['state'] | null,
   };
   vm.runInNewContext(
-    `${implementation}
+    `${proposalImplementation}
+${implementation}
+proposed = proposedFocusedResourceGeneration;
 stage = stageFocusedManifest;
 state = () => ({
   projectInstanceId: focusedProjectInstanceId,
@@ -113,11 +123,12 @@ state = () => ({
 });`,
     context,
   );
-  if (!context.stage || !context.state) throw new Error('Focused staging harness did not load.');
-  return { stage: context.stage, state: context.state };
+  if (!context.proposed || !context.stage || !context.state)
+    throw new Error('Focused staging harness did not load.');
+  return { proposed: context.proposed, stage: context.stage, state: context.state };
 }
 
-function manifestEntry(name: string) {
+function manifestEntry(name: string, retainAlphaCoverage = false) {
   return {
     resourceId: `asset:${name}`,
     sourceKind: 'authoring-asset',
@@ -128,6 +139,7 @@ function manifestEntry(name: string) {
     logicalPath: `project:/${name}.bin`,
     contentHash: `sha256:${(name === 'a' ? 'a' : 'b').repeat(64)}`,
     byteSize: 1,
+    ...(retainAlphaCoverage ? { retainAlphaCoverage: true } : {}),
   };
 }
 
@@ -162,6 +174,15 @@ function document(resources: unknown[]) {
 }
 
 describe('Phase 7 focused resource publication', () => {
+  it('advances the source generation when alpha preparation requirements change', () => {
+    const memoryFs = new MemoryFs();
+    const committed = committedResources();
+    const harness = focusedStageHarness(memoryFs, committed);
+
+    expect(harness.proposed(document([manifestEntry('a'), manifestEntry('b')]))).toBe(4);
+    expect(harness.proposed(document([manifestEntry('a', true), manifestEntry('b')]))).toBe(5);
+  });
+
   it('aborts an obsolete resource fetch when a newer focused command supersedes it', async () => {
     const memoryFs = new MemoryFs();
     const committed = committedResources();

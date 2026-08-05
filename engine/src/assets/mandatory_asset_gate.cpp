@@ -503,6 +503,8 @@ struct MandatoryAssetGate::Impl {
     PrefetchPlanner prefetch;
     const core::LoadedCompiledPackage* package = nullptr;
     std::optional<StructuredAssetDependencyCollector> collector;
+    AssetSourceGeneration texture_requirement_generation;
+    TexturePreparationRequirementMap texture_requirements;
     std::optional<MandatoryAssetRequestGroup> group;
     StructuredAssetDependencyBuckets dependencies;
     std::optional<core::PresentationSnapshotRevision> snapshot_revision;
@@ -548,12 +550,26 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
 #endif
     auto index =
         StructuredAssetDependencyIndex::build(package, active_renderer_variant, generation);
-    auto installed = m_impl->assets.install_texture_preparation_requirements_on_owner(
-        generation, index.texture_preparation_requirements());
-    if (!installed) {
-        m_impl->collector.reset();
-        m_impl->package = nullptr;
-        return installed;
+    const auto& requirements = index.texture_preparation_requirements();
+    if (m_impl->texture_requirement_generation == generation) {
+        if (m_impl->texture_requirements != requirements) {
+            m_impl->collector.reset();
+            m_impl->package = nullptr;
+            return core::DiagnosticResult<void>::failure(
+                {.code = "assets.texture_preparation_requirements_changed",
+                 .message = "texture preparation requirements changed without a new source "
+                            "generation"});
+        }
+    } else {
+        auto installed = m_impl->assets.install_texture_preparation_requirements_on_owner(
+            generation, requirements);
+        if (!installed) {
+            m_impl->collector.reset();
+            m_impl->package = nullptr;
+            return installed;
+        }
+        m_impl->texture_requirement_generation = generation;
+        m_impl->texture_requirements = requirements;
     }
     m_impl->package = &package;
     m_impl->collector.emplace(std::move(index));

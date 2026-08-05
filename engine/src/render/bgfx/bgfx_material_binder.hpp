@@ -62,6 +62,11 @@ public:
                   std::vector<ShaderProgramDiagnostic>* diagnostics = nullptr);
 
     [[nodiscard]] BgfxMaterialBindResult
+    bind_system_material(const ShaderMaterialProject& project, const MaterialId& material_id,
+                         bgfx::ProgramHandle program, const BgfxMaterialBindInputs& inputs,
+                         std::vector<ShaderProgramDiagnostic>* diagnostics = nullptr);
+
+    [[nodiscard]] BgfxMaterialBindResult
     bind_engine_2d_material(const ShaderMaterialProject& project, const MaterialId& material_id,
                             const QuadCommand& command,
                             std::vector<ShaderProgramDiagnostic>* diagnostics = nullptr);
@@ -83,6 +88,11 @@ private:
     texture_for_source(std::string_view source, const QuadCommand* command,
                        MaterialTextureSampler sampler,
                        std::vector<ShaderProgramDiagnostic>* diagnostics);
+    [[nodiscard]] BgfxMaterialBindResult
+    bind_resolved_material(const MaterialId& material_id, const MaterialDefinition& material,
+                           const ShaderProgramResolution& resolution, bgfx::ProgramHandle program,
+                           const BgfxMaterialBindInputs& inputs,
+                           std::vector<ShaderProgramDiagnostic>* diagnostics);
 
     const assets::AssetManager& m_assets;
     BgfxShaderProgramCache& m_programs;

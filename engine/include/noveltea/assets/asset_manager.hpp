@@ -22,6 +22,7 @@ namespace noveltea::assets {
 
 struct TexturePreparationRequirements {
     bool retain_alpha_coverage = false;
+    bool operator==(const TexturePreparationRequirements&) const = default;
 };
 
 using TexturePreparationRequirementMap = std::map<AssetCacheKey, TexturePreparationRequirements>;

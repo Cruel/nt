@@ -605,7 +605,15 @@ void Renderer::create_2d()
         return;
     }
 
-    m_quad_program = BgfxShaderLoader(*m_assets).load_program(SystemShader::Quad).idx;
+    const BgfxShaderLoader shader_loader(*m_assets);
+    m_quad_program = shader_loader.load_program(SystemShader::Quad).idx;
+    m_hotspot_alpha_program = shader_loader.load_program(SystemShader::HotspotAlpha).idx;
+    m_hotspot_custom_program = shader_loader.load_program(SystemShader::HotspotCustom).idx;
+    if (!bgfx::isValid(bgfx::ProgramHandle{m_hotspot_alpha_program}) ||
+        !bgfx::isValid(bgfx::ProgramHandle{m_hotspot_custom_program})) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[renderer] built-in hotspot overlay programs are unavailable");
+    }
     if (!bgfx::isValid(bgfx::ProgramHandle{m_quad_program})) {
         return;
     }
@@ -656,10 +664,16 @@ void Renderer::destroy_2d()
         bgfx::destroy(bgfx::UniformHandle{m_sampler});
     if (bgfx::isValid(bgfx::ProgramHandle{m_quad_program}))
         bgfx::destroy(bgfx::ProgramHandle{m_quad_program});
+    if (bgfx::isValid(bgfx::ProgramHandle{m_hotspot_alpha_program}))
+        bgfx::destroy(bgfx::ProgramHandle{m_hotspot_alpha_program});
+    if (bgfx::isValid(bgfx::ProgramHandle{m_hotspot_custom_program}))
+        bgfx::destroy(bgfx::ProgramHandle{m_hotspot_custom_program});
     m_checker_texture = UINT16_MAX;
     m_use_texture_uniform = UINT16_MAX;
     m_sampler = UINT16_MAX;
     m_quad_program = UINT16_MAX;
+    m_hotspot_alpha_program = UINT16_MAX;
+    m_hotspot_custom_program = UINT16_MAX;
 }
 
 void Renderer::destroy_ordinary_world_surface()

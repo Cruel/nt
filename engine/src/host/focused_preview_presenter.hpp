@@ -152,7 +152,7 @@ private:
     [[nodiscard]] core::Result<std::vector<assets::StructuredAssetRequestDescriptor>,
                                core::Diagnostics>
     build_asset_requests(const core::editor::FocusedEditorDocumentRequest& request,
-                         const ShaderMaterialProject& materials) const;
+                         const ShaderMaterialProject& materials);
     [[nodiscard]] core::Result<FocusedState, core::Diagnostics> prepare_room_state(
         const core::editor::FocusedEditorDocumentRequest& request,
         const core::editor::TypedEditorRoomPreviewDocument& document,
@@ -174,6 +174,8 @@ private:
     std::string m_project_instance_id;
     std::uint64_t m_latest_apply_sequence = 0;
     std::uint64_t m_resource_generation = 0;
+    assets::AssetSourceGeneration m_texture_requirement_source_generation;
+    std::optional<std::uint64_t> m_texture_requirement_resource_generation;
     PassiveInputSink m_passive_input;
 };
 

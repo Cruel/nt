@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/render/quad_batch.hpp"
+#include "noveltea/render/material.hpp"
 #include "noveltea/render/rasterization_policy.hpp"
 #include "noveltea/render/shader.hpp"
 #include "noveltea/active_text_layout.hpp"
@@ -21,8 +22,6 @@
 #include <vector>
 
 namespace noveltea {
-
-struct ShaderMaterialProject;
 
 enum class WorldCompositionPass : std::uint8_t {
     Ordinary,
@@ -139,6 +138,16 @@ public:
 
     const char* renderer_name() const;
     const char* active_shader_variant() const;
+    [[nodiscard]] const ShaderMaterialProject& builtin_hotspot_material_project() const noexcept
+    {
+        return m_builtin_hotspot_materials;
+    }
+    [[nodiscard]] std::uint16_t
+    builtin_hotspot_program(HotspotMaterialInterface interface) const noexcept
+    {
+        return interface == HotspotMaterialInterface::Alpha ? m_hotspot_alpha_program
+                                                            : m_hotspot_custom_program;
+    }
     const char* texture_status() const { return m_texture_status.c_str(); }
     bool is_initialized() const { return m_initialized; }
     IntegerSize backbuffer_size() const { return m_backbuffer_size; }
@@ -209,6 +218,8 @@ private:
 
     // Backend resource handles (stored as uint16_t indices; UINT16_MAX = invalid).
     uint16_t m_quad_program = UINT16_MAX;
+    uint16_t m_hotspot_alpha_program = UINT16_MAX;
+    uint16_t m_hotspot_custom_program = UINT16_MAX;
     uint16_t m_checker_texture = UINT16_MAX;
     uint16_t m_sampler = UINT16_MAX;
     uint16_t m_use_texture_uniform = UINT16_MAX;
@@ -242,6 +253,7 @@ private:
     std::unique_ptr<bgfx_backend::BgfxShaderProgramCache> m_shader_program_cache;
     std::unique_ptr<bgfx_backend::BgfxTypedAssetLoader> m_typed_asset_loader;
     std::unique_ptr<bgfx_backend::BgfxMaterialBinder> m_material_binder;
+    ShaderMaterialProject m_builtin_hotspot_materials = make_builtin_hotspot_material_project();
     std::string m_texture_status = "procedural checker";
     std::string m_pending_screenshot;
     std::optional<std::uint64_t> m_pending_screenshot_capture;

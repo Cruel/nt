@@ -655,6 +655,19 @@ TEST_CASE("optional adjacency diagnostics do not block current mandatory publica
     gate.clear_package_on_owner();
 }
 
+TEST_CASE("mandatory package rebinding reuses identical generation-scoped texture requirements",
+          "[assets][structured-prefetch][mandatory-assets][texture-alpha]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+    gate.clear_package_on_owner();
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
+}
+
 TEST_CASE("direct-next hotspot mask prefetch is ready for the mandatory publication gate",
           "[assets][structured-prefetch][hotspot-mask]")
 {

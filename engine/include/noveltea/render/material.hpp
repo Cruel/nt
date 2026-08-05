@@ -11,6 +11,10 @@
 namespace noveltea {
 
 inline constexpr std::string_view shader_material_schema_v2 = "noveltea.shader-materials.v2";
+inline constexpr std::string_view builtin_hotspot_alpha_material_id =
+    "system/fallback/hotspot_alpha";
+inline constexpr std::string_view builtin_hotspot_custom_material_id =
+    "system/fallback/hotspot_custom";
 
 class MaterialId {
 public:

@@ -16,6 +16,10 @@ const char* system_shader_name(SystemShader shader)
         return "triangle";
     case SystemShader::Quad:
         return "quad";
+    case SystemShader::HotspotAlpha:
+        return "hotspot_alpha";
+    case SystemShader::HotspotCustom:
+        return "hotspot_custom";
     case SystemShader::Text:
         return "text";
     case SystemShader::RmlUi:

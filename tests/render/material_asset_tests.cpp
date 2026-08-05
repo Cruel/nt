@@ -519,6 +519,10 @@ TEST_CASE("built-in hotspot materials expose distinct alpha and custom interface
     const auto project = noveltea::make_builtin_hotspot_material_project();
     REQUIRE(project.shaders.size() == 2);
     REQUIRE(project.materials.size() == 2);
+    CHECK(project.materials[0].id.value() == noveltea::builtin_hotspot_alpha_material_id);
+    CHECK(project.materials[1].id.value() == noveltea::builtin_hotspot_custom_material_id);
+    CHECK(project.materials[0].fallback);
+    CHECK(project.materials[1].fallback);
     CHECK(noveltea::hotspot_material_interface_compatible(
         project.shaders[0], noveltea::HotspotMaterialInterface::Alpha));
     CHECK_FALSE(noveltea::hotspot_material_interface_compatible(

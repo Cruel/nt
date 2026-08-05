@@ -565,6 +565,30 @@ TEST_CASE("Texture preparation task obeys inline cooperative and threaded execut
     }
 }
 
+TEST_CASE("Texture alpha coverage sampling uses exact fixed bit layout and clamped UVs",
+          "[assets][texture-alpha]")
+{
+    const assets::TextureAlphaCoverage coverage{
+        .width = 10,
+        .height = 2,
+        .row_stride_bytes = 2,
+        .occupancy_bits = {0b00000001, 0b00000001, 0b00000000, 0b00000010},
+    };
+
+    CHECK(assets::texture_alpha_coverage_contains(coverage, 0.0f, 0.0f));
+    CHECK_FALSE(assets::texture_alpha_coverage_contains(coverage, 0.1f, 0.0f));
+    CHECK(assets::texture_alpha_coverage_contains(coverage, 0.8f, 0.0f));
+    CHECK(assets::texture_alpha_coverage_contains(coverage, 1.0f, 1.0f));
+    CHECK(assets::texture_alpha_coverage_contains(coverage, 2.0f, 2.0f));
+    CHECK(assets::texture_alpha_coverage_contains(coverage, -1.0f, -1.0f));
+    CHECK_FALSE(assets::texture_alpha_coverage_contains(
+        coverage, std::numeric_limits<float>::quiet_NaN(), 0.0f));
+
+    auto malformed = coverage;
+    malformed.row_stride_bytes = 1;
+    CHECK_FALSE(assets::texture_alpha_coverage_contains(malformed, 0.0f, 0.0f));
+}
+
 TEST_CASE("Texture prefetch expands its reservation from encoded dimensions before decoding")
 {
     jobs::InlineJobExecutor executor;
@@ -836,6 +860,12 @@ TEST_CASE("Hotspot mask preparation rasterizes binary unions and demand joins pr
     REQUIRE(prefetched);
     auto demanded = manager.request_hotspot_mask(request, assets::AssetRequestReason::Demand);
     REQUIRE(demanded);
+    auto mismatched_request = request;
+    mismatched_request.width = 5;
+    const auto mismatched =
+        manager.request_hotspot_mask(mismatched_request, assets::AssetRequestReason::Demand);
+    REQUIRE_FALSE(mismatched);
+    CHECK(mismatched.error().code == "assets.hotspot_mask.request_mismatch");
     auto demand = std::move(demanded).value();
     REQUIRE(
         drive_until(executor, [&] { return demand.state() == assets::AssetRequestState::Ready; }));

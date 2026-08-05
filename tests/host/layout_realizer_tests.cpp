@@ -1086,6 +1086,32 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(backend.documents == documents_before_shader_failure);
     CHECK(completions.back() ==
           std::pair<std::string, std::string>{"shader-apply-failure", "failed"});
+
+    auto alpha_layout_one = make_request(core::editor::FocusedEditorDocumentKind::Layout,
+                                         "layout-alpha-one", layout, 16);
+    alpha_layout_one.resources = {{.resource_id = "asset:alpha-sprite",
+                                   .source_kind = "authoring-asset",
+                                   .logical_path = "project:/images/alpha-sprite.png",
+                                   .content_hash = "sha256:" + std::string(64, 'c'),
+                                   .byte_size = 4,
+                                   .kind = "image",
+                                   .sampling = "linear",
+                                   .retain_alpha_coverage = true,
+                                   .asset_id = "alpha-sprite"}};
+    REQUIRE(presenter.apply(std::move(alpha_layout_one)));
+
+    auto alpha_layout_two = make_request(core::editor::FocusedEditorDocumentKind::Layout,
+                                         "layout-alpha-two", layout, 17);
+    alpha_layout_two.resources = {{.resource_id = "asset:alpha-sprite",
+                                   .source_kind = "authoring-asset",
+                                   .logical_path = "project:/images/alpha-sprite.png",
+                                   .content_hash = "sha256:" + std::string(64, 'c'),
+                                   .byte_size = 4,
+                                   .kind = "image",
+                                   .sampling = "linear",
+                                   .retain_alpha_coverage = true,
+                                   .asset_id = "alpha-sprite"}};
+    REQUIRE(presenter.apply(std::move(alpha_layout_two)));
 }
 
 } // namespace noveltea::host

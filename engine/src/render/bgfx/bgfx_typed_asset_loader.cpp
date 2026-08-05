@@ -575,8 +575,6 @@ struct HotspotMaskPreparationTask::Impl {
         const auto byte_count = static_cast<std::uint64_t>(request.width) * request.height;
         estimate.gpu_bytes = byte_count;
         estimate.temporary_bytes = byte_count;
-        prepared.bytes.assign(static_cast<std::size_t>(byte_count), 0u);
-        estimate.temporary_bytes = prepared.bytes.capacity();
     }
 
     HotspotMaskPreparationOwner& owner;
@@ -584,6 +582,7 @@ struct HotspotMaskPreparationTask::Impl {
     PreparedHotspotMaskUpload prepared;
     assets::ResidencyCost estimate;
     std::uint32_t next_row = 0;
+    bool allocated = false;
     bool finalized = false;
 };
 
@@ -619,6 +618,12 @@ jobs::JobStepOutcome HotspotMaskPreparationTask::step(jobs::JobContext& context)
             .status = jobs::JobStepStatus::Failed,
             .diagnostics = {{.code = "assets.hotspot_mask.invalid_request",
                              .message = "hotspot mask requires nonzero dimensions and regions"}}};
+    }
+    if (!m_impl->allocated) {
+        const auto byte_count =
+            static_cast<std::size_t>(m_impl->request.width) * m_impl->request.height;
+        m_impl->prepared.bytes.assign(byte_count, 0u);
+        m_impl->allocated = true;
     }
     const std::uint32_t rows_by_bytes =
         std::max<std::uint32_t>(1u, (256u * 1024u) / m_impl->request.width);

@@ -2,6 +2,7 @@
 
 #include "noveltea/render/quad_batch.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
+#include "render/bgfx/bgfx_shader_loader.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
 #include "render/bgfx/bgfx_typed_asset_loader.hpp"
 
@@ -87,6 +88,15 @@ TEST_CASE("material binder maps sampler policy to bgfx flags")
     CHECK((bgfx_sampler_flags(MaterialTextureSampler::RepeatNearest) & BGFX_SAMPLER_MIN_POINT) !=
           0);
     CHECK(bgfx_sampler_flags(MaterialTextureSampler::RepeatLinear) == 0);
+}
+
+TEST_CASE("renderer system shader registry names both hotspot overlay programs")
+{
+    using noveltea::bgfx_backend::system_shader_name;
+    using noveltea::bgfx_backend::SystemShader;
+
+    CHECK(std::string_view{system_shader_name(SystemShader::HotspotAlpha)} == "hotspot_alpha");
+    CHECK(std::string_view{system_shader_name(SystemShader::HotspotCustom)} == "hotspot_custom");
 }
 
 TEST_CASE("draw texture sampling overrides filtering while preserving address mode")

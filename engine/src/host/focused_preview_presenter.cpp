@@ -1022,6 +1022,8 @@ void FocusedPreviewPresenter::clear() noexcept
     m_project_instance_id.clear();
     m_latest_apply_sequence = 0;
     m_resource_generation = 0;
+    m_texture_requirement_source_generation = {};
+    m_texture_requirement_resource_generation.reset();
 }
 
 void FocusedPreviewPresenter::release_state(FocusedState& state) noexcept
@@ -1051,7 +1053,7 @@ void FocusedPreviewPresenter::supersede_candidate()
 core::Result<std::vector<assets::StructuredAssetRequestDescriptor>, core::Diagnostics>
 FocusedPreviewPresenter::build_asset_requests(
     const core::editor::FocusedEditorDocumentRequest& request,
-    const ShaderMaterialProject& materials) const
+    const ShaderMaterialProject& materials)
 {
     std::vector<assets::StructuredAssetRequestDescriptor> result;
     assets::TexturePreparationRequirementMap texture_requirements;
@@ -1092,13 +1094,18 @@ FocusedPreviewPresenter::build_asset_requests(
                 {.request = typed, .cache_key = assets::make_font_cache_key(typed, generation)});
         }
     }
-    if (!texture_requirements.empty()) {
+    const bool requirements_already_installed =
+        m_texture_requirement_source_generation == generation &&
+        m_texture_requirement_resource_generation == request.resource_stage_generation;
+    if (!texture_requirements.empty() && !requirements_already_installed) {
         auto installed = m_dependencies.assets.install_texture_preparation_requirements_on_owner(
             generation, std::move(texture_requirements));
         if (!installed) {
             return core::Result<std::vector<assets::StructuredAssetRequestDescriptor>,
                                 core::Diagnostics>::failure({std::move(installed).error()});
         }
+        m_texture_requirement_source_generation = generation;
+        m_texture_requirement_resource_generation = request.resource_stage_generation;
     }
     std::unordered_set<std::string> shader_program_keys;
     for (const auto& material : materials.materials) {
@@ -1215,6 +1222,8 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         m_project_instance_id = request.project_instance_id;
         m_latest_apply_sequence = 0;
         m_resource_generation = 0;
+        m_texture_requirement_source_generation = {};
+        m_texture_requirement_resource_generation.reset();
     }
     if (request.apply_sequence == 0 || request.apply_sequence <= m_latest_apply_sequence) {
         m_dependencies.report({error("editor_preview.stale_apply_sequence",

@@ -270,6 +270,89 @@ void BgfxMaterialBinder::bind_standard_uniforms(const ShaderProgramResolution& p
     }
 }
 
+BgfxMaterialBindResult BgfxMaterialBinder::bind_resolved_material(
+    const MaterialId& material_id, const MaterialDefinition& material,
+    const ShaderProgramResolution& resolution, bgfx::ProgramHandle program,
+    const BgfxMaterialBindInputs& inputs, std::vector<ShaderProgramDiagnostic>* diagnostics)
+{
+    for (const auto& uniform : resolution.uniforms) {
+        const MaterialUniformAssignment* assignment =
+            find_uniform_assignment(material, uniform.name);
+        if (uniform.binding) {
+            const auto value = pack_shader_standard_input(*uniform.binding, inputs.standard_inputs,
+                                                          inputs.quad_command);
+            bgfx::setUniform(uniform_handle(uniform.name), value.data());
+            continue;
+        }
+        const ShaderUniformValue* value =
+            assignment != nullptr ? &assignment->value : &uniform.default_value;
+        if (inputs.role == ShaderRole::Engine2D && uniform.name == "u_useTexture" &&
+            std::holds_alternative<std::monostate>(*value) &&
+            has_texture_assignment_for_sampler(material, "s_texColor")) {
+            const bool use_texture =
+                (inputs.quad_command != nullptr &&
+                 bgfx::isValid(bgfx::TextureHandle{inputs.quad_command->texture.handle})) ||
+                bgfx::isValid(m_fallback_texture);
+            const std::array<float, 4> packed = {use_texture ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+            bgfx::setUniform(uniform_handle(uniform.name), packed.data());
+            continue;
+        }
+        const auto packed = pack_material_uniform(*value);
+        if (!packed.supported)
+            continue;
+        bgfx::setUniform(uniform_handle(uniform.name), packed.value.data());
+    }
+
+    uint8_t texture_stage = inputs.first_texture_stage;
+    for (const auto& sampler : resolution.samplers) {
+        if (sampler.binding == ShaderSamplerSemantic::EngineHotspotImage) {
+            if (!bgfx::isValid(inputs.hotspot_image)) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                               material_context(material_id, inputs.role),
+                               "hotspot image binding is not resident");
+                return {};
+            }
+            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.hotspot_image,
+                             bgfx_sampler_flags(inputs.hotspot_image_sampler));
+            continue;
+        }
+        if (sampler.binding == ShaderSamplerSemantic::EngineHotspotMask) {
+            if (!bgfx::isValid(inputs.hotspot_mask)) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                               material_context(material_id, inputs.role),
+                               "hotspot mask binding is not resident");
+                return {};
+            }
+            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.hotspot_mask,
+                             bgfx_sampler_flags(MaterialTextureSampler::ClampNearest));
+            continue;
+        }
+        if (inputs.role == ShaderRole::ActiveText && is_glyph_atlas_sampler(sampler.name) &&
+            bgfx::isValid(inputs.glyph_atlas)) {
+            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.glyph_atlas,
+                             BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+            continue;
+        }
+
+        const auto* assignment = find_texture_assignment(material, sampler.name);
+        if (assignment == nullptr)
+            continue;
+        const MaterialTextureSampler filtering =
+            assignment->source == draw_texture_source && inputs.quad_command != nullptr
+                ? resolve_draw_texture_sampler(assignment->filtering,
+                                               inputs.quad_command->texture_sampler)
+                : assignment->filtering;
+        const auto texture =
+            texture_for_source(assignment->source, inputs.quad_command, filtering, diagnostics);
+        if (!bgfx::isValid(texture))
+            continue;
+        bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), texture,
+                         bgfx_sampler_flags(filtering));
+    }
+
+    return BgfxMaterialBindResult{.program = program, .ok = true};
+}
+
 BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
     const ShaderMaterialProject& project, const MaterialId& material_id,
     const BgfxMaterialBindInputs& inputs, std::vector<ShaderProgramDiagnostic>* diagnostics)
@@ -330,82 +413,46 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
         return {};
     }
 
-    for (const auto& uniform : resolved.program->uniforms) {
-        const MaterialUniformAssignment* assignment =
-            find_uniform_assignment(*material, uniform.name);
-        if (uniform.binding) {
-            const auto value = pack_shader_standard_input(*uniform.binding, inputs.standard_inputs,
-                                                          inputs.quad_command);
-            bgfx::setUniform(uniform_handle(uniform.name), value.data());
-            continue;
-        }
-        const ShaderUniformValue* value =
-            assignment != nullptr ? &assignment->value : &uniform.default_value;
-        if (inputs.role == ShaderRole::Engine2D && uniform.name == "u_useTexture" &&
-            std::holds_alternative<std::monostate>(*value) &&
-            has_texture_assignment_for_sampler(*material, "s_texColor")) {
-            const bool use_texture =
-                (inputs.quad_command != nullptr &&
-                 bgfx::isValid(bgfx::TextureHandle{inputs.quad_command->texture.handle})) ||
-                bgfx::isValid(m_fallback_texture);
-            const std::array<float, 4> packed = {use_texture ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-            bgfx::setUniform(uniform_handle(uniform.name), packed.data());
-            continue;
-        }
-        const auto packed = pack_material_uniform(*value);
-        if (!packed.supported)
-            continue;
-        bgfx::setUniform(uniform_handle(uniform.name), packed.value.data());
+    return bind_resolved_material(material_id, *material, *resolved.program, program, inputs,
+                                  diagnostics);
+}
+
+BgfxMaterialBindResult
+BgfxMaterialBinder::bind_system_material(const ShaderMaterialProject& project,
+                                         const MaterialId& material_id, bgfx::ProgramHandle program,
+                                         const BgfxMaterialBindInputs& inputs,
+                                         std::vector<ShaderProgramDiagnostic>* diagnostics)
+{
+    const auto* material = find_material(project, material_id);
+    if (material == nullptr) {
+        add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::UnknownMaterial,
+                       material_context(material_id, inputs.role), "unknown system material");
+        return {};
     }
-
-    uint8_t texture_stage = inputs.first_texture_stage;
-    for (const auto& sampler : resolved.program->samplers) {
-        if (sampler.binding == ShaderSamplerSemantic::EngineHotspotImage) {
-            if (!bgfx::isValid(inputs.hotspot_image)) {
-                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
-                               material_context(material_id, inputs.role),
-                               "hotspot image binding is not resident");
-                return {};
-            }
-            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.hotspot_image,
-                             bgfx_sampler_flags(inputs.hotspot_image_sampler));
-            continue;
-        }
-        if (sampler.binding == ShaderSamplerSemantic::EngineHotspotMask) {
-            if (!bgfx::isValid(inputs.hotspot_mask)) {
-                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
-                               material_context(material_id, inputs.role),
-                               "hotspot mask binding is not resident");
-                return {};
-            }
-            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.hotspot_mask,
-                             bgfx_sampler_flags(MaterialTextureSampler::ClampNearest));
-            continue;
-        }
-        if (inputs.role == ShaderRole::ActiveText && is_glyph_atlas_sampler(sampler.name) &&
-            bgfx::isValid(inputs.glyph_atlas)) {
-            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.glyph_atlas,
-                             BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
-            continue;
-        }
-
-        const auto* assignment = find_texture_assignment(*material, sampler.name);
-        if (assignment == nullptr)
-            continue;
-        const MaterialTextureSampler filtering =
-            assignment->source == draw_texture_source && inputs.quad_command != nullptr
-                ? resolve_draw_texture_sampler(assignment->filtering,
-                                               inputs.quad_command->texture_sampler)
-                : assignment->filtering;
-        const auto texture =
-            texture_for_source(assignment->source, inputs.quad_command, filtering, diagnostics);
-        if (!bgfx::isValid(texture))
-            continue;
-        bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), texture,
-                         bgfx_sampler_flags(filtering));
+    if (material->role != inputs.role) {
+        add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
+                       material_context(material_id, inputs.role),
+                       "system material role is '" + std::string(to_string(material->role)) +
+                           "', expected '" + std::string(to_string(inputs.role)) + "'");
+        return {};
     }
-
-    return BgfxMaterialBindResult{.program = program, .ok = true};
+    const auto resolved =
+        resolve_material_shader_program(project, material_id, m_programs.active_variant());
+    if (!resolved.program) {
+        if (diagnostics != nullptr) {
+            diagnostics->insert(diagnostics->end(), resolved.diagnostics.begin(),
+                                resolved.diagnostics.end());
+        }
+        return {};
+    }
+    if (!bgfx::isValid(program)) {
+        add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                       material_context(material_id, inputs.role),
+                       "built-in hotspot shader program is unavailable");
+        return {};
+    }
+    return bind_resolved_material(material_id, *material, *resolved.program, program, inputs,
+                                  diagnostics);
 }
 
 BgfxMaterialBindResult BgfxMaterialBinder::bind_engine_2d_material(

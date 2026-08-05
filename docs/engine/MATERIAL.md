@@ -208,9 +208,13 @@ image-dimension, and mask-dimension uniforms. Material records cannot assign sta
 bound samplers; additional unbound sampler assignments remain ordinary mandatory material texture
 dependencies. Native package assembly validates alpha and custom hotspot interfaces separately.
 
-The engine also supplies `system/hotspot_alpha` and `system/hotspot_custom` built-in materials backed
-by renderer-variant system shader binaries. The alpha built-in samples only the source image alpha;
-the custom built-in samples the source image and owner mask and clips the effect to the active bounds.
+The engine also supplies `system/fallback/hotspot_alpha` and
+`system/fallback/hotspot_custom` built-in materials backed by renderer-owned, renderer-variant system
+shader programs. The alpha built-in derives a moving border/sheen from neighboring source-alpha
+samples. The custom built-in samples the source image and binary owner mask, clips the effect to the
+active bounds, and derives the same border/sheen from neighboring mask samples. The material binder
+has a system-material path that uses these owned program handles without requiring package material
+or shader-program leases.
 
 ## Export / Package Status
 

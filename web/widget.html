@@ -552,7 +552,12 @@ thead, tbody, tfoot {
       }
       for (const entry of document.resources) {
         const committed = focusedCommittedResources.get(focusedResourceKey(document.projectInstanceId, entry));
-        if (!committed || committed.contentHash !== entry.contentHash || committed.byteSize !== entry.byteSize) {
+        if (
+          !committed ||
+          committed.contentHash !== entry.contentHash ||
+          committed.byteSize !== entry.byteSize ||
+          Boolean(committed.retainAlphaCoverage) !== Boolean(entry.retainAlphaCoverage)
+        ) {
           return focusedResourceStageGeneration + 1;
         }
       }
@@ -897,7 +902,11 @@ thead, tbody, tfoot {
         const key = focusedResourceKey(document.projectInstanceId, entry);
         const committed = fetchedByKey.get(key) || previous.get(key);
         if (!committed) throw new Error(`Focused preview resource was not staged: ${entry.logicalPath}.`);
-        nextMap.set(key, { ...committed, logicalPath: entry.logicalPath });
+        nextMap.set(key, {
+          ...committed,
+          logicalPath: entry.logicalPath,
+          retainAlphaCoverage: entry.retainAlphaCoverage === true,
+        });
       }
       if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before generation publication.');
       const linkPlans = [];
