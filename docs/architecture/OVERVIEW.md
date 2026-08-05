@@ -54,6 +54,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   Use the current documents above for implementation decisions.
 - `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` records the dependency audit baseline and the
   authoritative admission requirements for C++ runtime dependencies.
+- `docs/architecture/plans/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME_IMPLEMENTATION_PLAN.md` is the
+  active cross-cutting plan for Room/Interactable hotspot authoring, React Room composition tools,
+  runtime-generated masks, Interaction/exit activation, world hit testing, and highlight materials.
 
 ## Code Areas
 
