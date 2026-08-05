@@ -1753,6 +1753,64 @@ pointer-coordinate hotspot actions; UI/input-level pointer tests remain direct h
 
 ### Phase 1: Characterization and contract fixtures
 
+#### Completion record (2026-08-05)
+
+Status: complete.
+
+Phase 1 introduced no production behavior or schema changes. The current-contract fixture added at
+`editor/src/renderer/test/hotspot-phase-one-characterization.test.ts` locks the strict hotspot-free
+Room/Interactable authoring shapes, the four Room background-fit vectors already asserted by
+`tests/render/world_presentation_tests.cpp`, and normalized Room-placement projection. Existing
+focused tests remain the named characterization seams for the other required boundaries:
+
+- compiled wire: `editor/src/renderer/test/compiled-project-wire-v2.test.ts` and
+  `editor/src/renderer/test/compiled-project-golden-corpus.test.ts`;
+- Interaction selection: `tests/script/typed_interaction_execution_tests.cpp` and
+  `editor/src/renderer/test/authoring-interactions.test.ts`;
+- persisted Interaction frames: `tests/core/save_state_tests.cpp`;
+- texture preparation: `engine/src/render/bgfx/bgfx_typed_asset_loader.cpp`, exercised through the
+  asset-manager and renderer test targets;
+- structured prefetch and mandatory publication: `tests/assets/structured_prefetch_tests.cpp`;
+- world geometry: `tests/render/world_presentation_tests.cpp`;
+- dynamic draw textures and material binding: `tests/render/material_binder_tests.cpp`;
+- host input admission and reference projection: `tests/host/host_input_router_tests.cpp`.
+
+Versioned contracts and fixtures affected by later phases are: authoring project v2; compiled project
+v2; `noveltea.shader-materials.v1`; save state v6; debugger/runtime messages that serialize
+Interaction invocation context; authoring-test and test-playback project records; recorded-test draft
+and recorder action records; editor hotspot-view tab state (new v1 contract); runtime package
+manifest/package fixtures and compiled goldens; Room preview v2 only where fixture records embed
+changed Room/asset data (the preview protocol itself remains v2); and shader/material, project
+recovery, Web fixture, Android fixture, stage, and package-smoke fixtures. Phase 2 owns the project,
+compiled, material, package, and graph cutovers. Phase 6 owns save, invocation-bearing debugger,
+test-playback, and recorder cutovers. Phase 3 owns the new editor tab-state contract.
+
+Representative source sizes and exact uncompressed derived-memory costs are fixed as follows:
+
+| Asset class | Dimensions | RGBA8 decode/upload | One-bit alpha occupancy | R8 custom mask |
+| --- | ---: | ---: | ---: | ---: |
+| character/interactable sprite | 1024 x 2048 | 8,388,608 bytes | 262,144 bytes | 2,097,152 bytes |
+| reference background | 1920 x 1080 | 8,294,400 bytes | 259,200 bytes | 2,073,600 bytes |
+| 4K background | 3840 x 2160 | 33,177,600 bytes | 1,036,800 bytes | 8,294,400 bytes |
+
+Bootstrap characterization found one valid installation point and one bypass that later work must
+close. In normal game startup, `Engine::load_game()` calls
+`MandatoryAssetGate::bind_package_on_owner()` after the compiled package is available and before the
+first mandatory world request, so package-derived image preparation requirements can be installed
+there. `FocusedPreviewPresenter` can issue `TextureAssetRequest` directly without binding a compiled
+package. Phase 7 must therefore install generation-scoped image requirements through a shared
+pre-request registry used by both package-backed runtime and focused-preview requests; it must not
+make alpha coverage depend solely on `MandatoryAssetGate` binding. This is a direct sequencing
+constraint, not a blocker, because the shared request path exists before texture task creation.
+
+The repository's supported Linux renderer is bgfx OpenGL; Web and Android use bgfx OpenGLES
+auto-detection. bgfx exposes `TextureFormat::R8` for sampled 2D textures on both OpenGL and OpenGLES,
+and these targets do not request render-target, storage-image, mip, or filtering capabilities for
+the mask. Phase 8 must still perform the normal runtime `bgfx::isTextureValid(0, false, 1,
+TextureFormat::R8, flags)` guard before creation and surface an `assets.hotspot_mask.*` diagnostic if
+the active device rejects it. No replacement format or platform-specific encoding is required by
+the characterized target set.
+
 #### Required work
 
 - Add focused characterization tests for current Room/Interactable schema, compiled wire, Interaction
@@ -2185,7 +2243,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 
 ## 18. Completion tracking
 
-- [ ] Phase 1: Characterization and contract fixtures
+- [x] Phase 1: Characterization and contract fixtures
 - [ ] Phase 2: Atomic project, compiled, material, and graph contract cutover
 - [ ] Phase 3: Shared React image stage and hotspot editor
 - [ ] Phase 4: Room and Interactable hotspot authoring
