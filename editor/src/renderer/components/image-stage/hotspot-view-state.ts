@@ -1,3 +1,8 @@
+import {
+  clampImageStageCamera,
+  type StageSize,
+} from './image-stage-transforms';
+
 export const HOTSPOT_VIEW_STATE_SCHEMA = 'noveltea.editor.hotspot-view' as const;
 export const HOTSPOT_VIEW_STATE_VERSION = 1 as const;
 
@@ -48,19 +53,26 @@ export function parseHotspotViewTabState(value: unknown): HotspotEditorViewState
 export function restoreHotspotViewState(
   value: unknown,
   hotspotIds: Iterable<string>,
-  imageStageSize?: { width: number; height: number },
+  geometry?: { viewport: StageSize; image: StageSize },
 ): HotspotEditorViewStateV1 {
   const parsed = parseHotspotViewTabState(value) ?? defaultHotspotViewState();
   const ids = new Set(hotspotIds);
-  const maximumPanX = imageStageSize ? Math.max(0, imageStageSize.width / 2 - 32) : Infinity;
-  const maximumPanY = imageStageSize ? Math.max(0, imageStageSize.height / 2 - 32) : Infinity;
+  const camera = geometry
+    ? clampImageStageCamera(
+        geometry.viewport,
+        geometry.image,
+        { zoom: parsed.zoom, pan: { x: parsed.panX, y: parsed.panY } },
+        32,
+      )
+    : { zoom: parsed.zoom, pan: { x: parsed.panX, y: parsed.panY } };
   return {
     ...parsed,
     selectedHotspotId:
       parsed.selectedHotspotId && ids.has(parsed.selectedHotspotId)
         ? parsed.selectedHotspotId
         : null,
-    panX: Math.min(maximumPanX, Math.max(-maximumPanX, parsed.panX)),
-    panY: Math.min(maximumPanY, Math.max(-maximumPanY, parsed.panY)),
+    zoom: camera.zoom,
+    panX: camera.pan.x,
+    panY: camera.pan.y,
   };
 }

@@ -17,6 +17,25 @@ export type AssetKind = (typeof assetKindValues)[number];
 export const imageSamplingValues = ['linear', 'nearest'] as const;
 export type ImageSampling = (typeof imageSamplingValues)[number];
 
+export const imageAssetMetadataSchema = z
+  .object({
+    width: z.number().int().positive().max(65535),
+    height: z.number().int().positive().max(65535),
+    hasAlpha: z.boolean(),
+    orientation: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+      z.literal(6),
+      z.literal(7),
+      z.literal(8),
+    ]),
+  })
+  .strict();
+export type ImageAssetMetadata = z.infer<typeof imageAssetMetadataSchema>;
+
 export const assetAliasPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 
 export const assetSourceSchema = z
@@ -39,25 +58,7 @@ export const assetDataSchema = z
     importedAt: z.string().optional(),
     originalName: z.string().optional(),
     originalPath: z.string().optional(),
-    imageMetadata: z
-      .object({
-        width: z.number().int().positive().max(65535),
-        height: z.number().int().positive().max(65535),
-        hasAlpha: z.boolean(),
-        orientation: z.union([
-          z.literal(1),
-          z.literal(2),
-          z.literal(3),
-          z.literal(4),
-          z.literal(5),
-          z.literal(6),
-          z.literal(7),
-          z.literal(8),
-        ]),
-      })
-      .strict()
-      .nullable()
-      .optional(),
+    imageMetadata: imageAssetMetadataSchema.nullable(),
     preview: z
       .object({
         thumbnailRevision: z.string().optional(),
@@ -68,13 +69,7 @@ export const assetDataSchema = z
   })
   .strict()
   .superRefine((asset, context) => {
-    if (asset.imageMetadata === undefined)
-      context.addIssue({
-        code: 'custom',
-        path: ['imageMetadata'],
-        message: 'Image metadata field is required.',
-      });
-    else if (asset.kind === 'image' && asset.imageMetadata === null)
+    if (asset.kind === 'image' && asset.imageMetadata === null)
       context.addIssue({
         code: 'custom',
         path: ['imageMetadata'],
@@ -89,6 +84,29 @@ export const assetDataSchema = z
   });
 
 export type AssetData = z.infer<typeof assetDataSchema>;
+
+type AssetImportMetadataBase = {
+  projectRelativePath: string;
+  aliases?: string[];
+  mimeType?: string;
+  extension?: string;
+  byteSize?: number;
+  contentHash?: string;
+  importedAt?: string;
+  originalName?: string;
+  originalPath?: string;
+  sampling?: ImageSampling;
+};
+
+export type AssetDataImportMetadata =
+  | (AssetImportMetadataBase & {
+      kind: 'image';
+      imageMetadata: ImageAssetMetadata;
+    })
+  | (AssetImportMetadataBase & {
+      kind: Exclude<AssetKind, 'image'>;
+      imageMetadata: null;
+    });
 
 const imageExt = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.svg']);
 const fontExt = new Set(['.ttf', '.otf', '.woff', '.woff2']);
@@ -190,20 +208,7 @@ export function isSafeProjectAssetPath(path: string): boolean {
   return parts.every((part) => part.length > 0 && part !== '.' && part !== '..');
 }
 
-export function assetDataFromImportMetadata(metadata: {
-  kind: AssetKind;
-  projectRelativePath: string;
-  aliases?: string[];
-  mimeType?: string;
-  extension?: string;
-  byteSize?: number;
-  contentHash?: string;
-  importedAt?: string;
-  originalName?: string;
-  originalPath?: string;
-  sampling?: ImageSampling;
-  imageMetadata?: AssetData['imageMetadata'];
-}): AssetData {
+export function assetDataFromImportMetadata(metadata: AssetDataImportMetadata): AssetData {
   return {
     kind: metadata.kind,
     source: { type: 'project-file', path: metadata.projectRelativePath },
@@ -216,7 +221,7 @@ export function assetDataFromImportMetadata(metadata: {
     importedAt: metadata.importedAt,
     originalName: metadata.originalName,
     originalPath: metadata.originalPath,
-    imageMetadata: metadata.imageMetadata ?? null,
+    imageMetadata: metadata.imageMetadata,
     preview: metadata.contentHash ? { thumbnailRevision: metadata.contentHash } : undefined,
   };
 }

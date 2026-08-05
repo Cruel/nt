@@ -95,6 +95,7 @@ describe('authoring rooms schema', () => {
         importedAt: '2026-01-01T00:00:00.000Z',
         originalName: 'theme.mp3',
         originalPath: '/tmp/theme.mp3',
+        imageMetadata: null,
       }),
     };
     const data = defaultRoomData('Foyer');

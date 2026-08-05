@@ -248,4 +248,23 @@ TEST_CASE("compiled package rejects inventory and cross-document reference failu
         REQUIRE_FALSE(loaded.has_value());
         CHECK(has_code(loaded.error(), "runtime_package.missing_entry"));
     }
+
+    SECTION("hotspot highlight material has the wrong role")
+    {
+        auto document = read_json("interaction-program");
+        document["definitions"]["interactables"][0]["presentation"]["hotspots"]["hotspots"][0]
+                ["highlight"]["material"]["id"] = "sprite-material";
+        auto decoded = decode_compiled_project(document, "interaction-program.json");
+        REQUIRE(decoded.has_value());
+        auto project = std::move(decoded).value();
+        auto manifest = decode_runtime_package_manifest(package_manifest_for(project, true));
+        REQUIRE(manifest.has_value());
+        auto shaders = decode_shader_material_manifest(shader_manifest());
+        REQUIRE(shaders.has_value());
+        auto files = inventory_for(manifest.value());
+        auto loaded = assemble_compiled_package(std::move(project), std::move(manifest).value(),
+                                                std::move(shaders).value(), std::move(files));
+        REQUIRE_FALSE(loaded.has_value());
+        CHECK(has_code(loaded.error(), "runtime_package.invalid_hotspot_material_role"));
+    }
 }

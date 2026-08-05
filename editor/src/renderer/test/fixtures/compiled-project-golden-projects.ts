@@ -74,18 +74,28 @@ function addAsset(
   path: string,
   aliases: string[] = [],
 ): void {
+  const metadata =
+    kind === 'image'
+      ? {
+          kind,
+          projectRelativePath: path,
+          aliases,
+          extension: extensionOf(path),
+          contentHash: `golden-${id}`,
+          imageMetadata: { width: 1920, height: 1080, hasAlpha: true, orientation: 1 as const },
+        }
+      : {
+          kind,
+          projectRelativePath: path,
+          aliases,
+          extension: extensionOf(path),
+          contentHash: `golden-${id}`,
+          imageMetadata: null,
+        };
   project.assets[id] = {
     id,
     label: id,
-    data: assetDataFromImportMetadata({
-      kind,
-      projectRelativePath: path,
-      aliases,
-      extension: extensionOf(path),
-      contentHash: `golden-${id}`,
-      imageMetadata:
-        kind === 'image' ? { width: 1920, height: 1080, hasAlpha: true, orientation: 1 } : null,
-    }),
+    data: assetDataFromImportMetadata(metadata),
   };
 }
 
@@ -910,6 +920,35 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   const project = comprehensiveGoldenProject();
   renameProject(project, 'golden-interaction-program', 'Golden Interaction Program');
 
+  const hotspotShader = defaultShaderData('Hotspot Overlay Shader');
+  hotspotShader.roles = ['hotspot-overlay'];
+  hotspotShader.samplers = [
+    { name: 's_image', type: 'texture2d', binding: 'engine.hotspot_image' },
+    { name: 's_mask', type: 'texture2d', binding: 'engine.hotspot_mask' },
+  ];
+  hotspotShader.uniforms = [
+    { name: 'u_bounds', type: 'vec4', binding: 'engine.hotspot_bounds' },
+    { name: 'u_hovered', type: 'bool', binding: 'engine.hotspot_hovered' },
+    { name: 'u_pressed', type: 'bool', binding: 'engine.hotspot_pressed' },
+    { name: 'u_image_size', type: 'vec2', binding: 'engine.hotspot_image_dimensions' },
+    { name: 'u_mask_size', type: 'vec2', binding: 'engine.hotspot_mask_dimensions' },
+  ];
+  project.shaders['hotspot-overlay-shader'] = {
+    id: 'hotspot-overlay-shader',
+    label: 'Hotspot Overlay Shader',
+    data: hotspotShader,
+  };
+  const hotspotMaterial = defaultMaterialData('Hotspot Overlay', 'hotspot-overlay-shader');
+  hotspotMaterial.role = 'hotspot-overlay';
+  project.materials['hotspot-overlay'] = {
+    id: 'hotspot-overlay',
+    label: 'Hotspot Overlay',
+    data: hotspotMaterial,
+  };
+
+  const inspect = defaultVerbData('Inspect');
+  project.verbs.inspect = { id: 'inspect', label: 'Inspect', data: inspect };
+
   const use = defaultVerbData('Use');
   use.arity = 1;
   use.operandRoles = ['target'];
@@ -930,6 +969,68 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     outcome: 'unhandled',
   };
   project.verbs.use = { id: 'use', label: 'Use', data: use };
+
+  const start = project.rooms.start!.data;
+  start.hotspots = [
+    {
+      id: 'inspect-door',
+      label: 'Inspect Door',
+      condition: { kind: 'always' },
+      inputOrder: 10,
+      highlight: { kind: 'default' },
+      shape: { kind: 'rect', bounds: { x: 0.7, y: 0.1, width: 0.2, height: 0.5 } },
+      activation: { kind: 'verb', verb: verbReference('inspect') },
+    },
+    {
+      id: 'north-door',
+      label: 'North Door',
+      condition: { kind: 'always' },
+      inputOrder: 20,
+      highlight: { kind: 'none' },
+      shape: { kind: 'rect', bounds: { x: 0.72, y: 0.12, width: 0.16, height: 0.46 } },
+      activation: { kind: 'exit', exitId: 'north-exit' },
+    },
+  ];
+
+  const key = project.interactables.key!.data;
+  key.presentation.hotspots = {
+    kind: 'sprite-alpha',
+    hotspot: {
+      id: 'key-alpha',
+      label: 'Key',
+      condition: { kind: 'always' },
+      inputOrder: 0,
+      highlight: { kind: 'default' },
+      activation: { kind: 'verb', verb: verbReference('use') },
+    },
+  };
+  const coin = project.interactables.coin!.data;
+  coin.presentation.hotspots = {
+    kind: 'custom',
+    hotspots: [
+      {
+        id: 'coin-front',
+        label: 'Coin Front',
+        condition: { kind: 'always' },
+        inputOrder: 1,
+        highlight: {
+          kind: 'material',
+          material: { $ref: { collection: 'materials', id: 'hotspot-overlay' } },
+        },
+        activation: { kind: 'verb', verb: verbReference('use') },
+        shape: { kind: 'rect', bounds: { x: 0.1, y: 0.1, width: 0.7, height: 0.7 } },
+      },
+      {
+        id: 'coin-center',
+        label: 'Coin Center',
+        condition: { kind: 'always' },
+        inputOrder: 2,
+        highlight: { kind: 'none' },
+        activation: { kind: 'verb', verb: verbReference('use') },
+        shape: { kind: 'rect', bounds: { x: 0.3, y: 0.3, width: 0.4, height: 0.4 } },
+      },
+    ],
+  };
 
   const unlock = defaultVerbData('Unlock');
   unlock.arity = 1;
@@ -956,6 +1057,39 @@ export function interactionProgramGoldenProject(): AuthoringProject {
 
   const interaction = defaultInteractionData();
   interaction.rules = [
+    {
+      id: 'room-hotspot-context',
+      verb: verbReference('inspect'),
+      operands: [],
+      context: {
+        kind: 'hotspot',
+        hotspot: {
+          kind: 'room-hotspot',
+          room: roomReference('start'),
+          hotspotId: 'inspect-door',
+        },
+      },
+      program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
+    },
+    {
+      id: 'interactable-hotspot-context',
+      verb: verbReference('use'),
+      operands: [
+        {
+          kind: 'exact',
+          subject: { kind: 'interactable', interactable: interactableReference('key') },
+        },
+      ],
+      context: {
+        kind: 'hotspot',
+        hotspot: {
+          kind: 'interactable-hotspot',
+          interactable: interactableReference('key'),
+          hotspotId: 'key-alpha',
+        },
+      },
+      program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
+    },
     {
       id: 'any-context',
       verb: verbReference('use'),

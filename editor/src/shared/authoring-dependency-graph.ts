@@ -1218,6 +1218,15 @@ function nestedRoomNodesAndEdges(
 ): { nodes: AuthoringDependencyNode[]; edges: AuthoringDependencyEdge[] } {
   const nodes: AuthoringDependencyNode[] = [];
   const edges: AuthoringDependencyEdge[] = [];
+  const background = isRecord(record.data) ? record.data.background : null;
+  const backgroundAsset = isRecord(background) ? background.asset : null;
+  const backgroundAssetId =
+    isRecord(backgroundAsset) &&
+    isRecord(backgroundAsset.$ref) &&
+    backgroundAsset.$ref.collection === 'assets' &&
+    typeof backgroundAsset.$ref.id === 'string'
+      ? backgroundAsset.$ref.id
+      : null;
   tolerantObjectArray(record.data, 'placements').forEach((placement, index) => {
     if (typeof placement.id !== 'string') return;
     const key = nestedNodeKey('rooms', id, 'room-placement', placement.id);
@@ -1271,6 +1280,25 @@ function nestedRoomNodesAndEdges(
         repair: { kind: 'blocked', reason: 'Room hotspot is owned by its Room.' },
       }),
     );
+    if (backgroundAssetId) {
+      edges.push(
+        structuralEdge(
+          key,
+          recordNodeKey('assets', backgroundAssetId),
+          `${owningPath}/data/background/asset/$ref`,
+          `/assets/${escapeJsonPointerSegment(backgroundAssetId)}`,
+          {
+            role: 'hotspot-source-image',
+            facets: ['reference-integrity', 'tooling-reference', 'runtime-only', 'preview-visual'],
+            repair: {
+              kind: 'replacement-required',
+              path: `${owningPath}/data/background/asset` as JsonPointer,
+              collection: 'assets',
+            },
+          },
+        ),
+      );
+    }
     if (
       isRecord(hotspot.activation) &&
       hotspot.activation.kind === 'exit' &&

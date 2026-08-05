@@ -110,33 +110,32 @@ async function copyAssetIntoProject(
   await fs.copyFile(sourceAbsolute, destination);
   const bytes = await fs.readFile(destination);
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-  const imageMetadata =
-    kind === 'image'
-      ? await sharp(bytes, { failOn: 'error' })
-          .metadata()
-          .then((metadata) => {
-            if (!metadata.width || !metadata.height)
-              throw new Error('Image dimensions could not be determined.');
-            return {
-              width: metadata.width,
-              height: metadata.height,
-              hasAlpha: metadata.hasAlpha,
-              orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
-            };
-          })
-      : null;
-  return {
+  const common = {
     originalPath: sourceAbsolute,
     originalName: path.basename(sourceAbsolute),
     projectRelativePath: slashPath(path.relative(projectRoot, destination)),
-    kind,
     extension,
     mimeType: mimeForExtension(extension),
     byteSize: bytes.byteLength,
     contentHash,
     importedAt: new Date().toISOString(),
-    imageMetadata,
   };
+  if (kind !== 'image') return { ...common, kind, imageMetadata: null };
+  const imageMetadata = await sharp(bytes, { failOn: 'error' })
+    .metadata()
+    .then((metadata) => {
+      if (!metadata.width || !metadata.height)
+        throw new Error('Image dimensions could not be determined.');
+      if (metadata.width > 65535 || metadata.height > 65535)
+        throw new Error('Image dimensions must not exceed 65535 pixels.');
+      return {
+        width: metadata.width,
+        height: metadata.height,
+        hasAlpha: metadata.hasAlpha,
+        orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+      };
+    });
+  return { ...common, kind, imageMetadata };
 }
 
 export async function importAssets(

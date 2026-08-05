@@ -1,17 +1,28 @@
-import type { AssetData, AssetKind } from './project-schema/authoring-assets';
+import type {
+  AssetKind,
+  ImageAssetMetadata,
+} from './project-schema/authoring-assets';
 
-export interface ImportedAssetMetadata {
+interface ImportedAssetMetadataBase {
   originalPath: string;
   originalName: string;
   projectRelativePath: string;
-  kind: AssetKind;
   extension: string;
   mimeType?: string;
   byteSize: number;
   contentHash: string;
   importedAt: string;
-  imageMetadata?: AssetData['imageMetadata'];
 }
+
+export type ImportedAssetMetadata =
+  | (ImportedAssetMetadataBase & {
+      kind: 'image';
+      imageMetadata: ImageAssetMetadata;
+    })
+  | (ImportedAssetMetadataBase & {
+      kind: Exclude<AssetKind, 'image'>;
+      imageMetadata: null;
+    });
 
 export interface AssetImportDiagnostic {
   severity: 'info' | 'warning' | 'error';

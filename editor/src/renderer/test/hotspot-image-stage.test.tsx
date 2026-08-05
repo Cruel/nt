@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { HotspotImageStage } from '@/components/image-stage/HotspotImageStage';
 import {
+  clampImageStageCamera,
   imageRectToStage,
   imagePixelToUv,
   imageStageRect,
@@ -117,6 +118,16 @@ describe('hotspot image-stage transforms', () => {
       ),
     ).toEqual({ x: 0, y: 0.45, width: 0.75, height: 0.3 });
   });
+
+  it('clamps restored cameras while keeping at least 32 CSS pixels visible on each axis', () => {
+    expect(
+      clampImageStageCamera(
+        { width: 400, height: 300 },
+        { width: 100, height: 100 },
+        { zoom: 1, pan: { x: 1000, y: -1000 } },
+      ),
+    ).toEqual({ zoom: 1, pan: { x: 318, y: -268 } });
+  });
 });
 
 describe('hotspot view-state contract', () => {
@@ -134,11 +145,14 @@ describe('hotspot view-state contract', () => {
     expect(parseHotspotViewTabState({ ...value, schema: 'legacy.hotspot-view' })).toBeUndefined();
     expect(
       restoreHotspotViewState(
-        { ...value, zoom: 99, panX: 1000, panY: -1000, selectedHotspotId: 'missing' },
+        { ...value, zoom: 99, panX: 10000, panY: -10000, selectedHotspotId: 'missing' },
         ['door'],
-        { width: 400, height: 300 },
+        {
+          viewport: { width: 400, height: 300 },
+          image: { width: 100, height: 100 },
+        },
       ),
-    ).toMatchObject({ zoom: 16, panX: 168, panY: -118, selectedHotspotId: null });
+    ).toMatchObject({ zoom: 16, panX: 2568, panY: -2518, selectedHotspotId: null });
   });
 });
 
@@ -164,6 +178,8 @@ describe('HotspotImageStage', () => {
       />,
     );
     expect(document.querySelector('[data-alpha-visualization]')).not.toBeNull();
+    expect(document.querySelector('[data-geometry-layer]')).not.toBeNull();
+    expect(document.querySelector('[data-handles-feedback-layer]')).not.toBeNull();
     fireEvent.click(screen.getAllByRole('button', { name: 'Door' })[1]!);
     expect(onSelectionChange).toHaveBeenCalledWith('door');
     const stage = document.querySelector<HTMLElement>(
@@ -171,6 +187,71 @@ describe('HotspotImageStage', () => {
     )!;
     fireEvent.keyDown(stage, { key: 'Delete' });
     expect(onDelete).toHaveBeenCalledWith('door');
+  });
+
+  it('exposes polygon-ready display and selection without enabling polygon editing', () => {
+    const onSelectionChange = vi.fn();
+    render(
+      <HotspotImageStage
+        imageSize={{ width: 100, height: 100 }}
+        hotspots={[
+          {
+            id: 'triangle',
+            label: 'Triangle',
+            inputOrder: 7,
+            geometry: {
+              kind: 'polygon',
+              vertices: [
+                { x: 0.1, y: 0.1 },
+                { x: 0.9, y: 0.1 },
+                { x: 0.5, y: 0.9 },
+              ],
+            },
+          },
+        ]}
+        selectedHotspotId="triangle"
+        tool="select"
+        camera={{ zoom: 1, pan: { x: 0, y: 0 } }}
+        onSelectionChange={onSelectionChange}
+        onCameraChange={vi.fn()}
+        onCreate={vi.fn()}
+        onCommitBounds={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    const polygon = document.querySelector<SVGGElement>(
+      '[data-hotspot-id="triangle"][data-hotspot-geometry="polygon"]',
+    )!;
+    expect(polygon).not.toBeNull();
+    expect(document.querySelector('[data-resize-handle]')).toBeNull();
+    expect(screen.getByText('Order 7')).toBeInTheDocument();
+    fireEvent.pointerDown(polygon, { pointerId: 9, button: 0 });
+    expect(onSelectionChange).toHaveBeenCalledWith('triangle');
+  });
+
+  it('normalizes restored pan after stage dimensions become available', async () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      clientWidth: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 300 },
+    });
+    const onCameraChange = vi.fn();
+    render(
+      <HotspotImageStage
+        imageSize={{ width: 100, height: 100 }}
+        hotspots={[]}
+        selectedHotspotId={null}
+        tool="pan"
+        camera={{ zoom: 1, pan: { x: 1000, y: -1000 } }}
+        onSelectionChange={vi.fn()}
+        onCameraChange={onCameraChange}
+        onCreate={vi.fn()}
+        onCommitBounds={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect(onCameraChange).toHaveBeenCalledWith({ zoom: 1, pan: { x: 318, y: -268 } }),
+    );
   });
 
   it('commits a move exactly once when the pointer gesture ends', () => {

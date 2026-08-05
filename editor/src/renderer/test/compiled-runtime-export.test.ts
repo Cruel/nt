@@ -138,6 +138,7 @@ describe('compiled runtime export builder', () => {
         kind: 'audio',
         projectRelativePath: 'assets/audio/theme.wav',
         extension: '.wav',
+        imageMetadata: null,
       }),
     };
     const profile = { ...defaultExportProfile(), compileShadersBeforeExport: false };

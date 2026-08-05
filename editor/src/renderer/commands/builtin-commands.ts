@@ -76,6 +76,7 @@ import {
 } from '@/project/project-chapters-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
+import { imageAssetMetadataSchema } from '../../shared/project-schema/authoring-assets';
 import {
   buildReferenceIndexFromGraph,
   type ReferenceIndex,
@@ -650,34 +651,26 @@ const setEntityExtendsSchema = z.object({
   extendsId: entityIdSchema.nullable(),
 });
 
-const importedAssetMetadataSchema = z.object({
+const importedAssetMetadataBaseSchema = z.object({
   originalPath: z.string(),
   originalName: z.string(),
   projectRelativePath: z.string(),
-  kind: z.enum(['image', 'font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
   extension: z.string(),
   mimeType: z.string().optional(),
   byteSize: z.number().nonnegative(),
   contentHash: z.string(),
   importedAt: z.string(),
-  imageMetadata: z
-    .object({
-      width: z.number().int().positive(),
-      height: z.number().int().positive(),
-      hasAlpha: z.boolean(),
-      orientation: z.union([
-        z.literal(1),
-        z.literal(2),
-        z.literal(3),
-        z.literal(4),
-        z.literal(5),
-        z.literal(6),
-        z.literal(7),
-        z.literal(8),
-      ]),
-    })
-    .nullable(),
 });
+const importedAssetMetadataSchema = z.discriminatedUnion('kind', [
+  importedAssetMetadataBaseSchema.extend({
+    kind: z.literal('image'),
+    imageMetadata: imageAssetMetadataSchema,
+  }),
+  importedAssetMetadataBaseSchema.extend({
+    kind: z.enum(['font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
+    imageMetadata: z.null(),
+  }),
+]);
 
 const assetImportSchema = z.object({
   assets: z.array(importedAssetMetadataSchema),

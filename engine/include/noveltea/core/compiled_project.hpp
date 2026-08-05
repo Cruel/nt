@@ -315,6 +315,15 @@ struct InteractableHotspotRef {
     auto operator<=>(const InteractableHotspotRef&) const = default;
 };
 using HotspotRef = std::variant<RoomHotspotRef, InteractableHotspotRef>;
+struct RoomHotspotOwnerRef {
+    RoomId room;
+    auto operator<=>(const RoomHotspotOwnerRef&) const = default;
+};
+struct InteractableHotspotOwnerRef {
+    InteractableId interactable;
+    auto operator<=>(const InteractableHotspotOwnerRef&) const = default;
+};
+using HotspotOwnerRef = std::variant<RoomHotspotOwnerRef, InteractableHotspotOwnerRef>;
 struct DefaultHotspotHighlight {};
 struct NoHotspotHighlight {};
 struct MaterialHotspotHighlight {
@@ -323,7 +332,7 @@ struct MaterialHotspotHighlight {
 using HotspotHighlight =
     std::variant<DefaultHotspotHighlight, MaterialHotspotHighlight, NoHotspotHighlight>;
 struct VerbHotspotActivation {
-    std::optional<VerbId> verb;
+    VerbId verb;
 };
 struct RoomExitHotspotActivation {
     RoomExitId exit_id;

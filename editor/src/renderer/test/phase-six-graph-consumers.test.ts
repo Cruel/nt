@@ -503,6 +503,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
         source: { type: 'project-file', path: 'assets/images/background.png' },
         aliases: [],
         extension: '.png',
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
       },
     };
     const current = snapshot([confirmedAssetEdge()]);

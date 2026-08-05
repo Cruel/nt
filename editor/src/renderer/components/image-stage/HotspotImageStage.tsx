@@ -7,8 +7,10 @@ import {
 } from 'react';
 import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
 import {
+  clampImageStageCamera,
   imageRectToStage,
   imageStageRect,
+  imageUvToStage,
   moveNormalizedRect,
   normalizedRectFromPoints,
   resizeNormalizedRect,
@@ -20,11 +22,26 @@ import {
 } from './image-stage-transforms';
 import type { HotspotTool } from './hotspot-view-state';
 
-export interface HotspotStageItem {
+interface HotspotStageItemBase {
   id: string;
   label: string;
-  bounds: ImageNormalizedRect;
+  inputOrder?: number;
 }
+
+export type HotspotStageGeometry =
+  | { kind: 'rect'; bounds: ImageNormalizedRect }
+  | { kind: 'polygon'; vertices: readonly StagePoint[] };
+
+export type HotspotStageItem = HotspotStageItemBase &
+  (
+    | { bounds: ImageNormalizedRect; geometry?: never }
+    | { bounds?: never; geometry: HotspotStageGeometry }
+  );
+
+export const HOTSPOT_STAGE_GEOMETRY_CAPABILITIES = {
+  display: ['rect', 'polygon'],
+  edit: ['rect'],
+} as const;
 
 export interface HotspotImageStageProps {
   imageUrl?: string | null;
@@ -90,9 +107,32 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const cameraPan = gesture?.kind === 'pan' ? gesture.draft : props.camera.pan;
+  const restoredCamera = clampImageStageCamera(viewport, props.imageSize, props.camera);
+  useEffect(() => {
+    if (viewport.width <= 0 || viewport.height <= 0) return;
+    if (
+      restoredCamera.zoom !== props.camera.zoom ||
+      restoredCamera.pan.x !== props.camera.pan.x ||
+      restoredCamera.pan.y !== props.camera.pan.y
+    )
+      props.onCameraChange(restoredCamera);
+  }, [
+    props,
+    restoredCamera.pan.x,
+    restoredCamera.pan.y,
+    restoredCamera.zoom,
+    viewport.height,
+    viewport.width,
+  ]);
+  const cameraPan =
+    gesture?.kind === 'pan'
+      ? clampImageStageCamera(viewport, props.imageSize, {
+          zoom: restoredCamera.zoom,
+          pan: gesture.draft,
+        }).pan
+      : restoredCamera.pan;
   const imageRect = imageStageRect(viewport, props.imageSize, {
-    zoom: props.camera.zoom,
+    zoom: restoredCamera.zoom,
     pan: cameraPan,
   });
   const point = (event: ReactPointerEvent): StagePoint => {
@@ -122,8 +162,8 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
         kind: 'pan',
         pointerId: event.pointerId,
         start,
-        initial: props.camera.pan,
-        draft: props.camera.pan,
+        initial: restoredCamera.pan,
+        draft: restoredCamera.pan,
       });
       return;
     }
@@ -138,12 +178,16 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     }
     const current = point(event);
     if (gesture.kind === 'pan') {
-      setGesture({
-        ...gesture,
-        draft: {
+      const next = clampImageStageCamera(viewport, props.imageSize, {
+        zoom: restoredCamera.zoom,
+        pan: {
           x: gesture.initial.x + current.x - gesture.start.x,
           y: gesture.initial.y + current.y - gesture.start.y,
         },
+      });
+      setGesture({
+        ...gesture,
+        draft: next.pan,
       });
       return;
     }
@@ -167,7 +211,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       if (bounds.width * imageRect.width >= 4 && bounds.height * imageRect.height >= 4)
         props.onCreate(bounds);
     } else if (gesture.kind === 'pan') {
-      props.onCameraChange({ ...props.camera, pan: gesture.draft });
+      props.onCameraChange({ zoom: restoredCamera.zoom, pan: gesture.draft });
     } else if (
       gesture.draft.x !== gesture.initial.x ||
       gesture.draft.y !== gesture.initial.y ||
@@ -185,13 +229,24 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       16,
       Math.max(0.1, props.camera.zoom * Math.exp(-event.deltaY * 0.001)),
     );
-    props.onCameraChange({ ...props.camera, zoom: nextZoom });
+    props.onCameraChange(
+      clampImageStageCamera(viewport, props.imageSize, {
+        zoom: nextZoom,
+        pan: restoredCamera.pan,
+      }),
+    );
   };
 
-  const draftBounds = (item: HotspotStageItem) =>
-    gesture && (gesture.kind === 'move' || gesture.kind === 'resize') && gesture.id === item.id
+  const geometry = (item: HotspotStageItem): HotspotStageGeometry =>
+    item.geometry ?? { kind: 'rect', bounds: item.bounds };
+  const draftBounds = (item: HotspotStageItem, itemGeometry: HotspotStageGeometry) =>
+    gesture &&
+    (gesture.kind === 'move' || gesture.kind === 'resize') &&
+    gesture.id === item.id
       ? gesture.draft
-      : item.bounds;
+      : itemGeometry.kind === 'rect'
+        ? itemGeometry.bounds
+        : null;
 
   return (
     <div className={`flex min-h-0 ${props.className ?? ''}`} data-hotspot-image-stage="">
@@ -238,32 +293,80 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
         <div className="pointer-events-none absolute inset-0" data-placed-object-layer="">
           {props.placedObjectLayer}
         </div>
-        <svg className="absolute inset-0 size-full overflow-visible" data-geometry-layer="">
+        <svg
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+          data-geometry-layer=""
+        >
           {props.hotspots.map((item) => {
-            const bounds = draftBounds(item);
-            const rect = imageRectToStage(bounds, imageRect);
+            const itemGeometry = geometry(item);
             const selected = item.id === props.selectedHotspotId;
+            const selectOnly = (event: ReactPointerEvent<SVGGElement>) => {
+              if (props.tool !== 'select' || event.button !== 0) return;
+              event.stopPropagation();
+              props.onSelectionChange(item.id);
+            };
+            if (itemGeometry.kind === 'polygon') {
+              const points = itemGeometry.vertices
+                .map((vertex) => imageUvToStage(vertex, imageRect))
+                .map((vertex) => `${vertex.x},${vertex.y}`)
+                .join(' ');
+              return (
+                <g
+                  key={item.id}
+                  role="button"
+                  aria-label={item.label}
+                  className="pointer-events-auto"
+                  data-hotspot-id={item.id}
+                  data-hotspot-geometry="polygon"
+                  data-selected={selected ? 'true' : 'false'}
+                  onPointerDown={selectOnly}
+                >
+                  <polygon
+                    points={points}
+                    className="fill-primary/15 stroke-primary"
+                    strokeWidth={2}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  {itemGeometry.vertices.map((vertex, index) => {
+                    const stage = imageUvToStage(vertex, imageRect);
+                    return (
+                      <circle
+                        key={index}
+                        cx={stage.x}
+                        cy={stage.y}
+                        r={2}
+                        className="pointer-events-none fill-primary"
+                      />
+                    );
+                  })}
+                </g>
+              );
+            }
+            const bounds = draftBounds(item, itemGeometry) ?? itemGeometry.bounds;
+            const rect = imageRectToStage(bounds, imageRect);
+            const beginMove = (event: ReactPointerEvent<SVGGElement>) => {
+              selectOnly(event);
+              if (props.tool !== 'select' || event.button !== 0) return;
+              capture(event);
+              setGesture({
+                kind: 'move',
+                pointerId: event.pointerId,
+                id: item.id,
+                start: point(event),
+                initial: bounds,
+                draft: bounds,
+              });
+            };
             return (
               <g
                 key={item.id}
                 role="button"
                 aria-label={item.label}
+                className="pointer-events-auto"
                 data-hotspot-id={item.id}
+                data-hotspot-geometry="rect"
                 data-selected={selected ? 'true' : 'false'}
-                onPointerDown={(event) => {
-                  if (props.tool !== 'select' || event.button !== 0) return;
-                  event.stopPropagation();
-                  props.onSelectionChange(item.id);
-                  capture(event);
-                  setGesture({
-                    kind: 'move',
-                    pointerId: event.pointerId,
-                    id: item.id,
-                    start: point(event),
-                    initial: item.bounds,
-                    draft: item.bounds,
-                  });
-                }}
+                onPointerDown={beginMove}
               >
                 <rect
                   x={rect.x}
@@ -281,43 +384,53 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
                 >
                   {item.label}
                 </text>
-                {selected
-                  ? handles.map((handle) => (
-                      <rect
-                        key={handle}
-                        data-resize-handle={handle}
-                        x={
-                          rect.x +
-                          (Number.parseFloat(handlePosition[handle].left) / 100) * rect.width -
-                          4
-                        }
-                        y={
-                          rect.y +
-                          (Number.parseFloat(handlePosition[handle].top) / 100) * rect.height -
-                          4
-                        }
-                        width={8}
-                        height={8}
-                        className="fill-background stroke-foreground"
-                        onPointerDown={(event) => {
-                          if (props.tool !== 'select' || event.button !== 0) return;
-                          event.stopPropagation();
-                          capture(event);
-                          setGesture({
-                            kind: 'resize',
-                            pointerId: event.pointerId,
-                            id: item.id,
-                            handle,
-                            start: point(event),
-                            initial: item.bounds,
-                            draft: item.bounds,
-                          });
-                        }}
-                      />
-                    ))
-                  : null}
               </g>
             );
+          })}
+        </svg>
+        <svg
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+          data-handles-feedback-layer=""
+        >
+          {props.hotspots.map((item) => {
+            if (item.id !== props.selectedHotspotId) return null;
+            const itemGeometry = geometry(item);
+            const bounds = draftBounds(item, itemGeometry);
+            if (!bounds) return null;
+            const rect = imageRectToStage(bounds, imageRect);
+            return handles.map((handle) => (
+              <rect
+                key={`${item.id}-${handle}`}
+                data-resize-handle={handle}
+                x={
+                  rect.x +
+                  (Number.parseFloat(handlePosition[handle].left) / 100) * rect.width -
+                  4
+                }
+                y={
+                  rect.y +
+                  (Number.parseFloat(handlePosition[handle].top) / 100) * rect.height -
+                  4
+                }
+                width={8}
+                height={8}
+                className="pointer-events-auto fill-background stroke-foreground"
+                onPointerDown={(event) => {
+                  if (props.tool !== 'select' || event.button !== 0) return;
+                  event.stopPropagation();
+                  capture(event);
+                  setGesture({
+                    kind: 'resize',
+                    pointerId: event.pointerId,
+                    id: item.id,
+                    handle,
+                    start: point(event),
+                    initial: bounds,
+                    draft: bounds,
+                  });
+                }}
+              />
+            ));
           })}
           {gesture?.kind === 'draw'
             ? (() => {
@@ -350,11 +463,16 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
             <button
               key={item.id}
               type="button"
-              className="block w-full truncate rounded px-2 py-1 text-left text-sm hover:bg-muted"
+              className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-muted"
               data-selected={item.id === props.selectedHotspotId ? 'true' : 'false'}
               onClick={() => props.onSelectionChange(item.id)}
             >
-              {item.label}
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {item.inputOrder === undefined ? null : (
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  Order {item.inputOrder}
+                </span>
+              )}
             </button>
           ))
         )}

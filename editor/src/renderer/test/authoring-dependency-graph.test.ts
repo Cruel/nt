@@ -259,6 +259,50 @@ describe('authoring dependency graph contribution assembly', () => {
 });
 
 describe('authoring structural dependency graph and queries', () => {
+  it('tracks each Room hotspot source image through its owning Room background', () => {
+    const project = createAuthoringProject();
+    project.assets.background = {
+      id: 'background',
+      label: 'Background',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/background.png' },
+        aliases: [],
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Room');
+    room.background.asset = { $ref: { collection: 'assets', id: 'background' } };
+    room.hotspots.push({
+      id: 'door',
+      label: 'Door',
+      condition: { kind: 'always' },
+      inputOrder: 0,
+      highlight: { kind: 'none' },
+      shape: { kind: 'rect', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+      activation: { kind: 'exit', exitId: 'north' },
+    });
+    room.exits.push({
+      id: 'north',
+      label: 'North',
+      direction: 'north',
+      target: { $ref: { collection: 'rooms', id: 'room' } },
+      condition: { kind: 'always' },
+    });
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+
+    const graph = buildAuthoringStructuralDependencyGraph(project);
+    const hotspot = nestedNodeKey('rooms', 'room', 'room-hotspot', 'door');
+    expect(
+      outgoingAuthoringDependencies(graph, hotspot).some(
+        (edge) =>
+          edge.role === 'hotspot-source-image' &&
+          serializeAuthoringDependencyNodeKey(edge.target) ===
+            serializeAuthoringDependencyNodeKey(recordNodeKey('assets', 'background')),
+      ),
+    ).toBe(true);
+  });
+
   it('tracks Interactable hotspot source images across rename, deletion, replacement, and mode switches', () => {
     const project = createAuthoringProject();
     project.assets.sprite = {
@@ -444,6 +488,7 @@ describe('authoring structural dependency graph and queries', () => {
         kind: 'image',
         source: { type: 'project-file', path: 'images/background.png' },
         aliases: [],
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
       },
     };
     project.materials.base = {
@@ -597,6 +642,7 @@ describe('authoring structural dependency graph and queries', () => {
         kind: 'image',
         source: { type: 'project-file', path: 'images/target.png' },
         aliases: [],
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
       },
     };
     for (const collection of authoringCollectionKeys) {
@@ -849,6 +895,7 @@ describe('authoring structural dependency graph and queries', () => {
         kind: 'image',
         source: { type: 'project-file', path: 'images/background.png' },
         aliases: [],
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
       },
     };
     const results = assertGraphInputRegistryComplete(project, [
@@ -901,6 +948,7 @@ describe('authoring structural dependency graph and queries', () => {
         kind: 'image',
         source: { type: 'project-file', path: 'images/background.png' },
         aliases: [],
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
       },
     };
     for (let index = 0; index < 500; index += 1) {

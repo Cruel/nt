@@ -82,15 +82,12 @@ std::optional<VerbHotspotActivation> decode_verb_hotspot_activation(Decoder& dec
                       pointer_child(pointer, "kind"));
         return std::nullopt;
     }
-    std::optional<VerbId> verb;
-    bool verb_ok = verb_value != nullptr;
-    if (verb_value && !verb_value->is_null()) {
-        verb =
-            decode_reference<VerbId>(decoder, *verb_value, pointer_child(pointer, "verb"), "verb");
-        verb_ok = verb.has_value();
-    }
-    return verb_ok ? std::optional<VerbHotspotActivation>(VerbHotspotActivation{std::move(verb)})
-                   : std::nullopt;
+    auto verb = verb_value
+                    ? decode_reference<VerbId>(decoder, *verb_value, pointer_child(pointer, "verb"),
+                                               "verb")
+                    : std::nullopt;
+    return verb ? std::optional<VerbHotspotActivation>(VerbHotspotActivation{std::move(*verb)})
+                : std::nullopt;
 }
 
 struct DecodedHotspotCommon {

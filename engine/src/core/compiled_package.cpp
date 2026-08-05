@@ -67,6 +67,29 @@ void collect_material_ids(const CompiledProject& project, std::unordered_set<std
     }
 }
 
+void collect_hotspot_material_ids(const CompiledProject& project,
+                                  std::unordered_set<std::string>& ids)
+{
+    const auto add = [&](const compiled::HotspotHighlight& highlight) {
+        if (const auto* material = std::get_if<compiled::MaterialHotspotHighlight>(&highlight))
+            ids.insert(material->material.text());
+    };
+    for (const auto& room : project.rooms())
+        for (const auto& hotspot : room.hotspots)
+            add(hotspot.highlight);
+    for (const auto& interactable : project.interactables())
+        std::visit(
+            [&](const auto& definitions) {
+                using T = std::decay_t<decltype(definitions)>;
+                if constexpr (std::is_same_v<T, compiled::SpriteAlphaHotspots>)
+                    add(definitions.hotspot.highlight);
+                else
+                    for (const auto& hotspot : definitions.hotspots)
+                        add(hotspot.highlight);
+            },
+            interactable.presentation.hotspots);
+}
+
 } // namespace
 
 const compiled::AssetResource*
@@ -357,11 +380,26 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
 
     std::unordered_set<std::string> required_materials;
     collect_material_ids(project, required_materials);
+    std::unordered_set<std::string> hotspot_materials;
+    collect_hotspot_material_ids(project, hotspot_materials);
+    required_materials.insert(hotspot_materials.begin(), hotspot_materials.end());
     for (const auto& material : required_materials) {
         if (!registries.material_indexes.contains(material))
             add_assembly_error(diagnostics, "runtime_package.missing_gameplay_material",
                                "Gameplay references missing material '" + material + "'.",
                                "/materials");
+    }
+    if (shader_materials) {
+        for (const auto& material : hotspot_materials) {
+            const auto found = registries.material_indexes.find(material);
+            if (found != registries.material_indexes.end() &&
+                shader_materials->materials[found->second].role != ShaderRole::HotspotOverlay)
+                add_assembly_error(
+                    diagnostics, "runtime_package.invalid_hotspot_material_role",
+                    "Hotspot highlight material '" + material +
+                        "' must use the hotspot-overlay role.",
+                    "/materials");
+        }
     }
 
     if (!diagnostics.empty())

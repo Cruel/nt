@@ -23,6 +23,7 @@ function project() {
       kind: 'image',
       source: { type: 'project-file', path: 'assets/icon.png' },
       aliases: [],
+      imageMetadata: { width: 512, height: 512, hasAlpha: true, orientation: 1 },
     },
   };
   value.settings.app = {

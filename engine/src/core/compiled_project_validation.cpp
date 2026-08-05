@@ -76,6 +76,18 @@ private:
         return found == m_rooms.end() ? nullptr : &m_input.rooms[found->second];
     }
 
+    const InteractableDefinition* interactable(const InteractableId& id) const
+    {
+        const auto found = m_interactables.find(id);
+        return found == m_interactables.end() ? nullptr : &m_input.interactables[found->second];
+    }
+
+    const VerbDefinition* verb(const VerbId& id) const
+    {
+        const auto found = m_verbs.find(id);
+        return found == m_verbs.end() ? nullptr : &m_input.verbs[found->second];
+    }
+
     const DialogueDefinition* dialogue(const DialogueId& id) const
     {
         const auto found = m_dialogues.find(id);
@@ -216,6 +228,63 @@ private:
             std::find_if(owner->exits.begin(), owner->exits.end(),
                          [&](const RoomExit& value) { return value.id == reference.exit_id; });
         return found == owner->exits.end() ? nullptr : &*found;
+    }
+
+    const RoomHotspot* room_hotspot(const RoomHotspotRef& reference) const
+    {
+        const auto* owner = room(reference.room);
+        if (!owner)
+            return nullptr;
+        const auto found = std::ranges::find_if(owner->hotspots, [&](const RoomHotspot& value) {
+            return value.id == reference.hotspot_id;
+        });
+        return found == owner->hotspots.end() ? nullptr : &*found;
+    }
+
+    const InteractableHotspotBehavior*
+    interactable_hotspot(const InteractableHotspotRef& reference) const
+    {
+        const auto* owner = interactable(reference.interactable);
+        if (!owner)
+            return nullptr;
+        return std::visit(
+            [&](const auto& definition) -> const InteractableHotspotBehavior* {
+                using T = std::decay_t<decltype(definition)>;
+                if constexpr (std::is_same_v<T, SpriteAlphaHotspots>)
+                    return definition.hotspot.id == reference.hotspot_id ? &definition.hotspot
+                                                                         : nullptr;
+                else {
+                    const auto found = std::ranges::find_if(
+                        definition.hotspots, [&](const InteractableCustomHotspot& value) {
+                            return value.id == reference.hotspot_id;
+                        });
+                    return found == definition.hotspots.end() ? nullptr : &*found;
+                }
+            },
+            owner->presentation.hotspots);
+    }
+
+    void validate_hotspot_verb(const VerbHotspotActivation& activation,
+                               const std::size_t required_arity, const std::string& path)
+    {
+        const auto* linked = verb(activation.verb);
+        if (!linked) {
+            require(m_verbs, activation.verb, "verb", path + "/verb");
+            return;
+        }
+        if (linked->arity != required_arity)
+            error("compiled_project.hotspot_verb_arity_mismatch",
+                  "Hotspot Verb arity is incompatible with its owner.", path + "/verb");
+    }
+
+    void validate_hotspot_common(const Condition& condition, const HotspotHighlight& highlight,
+                                 const std::string& path)
+    {
+        validate_condition(condition, path + "/condition");
+        if (const auto* material = std::get_if<MaterialHotspotHighlight>(&highlight);
+            material && material->material.text().empty())
+            error("compiled_project.invalid_hotspot_material",
+                  "Hotspot Material reference must not be empty.", path + "/highlight/material");
     }
 
     void validate_location(const InteractableLocation& location, const std::string& path)
@@ -566,6 +635,38 @@ private:
                 if (linked_exit.transition)
                     validate_transition(*linked_exit.transition, exit_path + "/transition");
             }
+            if (!value.hotspots.empty()) {
+                if (!value.background.asset)
+                    error("compiled_project.hotspot_source_image_required",
+                          "Room hotspots require a background image Asset.",
+                          path + "/background/asset");
+                else if (const auto* source = asset(*value.background.asset);
+                         source && source->kind != AssetKind::Image)
+                    error("compiled_project.hotspot_source_image_invalid",
+                          "Room hotspot source Asset must be an image.",
+                          path + "/background/asset");
+            }
+            std::unordered_set<HotspotId> hotspot_ids;
+            for (std::size_t hotspot_index = 0; hotspot_index < value.hotspots.size();
+                 ++hotspot_index) {
+                const auto& hotspot = value.hotspots[hotspot_index];
+                const auto hotspot_path = path + "/hotspots/" + std::to_string(hotspot_index);
+                if (!hotspot_ids.insert(hotspot.id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Room hotspot ID.",
+                          hotspot_path + "/id");
+                validate_hotspot_common(hotspot.condition, hotspot.highlight, hotspot_path);
+                std::visit(
+                    [&](const auto& activation) {
+                        using T = std::decay_t<decltype(activation)>;
+                        if constexpr (std::is_same_v<T, VerbHotspotActivation>)
+                            validate_hotspot_verb(activation, 0, hotspot_path + "/activation");
+                        else if (!exit_ids.contains(activation.exit_id))
+                            error("compiled_project.unresolved_nested_reference",
+                                  "Room hotspot references an exit outside its owning Room.",
+                                  hotspot_path + "/activation/exitId");
+                    },
+                    hotspot.activation);
+            }
         }
     }
 
@@ -579,6 +680,54 @@ private:
             if (value.presentation.sprite)
                 require(m_assets, *value.presentation.sprite, "asset",
                         path + "/presentation/sprite");
+            const bool requires_sprite = std::visit(
+                [](const auto& definition) {
+                    using T = std::decay_t<decltype(definition)>;
+                    if constexpr (std::is_same_v<T, SpriteAlphaHotspots>)
+                        return true;
+                    else
+                        return !definition.hotspots.empty();
+                },
+                value.presentation.hotspots);
+            if (requires_sprite && !value.presentation.sprite)
+                error("compiled_project.hotspot_source_image_required",
+                      "Interactable hotspots require a sprite image Asset.",
+                      path + "/presentation/sprite");
+            else if (requires_sprite && value.presentation.sprite) {
+                const auto* source = asset(*value.presentation.sprite);
+                if (source && source->kind != AssetKind::Image)
+                    error("compiled_project.hotspot_source_image_invalid",
+                          "Interactable hotspot source Asset must be an image.",
+                          path + "/presentation/sprite");
+            }
+            std::unordered_set<HotspotId> hotspot_ids;
+            std::visit(
+                [&](const auto& definition) {
+                    using T = std::decay_t<decltype(definition)>;
+                    if constexpr (std::is_same_v<T, SpriteAlphaHotspots>) {
+                        const auto& hotspot = definition.hotspot;
+                        validate_hotspot_common(hotspot.condition, hotspot.highlight,
+                                                path + "/presentation/hotspots/hotspot");
+                        validate_hotspot_verb(hotspot.activation, 1,
+                                              path + "/presentation/hotspots/hotspot/activation");
+                    } else {
+                        for (std::size_t hotspot_index = 0;
+                             hotspot_index < definition.hotspots.size(); ++hotspot_index) {
+                            const auto& hotspot = definition.hotspots[hotspot_index];
+                            const auto hotspot_path = path + "/presentation/hotspots/hotspots/" +
+                                                      std::to_string(hotspot_index);
+                            if (!hotspot_ids.insert(hotspot.id).second)
+                                error("compiled_project.duplicate_nested_id",
+                                      "Duplicate Interactable hotspot ID.",
+                                      hotspot_path + "/id");
+                            validate_hotspot_common(hotspot.condition, hotspot.highlight,
+                                                    hotspot_path);
+                            validate_hotspot_verb(hotspot.activation, 1,
+                                                  hotspot_path + "/activation");
+                        }
+                    }
+                },
+                value.presentation.hotspots);
         }
     }
 
@@ -616,6 +765,81 @@ private:
                                               rule_path + "/context");
                         else if constexpr (std::is_same_v<T, PredicateInteractionContext>)
                             validate_condition(context.condition, rule_path + "/context/condition");
+                        else if constexpr (std::is_same_v<T, HotspotInteractionContext>)
+                            std::visit(
+                                [&](const auto& reference) {
+                                    using R = std::decay_t<decltype(reference)>;
+                                    if constexpr (std::is_same_v<R, RoomHotspotRef>) {
+                                        require(m_rooms, reference.room, "room",
+                                                rule_path + "/context/hotspot/room");
+                                        const auto* hotspot = room_hotspot(reference);
+                                        if (!hotspot) {
+                                            error("compiled_project.unresolved_nested_reference",
+                                                  "Room hotspot context references a missing hotspot.",
+                                                  rule_path + "/context/hotspot/hotspotId");
+                                            return;
+                                        }
+                                        const auto* activation =
+                                            std::get_if<VerbHotspotActivation>(&hotspot->activation);
+                                        if (!activation)
+                                            error("compiled_project.invalid_hotspot_context",
+                                                  "Interaction context cannot target an exit hotspot.",
+                                                  rule_path + "/context/hotspot/hotspotId");
+                                        else if (activation->verb != rule.verb)
+                                            error("compiled_project.invalid_hotspot_context",
+                                                  "Interaction Verb must match its Room hotspot.",
+                                                  rule_path + "/verb");
+                                        if (!rule.operands.empty())
+                                            error("compiled_project.invalid_hotspot_context",
+                                                  "Room hotspot Interaction rules must not declare operands.",
+                                                  rule_path + "/operands");
+                                    } else {
+                                        require(m_interactables, reference.interactable,
+                                                "interactable",
+                                                rule_path + "/context/hotspot/interactable");
+                                        const auto* hotspot = interactable_hotspot(reference);
+                                        if (!hotspot) {
+                                            error(
+                                                "compiled_project.unresolved_nested_reference",
+                                                "Interactable hotspot context references a missing hotspot.",
+                                                rule_path + "/context/hotspot/hotspotId");
+                                            return;
+                                        }
+                                        if (hotspot->activation.verb != rule.verb)
+                                            error("compiled_project.invalid_hotspot_context",
+                                                  "Interaction Verb must match its Interactable hotspot.",
+                                                  rule_path + "/verb");
+                                        const bool compatible_operand =
+                                            rule.operands.size() == 1 &&
+                                            std::visit(
+                                                [&](const auto& operand) {
+                                                    using O = std::decay_t<decltype(operand)>;
+                                                    if constexpr (std::is_same_v<O,
+                                                                 AnyInteractableOperand> ||
+                                                                  std::is_same_v<
+                                                                      O,
+                                                                      AnyInteractionSubjectOperand>)
+                                                        return true;
+                                                    else if constexpr (std::is_same_v<O,
+                                                                      ExactOperand>) {
+                                                        const auto* subject =
+                                                            std::get_if<
+                                                                InteractableInteractionSubject>(
+                                                                &operand.subject);
+                                                        return subject &&
+                                                               subject->interactable ==
+                                                                   reference.interactable;
+                                                    } else
+                                                        return false;
+                                                },
+                                                rule.operands.front());
+                                        if (!compatible_operand)
+                                            error("compiled_project.invalid_hotspot_context",
+                                                  "Interactable hotspot Interaction rules require one compatible operand.",
+                                                  rule_path + "/operands");
+                                    }
+                                },
+                                context.hotspot);
                     },
                     rule.context);
                 for (std::size_t operand = 0; operand < rule.operands.size(); ++operand) {

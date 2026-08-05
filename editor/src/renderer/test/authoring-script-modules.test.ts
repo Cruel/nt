@@ -15,6 +15,7 @@ describe('authoring script modules', () => {
         kind: 'image',
         source: { type: 'project-file', path: 'assets/image.png' },
         aliases: [],
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
       },
     };
     const script = defaultScriptModuleData();

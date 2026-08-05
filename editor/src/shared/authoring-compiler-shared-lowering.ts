@@ -114,7 +114,7 @@ function compileVerbActivation(activation: {
 }) {
   return {
     kind: 'verb' as const,
-    verb: activation.verb ? { kind: 'verb' as const, id: activation.verb.$ref.id } : null,
+    verb: { kind: 'verb' as const, id: activation.verb!.$ref.id },
   };
 }
 

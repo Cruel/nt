@@ -26,15 +26,18 @@ export function createPlatformExportAcceptanceFixture() {
     ['startup-lua', 'script', 'assets/scripts/startup.lua'],
   ] as const;
   for (const [id, kind, assetPath] of assets) {
+    const metadata =
+      kind === 'image'
+        ? {
+            kind,
+            projectRelativePath: assetPath,
+            imageMetadata: { width: 1024, height: 1024, hasAlpha: true, orientation: 1 as const },
+          }
+        : { kind, projectRelativePath: assetPath, imageMetadata: null };
     project.assets[id] = {
       id,
       label: id,
-      data: assetDataFromImportMetadata({
-        kind,
-        projectRelativePath: assetPath,
-        imageMetadata:
-          kind === 'image' ? { width: 1024, height: 1024, hasAlpha: true, orientation: 1 } : null,
-      }),
+      data: assetDataFromImportMetadata(metadata),
     };
   }
 

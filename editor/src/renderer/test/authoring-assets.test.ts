@@ -72,4 +72,27 @@ describe('authoring asset schema helpers', () => {
       true,
     );
   });
+
+  it('requires explicit current image metadata at persisted boundaries', () => {
+    const missingImageMetadata = {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/images/title.png' },
+      aliases: [],
+    };
+    expect(parseAssetData(missingImageMetadata)).toBeNull();
+    expect(parseAssetData({ ...missingImageMetadata, imageMetadata: null })).toBeNull();
+    expect(
+      parseAssetData({
+        ...missingImageMetadata,
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: true, orientation: 1 },
+      }),
+    ).toBeDefined();
+    expect(
+      parseAssetData({
+        kind: 'audio',
+        source: { type: 'project-file', path: 'assets/audio/theme.ogg' },
+        aliases: [],
+      }),
+    ).toBeNull();
+  });
 });

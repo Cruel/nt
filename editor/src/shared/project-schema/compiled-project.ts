@@ -162,7 +162,7 @@ const hotspotHighlightSchema = z.discriminatedUnion('kind', [
 ]);
 const verbHotspotActivationSchema = strict({
   kind: z.literal('verb'),
-  verb: verbReferenceSchema.nullable(),
+  verb: verbReferenceSchema,
 });
 const roomHotspotActivationSchema = z.discriminatedUnion('kind', [
   verbHotspotActivationSchema,

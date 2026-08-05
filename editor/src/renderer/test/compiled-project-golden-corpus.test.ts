@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
-import type { CompiledProjectWireV3 } from '../../shared/project-schema/compiled-project';
+import {
+  compiledProjectWireV3Schema,
+  type CompiledProjectWireV3,
+} from '../../shared/project-schema/compiled-project';
 import {
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
@@ -86,6 +89,15 @@ describe('compiled project cross-language golden corpus', () => {
     expectGolden('interaction-program', interactionProgramGoldenProject());
   });
 
+  it('rejects null compiled hotspot Verb activations', () => {
+    const interaction = structuredClone(compileFixture(interactionProgramGoldenProject()));
+    const room = interaction.definitions.rooms.find((candidate) => candidate.id === 'start')!;
+    const activation = room.hotspots.find((candidate) => candidate.id === 'inspect-door')!.activation;
+    if (activation.kind !== 'verb') throw new Error('Expected Verb hotspot activation.');
+    (activation as { verb: unknown }).verb = null;
+    expect(compiledProjectWireV3Schema.safeParse(interaction).success).toBe(false);
+  });
+
   it('covers the closed decoder vocabulary rather than only nominal collection records', () => {
     const comprehensive = compileFixture(comprehensiveGoldenProject());
     const resources = compileFixture(resourceGoldenProject());
@@ -116,6 +128,7 @@ describe('compiled project cross-language golden corpus', () => {
       'inline-lua',
       'interactable',
       'inventory',
+      'interactable-hotspot',
       'layout',
       'line',
       'localized',
@@ -132,6 +145,7 @@ describe('compiled project cross-language golden corpus', () => {
       'redirect',
       'return',
       'room',
+      'room-hotspot',
       'room-placement',
       'run-lua',
       'run-lua-effect',
@@ -199,9 +213,37 @@ describe('compiled project cross-language golden corpus', () => {
     expect(sorted(new Set(actions.rules.map((rule) => rule.context.kind)))).toEqual([
       'active-room',
       'any',
+      'hotspot',
       'predicate',
       'room-placement',
     ]);
+    const room = interaction.definitions.rooms.find((candidate) => candidate.id === 'start')!;
+    expect(room.hotspots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'inspect-door',
+          activation: { kind: 'verb', verb: { kind: 'verb', id: 'inspect' } },
+          shape: { kind: 'rect', bounds: { x: 0.7, y: 0.1, width: 0.2, height: 0.5 } },
+        }),
+        expect.objectContaining({
+          id: 'north-door',
+          activation: { kind: 'exit', exitId: 'north-exit' },
+        }),
+      ]),
+    );
+    const key = interaction.definitions.interactables.find((candidate) => candidate.id === 'key')!;
+    expect(key.presentation.hotspots).toMatchObject({
+      kind: 'sprite-alpha',
+      hotspot: { id: 'key-alpha', highlight: { kind: 'default' } },
+    });
+    const coin = interaction.definitions.interactables.find((candidate) => candidate.id === 'coin')!;
+    expect(coin.presentation.hotspots).toMatchObject({
+      kind: 'custom',
+      hotspots: [
+        { id: 'coin-front', highlight: { kind: 'material' } },
+        { id: 'coin-center', highlight: { kind: 'none' } },
+      ],
+    });
     expect(
       sorted(
         new Set(actions.rules.flatMap((rule) => rule.operands.map((operand) => operand.kind))),

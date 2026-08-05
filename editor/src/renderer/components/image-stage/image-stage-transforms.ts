@@ -12,6 +12,13 @@ export interface StageSize {
 
 export interface StageRect extends StagePoint, StageSize {}
 
+export interface ReferenceNormalizedRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface ImageStageCamera {
   zoom: number;
   pan: StagePoint;
@@ -47,7 +54,7 @@ export function imageStageRect(
   camera: ImageStageCamera,
 ): StageRect {
   const base = containRect(viewport, image);
-  const zoom = clamp(camera.zoom, 0.05, 64);
+  const zoom = clamp(camera.zoom, 0.1, 16);
   const width = base.width * zoom;
   const height = base.height * zoom;
   return {
@@ -55,6 +62,31 @@ export function imageStageRect(
     y: viewport.height / 2 - height / 2 + camera.pan.y,
     width,
     height,
+  };
+}
+
+export function clampImageStageCamera(
+  viewport: StageSize,
+  image: StageSize,
+  camera: ImageStageCamera,
+  minimumVisiblePixels = 32,
+): ImageStageCamera {
+  const zoom = clamp(camera.zoom, 0.1, 16);
+  if (viewport.width <= 0 || viewport.height <= 0 || image.width <= 0 || image.height <= 0)
+    return { zoom, pan: { ...camera.pan } };
+  const fitted = containRect(viewport, image);
+  const imageWidth = fitted.width * zoom;
+  const imageHeight = fitted.height * zoom;
+  const visibleX = Math.min(minimumVisiblePixels, viewport.width, imageWidth);
+  const visibleY = Math.min(minimumVisiblePixels, viewport.height, imageHeight);
+  const maximumPanX = Math.max(0, (viewport.width + imageWidth) / 2 - visibleX);
+  const maximumPanY = Math.max(0, (viewport.height + imageHeight) / 2 - visibleY);
+  return {
+    zoom,
+    pan: {
+      x: clamp(camera.pan.x, -maximumPanX, maximumPanX),
+      y: clamp(camera.pan.y, -maximumPanY, maximumPanY),
+    },
   };
 }
 
@@ -200,7 +232,7 @@ export function roomBackgroundTransform(
   };
 }
 
-export function referenceRectToStage(bounds: ImageNormalizedRect, viewport: StageSize): StageRect {
+export function referenceRectToStage(bounds: ReferenceNormalizedRect, viewport: StageSize): StageRect {
   return {
     x: bounds.x * viewport.width,
     y: bounds.y * viewport.height,

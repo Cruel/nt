@@ -298,6 +298,16 @@ std::optional<NormalizedRect> decode_rect(Decoder& decoder, const nlohmann::json
                       pointer_child(pointer, "y"));
         y.reset();
     }
+    if (x && width && *x + *width > 1.0) {
+        decoder.error(k_code_number, "Rectangle exceeds normalized width.",
+                      pointer_child(pointer, "width"));
+        width.reset();
+    }
+    if (y && height && *y + *height > 1.0) {
+        decoder.error(k_code_number, "Rectangle exceeds normalized height.",
+                      pointer_child(pointer, "height"));
+        height.reset();
+    }
     return height && width && x && y
                ? std::optional<NormalizedRect>(NormalizedRect{*x, *y, *width, *height})
                : std::nullopt;

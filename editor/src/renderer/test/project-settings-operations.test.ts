@@ -22,6 +22,7 @@ function projectWithSettingsTargets() {
       source: { type: 'project-file', path: 'assets/fonts/main.ttf' },
       aliases: [],
       extension: '.ttf',
+      imageMetadata: null,
     },
   };
   project.assets.logo = {
@@ -32,6 +33,7 @@ function projectWithSettingsTargets() {
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],
       extension: '.png',
+      imageMetadata: { width: 512, height: 512, hasAlpha: true, orientation: 1 },
     },
   };
   return project;

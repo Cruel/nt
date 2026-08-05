@@ -732,6 +732,133 @@ TEST_CASE("compiled image sampling is required and decodes explicitly")
 
 TEST_CASE("compiled project public decoder rejects semantic linking failures")
 {
+    SECTION("hotspot activation requires a non-null Verb reference")
+    {
+        auto document = fixture("interaction-program");
+        auto* verb = path_member(document, {"definitions", "rooms", "1", "hotspots", "0",
+                                            "activation", "verb"});
+        REQUIRE(verb != nullptr);
+        *verb = nullptr;
+        auto result = noveltea::core::decode_compiled_project(document, "hotspot-null-verb.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.type"));
+    }
+
+    SECTION("hotspot rectangles cannot cross normalized image bounds")
+    {
+        auto document = fixture("interaction-program");
+        auto* bounds = path_member(document, {"definitions", "rooms", "1", "hotspots", "0",
+                                              "shape", "bounds"});
+        REQUIRE(bounds != nullptr);
+        (*bounds)["x"] = 0.9;
+        (*bounds)["width"] = 0.2;
+        auto result = noveltea::core::decode_compiled_project(document, "hotspot-bounds.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_number"));
+    }
+
+    SECTION("Room hotspot IDs are unique within their owner")
+    {
+        auto document = fixture("interaction-program");
+        auto* second = path_member(document, {"definitions", "rooms", "1", "hotspots", "1"});
+        REQUIRE(second != nullptr);
+        (*second)["id"] = "inspect-door";
+        auto result = noveltea::core::decode_compiled_project(document, "hotspot-duplicate.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.duplicate_id"));
+    }
+
+    SECTION("Room hotspot exit activation is owner-local")
+    {
+        auto document = fixture("interaction-program");
+        auto* exit_id = path_member(document, {"definitions", "rooms", "1", "hotspots", "1",
+                                               "activation", "exitId"});
+        REQUIRE(exit_id != nullptr);
+        *exit_id = "east-exit";
+        auto result = noveltea::core::decode_compiled_project(document, "hotspot-exit.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
+    }
+
+    SECTION("Room and Interactable hotspot Verbs enforce owner arity")
+    {
+        auto room = fixture("interaction-program");
+        auto* room_verb = path_member(room, {"definitions", "rooms", "1", "hotspots", "0",
+                                               "activation", "verb", "id"});
+        REQUIRE(room_verb != nullptr);
+        *room_verb = "use";
+        auto room_result = noveltea::core::decode_compiled_project(room, "hotspot-room-arity.json");
+        REQUIRE_FALSE(room_result);
+        CHECK(has_code(room_result.error(), "compiled_project.hotspot_verb_arity_mismatch"));
+
+        auto interactable = fixture("interaction-program");
+        auto* interactable_verb = path_member(
+            interactable, {"definitions", "interactables", "2", "presentation", "hotspots",
+                           "hotspot", "activation", "verb", "id"});
+        REQUIRE(interactable_verb != nullptr);
+        *interactable_verb = "inspect";
+        auto interactable_result = noveltea::core::decode_compiled_project(
+            interactable, "hotspot-interactable-arity.json");
+        REQUIRE_FALSE(interactable_result);
+        CHECK(has_code(interactable_result.error(),
+                       "compiled_project.hotspot_verb_arity_mismatch"));
+    }
+
+    SECTION("hotspot source assets must be present images")
+    {
+        auto room = fixture("interaction-program");
+        auto* background = path_member(room, {"definitions", "rooms", "1", "background", "asset"});
+        REQUIRE(background != nullptr);
+        *background = nullptr;
+        auto room_result = noveltea::core::decode_compiled_project(room, "hotspot-room-source.json");
+        REQUIRE_FALSE(room_result);
+        CHECK(has_code(room_result.error(), "compiled_project.hotspot_source_image_required"));
+
+        auto interactable = fixture("interaction-program");
+        auto* sprite = path_member(interactable,
+                                   {"definitions", "interactables", "2", "presentation", "sprite"});
+        REQUIRE(sprite != nullptr);
+        *sprite = nullptr;
+        auto interactable_result = noveltea::core::decode_compiled_project(
+            interactable, "hotspot-interactable-source.json");
+        REQUIRE_FALSE(interactable_result);
+        CHECK(has_code(interactable_result.error(),
+                       "compiled_project.hotspot_source_image_required"));
+    }
+
+    SECTION("exact hotspot contexts require existing compatible activations and operands")
+    {
+        auto missing = fixture("interaction-program");
+        auto* hotspot_id = path_member(missing, {"definitions", "interactions", "0", "rules", "0",
+                                                "context", "hotspot", "hotspotId"});
+        REQUIRE(hotspot_id != nullptr);
+        *hotspot_id = "missing-hotspot";
+        auto missing_result =
+            noveltea::core::decode_compiled_project(missing, "hotspot-context-missing.json");
+        REQUIRE_FALSE(missing_result);
+        CHECK(has_code(missing_result.error(), "compiled_project.unresolved_nested_reference"));
+
+        auto exit = fixture("interaction-program");
+        hotspot_id = path_member(exit, {"definitions", "interactions", "0", "rules", "0",
+                                        "context", "hotspot", "hotspotId"});
+        REQUIRE(hotspot_id != nullptr);
+        *hotspot_id = "north-door";
+        auto exit_result =
+            noveltea::core::decode_compiled_project(exit, "hotspot-context-exit.json");
+        REQUIRE_FALSE(exit_result);
+        CHECK(has_code(exit_result.error(), "compiled_project.invalid_hotspot_context"));
+
+        auto operand = fixture("interaction-program");
+        auto* operands = path_member(operand,
+                                     {"definitions", "interactions", "0", "rules", "1", "operands"});
+        REQUIRE(operands != nullptr);
+        *operands = nlohmann::json::array({{{"kind", "any-character"}}});
+        auto operand_result =
+            noveltea::core::decode_compiled_project(operand, "hotspot-context-operand.json");
+        REQUIRE_FALSE(operand_result);
+        CHECK(has_code(operand_result.error(), "compiled_project.invalid_hotspot_context"));
+    }
+
     SECTION("unresolved entrypoint")
     {
         auto document = fixture("minimal");
@@ -1015,7 +1142,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     {
         auto document = fixture("interaction-program");
         auto* operands =
-            path_member(document, {"definitions", "interactions", "0", "rules", "0", "operands"});
+            path_member(document, {"definitions", "interactions", "0", "rules", "2", "operands"});
         REQUIRE(operands != nullptr);
         operands->clear();
         auto result = noveltea::core::decode_compiled_project(document, "interaction.json");
