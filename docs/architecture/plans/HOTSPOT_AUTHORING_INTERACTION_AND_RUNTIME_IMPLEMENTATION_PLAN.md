@@ -1891,6 +1891,32 @@ the characterized target set.
 - One drag produces one commit callback.
 - No engine preview or project command dependency exists in the shared component.
 
+#### Phase 3 implementation findings and validation
+
+- The reusable image-stage foundation is implemented under
+  `editor/src/renderer/components/image-stage/`. Pure helpers now cover source pixels, image UVs,
+  stage CSS pixels, Room reference-normalized rectangles, pan/zoom, and the runtime background-fit
+  image/visible-UV transforms for `cover`, `contain`, `stretch`, and `center`.
+- `ImageHotspotEditor`/`HotspotImageStage` owns image, optional alpha-canvas, placed-object, SVG
+  geometry, and SVG handle/tool-feedback layers. Rectangle draw, select, move, resize, delete, pan,
+  zoom, and Escape cancellation use local gesture drafts and emit one owner callback only when a
+  gesture completes. The shared component imports neither project commands nor engine-preview code.
+- The workbench exposes one registered state handle per tab rather than independently composable
+  sub-view handles. Therefore the exact `noveltea.editor.hotspot-view` version-1 object is nested in
+  each owner tab payload. Room tab state advanced from version 2 to version 3, and Interactable gained
+  `noveltea.editor.tab-state.interactable` version 1. Phase 4 must bind its owner wrappers to these
+  existing nested objects rather than introduce a second tab-state registration for the same tab.
+  This is a direct integration constraint; it does not change Phase 4 feature scope.
+- The schema-policy inventory now includes Room tab-state version 3, Interactable tab-state version
+  1, and hotspot-view version 1. Wrong hotspot-view identity/version is discarded; restore clamps
+  zoom and pan and clears stale selection without persisting gesture drafts.
+- Validation completed on 2026-08-05: focused Phase 3/editor integration tests passed (33 tests),
+  `pnpm -C editor run check` passed formatting, lint with zero warnings, TypeScript, and schema-policy
+  checks, and `pnpm -C editor run test` passed 181 files with 1122 tests (1 file and 4 tests skipped).
+  The environment reported Node 22.22.1 while `editor/package.json` requests Node 24.18.0; the complete
+  gates nevertheless passed. Existing unrelated React test `act(...)` warnings remain outside this
+  phase.
+
 ### Phase 4: Room and Interactable hotspot authoring
 
 #### Required work
@@ -2245,7 +2271,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 
 - [x] Phase 1: Characterization and contract fixtures
 - [x] Phase 2: Atomic project, compiled, material, and graph contract cutover
-- [ ] Phase 3: Shared React image stage and hotspot editor
+- [x] Phase 3: Shared React image stage and hotspot editor
 - [ ] Phase 4: Room and Interactable hotspot authoring
 - [ ] Phase 5: React Room composition and placement tools
 - [ ] Phase 6: Hotspot activation, Interaction context, and save-state version 7

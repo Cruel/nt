@@ -1,4 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import {
+  defaultHotspotViewState,
+  parseHotspotViewTabState,
+  restoreHotspotViewState,
+  type HotspotEditorViewStateV1,
+} from '@/components/image-stage/hotspot-view-state';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +22,35 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import {
+  useWorkbenchEditorTabState,
+  useWorkbenchTabStateStore,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
+
+const INTERACTABLE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.interactable';
+type InteractableEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof INTERACTABLE_EDITOR_TAB_STATE_SCHEMA;
+  schemaVersion: 1;
+  payload: { hotspotView: HotspotEditorViewStateV1 };
+};
+
+function parseInteractableEditorTabState(
+  value: WorkbenchTabStatePayload,
+): InteractableEditorTabState['payload'] | null {
+  if (
+    value.schema !== INTERACTABLE_EDITOR_TAB_STATE_SCHEMA ||
+    value.schemaVersion !== 1 ||
+    typeof value.payload !== 'object' ||
+    value.payload === null ||
+    Array.isArray(value.payload)
+  )
+    return null;
+  const hotspotView = parseHotspotViewTabState(
+    (value.payload as Record<string, unknown>).hotspotView,
+  );
+  return hotspotView ? { hotspotView } : null;
+}
 
 const refValue = (ref: { $ref: { id: string } } | null) => ref?.$ref.id ?? '__none__';
 export function InteractableEditor({ tab }: WorkbenchEditorProps) {
@@ -26,6 +61,38 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   const data =
     parseInteractableData(record?.data) ??
     defaultInteractableData(record?.label ?? interactableId ?? 'Interactable');
+  const hotspotIds = useMemo(
+    () =>
+      data.presentation.hotspots.kind === 'sprite-alpha'
+        ? [data.presentation.hotspots.hotspot.id]
+        : data.presentation.hotspots.hotspots.map((item) => item.id),
+    [data.presentation.hotspots],
+  );
+  const [hotspotView, setHotspotView] = useState<HotspotEditorViewStateV1>(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState
+      ? (parseInteractableEditorTabState(savedState)?.hotspotView ?? defaultHotspotViewState())
+      : defaultHotspotViewState();
+  });
+  useWorkbenchEditorTabState<InteractableEditorTabState>(
+    tab.id,
+    useMemo(
+      () => ({
+        schema: INTERACTABLE_EDITOR_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
+        captureTabState: () => ({
+          schema: INTERACTABLE_EDITOR_TAB_STATE_SCHEMA,
+          schemaVersion: 1,
+          payload: { hotspotView },
+        }),
+        restoreTabState: (state) => {
+          const parsed = parseInteractableEditorTabState(state);
+          if (parsed) setHotspotView(restoreHotspotViewState(parsed.hotspotView, hotspotIds));
+        },
+      }),
+      [hotspotIds, hotspotView],
+    ),
+  );
   const placementOptions = useMemo(
     () =>
       project

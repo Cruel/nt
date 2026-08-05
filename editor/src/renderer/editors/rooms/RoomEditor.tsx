@@ -24,6 +24,12 @@ import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
+import {
+  defaultHotspotViewState,
+  parseHotspotViewTabState,
+  restoreHotspotViewState,
+  type HotspotEditorViewStateV1,
+} from '@/components/image-stage/hotspot-view-state';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
@@ -89,8 +95,12 @@ function BackgroundFitOption({ fit }: { fit: BackgroundFitMode }) {
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
 type RoomEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
-  schemaVersion: 2;
-  payload: { scroll?: ScrollViewState; previewCollapsed: boolean };
+  schemaVersion: 3;
+  payload: {
+    scroll?: ScrollViewState;
+    previewCollapsed: boolean;
+    hotspotView: HotspotEditorViewStateV1;
+  };
 };
 
 function parseRoomEditorTabState(
@@ -98,17 +108,19 @@ function parseRoomEditorTabState(
 ): RoomEditorTabState['payload'] | null {
   if (
     value.schema !== ROOM_EDITOR_TAB_STATE_SCHEMA ||
-    value.schemaVersion !== 2 ||
+    value.schemaVersion !== 3 ||
     typeof value.payload !== 'object' ||
     value.payload === null ||
     Array.isArray(value.payload)
   )
     return null;
   const payload = value.payload as Record<string, unknown>;
-  if (typeof payload.previewCollapsed !== 'boolean') return null;
+  const hotspotView = parseHotspotViewTabState(payload.hotspotView);
+  if (typeof payload.previewCollapsed !== 'boolean' || !hotspotView) return null;
   return {
     scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
     previewCollapsed: payload.previewCollapsed,
+    hotspotView,
   };
 }
 const refValue = (ref: { $ref: { id: string } } | null | undefined) => ref?.$ref.id ?? '__none__';
@@ -547,6 +559,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
   });
+  const [hotspotView, setHotspotView] = useState<HotspotEditorViewStateV1>(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState
+      ? (parseRoomEditorTabState(savedState)?.hotspotView ?? defaultHotspotViewState())
+      : defaultHotspotViewState();
+  });
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const document = useProjectStore((state) => state.document);
@@ -577,25 +595,32 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 2,
+        schemaVersion: 3,
         captureTabState: () => ({
           schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 2,
+          schemaVersion: 3,
           payload: {
             scroll: captureScrollViewState(scrollRef.current),
             previewCollapsed,
+            hotspotView,
           },
         }),
         restoreTabState: (state) => {
           const parsed = parseRoomEditorTabState(state);
           if (!parsed) return;
           setPreviewCollapsed(parsed.previewCollapsed);
+          setHotspotView(
+            restoreHotspotViewState(
+              parsed.hotspotView,
+              data.hotspots.map((item) => item.id),
+            ),
+          );
           window.requestAnimationFrame(() =>
             restoreScrollViewState(scrollRef.current, parsed.scroll),
           );
         },
       }),
-      [previewCollapsed],
+      [data.hotspots, hotspotView, previewCollapsed],
     ),
   );
   if (!project || !record || !roomId)

@@ -461,8 +461,14 @@ describe('RoomEditor', () => {
 
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
       schema: 'noveltea.editor.tab-state.room',
-      schemaVersion: 2,
-      payload: { previewCollapsed: true },
+      schemaVersion: 3,
+      payload: {
+        previewCollapsed: true,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          schemaVersion: 1,
+        },
+      },
     });
 
     view.unmount();
