@@ -109,6 +109,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void set_preview_running(bool running);
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);
+    void set_rmlui_raster_snap(RmlUiRasterSnapMode mode);
 
     // Bootstrap owns the only thread-mode selection. It is declared before future borrowers so the
     // executor outlives asset/runtime services.

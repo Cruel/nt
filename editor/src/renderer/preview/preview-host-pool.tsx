@@ -315,11 +315,17 @@ function PreviewHostSlot({
   });
   const showPreviewFpsCounter = usePreferencesStore((state) => state.showPreviewFpsCounter);
   const previewFpsCap = usePreferencesStore((state) => state.previewFpsCap);
+  const previewRmlUiRasterSnap = usePreferencesStore((state) => state.previewRmlUiRasterSnap);
   const previewSettingsRef = useRef({
     showFpsCounter: showPreviewFpsCounter,
     fpsCap: previewFpsCap,
+    rmluiRasterSnap: previewRmlUiRasterSnap,
   });
-  previewSettingsRef.current = { showFpsCounter: showPreviewFpsCounter, fpsCap: previewFpsCap };
+  previewSettingsRef.current = {
+    showFpsCounter: showPreviewFpsCounter,
+    fpsCap: previewFpsCap,
+    rmluiRasterSnap: previewRmlUiRasterSnap,
+  };
   const activateOwningTab = useCallback(() => {
     if (host.lease) onActivateOwnerTab?.(host.lease.groupId, host.lease.ownerTabId);
   }, [host.lease, onActivateOwnerTab]);
@@ -380,7 +386,7 @@ function PreviewHostSlot({
   useEffect(() => {
     if (!readyRef.current) return;
     void controller.setEngineSettings(previewSettingsRef.current).catch(() => undefined);
-  }, [controller, previewFpsCap, showPreviewFpsCounter]);
+  }, [controller, previewFpsCap, previewRmlUiRasterSnap, showPreviewFpsCounter]);
 
   useEffect(() => {
     const leaseId = host.lease?.leaseId;

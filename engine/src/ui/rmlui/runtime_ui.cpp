@@ -758,6 +758,13 @@ void ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(RuntimeUI& 
         runtime_ui.m_state->host->set_base_direct_compatibility(enabled);
 }
 
+void ui::rmlui::RuntimeUiFacadeAccess::set_raster_snapping(RuntimeUI& runtime_ui,
+                                                           bool geometry_enabled, bool text_enabled)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        runtime_ui.m_state->host->set_raster_snapping(geometry_enabled, text_enabled);
+}
+
 void ui::rmlui::RuntimeUiFacadeAccess::set_context_render_observer(
     RuntimeUI& runtime_ui,
     std::function<void(const LifecycleContextKey&, const ResolvedContextMetrics&)> observer)

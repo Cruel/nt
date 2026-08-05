@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -34,6 +35,31 @@ bool has_argument(int argc, char** argv, std::string_view expected)
             return true;
     }
     return false;
+}
+
+std::optional<RmlUiRasterSnapMode> rmlui_raster_snap_mode(int argc, char** argv)
+{
+    for (int index = 1; index < argc; ++index) {
+        if (!argv[index] || std::string_view(argv[index]) != "--rmlui-snap")
+            continue;
+        if (index + 1 >= argc || !argv[index + 1]) {
+            std::fprintf(stderr, "[editor-preview] --rmlui-snap requires a mode\n");
+            return std::nullopt;
+        }
+        const std::string_view value = argv[index + 1];
+        if (value == "none")
+            return RmlUiRasterSnapMode::None;
+        if (value == "geometry")
+            return RmlUiRasterSnapMode::Geometry;
+        if (value == "text")
+            return RmlUiRasterSnapMode::Text;
+        if (value == "all")
+            return RmlUiRasterSnapMode::All;
+        std::fprintf(stderr, "[editor-preview] unknown --rmlui-snap mode: %.*s\n",
+                     static_cast<int>(value.size()), value.data());
+        return std::nullopt;
+    }
+    return RmlUiRasterSnapMode::All;
 }
 
 } // namespace
@@ -71,6 +97,10 @@ bool App::initialize(int argc, char** argv)
     tooling_config.enable_debug_ui = false;
     tooling_config.preview_widget = true;
     tooling_config.keep_runtime_running = true;
+    const auto raster_snap_mode = rmlui_raster_snap_mode(argc, argv);
+    if (!raster_snap_mode)
+        return false;
+    tooling_config.rmlui_raster_snap = *raster_snap_mode;
 
     if (!EngineTooling::initialize(m_engine, platform_config, engine_config, tooling_config)) {
         std::fprintf(stderr, "[editor-preview] engine initialization failed\n");
@@ -160,6 +190,20 @@ EMSCRIPTEN_KEEPALIVE void noveltea_engine_set_fps_cap(int frames_per_second)
     if (auto* engine = preview_engine())
         noveltea::EngineTooling::set_fps_cap(
             *engine, frames_per_second > 0 ? static_cast<std::uint32_t>(frames_per_second) : 0u);
+}
+
+EMSCRIPTEN_KEEPALIVE void noveltea_engine_set_rmlui_raster_snapping(int geometry_enabled,
+                                                                    int text_enabled)
+{
+    auto* engine = preview_engine();
+    if (!engine)
+        return;
+    const auto mode = geometry_enabled != 0
+                          ? (text_enabled != 0 ? noveltea::RmlUiRasterSnapMode::All
+                                               : noveltea::RmlUiRasterSnapMode::Geometry)
+                          : (text_enabled != 0 ? noveltea::RmlUiRasterSnapMode::Text
+                                               : noveltea::RmlUiRasterSnapMode::None);
+    noveltea::EngineTooling::set_rmlui_raster_snap(*engine, mode);
 }
 
 EMSCRIPTEN_KEEPALIVE int noveltea_preview_load_rml_document(const char* rml)

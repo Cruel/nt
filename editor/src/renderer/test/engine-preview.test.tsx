@@ -775,14 +775,17 @@ describe('EnginePreview', () => {
     expect(screen.queryByLabelText('Cap')).not.toBeInTheDocument();
   });
 
-  it('sends engine FPS settings from editor preferences', async () => {
-    usePreferencesStore.setState({ showPreviewFpsCounter: true });
+  it('sends engine rendering settings from editor preferences', async () => {
+    usePreferencesStore.setState({
+      showPreviewFpsCounter: true,
+      previewRmlUiRasterSnap: 'text',
+    });
     const { editorPort } = await renderConnectedPreview();
     expect(editorPort.sent).toContainEqual({
       version: 1,
       type: 'set-engine-settings',
       requestId: expect.any(String),
-      settings: { showFpsCounter: true, fpsCap: 0 },
+      settings: { showFpsCounter: true, fpsCap: 0, rmluiRasterSnap: 'text' },
     });
   });
 

@@ -63,6 +63,11 @@
     const editorCompiledProjectLogicalPath = 'project:/editor-compiled-project.json';
     let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
     let fpsCap = Math.max(0, Math.min(1000, Number.parseInt(params.get('fpsCap') || '0', 10) || 0));
+    const rmluiRasterSnapModes = new Set(['none', 'geometry', 'text', 'all']);
+    const requestedRmluiRasterSnap = (params.get('rmluiSnap') || 'all').toLowerCase();
+    let rmluiRasterSnap = rmluiRasterSnapModes.has(requestedRmluiRasterSnap)
+      ? requestedRmluiRasterSnap
+      : 'all';
     const parsedDiagnosticMaxDpr = Number.parseFloat(params.get('maxDpr') || '');
     const diagnosticMaxDpr = Number.isFinite(parsedDiagnosticMaxDpr) && parsedDiagnosticMaxDpr > 0
       ? parsedDiagnosticMaxDpr
@@ -259,6 +264,13 @@ thead, tbody, tfoot {
       }
     }
 
+    function applyRmlUiRasterSnapping() {
+      if (typeof Module === 'undefined' || typeof Module._noveltea_engine_set_rmlui_raster_snapping !== 'function') return;
+      const geometryEnabled = rmluiRasterSnap === 'geometry' || rmluiRasterSnap === 'all';
+      const textEnabled = rmluiRasterSnap === 'text' || rmluiRasterSnap === 'all';
+      Module._noveltea_engine_set_rmlui_raster_snapping(geometryEnabled ? 1 : 0, textEnabled ? 1 : 0);
+    }
+
     function applyPreviewHostActivity() {
       if (typeof Module !== 'undefined' && typeof Module._noveltea_preview_set_host_active === 'function') {
         Module._noveltea_preview_set_host_active(previewActivityActive ? 1 : 0);
@@ -272,12 +284,16 @@ thead, tbody, tfoot {
       if (typeof settings.fpsCap === 'number' && Number.isFinite(settings.fpsCap)) {
         fpsCap = Math.max(0, Math.min(1000, Math.trunc(settings.fpsCap)));
       }
+      if (typeof settings.rmluiRasterSnap === 'string' && rmluiRasterSnapModes.has(settings.rmluiRasterSnap)) {
+        rmluiRasterSnap = settings.rmluiRasterSnap;
+      }
       if (!showFpsCounter) setFpsCounterText(0, 0, fpsCap);
       if (typeof Module !== 'undefined') {
         if (typeof Module._noveltea_engine_set_show_fps_counter === 'function') {
           Module._noveltea_engine_set_show_fps_counter(showFpsCounter ? 1 : 0);
         }
         applyPreviewFramePacing();
+        applyRmlUiRasterSnapping();
       }
     }
 
@@ -1637,9 +1653,13 @@ thead, tbody, tfoot {
       const showFps = (params.get('showFps') || '').toLowerCase();
       const audio = (params.get('audio') || '').toLowerCase();
       const fpsCap = Number.parseInt(params.get('fpsCap') || '0', 10) || 0;
+      const rmluiSnap = (params.get('rmluiSnap') || 'all').toLowerCase();
       if (showFps === '1' || showFps === 'true' || showFps === 'yes') args.push('--show-fps');
       if (audio === '0' || audio === 'false' || audio === 'no') args.push('--no-audio');
       if (fpsCap > 0) args.push('--fps-cap', String(Math.min(1000, fpsCap)));
+      if (new Set(['none', 'geometry', 'text', 'all']).has(rmluiSnap)) {
+        args.push('--rmlui-snap', rmluiSnap);
+      }
       return args;
     })(),
     onRuntimeInitialized: function() {

@@ -84,6 +84,7 @@ export function EnginePreview({
   const replayModes = usePreviewManagerStore((s) => s.replay.modeBySessionId);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const fpsCap = usePreferencesStore((s) => s.previewFpsCap);
+  const rmluiRasterSnap = usePreferencesStore((s) => s.previewRmlUiRasterSnap);
   const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
   const projectDocument = useProjectStore((s) => s.document);
   const projectSettings = useMemo(
@@ -231,10 +232,19 @@ export function EnginePreview({
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
-    void setEngineSettings({ showFpsCounter: showPreviewFpsCounter, fpsCap }).catch(
-      (error: Error) => recordTransportError(error.message),
-    );
-  }, [connectionState, fpsCap, recordTransportError, setEngineSettings, showPreviewFpsCounter]);
+    void setEngineSettings({
+      showFpsCounter: showPreviewFpsCounter,
+      fpsCap,
+      rmluiRasterSnap,
+    }).catch((error: Error) => recordTransportError(error.message));
+  }, [
+    connectionState,
+    fpsCap,
+    recordTransportError,
+    rmluiRasterSnap,
+    setEngineSettings,
+    showPreviewFpsCounter,
+  ]);
 
   useEffect(() => {
     if (connectionState !== 'ready') return;

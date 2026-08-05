@@ -3,6 +3,7 @@
 #include "sandbox_demo_harness.hpp"
 
 #include <noveltea/engine.hpp>
+#include <noveltea/engine_tooling.hpp>
 
 #include <filesystem>
 #include <optional>
@@ -45,6 +46,7 @@ private:
         bool no_imgui = false;
         bool perf_logging = false;
         bool rmlui_base_direct_compat = false;
+        RmlUiRasterSnapMode rmlui_raster_snap = RmlUiRasterSnapMode::All;
         bool no_audio = false;
         bool show_fps_counter = false;
         std::vector<std::string> audio_sfx_paths;

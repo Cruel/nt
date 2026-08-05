@@ -275,7 +275,7 @@ describe('preview protocol validation', () => {
         version: 1,
         type: 'set-engine-settings',
         requestId: 'r4',
-        settings: { showFpsCounter: true, fpsCap: 60 },
+        settings: { showFpsCounter: true, fpsCap: 60, rmluiRasterSnap: 'text' },
       }),
     ).toBe(true);
     expect(
@@ -284,6 +284,14 @@ describe('preview protocol validation', () => {
         type: 'set-engine-settings',
         requestId: 'r5',
         settings: { fpsCap: -1 },
+      }),
+    ).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'set-engine-settings',
+        requestId: 'r5b',
+        settings: { rmluiRasterSnap: 'pixels' },
       }),
     ).toBe(false);
     expect(

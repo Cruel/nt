@@ -1430,6 +1430,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         ui::rmlui::RuntimeUiFacadeAccess::bind_game_started_handler(m_runtime_ui, {});
         ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(
             m_runtime_ui, tooling_config.rmlui_base_direct_compat);
+        set_rmlui_raster_snap(tooling_config.rmlui_raster_snap);
         if (m_render_perf_logging) {
             m_runtime_ui.enable_render_perf_logging(true);
             SDL_Log("[engine] renderer perf logging enabled");
@@ -2363,6 +2364,17 @@ void Engine::Impl::set_fps_cap(uint32_t frames_per_second)
     m_fps_sample_start_counter = 0;
 }
 
+void Engine::Impl::set_rmlui_raster_snap(RmlUiRasterSnapMode mode)
+{
+    const bool geometry_enabled =
+        mode == RmlUiRasterSnapMode::Geometry || mode == RmlUiRasterSnapMode::All;
+    const bool text_enabled = mode == RmlUiRasterSnapMode::Text || mode == RmlUiRasterSnapMode::All;
+    ui::rmlui::RuntimeUiFacadeAccess::set_raster_snapping(m_runtime_ui, geometry_enabled,
+                                                          text_enabled);
+    SDL_Log("[engine] RmlUi raster snapping geometry=%s text=%s",
+            geometry_enabled ? "enabled" : "disabled", text_enabled ? "enabled" : "disabled");
+}
+
 Engine::Engine() : m_impl(std::make_unique<Impl>()) {}
 
 Engine::~Engine() { shutdown(); }
@@ -2423,6 +2435,11 @@ void EngineTooling::set_show_fps_counter(Engine& engine, bool show)
 void EngineTooling::set_fps_cap(Engine& engine, uint32_t frames_per_second)
 {
     engine.m_impl->set_fps_cap(frames_per_second);
+}
+
+void EngineTooling::set_rmlui_raster_snap(Engine& engine, RmlUiRasterSnapMode mode)
+{
+    engine.m_impl->set_rmlui_raster_snap(mode);
 }
 
 bool EngineTooling::set_runtime_ui_scale(Engine& engine, double scale)

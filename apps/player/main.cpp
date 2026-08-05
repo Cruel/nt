@@ -78,6 +78,19 @@ resolved_asset_memory_policy(const noveltea::core::PlayerBootstrapConfig& config
     };
 }
 
+std::optional<noveltea::RmlUiRasterSnapMode> rmlui_raster_snap_mode(std::string_view value)
+{
+    if (value == "none")
+        return noveltea::RmlUiRasterSnapMode::None;
+    if (value == "geometry")
+        return noveltea::RmlUiRasterSnapMode::Geometry;
+    if (value == "text")
+        return noveltea::RmlUiRasterSnapMode::Text;
+    if (value == "all")
+        return noveltea::RmlUiRasterSnapMode::All;
+    return std::nullopt;
+}
+
 #if defined(__EMSCRIPTEN__)
 std::shared_ptr<noveltea::assets::AssetBytes> g_web_package_staging;
 std::shared_ptr<const noveltea::assets::AssetBytes> g_web_package_bytes;
@@ -215,6 +228,17 @@ noveltea::EngineToolingConfig tooling_config(int argc, char** argv)
             config.show_fps_counter = true;
         } else if (argument == "--fps-cap" && i + 1 < argc) {
             config.fps_cap = static_cast<std::uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+        } else if (argument == "--rmlui-snap") {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[player] --rmlui-snap requires a mode\n");
+                continue;
+            }
+            const std::string_view value = argv[++i];
+            if (const auto mode = rmlui_raster_snap_mode(value))
+                config.rmlui_raster_snap = *mode;
+            else
+                std::fprintf(stderr, "[player] unknown --rmlui-snap mode: %.*s\n",
+                             static_cast<int>(value.size()), value.data());
         }
     }
     return config;

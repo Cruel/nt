@@ -18,6 +18,7 @@ describe('preferences-store', () => {
     expect(state.restoreLastProjectOnStart).toBe(true);
     expect(state.showPreviewFpsCounter).toBe(false);
     expect(state.previewFpsCap).toBe(0);
+    expect(state.previewRmlUiRasterSnap).toBe('all');
     expect(state.lastProjectPath).toBe(null);
     expect(state.defaultProjectDirectory).toBe(null);
     expect(state.exportPreferences.defaultOutputDirectory).toBe('');
@@ -70,6 +71,11 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().previewFpsCap).toBe(0);
   });
 
+  it('stores the editor-wide RmlUi raster snapping mode', () => {
+    usePreferencesStore.getState().setPreviewRmlUiRasterSnap('text');
+    expect(usePreferencesStore.getState().previewRmlUiRasterSnap).toBe('text');
+  });
+
   it('updates the code editor theme', () => {
     usePreferencesStore.getState().setCodeEditorTheme('monokai');
     expect(usePreferencesStore.getState().codeEditorTheme).toBe('monokai');
@@ -106,10 +112,12 @@ describe('preferences-store', () => {
     // Zustand persist middleware writes to localStorage on state change
     usePreferencesStore.getState().setTheme('dark');
     usePreferencesStore.getState().setPreviewFpsCap(30);
+    usePreferencesStore.getState().setPreviewRmlUiRasterSnap('geometry');
     const stored = localStorage.getItem('noveltea-preferences');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored!);
     expect(parsed.state.theme).toBe('dark');
     expect(parsed.state.previewFpsCap).toBe(30);
+    expect(parsed.state.previewRmlUiRasterSnap).toBe('geometry');
   });
 });

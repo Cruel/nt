@@ -119,6 +119,7 @@ public:
 
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);
+    void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_context_render_observer(ContextRenderObserver observer);
     void set_context_clock(ContextKey key);
 
@@ -174,6 +175,8 @@ private:
     bool m_headless_render = false;
     bool m_perf_logging = false;
     bool m_base_direct_compatibility = false;
+    bool m_geometry_raster_snapping = true;
+    bool m_text_raster_snapping = true;
     bool m_world_transition_active = false;
     bool m_world_transition_source_enabled = false;
     bool m_world_transition_target_enabled = false;

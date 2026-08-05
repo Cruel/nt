@@ -285,6 +285,12 @@ Preview to editor:
 
 Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 
+`set-engine-settings` applies editor-wide preview diagnostics and rendering preferences to an
+already-running host. Its optional settings are `showFpsCounter`, `fpsCap`, and
+`rmluiRasterSnap`. Raster snapping accepts `all`, `geometry`, `text`, or `none`; changing it updates
+the existing RmlUi render interfaces without rebuilding or reloading the preview iframe. These are
+editor preferences and do not modify project data or exported player defaults.
+
 ### Asset profiler transport
 
 Editor preview builds compiled with `NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=1` advertise

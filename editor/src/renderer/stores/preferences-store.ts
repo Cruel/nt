@@ -13,6 +13,10 @@ import {
   normalizeEditorPreviewLayoutPreference,
   type EditorPreviewLayoutPreference,
 } from '@/components/editor-preview-layout';
+import {
+  normalizeRmlUiRasterSnapMode,
+  type RmlUiRasterSnapMode,
+} from '../../shared/preview-protocol';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -104,6 +108,7 @@ export interface ResettableEditorPreferences {
   restoreLastProjectOnStart: boolean;
   showPreviewFpsCounter: boolean;
   previewFpsCap: number;
+  previewRmlUiRasterSnap: RmlUiRasterSnapMode;
   defaultProjectDirectory: string | null;
   comfyUiConfig: ComfyUiConfig;
   previewDisplay: PreviewDisplayPreference;
@@ -121,6 +126,7 @@ interface PreferencesState extends ResettableEditorPreferences {
   setRestoreLastProjectOnStart: (restore: boolean) => void;
   setShowPreviewFpsCounter: (show: boolean) => void;
   setPreviewFpsCap: (cap: number) => void;
+  setPreviewRmlUiRasterSnap: (mode: RmlUiRasterSnapMode) => void;
   setLastProjectPath: (projectPath: string | null) => void;
   setDefaultProjectDirectory: (projectDirectory: string | null) => void;
   setComfyUiConfig: (patch: Partial<ComfyUiConfig>) => void;
@@ -143,6 +149,7 @@ export function createDefaultEditorPreferences(): ResettableEditorPreferences {
     restoreLastProjectOnStart: true,
     showPreviewFpsCounter: false,
     previewFpsCap: 0,
+    previewRmlUiRasterSnap: 'all',
     defaultProjectDirectory: null,
     comfyUiConfig: defaultComfyUiConfig(),
     previewDisplay: { ...DEFAULT_PREVIEW_DISPLAY_PREFERENCE },
@@ -162,6 +169,7 @@ export function selectEditorPreferencesAreDefaults(state: ResettableEditorPrefer
     state.restoreLastProjectOnStart === defaults.restoreLastProjectOnStart &&
     state.showPreviewFpsCounter === defaults.showPreviewFpsCounter &&
     state.previewFpsCap === defaults.previewFpsCap &&
+    state.previewRmlUiRasterSnap === defaults.previewRmlUiRasterSnap &&
     state.defaultProjectDirectory === defaults.defaultProjectDirectory &&
     state.editorPreviewLayout === defaults.editorPreviewLayout &&
     JSON.stringify(state.comfyUiConfig) === JSON.stringify(defaults.comfyUiConfig) &&
@@ -185,6 +193,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       setShowPreviewFpsCounter: (show) => set({ showPreviewFpsCounter: show }),
       setPreviewFpsCap: (previewFpsCap) =>
         set({ previewFpsCap: normalizePreviewFpsCap(previewFpsCap) }),
+      setPreviewRmlUiRasterSnap: (previewRmlUiRasterSnap) =>
+        set({ previewRmlUiRasterSnap: normalizeRmlUiRasterSnapMode(previewRmlUiRasterSnap) }),
       setLastProjectPath: (lastProjectPath) => set({ lastProjectPath }),
       setDefaultProjectDirectory: (defaultProjectDirectory) => set({ defaultProjectDirectory }),
       setComfyUiConfig: (patch) =>
@@ -224,6 +234,7 @@ export const usePreferencesStore = create<PreferencesState>()(
         return {
           ...next,
           previewFpsCap: normalizePreviewFpsCap(next.previewFpsCap),
+          previewRmlUiRasterSnap: normalizeRmlUiRasterSnapMode(next.previewRmlUiRasterSnap),
           comfyUiConfig: normalizeComfyUiConfig(next.comfyUiConfig),
           previewDisplay: normalizePreviewDisplayPreference(next.previewDisplay),
           editorPreviewLayout: normalizeEditorPreviewLayoutPreference(next.editorPreviewLayout),

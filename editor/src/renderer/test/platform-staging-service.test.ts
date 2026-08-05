@@ -384,6 +384,8 @@ describe('platform staging service', () => {
     );
     expect(index).toContain("window.addEventListener('pageshow',measureCanvas)");
     expect(index).toContain("document.addEventListener('visibilitychange'");
+    expect(index).toContain("const requestedRmluiSnap=(params.get('rmluiSnap')||'all')");
+    expect(index).toContain("const args=['--rmlui-snap',rmluiSnap]");
 
     const resolveSurface = loadWebPlayerSurfaceMetricsResolver(index);
     const oneX = resolveSurface(600, 400, 1);

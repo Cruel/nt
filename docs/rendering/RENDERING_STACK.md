@@ -41,6 +41,21 @@ NovelTea consumes `rmlui-bgfx` as an external package through `rmlui_bgfx::rmlui
   overlay;
 - runtime view-range assignment.
 
+The integration defaults to snapping every RmlUi submission translation after conversion to the UI
+raster. Tooling can select `none`, `geometry`, `text`, or `all` with `--rmlui-snap`; Web shells expose
+the same comparison through `?rmluiSnap=<mode>`. Editor Settings exposes the same four modes as an
+editor-wide preview preference and applies changes live to existing preview hosts. RmlUi's
+render-interface callback does not carry a text semantic, so the adapter identifies ordinary
+font-atlas submissions by callback-generated textures. That includes normal RmlUi text but can also
+include uncommon generated SVG, Lottie, or similar callback textures.
+
+The external renderer's default 2x MSAA layer applies to RmlUi text draws because glyphs are submitted
+as textured quads into the same multisampled layer. The glyph silhouette antialiasing itself is baked
+into the font-atlas alpha texture; MSAA mainly affects quad, clipping, and transformed polygon
+coverage, not the internal glyph contour. Small-font quality therefore depends primarily on the font,
+FreeType rasterization and hinting, font raster scale, and texture sampling rather than the MSAA sample
+count.
+
 RmlUi renderer internals, effects probes, renderer refactor plans, and optimization notes belong in the `rmlui-bgfx` repository.
 
 ## Engine 2D Rendering

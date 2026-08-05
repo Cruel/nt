@@ -62,6 +62,14 @@
     "layoutMode": "Layout da pré-visualização do editor",
     "layoutModeDescription": "O modo automático coloca projetos em paisagem acima do editor e projetos em retrato ao lado dele.",
     "layoutVertical": "Pré-visualização acima",
+    "rmluiRasterSnap": "Alinhamento de pixels do RmlUi",
+    "rmluiRasterSnapDescription": "Controla o alinhamento da origem da geometria e do texto do RmlUi em todas as pré-visualizações do editor.",
+    "rmluiRasterSnapOptions": {
+      "all": "Tudo",
+      "geometry": "Somente geometria",
+      "none": "Desativado",
+      "text": "Somente texto"
+    },
     "showFpsCounter": "Mostrar contador de FPS",
     "showFpsCounterDescription": "Exibe a sobreposição de taxa de quadros do motor nos widgets de pré-visualização do editor. A pré-visualização acompanha o ritmo da tela, a menos que um limite de FPS do motor seja menor.",
     "title": "Pré-visualização"

@@ -166,6 +166,7 @@ Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedCont
             return nullptr;
         bgfx->set_perf_logging_enabled(m_perf_logging);
         bgfx->set_base_direct_compatibility(m_base_direct_compatibility);
+        bgfx->set_raster_snapping(m_geometry_raster_snapping, m_text_raster_snapping);
         renderer.bgfx = bgfx.get();
         renderer.owned = std::move(bgfx);
     }
@@ -291,6 +292,15 @@ void RmlUiHost::set_base_direct_compatibility(bool enabled)
     for (auto& renderer : m_plane_renderers)
         if (renderer.bgfx)
             renderer.bgfx->set_base_direct_compatibility(enabled);
+}
+
+void RmlUiHost::set_raster_snapping(bool geometry_enabled, bool text_enabled)
+{
+    m_geometry_raster_snapping = geometry_enabled;
+    m_text_raster_snapping = text_enabled;
+    for (auto& renderer : m_plane_renderers)
+        if (renderer.bgfx)
+            renderer.bgfx->set_raster_snapping(geometry_enabled, text_enabled);
 }
 
 void RmlUiHost::set_context_render_observer(ContextRenderObserver observer)

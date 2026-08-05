@@ -217,6 +217,10 @@
       if (compat === '1' || compat === 'true' || compat === 'yes') {
         args.push('--rmlui-base-direct-compat');
       }
+      const rmluiSnap = (params.get('rmluiSnap') || 'all').toLowerCase();
+      if (new Set(['none', 'geometry', 'text', 'all']).has(rmluiSnap)) {
+        args.push('--rmlui-snap', rmluiSnap);
+      }
       return args;
     })(),
     onRuntimeInitialized: function() {

@@ -60,6 +60,19 @@ bool parse_resize_sequence(const char* value, std::vector<HostSurfaceMetrics>& s
     }
     return !sequence.empty();
 }
+
+std::optional<RmlUiRasterSnapMode> parse_rmlui_raster_snap_mode(std::string_view value)
+{
+    if (value == "none")
+        return RmlUiRasterSnapMode::None;
+    if (value == "geometry")
+        return RmlUiRasterSnapMode::Geometry;
+    if (value == "text")
+        return RmlUiRasterSnapMode::Text;
+    if (value == "all")
+        return RmlUiRasterSnapMode::All;
+    return std::nullopt;
+}
 } // namespace
 
 App::~App()
@@ -226,6 +239,15 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.perf_logging = true;
         } else if (std::strcmp(arg, "--rmlui-base-direct-compat") == 0) {
             options.rmlui_base_direct_compat = true;
+        } else if (std::strcmp(arg, "--rmlui-snap") == 0) {
+            const char* value = require_value(arg);
+            const auto mode = value ? parse_rmlui_raster_snap_mode(value) : std::nullopt;
+            if (!mode) {
+                std::fprintf(stderr,
+                             "[app] --rmlui-snap must be one of none, geometry, text, or all\n");
+                return false;
+            }
+            options.rmlui_raster_snap = *mode;
         } else if (std::strcmp(arg, "--no-audio") == 0) {
             options.no_audio = true;
         } else if (std::strcmp(arg, "--audio-sfx") == 0) {
@@ -288,6 +310,7 @@ bool App::initialize(int argc, char* argv[])
     tooling_config.enable_debug_ui = !options.no_imgui;
     tooling_config.render_perf_logging = options.perf_logging;
     tooling_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
+    tooling_config.rmlui_raster_snap = options.rmlui_raster_snap;
     tooling_config.show_fps_counter = options.show_fps_counter;
     if ((options.demo_mode == sandbox::DemoMode::RmlUi ||
          options.demo_mode == sandbox::DemoMode::All) &&

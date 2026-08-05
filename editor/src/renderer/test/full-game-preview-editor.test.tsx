@@ -583,7 +583,10 @@ describe('FullGamePreviewEditor', () => {
 
   it('sends engine FPS settings from the full-game preview cap input', async () => {
     const user = userEvent.setup();
-    usePreferencesStore.setState({ showPreviewFpsCounter: true });
+    usePreferencesStore.setState({
+      showPreviewFpsCounter: true,
+      previewRmlUiRasterSnap: 'geometry',
+    });
     const { editorPort } = await renderConnectedPreview();
     const capInput = screen.getByLabelText('Cap') as HTMLInputElement;
     await user.clear(capInput);
@@ -593,7 +596,7 @@ describe('FullGamePreviewEditor', () => {
         version: 1,
         type: 'set-engine-settings',
         requestId: expect.any(String),
-        settings: { showFpsCounter: true, fpsCap: 30 },
+        settings: { showFpsCounter: true, fpsCap: 30, rmluiRasterSnap: 'geometry' },
       }),
     );
   });

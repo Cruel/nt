@@ -622,6 +622,25 @@ void BgfxRenderInterface::set_base_direct_compatibility(bool enabled)
 {
     m_core->set_base_direct_compatibility(enabled);
 }
+
+void BgfxRenderInterface::set_raster_snapping(bool geometry_enabled, bool text_enabled)
+{
+    m_geometry_raster_snapping = geometry_enabled;
+    m_text_raster_snapping = text_enabled;
+}
+
+Rml::Vector2f BgfxRenderInterface::submission_translation(Rml::Vector2f translation,
+                                                          Rml::TextureHandle texture) const noexcept
+{
+    // RmlUi does not expose draw semantics here. Callback-generated textures are the stable signal
+    // available for font-atlas submissions; they can also include uncommon SVG/Lottie callbacks.
+    const bool text_submission =
+        texture != 0 && m_generated_textures.find(texture) != m_generated_textures.end();
+    const bool snapping_enabled =
+        text_submission ? m_text_raster_snapping : m_geometry_raster_snapping;
+    return snapping_enabled ? snap_rmlui_submission_translation(translation, m_context_metrics)
+                            : translation;
+}
 void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebuffer,
                                                  const PresentationMetrics& presentation,
                                                  bool local_viewport)
@@ -648,8 +667,7 @@ BgfxRenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
 void BgfxRenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
                                          Rml::Vector2f translation, Rml::TextureHandle texture)
 {
-    m_core->RenderGeometry(
-        geometry, snap_rmlui_submission_translation(translation, m_context_metrics), texture);
+    m_core->RenderGeometry(geometry, submission_translation(translation, texture), texture);
 }
 
 void BgfxRenderInterface::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
@@ -666,11 +684,15 @@ Rml::TextureHandle BgfxRenderInterface::LoadTexture(Rml::Vector2i& texture_dimen
 Rml::TextureHandle BgfxRenderInterface::GenerateTexture(Rml::Span<const Rml::byte> source,
                                                         Rml::Vector2i source_dimensions)
 {
-    return m_core->GenerateTexture(source, source_dimensions);
+    const Rml::TextureHandle texture = m_core->GenerateTexture(source, source_dimensions);
+    if (texture != 0)
+        m_generated_textures.insert(texture);
+    return texture;
 }
 
 void BgfxRenderInterface::ReleaseTexture(Rml::TextureHandle texture)
 {
+    m_generated_textures.erase(texture);
     m_core->ReleaseTexture(texture);
 }
 
@@ -689,8 +711,11 @@ void BgfxRenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
                                            Rml::CompiledGeometryHandle geometry,
                                            Rml::Vector2f translation)
 {
-    m_core->RenderToClipMask(operation, geometry,
-                             snap_rmlui_submission_translation(translation, m_context_metrics));
+    const Rml::Vector2f submitted_translation =
+        m_geometry_raster_snapping
+            ? snap_rmlui_submission_translation(translation, m_context_metrics)
+            : translation;
+    m_core->RenderToClipMask(operation, geometry, submitted_translation);
 }
 
 Rml::LayerHandle BgfxRenderInterface::PushLayer() { return m_core->PushLayer(); }
@@ -729,9 +754,7 @@ void BgfxRenderInterface::RenderShader(Rml::CompiledShaderHandle shader,
                                        Rml::CompiledGeometryHandle geometry,
                                        Rml::Vector2f translation, Rml::TextureHandle texture)
 {
-    m_core->RenderShader(shader, geometry,
-                         snap_rmlui_submission_translation(translation, m_context_metrics),
-                         texture);
+    m_core->RenderShader(shader, geometry, submission_translation(translation, texture), texture);
 }
 void BgfxRenderInterface::ReleaseShader(Rml::CompiledShaderHandle shader)
 {

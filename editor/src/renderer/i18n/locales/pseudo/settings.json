@@ -62,6 +62,14 @@
     "layoutMode": "⟦Editor preview layout⟧",
     "layoutModeDescription": "⟦Automatic places landscape projects above the editor and portrait projects beside it.⟧",
     "layoutVertical": "⟦Preview above⟧",
+    "rmluiRasterSnap": "⟦RmlUi pixel snapping⟧",
+    "rmluiRasterSnapDescription": "⟦Controls origin snapping for RmlUi geometry and text in all editor preview widgets.⟧",
+    "rmluiRasterSnapOptions": {
+      "all": "⟦All⟧",
+      "geometry": "⟦Geometry only⟧",
+      "none": "⟦Disabled⟧",
+      "text": "⟦Text only⟧"
+    },
     "showFpsCounter": "⟦Show FPS counter⟧",
     "showFpsCounterDescription": "⟦Displays the engine frame rate overlay in editor preview widgets. Preview is display-paced unless an engine FPS cap is lower.⟧",
     "title": "⟦Preview⟧"

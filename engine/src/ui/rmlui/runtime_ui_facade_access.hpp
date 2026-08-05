@@ -14,6 +14,8 @@ namespace noveltea::ui::rmlui {
 class RuntimeUiFacadeAccess final {
 public:
     static void set_base_direct_compatibility(RuntimeUI& runtime_ui, bool enabled);
+    static void set_raster_snapping(RuntimeUI& runtime_ui, bool geometry_enabled,
+                                    bool text_enabled);
     static void set_context_render_observer(
         RuntimeUI& runtime_ui,
         std::function<void(const LifecycleContextKey&, const ResolvedContextMetrics&)> observer);

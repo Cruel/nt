@@ -95,9 +95,19 @@ export interface PreviewStateSnapshot {
   detail?: Record<string, unknown>;
 }
 
+export const RMLUI_RASTER_SNAP_MODES = ['none', 'geometry', 'text', 'all'] as const;
+export type RmlUiRasterSnapMode = (typeof RMLUI_RASTER_SNAP_MODES)[number];
+
+export function normalizeRmlUiRasterSnapMode(value: unknown): RmlUiRasterSnapMode {
+  return RMLUI_RASTER_SNAP_MODES.includes(value as RmlUiRasterSnapMode)
+    ? (value as RmlUiRasterSnapMode)
+    : 'all';
+}
+
 export interface EnginePreviewSettings {
   showFpsCounter?: boolean;
   fpsCap?: number;
+  rmluiRasterSnap?: RmlUiRasterSnapMode;
 }
 
 export type { PreviewDisplayProfile } from './preview-display';
@@ -569,7 +579,9 @@ function isEnginePreviewSettings(value: unknown): value is EnginePreviewSettings
       (typeof value.fpsCap === 'number' &&
         Number.isFinite(value.fpsCap) &&
         value.fpsCap >= 0 &&
-        value.fpsCap <= 1000))
+        value.fpsCap <= 1000)) &&
+    (value.rmluiRasterSnap === undefined ||
+      RMLUI_RASTER_SNAP_MODES.includes(value.rmluiRasterSnap as RmlUiRasterSnapMode))
   );
 }
 

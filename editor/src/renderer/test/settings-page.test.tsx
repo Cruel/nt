@@ -222,6 +222,18 @@ describe('SettingsPage code editor theme selector', () => {
     expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);
   });
 
+  it('changes the preview RmlUi pixel snapping preference', async () => {
+    await renderSettingsPage();
+    selectSettingsCategory('Preview');
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'RmlUi pixel snapping' }));
+    const option = screen.getByRole('option', { name: 'Text only' });
+    fireEvent.pointerDown(option, { pointerType: 'mouse', button: 0 });
+    fireEvent.click(option);
+
+    expect(usePreferencesStore.getState().previewRmlUiRasterSnap).toBe('text');
+  });
+
   it('toggles developer mode', async () => {
     await renderSettingsPage();
     selectSettingsCategory('Workspace');

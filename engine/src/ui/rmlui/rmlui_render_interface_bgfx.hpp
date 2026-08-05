@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <optional>
+#include <unordered_set>
 
 namespace noveltea {
 struct ShaderMaterialProject;
@@ -47,6 +48,7 @@ public:
     void end_frame();
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);
+    void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_output_framebuffer(bgfx::FrameBufferHandle framebuffer,
                                 const PresentationMetrics& presentation, bool local_viewport);
 
@@ -86,11 +88,17 @@ public:
     void ReleaseShader(Rml::CompiledShaderHandle shader) override;
 
 private:
+    [[nodiscard]] Rml::Vector2f submission_translation(Rml::Vector2f translation,
+                                                       Rml::TextureHandle texture) const noexcept;
+
     struct Adapter;
     std::unique_ptr<Adapter> m_adapter;
     std::unique_ptr<rmlui_bgfx::RenderInterface> m_core;
     ResolvedContextMetrics m_context_metrics{};
     rmlui_bgfx::FramebufferViewport m_viewport{};
+    std::unordered_set<Rml::TextureHandle> m_generated_textures;
+    bool m_geometry_raster_snapping = true;
+    bool m_text_raster_snapping = true;
 };
 
 } // namespace noveltea::ui::rmlui

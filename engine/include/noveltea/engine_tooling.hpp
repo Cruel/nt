@@ -12,6 +12,13 @@ namespace noveltea {
 class RuntimePreviewController;
 class Renderer;
 
+enum class RmlUiRasterSnapMode : std::uint8_t {
+    None,
+    Geometry,
+    Text,
+    All,
+};
+
 namespace assets {
 class AssetManager;
 }
@@ -26,6 +33,7 @@ struct EngineToolingConfig {
     bool preview_widget = false;
     bool render_perf_logging = false;
     bool rmlui_base_direct_compat = false;
+    RmlUiRasterSnapMode rmlui_raster_snap = RmlUiRasterSnapMode::All;
     bool show_fps_counter = false;
 };
 
@@ -38,6 +46,7 @@ public:
     static void set_preview_running(Engine& engine, bool running);
     static void set_show_fps_counter(Engine& engine, bool show);
     static void set_fps_cap(Engine& engine, uint32_t frames_per_second);
+    static void set_rmlui_raster_snap(Engine& engine, RmlUiRasterSnapMode mode);
     [[nodiscard]] static bool set_runtime_ui_scale(Engine& engine, double scale);
     [[nodiscard]] static bool set_postprocess_material(Engine& engine, std::string material_id);
     [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;

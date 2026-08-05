@@ -203,7 +203,11 @@ function testRect(left: number, top: number, width: number, height: number): DOM
 }
 
 beforeEach(() => {
-  usePreferencesStore.setState({ showPreviewFpsCounter: false, previewFpsCap: 0 });
+  usePreferencesStore.setState({
+    showPreviewFpsCounter: false,
+    previewFpsCap: 0,
+    previewRmlUiRasterSnap: 'all',
+  });
   previewControllerMocks.setPreviewActivity.mockClear();
   previewControllerMocks.setEngineSettings.mockClear();
   previewControllerMocks.setPreviewWheelRouting.mockClear();
@@ -220,22 +224,27 @@ beforeEach(() => {
 });
 
 describe('PreviewHostPool', () => {
-  it('applies live editor preview FPS settings to pooled hosts', async () => {
+  it('applies live editor preview rendering settings to pooled hosts', async () => {
     render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
 
     await waitFor(() =>
       expect(previewControllerMocks.setEngineSettings).toHaveBeenCalledWith({
         showFpsCounter: false,
         fpsCap: 0,
+        rmluiRasterSnap: 'all',
       }),
     );
 
-    act(() => usePreferencesStore.getState().setPreviewFpsCap(1));
+    act(() => {
+      usePreferencesStore.getState().setPreviewFpsCap(1);
+      usePreferencesStore.getState().setPreviewRmlUiRasterSnap('none');
+    });
 
     await waitFor(() =>
       expect(previewControllerMocks.setEngineSettings).toHaveBeenLastCalledWith({
         showFpsCounter: false,
         fpsCap: 1,
+        rmluiRasterSnap: 'none',
       }),
     );
   });

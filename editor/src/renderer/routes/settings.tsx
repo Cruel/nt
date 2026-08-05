@@ -46,6 +46,7 @@ import {
   type Theme,
 } from '@/stores/preferences-store';
 import type { EditorPreviewLayoutPreference } from '@/components/editor-preview-layout';
+import type { RmlUiRasterSnapMode } from '../../shared/preview-protocol';
 import {
   buildComfyUiWorkflowsTab,
   buildPlatformExportProfilesTab,
@@ -285,6 +286,7 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const previewFpsCap = usePreferencesStore((s) => s.previewFpsCap);
+  const previewRmlUiRasterSnap = usePreferencesStore((s) => s.previewRmlUiRasterSnap);
   const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
   const editorPreviewLayout = usePreferencesStore((s) => s.editorPreviewLayout);
   const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
@@ -298,6 +300,7 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
   const setPreviewFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
+  const setPreviewRmlUiRasterSnap = usePreferencesStore((s) => s.setPreviewRmlUiRasterSnap);
   const setPreviewDisplay = usePreferencesStore((s) => s.setPreviewDisplay);
   const setEditorPreviewLayout = usePreferencesStore((s) => s.setEditorPreviewLayout);
   const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
@@ -878,6 +881,38 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
                 value={previewFpsCap}
                 onChange={(event) => setPreviewFpsCap(Number(event.currentTarget.value))}
               />
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="preview-rmlui-raster-snap">
+                  {t('settings:preview.rmluiRasterSnap')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:preview.rmluiRasterSnapDescription')}
+                </p>
+              </div>
+              <Select
+                value={previewRmlUiRasterSnap}
+                onValueChange={(value) => setPreviewRmlUiRasterSnap(value as RmlUiRasterSnapMode)}
+              >
+                <SelectTrigger id="preview-rmlui-raster-snap" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t('settings:preview.rmluiRasterSnapOptions.all')}
+                  </SelectItem>
+                  <SelectItem value="geometry">
+                    {t('settings:preview.rmluiRasterSnapOptions.geometry')}
+                  </SelectItem>
+                  <SelectItem value="text">
+                    {t('settings:preview.rmluiRasterSnapOptions.text')}
+                  </SelectItem>
+                  <SelectItem value="none">
+                    {t('settings:preview.rmluiRasterSnapOptions.none')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>
