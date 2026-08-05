@@ -71,6 +71,7 @@ import {
   restoreSourceEditorViewStates,
   useSourceEditorViewStateRefs,
   useWorkbenchEditorTabState,
+  useWorkbenchTabStateStore,
   type ScrollViewState,
   type SourceEditorViewStates,
   type WorkbenchTabStatePayload,
@@ -452,7 +453,12 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const [resolutionDialogOpen, setResolutionDialogOpen] = useState(false);
   const [resolutionWidth, setResolutionWidth] = useState('');
   const [resolutionHeight, setResolutionHeight] = useState('');
-  const [activeCategory, setActiveCategory] = useState<ProjectSettingsCategory>('general');
+  const [activeCategory, setActiveCategory] = useState<ProjectSettingsCategory>(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState
+      ? (parseProjectSettingsEditorTabState(savedState)?.activeCategory ?? 'general')
+      : 'general';
+  });
 
   useWorkbenchEditorTabState<ProjectSettingsEditorTabState>(
     tab.id,

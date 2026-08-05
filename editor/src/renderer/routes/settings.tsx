@@ -78,7 +78,7 @@ export const Route = createFileRoute('/settings')({
   component: SettingsPage,
 });
 
-type EditorSettingsCategory =
+export type EditorSettingsCategory =
   | 'appearance'
   | 'window'
   | 'workspace'
@@ -277,7 +277,15 @@ function CodeEditorThemeDialog({
   );
 }
 
-export function SettingsPage({ tabId }: { tabId?: string } = {}) {
+export function SettingsPage({
+  tabId,
+  activeCategory: controlledActiveCategory,
+  onActiveCategoryChange,
+}: {
+  tabId?: string;
+  activeCategory?: EditorSettingsCategory;
+  onActiveCategoryChange?: (category: EditorSettingsCategory) => void;
+} = {}) {
   const { t } = useTranslation(['settings', 'common']);
   const theme = usePreferencesStore((s) => s.theme);
   const language = usePreferencesStore((s) => s.language);
@@ -319,7 +327,13 @@ export function SettingsPage({ tabId }: { tabId?: string } = {}) {
   );
   const [preferredSystemLanguages, setPreferredSystemLanguages] = useState<string[]>([]);
   const [comfyUiWorkflows, setComfyUiWorkflows] = useState<ComfyUiWorkflowActiveEntry[]>([]);
-  const [activeCategory, setActiveCategory] = useState<EditorSettingsCategory>('appearance');
+  const [localActiveCategory, setLocalActiveCategory] =
+    useState<EditorSettingsCategory>('appearance');
+  const activeCategory = controlledActiveCategory ?? localActiveCategory;
+  const setActiveCategory = (category: EditorSettingsCategory) => {
+    setLocalActiveCategory(category);
+    onActiveCategoryChange?.(category);
+  };
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const categories: SettingsCategory[] = [
     {

@@ -8,6 +8,7 @@ import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { selectPendingSaveUnitIds, usePendingInputStore } from '@/workbench/pending-input-store';
 import { getTabDirtyState } from '@/workbench/dirty-state';
+import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
 import {
   buildEditorProjectStateSnapshot,
   setLoadedEditorProjectState,
@@ -104,10 +105,33 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   useDraftDirtyStore.getState().resetDraftDirty();
   usePendingInputStore.getState().resetPendingInputs();
+  clearWorkbenchTabStates();
   setLoadedEditorProjectState(emptyEditorProjectState('0'.repeat(64)));
 });
 
 describe('ProjectSettingsEditor', () => {
+  it('restores the selected category on the first remount render', () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    const firstRender = render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Display');
+
+    act(() => {
+      captureWorkbenchTabState(tab.id);
+    });
+    firstRender.unmount();
+
+    render(<ProjectSettingsEditor tab={tab} />);
+    expect(screen.getByRole('button', { name: 'Display' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: 'General' })).not.toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
   it('selects the owning category for a project settings target', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),

@@ -1,10 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { SettingsPage } from '@/routes/settings';
+import { SettingsTabEditor } from '@/editors/utility/SettingsTabEditor';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
+import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
+import type { WorkbenchTab } from '@/workbench/workbench-types';
 import type {
   ComfyUiWorkflowActiveEntry,
   ComfyUiWorkflowRole,
@@ -63,6 +66,13 @@ function selectSettingsCategory(name: string) {
   );
 }
 
+const settingsTab: WorkbenchTab = {
+  id: 'tab:settings',
+  title: 'Settings',
+  editorType: 'settings',
+  resource: { kind: 'tool', stableId: 'utility:settings' },
+};
+
 describe('SettingsPage code editor theme selector', () => {
   beforeEach(() => {
     vi.spyOn(window.noveltea, 'getAppInfo').mockReturnValue(
@@ -93,6 +103,7 @@ describe('SettingsPage code editor theme selector', () => {
     });
     useComfyUiStore.getState().hydrateFromPreferences();
     useWorkbenchStore.getState().resetWorkbench();
+    clearWorkbenchTabStates();
     vi.spyOn(window.noveltea, 'getDefaultProjectDirectory').mockResolvedValue(
       '/home/test/Documents/NovelTea',
     );
@@ -148,6 +159,20 @@ describe('SettingsPage code editor theme selector', () => {
 
     expect(screen.getByRole('button', { name: 'ComfyUI' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('switch', { name: 'Enable ComfyUI integration' })).toBeInTheDocument();
+  });
+
+  it('restores the selected category after the settings tab remounts', async () => {
+    const firstRender = render(<SettingsTabEditor tab={settingsTab} />);
+    selectSettingsCategory('Preview');
+    expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-current', 'page');
+
+    act(() => {
+      captureWorkbenchTabState(settingsTab.id);
+    });
+    firstRender.unmount();
+
+    render(<SettingsTabEditor tab={settingsTab} />);
+    expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('confirms before resetting every settings category', async () => {
