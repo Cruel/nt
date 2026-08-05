@@ -7,6 +7,7 @@
 #include "noveltea/text/font.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -52,6 +53,14 @@ struct FontAssetConfig {
 struct TextureAssetRequest {
     std::string path;
     MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
+    bool retain_alpha_coverage = false;
+};
+
+struct TextureAlphaCoverage {
+    std::uint16_t width = 0;
+    std::uint16_t height = 0;
+    std::uint32_t row_stride_bytes = 0;
+    std::vector<std::uint8_t> occupancy_bits;
 };
 
 struct TextureAsset {
@@ -61,7 +70,28 @@ struct TextureAsset {
     uint16_t height = 0;
     MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
     uint8_t mip_count = 1;
+    std::optional<TextureAlphaCoverage> alpha_coverage;
 };
+
+[[nodiscard]] inline bool texture_alpha_coverage_contains(const TextureAlphaCoverage& coverage,
+                                                          float u, float v) noexcept
+{
+    if (!std::isfinite(u) || !std::isfinite(v) || coverage.width == 0 || coverage.height == 0 ||
+        coverage.row_stride_bytes != (static_cast<std::uint32_t>(coverage.width) + 7u) / 8u ||
+        coverage.occupancy_bits.size() !=
+            static_cast<std::size_t>(coverage.row_stride_bytes) * coverage.height) {
+        return false;
+    }
+    const float clamped_u = std::min(1.0f, std::max(0.0f, u));
+    const float clamped_v = std::min(1.0f, std::max(0.0f, v));
+    const auto x = std::min<std::uint32_t>(
+        coverage.width - 1u, static_cast<std::uint32_t>(std::floor(clamped_u * coverage.width)));
+    const auto y = std::min<std::uint32_t>(
+        coverage.height - 1u, static_cast<std::uint32_t>(std::floor(clamped_v * coverage.height)));
+    const auto byte =
+        coverage.occupancy_bits[static_cast<std::size_t>(y) * coverage.row_stride_bytes + x / 8u];
+    return (byte & static_cast<std::uint8_t>(1u << (x & 7u))) != 0;
+}
 
 struct ShaderProgramAssetRequest {
     ShaderProgramResolution resolution;

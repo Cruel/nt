@@ -427,10 +427,15 @@ jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noe
                                           std::max<std::uint32_t>(1u, dimensions->height / 2u)),
                       4u)
                 : 0u;
+        const std::uint64_t alpha_bytes =
+            m_impl->request.retain_alpha_coverage
+                ? saturating_multiply((dimensions->width + 7u) / 8u, dimensions->height)
+                : 0u;
         std::uint64_t peak = m_impl->source_bytes.size();
         peak = saturating_add(peak, saturating_multiply(base_bytes, 2u));
         peak = saturating_add(peak, saturating_multiply(mip_bytes, 2u));
         peak = saturating_add(peak, next_mip_bytes);
+        peak = saturating_add(peak, alpha_bytes);
         if (peak == std::numeric_limits<std::uint64_t>::max() ||
             mip_bytes > std::numeric_limits<std::size_t>::max()) {
             return {.status = jobs::JobStepStatus::Failed,
@@ -439,6 +444,7 @@ jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noe
                                                 m_impl->request.path + "'"}}};
         }
         m_impl->estimate.gpu_bytes = mip_bytes;
+        m_impl->estimate.prepared_cpu_bytes = alpha_bytes;
         m_impl->estimate.temporary_bytes = peak;
         m_impl->awaiting_reservation_update = true;
         m_impl->stage = Impl::Stage::AwaitingReservation;
@@ -489,6 +495,26 @@ jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noe
         m_impl->prepared.height = static_cast<std::uint16_t>(base_mip.m_height);
         m_impl->prepared.mip_count = 1;
         m_impl->prepared.bytes.assign(base_bytes.begin(), base_bytes.end());
+        if (m_impl->request.retain_alpha_coverage) {
+            assets::TextureAlphaCoverage coverage;
+            coverage.width = static_cast<std::uint16_t>(base_mip.m_width);
+            coverage.height = static_cast<std::uint16_t>(base_mip.m_height);
+            coverage.row_stride_bytes = (static_cast<std::uint32_t>(coverage.width) + 7u) / 8u;
+            coverage.occupancy_bits.assign(
+                static_cast<std::size_t>(coverage.row_stride_bytes) * coverage.height, 0u);
+            for (std::uint32_t y = 0; y < coverage.height; ++y) {
+                for (std::uint32_t x = 0; x < coverage.width; ++x) {
+                    if (base_bytes[(static_cast<std::size_t>(y) * coverage.width + x) * 4u + 3u] ==
+                        0u) {
+                        continue;
+                    }
+                    coverage
+                        .occupancy_bits[static_cast<std::size_t>(y) * coverage.row_stride_bytes +
+                                        x / 8u] |= static_cast<std::uint8_t>(1u << (x & 7u));
+                }
+            }
+            m_impl->prepared.alpha_coverage = std::move(coverage);
+        }
         m_impl->current_mip.assign(base_bytes.begin(), base_bytes.end());
         m_impl->current_width = m_impl->prepared.width;
         m_impl->current_height = m_impl->prepared.height;
@@ -779,7 +805,8 @@ BgfxTypedAssetLoader::load_texture(const assets::TextureAssetRequest& request)
         }
         return {assets::TextureAsset{.handle = m_fallback_texture.idx,
                                      .path = "<fallback>",
-                                     .sampler = request.sampler},
+                                     .sampler = request.sampler,
+                                     .alpha_coverage = std::nullopt},
                 {}};
     }
     return load_decoded_texture(request);
@@ -802,7 +829,8 @@ BgfxTypedAssetLoader::load_decoded_texture(const assets::TextureAssetRequest& re
                                      .width = found->second.width,
                                      .height = found->second.height,
                                      .sampler = request.sampler,
-                                     .mip_count = found->second.mip_count},
+                                     .mip_count = found->second.mip_count,
+                                     .alpha_coverage = std::nullopt},
                 {}};
     }
 
@@ -873,7 +901,8 @@ BgfxTypedAssetLoader::load_decoded_texture(const assets::TextureAssetRequest& re
                                  .width = width,
                                  .height = height,
                                  .sampler = request.sampler,
-                                 .mip_count = upload.mip_count},
+                                 .mip_count = upload.mip_count,
+                                 .alpha_coverage = std::nullopt},
             {}};
 }
 
@@ -954,7 +983,8 @@ BgfxTypedAssetLoader::finalize_texture_on_owner(PreparedTextureUpload prepared) 
         return core::Result<assets::PreparedAsset<assets::TextureAsset>, core::Diagnostics>::
             success({.asset = assets::TextureAsset{.handle = m_fallback_texture.idx,
                                                    .path = "<fallback>",
-                                                   .sampler = prepared.request.sampler},
+                                                   .sampler = prepared.request.sampler,
+                                                   .alpha_coverage = std::nullopt},
                      .cost = {},
                      .destroy_on_owner = {}});
     }
@@ -966,6 +996,8 @@ BgfxTypedAssetLoader::finalize_texture_on_owner(PreparedTextureUpload prepared) 
     }
 
     const std::uint64_t gpu_bytes = prepared.bytes.size();
+    const std::uint64_t alpha_bytes =
+        prepared.alpha_coverage ? prepared.alpha_coverage->occupancy_bits.capacity() : 0u;
     const bgfx::TextureHandle handle = bgfx::createTexture2D(
         prepared.width, prepared.height, prepared.mip_count > 1, 1, bgfx::TextureFormat::RGBA8,
         bgfx_sampler_flags(prepared.request.sampler),
@@ -982,8 +1014,9 @@ BgfxTypedAssetLoader::finalize_texture_on_owner(PreparedTextureUpload prepared) 
                                        .width = prepared.width,
                                        .height = prepared.height,
                                        .sampler = prepared.request.sampler,
-                                       .mip_count = prepared.mip_count},
-         .cost = {.gpu_bytes = gpu_bytes},
+                                       .mip_count = prepared.mip_count,
+                                       .alpha_coverage = std::move(prepared.alpha_coverage)},
+         .cost = {.prepared_cpu_bytes = alpha_bytes, .gpu_bytes = gpu_bytes},
          .destroy_on_owner = [](assets::TextureAsset& asset) {
              const bgfx::TextureHandle resident{asset.handle};
              if (bgfx::isValid(resident))

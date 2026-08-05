@@ -409,7 +409,7 @@ void validate_shader_manifest_shape(Decoder& decoder, const nlohmann::json& root
                 samplers && samplers->is_object()) {
                 for (auto sampler = samplers->begin(); sampler != samplers->end(); ++sampler)
                     decoder.object(*sampler, Decoder::child(base + "/samplers", sampler.key()),
-                                   {"type"});
+                                   {"type", "binding"});
             }
             if (const auto* bindings = json_access::member(*shader, "role_bindings");
                 bindings && bindings->is_object()) {

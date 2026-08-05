@@ -57,7 +57,7 @@ nlohmann::json read_comprehensive_project()
 nlohmann::json shader_material_manifest()
 {
     return nlohmann::json::parse(R"json({
-      "schema":"noveltea.shader-materials.v1",
+      "schema":"noveltea.shader-materials.v2",
       "shaders":{
         "sprite-shader":{
           "display_name":"Sprite",
@@ -69,8 +69,8 @@ nlohmann::json shader_material_manifest()
           },
           "uniforms":{},
           "samplers":{
-            "s_static":{"type":"texture2d"},
-            "s_draw":{"type":"texture2d"}
+            "s_static":{"type":"texture2d","binding":null},
+            "s_draw":{"type":"texture2d","binding":null}
           }
         }
       },
@@ -115,7 +115,7 @@ nlohmann::json package_manifest_for(const core::CompiledProject& project)
         {"shader_variants", nlohmann::json::array({"glsl-120"})},
         {"shader_materials",
          {{"entry", "shader-materials.json"},
-          {"schema", "noveltea.shader-materials.v1"},
+          {"schema", "noveltea.shader-materials.v2"},
           {"sources_stripped", true}}},
         {"entries", std::move(entries)},
     };
@@ -136,24 +136,53 @@ core::LoadedCompiledPackage collector_package()
                                                {"id", "image-current"},
                                                {"kind", "image"},
                                                {"path", "assets/images/current.png"},
-                                               {"sampling", "linear"}});
+                                               {"sampling", "linear"},
+                                               {"width", 64},
+                                               {"height", 64}});
     document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
                                                {"id", "image-alt"},
                                                {"kind", "image"},
                                                {"path", "assets/images/alt.png"},
-                                               {"sampling", "nearest"}});
+                                               {"sampling", "nearest"},
+                                               {"width", 64},
+                                               {"height", 64}});
     document["definitions"]["rooms"][2]["background"]["asset"] = {{"id", "image-alt"},
                                                                   {"kind", "asset"}};
     document["definitions"]["scenes"][0]["defaultBackground"]["asset"] = {{"id", "image-main"},
                                                                           {"kind", "asset"}};
     document["definitions"]["scenes"][0]["continuation"] = {
         {"kind", "scene"}, {"scene", {{"id", "opening"}, {"kind", "scene"}}}};
+    auto use_verb = document["definitions"]["verbs"][0];
+    use_verb["id"] = "use";
+    use_verb["arity"] = 1;
+    use_verb["operandRoles"] = nlohmann::json::array({"target"});
+    use_verb["quickAction"] = false;
+    document["definitions"]["verbs"].push_back(std::move(use_verb));
+    const auto alpha_hotspot = nlohmann::json{
+        {"kind", "sprite-alpha"},
+        {"hotspot",
+         {{"activation", {{"kind", "verb"}, {"verb", {{"id", "use"}, {"kind", "verb"}}}}},
+          {"condition", {{"kind", "always"}}},
+          {"highlight", {{"kind", "default"}}},
+          {"id", "shared-alpha"},
+          {"inputOrder", 0},
+          {"label", "Shared alpha"}}}};
+    document["definitions"]["interactables"][0]["presentation"]["hotspots"] = alpha_hotspot;
+    document["definitions"]["interactables"][2]["presentation"]["hotspots"] = alpha_hotspot;
 
     auto project = core::decode_compiled_project(document, "structured-prefetch-project.json");
+    if (!project) {
+        for (const auto& diagnostic : project.error())
+            WARN(diagnostic.code << ": " << diagnostic.message);
+    }
     REQUIRE(project);
     auto manifest = core::decode_runtime_package_manifest(package_manifest_for(project.value()));
     REQUIRE(manifest);
     auto shader_materials = core::decode_shader_material_manifest(shader_material_manifest());
+    if (!shader_materials) {
+        for (const auto& diagnostic : shader_materials.error())
+            WARN(diagnostic.code << ": " << diagnostic.message);
+    }
     REQUIRE(shader_materials);
     auto inventory = inventory_for(manifest.value());
     auto package =
@@ -445,6 +474,15 @@ TEST_CASE("structured collector builds typed ordered closure without dynamic sou
     const auto index =
         assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
     CHECK_FALSE(has_code(index.diagnostics(), "assets.prefetch_shader_resolution_failed"));
+    const auto& requirements = index.texture_preparation_requirements();
+    REQUIRE(requirements.size() == 1);
+    const assets::TextureAssetRequest canonical_image{
+        .path = "project:/assets/images/main.png",
+        .sampler = MaterialTextureSampler::ClampLinear,
+    };
+    REQUIRE(requirements.contains(assets::make_texture_cache_key(canonical_image, generation)));
+    CHECK(requirements.at(assets::make_texture_cache_key(canonical_image, generation))
+              .retain_alpha_coverage);
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.current_room = id<core::RoomId>("start");
@@ -548,7 +586,7 @@ TEST_CASE("optional adjacency diagnostics do not block current mandatory publica
         has_code(collected.mandatory_diagnostics, "assets.prefetch_shader_resolution_failed"));
 
     assets::MandatoryAssetGate gate(fixture.manager);
-    gate.bind_package_on_owner(package, "missing-variant", generation);
+    REQUIRE(gate.bind_package_on_owner(package, "missing-variant", generation));
     const auto begun = gate.begin_on_owner(snapshot);
     REQUIRE(begun.disposition == assets::MandatoryAssetGateDisposition::Pending);
     fixture.run_until_idle();
@@ -569,7 +607,7 @@ TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
     auto package = collector_package();
     const auto generation = fixture.manager.source_generation_on_owner();
     assets::MandatoryAssetGate gate(fixture.manager);
-    gate.bind_package_on_owner(package, "glsl-120", generation);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(23);
@@ -627,7 +665,7 @@ TEST_CASE("mandatory wait ownership closes once across rollback replacement and 
 
     {
         assets::MandatoryAssetGate gate(fixture.manager);
-        gate.bind_package_on_owner(package, "glsl-120", generation);
+        REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
 
         REQUIRE(gate.begin_on_owner(snapshot_for(31)).disposition ==
                 assets::MandatoryAssetGateDisposition::Pending);
@@ -641,7 +679,7 @@ TEST_CASE("mandatory wait ownership closes once across rollback replacement and 
         REQUIRE(gate.begin_on_owner(snapshot_for(32)).disposition ==
                 assets::MandatoryAssetGateDisposition::Pending);
         REQUIRE(sink.wait_starts.size() == 2);
-        gate.bind_package_on_owner(package, "glsl-120", generation);
+        REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
         REQUIRE(sink.wait_finishes.size() == 2);
         CHECK(sink.wait_finishes.back().operation == sink.wait_starts[1].operation);
         CHECK(sink.wait_finishes.back().result == core::AssetWaitResult::Canceled);
@@ -824,7 +862,8 @@ TEST_CASE("mandatory gate includes transient audio in publication leases",
     PlannerFixture fixture;
     auto package = collector_package();
     assets::MandatoryAssetGate gate(fixture.manager);
-    gate.bind_package_on_owner(package, "glsl-120", fixture.manager.source_generation_on_owner());
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120",
+                                       fixture.manager.source_generation_on_owner()));
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(7);

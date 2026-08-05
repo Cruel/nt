@@ -7,6 +7,7 @@
 #include "noveltea/runtime/runtime_ports.hpp"
 
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,6 +19,12 @@ class EditorAssetProfilerService;
 }
 
 namespace noveltea::assets {
+
+struct TexturePreparationRequirements {
+    bool retain_alpha_coverage = false;
+};
+
+using TexturePreparationRequirementMap = std::map<AssetCacheKey, TexturePreparationRequirements>;
 
 class StructuredAssetLeaseSet;
 
@@ -70,6 +77,8 @@ public:
                              std::shared_ptr<ResidencyManager> residency,
                              core::AssetTelemetrySink* telemetry = nullptr) noexcept;
     [[nodiscard]] AssetSourceGeneration source_generation_on_owner() const noexcept;
+    [[nodiscard]] core::DiagnosticResult<void> install_texture_preparation_requirements_on_owner(
+        AssetSourceGeneration generation, TexturePreparationRequirementMap requirements) noexcept;
     [[nodiscard]] core::Result<AssetSourceGeneration, core::Diagnostic>
     refresh_namespace_on_owner(std::string_view namespace_name) noexcept;
     [[nodiscard]] core::Result<PrefetchGenerationId, core::Diagnostic>
@@ -168,6 +177,7 @@ private:
     mutable AssetSourceGeneration m_source_generation;
     std::shared_ptr<AsyncState> m_async;
     std::unique_ptr<LeaseState> m_leases;
+    mutable TexturePreparationRequirementMap m_texture_preparation_requirements;
 };
 
 } // namespace noveltea::assets

@@ -1623,8 +1623,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
             const auto path = "/resources/" + std::to_string(index);
             exact_fields(item,
                          {"resourceId", "sourceKind", "logicalPath", "contentHash", "byteSize",
-                          "kind", "sampling", "assetId", "shaderId", "shaderStage",
-                          "shaderVariant"},
+                          "kind", "sampling", "assetId", "shaderId", "shaderStage", "shaderVariant",
+                          "retainAlphaCoverage"},
                          diagnostics, path);
             if (!item.is_object())
                 continue;
@@ -1668,6 +1668,14 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     target = std::move(*value);
             };
             optional_string("sampling", entry.sampling);
+            if (item.contains("retainAlphaCoverage")) {
+                if (const auto value = json_access::member_as<bool>(item, "retainAlphaCoverage"))
+                    entry.retain_alpha_coverage = *value;
+                else
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "retainAlphaCoverage must be a boolean.",
+                                                path + "/retainAlphaCoverage"));
+            }
             optional_string("assetId", entry.asset_id);
             optional_string("shaderId", entry.shader_id);
             optional_string("shaderStage", entry.shader_stage);
@@ -1732,6 +1740,10 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     diagnostics.push_back(error("editor_preview.invalid_sampling",
                                                 "Sampling is valid only for image Assets.",
                                                 path + "/sampling"));
+                if (entry.retain_alpha_coverage && entry.kind != "image")
+                    diagnostics.push_back(
+                        error("editor_preview.invalid_alpha_coverage_requirement",
+                              "Alpha coverage retention is valid only for image Assets.", path));
             } else if (entry.source_kind == "shader-compiled-output") {
                 if (!entry.shader_id || !entry.shader_stage || !entry.shader_variant ||
                     entry.asset_id || entry.kind != "shader-binary" || entry.sampling ||

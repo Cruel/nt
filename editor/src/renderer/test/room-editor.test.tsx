@@ -1,9 +1,12 @@
 import { describe, expect, it, beforeEach } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
-import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -510,12 +513,36 @@ describe('RoomEditor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
     fireEvent.click(screen.getByRole('button', { name: /Brass Key/i }));
+    const stage = screen.getByTestId('room-composition-stage');
+    Object.defineProperty(stage, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        toJSON: () => ({}),
+      }),
+    });
+    fireEvent.pointerDown(stage, { pointerId: 2, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stage, { pointerId: 2, clientX: 400, clientY: 250 });
+    fireEvent.pointerUp(stage, { pointerId: 2, clientX: 400, clientY: 250 });
 
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
         rooms: {
           foyer: {
-            data: { placements: [expect.objectContaining({ id: 'key-placement' })] },
+            data: {
+              placements: [
+                expect.objectContaining({
+                  id: 'key-placement',
+                }),
+              ],
+            },
           },
         },
         interactables: {
@@ -532,6 +559,14 @@ describe('RoomEditor', () => {
         },
       }),
     );
+    const currentDocument = useProjectStore.getState().document;
+    expect(isAuthoringProject(currentDocument)).toBe(true);
+    if (!isAuthoringProject(currentDocument)) throw new Error('Expected an authoring project.');
+    const placement = parseRoomData(currentDocument.rooms.foyer?.data)?.placements[0];
+    expect(placement?.bounds.x).toBeCloseTo(0.1);
+    expect(placement?.bounds.y).toBeCloseTo(0.2);
+    expect(placement?.bounds.width).toBeCloseTo(0.3);
+    expect(placement?.bounds.height).toBeCloseTo(0.3);
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
   });
 });

@@ -408,10 +408,7 @@ function validateStep(
       const room = parseRoomData(project.rooms[roomId]?.data);
       if (!room)
         diagnostics.push(
-          diagnostic(
-            `${path}/activateHotspot/hotspot/room/$ref`,
-            `Missing Room '${roomId}'.`,
-          ),
+          diagnostic(`${path}/activateHotspot/hotspot/room/$ref`, `Missing Room '${roomId}'.`),
         );
       else if (!room.hotspots.some((item) => item.id === hotspot.hotspotId))
         diagnostics.push(

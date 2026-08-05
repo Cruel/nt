@@ -43,6 +43,7 @@ struct FocusedEditorManifestProjection {
     std::uint64_t byte_size = 0;
     std::string kind;
     std::optional<std::string> sampling;
+    bool retain_alpha_coverage = false;
     std::optional<std::string> asset_id;
     std::optional<std::string> shader_id;
     std::optional<std::string> shader_stage;

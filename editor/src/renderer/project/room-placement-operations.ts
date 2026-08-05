@@ -60,9 +60,7 @@ function loadedRecords(
   if (!interactable)
     return {
       patches: [],
-      diagnostics: [
-        error('Interactable record does not exist.', interactablePath(interactableId)),
-      ],
+      diagnostics: [error('Interactable record does not exist.', interactablePath(interactableId))],
     };
   return { room, interactable };
 }
@@ -191,9 +189,7 @@ export function moveInteractableToPlacementPatches(
   const patch = {
     op: 'replace' as const,
     path: interactablePath(payload.interactableId),
-    value: toJsonValue(
-      moveInteractable(loaded.interactable!, payload.roomId, payload.placementId),
-    ),
+    value: toJsonValue(moveInteractable(loaded.interactable!, payload.roomId, payload.placementId)),
   };
   return { patches: [patch], affectedPaths: [patch.path] };
 }

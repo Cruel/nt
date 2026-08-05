@@ -118,6 +118,7 @@ const authoringManifestEntrySchema = z
       ...authoringManifestBase,
       kind: z.literal('image'),
       sampling: z.enum(imageSamplingValues),
+      retainAlphaCoverage: z.boolean().optional(),
     }),
     strict({
       ...authoringManifestBase,
@@ -173,6 +174,7 @@ export const nativePreviewResourceManifestEntrySchema = z.union([
         assetId: z.string().min(1),
         kind: z.literal('image'),
         sampling: z.enum(imageSamplingValues),
+        retainAlphaCoverage: z.boolean().optional(),
       }),
       strict({
         ...nativeBase,

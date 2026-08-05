@@ -249,20 +249,25 @@ public:
             m_probe->wrong_owner_thread.store(true, std::memory_order_relaxed);
         m_probe->finalizations.fetch_add(1, std::memory_order_relaxed);
         m_probe->prepared_bytes.store(prepared.bytes.size(), std::memory_order_relaxed);
+        const auto alpha_bytes =
+            prepared.alpha_coverage ? prepared.alpha_coverage->occupancy_bits.capacity() : 0u;
         auto probe = m_probe;
         return core::Result<assets::PreparedAsset<assets::TextureAsset>, core::Diagnostics>::
-            success({.asset = assets::TextureAsset{.handle = 71,
-                                                   .path = std::move(prepared.request.path),
-                                                   .width = prepared.width,
-                                                   .height = prepared.height,
-                                                   .sampler = prepared.request.sampler,
-                                                   .mip_count = prepared.mip_count},
-                     .cost = {.gpu_bytes = prepared.bytes.size()},
-                     .destroy_on_owner = [probe = std::move(probe)](assets::TextureAsset&) {
-                         if (std::this_thread::get_id() != probe->owner_thread)
-                             probe->wrong_owner_thread.store(true, std::memory_order_relaxed);
-                         probe->destructions.fetch_add(1, std::memory_order_relaxed);
-                     }});
+            success(
+                {.asset =
+                     assets::TextureAsset{.handle = 71,
+                                          .path = std::move(prepared.request.path),
+                                          .width = prepared.width,
+                                          .height = prepared.height,
+                                          .sampler = prepared.request.sampler,
+                                          .mip_count = prepared.mip_count,
+                                          .alpha_coverage = std::move(prepared.alpha_coverage)},
+                 .cost = {.prepared_cpu_bytes = alpha_bytes, .gpu_bytes = prepared.bytes.size()},
+                 .destroy_on_owner = [probe = std::move(probe)](assets::TextureAsset&) {
+                     if (std::this_thread::get_id() != probe->owner_thread)
+                         probe->wrong_owner_thread.store(true, std::memory_order_relaxed);
+                     probe->destructions.fetch_add(1, std::memory_order_relaxed);
+                 }});
     }
 
 private:
@@ -432,6 +437,10 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
             .path = "project:/textures/one.png",
             .sampler = MaterialTextureSampler::ClampLinear,
         };
+        REQUIRE(manager.install_texture_preparation_requirements_on_owner(
+            manager.source_generation_on_owner(),
+            {{assets::make_texture_cache_key(request, manager.source_generation_on_owner()),
+              {.retain_alpha_coverage = true}}}));
         auto requested = manager.request_texture(request, assets::AssetRequestReason::Demand);
         REQUIRE(requested);
         auto handle = std::move(requested).value();
@@ -450,6 +459,12 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
         CHECK((*lease)->width == 1);
         CHECK((*lease)->height == 1);
         CHECK((*lease)->mip_count == 1);
+        REQUIRE((*lease)->alpha_coverage);
+        CHECK((*lease)->alpha_coverage->occupancy_bits.size() == 1);
+        CHECK(assets::texture_alpha_coverage_contains(*(*lease)->alpha_coverage, 0.0f, 0.0f));
+        CHECK(assets::texture_alpha_coverage_contains(*(*lease)->alpha_coverage, 1.0f, 1.0f));
+        CHECK_FALSE(assets::texture_alpha_coverage_contains(
+            *(*lease)->alpha_coverage, std::numeric_limits<float>::infinity(), 0.0f));
         const auto cache_key = lease->cache_key();
         lease->reset();
         CHECK(

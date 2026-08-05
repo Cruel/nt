@@ -120,9 +120,10 @@ public:
     MandatoryAssetGate(MandatoryAssetGate&&) noexcept;
     MandatoryAssetGate& operator=(MandatoryAssetGate&&) noexcept;
 
-    void bind_package_on_owner(const core::LoadedCompiledPackage& package,
-                               std::string_view active_renderer_variant,
-                               AssetSourceGeneration generation);
+    [[nodiscard]] core::DiagnosticResult<void>
+    bind_package_on_owner(const core::LoadedCompiledPackage& package,
+                          std::string_view active_renderer_variant,
+                          AssetSourceGeneration generation);
     void clear_package_on_owner() noexcept;
 
     [[nodiscard]] MandatoryAssetGateResult

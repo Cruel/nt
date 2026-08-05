@@ -162,6 +162,7 @@ struct StructuredAssetDependencyIndex::Impl {
     std::string renderer_variant;
     core::Diagnostics configuration_diagnostics;
     core::Diagnostics diagnostics;
+    TexturePreparationRequirementMap texture_preparation_requirements;
 
     std::unordered_map<core::AssetId, const core::compiled::AssetResource*> assets;
     std::unordered_map<core::LayoutId, const core::compiled::LayoutResource*> layouts;
@@ -577,6 +578,16 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
     for (const auto& dialogue : project.dialogues())
         impl->dialogues.emplace(dialogue.identity.id, &dialogue);
     for (const auto& interactable : project.interactables()) {
+        if (interactable.presentation.sprite &&
+            std::holds_alternative<core::compiled::SpriteAlphaHotspots>(
+                interactable.presentation.hotspots)) {
+            if (const auto* asset = impl->find_asset(*interactable.presentation.sprite)) {
+                const auto descriptor = texture_descriptor(*asset, source_generation);
+                impl->texture_preparation_requirements.emplace(
+                    descriptor.cache_key,
+                    TexturePreparationRequirements{.retain_alpha_coverage = true});
+            }
+        }
         if (const auto* location = std::get_if<core::compiled::RoomPlacementRef>(
                 &interactable.initial_state.location)) {
             impl->initial_interactables_by_room[location->room].push_back(&interactable);
@@ -669,6 +680,12 @@ AssetSourceGeneration StructuredAssetDependencyIndex::source_generation() const 
 const core::Diagnostics& StructuredAssetDependencyIndex::diagnostics() const noexcept
 {
     return m_impl->diagnostics;
+}
+
+const TexturePreparationRequirementMap&
+StructuredAssetDependencyIndex::texture_preparation_requirements() const noexcept
+{
+    return m_impl->texture_preparation_requirements;
 }
 
 StructuredAssetDependencyCollector::StructuredAssetDependencyCollector(

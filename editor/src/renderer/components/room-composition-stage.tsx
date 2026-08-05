@@ -41,7 +41,10 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
   const point = (event: ReactPointerEvent) => {
     const rect = rootRef.current?.getBoundingClientRect();
     return rect
-      ? { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height }
+      ? {
+          x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+          y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+        }
       : { x: 0, y: 0 };
   };
   const begin = (event: ReactPointerEvent, item: RoomCompositionItem, kind: Gesture['kind']) => {
@@ -90,9 +93,9 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
           }
         : gesture.kind === 'resize'
           ? {
-            ...gesture.initial,
-            width: clamp(gesture.initial.width + dx, 0.01, 1 - gesture.initial.x),
-            height: clamp(gesture.initial.height + dy, 0.01, 1 - gesture.initial.y),
+              ...gesture.initial,
+              width: clamp(gesture.initial.width + dx, 0.01, 1 - gesture.initial.x),
+              height: clamp(gesture.initial.height + dy, 0.01, 1 - gesture.initial.y),
             }
           : {
               x: Math.min(gesture.startX, current.x),

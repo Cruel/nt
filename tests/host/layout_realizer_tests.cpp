@@ -787,7 +787,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {"script", {{"enabled", false}, {"namespace", nullptr}}},
         {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v1"},
+         {{"schema", "noveltea.shader-materials.v2"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
     };
@@ -839,7 +839,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"definitions", nlohmann::json::array()},
           {"interactableLocations", nlohmann::json::array()}}},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v1"},
+         {{"schema", "noveltea.shader-materials.v2"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
         {"world",
@@ -871,7 +871,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {"templateId", "shader-square-v1"},
         {"activeShaderVariant", "glsl-120"},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v1"},
+         {{"schema", "noveltea.shader-materials.v2"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
     };

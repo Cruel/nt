@@ -93,6 +93,24 @@ void drive_interaction(TypedExecutionKernel& kernel)
 {
     for (std::size_t iteration = 0; iteration < 64; ++iteration) {
         auto outcome = kernel.run_until_blocked(1, "en");
+        if (const auto* blocked = std::get_if<core::FlowBlockedOutcome>(&outcome)) {
+            if (std::holds_alternative<core::InputFlowBlocker>(blocked->blocker)) {
+                return;
+            }
+            if (const auto* script = std::get_if<core::ScriptFlowBlocker>(&blocked->blocker)) {
+                auto resumed = kernel.resume_script(script->owner, script->handle);
+                REQUIRE(resumed);
+                REQUIRE(std::holds_alternative<ScriptInvocationCompleted>(resumed.value()));
+            } else {
+                const auto* presentation =
+                    std::get_if<core::PresentationFlowBlocker>(&blocked->blocker);
+                REQUIRE(presentation != nullptr);
+                REQUIRE(kernel.pending_presentation_operation());
+                kernel.commit_pending_presentation();
+                REQUIRE(kernel.complete(presentation->owner, presentation->handle));
+            }
+            continue;
+        }
         if (const auto* changed = std::get_if<core::FlowModeChangedOutcome>(&outcome)) {
             REQUIRE(std::holds_alternative<core::RoomMode>(changed->mode));
             return;

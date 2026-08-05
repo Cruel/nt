@@ -697,6 +697,7 @@ function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocume
 function resourceManifest(
   project: AuthoringProject,
   assetIds: Set<string>,
+  alphaCoverageAssetIds: Set<string>,
   shaderIds: Set<string>,
   variant: ShaderVariant,
   diagnostics: Diagnostic[],
@@ -722,7 +723,12 @@ function resourceManifest(
     } as const;
     resources.push(
       data.kind === 'image'
-        ? { ...base, kind: 'image', sampling: data.sampling ?? 'linear' }
+        ? {
+            ...base,
+            kind: 'image',
+            sampling: data.sampling ?? 'linear',
+            retainAlphaCoverage: alphaCoverageAssetIds.has(assetId),
+          }
         : { ...base, kind: data.kind },
     );
   }
@@ -1034,6 +1040,16 @@ export function buildFocusedRoomPreview(
   const resources = resourceManifest(
     project,
     visual.assets,
+    new Set(
+      interactables.flatMap((interactable) => {
+        const source = parseInteractableData(
+          project.interactables[interactable.interactableId]?.data,
+        );
+        return source?.presentation.hotspots.kind === 'sprite-alpha' && interactable.spriteAssetId
+          ? [interactable.spriteAssetId]
+          : [];
+      }),
+    ),
     materialClosure.shaderIds,
     activeShaderVariant,
     diagnostics,

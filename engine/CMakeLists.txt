@@ -294,6 +294,7 @@ if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
             -P "${CMAKE_SOURCE_DIR}/cmake/StageNovelTeaAssets.cmake"
         DEPENDS
             "${CMAKE_SOURCE_DIR}/cmake/StageNovelTeaAssets.cmake"
+            "${CMAKE_SOURCE_DIR}/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json"
             ${NOVELTEA_PROJECT_ASSET_INPUTS}
             ${NOVELTEA_ENGINE_ASSET_INPUTS}
             ${NOVELTEA_SHADER_OUTPUTS}

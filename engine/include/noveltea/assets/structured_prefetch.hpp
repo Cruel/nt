@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/assets/asset_request.hpp"
+#include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/typed_assets.hpp"
 #include "noveltea/core/compiled_package.hpp"
 #include "noveltea/core/diagnostic.hpp"
@@ -67,6 +68,8 @@ public:
 
     [[nodiscard]] AssetSourceGeneration source_generation() const noexcept;
     [[nodiscard]] const core::Diagnostics& diagnostics() const noexcept;
+    [[nodiscard]] const TexturePreparationRequirementMap&
+    texture_preparation_requirements() const noexcept;
 
 private:
     explicit StructuredAssetDependencyIndex(std::shared_ptr<const Impl> impl) noexcept;

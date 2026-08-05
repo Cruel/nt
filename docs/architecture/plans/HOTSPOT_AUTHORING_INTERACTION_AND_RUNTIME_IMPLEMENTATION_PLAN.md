@@ -1995,14 +1995,18 @@ the characterized target set.
   converting through background-image UVs. The stage renders the configured Room background fit as
   passive context while placement geometry remains tied to the full reference viewport.
 - `RoomCompositionStage` owns only local pointer gesture drafts. Move and southeast-resize gestures
-  publish one `room.replaceData` command on pointer completion; selection and in-progress geometry
-  remain editor-local state. Current cast, prop, and persistent Interactable occupants are rendered
-  as placement labels so shared anchors are visible before editing.
+  publish one `room.setPlacementBounds` command on pointer completion; selection and in-progress
+  geometry remain editor-local state. Placement mode similarly keeps the candidate rectangle local
+  until pointer-up, clamps reference-normalized coordinates, rejects zero-area commits, and supports
+  Escape cancellation. Current cast, prop, and persistent Interactable occupants are rendered as
+  placement labels so shared anchors are visible before editing.
 - Placing an existing Interactable from the Room editor uses the shared searchable record selector,
-  creates a dedicated placement, and updates the Interactable initial location inside one command
-  transaction and one undo entry. Shared placements expose an explicit warning plus per-Interactable
-  Detach and Create dedicated placement actions. Dedicated creation clones the current bounds before
-  reassigning only the chosen Interactable.
+  then requires an explicit drag before `room.placeInteractable` atomically creates the dedicated
+  placement and updates the Interactable initial location in one undo entry. The remaining command
+  boundary is `room.moveInteractableToPlacement` for reassignment and
+  `room.detachInteractablePlacement` for explicit dedicated-placement creation. Dedicated creation
+  clones the current bounds/order and reassigns only the chosen Interactable; it never silently moves
+  the record to `nowhere`.
 - The focused engine preview remains the existing passive `DerivedPreviewPane`. Phase 5 added no
   preview command, input, manipulation, or protocol message, and no later-phase runtime behavior was
   implemented.
@@ -2011,6 +2015,11 @@ the characterized target set.
   editor suite (183 files passed and one skipped; 1,136 tests passed and four skipped), and
   `pnpm -C editor run build`. Existing unrelated React `act(...)` warnings remain. The environment
   used Node 22.22.1 while `editor/package.json` declares Node 24.18.0; all gates passed.
+- The 2026-08-05 Phases 4-6 review found the committed Phase 5 implementation had bypassed the
+  specified fine-grained command boundary, created hard-coded placement bounds immediately after
+  selector choice, and treated detach as `nowhere`. The review replaced those shortcuts with the
+  command and gesture model above and added command atomicity, drag/cancel, exact-default, shared
+  placement, Room-editor integration, and undo coverage. This finding changes no later-phase scope.
 
 ### Phase 6: Hotspot activation, Interaction context, and save-state version 7
 
@@ -2052,6 +2061,26 @@ the characterized target set.
 - No duplicate texture entry or alpha side-cache exists.
 - Multiple Interactables sharing a sprite share the same coverage.
 - Texture eviction releases coverage.
+
+#### Phase 7 implementation findings
+
+- The preparation requirement is a task-creation snapshot and is deliberately excluded from
+  `TextureAssetRequest` cache identity. Package-backed mandatory/prefetch requests and focused Room
+  preview requests install the same generation-scoped requirement before submitting the canonical
+  texture request, so no `with-alpha` texture variant or side registry was introduced.
+- Focused Room preview manifests previously carried image identity and sampling but no indication
+  that a sprite participates in a default-alpha Interactable. The current manifest now carries the
+  derived `retainAlphaCoverage` marker for those exact canonical image resources, allowing the
+  existing focused-preview request path to obey the same pre-request ordering contract.
+- The retained coverage uses the fixed row-major, least-significant-bit-first layout and charges the
+  resident vector's measured allocation through prepared-CPU residency accounting. It is owned by
+  `TextureAsset`, so ordinary typed texture eviction destroys the coverage without a separate lease
+  or invalidation path.
+- Exercising the current structured dependency fixture exposed two stale fixture/codec assumptions:
+  ad-hoc image resources lacked the now-required dimensions, and strict runtime-package shader
+  manifest shape validation omitted the v2 sampler `binding` field already required by the material
+  codec. The fixture was updated to current contracts and strict package validation now accepts that
+  existing v2 field; no downstream hotspot scope changed.
 
 ### Phase 8: Binary custom-mask preparation and prefetch
 
@@ -2335,7 +2364,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 4: Room and Interactable hotspot authoring
 - [x] Phase 5: React Room composition and placement tools
 - [x] Phase 6: Hotspot activation, Interaction context, and save-state version 7
-- [ ] Phase 7: Alpha coverage in existing image preparation
+- [x] Phase 7: Alpha coverage in existing image preparation
 - [ ] Phase 8: Binary custom-mask preparation and prefetch
 - [ ] Phase 9: Hotspot material binding and built-in overlays
 - [ ] Phase 10: Presentation hotspot projection and overlay rendering
@@ -2394,8 +2423,14 @@ use existing memoized selectors/graph queries rather than scanning the project o
 
 - **Exact hotspot context is runtime invocation identity, not a caller-supplied matching hint.** The
   generic `RuntimeExecutor::interact` and script/gateway `run_interaction` paths remain hotspot-null.
-  Only the private activation path can construct an invocation carrying `HotspotRef`, which prevents
-  native, Lua, RmlUi, debugger, and playback callers from spoofing exact hotspot rules.
+  Exact context is constructed only through the canonical activation path. Native runtime input,
+  Lua `Game.activate_hotspot`, RmlUi `Game.ui.activate_hotspot`, editor preview/debugger controls,
+  recorder output, and persisted test playback all route through that path with an owner-qualified
+  `HotspotRef`; none can inject hotspot context through generic Verb invocation.
+- **Specificity includes typed wildcard strength.** Exact operands outrank wildcard operands;
+  `any-character` and `any-interactable` outrank `any-subject`; exact hotspot context then outranks
+  generic context; declaration order remains the final deterministic tie-break. Direct runtime
+  coverage now exercises the typed-wildcard/any-subject boundary in addition to exact operands.
 - **The resolved Room presentation is the existing activation admission boundary.** Interactable
   activation can validate active-Room ownership plus current enabled/visible state against the
   existing `RoomPresentationResolution`; Room hotspot ownership is validated against the active
@@ -2429,9 +2464,29 @@ use existing memoized selectors/graph queries rather than scanning the project o
   src/renderer/test/authoring-interactions.test.ts`: passed the focused playback and Interaction
   authoring suites.
 - `clang-format --dry-run --Werror` passed for every Phase 6-touched C++ file, and
-  `git diff --check` passed. The repository-wide `format-check` target still reports inherited
-  formatting violations in earlier hotspot-contract files outside the Phase 6 delta; Phase 6 did
-  not expand its scope to rewrite that unrelated work.
+  `git diff --check` passed. The 2026-08-05 review also applied formatter-equivalent fixes to the four
+  inherited hotspot-contract files identified by the repository-wide gate; `cmake --build --preset
+  linux-debug --target format-check` now passes.
+- The review completed the external activation boundary that the original Phase 6 delta had left
+  only at the executor/runtime-message level. Lua, RmlUi, native/web editor preview transport,
+  manual debugger controls, recorder lowering, authoring-test editing, semantic validation, and
+  playback lowering now preserve exact hotspot identity end-to-end. Focused editor coverage passed
+  39 tests, direct native activation/specificity coverage passed, the full editor suite passed 184
+  files with one skipped file (1,139 tests passed and four skipped), and the editor preview WASM
+  build passed.
+- Native review validation exposed stale repository smoke inputs rather than a later hotspot design
+  dependency: compiled-runtime and layout-realizer fixtures still declared shader/material v1, the
+  staged runtime package did not depend on the current compiled-project golden, and sandbox smoke
+  tests did not use the available Xvfb wrapper. The fixtures/staging dependency/smoke wrapper were
+  updated to current contracts. This does not change Phase 7 or later implementation scope.
+- Final review validation passed the complete Linux debug build and all 764 non-readback native
+  tests. The 18 hardware readback capture/verify tests were excluded because the current headless
+  environment cannot initialize the required X11/DRI rendering path; this is an environment
+  limitation rather than an unresolved hotspot implementation dependency. Editor schema policy,
+  production build, package smoke, formatting, lint, typecheck, full test suite, preview WASM build,
+  and `git diff --check` all passed. Package smoke emitted the existing non-fatal Linux
+  DBus/GLib/GPU and Sharp/Electron warnings. The local Node runtime remained 22.22.1 while the package
+  declares 24.18.0.
 
 ## 19. Definition of done
 

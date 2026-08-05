@@ -1557,16 +1557,15 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() =>
-                            detachInteractable(interactable.id, selectedPlacementId!)
-                          }
+                          onClick={() => detachInteractable(interactable.id, selectedPlacementId!)}
                         >
                           {t('roomComposition.detach')}
                         </Button>
                         <Select
                           value={selectedPlacementId ?? undefined}
                           onValueChange={(placementId) => {
-                            if (placementId) moveInteractableToPlacement(interactable.id, placementId);
+                            if (placementId)
+                              moveInteractableToPlacement(interactable.id, placementId);
                           }}
                         >
                           <SelectTrigger className="h-8 w-48">

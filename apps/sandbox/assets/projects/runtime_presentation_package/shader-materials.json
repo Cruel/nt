@@ -1,5 +1,5 @@
 {
-  "schema": "noveltea.shader-materials.v1",
+  "schema": "noveltea.shader-materials.v2",
   "shaders": {
     "quad": {
       "display_name": "Packaged Engine 2D Quad",

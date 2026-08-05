@@ -940,10 +940,16 @@ add_test(
 # --- Sandbox smoke tests ---
 
 if(TARGET noveltea-sandbox)
+    find_program(NOVELTEA_SANDBOX_XVFB_RUN xvfb-run)
+    if(NOVELTEA_SANDBOX_XVFB_RUN)
+        set(NOVELTEA_SANDBOX_SMOKE_PREFIX "'${NOVELTEA_SANDBOX_XVFB_RUN}' -a ")
+    else()
+        set(NOVELTEA_SANDBOX_SMOKE_PREFIX "")
+    endif()
     add_test(
         NAME noveltea_sandbox_runtime_compiled_package_smoke
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec ${NOVELTEA_SANDBOX_SMOKE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; else exec ${NOVELTEA_SANDBOX_SMOKE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; fi"
     )
     set_tests_properties(noveltea_sandbox_runtime_compiled_package_smoke PROPERTIES
         LABELS "runtime;assets"
@@ -952,7 +958,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_sandbox_runtime_compiled_package_repeat_smoke
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec ${NOVELTEA_SANDBOX_SMOKE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; else exec ${NOVELTEA_SANDBOX_SMOKE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; fi"
     )
     set_tests_properties(noveltea_sandbox_runtime_compiled_package_repeat_smoke PROPERTIES
         LABELS "runtime;assets"

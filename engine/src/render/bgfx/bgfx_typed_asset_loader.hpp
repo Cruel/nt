@@ -25,6 +25,7 @@ struct PreparedTextureUpload {
     std::uint16_t width = 0;
     std::uint16_t height = 0;
     std::uint8_t mip_count = 0;
+    std::optional<assets::TextureAlphaCoverage> alpha_coverage;
 };
 
 struct PreparedShaderProgram {

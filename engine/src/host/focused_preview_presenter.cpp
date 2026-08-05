@@ -1054,6 +1054,7 @@ FocusedPreviewPresenter::build_asset_requests(
     const ShaderMaterialProject& materials) const
 {
     std::vector<assets::StructuredAssetRequestDescriptor> result;
+    assets::TexturePreparationRequirementMap texture_requirements;
     const auto generation = m_dependencies.assets.source_generation_on_owner();
     std::optional<std::string> active_shader_variant;
     for (const auto& resource : request.resources) {
@@ -1078,12 +1079,25 @@ FocusedPreviewPresenter::build_asset_requests(
                                                           : MaterialTextureSampler::ClampLinear};
             result.push_back(
                 {.request = typed, .cache_key = assets::make_texture_cache_key(typed, generation)});
+            if (resource.retain_alpha_coverage) {
+                texture_requirements.emplace(
+                    assets::make_texture_cache_key(typed, generation),
+                    assets::TexturePreparationRequirements{.retain_alpha_coverage = true});
+            }
         } else if (resource.kind == "font") {
             const assets::FontAssetRequest typed{
                 .alias = resource.asset_id.value_or(resource.resource_id),
                 .source_path = resource.logical_path};
             result.push_back(
                 {.request = typed, .cache_key = assets::make_font_cache_key(typed, generation)});
+        }
+    }
+    if (!texture_requirements.empty()) {
+        auto installed = m_dependencies.assets.install_texture_preparation_requirements_on_owner(
+            generation, std::move(texture_requirements));
+        if (!installed) {
+            return core::Result<std::vector<assets::StructuredAssetRequestDescriptor>,
+                                core::Diagnostics>::failure({std::move(installed).error()});
         }
     }
     std::unordered_set<std::string> shader_program_keys;

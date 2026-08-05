@@ -1176,6 +1176,12 @@ public:
     AssetRequestOrchestrator(AssetRequestOrchestrator&&) = delete;
     AssetRequestOrchestrator& operator=(AssetRequestOrchestrator&&) = delete;
 
+    [[nodiscard]] bool contains_key_on_owner(const AssetCacheKey& key) const noexcept
+    {
+        m_state->assert_owner();
+        return m_state->entries.contains(key);
+    }
+
     [[nodiscard]] core::Result<AssetRequestHandle<T>, core::Diagnostic>
     request_on_owner(AssetCacheKey key, AssetRequestReason reason,
                      std::unique_ptr<AssetPreparationTask<T>> task) noexcept

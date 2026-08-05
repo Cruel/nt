@@ -903,8 +903,15 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         }
         m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
         m_assets.configure_fonts(std::move(prepared.fonts));
-        m_mandatory_assets.bind_package_on_owner(game.package(), m_renderer.active_shader_variant(),
-                                                 m_assets.source_generation_on_owner());
+        auto gate_bound = m_mandatory_assets.bind_package_on_owner(
+            game.package(), m_renderer.active_shader_variant(),
+            m_assets.source_generation_on_owner());
+        if (!gate_bound) {
+            const auto& diagnostic = gate_bound.error();
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[mandatory-assets] %s: %s",
+                         diagnostic.code.c_str(), diagnostic.message.c_str());
+            return;
+        }
         auto bound = m_layout_realizer.bind_session(project, generation);
         if (!bound) {
             for (const auto& diagnostic : bound.error())

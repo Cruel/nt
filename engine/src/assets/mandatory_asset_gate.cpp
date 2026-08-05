@@ -517,9 +517,10 @@ MandatoryAssetGate& MandatoryAssetGate::operator=(MandatoryAssetGate&& other) no
     return *this;
 }
 
-void MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& package,
-                                               std::string_view active_renderer_variant,
-                                               AssetSourceGeneration generation)
+core::DiagnosticResult<void>
+MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& package,
+                                          std::string_view active_renderer_variant,
+                                          AssetSourceGeneration generation)
 {
     rollback_candidate_on_owner();
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
@@ -532,9 +533,18 @@ void MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage
             sink->record_prefetch_generation_released(*released_generation);
     }
 #endif
+    auto index =
+        StructuredAssetDependencyIndex::build(package, active_renderer_variant, generation);
+    auto installed = m_impl->assets.install_texture_preparation_requirements_on_owner(
+        generation, index.texture_preparation_requirements());
+    if (!installed) {
+        m_impl->collector.reset();
+        m_impl->package = nullptr;
+        return installed;
+    }
     m_impl->package = &package;
-    m_impl->collector.emplace(
-        StructuredAssetDependencyIndex::build(package, active_renderer_variant, generation));
+    m_impl->collector.emplace(std::move(index));
+    return core::DiagnosticResult<void>::success();
 }
 
 void MandatoryAssetGate::clear_package_on_owner() noexcept

@@ -1090,6 +1090,38 @@ AssetSourceGeneration AssetManager::source_generation_on_owner() const noexcept
     return m_source_generation;
 }
 
+core::DiagnosticResult<void> AssetManager::install_texture_preparation_requirements_on_owner(
+    AssetSourceGeneration generation, TexturePreparationRequirementMap requirements) noexcept
+{
+    if (generation != m_source_generation) {
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.texture_requirements_wrong_generation",
+             .message = "texture preparation requirements target a stale source generation"});
+    }
+    for (const auto& [key, requirement] : requirements) {
+        (void)requirement;
+        if (!key.valid() || key.source_generation != generation) {
+            return core::DiagnosticResult<void>::failure(
+                {.code = "assets.texture_requirements_invalid_key",
+                 .message = "texture preparation requirements contain an invalid cache key"});
+        }
+        if (m_texture_preparation_requirements.contains(key)) {
+            return core::DiagnosticResult<void>::failure(
+                {.code = "assets.texture_requirements_duplicate_key",
+                 .message = "texture preparation requirements contain an already-installed key"});
+        }
+        if (m_async != nullptr && m_async->textures.contains_key_on_owner(key)) {
+            return core::DiagnosticResult<void>::failure(
+                {.code = "assets.texture_requirements_late_install",
+                 .message =
+                     "texture preparation requirements were installed after request creation"});
+        }
+    }
+    m_texture_preparation_requirements.insert(std::make_move_iterator(requirements.begin()),
+                                              std::make_move_iterator(requirements.end()));
+    return core::DiagnosticResult<void>::success();
+}
+
 core::Result<PrefetchGenerationId, core::Diagnostic>
 AssetManager::create_prefetch_generation_on_owner() const noexcept
 {
@@ -1297,6 +1329,7 @@ void AssetManager::bump_source_generation_on_owner() const noexcept
     m_source_generation = *next;
     if (m_async != nullptr && previous.valid())
         m_async->invalidate_generation_on_owner(previous);
+    m_texture_preparation_requirements.clear();
 }
 
 core::Result<AssetSourceGeneration, core::Diagnostic>
@@ -1342,14 +1375,19 @@ AssetManager::request_texture(const TextureAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed texture loader is bound"});
     }
-    auto task = m_texture_loader->create_texture_preparation_task(request);
+    auto prepared_request = request;
+    const auto key = make_texture_cache_key(request, m_source_generation);
+    if (const auto found = m_texture_preparation_requirements.find(key);
+        found != m_texture_preparation_requirements.end()) {
+        prepared_request.retain_alpha_coverage = found->second.retain_alpha_coverage;
+    }
+    auto task = m_texture_loader->create_texture_preparation_task(prepared_request);
     if (task == nullptr) {
         return core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>::failure(
             {.code = "assets.texture_preparation_unavailable",
              .message = "bound texture loader cannot create asynchronous preparation tasks"});
     }
-    return m_async->textures.request_on_owner(make_texture_cache_key(request, m_source_generation),
-                                              reason, std::move(task));
+    return m_async->textures.request_on_owner(key, reason, std::move(task));
 }
 
 core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>
@@ -1442,14 +1480,19 @@ AssetManager::prefetch_texture(const TextureAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed texture loader is bound"});
     }
-    auto task = m_texture_loader->create_texture_preparation_task(request);
+    auto prepared_request = request;
+    const auto key = make_texture_cache_key(request, m_source_generation);
+    if (const auto found = m_texture_preparation_requirements.find(key);
+        found != m_texture_preparation_requirements.end()) {
+        prepared_request.retain_alpha_coverage = found->second.retain_alpha_coverage;
+    }
+    auto task = m_texture_loader->create_texture_preparation_task(prepared_request);
     if (task == nullptr) {
         return core::Result<PrefetchTicket, core::Diagnostic>::failure(
             {.code = "assets.texture_preparation_unavailable",
              .message = "bound texture loader cannot create asynchronous preparation tasks"});
     }
-    return m_async->textures.prefetch_on_owner(make_texture_cache_key(request, m_source_generation),
-                                               generation, std::move(task));
+    return m_async->textures.prefetch_on_owner(key, generation, std::move(task));
 }
 
 core::Result<PrefetchTicket, core::Diagnostic>
