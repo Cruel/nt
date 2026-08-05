@@ -2449,7 +2449,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 8: Binary custom-mask preparation and prefetch
 - [x] Phase 9: Hotspot material binding and built-in overlays
 - [x] Phase 10: Presentation hotspot projection and overlay rendering
-- [ ] Phase 11: World hit testing and host pointer activation
+- [x] Phase 11: World hit testing and host pointer activation
 - [ ] Phase 12: Cross-platform verification, documentation, and archival
 
 ### Phase 2 implementation findings
@@ -2607,6 +2607,44 @@ use existing memoized selectors/graph queries rather than scanning the project o
   Room/runtime projection and focused-preview boundary.
 - Phase 11 and Phase 12 scope, sequencing, and exit gates remain unchanged; no implementation from
   either later phase was added.
+
+### Phase 11 implementation findings
+
+- **Committed owner draws are sufficient for both visual and input identity.** Immutable hit targets
+  retain the exact owner draw tuple, rectangle, UV crop, source-texture lease, authored shape, and
+  input priority from the committed world frame. Pointer events perform no resource acquisition and
+  do not reconstruct background-fit or Interactable-placement geometry.
+- **No-highlight hotspots require a separate semantic target collection.** Phase 10 overlay surfaces
+  intentionally omit `highlight: none` hotspots. Phase 11 therefore adds committed hit targets beside
+  overlay surfaces rather than treating overlay allocation as clickability; this preserves the
+  no-highlight/no-mask/no-Material contract while keeping the hotspot interactive.
+- **Host admission must cancel an existing world capture explicitly.** `HostInputRouter` remains the
+  sole UI/Layout admission authority. The engine passes its gameplay-admission result to the world
+  controller for every pointer event, so a newly blocking UI cancels pressed/captured state instead
+  of swallowing the eventual release. Focus loss, pointer leave, touch cancel, window minimize,
+  backgrounding, resize, runtime reset, preview pause, and shutdown use the same cancellation
+  boundary.
+- **Preview-widget identity is not an input-mode boundary.** The editor preview executable hosts both
+  passive focused previews and production play preview. World input is disabled only while a focused
+  document owns presentation; a loaded play runtime in the same preview widget uses the production
+  hotspot controller and typed activation path.
+- **Presentation generation is the transient-pointer invalidation key.** The controller stores only
+  hotspot identity, host/reference pointer state, and backend generation. A committed revision
+  revalidates the captured target at its last reference position and recomputes mouse hover against
+  the replacement frame; it never retains a frame view or target pointer across reconciliation.
+- Phase 12 scope, sequencing, and exit gate remain unchanged. The implementation exposed no
+  downstream ambiguity or unsafe dependency.
+
+### Phase 11 final validation
+
+- `cmake --build --preset linux-debug --target noveltea_engine`: passed.
+- `cmake --build --preset linux-debug --target noveltea_render_backend_tests`: passed.
+- `noveltea_render_backend_tests`: passed 409 assertions in 49 test cases. New focused coverage proves
+  exact cross-owner draw ordering, per-owner `inputOrder`, alpha-transparent pass-through, shared
+  background crop/UV geometry, primary capture, exact eight-host-pixel slop, release containment, and
+  UI-admission cancellation, plus presentation-generation invalidation.
+- `cmake --build --preset linux-debug --target format-check`: passed.
+- `git diff --check`: passed.
 
 ## 19. Definition of done
 

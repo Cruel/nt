@@ -636,28 +636,62 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         }
     }
 
-    for (const auto& hotspot : snapshot.hotspots) {
-        if (std::holds_alternative<core::compiled::NoHotspotHighlight>(hotspot.highlight))
-            continue;
-        const WorldPresentationDraw* owner_draw = nullptr;
-        if (std::holds_alternative<core::compiled::RoomHotspotRef>(hotspot.ref)) {
+    const auto owner_draw_for =
+        [&](const core::compiled::HotspotRef& ref) -> const WorldPresentationDraw* {
+        if (std::holds_alternative<core::compiled::RoomHotspotRef>(ref)) {
             const auto found =
                 std::find_if(candidate.draws.begin(), candidate.draws.end(), [](const auto& draw) {
                     return draw.family == WorldDrawFamily::Background &&
                            draw.stable_identity == "background" && draw.sublayer == 1;
                 });
-            if (found != candidate.draws.end())
-                owner_draw = &*found;
-        } else {
-            const auto& ref = std::get<core::compiled::InteractableHotspotRef>(hotspot.ref);
-            const auto found =
-                std::find_if(candidate.draws.begin(), candidate.draws.end(), [&](const auto& draw) {
-                    return draw.family == WorldDrawFamily::Interactable &&
-                           draw.stable_identity == ref.interactable.text() && draw.sublayer == 0;
-                });
-            if (found != candidate.draws.end())
-                owner_draw = &*found;
+            return found == candidate.draws.end() ? nullptr : &*found;
         }
+        const auto& interactable = std::get<core::compiled::InteractableHotspotRef>(ref);
+        const auto found =
+            std::find_if(candidate.draws.begin(), candidate.draws.end(), [&](const auto& draw) {
+                return draw.family == WorldDrawFamily::Interactable &&
+                       draw.stable_identity == interactable.interactable.text() &&
+                       draw.sublayer == 0;
+            });
+        return found == candidate.draws.end() ? nullptr : &*found;
+    };
+
+    for (const auto& hotspot : snapshot.hotspots) {
+        if (!hotspot.condition_eligible || !hotspot.activation_available)
+            continue;
+        const WorldPresentationDraw* owner_draw = owner_draw_for(hotspot.ref);
+        if (owner_draw == nullptr || !owner_draw->command.texture.valid())
+            continue;
+        candidate.hotspot_hit_targets.push_back(
+            {.ref = hotspot.ref,
+             .plane = owner_draw->plane,
+             .family = owner_draw->family,
+             .owner_order = owner_draw->order,
+             .stable_identity = owner_draw->stable_identity,
+             .base_sublayer = owner_draw->sublayer,
+             .input_order = hotspot.input_order,
+             .owner_rect = owner_draw->command.rect,
+             .owner_uv = owner_draw->command.uv,
+             .shape = hotspot.shape,
+             .source_texture_lease = owner_draw->texture_lease});
+    }
+    std::sort(candidate.hotspot_hit_targets.begin(), candidate.hotspot_hit_targets.end(),
+              [](const auto& lhs, const auto& rhs) {
+                  const auto lhs_owner = std::tie(lhs.plane, lhs.family, lhs.owner_order,
+                                                  lhs.stable_identity, lhs.base_sublayer);
+                  const auto rhs_owner = std::tie(rhs.plane, rhs.family, rhs.owner_order,
+                                                  rhs.stable_identity, rhs.base_sublayer);
+                  if (lhs_owner != rhs_owner)
+                      return lhs_owner > rhs_owner;
+                  if (lhs.input_order != rhs.input_order)
+                      return lhs.input_order > rhs.input_order;
+                  return hotspot_identity(lhs.ref) < hotspot_identity(rhs.ref);
+              });
+
+    for (const auto& hotspot : snapshot.hotspots) {
+        if (std::holds_alternative<core::compiled::NoHotspotHighlight>(hotspot.highlight))
+            continue;
+        const WorldPresentationDraw* owner_draw = owner_draw_for(hotspot.ref);
         if (owner_draw == nullptr || !owner_draw->command.texture.valid()) {
             diagnostics.push_back(diagnostic("presentation.hotspot_owner_visual_missing",
                                              "Hotspot owner has no prepared source-image draw",
@@ -719,6 +753,188 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     if (m_generation != std::numeric_limits<std::uint64_t>::max())
         ++m_generation;
     return core::Result<bool, core::Diagnostics>::success(true);
+}
+
+namespace {
+
+bool rect_contains_inclusive(Rect rect, Vec2 point) noexcept
+{
+    return std::isfinite(point.x) && std::isfinite(point.y) && point.x >= rect.x &&
+           point.y >= rect.y && point.x <= rect.x + rect.width && point.y <= rect.y + rect.height;
+}
+
+bool normalized_hotspot_contains(const core::compiled::NormalizedRect& rect, float u,
+                                 float v) noexcept
+{
+    const float right = static_cast<float>(rect.x + rect.width);
+    const float bottom = static_cast<float>(rect.y + rect.height);
+    const bool inside_x = u >= rect.x && (u < right || (right == 1.0f && u == 1.0f));
+    const bool inside_y = v >= rect.y && (v < bottom || (bottom == 1.0f && v == 1.0f));
+    return inside_x && inside_y;
+}
+
+bool hotspot_target_contains(const WorldHotspotHitTarget& target, Vec2 point)
+{
+    if (!rect_contains_inclusive(target.owner_rect, point) || target.owner_rect.width <= 0.0f ||
+        target.owner_rect.height <= 0.0f)
+        return false;
+    const float local_u = (point.x - target.owner_rect.x) / target.owner_rect.width;
+    const float local_v = (point.y - target.owner_rect.y) / target.owner_rect.height;
+    const float image_u = target.owner_uv.x + local_u * target.owner_uv.width;
+    const float image_v = target.owner_uv.y + local_v * target.owner_uv.height;
+    return std::visit(
+        [&](const auto& shape) {
+            using T = std::decay_t<decltype(shape)>;
+            if constexpr (std::is_same_v<T, core::AlphaHotspotShape>) {
+                return target.source_texture_lease &&
+                       (*target.source_texture_lease)->alpha_coverage &&
+                       assets::texture_alpha_coverage_contains(
+                           *(*target.source_texture_lease)->alpha_coverage, image_u, image_v);
+            } else {
+                return normalized_hotspot_contains(shape, image_u, image_v);
+            }
+        },
+        target.shape);
+}
+
+} // namespace
+
+std::optional<core::compiled::HotspotRef> WorldHotspotController::hit_test(Vec2 point) const
+{
+    const auto* frame = m_backend.frame();
+    if (frame == nullptr)
+        return std::nullopt;
+    for (const auto& target : frame->hotspot_hit_targets) {
+        if (hotspot_target_contains(target, point))
+            return target.ref;
+    }
+    return std::nullopt;
+}
+
+bool WorldHotspotController::contains(const core::compiled::HotspotRef& ref, Vec2 point) const
+{
+    const auto* frame = m_backend.frame();
+    if (frame == nullptr)
+        return false;
+    const auto found =
+        std::find_if(frame->hotspot_hit_targets.begin(), frame->hotspot_hit_targets.end(),
+                     [&](const auto& target) { return target.ref == ref; });
+    return found != frame->hotspot_hit_targets.end() && hotspot_target_contains(*found, point);
+}
+
+void WorldHotspotController::set_visual_state(std::optional<core::compiled::HotspotRef> hovered,
+                                              std::optional<core::compiled::HotspotRef> pressed)
+{
+    m_hovered = hovered;
+    (void)m_backend.update_hotspot_visual_state({std::move(hovered), std::move(pressed)});
+}
+
+void WorldHotspotController::synchronize_generation()
+{
+    if (m_generation == m_backend.generation())
+        return;
+    m_generation = m_backend.generation();
+    if (m_capture && !contains(m_capture->ref, m_capture->reference_position))
+        m_capture.reset();
+    if (m_capture) {
+        set_visual_state(std::nullopt,
+                         m_capture->activation_canceled
+                             ? std::optional<core::compiled::HotspotRef>{}
+                             : std::optional<core::compiled::HotspotRef>{m_capture->ref});
+    } else {
+        set_visual_state(m_last_mouse_valid ? hit_test(m_last_mouse_reference) : std::nullopt,
+                         std::nullopt);
+    }
+}
+
+void WorldHotspotController::presentation_changed() { synchronize_generation(); }
+
+void WorldHotspotController::activation_completed()
+{
+    synchronize_generation();
+    set_visual_state(m_last_mouse_valid ? hit_test(m_last_mouse_reference) : std::nullopt,
+                     std::nullopt);
+}
+
+void WorldHotspotController::cancel() noexcept
+{
+    m_capture.reset();
+    m_hovered.reset();
+    m_last_mouse_valid = false;
+    m_generation = m_backend.generation();
+    (void)m_backend.update_hotspot_visual_state({});
+}
+
+WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& event)
+{
+    synchronize_generation();
+    WorldPointerEventResult result;
+    const bool touch = event.kind == WorldPointerEventKind::TouchDown ||
+                       event.kind == WorldPointerEventKind::TouchMove ||
+                       event.kind == WorldPointerEventKind::TouchUp;
+
+    if (event.kind == WorldPointerEventKind::Cancel) {
+        cancel();
+        return result;
+    }
+    if (!touch) {
+        m_last_mouse_reference = event.reference_position;
+        m_last_mouse_valid = true;
+    }
+    if (!event.admitted) {
+        if (m_capture)
+            cancel();
+        else if (!touch)
+            set_visual_state(std::nullopt, std::nullopt);
+        return result;
+    }
+
+    if (event.kind == WorldPointerEventKind::MouseMove ||
+        event.kind == WorldPointerEventKind::TouchMove) {
+        if (m_capture && m_capture->pointer_id == event.pointer_id && m_capture->touch == touch) {
+            result.consumed = true;
+            m_capture->reference_position = event.reference_position;
+            const float dx = event.host_position.x - m_capture->host_origin.x;
+            const float dy = event.host_position.y - m_capture->host_origin.y;
+            if (!m_capture->activation_canceled && dx * dx + dy * dy > 64.0f) {
+                m_capture->activation_canceled = true;
+                set_visual_state(std::nullopt, std::nullopt);
+            }
+            return result;
+        }
+        if (!touch)
+            set_visual_state(hit_test(event.reference_position), std::nullopt);
+        return result;
+    }
+
+    if (event.kind == WorldPointerEventKind::MouseDown ||
+        event.kind == WorldPointerEventKind::TouchDown) {
+        if (!event.primary || m_capture)
+            return result;
+        auto target = hit_test(event.reference_position);
+        if (!target)
+            return result;
+        m_capture = Capture{
+            *target, event.host_position, event.reference_position, event.pointer_id, touch, false};
+        set_visual_state(std::nullopt, target);
+        result.consumed = true;
+        return result;
+    }
+
+    if (!m_capture || m_capture->pointer_id != event.pointer_id || m_capture->touch != touch)
+        return result;
+    result.consumed = true;
+    const auto captured = m_capture->ref;
+    const bool activate =
+        !m_capture->activation_canceled && contains(captured, event.reference_position);
+    m_capture.reset();
+    set_visual_state(std::nullopt, std::nullopt);
+    if (activate) {
+        result.activation = captured;
+    } else if (!touch) {
+        set_visual_state(hit_test(event.reference_position), std::nullopt);
+    }
+    return result;
 }
 
 void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,

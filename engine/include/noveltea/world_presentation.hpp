@@ -130,6 +130,20 @@ struct WorldPreparedHotspotSurface {
     WorldPresentationDraw overlay;
 };
 
+struct WorldHotspotHitTarget {
+    core::compiled::HotspotRef ref;
+    core::PresentationPlane plane = core::PresentationPlane::WorldBackground;
+    WorldDrawFamily family = WorldDrawFamily::Background;
+    std::int32_t owner_order = 0;
+    std::string stable_identity;
+    std::uint8_t base_sublayer = 0;
+    std::int32_t input_order = 0;
+    Rect owner_rect{};
+    Rect owner_uv{};
+    std::variant<core::AlphaHotspotShape, core::compiled::NormalizedRect> shape;
+    std::optional<assets::AssetLease<assets::TextureAsset>> source_texture_lease;
+};
+
 struct HotspotInteractionVisualState {
     std::optional<core::compiled::HotspotRef> hovered;
     std::optional<core::compiled::HotspotRef> pressed;
@@ -140,12 +154,72 @@ struct WorldPresentationFrame {
         core::PresentationSnapshotRevision::from_number(0);
     std::vector<WorldPresentationDraw> draws;
     std::vector<WorldPreparedHotspotSurface> hotspot_surfaces;
+    std::vector<WorldHotspotHitTarget> hotspot_hit_targets;
     QuadBatch base_world_composition_batch;
     QuadBatch base_game_ui_underlay_batch;
     QuadBatch base_batch;
     QuadBatch world_composition_batch;
     QuadBatch game_ui_underlay_batch;
     QuadBatch batch;
+};
+
+enum class WorldPointerEventKind : std::uint8_t {
+    MouseMove,
+    MouseDown,
+    MouseUp,
+    TouchDown,
+    TouchMove,
+    TouchUp,
+    Cancel,
+};
+
+struct WorldPointerEvent {
+    WorldPointerEventKind kind = WorldPointerEventKind::MouseMove;
+    Vec2 host_position{};
+    Vec2 reference_position{};
+    std::uint64_t pointer_id = 0;
+    bool primary = false;
+    bool admitted = false;
+};
+
+struct WorldPointerEventResult {
+    bool consumed = false;
+    std::optional<core::compiled::HotspotRef> activation;
+};
+
+class WorldPresentationBackend;
+
+class WorldHotspotController {
+public:
+    explicit WorldHotspotController(WorldPresentationBackend& backend) : m_backend(backend) {}
+
+    [[nodiscard]] WorldPointerEventResult handle(const WorldPointerEvent& event);
+    void activation_completed();
+    void presentation_changed();
+    void cancel() noexcept;
+
+private:
+    struct Capture {
+        core::compiled::HotspotRef ref;
+        Vec2 host_origin{};
+        Vec2 reference_position{};
+        std::uint64_t pointer_id = 0;
+        bool touch = false;
+        bool activation_canceled = false;
+    };
+
+    [[nodiscard]] std::optional<core::compiled::HotspotRef> hit_test(Vec2 point) const;
+    [[nodiscard]] bool contains(const core::compiled::HotspotRef& ref, Vec2 point) const;
+    void set_visual_state(std::optional<core::compiled::HotspotRef> hovered,
+                          std::optional<core::compiled::HotspotRef> pressed);
+    void synchronize_generation();
+
+    WorldPresentationBackend& m_backend;
+    std::optional<Capture> m_capture;
+    std::optional<core::compiled::HotspotRef> m_hovered;
+    Vec2 m_last_mouse_reference{};
+    bool m_last_mouse_valid = false;
+    std::uint64_t m_generation = 0;
 };
 
 [[nodiscard]] std::string world_actor_identity(const core::ActorPresentationKey& key);

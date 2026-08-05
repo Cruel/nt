@@ -126,6 +126,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     std::string m_runtime_package_logical_path;
     AssetWorldPresentationResourceResolver m_world_presentation_resources;
     WorldPresentationBackend m_world_presentation;
+    WorldHotspotController m_world_hotspots;
     WorldTransitionBackend m_world_transitions;
     AudioSystem m_audio;
     Platform m_platform;

@@ -28,6 +28,26 @@ FlowFrameId flow_frame_id(std::uint64_t value)
 
 using ScopedActorInstanceId = decltype(std::declval<ScopedActorKey>().instance);
 
+class TextureLeaseControl final : public assets::AssetLeaseControl<assets::TextureAsset> {
+public:
+    explicit TextureLeaseControl(assets::TextureAsset asset)
+        : m_asset(std::move(asset)), m_key{m_asset.path, {1}}
+    {
+    }
+
+    void assert_owner_thread() const noexcept override {}
+    void retain_pin_on_owner() noexcept override { ++m_pins; }
+    void release_pin_on_owner() noexcept override { --m_pins; }
+    void mark_used_on_owner() noexcept override {}
+    const assets::TextureAsset& asset_on_owner() const noexcept override { return m_asset; }
+    const assets::AssetCacheKey& cache_key_on_owner() const noexcept override { return m_key; }
+
+private:
+    assets::TextureAsset m_asset;
+    assets::AssetCacheKey m_key;
+    std::size_t m_pins = 0;
+};
+
 class FakeWorldResources final : public WorldPresentationResourceResolver {
 public:
     void add_texture(const char* asset, std::uint16_t handle, std::uint16_t width,
@@ -39,6 +59,11 @@ public:
                                                        .width = width,
                                                        .height = height,
                                                        .sampler = sampler});
+    }
+
+    void set_alpha_coverage(const char* asset, assets::TextureAlphaCoverage coverage)
+    {
+        m_textures.at(asset).alpha_coverage = std::move(coverage);
     }
 
     void fail_asset(const char* asset) { m_failed_asset = asset; }
@@ -64,6 +89,11 @@ public:
                       .source_path = std::string(context)}});
             }
             result.texture = found->second;
+            auto control = std::make_shared<TextureLeaseControl>(found->second);
+            control->retain_pin_on_owner();
+            result.texture_lease =
+                assets::AssetLease<assets::TextureAsset>::adopt_existing_pin_on_owner(
+                    std::move(control));
         }
         if (material) {
             if (material->text() == "failed-environment") {
@@ -625,4 +655,227 @@ TEST_CASE("failed hotspot preparation preserves the prior world candidate")
     REQUIRE(backend.frame());
     CHECK(backend.frame()->revision.number() == 1);
     CHECK(backend.frame(PresentationSnapshotRevision::from_number(2)) == nullptr);
+}
+
+TEST_CASE("world hotspot controller honors draw order input order and background crop")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 1000, 1000);
+    resources.add_texture("item", 23, 100, 100);
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                                 .fit = compiled::BackgroundFit::Cover};
+    snapshot.interactables.push_back({id<InteractableId>("item"),
+                                      {id<RoomId>("room"), id<RoomPlacementId>("item-place")},
+                                      {0.4, 0.4, 0.2, 0.2},
+                                      id<AssetId>("item"),
+                                      std::nullopt,
+                                      PresentationPlane::WorldContent,
+                                      0,
+                                      true,
+                                      true});
+    const compiled::HotspotRef room_low =
+        compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("low")};
+    const compiled::HotspotRef room_high =
+        compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("high")};
+    const compiled::HotspotRef item =
+        compiled::InteractableHotspotRef{id<InteractableId>("item"), id<HotspotId>("item-hotspot")};
+    snapshot.hotspots = {
+        {room_low, "Low", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+         compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 1, compiled::NoHotspotHighlight{},
+         id<AssetId>("room-image"), 1000, 1000},
+        {room_high, "High", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+         compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 5, compiled::NoHotspotHighlight{},
+         id<AssetId>("room-image"), 1000, 1000},
+        {item, "Item", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+         compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 0, compiled::NoHotspotHighlight{},
+         id<AssetId>("item"), 100, 100,
+         compiled::RoomPlacementRef{id<RoomId>("room"), id<RoomPlacementId>("item-place")},
+         compiled::NormalizedRect{0.4, 0.4, 0.2, 0.2}, PresentationPlane::WorldContent, 0},
+    };
+
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    controller.presentation_changed();
+    auto item_down = controller.handle(
+        {WorldPointerEventKind::MouseDown, {500.0f, 250.0f}, {500.0f, 250.0f}, 0, true, true});
+    REQUIRE(item_down.consumed);
+    auto item_up = controller.handle(
+        {WorldPointerEventKind::MouseUp, {500.0f, 250.0f}, {500.0f, 250.0f}, 0, true, true});
+    REQUIRE(item_up.activation);
+    CHECK(*item_up.activation == item);
+
+    auto room_down = controller.handle(
+        {WorldPointerEventKind::MouseDown, {100.0f, 250.0f}, {100.0f, 250.0f}, 0, true, true});
+    REQUIRE(room_down.consumed);
+    auto room_up = controller.handle(
+        {WorldPointerEventKind::MouseUp, {100.0f, 250.0f}, {100.0f, 250.0f}, 0, true, true});
+    REQUIRE(room_up.activation);
+    CHECK(*room_up.activation == room_high);
+
+    auto cropped = controller.handle(
+        {WorldPointerEventKind::MouseDown, {500.0f, 10.0f}, {500.0f, 10.0f}, 0, true, true});
+    CHECK(cropped.consumed);
+}
+
+TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
+{
+    FakeWorldResources resources;
+    resources.add_texture("item", 23, 2, 1);
+    resources.set_alpha_coverage(
+        "item", {.width = 2, .height = 1, .row_stride_bytes = 1, .occupancy_bits = {0b00000010}});
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot();
+    snapshot.interactables.push_back({id<InteractableId>("item"),
+                                      {id<RoomId>("room"), id<RoomPlacementId>("item-place")},
+                                      {0.0, 0.0, 1.0, 1.0},
+                                      id<AssetId>("item"),
+                                      std::nullopt,
+                                      PresentationPlane::WorldContent,
+                                      0,
+                                      true,
+                                      true});
+    const compiled::HotspotRef alpha =
+        compiled::InteractableHotspotRef{id<InteractableId>("item"), id<HotspotId>("alpha")};
+    snapshot.hotspots.push_back(
+        {alpha, "Alpha", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+         AlphaHotspotShape{}, 0, compiled::NoHotspotHighlight{}, id<AssetId>("item"), 2, 1,
+         compiled::RoomPlacementRef{id<RoomId>("room"), id<RoomPlacementId>("item-place")},
+         compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, PresentationPlane::WorldContent, 0});
+    REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
+    controller.presentation_changed();
+
+    CHECK_FALSE(
+        controller
+            .handle(
+                {WorldPointerEventKind::MouseDown, {25.0f, 50.0f}, {25.0f, 50.0f}, 0, true, true})
+            .consumed);
+    CHECK(controller
+              .handle(
+                  {WorldPointerEventKind::MouseDown, {75.0f, 50.0f}, {75.0f, 50.0f}, 0, true, true})
+              .consumed);
+}
+
+TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admission")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 100, 100);
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                                 .fit = compiled::BackgroundFit::Stretch};
+    const compiled::HotspotRef hotspot =
+        compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("room")};
+    snapshot.hotspots.push_back(
+        {hotspot, "Room", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+         compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 0, compiled::DefaultHotspotHighlight{},
+         id<AssetId>("room-image"), 100, 100});
+    REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
+    controller.presentation_changed();
+
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::MouseDown, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true})
+            .consumed);
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::MouseMove, {19.0f, 10.0f}, {19.0f, 10.0f}, 0, true, true})
+            .consumed);
+    auto canceled = controller.handle(
+        {WorldPointerEventKind::MouseUp, {19.0f, 10.0f}, {19.0f, 10.0f}, 0, true, true});
+    CHECK(canceled.consumed);
+    CHECK_FALSE(canceled.activation);
+
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::MouseDown, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true})
+            .consumed);
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::MouseMove, {18.0f, 10.0f}, {18.0f, 10.0f}, 0, true, true})
+            .consumed);
+    auto exact_slop_release = controller.handle(
+        {WorldPointerEventKind::MouseUp, {18.0f, 10.0f}, {18.0f, 10.0f}, 0, true, true});
+    REQUIRE(exact_slop_release.activation);
+    CHECK(*exact_slop_release.activation == hotspot);
+
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::MouseDown, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true})
+            .consumed);
+    (void)controller.handle(
+        {WorldPointerEventKind::MouseMove, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, false});
+    auto blocked_release = controller.handle(
+        {WorldPointerEventKind::MouseUp, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true});
+    CHECK_FALSE(blocked_release.consumed);
+    CHECK_FALSE(blocked_release.activation);
+
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::TouchDown, {20.0f, 20.0f}, {20.0f, 20.0f}, 1, true, true})
+            .consumed);
+    CHECK_FALSE(
+        controller
+            .handle(
+                {WorldPointerEventKind::TouchDown, {30.0f, 30.0f}, {30.0f, 30.0f}, 2, true, true})
+            .consumed);
+    CHECK_FALSE(
+        controller
+            .handle({WorldPointerEventKind::TouchUp, {30.0f, 30.0f}, {30.0f, 30.0f}, 2, true, true})
+            .activation);
+    auto touch_release = controller.handle(
+        {WorldPointerEventKind::TouchUp, {20.0f, 20.0f}, {20.0f, 20.0f}, 1, true, true});
+    REQUIRE(touch_release.activation);
+    CHECK(*touch_release.activation == hotspot);
+}
+
+TEST_CASE("world hotspot capture revalidates release containment and presentation generation")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 100, 100);
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot(1);
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                                 .fit = compiled::BackgroundFit::Stretch};
+    const compiled::HotspotRef hotspot =
+        compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("small")};
+    snapshot.hotspots.push_back(
+        {hotspot, "Small", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+         compiled::NormalizedRect{0.0, 0.0, 0.1, 0.1}, 0, compiled::NoHotspotHighlight{},
+         id<AssetId>("room-image"), 100, 100});
+    REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
+    controller.presentation_changed();
+
+    REQUIRE(
+        controller
+            .handle({WorldPointerEventKind::MouseDown, {5.0f, 5.0f}, {5.0f, 5.0f}, 0, true, true})
+            .consumed);
+    auto outside_release = controller.handle(
+        {WorldPointerEventKind::MouseUp, {11.0f, 5.0f}, {11.0f, 5.0f}, 0, true, true});
+    CHECK(outside_release.consumed);
+    CHECK_FALSE(outside_release.activation);
+
+    REQUIRE(
+        controller
+            .handle({WorldPointerEventKind::MouseDown, {5.0f, 5.0f}, {5.0f, 5.0f}, 0, true, true})
+            .consumed);
+    auto replacement = snapshot;
+    replacement.revision = PresentationSnapshotRevision::from_number(2);
+    replacement.hotspots.clear();
+    REQUIRE(backend.reconcile(replacement, {100.0f, 100.0f}));
+    controller.presentation_changed();
+    auto removed_release = controller.handle(
+        {WorldPointerEventKind::MouseUp, {5.0f, 5.0f}, {5.0f, 5.0f}, 0, true, true});
+    CHECK_FALSE(removed_release.consumed);
+    CHECK_FALSE(removed_release.activation);
 }
