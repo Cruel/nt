@@ -83,6 +83,8 @@ function addAsset(
       aliases,
       extension: extensionOf(path),
       contentHash: `golden-${id}`,
+      imageMetadata:
+        kind === 'image' ? { width: 1920, height: 1080, hasAlpha: true, orientation: 1 } : null,
     }),
   };
 }
@@ -134,7 +136,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   addAsset(project, 'binary-blob', 'binary', 'assets/binary/blob.bin');
 
   const shader = defaultShaderData('Sprite Shader');
-  shader.samplers = [{ name: 's_texColor', type: 'texture2d' }];
+  shader.samplers = [{ name: 's_texColor', type: 'texture2d', binding: null }];
   project.shaders['sprite-shader'] = { id: 'sprite-shader', label: 'Sprite Shader', data: shader };
 
   const material = defaultMaterialData('Sprite Material', 'sprite-shader');
@@ -292,9 +294,11 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   };
 
   const key = defaultInteractableData('Key');
+  key.presentation.hotspots = { kind: 'custom', hotspots: [] };
   key.presentation = {
     sprite: interactableAssetRef('image-main'),
     material: interactableMaterialRef('sprite-material'),
+    hotspots: key.presentation.hotspots,
   };
   key.initialState.location = {
     kind: 'room-placement',
@@ -303,14 +307,17 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.interactables.key = { id: 'key', label: 'Key', properties: { enabled: true }, data: key };
 
   const coin = defaultInteractableData('Coin');
+  coin.presentation.hotspots = { kind: 'custom', hotspots: [] };
   coin.presentation = {
     sprite: interactableAssetRef('image-main'),
     material: interactableMaterialRef('sprite-material'),
+    hotspots: coin.presentation.hotspots,
   };
   coin.initialState.location = { kind: 'inventory' };
   project.interactables.coin = { id: 'coin', label: 'Coin', data: coin };
 
   const dust = defaultInteractableData('Dust');
+  dust.presentation.hotspots = { kind: 'custom', hotspots: [] };
   dust.initialState.location = { kind: 'nowhere' };
   project.interactables.dust = { id: 'dust', label: 'Dust', data: dust };
 

@@ -103,6 +103,7 @@ describe('authoring compiler framework', () => {
         aliases: ['hero.sprite'],
         contentHash: 'abc',
         sampling: 'nearest',
+        imageMetadata: { width: 640, height: 960, hasAlpha: true, orientation: 1 },
       }),
     };
     project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };
@@ -122,7 +123,9 @@ describe('authoring compiler framework', () => {
       description: 'Tooling description',
       data: character,
     };
-    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    const key = defaultInteractableData('Key');
+    key.presentation.hotspots = { kind: 'custom', hotspots: [] };
+    project.interactables.key = { id: 'key', label: 'Key', data: key };
     project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
     project.interactions.look = { id: 'look', label: 'Look rules', data: defaultInteractionData() };
     project.maps.house = { id: 'house', label: 'House', data: defaultMapData() };
@@ -159,6 +162,8 @@ describe('authoring compiler framework', () => {
         path: 'assets/images/hero.png',
         aliases: ['hero.sprite'],
         sampling: 'nearest',
+        width: 640,
+        height: 960,
       },
     ]);
     expect(draft.localization.catalogs).toEqual([
@@ -180,6 +185,7 @@ describe('authoring compiler framework', () => {
         kind: 'image',
         projectRelativePath: 'assets/media.png',
         contentHash: 'hash',
+        imageMetadata: { width: 320, height: 180, hasAlpha: true, orientation: 1 },
       }),
     };
 
@@ -193,6 +199,8 @@ describe('authoring compiler framework', () => {
         path: 'assets/media.png',
         aliases: [],
         sampling: 'linear',
+        width: 320,
+        height: 180,
       },
     ]);
   });
@@ -207,6 +215,7 @@ describe('authoring compiler framework', () => {
         projectRelativePath: 'assets/media.png',
         aliases: [],
         contentHash: 'hash',
+        imageMetadata: { width: 320, height: 180, hasAlpha: true, orientation: 1 },
       }),
     };
     project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };

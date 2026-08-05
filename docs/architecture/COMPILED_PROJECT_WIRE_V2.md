@@ -1,7 +1,7 @@
-# CompiledProject Wire V2
+# CompiledProject Wire V3
 
 `editor/src/shared/project-schema/compiled-project.ts` is the sole executable contract for
-`noveltea.compiled.project` version 2. The native decoder consumes this contract and may add
+`noveltea.compiled.project` version 3. The native decoder consumes this contract and may add
 defensive validation, but must not invent a second wire shape.
 
 The document contains immutable gameplay definitions (Characters, Rooms, Interactables, Verbs,

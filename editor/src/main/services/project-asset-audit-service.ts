@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { BrowserWindow } from 'electron';
 import chokidar, { type FSWatcher } from 'chokidar';
+import sharp from 'sharp';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type {
@@ -178,6 +179,21 @@ async function metadataForExistingAsset(
   const bytes = await fs.readFile(safe.absolute);
   const extension = path.extname(safe.absolute).toLowerCase();
   const kind = inferAssetKindFromExtension(extension);
+  const imageMetadata =
+    kind === 'image'
+      ? await sharp(bytes, { failOn: 'error' })
+          .metadata()
+          .then((metadata) => {
+            if (!metadata.width || !metadata.height)
+              throw new Error('Image dimensions could not be determined.');
+            return {
+              width: metadata.width,
+              height: metadata.height,
+              hasAlpha: metadata.hasAlpha,
+              orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+            };
+          })
+      : null;
   return {
     originalPath: safe.absolute,
     originalName: path.basename(safe.absolute),
@@ -188,6 +204,7 @@ async function metadataForExistingAsset(
     byteSize: bytes.byteLength,
     contentHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
     importedAt: new Date().toISOString(),
+    imageMetadata,
   };
 }
 

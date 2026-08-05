@@ -108,6 +108,7 @@ describe('AssetPerformancePanel', () => {
         source: { type: 'project-file', path: 'broken.png' },
         aliases: [],
         sampling: 'linear',
+        imageMetadata: { width: 256, height: 256, hasAlpha: true, orientation: 1 },
       },
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);

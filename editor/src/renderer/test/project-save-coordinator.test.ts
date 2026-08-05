@@ -379,6 +379,7 @@ describe('project save coordinator', () => {
         source: { type: 'project-file', path: 'assets/images/cover.png' },
         aliases: [],
         extension: '.png',
+        imageMetadata: { width: 1280, height: 720, hasAlpha: true, orientation: 1 },
       },
     };
     const editorState = recoveryState({

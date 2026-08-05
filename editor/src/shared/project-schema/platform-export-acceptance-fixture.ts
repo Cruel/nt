@@ -29,7 +29,12 @@ export function createPlatformExportAcceptanceFixture() {
     project.assets[id] = {
       id,
       label: id,
-      data: assetDataFromImportMetadata({ kind, projectRelativePath: assetPath }),
+      data: assetDataFromImportMetadata({
+        kind,
+        projectRelativePath: assetPath,
+        imageMetadata:
+          kind === 'image' ? { width: 1024, height: 1024, hasAlpha: true, orientation: 1 } : null,
+      }),
     };
   }
 

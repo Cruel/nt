@@ -23,6 +23,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],
       extension: '.png',
+      imageMetadata: { width: 256, height: 256, hasAlpha: true, orientation: 1 },
     },
   };
   next.assets.click = {
@@ -33,6 +34,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/audio/click.mp3' },
       aliases: [],
       extension: '.mp3',
+      imageMetadata: null,
     },
   };
   next.editor.recordMetadata = { assets: { logo: { tags: ['Hero'] }, click: { tags: ['sfx'] } } };

@@ -23,6 +23,7 @@ function projectWithShaderMaterial() {
       kind: 'shader-source',
       source: { type: 'project-file', path: 'assets/shaders/noise.fs.sc' },
       aliases: [],
+      imageMetadata: null,
     },
   };
   project.assets['noise-texture'] = {
@@ -32,6 +33,7 @@ function projectWithShaderMaterial() {
       kind: 'image',
       source: { type: 'project-file', path: 'assets/images/noise.png' },
       aliases: [],
+      imageMetadata: { width: 512, height: 512, hasAlpha: true, orientation: 1 },
     },
   };
   project.shaders.noise = {
@@ -56,7 +58,7 @@ function projectWithShaderMaterial() {
         },
       ],
       uniforms: [{ name: 'u_amount', type: 'float', default: 0.5 }],
-      samplers: [{ name: 's_noise', type: 'texture2d' }],
+      samplers: [{ name: 's_noise', type: 'texture2d', binding: null }],
       roles: ['engine-2d'],
     },
   };
@@ -153,7 +155,7 @@ describe('buildShaderMaterialProject', () => {
       .stages[1]!.compiled['glsl-120']!;
     const result = buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
-    expect(result.project.schema).toBe('noveltea.shader-materials.v1');
+    expect(result.project.schema).toBe('noveltea.shader-materials.v2');
     expect(result.project.shaders.noise).toMatchObject({
       display_name: 'Noise',
       stages: {
@@ -169,7 +171,7 @@ describe('buildShaderMaterialProject', () => {
         },
       },
       uniforms: { u_amount: { type: 'float', default: 0.5 } },
-      samplers: { s_noise: { type: 'texture2d' } },
+      samplers: { s_noise: { type: 'texture2d', binding: null } },
       roles: ['engine-2d'],
       role_bindings: {},
     });

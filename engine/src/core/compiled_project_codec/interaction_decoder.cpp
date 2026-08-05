@@ -300,6 +300,64 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                                                   : std::nullopt;
                               if (condition)
                                   context = PredicateInteractionContext{std::move(*condition)};
+                          } else if (kind && *kind == "hotspot") {
+                              decoder.object(*context_value, context_pointer, {"hotspot", "kind"});
+                              const auto* hotspot_value =
+                                  decoder.member(*context_value, "hotspot", context_pointer);
+                              std::optional<HotspotRef> hotspot;
+                              if (hotspot_value && hotspot_value->is_object()) {
+                                  const auto hotspot_pointer =
+                                      pointer_child(context_pointer, "hotspot");
+                                  const auto* hotspot_kind_value =
+                                      decoder.member(*hotspot_value, "kind", hotspot_pointer);
+                                  auto hotspot_kind =
+                                      hotspot_kind_value
+                                          ? decoder.string(*hotspot_kind_value,
+                                                           pointer_child(hotspot_pointer, "kind"))
+                                          : std::nullopt;
+                                  const auto* hotspot_id_value =
+                                      decoder.member(*hotspot_value, "hotspotId", hotspot_pointer);
+                                  auto hotspot_id =
+                                      hotspot_id_value
+                                          ? decoder.id<HotspotId>(
+                                                *hotspot_id_value,
+                                                pointer_child(hotspot_pointer, "hotspotId"))
+                                          : std::nullopt;
+                                  if (hotspot_kind && *hotspot_kind == "room-hotspot" &&
+                                      decoder.object(*hotspot_value, hotspot_pointer,
+                                                     {"hotspotId", "kind", "room"})) {
+                                      const auto* room_value =
+                                          decoder.member(*hotspot_value, "room", hotspot_pointer);
+                                      auto room =
+                                          room_value
+                                              ? decode_reference<RoomId>(
+                                                    decoder, *room_value,
+                                                    pointer_child(hotspot_pointer, "room"), "room")
+                                              : std::nullopt;
+                                      if (room && hotspot_id)
+                                          hotspot = RoomHotspotRef{std::move(*room),
+                                                                   std::move(*hotspot_id)};
+                                  } else if (hotspot_kind &&
+                                             *hotspot_kind == "interactable-hotspot" &&
+                                             decoder.object(
+                                                 *hotspot_value, hotspot_pointer,
+                                                 {"hotspotId", "interactable", "kind"})) {
+                                      const auto* interactable_value = decoder.member(
+                                          *hotspot_value, "interactable", hotspot_pointer);
+                                      auto interactable =
+                                          interactable_value
+                                              ? decode_reference<InteractableId>(
+                                                    decoder, *interactable_value,
+                                                    pointer_child(hotspot_pointer, "interactable"),
+                                                    "interactable")
+                                              : std::nullopt;
+                                      if (interactable && hotspot_id)
+                                          hotspot = InteractableHotspotRef{std::move(*interactable),
+                                                                           std::move(*hotspot_id)};
+                                  }
+                              }
+                              if (hotspot)
+                                  context = HotspotInteractionContext{std::move(*hotspot)};
                           } else if (kind) {
                               decoder.object(*context_value, context_pointer, {"kind"});
                               decoder.error(k_code_variant,

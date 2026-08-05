@@ -9,6 +9,7 @@ export const shaderRoleValues = [
   'rmlui-decorator',
   'rmlui-filter',
   'postprocess',
+  'hotspot-overlay',
 ] as const;
 export const shaderStageValues = ['vertex', 'fragment'] as const;
 export const shaderUniformTypeValues = [
@@ -33,12 +34,19 @@ export const shaderInputBindingValues = [
   'rmlui.context_logical_to_ui_raster_scale',
   'rmlui.media_query_resolution',
   'rmlui.viewport_pixel_dimensions',
+  'engine.hotspot_bounds',
+  'engine.hotspot_hovered',
+  'engine.hotspot_pressed',
+  'engine.hotspot_image_dimensions',
+  'engine.hotspot_mask_dimensions',
 ] as const;
+export const shaderSamplerBindingValues = ['engine.hotspot_image', 'engine.hotspot_mask'] as const;
 
 export type ShaderRole = (typeof shaderRoleValues)[number];
 export type ShaderStage = (typeof shaderStageValues)[number];
 export type ShaderUniformType = (typeof shaderUniformTypeValues)[number];
 export type ShaderInputBinding = (typeof shaderInputBindingValues)[number];
+export type ShaderSamplerBinding = (typeof shaderSamplerBindingValues)[number];
 
 export const shaderRefSchema = z
   .object({
@@ -103,6 +111,7 @@ export const shaderSamplerDataSchema = z
   .object({
     name: z.string().min(1),
     type: z.literal('texture2d').default('texture2d'),
+    binding: z.enum(shaderSamplerBindingValues).nullable().optional(),
   })
   .strict();
 
@@ -430,11 +439,34 @@ export function validateShaderData(
   });
 
   const uniforms = new Set<string>();
+  const uniformBindings = new Set<string>();
+  const hotspotUniformTypes: Partial<Record<ShaderInputBinding, ShaderUniformType>> = {
+    'engine.hotspot_bounds': 'vec4',
+    'engine.hotspot_hovered': 'bool',
+    'engine.hotspot_pressed': 'bool',
+    'engine.hotspot_image_dimensions': 'vec2',
+    'engine.hotspot_mask_dimensions': 'vec2',
+  };
   data.uniforms.forEach((uniform, index) => {
     const path = `${base}/uniforms/${index}`;
     if (uniforms.has(uniform.name))
       diagnostics.push(diagnostic(`${path}/name`, `Duplicate uniform '${uniform.name}'.`));
     uniforms.add(uniform.name);
+    if (uniform.binding) {
+      if (uniformBindings.has(uniform.binding))
+        diagnostics.push(
+          diagnostic(`${path}/binding`, `Duplicate standard uniform binding '${uniform.binding}'.`),
+        );
+      uniformBindings.add(uniform.binding);
+      const requiredType = hotspotUniformTypes[uniform.binding];
+      if (requiredType && uniform.type !== requiredType)
+        diagnostics.push(
+          diagnostic(
+            `${path}/binding`,
+            `Standard binding '${uniform.binding}' requires uniform type '${requiredType}'.`,
+          ),
+        );
+    }
     if (!isUniformValueCompatible(uniform.type, uniform.default)) {
       diagnostics.push(
         diagnostic(`${path}/default`, `Default value does not match ${uniform.type}.`),
@@ -448,12 +480,23 @@ export function validateShaderData(
   });
 
   const samplers = new Set<string>();
+  const samplerBindings = new Set<string>();
   data.samplers.forEach((sampler, index) => {
     if (samplers.has(sampler.name))
       diagnostics.push(
         diagnostic(`${base}/samplers/${index}/name`, `Duplicate sampler '${sampler.name}'.`),
       );
     samplers.add(sampler.name);
+    if (sampler.binding) {
+      if (samplerBindings.has(sampler.binding))
+        diagnostics.push(
+          diagnostic(
+            `${base}/samplers/${index}/binding`,
+            `Duplicate standard sampler binding '${sampler.binding}'.`,
+          ),
+        );
+      samplerBindings.add(sampler.binding);
+    }
   });
 
   if (data.roles.length === 0)

@@ -6,6 +6,7 @@ import {
   interactionContextSchema,
   interactionProgramSchema,
 } from './authoring-interaction-programs';
+import { parseInteractableData } from './authoring-interactables';
 import { parseRoomData } from './authoring-rooms';
 import { parseVerbData } from './authoring-verbs';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
@@ -245,6 +246,103 @@ export function validateInteractionData(
         `${path}/context/placement`,
         diagnostics,
       );
+    if (rule.context.kind === 'hotspot') {
+      const hotspotRef = rule.context.hotspot;
+      if (hotspotRef.kind === 'room-hotspot') {
+        const roomId = hotspotRef.room.$ref.id;
+        const roomRecord = project.rooms[roomId];
+        const room = roomRecord ? parseRoomData(roomRecord.data) : null;
+        const hotspot = room?.hotspots.find((candidate) => candidate.id === hotspotRef.hotspotId);
+        if (!room)
+          diagnostics.push(
+            diagnostic(`${path}/context/hotspot/room/$ref`, `Missing or invalid Room '${roomId}'.`),
+          );
+        else if (!hotspot)
+          diagnostics.push(
+            diagnostic(
+              `${path}/context/hotspot/hotspotId`,
+              `Missing Room hotspot '${hotspotRef.hotspotId}'.`,
+            ),
+          );
+        else if (hotspot.activation.kind === 'exit')
+          diagnostics.push(
+            diagnostic(
+              `${path}/context/hotspot/hotspotId`,
+              'Interaction rules cannot target an exit-activated Room hotspot.',
+            ),
+          );
+        else {
+          const hotspotVerbId = hotspot.activation.verb?.$ref.id ?? null;
+          if (hotspotVerbId !== rule.verb.$ref.id)
+            diagnostics.push(
+              diagnostic(
+                `${path}/verb/$ref`,
+                `Interaction rule Verb must match Room hotspot Verb '${hotspotVerbId ?? '(unbound)'}'.`,
+              ),
+            );
+          if (rule.operands.length !== 0)
+            diagnostics.push(
+              diagnostic(
+                `${path}/operands`,
+                'Room hotspot Interaction rules must not declare operands.',
+              ),
+            );
+        }
+      } else {
+        const interactableId = hotspotRef.interactable.$ref.id;
+        const interactableRecord = project.interactables[interactableId];
+        const interactable = interactableRecord
+          ? parseInteractableData(interactableRecord.data)
+          : null;
+        const hotspot =
+          interactable?.presentation.hotspots.kind === 'sprite-alpha'
+            ? interactable.presentation.hotspots.hotspot.id === hotspotRef.hotspotId
+              ? interactable.presentation.hotspots.hotspot
+              : null
+            : (interactable?.presentation.hotspots.hotspots.find(
+                (candidate) => candidate.id === hotspotRef.hotspotId,
+              ) ?? null);
+        if (!interactable)
+          diagnostics.push(
+            diagnostic(
+              `${path}/context/hotspot/interactable/$ref`,
+              `Missing or invalid Interactable '${interactableId}'.`,
+            ),
+          );
+        else if (!hotspot)
+          diagnostics.push(
+            diagnostic(
+              `${path}/context/hotspot/hotspotId`,
+              `Missing Interactable hotspot '${hotspotRef.hotspotId}'.`,
+            ),
+          );
+        else {
+          const hotspotVerbId = hotspot.activation.verb?.$ref.id ?? null;
+          if (hotspotVerbId !== rule.verb.$ref.id)
+            diagnostics.push(
+              diagnostic(
+                `${path}/verb/$ref`,
+                `Interaction rule Verb must match Interactable hotspot Verb '${hotspotVerbId ?? '(unbound)'}'.`,
+              ),
+            );
+          const operand = rule.operands[0];
+          const validOperand =
+            rule.operands.length === 1 &&
+            (operand?.kind === 'any-interactable' ||
+              operand?.kind === 'any-subject' ||
+              (operand?.kind === 'exact' &&
+                operand.subject.kind === 'interactable' &&
+                operand.subject.interactable.$ref.id === interactableId));
+          if (!validOperand)
+            diagnostics.push(
+              diagnostic(
+                `${path}/operands`,
+                `Interactable hotspot rules require exactly one compatible operand for '${interactableId}'.`,
+              ),
+            );
+        }
+      }
+    }
     if (
       rule.context.kind === 'predicate' &&
       rule.context.condition.kind === 'variable-comparison'

@@ -660,6 +660,23 @@ const importedAssetMetadataSchema = z.object({
   byteSize: z.number().nonnegative(),
   contentHash: z.string(),
   importedAt: z.string(),
+  imageMetadata: z
+    .object({
+      width: z.number().int().positive(),
+      height: z.number().int().positive(),
+      hasAlpha: z.boolean(),
+      orientation: z.union([
+        z.literal(1),
+        z.literal(2),
+        z.literal(3),
+        z.literal(4),
+        z.literal(5),
+        z.literal(6),
+        z.literal(7),
+        z.literal(8),
+      ]),
+    })
+    .nullable(),
 });
 
 const assetImportSchema = z.object({

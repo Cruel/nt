@@ -163,6 +163,8 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
         return ShaderRole::RmlUiFilter;
     if (role == "postprocess")
         return ShaderRole::Postprocess;
+    if (role == "hotspot-overlay")
+        return ShaderRole::HotspotOverlay;
     return std::nullopt;
 }
 
@@ -242,6 +244,25 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
         return ShaderInputSemantic::RmlUiMediaQueryResolution;
     if (semantic == "rmlui.viewport_pixel_dimensions")
         return ShaderInputSemantic::RmlUiViewportPixelDimensions;
+    if (semantic == "engine.hotspot_bounds")
+        return ShaderInputSemantic::EngineHotspotBounds;
+    if (semantic == "engine.hotspot_hovered")
+        return ShaderInputSemantic::EngineHotspotHovered;
+    if (semantic == "engine.hotspot_pressed")
+        return ShaderInputSemantic::EngineHotspotPressed;
+    if (semantic == "engine.hotspot_image_dimensions")
+        return ShaderInputSemantic::EngineHotspotImageDimensions;
+    if (semantic == "engine.hotspot_mask_dimensions")
+        return ShaderInputSemantic::EngineHotspotMaskDimensions;
+    return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ShaderSamplerSemantic> parse_sampler_semantic(std::string_view semantic)
+{
+    if (semantic == "engine.hotspot_image")
+        return ShaderSamplerSemantic::EngineHotspotImage;
+    if (semantic == "engine.hotspot_mask")
+        return ShaderSamplerSemantic::EngineHotspotMask;
     return std::nullopt;
 }
 
@@ -695,20 +716,42 @@ void parse_shader_samplers(const nlohmann::json& shader_json, ShaderDefinition& 
         ShaderSamplerDeclaration sampler;
         sampler.name = name;
         const auto type_it = sampler_json.find("type");
-        if (type_it != sampler_json.end()) {
-            if (!type_it->is_string()) {
+        if (type_it == sampler_json.end() || !type_it->is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSamplerDeclaration,
+                           field_path(path, "type"), "shader sampler type must be a string");
+            continue;
+        }
+        const auto type = parse_sampler_type(type_it->get<std::string_view>());
+        if (!type) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedSampler,
+                           field_path(path, "type"),
+                           "unsupported shader sampler type: " + type_it->get<std::string>());
+            continue;
+        }
+        sampler.type = *type;
+        const auto binding_it = sampler_json.find("binding");
+        if (binding_it == sampler_json.end()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField,
+                           field_path(path, "binding"),
+                           "shader sampler binding is required and may be null");
+            continue;
+        }
+        if (!binding_it->is_null()) {
+            if (!binding_it->is_string()) {
                 add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidSamplerDeclaration,
-                               field_path(path, "type"), "shader sampler type must be a string");
+                               field_path(path, "binding"),
+                               "shader sampler binding must be a string or null");
                 continue;
             }
-            const auto type = parse_sampler_type(type_it->get<std::string_view>());
-            if (!type) {
-                add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedSampler,
-                               field_path(path, "type"),
-                               "unsupported shader sampler type: " + type_it->get<std::string>());
+            const auto binding = parse_sampler_semantic(binding_it->get<std::string_view>());
+            if (!binding) {
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownInputBinding,
+                               field_path(path, "binding"),
+                               "unsupported shader sampler binding: " +
+                                   binding_it->get<std::string>());
                 continue;
             }
-            sampler.type = *type;
+            sampler.binding = *binding;
         }
         shader.samplers.push_back(std::move(sampler));
     }
@@ -1156,9 +1199,9 @@ parse_shader_material_project_json_value(const nlohmann::json& value)
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::MissingRequiredField, "/schema",
                        "shader/material schema is missing required schema field");
     } else if (!schema_it->is_string() ||
-               schema_it->get<std::string_view>() != shader_material_schema_v1) {
+               schema_it->get<std::string_view>() != shader_material_schema_v2) {
         add_diagnostic(result.diagnostics, MaterialDiagnosticCode::InvalidSchema, "/schema",
-                       "shader/material schema must be noveltea.shader-materials.v1");
+                       "shader/material schema must be noveltea.shader-materials.v2");
     }
 
     const auto shaders_it = value.find("shaders");

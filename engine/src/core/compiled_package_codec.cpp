@@ -24,7 +24,7 @@ namespace noveltea::core {
 namespace {
 
 constexpr std::string_view package_format = "noveltea.runtime-package";
-constexpr std::string_view shader_schema = "noveltea.shader-materials.v1";
+constexpr std::string_view shader_schema = "noveltea.shader-materials.v2";
 
 class Decoder {
 public:

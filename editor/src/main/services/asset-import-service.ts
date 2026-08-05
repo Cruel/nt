@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
+import sharp from 'sharp';
 import type {
   AssetImportOptions,
   AssetImportResponse,
@@ -109,6 +110,21 @@ async function copyAssetIntoProject(
   await fs.copyFile(sourceAbsolute, destination);
   const bytes = await fs.readFile(destination);
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  const imageMetadata =
+    kind === 'image'
+      ? await sharp(bytes, { failOn: 'error' })
+          .metadata()
+          .then((metadata) => {
+            if (!metadata.width || !metadata.height)
+              throw new Error('Image dimensions could not be determined.');
+            return {
+              width: metadata.width,
+              height: metadata.height,
+              hasAlpha: metadata.hasAlpha,
+              orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+            };
+          })
+      : null;
   return {
     originalPath: sourceAbsolute,
     originalName: path.basename(sourceAbsolute),
@@ -119,6 +135,7 @@ async function copyAssetIntoProject(
     byteSize: bytes.byteLength,
     contentHash,
     importedAt: new Date().toISOString(),
+    imageMetadata,
   };
 }
 

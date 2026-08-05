@@ -13,7 +13,7 @@ The editor owns `AuthoringProject` V2 and the pure TypeScript authoring compiler
 optimized for editing and may contain source organization and tooling metadata. The C++ runtime never
 parses an authoring project.
 
-The compiler emits strict, deterministic `noveltea.compiled.project` V2 gameplay JSON. The C++ package
+The compiler emits strict, deterministic `noveltea.compiled.project` V3 gameplay JSON. The C++ package
 boundary validates and links that untrusted document into an immutable native `CompiledProject`.
 `runtime::RunningGame` owns the loaded `CompiledProject` by value inside `LoadedCompiledPackage` and
 one `runtime::RuntimeSession` for the loaded session's lifetime. Runtime services and execution frames use lifetime-bounded const
@@ -189,7 +189,7 @@ publishing `CompiledProject`. Failed linking publishes no partial model, Materia
 the separate shader/material manifest path, and neither successful nor failed decoding retains source JSON.
 
 Separate strict decoders handle `noveltea.runtime-package` V1 and
-`noveltea.shader-materials.v1`. `LoadedCompiledPackage` owns the already-decoded gameplay project,
+`noveltea.shader-materials.v2`. `LoadedCompiledPackage` owns the already-decoded gameplay project,
 typed package manifest, optional JSON-free shader/material model, and checked Asset/Layout/Script/
 Material registries. Assembly verifies actual archive inventory against declared paths, sizes, and
 optional CRC32 checksums; requires gameplay assets and shader binaries; validates project identity,

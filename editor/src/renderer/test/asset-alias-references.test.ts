@@ -17,6 +17,7 @@ describe('asset alias references', () => {
         kind: 'audio',
         source: { type: 'project-file', path: 'assets/audio/click.mp3' },
         aliases: ['ui.click'],
+        imageMetadata: null,
       },
     };
     project.rooms.foyer = {

@@ -17,6 +17,11 @@ import { parseLayoutData } from './authoring-layouts';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
+import {
+  hotspotCommonShape,
+  rectHotspotShapeSchema,
+  verbHotspotActivationSchema,
+} from './authoring-hotspots';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -126,6 +131,14 @@ export const roomExitDataSchema = strict({
   condition: conditionSchema,
   transition: roomNavigationTransitionSchema.nullable().optional(),
 });
+export const roomHotspotDataSchema = strict({
+  ...hotspotCommonShape,
+  shape: rectHotspotShapeSchema,
+  activation: z.discriminatedUnion('kind', [
+    verbHotspotActivationSchema,
+    strict({ kind: z.literal('exit'), exitId: entityIdSchema }),
+  ]),
+});
 export const roomLifecycleDataSchema = strict({
   canEnter: conditionSchema,
   canLeave: conditionSchema,
@@ -147,6 +160,7 @@ export const roomDataSchema = strict({
   lifecycle: roomLifecycleDataSchema,
   exits: z.array(roomExitDataSchema),
   placements: z.array(roomPlacementDataSchema),
+  hotspots: z.array(roomHotspotDataSchema),
 });
 
 export type RoomAssetRef = z.infer<typeof roomAssetRefSchema>;
@@ -163,18 +177,27 @@ export type RoomEnvironmentData = z.infer<typeof roomEnvironmentDataSchema>;
 export type RoomNavigationTransition = z.infer<typeof roomNavigationTransitionSchema>;
 export type RoomExitData = z.infer<typeof roomExitDataSchema>;
 export type RoomData = z.infer<typeof roomDataSchema>;
+export type RoomHotspotData = z.infer<typeof roomHotspotDataSchema>;
 
 export interface RoomSchemaDiagnostic {
   severity: 'error' | 'warning' | 'info';
   path: string;
   message: string;
   category?: string;
+  code?: string;
 }
 const diagnostic = (
   path: string,
   message: string,
   severity: RoomSchemaDiagnostic['severity'] = 'error',
-): RoomSchemaDiagnostic => ({ path, message, severity, category: 'Rooms' });
+  code?: string,
+): RoomSchemaDiagnostic => ({
+  path,
+  message,
+  severity,
+  category: 'Rooms',
+  ...(code ? { code } : {}),
+});
 
 export function parseRoomData(value: unknown): RoomData | null {
   const parsed = roomDataSchema.safeParse(value);
@@ -193,6 +216,7 @@ export function defaultRoomData(label = 'Room'): RoomData {
     environments: [],
     compose: null,
     exits: [],
+    hotspots: [],
     lifecycle: {
       canEnter: { kind: 'always' },
       canLeave: { kind: 'always' },
@@ -336,6 +360,7 @@ export function validateRoomData(
   uniqueIds(data.cast, `${base}/cast`, 'cast', diagnostics);
   uniqueIds(data.props, `${base}/props`, 'prop', diagnostics);
   uniqueIds(data.environments, `${base}/environments`, 'environment', diagnostics);
+  uniqueIds(data.hotspots, `${base}/hotspots`, 'hotspot', diagnostics);
   const placements = new Set(data.placements.map((placement) => placement.id));
   data.overlays.forEach((overlay, index) => {
     const layout = project.layouts[overlay.layout.$ref.id];

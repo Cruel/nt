@@ -209,6 +209,8 @@ std::string_view to_string(ShaderRole role) noexcept
         return "rmlui-filter";
     case ShaderRole::Postprocess:
         return "postprocess";
+    case ShaderRole::HotspotOverlay:
+        return "hotspot-overlay";
     }
     return "unknown";
 }
@@ -296,6 +298,27 @@ std::string_view to_string(ShaderInputSemantic semantic) noexcept
         return "rmlui.media_query_resolution";
     case ShaderInputSemantic::RmlUiViewportPixelDimensions:
         return "rmlui.viewport_pixel_dimensions";
+    case ShaderInputSemantic::EngineHotspotBounds:
+        return "engine.hotspot_bounds";
+    case ShaderInputSemantic::EngineHotspotHovered:
+        return "engine.hotspot_hovered";
+    case ShaderInputSemantic::EngineHotspotPressed:
+        return "engine.hotspot_pressed";
+    case ShaderInputSemantic::EngineHotspotImageDimensions:
+        return "engine.hotspot_image_dimensions";
+    case ShaderInputSemantic::EngineHotspotMaskDimensions:
+        return "engine.hotspot_mask_dimensions";
+    }
+    return "unknown";
+}
+
+std::string_view to_string(ShaderSamplerSemantic semantic) noexcept
+{
+    switch (semantic) {
+    case ShaderSamplerSemantic::EngineHotspotImage:
+        return "engine.hotspot_image";
+    case ShaderSamplerSemantic::EngineHotspotMask:
+        return "engine.hotspot_mask";
     }
     return "unknown";
 }

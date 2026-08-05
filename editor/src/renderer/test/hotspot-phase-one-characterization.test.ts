@@ -53,16 +53,66 @@ function fitBackground(viewport: Size, image: Size, fit: Fit): { rect: Rect; uv:
   };
 }
 
-describe('hotspot phase-one current-contract characterization', () => {
-  it('keeps Room and Interactable authoring records hotspot-free and strict before the atomic cutover', () => {
+describe('hotspot Phase 2 current contracts', () => {
+  it('requires exact Room and Interactable hotspot shapes and rejects missing or alternate fields', () => {
     const room = defaultRoomData('Foyer');
     const interactable = defaultInteractableData('Key');
 
-    expect(room).not.toHaveProperty('hotspots');
-    expect(interactable).not.toHaveProperty('hotspots');
-    expect(interactable).not.toHaveProperty('hotspotMode');
-    expect(roomDataSchema.safeParse({ ...room, hotspots: [] }).success).toBe(false);
+    expect(room.hotspots).toEqual([]);
+    expect(interactable.presentation.hotspots).toMatchObject({
+      kind: 'sprite-alpha',
+      hotspot: {
+        id: 'primary',
+        label: 'Key',
+        condition: { kind: 'always' },
+        inputOrder: 0,
+        highlight: { kind: 'default' },
+        activation: { kind: 'verb', verb: null },
+      },
+    });
+    const { hotspots: _roomHotspots, ...roomWithoutHotspots } = room;
+    const { hotspots: _interactableHotspots, ...presentationWithoutHotspots } =
+      interactable.presentation;
+    expect(roomDataSchema.safeParse(roomWithoutHotspots).success).toBe(false);
+    expect(
+      interactableDataSchema.safeParse({
+        ...interactable,
+        presentation: presentationWithoutHotspots,
+      }).success,
+    ).toBe(false);
+    expect(roomDataSchema.safeParse({ ...room, hotspotMode: 'custom' }).success).toBe(false);
     expect(interactableDataSchema.safeParse({ ...interactable, hotspots: [] }).success).toBe(false);
+  });
+
+  it('accepts normalized rectangular hotspots and rejects invalid bounds and labels', () => {
+    const room = defaultRoomData('Foyer');
+    room.hotspots.push({
+      id: 'door',
+      label: 'Door',
+      condition: { kind: 'always' },
+      inputOrder: 4,
+      highlight: { kind: 'none' },
+      shape: { kind: 'rect', bounds: { x: 0.25, y: 0.1, width: 0.5, height: 0.8 } },
+      activation: { kind: 'verb', verb: null },
+    });
+    expect(roomDataSchema.safeParse(room).success).toBe(true);
+    expect(
+      roomDataSchema.safeParse({
+        ...room,
+        hotspots: [
+          {
+            ...room.hotspots[0],
+            shape: { kind: 'rect', bounds: { x: 0.75, y: 0, width: 0.5, height: 1 } },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      roomDataSchema.safeParse({
+        ...room,
+        hotspots: [{ ...room.hotspots[0], label: '   ' }],
+      }).success,
+    ).toBe(false);
   });
 
   it('captures current Room background fit vectors used by the native world layout policy', () => {

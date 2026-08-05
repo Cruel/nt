@@ -558,7 +558,8 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
         return std::nullopt;
 
     if (*kind == AssetKind::Image) {
-        decoder.object(value, pointer, {"aliases", "id", "kind", "path", "sampling"});
+        decoder.object(value, pointer,
+                       {"aliases", "height", "id", "kind", "path", "sampling", "width"});
     } else {
         decoder.object(value, pointer, {"aliases", "id", "kind", "path"});
     }
@@ -568,6 +569,10 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
     const auto* aliases_value = decoder.member(value, "aliases", pointer);
     const auto* sampling_value =
         *kind == AssetKind::Image ? decoder.member(value, "sampling", pointer) : nullptr;
+    const auto* width_value =
+        *kind == AssetKind::Image ? decoder.member(value, "width", pointer) : nullptr;
+    const auto* height_value =
+        *kind == AssetKind::Image ? decoder.member(value, "height", pointer) : nullptr;
     auto id =
         id_value ? decoder.id<AssetId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
     auto path = path_value ? decoder.string(*path_value, pointer_child(pointer, "path"), true)
@@ -585,10 +590,21 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
                   *sampling_value, pointer_child(pointer, "sampling"),
                   {{"linear", ImageSampling::Linear}, {"nearest", ImageSampling::Nearest}})
             : std::optional<ImageSampling>{};
-    if (!id || !path || !aliases || (*kind == AssetKind::Image && !sampling))
+    auto width =
+        width_value
+            ? decoder.unsigned_integer<std::uint32_t>(*width_value, pointer_child(pointer, "width"))
+            : std::optional<std::uint32_t>{};
+    auto height = height_value ? decoder.unsigned_integer<std::uint32_t>(
+                                     *height_value, pointer_child(pointer, "height"))
+                               : std::optional<std::uint32_t>{};
+    if (!id || !path || !aliases ||
+        (*kind == AssetKind::Image &&
+         (!sampling || !width || !height || *width == 0 || *height == 0)))
         return std::nullopt;
-    return AssetResource{std::move(*id), *kind, std::move(*path), std::move(*aliases),
-                         std::move(sampling)};
+    return AssetResource{std::move(*id),      *kind,
+                         std::move(*path),    std::move(*aliases),
+                         std::move(sampling), std::move(width),
+                         std::move(height)};
 }
 
 std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::json& value,

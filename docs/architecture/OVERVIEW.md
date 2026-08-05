@@ -10,7 +10,7 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/CORE_DOMAIN_MODEL.md` is the current-direction contract for authoring/compiled/runtime ownership, definitions and programs, strong IDs, flow frames, inheritance and properties, mutable state, saves, and package/JSON boundaries.
 - `docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md` maps every V2 collection to its authoring, compiled, mutable, or tooling disposition and fixes cross-component, startup, continuation, inheritance, Lua-yield, and save-safe-point relationships.
 - `docs/architecture/COMPILED_PROJECT_WIRE_V2.md` defines the strict TypeScript-owned
-  `noveltea.compiled.project` V2 contract consumed by the editor publisher and native decoder.
+  `noveltea.compiled.project` V3 contract consumed by the editor publisher and native decoder.
 - `docs/architecture/AUTHORING_COMPILER.md` describes the pure staged authoring compiler and its
   deterministic diagnostic/publication rules.
 - `docs/architecture/JSON_BOUNDARY_POLICY.md` defines the permanent JSON serialization boundary,

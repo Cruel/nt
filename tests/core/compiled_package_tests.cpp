@@ -42,7 +42,7 @@ CompiledProject decode_project(std::string_view name)
 nlohmann::json shader_manifest()
 {
     return nlohmann::json::parse(R"json({
-      "schema":"noveltea.shader-materials.v1",
+      "schema":"noveltea.shader-materials.v2",
       "shaders":{
         "sprite-shader":{
           "display_name":"Sprite",
@@ -98,7 +98,7 @@ nlohmann::json package_manifest_for(const CompiledProject& project, bool with_ma
     };
     if (with_materials) {
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
-                                        {"schema", "noveltea.shader-materials.v1"},
+                                        {"schema", "noveltea.shader-materials.v2"},
                                         {"sources_stripped", true}};
     }
     return manifest;

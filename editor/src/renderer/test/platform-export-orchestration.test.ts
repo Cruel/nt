@@ -23,6 +23,7 @@ function exportableProject() {
       kind: 'image',
       source: { type: 'project-file', path: 'assets/icon.png' },
       aliases: [],
+      imageMetadata: { width: 1024, height: 1024, hasAlpha: true, orientation: 1 },
     },
   };
   project.settings.app = {

@@ -16,6 +16,7 @@ function metadata(name = 'click.mp3'): ImportedAssetMetadata {
     byteSize: 10,
     contentHash: `sha256:${name}`,
     importedAt: '2026-06-29T00:00:00.000Z',
+    imageMetadata: null,
   };
 }
 
@@ -29,6 +30,7 @@ function projectWithAsset() {
       source: { type: 'project-file', path: 'assets/audio/click.mp3' },
       aliases: ['ui.click'],
       contentHash: 'sha256:old',
+      imageMetadata: null,
     },
   };
   return project;
@@ -117,6 +119,7 @@ describe('asset operations', () => {
         props: [],
         environments: [],
         compose: null,
+        hotspots: [],
       },
     };
     const state = createInitialCommandBusState(toJsonValue(project));

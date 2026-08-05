@@ -2,7 +2,7 @@ import { parseAssetData } from './project-schema/authoring-assets';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import type {
   CompiledCondition,
-  CompiledProjectWireV2,
+  CompiledProjectWireV3,
   CompiledText,
 } from './project-schema/compiled-project';
 import {
@@ -27,8 +27,8 @@ import { parseScriptModuleData } from './project-schema/authoring-script-modules
 import { parseVariableData } from './project-schema/authoring-variables';
 import { parseVerbData } from './project-schema/authoring-verbs';
 
-type WireDefinitions = CompiledProjectWireV2['definitions'];
-type WireResources = CompiledProjectWireV2['resources'];
+type WireDefinitions = CompiledProjectWireV3['definitions'];
+type WireResources = CompiledProjectWireV3['resources'];
 
 export type SharedCharacterDefinition = WireDefinitions['characters'][number];
 export type SharedRoomDefinition = Omit<WireDefinitions['rooms'][number], 'lifecycle'> & {
@@ -53,18 +53,18 @@ export type SharedMapDefinition = WireDefinitions['maps'][number];
 /**
  * Deterministic, non-publishable intermediate. Specialized programs and
  * continuations extend it before the strict wire validator is allowed to see
- * a CompiledProjectWireV2.
+ * a CompiledProjectWireV3.
  */
 export interface CompiledProjectSharedDraft {
   schema: typeof COMPILED_PROJECT_SCHEMA;
   schemaVersion: typeof COMPILED_PROJECT_SCHEMA_VERSION;
-  project: CompiledProjectWireV2['project'];
-  settings: CompiledProjectWireV2['settings'];
-  startupHook: CompiledProjectWireV2['startupHook'];
-  entrypoint: CompiledProjectWireV2['entrypoint'];
-  properties: CompiledProjectWireV2['properties'];
-  variables: CompiledProjectWireV2['variables'];
-  localization: CompiledProjectWireV2['localization'];
+  project: CompiledProjectWireV3['project'];
+  settings: CompiledProjectWireV3['settings'];
+  startupHook: CompiledProjectWireV3['startupHook'];
+  entrypoint: CompiledProjectWireV3['entrypoint'];
+  properties: CompiledProjectWireV3['properties'];
+  variables: CompiledProjectWireV3['variables'];
+  localization: CompiledProjectWireV3['localization'];
   resources: WireResources;
   definitions: {
     characters: SharedCharacterDefinition[];
@@ -97,6 +97,25 @@ function sortedEntries<T>(records: Record<string, T>): Array<[string, T]> {
 
 function assetRef(ref: { $ref: { id: string } } | null | undefined) {
   return ref ? { kind: 'asset' as const, id: ref.$ref.id } : null;
+}
+
+function compileHighlight(highlight: {
+  kind: 'default' | 'material' | 'none';
+  material?: { $ref: { id: string } };
+}) {
+  return highlight.kind === 'material'
+    ? { kind: 'material' as const, material: materialRef(highlight.material)! }
+    : { kind: highlight.kind };
+}
+
+function compileVerbActivation(activation: {
+  kind: 'verb';
+  verb: { $ref: { id: string } } | null;
+}) {
+  return {
+    kind: 'verb' as const,
+    verb: activation.verb ? { kind: 'verb' as const, id: activation.verb.$ref.id } : null,
+  };
 }
 
 function materialRef(ref: { $ref: { id: string } } | null | undefined) {
@@ -167,7 +186,7 @@ function compileLayoutSource(source: LayoutSourceData) {
 
 function compileEntrypoint(
   entrypoint: NonNullable<AuthoringProject['entrypoint']>,
-): CompiledProjectWireV2['entrypoint'] {
+): CompiledProjectWireV3['entrypoint'] {
   if (entrypoint.kind === 'room') return { kind: 'room', room: roomRef(entrypoint.id) };
   if (entrypoint.kind === 'scene')
     return { kind: 'scene', scene: { kind: 'scene', id: entrypoint.id } };
@@ -200,12 +219,22 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     const data = requireData(parseAssetData(record.data), `/assets/${id}/data`);
     if (data) {
       if (data.kind === 'image') {
+        if (!data.imageMetadata) {
+          diagnostics.push({
+            code: 'hotspot.compiled.image_metadata_missing',
+            path: `/assets/${id}/data/imageMetadata`,
+            message: `Image Asset '${id}' requires image metadata before compilation.`,
+          });
+          continue;
+        }
         assets.push({
           id,
           kind: data.kind,
           path: data.source.path,
           aliases: [...data.aliases],
           sampling: data.sampling ?? 'linear',
+          width: data.imageMetadata.width,
+          height: data.imageMetadata.height,
         });
       } else {
         assets.push({
@@ -343,6 +372,18 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           layout: layoutRef(placement.presentation.layout),
         },
       })),
+      hotspots: data.hotspots!.map((hotspot) => ({
+        id: hotspot.id,
+        label: hotspot.label,
+        condition: compileCondition(hotspot.condition),
+        inputOrder: hotspot.inputOrder,
+        highlight: compileHighlight(hotspot.highlight),
+        shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
+        activation:
+          hotspot.activation.kind === 'verb'
+            ? compileVerbActivation(hotspot.activation)
+            : { kind: 'exit', exitId: hotspot.activation.exitId },
+      })),
       cast: data.cast.map((entry) => ({
         id: entry.id,
         character: characterRef(entry.character)!,
@@ -403,12 +444,36 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     const data = requireData(parseInteractableData(record.data), `/interactables/${id}/data`);
     if (!data) continue;
     const location = data.initialState.location;
+    const hotspotDefinition = data.presentation.hotspots!;
     interactables.push({
       ...propertyBase(id, record),
       displayName: data.displayName,
       presentation: {
         sprite: assetRef(data.presentation.sprite),
         material: materialRef(data.presentation.material),
+        hotspots:
+          hotspotDefinition.kind === 'sprite-alpha'
+            ? {
+                kind: 'sprite-alpha',
+                hotspot: {
+                  ...hotspotDefinition.hotspot,
+                  condition: compileCondition(hotspotDefinition.hotspot.condition),
+                  highlight: compileHighlight(hotspotDefinition.hotspot.highlight),
+                  activation: compileVerbActivation(hotspotDefinition.hotspot.activation),
+                },
+              }
+            : {
+                kind: 'custom',
+                hotspots: hotspotDefinition.hotspots.map((hotspot) => ({
+                  id: hotspot.id,
+                  label: hotspot.label,
+                  condition: compileCondition(hotspot.condition),
+                  inputOrder: hotspot.inputOrder,
+                  highlight: compileHighlight(hotspot.highlight),
+                  activation: compileVerbActivation(hotspot.activation),
+                  shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
+                })),
+              },
       },
       initialState: {
         enabled: data.initialState.enabled,
@@ -515,7 +580,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     persistence: definition.persistence,
   }));
 
-  const variables: CompiledProjectWireV2['variables'] = [];
+  const variables: CompiledProjectWireV3['variables'] = [];
   for (const [id, record] of sortedEntries(project.variables)) {
     const data = requireData(parseVariableData(record.data), `/variables/${id}/data`);
     if (data)

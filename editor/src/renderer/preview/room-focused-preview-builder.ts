@@ -878,7 +878,7 @@ export function buildFocusedRoomPreview(
     },
     luaAdmission: admission as RoomPreviewDocumentV2['luaAdmission'],
     queryState: state as RoomPreviewDocumentV2['queryState'],
-    shaderMaterials: { schema: 'noveltea.shader-materials.v1', shaders: {}, materials: {} },
+    shaderMaterials: { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} },
     world: {
       background: {
         assetId: room.background.asset?.$ref.id ?? null,

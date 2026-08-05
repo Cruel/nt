@@ -2,7 +2,7 @@ import type {
   CompiledCondition,
   CompiledEffect,
   CompiledFlowTarget,
-  CompiledProjectWireV2,
+  CompiledProjectWireV3,
   CompiledText,
   InteractionProgram,
 } from './project-schema/compiled-project';
@@ -23,7 +23,7 @@ import type {
 
 export interface CompleteProgramLoweringResult {
   diagnostics: ProgramLoweringDiagnostic[];
-  draft?: CompiledProjectWireV2;
+  draft?: CompiledProjectWireV3;
 }
 
 function compileText(text: TextContent): CompiledText {
@@ -144,7 +144,7 @@ export function lowerDialogueAndInteractionPrograms(
   partial: CompiledProjectSceneRoomDraft,
 ): CompleteProgramLoweringResult {
   const diagnostics: ProgramLoweringDiagnostic[] = [];
-  const dialogues: CompiledProjectWireV2['definitions']['dialogues'] = [];
+  const dialogues: CompiledProjectWireV3['definitions']['dialogues'] = [];
   for (const dialogue of partial.definitions.dialogues) {
     const data = parseDialogueData(project.dialogues[dialogue.id]?.data);
     if (!data) {
@@ -155,7 +155,7 @@ export function lowerDialogueAndInteractionPrograms(
       });
       continue;
     }
-    const blocks: CompiledProjectWireV2['definitions']['dialogues'][number]['program']['blocks'] =
+    const blocks: CompiledProjectWireV3['definitions']['dialogues'][number]['program']['blocks'] =
       [];
     for (const block of data.blocks) {
       if (block.type === 'comment') continue;
@@ -237,7 +237,7 @@ export function lowerDialogueAndInteractionPrograms(
     });
   }
 
-  const verbs: CompiledProjectWireV2['definitions']['verbs'] = [];
+  const verbs: CompiledProjectWireV3['definitions']['verbs'] = [];
   for (const verb of partial.definitions.verbs) {
     const data = parseVerbData(project.verbs[verb.id]?.data);
     if (!data) {
@@ -255,7 +255,7 @@ export function lowerDialogueAndInteractionPrograms(
     });
   }
 
-  const interactions: CompiledProjectWireV2['definitions']['interactions'] = [];
+  const interactions: CompiledProjectWireV3['definitions']['interactions'] = [];
   for (const interaction of partial.definitions.interactions) {
     const data = parseInteractionData(project.interactions[interaction.id]?.data);
     if (!data) {
@@ -308,10 +308,32 @@ export function lowerDialogueAndInteractionPrograms(
                       placementId: rule.context.placement.placement,
                     },
                   }
-                : {
-                    kind: 'predicate' as const,
-                    condition: compileCondition(rule.context.condition),
-                  },
+                : rule.context.kind === 'predicate'
+                  ? {
+                      kind: 'predicate' as const,
+                      condition: compileCondition(rule.context.condition),
+                    }
+                  : {
+                      kind: 'hotspot' as const,
+                      hotspot:
+                        rule.context.hotspot.kind === 'room-hotspot'
+                          ? {
+                              kind: 'room-hotspot' as const,
+                              room: {
+                                kind: 'room' as const,
+                                id: rule.context.hotspot.room.$ref.id,
+                              },
+                              hotspotId: rule.context.hotspot.hotspotId,
+                            }
+                          : {
+                              kind: 'interactable-hotspot' as const,
+                              interactable: {
+                                kind: 'interactable' as const,
+                                id: rule.context.hotspot.interactable.$ref.id,
+                              },
+                              hotspotId: rule.context.hotspot.hotspotId,
+                            },
+                    },
         program: compileInteractionProgram(rule.program),
       })),
     });

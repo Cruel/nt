@@ -16,6 +16,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/sarah.png' },
       aliases: [],
       extension: '.png',
+      imageMetadata: { width: 640, height: 960, hasAlpha: true, orientation: 1 },
     },
   };
   next.assets.theme = {
@@ -26,6 +27,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/theme.ogg' },
       aliases: [],
       extension: '.ogg',
+      imageMetadata: null,
     },
   };
   next.layouts.coolLayout = {

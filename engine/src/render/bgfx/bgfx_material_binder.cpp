@@ -160,6 +160,14 @@ std::array<float, 4> pack_shader_standard_input(ShaderInputSemantic semantic,
         return {inputs.pointer_position.x, inputs.pointer_position.y, 0.0f, 0.0f};
     case ShaderInputSemantic::EnginePointerValid:
         return {inputs.pointer_valid ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    case ShaderInputSemantic::EngineHotspotBounds:
+    case ShaderInputSemantic::EngineHotspotHovered:
+    case ShaderInputSemantic::EngineHotspotPressed:
+    case ShaderInputSemantic::EngineHotspotImageDimensions:
+    case ShaderInputSemantic::EngineHotspotMaskDimensions:
+        // Phase 2 admits the strict interface, but runtime hotspot values are not bound until
+        // Phase 9.
+        return {};
     }
     return {};
 }

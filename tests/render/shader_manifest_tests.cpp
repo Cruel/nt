@@ -11,7 +11,7 @@ namespace {
 noveltea::ShaderMaterialProject make_project()
 {
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v1",
+      "schema":"noveltea.shader-materials.v2",
       "shaders":{
         "engine_2d_default":{
           "stages":{
@@ -32,7 +32,7 @@ noveltea::ShaderMaterialProject make_project()
             "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{"u_amount":{"type":"float","default":0.25}},
-          "samplers":{"s_noise":{"type":"texture2d"}},
+          "samplers":{"s_noise":{"type":"texture2d","binding":null}},
           "roles":["engine-2d","rmlui-decorator"],
           "role_bindings":{
             "engine-2d":{"vertex":"engine_2d_default","fragment":"soft_noise"},
@@ -194,7 +194,7 @@ TEST_CASE("missing direct shader-pair variants report ActiveText shader ids")
 TEST_CASE("material resolution does not guess vertex stages when role binding is required")
 {
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v1",
+      "schema":"noveltea.shader-materials.v2",
       "shaders":{
         "fragment_only":{
           "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/fragment_only.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},

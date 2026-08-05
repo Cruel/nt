@@ -10,7 +10,7 @@
 
 namespace noveltea {
 
-inline constexpr std::string_view shader_material_schema_v1 = "noveltea.shader-materials.v1";
+inline constexpr std::string_view shader_material_schema_v2 = "noveltea.shader-materials.v2";
 
 class MaterialId {
 public:

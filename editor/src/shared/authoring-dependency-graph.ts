@@ -249,7 +249,7 @@ export function recordNodeKey(
 export function nestedNodeKey(
   ownerCollection: AuthoringCollectionKey,
   ownerId: string,
-  family: 'room-placement' | 'room-exit',
+  family: 'room-placement' | 'room-exit' | 'room-hotspot' | 'interactable-hotspot',
   id: string,
 ): AuthoringDependencyNodeKey {
   return Object.freeze({ kind: 'nested', ownerCollection, ownerId, family, id });
@@ -718,6 +718,16 @@ function semanticEdgeOptions(
       ['reference-integrity', 'tooling-reference', 'runtime-only'],
     ],
     [
+      /\/data\/(?:hotspots\/\d+|presentation\/hotspots\/(?:hotspot|hotspots\/\d+))\/activation\/verb\/\$ref$/,
+      'hotspot-activation-verb',
+      ['reference-integrity', 'tooling-reference', 'runtime-only'],
+    ],
+    [
+      /\/data\/(?:hotspots\/\d+|presentation\/hotspots\/(?:hotspot|hotspots\/\d+))\/highlight\/material\/\$ref$/,
+      'hotspot-material',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
       /\/data\/poses\/[^/]+\/sprite\/\$ref$/,
       'character-pose-sprite',
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
@@ -1019,6 +1029,58 @@ function scanStructuralReferences(
     );
   }
 
+  if (
+    value.kind === 'room-hotspot' &&
+    isRecord(value.room) &&
+    isReferenceTarget(value.room.$ref) &&
+    typeof value.hotspotId === 'string'
+  ) {
+    edges.push(
+      structuralEdge(
+        source,
+        nestedNodeKey('rooms', value.room.$ref.id, 'room-hotspot', value.hotspotId),
+        path,
+        `/rooms/${escapeJsonPointerSegment(value.room.$ref.id)}/data/hotspots`,
+        {
+          role: 'hotspot-context',
+          facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
+          repair: {
+            kind: 'blocked',
+            reason: 'Exact hotspot contexts require a valid hotspot replacement.',
+          },
+        },
+      ),
+    );
+  }
+  if (
+    value.kind === 'interactable-hotspot' &&
+    isRecord(value.interactable) &&
+    isReferenceTarget(value.interactable.$ref) &&
+    typeof value.hotspotId === 'string'
+  ) {
+    edges.push(
+      structuralEdge(
+        source,
+        nestedNodeKey(
+          'interactables',
+          value.interactable.$ref.id,
+          'interactable-hotspot',
+          value.hotspotId,
+        ),
+        path,
+        `/interactables/${escapeJsonPointerSegment(value.interactable.$ref.id)}/data/presentation/hotspots`,
+        {
+          role: 'hotspot-context',
+          facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
+          repair: {
+            kind: 'blocked',
+            reason: 'Exact hotspot contexts require a valid hotspot replacement.',
+          },
+        },
+      ),
+    );
+  }
+
   if (isReferenceTarget(value.$ref)) {
     const target = recordNodeKey(value.$ref.collection, value.$ref.id);
     edges.push(
@@ -1191,6 +1253,119 @@ function nestedRoomNodesAndEdges(
         repair: { kind: 'blocked', reason: 'Room exit is owned by its Room.' },
       }),
     );
+  });
+  tolerantObjectArray(record.data, 'hotspots').forEach((hotspot, index) => {
+    if (typeof hotspot.id !== 'string') return;
+    const key = nestedNodeKey('rooms', id, 'room-hotspot', hotspot.id);
+    const path = `${owningPath}/data/hotspots/${index}` as JsonPointer;
+    nodes.push({
+      key,
+      keyText: serializeAuthoringDependencyNodeKey(key),
+      owningPath: path,
+      label: typeof hotspot.label === 'string' ? hotspot.label : hotspot.id,
+    });
+    edges.push(
+      structuralEdge(source, key, path, path, {
+        role: 'explicit-ref',
+        facets: ['runtime-only', 'tooling-reference', 'preview-visual'],
+        repair: { kind: 'blocked', reason: 'Room hotspot is owned by its Room.' },
+      }),
+    );
+    if (
+      isRecord(hotspot.activation) &&
+      hotspot.activation.kind === 'exit' &&
+      typeof hotspot.activation.exitId === 'string'
+    ) {
+      edges.push(
+        structuralEdge(
+          key,
+          nestedNodeKey('rooms', id, 'room-exit', hotspot.activation.exitId),
+          `${path}/activation/exitId`,
+          `${owningPath}/data/exits`,
+          {
+            role: 'hotspot-exit',
+            facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
+            repair: {
+              kind: 'blocked',
+              reason: 'Room hotspot exit activation requires an existing exit.',
+            },
+          },
+        ),
+      );
+    }
+  });
+  return { nodes, edges };
+}
+
+function nestedInteractableNodesAndEdges(
+  id: string,
+  record: AuthoringRecordBase,
+  source: AuthoringDependencyNodeKey,
+  owningPath: JsonPointer,
+): { nodes: AuthoringDependencyNode[]; edges: AuthoringDependencyEdge[] } {
+  const nodes: AuthoringDependencyNode[] = [];
+  const edges: AuthoringDependencyEdge[] = [];
+  if (
+    !isRecord(record.data) ||
+    !isRecord(record.data.presentation) ||
+    !isRecord(record.data.presentation.hotspots)
+  )
+    return { nodes, edges };
+  const definition = record.data.presentation.hotspots;
+  const sprite = record.data.presentation.sprite;
+  const spriteId =
+    isRecord(sprite) &&
+    isRecord(sprite.$ref) &&
+    sprite.$ref.collection === 'assets' &&
+    typeof sprite.$ref.id === 'string'
+      ? sprite.$ref.id
+      : null;
+  const hotspots =
+    definition.kind === 'sprite-alpha' && isRecord(definition.hotspot)
+      ? [definition.hotspot]
+      : definition.kind === 'custom' && Array.isArray(definition.hotspots)
+        ? definition.hotspots.filter(isRecord)
+        : [];
+  hotspots.forEach((hotspot, index) => {
+    if (typeof hotspot.id !== 'string') return;
+    const key = nestedNodeKey('interactables', id, 'interactable-hotspot', hotspot.id);
+    const path = (
+      definition.kind === 'sprite-alpha'
+        ? `${owningPath}/data/presentation/hotspots/hotspot`
+        : `${owningPath}/data/presentation/hotspots/hotspots/${index}`
+    ) as JsonPointer;
+    nodes.push({
+      key,
+      keyText: serializeAuthoringDependencyNodeKey(key),
+      owningPath: path,
+      label: typeof hotspot.label === 'string' ? hotspot.label : hotspot.id,
+    });
+    edges.push(
+      structuralEdge(source, key, path, path, {
+        role: 'explicit-ref',
+        facets: ['runtime-only', 'tooling-reference', 'preview-visual'],
+        repair: { kind: 'blocked', reason: 'Interactable hotspot is owned by its Interactable.' },
+      }),
+    );
+    if (spriteId) {
+      edges.push(
+        structuralEdge(
+          key,
+          recordNodeKey('assets', spriteId),
+          `${owningPath}/data/presentation/sprite/$ref`,
+          `/assets/${escapeJsonPointerSegment(spriteId)}`,
+          {
+            role: 'hotspot-source-image',
+            facets: ['reference-integrity', 'tooling-reference', 'runtime-only', 'preview-visual'],
+            repair: {
+              kind: 'replacement-required',
+              path: `${owningPath}/data/presentation/sprite` as JsonPointer,
+              collection: 'assets',
+            },
+          },
+        ),
+      );
+    }
   });
   return { nodes, edges };
 }
@@ -1367,7 +1542,9 @@ function recordContribution(
   const nested =
     collection === 'rooms'
       ? nestedRoomNodesAndEdges(id, record, source, owningPath)
-      : { nodes: [], edges: [] };
+      : collection === 'interactables'
+        ? nestedInteractableNodesAndEdges(id, record, source, owningPath)
+        : { nodes: [], edges: [] };
   if (record.extends) {
     edges.push(
       structuralEdge(
@@ -2196,7 +2373,7 @@ export function findNestedAuthoringDependencyTarget(
   graph: AuthoringDependencyGraph,
   ownerCollection: AuthoringCollectionKey,
   ownerId: string,
-  family: 'room-placement' | 'room-exit',
+  family: 'room-placement' | 'room-exit' | 'room-hotspot' | 'interactable-hotspot',
   id: string,
 ): AuthoringDependencyNode | undefined {
   return graph.nodesByKey.get(

@@ -83,6 +83,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/fonts/main.ttf' },
       aliases: [],
       extension: '.ttf',
+      imageMetadata: null,
     },
   };
   next.assets.logo = {
@@ -93,6 +94,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],
       extension: '.png',
+      imageMetadata: { width: 1024, height: 1024, hasAlpha: true, orientation: 1 },
     },
   };
   return next;

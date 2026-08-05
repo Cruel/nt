@@ -4,6 +4,12 @@ import { assetRefSchema, materialRefSchema } from './authoring-flow';
 import { parseAssetData } from './authoring-assets';
 import { parseRoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import {
+  defaultHotspotBehavior,
+  hotspotCommonShape,
+  rectHotspotShapeSchema,
+  verbHotspotActivationSchema,
+} from './authoring-hotspots';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -14,12 +20,30 @@ export const interactableInitialLocationSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('nowhere') }),
   strict({ kind: z.literal('room-placement'), placement: roomPlacementRefSchema }),
 ]);
+export const interactableHotspotBehaviorSchema = strict({
+  ...hotspotCommonShape,
+  activation: verbHotspotActivationSchema,
+});
+export const interactableHotspotsSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('sprite-alpha'), hotspot: interactableHotspotBehaviorSchema }),
+  strict({
+    kind: z.literal('custom'),
+    hotspots: z.array(
+      strict({
+        ...hotspotCommonShape,
+        activation: verbHotspotActivationSchema,
+        shape: rectHotspotShapeSchema,
+      }),
+    ),
+  }),
+]);
 export const interactableDataSchema = strict({
   kind: z.literal('interactable'),
   displayName: z.string(),
   presentation: strict({
     sprite: interactableAssetRefSchema.nullable(),
     material: interactableMaterialRefSchema.nullable(),
+    hotspots: interactableHotspotsSchema,
   }),
   initialState: strict({
     location: interactableInitialLocationSchema,
@@ -29,17 +53,26 @@ export const interactableDataSchema = strict({
 });
 export type InteractableData = z.infer<typeof interactableDataSchema>;
 export type InteractableInitialLocation = z.infer<typeof interactableInitialLocationSchema>;
+export type InteractableHotspots = z.infer<typeof interactableHotspotsSchema>;
 export interface InteractableSchemaDiagnostic {
   severity: 'error' | 'warning' | 'info';
   path: string;
   message: string;
   category?: string;
+  code?: string;
 }
 const diagnostic = (
   path: string,
   message: string,
   severity: InteractableSchemaDiagnostic['severity'] = 'error',
-): InteractableSchemaDiagnostic => ({ path, message, severity, category: 'Interactables' });
+  code?: string,
+): InteractableSchemaDiagnostic => ({
+  path,
+  message,
+  severity,
+  category: 'Interactables',
+  ...(code ? { code } : {}),
+});
 export function parseInteractableData(value: unknown): InteractableData | null {
   const parsed = interactableDataSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
@@ -48,7 +81,11 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
   return {
     kind: 'interactable',
     displayName: label,
-    presentation: { sprite: null, material: null },
+    presentation: {
+      sprite: null,
+      material: null,
+      hotspots: { kind: 'sprite-alpha', hotspot: defaultHotspotBehavior(label) },
+    },
     initialState: { location: { kind: 'nowhere' }, enabled: true, visible: true },
   };
 }

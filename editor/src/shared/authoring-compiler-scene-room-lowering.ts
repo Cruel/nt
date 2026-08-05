@@ -2,7 +2,7 @@ import type {
   CompiledCondition,
   CompiledEffect,
   CompiledFlowTarget,
-  CompiledProjectWireV2,
+  CompiledProjectWireV3,
   CompiledText,
   SceneProgram,
 } from './project-schema/compiled-project';
@@ -27,7 +27,7 @@ export interface ProgramLoweringDiagnostic {
   message: string;
 }
 
-type WireDefinitions = CompiledProjectWireV2['definitions'];
+type WireDefinitions = CompiledProjectWireV3['definitions'];
 
 /** Non-publishable Scene/Room draft. Dialogue and Interaction programs are lowered separately. */
 export interface CompiledProjectSceneRoomDraft extends Omit<

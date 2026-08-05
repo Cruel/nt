@@ -72,6 +72,7 @@ struct RoomDefinition {
     std::optional<RoomCompositionHook> compose;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;
+    std::vector<RoomHotspot> hotspots;
 };
 
 struct InteractableDefinition {

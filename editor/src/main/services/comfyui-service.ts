@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import sharp from 'sharp';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
@@ -676,6 +677,18 @@ async function writeGeneratedAsset(
       byteSize: bytes.byteLength,
       contentHash,
       importedAt: new Date().toISOString(),
+      imageMetadata: await sharp(bytes, { failOn: 'error' })
+        .metadata()
+        .then((metadata) => {
+          if (!metadata.width || !metadata.height)
+            throw new Error('Generated image dimensions could not be determined.');
+          return {
+            width: metadata.width,
+            height: metadata.height,
+            hasAlpha: metadata.hasAlpha,
+            orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+          };
+        }),
     },
   };
 }

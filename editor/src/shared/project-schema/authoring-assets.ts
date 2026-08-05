@@ -39,17 +39,54 @@ export const assetDataSchema = z
     importedAt: z.string().optional(),
     originalName: z.string().optional(),
     originalPath: z.string().optional(),
+    imageMetadata: z
+      .object({
+        width: z.number().int().positive().max(65535),
+        height: z.number().int().positive().max(65535),
+        hasAlpha: z.boolean(),
+        orientation: z.union([
+          z.literal(1),
+          z.literal(2),
+          z.literal(3),
+          z.literal(4),
+          z.literal(5),
+          z.literal(6),
+          z.literal(7),
+          z.literal(8),
+        ]),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     preview: z
       .object({
         thumbnailRevision: z.string().optional(),
-        width: z.number().positive().optional(),
-        height: z.number().positive().optional(),
         durationSeconds: z.number().nonnegative().optional(),
       })
       .strict()
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((asset, context) => {
+    if (asset.imageMetadata === undefined)
+      context.addIssue({
+        code: 'custom',
+        path: ['imageMetadata'],
+        message: 'Image metadata field is required.',
+      });
+    else if (asset.kind === 'image' && asset.imageMetadata === null)
+      context.addIssue({
+        code: 'custom',
+        path: ['imageMetadata'],
+        message: 'Image metadata is required.',
+      });
+    if (asset.kind !== 'image' && asset.imageMetadata !== null)
+      context.addIssue({
+        code: 'custom',
+        path: ['imageMetadata'],
+        message: 'Only image assets may have image metadata.',
+      });
+  });
 
 export type AssetData = z.infer<typeof assetDataSchema>;
 
@@ -165,6 +202,7 @@ export function assetDataFromImportMetadata(metadata: {
   originalName?: string;
   originalPath?: string;
   sampling?: ImageSampling;
+  imageMetadata?: AssetData['imageMetadata'];
 }): AssetData {
   return {
     kind: metadata.kind,
@@ -178,6 +216,7 @@ export function assetDataFromImportMetadata(metadata: {
     importedAt: metadata.importedAt,
     originalName: metadata.originalName,
     originalPath: metadata.originalPath,
+    imageMetadata: metadata.imageMetadata ?? null,
     preview: metadata.contentHash ? { thumbnailRevision: metadata.contentHash } : undefined,
   };
 }

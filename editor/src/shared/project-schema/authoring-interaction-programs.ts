@@ -10,6 +10,7 @@ import {
   textContentSchema,
 } from './authoring-flow';
 import { entityIdSchema } from './authoring-common';
+import { hotspotRefSchema } from './authoring-hotspots';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -57,6 +58,7 @@ export const interactionContextSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('active-room'), room: roomRefSchema }),
   strict({ kind: z.literal('room-placement'), placement: interactionRoomPlacementRefSchema }),
   strict({ kind: z.literal('predicate'), condition: conditionSchema }),
+  strict({ kind: z.literal('hotspot'), hotspot: hotspotRefSchema }),
 ]);
 
 export type InteractionRoomPlacementRef = z.infer<typeof interactionRoomPlacementRefSchema>;

@@ -66,6 +66,7 @@ function importedImage(): ImportedAssetMetadata {
     byteSize: 4,
     contentHash: `sha256:${'0'.repeat(64)}`,
     importedAt: '2026-07-19T00:00:00.000Z',
+    imageMetadata: { width: 256, height: 256, hasAlpha: true, orientation: 1 },
   };
 }
 

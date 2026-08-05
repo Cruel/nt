@@ -38,6 +38,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],
       extension: '.png',
+      imageMetadata: { width: 512, height: 512, hasAlpha: true, orientation: 1 },
     },
   };
   return next;
@@ -311,6 +312,7 @@ describe('ImageGenerationEditor', () => {
           byteSize: 4,
           contentHash: 'sha256:mock',
           importedAt: 'now',
+          imageMetadata: { width: 512, height: 512, hasAlpha: true, orientation: 1 },
         },
         promptId: 'prompt-1',
         workflowId: 'flux2-klein-text-to-image',
@@ -346,6 +348,7 @@ describe('ImageGenerationEditor', () => {
           byteSize: 4,
           contentHash: 'sha256:mock',
           importedAt: 'now',
+          imageMetadata: { width: 512, height: 512, hasAlpha: true, orientation: 1 },
         },
         promptId: 'prompt-1',
         workflowId: 'flux2-klein-text-to-image',

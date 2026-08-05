@@ -438,6 +438,7 @@ function sourceProject(
       aliases: [],
       extension: '.lua',
       contentHash: hash,
+      imageMetadata: null,
     },
   };
   for (const id of ['one', 'two']) {

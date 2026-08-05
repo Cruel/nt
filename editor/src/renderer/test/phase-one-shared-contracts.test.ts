@@ -371,7 +371,7 @@ describe('Phase 1 shared contracts', () => {
         compositionDraftInteractableIds: [],
       },
       queryState: { variables: [], properties: [], definitions: [], interactableLocations: [] },
-      shaderMaterials: { schema: 'noveltea.shader-materials.v1', shaders: {}, materials: {} },
+      shaderMaterials: { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} },
       world: {
         background: { assetId: null, materialId: null, fit: 'cover', color: null },
         placements: [],

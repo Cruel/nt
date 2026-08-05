@@ -15,6 +15,7 @@ import { validateMaterialData } from './authoring-materials';
 import { validateMapData } from './authoring-maps';
 import { isPropertyValueCompatible, type PropertyOwnerKind } from './authoring-properties';
 import { validateRoomData } from './authoring-rooms';
+import { validateHotspotAuthoringSemantics } from './authoring-hotspot-validation';
 import { validateTypedProjectSettings } from './authoring-project-settings';
 import { validateSceneData } from './authoring-scenes';
 import { validateScriptModuleData } from './authoring-script-modules';
@@ -337,6 +338,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
     diagnostics.push(...validateRoomData(project, id, record));
   for (const [id, record] of Object.entries(project.interactables))
     diagnostics.push(...validateInteractableData(project, id, record));
+  diagnostics.push(...validateHotspotAuthoringSemantics(project));
   for (const [id, record] of Object.entries(project.verbs)) {
     const data = parseVerbData(record.data);
     if (!data)

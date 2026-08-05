@@ -29,6 +29,7 @@ function roomProject() {
       kind: 'image',
       projectRelativePath: 'assets/images/foyer.png',
       extension: '.png',
+      imageMetadata: { width: 1920, height: 1080, hasAlpha: true, orientation: 1 },
     }),
   };
   const foyer = defaultRoomData('Foyer');
@@ -60,7 +61,7 @@ describe('compiled runtime export builder', () => {
     expect(result.ok).toBe(true);
     expect(result.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project',
-      schemaVersion: 2,
+      schemaVersion: 3,
       project: { name: 'Export Demo', version: '2.0.0', author: 'NovelTea' },
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
       definitions: {

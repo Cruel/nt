@@ -580,7 +580,11 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
                         ...data,
                         samplers: [
                           ...data.samplers,
-                          { name: `s_texture_${data.samplers.length + 1}`, type: 'texture2d' },
+                          {
+                            name: `s_texture_${data.samplers.length + 1}`,
+                            type: 'texture2d',
+                            binding: null,
+                          },
                         ],
                       },
                       'Add shader sampler',

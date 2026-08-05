@@ -95,7 +95,7 @@ noveltea::ShaderMaterialProject make_source_project(const std::filesystem::path&
     write_text(project_root / "shaders" / "sample.fs.sc", "// fragment\n");
 
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v1",
+      "schema":"noveltea.shader-materials.v2",
       "shaders":{
         "sample_effect":{
           "stages":{
@@ -247,7 +247,7 @@ TEST_CASE("shader compiler compiles source_text through generated temporary sour
     const auto temp = unique_temp_dir("source-text");
     const auto options = make_options(temp);
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v1",
+      "schema":"noveltea.shader-materials.v2",
       "shaders":{
         "inline_effect":{
           "stages":{"fragment":{"source_text":"// inline fragment\n"}},
@@ -300,7 +300,7 @@ TEST_CASE("shader compiler reports missing source and missing tool diagnostics")
     auto options = make_options(temp);
     options.shaderc = temp / "missing-shaderc";
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
-      "schema":"noveltea.shader-materials.v1",
+      "schema":"noveltea.shader-materials.v2",
       "shaders":{
         "missing_source":{"stages":{"fragment":{"source":"project:/shaders/missing.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
       },

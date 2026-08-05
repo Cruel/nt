@@ -34,6 +34,7 @@ enum class ShaderRole {
     RmlUiDecorator,
     RmlUiFilter,
     Postprocess,
+    HotspotOverlay,
 };
 
 enum class ShaderStage {
@@ -79,6 +80,16 @@ enum class ShaderInputSemantic {
     RmlUiContextLogicalToUiRasterScale,
     RmlUiMediaQueryResolution,
     RmlUiViewportPixelDimensions,
+    EngineHotspotBounds,
+    EngineHotspotHovered,
+    EngineHotspotPressed,
+    EngineHotspotImageDimensions,
+    EngineHotspotMaskDimensions,
+};
+
+enum class ShaderSamplerSemantic {
+    EngineHotspotImage,
+    EngineHotspotMask,
 };
 
 struct ShaderStandardInputs {
@@ -146,6 +157,7 @@ struct ShaderUniformDeclaration {
 struct ShaderSamplerDeclaration {
     std::string name;
     ShaderSamplerType type = ShaderSamplerType::Texture2D;
+    std::optional<ShaderSamplerSemantic> binding;
 };
 
 struct ShaderRoleBinding {
@@ -169,5 +181,6 @@ struct ShaderDefinition {
 [[nodiscard]] std::string_view to_string(ShaderUniformType type) noexcept;
 [[nodiscard]] std::string_view to_string(ShaderSamplerType type) noexcept;
 [[nodiscard]] std::string_view to_string(ShaderInputSemantic semantic) noexcept;
+[[nodiscard]] std::string_view to_string(ShaderSamplerSemantic semantic) noexcept;
 
 } // namespace noveltea

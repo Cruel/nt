@@ -97,6 +97,7 @@ describe('authoring characters schema', () => {
         importedAt: '2026-01-01T00:00:00.000Z',
         originalName: 'theme.mp3',
         originalPath: '/tmp/theme.mp3',
+        imageMetadata: null,
       }),
     };
     project.materials.glow = { id: 'glow', label: 'Glow', data: defaultMaterialData('Glow') };
@@ -144,6 +145,7 @@ describe('authoring characters schema', () => {
         importedAt: '2026-01-01T00:00:00.000Z',
         originalName: 'iris.png',
         originalPath: '/tmp/iris.png',
+        imageMetadata: { width: 640, height: 960, hasAlpha: true, orientation: 1 },
       }),
     };
     const data = defaultCharacterData('Iris');

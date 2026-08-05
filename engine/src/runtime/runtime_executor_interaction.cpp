@@ -202,11 +202,13 @@ RuntimeExecutor::interact(core::VerbId verb_id,
                                                           context.placement.placement_id;
                                            });
                             });
-                    } else {
+                    } else if constexpr (std::is_same_v<
+                                             T, core::compiled::PredicateInteractionContext>) {
                         auto evaluated = evaluate(context.condition);
                         const auto* value = evaluated.value_if();
                         return value != nullptr && *value;
-                    }
+                    } else
+                        return false;
                 },
                 rule.context);
             if (!context_matches)

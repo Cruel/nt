@@ -13,6 +13,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/images/sarah-portrait.png' },
       aliases: ['sarah_portrait'],
       extension: '.png',
+      imageMetadata: { width: 640, height: 960, hasAlpha: true, orientation: 1 },
     },
   };
   next.assets.theme = {
@@ -23,6 +24,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/audio/main-theme.ogg' },
       aliases: [],
       extension: '.ogg',
+      imageMetadata: null,
     },
   };
   next.rooms.classroom = {

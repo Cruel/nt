@@ -78,7 +78,7 @@ describe('decodeAuthoringProject', () => {
 
   it('keeps unknown schema versions and structural discriminants fatal', () => {
     const project = stripEditorProjectState(createAuthoringProject()) as Record<string, unknown>;
-    expect(decodeAuthoringProject({ ...project, schemaVersion: 3 }).project).toBeNull();
+    expect(decodeAuthoringProject({ ...project, schemaVersion: 4 }).project).toBeNull();
     expect(
       decodeAuthoringProject({
         ...project,

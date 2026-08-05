@@ -307,7 +307,7 @@ make_loose_project_load_input(nlohmann::json gameplay,
         manifest["entries"] = std::move(entries);
         manifest["shader_variants"] = std::move(variants);
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
-                                        {"schema", "noveltea.shader-materials.v1"},
+                                        {"schema", "noveltea.shader-materials.v2"},
                                         {"sources_stripped", true}};
         typed_shader_materials = std::move(*decoded_materials.value_if());
     }

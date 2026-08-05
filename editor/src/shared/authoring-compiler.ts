@@ -4,10 +4,10 @@ import {
 } from './project-schema/authoring-collections';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import {
-  compiledProjectWireV2Schema,
-  serializeCompiledProjectWireV2,
+  compiledProjectWireV3Schema,
+  serializeCompiledProjectWireV3,
   type CompiledDiagnostic,
-  type CompiledProjectWireV2,
+  type CompiledProjectWireV3,
 } from './project-schema/compiled-project';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
@@ -110,7 +110,7 @@ interface CompilerContext {
 
 interface LoweringResult {
   diagnostics: CompiledDiagnostic[];
-  project?: CompiledProjectWireV2;
+  project?: CompiledProjectWireV3;
 }
 
 interface ResourceReferenceClosure {
@@ -120,7 +120,7 @@ interface ResourceReferenceClosure {
   scripts: ReadonlySet<string>;
 }
 
-function collectResourceReferenceClosure(project: CompiledProjectWireV2): ResourceReferenceClosure {
+function collectResourceReferenceClosure(project: CompiledProjectWireV3): ResourceReferenceClosure {
   const assets = new Set<string>();
   const layouts = new Set<string>();
   const materials = new Set<string>();
@@ -144,7 +144,7 @@ function collectResourceReferenceClosure(project: CompiledProjectWireV2): Resour
   return { assets, layouts, materials, scripts };
 }
 
-function validateResourceClosure(project: CompiledProjectWireV2): CompiledDiagnostic[] {
+function validateResourceClosure(project: CompiledProjectWireV3): CompiledDiagnostic[] {
   const closure = collectResourceReferenceClosure(project);
   const availableAssets = new Set(project.resources.assets.map((resource) => resource.id));
   const availableLayouts = new Set(project.resources.layouts.map((resource) => resource.id));
@@ -627,7 +627,7 @@ function finish(context: CompilerContext): CompileFailure {
  * The one public authoring-to-gameplay compiler boundary. It is pure: input is
  * parsed into a normalized copy and no project/editor state is mutated.
  */
-export function compileAuthoringProject(project: unknown): CompileResult<CompiledProjectWireV2> {
+export function compileAuthoringProject(project: unknown): CompileResult<CompiledProjectWireV3> {
   const context: CompilerContext = { diagnostics: [], stages: [] };
   normalizeAuthoringProject(project, context);
   if (!context.normalizedProject) {
@@ -686,7 +686,7 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
   // Lowerers sort definition/resource tables by stable ID and preserve every
   // semantically ordered authored array. Assembly publishes that complete value.
   addStage(context, 'assemble', 'completed');
-  const validated = compiledProjectWireV2Schema.safeParse(lowered.project);
+  const validated = compiledProjectWireV3Schema.safeParse(lowered.project);
   if (!validated.success) {
     validated.error.issues.forEach((issue) =>
       context.diagnostics.push(
@@ -713,7 +713,7 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
   return {
     ok: true,
     project: validated.data,
-    canonicalJson: serializeCompiledProjectWireV2(validated.data),
+    canonicalJson: serializeCompiledProjectWireV3(validated.data),
     diagnostics,
     stages: context.stages,
   };

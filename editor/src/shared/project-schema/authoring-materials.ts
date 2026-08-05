@@ -279,7 +279,9 @@ export function validateMaterialData(
       );
   });
 
-  const samplerDeclarations = new Set((shader?.samplers ?? []).map((sampler) => sampler.name));
+  const samplerDeclarations = new Map(
+    (shader?.samplers ?? []).map((sampler) => [sampler.name, sampler]),
+  );
   const textures = new Set<string>();
   data.textures.forEach((texture, index) => {
     const path = `${base}/textures/${index}`;
@@ -288,15 +290,32 @@ export function validateMaterialData(
         diagnostic(`${path}/sampler`, `Duplicate texture slot '${texture.sampler}'.`),
       );
     textures.add(texture.sampler);
-    if (!samplerDeclarations.has(texture.sampler))
+    const declaration = samplerDeclarations.get(texture.sampler);
+    if (!declaration)
       diagnostics.push(
         diagnostic(
           `${path}/sampler`,
           `Material assigns undeclared shader sampler '${texture.sampler}'.`,
         ),
       );
+    else if (declaration.binding !== null)
+      diagnostics.push(
+        diagnostic(
+          `${path}/sampler`,
+          `Material cannot assign runtime-bound sampler '${declaration.binding}'.`,
+        ),
+      );
     validateTextureSource(project, texture.source, `${path}/source`, diagnostics);
   });
+  for (const sampler of samplerDeclarations.values()) {
+    if (sampler.binding === null && !textures.has(sampler.name))
+      diagnostics.push(
+        diagnostic(
+          `${base}/textures`,
+          `Material must assign unbound shader sampler '${sampler.name}'.`,
+        ),
+      );
+  }
   return diagnostics;
 }
 

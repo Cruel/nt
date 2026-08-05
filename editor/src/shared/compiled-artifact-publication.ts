@@ -1,8 +1,8 @@
 import { compileAuthoringProject, type CompileResult } from './authoring-compiler';
-import type { CompiledProjectWireV2 } from './project-schema/compiled-project';
+import type { CompiledProjectWireV3 } from './project-schema/compiled-project';
 
 export type CompiledArtifactPublication = Readonly<{
-  project: CompiledProjectWireV2;
+  project: CompiledProjectWireV3;
   gameplayJson: string;
 }>;
 

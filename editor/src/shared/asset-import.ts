@@ -1,4 +1,4 @@
-import type { AssetKind } from './project-schema/authoring-assets';
+import type { AssetData, AssetKind } from './project-schema/authoring-assets';
 
 export interface ImportedAssetMetadata {
   originalPath: string;
@@ -10,6 +10,7 @@ export interface ImportedAssetMetadata {
   byteSize: number;
   contentHash: string;
   importedAt: string;
+  imageMetadata?: AssetData['imageMetadata'];
 }
 
 export interface AssetImportDiagnostic {

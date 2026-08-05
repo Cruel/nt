@@ -15,6 +15,7 @@ import {
   parseShaderData,
   shaderCompiledOutputIsFresh,
   shaderRoleValues,
+  shaderSamplerBindingValues,
   shaderUniformTypeValues,
   shaderUniformValueSchema,
   type ShaderData,
@@ -22,7 +23,7 @@ import {
   type ShaderUniformData,
 } from './authoring-shaders';
 
-export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials.v1' as const;
+export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials.v2' as const;
 export const SHADER_PREVIEW_SCHEMA = 'noveltea.shader-preview.v1' as const;
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -62,7 +63,13 @@ export const runtimeShaderDefinitionSchema = strict({
     fragment: runtimeShaderStageSchema.optional(),
   }),
   uniforms: z.record(z.string().min(1), runtimeShaderUniformSchema),
-  samplers: z.record(z.string().min(1), strict({ type: z.literal('texture2d') })),
+  samplers: z.record(
+    z.string().min(1),
+    strict({
+      type: z.literal('texture2d'),
+      binding: z.enum(shaderSamplerBindingValues).nullable(),
+    }),
+  ),
   roles: z.array(z.enum(shaderRoleValues)),
   role_bindings: z.record(z.string(), runtimeShaderRoleBindingSchema),
 }).superRefine((shader, context) => {
@@ -194,7 +201,8 @@ export function buildShaderDefinition(
   for (const uniform of data.uniforms) uniforms[uniform.name] = uniformToRuntime(uniform);
 
   const samplers: Record<string, unknown> = {};
-  for (const sampler of data.samplers) samplers[sampler.name] = { type: sampler.type };
+  for (const sampler of data.samplers)
+    samplers[sampler.name] = { type: sampler.type, binding: sampler.binding };
 
   const roleBindings = Object.fromEntries(
     data.roleBindings.map((binding) => [

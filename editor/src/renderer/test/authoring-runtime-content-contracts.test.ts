@@ -23,12 +23,14 @@ describe('runtime-content authoring contracts', () => {
       target: { $ref: { collection: 'rooms', id: 'garden' } },
       condition: { kind: 'always' },
     });
+    const key = defaultInteractableData('Key');
+    key.presentation.hotspots = { kind: 'custom', hotspots: [] };
     project.interactables.key = {
       id: 'key',
       label: 'Key',
       extends: null,
       properties: {},
-      data: defaultInteractableData('Key'),
+      data: key,
     };
     const verb = defaultVerbData('Use');
     verb.arity = 1;

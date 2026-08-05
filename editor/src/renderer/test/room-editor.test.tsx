@@ -71,6 +71,7 @@ describe('RoomEditor', () => {
         source: { type: 'project-file', path: 'assets/images/foyer.png' },
         aliases: [],
         extension: '.png',
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
       },
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

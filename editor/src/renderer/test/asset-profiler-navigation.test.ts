@@ -14,6 +14,7 @@ describe('asset profiler navigation', () => {
       data: assetDataFromImportMetadata({
         kind: 'image',
         projectRelativePath: 'assets/images/hero.png',
+        imageMetadata: { width: 512, height: 1024, hasAlpha: true, orientation: 1 },
       }),
     };
     project.assets['body-font'] = {
@@ -22,6 +23,7 @@ describe('asset profiler navigation', () => {
       data: assetDataFromImportMetadata({
         kind: 'font',
         projectRelativePath: 'assets/fonts/body.ttf',
+        imageMetadata: null,
       }),
     };
     project.materials.panel = {
@@ -46,6 +48,7 @@ describe('asset profiler navigation', () => {
     const image = assetDataFromImportMetadata({
       kind: 'image',
       projectRelativePath: 'assets/images/shared.png',
+      imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
     });
     project.assets.first = { id: 'first', label: 'First', data: image };
     project.assets.second = { id: 'second', label: 'Second', data: image };

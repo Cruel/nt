@@ -5,10 +5,10 @@ import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 /**
  * The sole gameplay JSON contract for the native decoder. This is
- * deliberately independent of the editable AuthoringProject V2 shape.
+ * deliberately independent of the editable AuthoringProject V3 shape.
  */
 export const COMPILED_PROJECT_SCHEMA = 'noveltea.compiled.project' as const;
-export const COMPILED_PROJECT_SCHEMA_VERSION = 2 as const;
+export const COMPILED_PROJECT_SCHEMA_VERSION = 3 as const;
 
 const strict = <Shape extends z.ZodRawShape>(shape: Shape) => z.object(shape).strict();
 const id = entityIdSchema;
@@ -131,6 +131,19 @@ const normalizedRectSchema = strict({
   width: finiteNumber.positive().max(1),
   x: finiteNumber.min(0).max(1),
   y: finiteNumber.min(0).max(1),
+}).superRefine((bounds, context) => {
+  if (bounds.x + bounds.width > 1)
+    context.addIssue({
+      code: 'custom',
+      path: ['width'],
+      message: 'Rectangle exceeds image width.',
+    });
+  if (bounds.y + bounds.height > 1)
+    context.addIssue({
+      code: 'custom',
+      path: ['height'],
+      message: 'Rectangle exceeds image height.',
+    });
 });
 const layoutScaleInheritanceSchema = z.enum(['inherit', 'ignore']);
 const layoutScalePolicySchema = strict({
@@ -142,6 +155,40 @@ const layoutScaleOverridesSchema = strict({
   text: layoutScaleInheritanceSchema.optional(),
 });
 const roomPlacementReferenceSchema = strict({ placementId: id, room: roomReferenceSchema });
+const hotspotHighlightSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('default') }),
+  strict({ kind: z.literal('material'), material: materialReferenceSchema }),
+  strict({ kind: z.literal('none') }),
+]);
+const verbHotspotActivationSchema = strict({
+  kind: z.literal('verb'),
+  verb: verbReferenceSchema.nullable(),
+});
+const roomHotspotActivationSchema = z.discriminatedUnion('kind', [
+  verbHotspotActivationSchema,
+  strict({ kind: z.literal('exit'), exitId: id }),
+]);
+const hotspotCommonShape = {
+  id,
+  label: z.string().min(1),
+  condition: compiledConditionSchema,
+  inputOrder: z.number().int(),
+  highlight: hotspotHighlightSchema,
+};
+const roomHotspotRefSchema = strict({
+  kind: z.literal('room-hotspot'),
+  room: roomReferenceSchema,
+  hotspotId: id,
+});
+const interactableHotspotRefSchema = strict({
+  kind: z.literal('interactable-hotspot'),
+  interactable: interactableReferenceSchema,
+  hotspotId: id,
+});
+export const compiledHotspotRefSchema = z.discriminatedUnion('kind', [
+  roomHotspotRefSchema,
+  interactableHotspotRefSchema,
+]);
 
 const characterPoseSchema = strict({
   anchor: vector2Schema,
@@ -294,6 +341,13 @@ const roomDefinitionSchema = strict({
     .optional(),
   compose: strict({ script: scriptReferenceSchema }).nullable(),
   placements: z.array(roomPlacementSchema),
+  hotspots: z.array(
+    strict({
+      ...hotspotCommonShape,
+      shape: strict({ kind: z.literal('rect'), bounds: normalizedRectSchema }),
+      activation: roomHotspotActivationSchema,
+    }),
+  ),
 });
 
 const interactableLocationSchema = z.discriminatedUnion('kind', [
@@ -312,6 +366,22 @@ const interactableDefinitionSchema = strict({
   presentation: strict({
     material: materialReferenceSchema.nullable(),
     sprite: assetReferenceSchema.nullable(),
+    hotspots: z.discriminatedUnion('kind', [
+      strict({
+        kind: z.literal('sprite-alpha'),
+        hotspot: strict({ ...hotspotCommonShape, activation: verbHotspotActivationSchema }),
+      }),
+      strict({
+        kind: z.literal('custom'),
+        hotspots: z.array(
+          strict({
+            ...hotspotCommonShape,
+            activation: verbHotspotActivationSchema,
+            shape: strict({ kind: z.literal('rect'), bounds: normalizedRectSchema }),
+          }),
+        ),
+      }),
+    ]),
   }),
 });
 
@@ -349,6 +419,7 @@ const interactionContextSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('active-room'), room: roomReferenceSchema }),
   strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
   strict({ condition: compiledConditionSchema, kind: z.literal('predicate') }),
+  strict({ kind: z.literal('hotspot'), hotspot: compiledHotspotRefSchema }),
 ]);
 const interactionOperandSchema = z.discriminatedUnion('kind', [
   strict({
@@ -654,6 +725,8 @@ const assetResourceSchema = z.discriminatedUnion('kind', [
     kind: z.literal('image'),
     path: z.string().min(1),
     sampling: z.enum(imageSamplingValues),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
   }),
   strict({
     aliases: z.array(z.string().min(1)),
@@ -760,7 +833,7 @@ export const compiledDiagnosticSchema = strict({
   sortKey: strict({ code: z.string(), jsonPointer: z.string(), sourcePath: z.string() }),
 });
 
-export const compiledProjectWireV2Schema = strict({
+export const compiledProjectWireV3Schema = strict({
   definitions: strict({
     characters: z.array(characterDefinitionSchema),
     dialogues: z.array(dialogueDefinitionSchema),
@@ -854,10 +927,11 @@ export type InteractionProgram = z.infer<typeof interactionProgramSchema>;
 export type SceneProgram = z.infer<typeof sceneProgramSchema>;
 export type DialogueProgram = z.infer<typeof dialogueProgramSchema>;
 export type CompiledDiagnostic = z.infer<typeof compiledDiagnosticSchema>;
-export type CompiledProjectWireV2 = z.infer<typeof compiledProjectWireV2Schema>;
+export type CompiledHotspotRef = z.infer<typeof compiledHotspotRefSchema>;
+export type CompiledProjectWireV3 = z.infer<typeof compiledProjectWireV3Schema>;
 
-export function parseCompiledProjectWireV2(value: unknown): CompiledProjectWireV2 {
-  return compiledProjectWireV2Schema.parse(value);
+export function parseCompiledProjectWireV3(value: unknown): CompiledProjectWireV3 {
+  return compiledProjectWireV3Schema.parse(value);
 }
 
 function compareUnicodeCodePoints(left: string, right: string): number {
@@ -894,6 +968,6 @@ function canonicalizeJson(value: CanonicalJson): CanonicalJson {
  * normalizes negative zero, and deliberately preserves every array's order.
  * Compiler stages own definition sorting and authored-sequence preservation.
  */
-export function serializeCompiledProjectWireV2(value: unknown): string {
-  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV2(value)));
+export function serializeCompiledProjectWireV3(value: unknown): string {
+  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV3(value)));
 }

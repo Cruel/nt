@@ -118,6 +118,24 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'snnnosnnnnnnoooooonoooooonoonnnnnyonnnnnnyonsssssssssovsnnsssssssssnnsnoooooonsnoonooonnsssssssssovs' +
   'snoonoonnnnnnoyop';
 
+// Authoring V3 retires the V2 preview height/width leaves at legacy sorted positions 10 and 12.
+const ACTIVE_REVIEWED_FIELD_EFFECT_CODES =
+  REVIEWED_FIELD_EFFECT_CODES.slice(0, 10) +
+  REVIEWED_FIELD_EFFECT_CODES.slice(11, 12) +
+  REVIEWED_FIELD_EFFECT_CODES.slice(13);
+
+const PHASE_TWO_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
+  [/^\/assets\/\*\/data\/imageMetadata\//, OWNER],
+  [/^\/interactables\/\*\/data\/presentation\/hotspots\//, OWNER],
+  [/^\/interactions\/\*\/data\/rules\/\*\/context\/hotspot\//, OWNER],
+  [/^\/rooms\/\*\/data\/hotspots\//, OWNER],
+  [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
+]);
+
+function phaseTwoFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
+  return PHASE_TWO_FIELD_EFFECTS.find(([pattern]) => pattern.test(path))?.[1];
+}
+
 function reviewedFieldEffect(
   code: string | undefined,
   path: JsonPointer,
@@ -158,20 +176,27 @@ function fnv1a(value: string): string {
 const schemaLeafPaths = new Set<JsonPointer>();
 collectSchemaLeafPaths(authoringProjectSchema, [], schemaLeafPaths);
 const sortedSchemaLeafPaths = [...schemaLeafPaths].sort();
-if (REVIEWED_FIELD_EFFECT_CODES.length !== sortedSchemaLeafPaths.length) {
+const phaseTwoLeafCount = sortedSchemaLeafPaths.filter((path) => phaseTwoFieldEffect(path)).length;
+if (
+  ACTIVE_REVIEWED_FIELD_EFFECT_CODES.length + phaseTwoLeafCount !==
+  sortedSchemaLeafPaths.length
+) {
   throw new Error(
-    `Authoring graph field effect declarations changed: expected ${REVIEWED_FIELD_EFFECT_CODES.length} schema leaves, received ${sortedSchemaLeafPaths.length}. Review every leaf and update the declaration sequence.`,
+    `Authoring graph field effect declarations changed: expected ${ACTIVE_REVIEWED_FIELD_EFFECT_CODES.length + phaseTwoLeafCount} schema leaves, received ${sortedSchemaLeafPaths.length}. Review every leaf and update the declaration sequence.`,
   );
 }
 
 export const AUTHORING_GRAPH_FIELD_METADATA: readonly AuthoringGraphFieldMetadata[] = Object.freeze(
-  sortedSchemaLeafPaths.map((path, index) =>
-    Object.freeze({
-      path,
-      effect: reviewedFieldEffect(REVIEWED_FIELD_EFFECT_CODES[index], path),
-      schemaRoot: schemaRootForPath(path),
-    }),
-  ),
+  (() => {
+    let reviewedIndex = 0;
+    return sortedSchemaLeafPaths.map((path) => {
+      const phaseTwoEffect = phaseTwoFieldEffect(path);
+      const effect =
+        phaseTwoEffect ??
+        reviewedFieldEffect(ACTIVE_REVIEWED_FIELD_EFFECT_CODES[reviewedIndex++], path);
+      return Object.freeze({ path, effect, schemaRoot: schemaRootForPath(path) });
+    });
+  })(),
 );
 
 export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =
@@ -194,25 +219,25 @@ export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string,
 // corresponding fingerprint in the same change. This intentionally has no generated fallback.
 export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =
   Object.freeze({
-    assets: '308ff406',
+    assets: 'e718127a',
     characters: '249ac48b',
     dialogues: 'e674338a',
     entrypoint: 'a61673d4',
-    interactables: '9b8092c2',
-    interactions: '88147a4a',
+    interactables: 'e9df40de',
+    interactions: '42041028',
     layouts: '87e0b859',
     localization: '3f6d0d11',
     maps: '67896f92',
     materials: '546711ca',
     project: 'da3be83d',
     properties: '1ff9b7f3',
-    rooms: 'd3845edc',
+    rooms: 'bb71e6a4',
     scenes: 'd05f7981',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
     settings: '88ac0f8d',
-    shaders: '12173ae0',
+    shaders: '94d3aa6e',
     startupHook: '4fa45604',
     tests: 'c4de6b91',
     variables: '9ac2af8d',

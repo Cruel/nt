@@ -474,7 +474,7 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
     if (options.shader_material_metadata) {
         manifest["shader_materials"] = nlohmann::json::object({
             {"entry", shader_materials_entry},
-            {"schema", "noveltea.shader-materials.v1"},
+            {"schema", "noveltea.shader-materials.v2"},
             {"sources_stripped", options.strip_shader_sources},
         });
     }

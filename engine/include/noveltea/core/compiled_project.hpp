@@ -93,6 +93,8 @@ struct AssetResource {
     std::string path;
     std::vector<std::string> aliases;
     std::optional<ImageSampling> sampling;
+    std::optional<std::uint32_t> width;
+    std::optional<std::uint32_t> height;
 };
 struct InlineLayoutSource {
     std::string text;
@@ -302,6 +304,61 @@ struct RoomExitRef {
     RoomExitId exit_id;
     auto operator<=>(const RoomExitRef&) const = default;
 };
+struct RoomHotspotRef {
+    RoomId room;
+    HotspotId hotspot_id;
+    auto operator<=>(const RoomHotspotRef&) const = default;
+};
+struct InteractableHotspotRef {
+    InteractableId interactable;
+    HotspotId hotspot_id;
+    auto operator<=>(const InteractableHotspotRef&) const = default;
+};
+using HotspotRef = std::variant<RoomHotspotRef, InteractableHotspotRef>;
+struct DefaultHotspotHighlight {};
+struct NoHotspotHighlight {};
+struct MaterialHotspotHighlight {
+    MaterialId material;
+};
+using HotspotHighlight =
+    std::variant<DefaultHotspotHighlight, MaterialHotspotHighlight, NoHotspotHighlight>;
+struct VerbHotspotActivation {
+    std::optional<VerbId> verb;
+};
+struct RoomExitHotspotActivation {
+    RoomExitId exit_id;
+};
+using RoomHotspotActivation = std::variant<VerbHotspotActivation, RoomExitHotspotActivation>;
+struct RectHotspotShape {
+    NormalizedRect bounds;
+};
+struct RoomHotspot {
+    HotspotId id;
+    std::string label;
+    Condition condition;
+    std::int32_t input_order;
+    HotspotHighlight highlight;
+    RectHotspotShape shape;
+    RoomHotspotActivation activation;
+};
+struct InteractableHotspotBehavior {
+    HotspotId id;
+    std::string label;
+    Condition condition;
+    std::int32_t input_order;
+    HotspotHighlight highlight;
+    VerbHotspotActivation activation;
+};
+struct InteractableCustomHotspot : InteractableHotspotBehavior {
+    RectHotspotShape shape;
+};
+struct SpriteAlphaHotspots {
+    InteractableHotspotBehavior hotspot;
+};
+struct CustomInteractableHotspots {
+    std::vector<InteractableCustomHotspot> hotspots;
+};
+using InteractableHotspots = std::variant<SpriteAlphaHotspots, CustomInteractableHotspots>;
 struct RoomPlacementPresentation {
     std::optional<TextContent> label;
     std::optional<LayoutId> layout;
@@ -403,6 +460,7 @@ struct RoomDefinition {
     std::optional<RoomCompositionHook> compose;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;
+    std::vector<RoomHotspot> hotspots;
 };
 
 struct InventoryLocation {};
@@ -416,6 +474,7 @@ struct InteractableInitialState {
 struct InteractablePresentation {
     std::optional<MaterialId> material;
     std::optional<AssetId> sprite;
+    InteractableHotspots hotspots;
 };
 struct InteractableDefinition {
     PropertyBearingDefinition<InteractableId> identity;
@@ -474,8 +533,12 @@ struct PlacementInteractionContext {
 struct PredicateInteractionContext {
     Condition condition;
 };
-using InteractionContext = std::variant<AnyInteractionContext, ActiveRoomInteractionContext,
-                                        PlacementInteractionContext, PredicateInteractionContext>;
+struct HotspotInteractionContext {
+    HotspotRef hotspot;
+};
+using InteractionContext =
+    std::variant<AnyInteractionContext, ActiveRoomInteractionContext, PlacementInteractionContext,
+                 PredicateInteractionContext, HotspotInteractionContext>;
 struct CharacterInteractionSubject {
     CharacterId character;
     bool operator==(const CharacterInteractionSubject&) const = default;

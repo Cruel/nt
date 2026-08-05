@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -330,10 +330,13 @@ export function SettingsPage({
   const [localActiveCategory, setLocalActiveCategory] =
     useState<EditorSettingsCategory>('appearance');
   const activeCategory = controlledActiveCategory ?? localActiveCategory;
-  const setActiveCategory = (category: EditorSettingsCategory) => {
-    setLocalActiveCategory(category);
-    onActiveCategoryChange?.(category);
-  };
+  const setActiveCategory = useCallback(
+    (category: EditorSettingsCategory) => {
+      setLocalActiveCategory(category);
+      onActiveCategoryChange?.(category);
+    },
+    [onActiveCategoryChange],
+  );
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const categories: SettingsCategory[] = [
     {
@@ -423,7 +426,7 @@ export function SettingsPage({
       if (category) setActiveCategory(category);
       return false;
     });
-  }, [tabId]);
+  }, [setActiveCategory, tabId]);
 
   useEffect(() => {
     let mounted = true;

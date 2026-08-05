@@ -14,6 +14,12 @@ vi.mock('electron', () => ({
 }));
 
 const roots: string[] = [];
+const pngBytes = Uint8Array.from(
+  Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lbMcWQAAAABJRU5ErkJggg==',
+    'base64',
+  ),
+);
 
 function projectFilePath() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-comfyui-generate-'));
@@ -175,7 +181,7 @@ function mockComfyUiFetch(capturedPrompts: unknown[]) {
       );
     }
     if (url.includes('/view')) {
-      return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
+      return new Response(pngBytes, { status: 200 });
     }
     return new Response('{}', { status: 404 });
   });
@@ -210,7 +216,6 @@ describe('comfyui generation service', () => {
       cfg: 7.5,
       clientJobId: 'job-1',
     });
-
     expect(response.success).toBe(true);
     const submitted = capturedPrompts[0] as {
       prompt: Record<string, { inputs: Record<string, unknown> }>;
@@ -308,8 +313,7 @@ describe('comfyui generation service', () => {
             }),
             { status: 200 },
           );
-        if (url.includes('/view'))
-          return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
+        if (url.includes('/view')) return new Response(pngBytes, { status: 200 });
         return new Response('{}', { status: 404 });
       }),
     );

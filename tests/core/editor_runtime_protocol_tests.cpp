@@ -56,7 +56,7 @@ nlohmann::json focused_room_document()
           {"definitions", nlohmann::json::array()},
           {"interactableLocations", nlohmann::json::array()}}},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v1"},
+         {{"schema", "noveltea.shader-materials.v2"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
         {"world",
@@ -216,7 +216,7 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
         {"script", {{"enabled", false}, {"namespace", nullptr}}},
         {"scalePolicy", {{"ui", "ignore"}, {"text", "inherit"}}},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v1"},
+         {{"schema", "noveltea.shader-materials.v2"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}}};
     auto decoded = decode_editor_preview_document_text("layout-preview", layout.dump());
@@ -244,7 +244,7 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
 
     auto shader = decode_editor_preview_document_text(
         "shader-preview",
-        R"({"schema":"noveltea.shader-preview","schemaVersion":1,"contentMode":"shader","previewMaterialId":"editor/preview","shaderId":"shader/noise","templateId":"shader-square-v1","activeShaderVariant":"glsl-120","shaderMaterials":{"schema":"noveltea.shader-materials.v1","shaders":{},"materials":{}}})");
+        R"({"schema":"noveltea.shader-preview","schemaVersion":1,"contentMode":"shader","previewMaterialId":"editor/preview","shaderId":"shader/noise","templateId":"shader-square-v1","activeShaderVariant":"glsl-120","shaderMaterials":{"schema":"noveltea.shader-materials.v2","shaders":{},"materials":{}}})");
     REQUIRE(shader);
     const auto* shader_request = std::get_if<TypedEditorShaderPreviewDocument>(&shader.value());
     REQUIRE(shader_request != nullptr);
@@ -314,7 +314,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
                   {"script", {{"enabled", false}, {"namespace", nullptr}}},
                   {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
                   {"shaderMaterials",
-                   {{"schema", "noveltea.shader-materials.v1"},
+                   {{"schema", "noveltea.shader-materials.v2"},
                     {"shaders", nlohmann::json::object()},
                     {"materials", nlohmann::json::object()}}}})
             .dump());
@@ -337,7 +337,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
                                     {"templateId", "shader-square-v1"},
                                     {"activeShaderVariant", "glsl-120"},
                                     {"shaderMaterials",
-                                     {{"schema", "noveltea.shader-materials.v1"},
+                                     {{"schema", "noveltea.shader-materials.v2"},
                                       {"shaders", nlohmann::json::object()},
                                       {"materials", nlohmann::json::object()}}}})
             .dump());
@@ -494,7 +494,7 @@ TEST_CASE("editor preview protocol rejects unresolved malformed and unsupported 
         {"script", {{"enabled", false}, {"namespace", nullptr}}},
         {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v1"},
+         {{"schema", "noveltea.shader-materials.v2"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
     };

@@ -45,6 +45,7 @@ describe('authoring asset schema helpers', () => {
         kind: 'audio',
         source: { type: 'project-file', path: 'assets/audio/click.mp3' },
         aliases: ['ui.click'],
+        imageMetadata: null,
       },
     };
     expect(parseAssetData(project.assets.click.data)?.kind).toBe('audio');
@@ -58,6 +59,7 @@ describe('authoring asset schema helpers', () => {
         kind: 'audio',
         source: { type: 'project-file', path: '../bad.mp3' },
         aliases: ['ui.click'],
+        imageMetadata: null,
       },
     };
     const diagnostics = validateAuthoringProject(project).filter(

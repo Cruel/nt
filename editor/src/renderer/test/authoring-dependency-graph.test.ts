@@ -44,6 +44,8 @@ import { defaultInteractableData } from '../../shared/project-schema/authoring-i
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultVariableData, variableRef } from '../../shared/project-schema/authoring-variables';
+import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
+import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import {
   buildReferenceIndex,
   buildReferenceIndexFromGraph,
@@ -257,6 +259,110 @@ describe('authoring dependency graph contribution assembly', () => {
 });
 
 describe('authoring structural dependency graph and queries', () => {
+  it('tracks Interactable hotspot source images across rename, deletion, replacement, and mode switches', () => {
+    const project = createAuthoringProject();
+    project.assets.sprite = {
+      id: 'sprite',
+      label: 'Sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/sprite.png' },
+        aliases: [],
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const item = defaultInteractableData('Item');
+    item.presentation.sprite = { $ref: { collection: 'assets', id: 'sprite' } };
+    project.interactables.item = { id: 'item', label: 'Item', data: item };
+    const verb = defaultVerbData('Use');
+    verb.arity = 1;
+    verb.operandRoles = ['target'];
+    project.verbs.use = { id: 'use', label: 'Use', data: verb };
+    const interaction = defaultInteractionData();
+    interaction.rules.push({
+      id: 'rule',
+      verb: { $ref: { collection: 'verbs', id: 'use' } },
+      operands: [{ kind: 'any-interactable' }],
+      context: {
+        kind: 'hotspot',
+        hotspot: {
+          kind: 'interactable-hotspot',
+          interactable: { $ref: { collection: 'interactables', id: 'item' } },
+          hotspotId: 'primary',
+        },
+      },
+      program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
+    });
+    project.interactions.actions = { id: 'actions', label: 'Actions', data: interaction };
+
+    let graph = buildAuthoringStructuralDependencyGraph(project);
+    const primary = nestedNodeKey('interactables', 'item', 'interactable-hotspot', 'primary');
+    expect(
+      outgoingAuthoringDependencies(graph, primary).some(
+        (edge) =>
+          edge.role === 'hotspot-source-image' &&
+          serializeAuthoringDependencyNodeKey(edge.target) ===
+            serializeAuthoringDependencyNodeKey(recordNodeKey('assets', 'sprite')),
+      ),
+    ).toBe(true);
+    expect(findAuthoringDependencyUsages(graph, primary).map((edge) => edge.role)).toEqual(
+      expect.arrayContaining(['explicit-ref', 'hotspot-context']),
+    );
+
+    if (item.presentation.hotspots.kind !== 'sprite-alpha')
+      throw new Error('Expected sprite alpha');
+    item.presentation.hotspots.hotspot.id = 'renamed';
+    graph = buildAuthoringStructuralDependencyGraph(project);
+    const renamed = nestedNodeKey('interactables', 'item', 'interactable-hotspot', 'renamed');
+    expect(
+      findNestedAuthoringDependencyTarget(
+        graph,
+        'interactables',
+        'item',
+        'interactable-hotspot',
+        'primary',
+      ),
+    ).toBeUndefined();
+    expect(
+      findNestedAuthoringDependencyTarget(
+        graph,
+        'interactables',
+        'item',
+        'interactable-hotspot',
+        'renamed',
+      ),
+    ).toBeDefined();
+    expect(findMissingAuthoringDependencyTargets(graph)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/interactions/actions/data/rules/0/context/hotspot',
+        }),
+      ]),
+    );
+
+    const context = interaction.rules[0]!.context;
+    if (context.kind !== 'hotspot' || context.hotspot.kind !== 'interactable-hotspot')
+      throw new Error('Expected Interactable hotspot context');
+    context.hotspot.hotspotId = 'renamed';
+    graph = buildAuthoringStructuralDependencyGraph(project);
+    expect(findAuthoringDependencyUsages(graph, renamed).map((edge) => edge.role)).toEqual(
+      expect.arrayContaining(['explicit-ref', 'hotspot-context']),
+    );
+    expect(findMissingAuthoringDependencyTargets(graph)).toEqual([]);
+
+    item.presentation.hotspots = { kind: 'custom', hotspots: [] };
+    graph = buildAuthoringStructuralDependencyGraph(project);
+    expect(
+      findNestedAuthoringDependencyTarget(
+        graph,
+        'interactables',
+        'item',
+        'interactable-hotspot',
+        'renamed',
+      ),
+    ).toBeUndefined();
+    expect(findMissingAuthoringDependencyTargets(graph)).toHaveLength(1);
+  });
   it('builds record/project-field contributions and reports missing structural targets', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
@@ -566,7 +672,7 @@ describe('authoring structural dependency graph and queries', () => {
         kind: 'image',
         source: { type: 'project-file', path: 'images/background.png' },
         aliases: [],
-        preview: { width: 1920, height: 1080 },
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
       },
     };
     const roomData = defaultRoomData();

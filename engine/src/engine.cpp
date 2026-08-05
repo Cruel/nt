@@ -315,7 +315,8 @@ ShaderMaterialProject make_demo_shader_materials()
     use_texture.type = ShaderUniformType::Float;
     use_texture.default_value = 1.0f;
     shader.uniforms.push_back(std::move(use_texture));
-    shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_texColor"});
+    shader.samplers.push_back(
+        ShaderSamplerDeclaration{.name = "s_texColor", .binding = std::nullopt});
 
     MaterialDefinition material;
     material.id = MaterialId("demo/engine_2d_quad");
@@ -356,7 +357,8 @@ ShaderMaterialProject make_demo_shader_materials()
                                  .range = {},
                                  .editor_label = {},
                                  .binding = {}});
-    postprocess_shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_texColor"});
+    postprocess_shader.samplers.push_back(
+        ShaderSamplerDeclaration{.name = "s_texColor", .binding = std::nullopt});
 
     const auto make_postprocess_material = [&](std::string id, PostprocessScope scope) {
         MaterialDefinition result;
@@ -442,7 +444,8 @@ ShaderMaterialProject make_demo_shader_materials()
     active_text_shader.display_name = "Demo ActiveText Default Material Shader";
     active_text_shader.roles = {ShaderRole::ActiveText};
     active_text_shader.stages = {text_vertex, text_fragment};
-    active_text_shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_textAtlas"});
+    active_text_shader.samplers.push_back(
+        ShaderSamplerDeclaration{.name = "s_textAtlas", .binding = std::nullopt});
 
     ShaderDefinition active_text_glow_shader;
     active_text_glow_shader.id = ShaderId("demo/active_text_glow_shader");
@@ -456,7 +459,8 @@ ShaderMaterialProject make_demo_shader_materials()
                                  .range = {},
                                  .editor_label = {},
                                  .binding = ShaderInputSemantic::EngineTime});
-    active_text_glow_shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_textAtlas"});
+    active_text_glow_shader.samplers.push_back(
+        ShaderSamplerDeclaration{.name = "s_textAtlas", .binding = std::nullopt});
 
     MaterialDefinition active_text_material;
     active_text_material.id = MaterialId("demo/active_text_default");

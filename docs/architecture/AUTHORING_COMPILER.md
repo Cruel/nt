@@ -73,7 +73,7 @@ gameplay JSON.
 `compileAuthoringProject` now strictly validates and publishes the complete wire value and canonical
 JSON together. Definition/resource tables are stable-ID sorted while authored semantic sequences stay
 in authored order. The checked-in corpus under
-`editor/src/renderer/test/fixtures/compiled-project-golden/` contains seven exact decoder inputs:
+`editor/src/renderer/test/fixtures/compiled-project-golden/` contains seven exact V3 decoder inputs:
 minimal, comprehensive, inheritance/property/localization, resources, Scene program, Dialogue
 program, and Interaction program. The corpus covers every top-level definition/declaration/resource
 family, all specialized program discriminants, typed resource references, inline and asset-backed

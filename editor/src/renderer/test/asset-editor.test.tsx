@@ -28,6 +28,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],
       extension: '.png',
+      imageMetadata: { width: 256, height: 256, hasAlpha: true, orientation: 1 },
     },
   };
   return next;

@@ -2244,7 +2244,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 ## 18. Completion tracking
 
 - [x] Phase 1: Characterization and contract fixtures
-- [ ] Phase 2: Atomic project, compiled, material, and graph contract cutover
+- [x] Phase 2: Atomic project, compiled, material, and graph contract cutover
 - [ ] Phase 3: Shared React image stage and hotspot editor
 - [ ] Phase 4: Room and Interactable hotspot authoring
 - [ ] Phase 5: React Room composition and placement tools
@@ -2255,6 +2255,54 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [ ] Phase 10: Presentation hotspot projection and overlay rendering
 - [ ] Phase 11: World hit testing and host pointer activation
 - [ ] Phase 12: Cross-platform verification, documentation, and archival
+
+### Phase 2 implementation findings
+
+- **Graph field-effect sequence is positional.** The reviewed graph field metadata sequence preserves
+  the existing effect codes for unaffected fields. Retiring asset preview width/height therefore
+  required filtering those exact legacy positions and assigning explicit classifications to the new
+  Phase 2 hotspot, image-metadata, and shader-binding leaves rather than renumbering the remaining
+  sequence. The current fingerprints and graph audit tests lock that result.
+- **Exact hotspot runtime context remains intentionally inactive until Phase 9.** Phase 2 adds the
+  strict authoring, compiled, native DTO, decoder, linker, and reference shape. Generic runtime
+  Interaction matching explicitly rejects the exact-hotspot context so the new variant cannot be
+  mistaken for an already-supported predicate before the planned runtime binding work.
+- **Mandatory image metadata required repository-wide fixture migration.** Making
+  `AssetData.imageMetadata` strict at persisted and IPC boundaries affected import, reimport, audit,
+  ComfyUI generation, authoring fixtures, editor recovery/persistence fixtures, compiled-project
+  fixtures, package fixtures, and goldens. The migration uses `null` for non-image assets and
+  canonical decoded metadata for images; no missing-field default or compatibility reader remains.
+- **Shader sampler binding was an atomic TypeScript/native cutover.** The authoring schema, compiler,
+  shader/material v2 manifest, native codec/model, renderer declarations, package fixtures, native
+  tests, and demo records all require an explicit binding value, including explicit `null` for
+  ordinary samplers. Hotspot sampler and uniform semantics are declared and validated now, while
+  renderer value/resource binding remains deferred to Phase 9.
+- **Semantic validation must remain outside schema construction.** Graph metadata introspects the
+  fully constructed authoring schema during module initialization. Importing project-wide semantic
+  validation into the shared hotspot schema created an initialization cycle, so strict structural
+  parsing remains dependency-light and project-aware ownership, arity, interface, and reference
+  checks run in the post-parse authoring validator.
+
+### Phase 2 final validation
+
+- `cmake --build --preset linux-debug`: passed; all native libraries, tools, applications, public
+  header probes, and test executables completed.
+- `ctest --test-dir build/linux-debug --output-on-failure -R 'compiled_project|material'`: passed,
+  26/26 tests, including compiled-project/package decoding and shader/material v2 parsing,
+  validation, resolution, export, and renderer-facing material behavior.
+- `pnpm -C editor run build`: passed formatting, Electron/main/preload/tool packaging, renderer
+  production build, lint with zero warnings, bundle policy, and TypeScript typecheck. The local Node
+  runtime was 22.22.1 while the package declares 24.18.0; the command completed successfully.
+- `pnpm -C editor run test`: passed 179 files with one skipped file; 1,111 tests passed and four were
+  skipped. This includes strict schema, semantic hotspot, graph rename/delete/replacement/mode-switch,
+  compiler, exact goldens, shader/material, persistence, export, and package fixture coverage.
+- `pnpm -C editor run package:smoke`: passed every packaged application check, including main,
+  renderer, preload, packaged protocol and traversal protections, engine preview, editor assets,
+  native editor tool, and Sharp. The Linux environment emitted non-fatal DBus/GLib/GPU warnings.
+- `pnpm -C editor run check:schema-version-policy`: passed after updating the authoring-project,
+  compiled-project, and shader-material-document inventory rows.
+- Compiled-project goldens were regenerated from the current compiler and verified byte-for-byte by
+  the full golden corpus.
 
 ## 19. Definition of done
 
