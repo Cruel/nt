@@ -14,7 +14,17 @@ const tool = path.join(
   'tools',
   'materialize-android-export-fixture.mjs',
 );
-const run = spawnSync(process.execPath, [tool, ...process.argv.slice(2)], {
+const forwardedArgs = process.argv.slice(2);
+const targetIndex = forwardedArgs.indexOf('--target');
+const target = targetIndex >= 0 ? forwardedArgs[targetIndex + 1] : 'android';
+const fixtureArgs = forwardedArgs.includes('--root')
+  ? forwardedArgs
+  : [
+      '--root',
+      path.resolve(editorRoot, '..', 'build', 'platform-export-fixtures', target),
+      ...forwardedArgs,
+    ];
+const run = spawnSync(process.execPath, [tool, ...fixtureArgs], {
   cwd: process.cwd(),
   stdio: 'inherit',
   env: process.env,

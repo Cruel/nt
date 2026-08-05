@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -902,6 +903,91 @@ TEST_CASE("Hotspot mask preparation rasterizes binary unions and demand joins pr
     CHECK(canceled_accounting.current.temporary_bytes == 0);
     CHECK(canceled_accounting.high_water.temporary_bytes >= 1024u * 1024u);
     shutdown(executor);
+}
+
+TEST_CASE("Representative hotspot preparation measurements retain exact residency",
+          "[assets][hotspot-mask][performance]")
+{
+    const auto measure = [](std::uint16_t width, std::uint16_t height) {
+        jobs::InlineJobExecutor executor;
+        assets::ResidencyBudget budget{.source_bytes = 128u * 1024u * 1024u,
+                                       .prepared_cpu_bytes = 128u * 1024u * 1024u,
+                                       .gpu_bytes = 128u * 1024u * 1024u,
+                                       .audio_bytes = 16u * 1024u * 1024u,
+                                       .temporary_bytes = 128u * 1024u * 1024u};
+        auto residency =
+            std::make_shared<assets::AssetResidencyManager>(budget, nullptr, executor.mode());
+        auto probe = std::make_shared<PreparationProbe>();
+        probe->owner_thread = std::this_thread::get_id();
+        assets::AssetManager manager;
+        TestHotspotMaskLoader mask_loader(probe);
+        manager.bind_hotspot_mask_loader(&mask_loader);
+        REQUIRE(manager.configure_async_requests(executor, residency));
+
+        const auto alpha_bytes =
+            static_cast<std::uint64_t>((static_cast<std::uint32_t>(width) + 7u) / 8u) * height;
+        std::vector<std::uint8_t> rgba(static_cast<std::size_t>(width) * height * 4u, 0xffu);
+        std::vector<std::uint8_t> occupancy(static_cast<std::size_t>(alpha_bytes), 0u);
+        const auto alpha_started = std::chrono::steady_clock::now();
+        for (std::uint32_t y = 0; y < height; ++y) {
+            for (std::uint32_t x = 0; x < width; ++x) {
+                if (rgba[(static_cast<std::size_t>(y) * width + x) * 4u + 3u] != 0u) {
+                    occupancy[static_cast<std::size_t>(y) * ((width + 7u) / 8u) + x / 8u] |=
+                        static_cast<std::uint8_t>(1u << (x % 8u));
+                }
+            }
+        }
+        const auto alpha_elapsed = std::chrono::steady_clock::now() - alpha_started;
+        CHECK(occupancy.size() == alpha_bytes);
+
+        const auto room = core::RoomId::create("measurement-room");
+        const auto hotspot = core::HotspotId::create("measurement-hotspot");
+        REQUIRE(room);
+        REQUIRE(hotspot);
+        assets::HotspotMaskAssetRequest mask_request{
+            .owner = core::compiled::RoomHotspotOwnerRef{.room = *room.value_if()},
+            .width = width,
+            .height = height,
+            .regions = {{.hotspot = *hotspot.value_if(),
+                         .bounds = {.x = 0.125, .y = 0.125, .width = 0.75, .height = 0.75}}}};
+        auto mask_result =
+            manager.request_hotspot_mask(mask_request, assets::AssetRequestReason::Demand);
+        REQUIRE(mask_result);
+        auto mask = std::move(mask_result).value();
+        const auto mask_started = std::chrono::steady_clock::now();
+        std::chrono::nanoseconds mask_max_step{};
+        std::size_t mask_steps = 0;
+        while (mask.state() != assets::AssetRequestState::Ready) {
+            (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+            if (mask.state() == assets::AssetRequestState::Ready)
+                break;
+            const auto step_started = std::chrono::steady_clock::now();
+            REQUIRE(executor.advance_one_step());
+            mask_max_step =
+                std::max(mask_max_step, std::chrono::steady_clock::now() - step_started);
+            ++mask_steps;
+        }
+        const auto mask_elapsed = std::chrono::steady_clock::now() - mask_started;
+        auto mask_lease = std::move(mask).take_ready();
+        REQUIRE(mask_lease);
+
+        const auto accounting = residency->accounting_on_owner();
+        const auto mask_bytes = static_cast<std::uint64_t>(width) * height;
+        CHECK(accounting.current.gpu_bytes == mask_bytes);
+        std::cout << "HOTSPOT_PREPARATION_MEASUREMENT width=" << width << " height=" << height
+                  << " alphaMs=" << std::chrono::duration<double, std::milli>(alpha_elapsed).count()
+                  << " maskMs=" << std::chrono::duration<double, std::milli>(mask_elapsed).count()
+                  << " maskMaxStepMs="
+                  << std::chrono::duration<double, std::milli>(mask_max_step).count()
+                  << " maskSteps=" << mask_steps << " alphaCpuBytes=" << alpha_bytes
+                  << " textureGpuBytes=" << static_cast<std::uint64_t>(width) * height * 4u
+                  << " maskGpuBytes=" << mask_bytes << '\n';
+        mask_lease->reset();
+        shutdown(executor);
+    };
+
+    measure(1920, 1080);
+    measure(3840, 2160);
 }
 
 TEST_CASE("Visual asset cache-key builders include options and source generations")

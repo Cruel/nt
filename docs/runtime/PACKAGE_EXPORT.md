@@ -1,5 +1,8 @@
 # Runtime Package Export
 
+Hotspot package ownership and runtime-derived mask behavior are specified in
+`docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md`.
+
 ## Final Package Contract
 
 Runtime exports are ZIP-based `.ntpkg` files with safe relative paths. The authoritative documents

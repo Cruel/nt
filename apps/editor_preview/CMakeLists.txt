@@ -44,6 +44,7 @@ target_link_options(noveltea-editor-preview PRIVATE
     -sEXPORTED_RUNTIME_METHODS=['FS','ccall']
     "-sEXPORTED_FUNCTIONS=${NOVELTEA_EDITOR_PREVIEW_EXPORTED_FUNCTIONS}"
     --shell-file "${CMAKE_SOURCE_DIR}/web/widget.html"
+    "SHELL:--js-library ${CMAKE_SOURCE_DIR}/web/persistent_fs.js"
     "SHELL:--preload-file ${CMAKE_BINARY_DIR}/runtime-assets@/assets"
 )
 
@@ -55,7 +56,8 @@ if(NOVELTEA_ENABLE_THREADS)
 endif()
 
 set_property(TARGET noveltea-editor-preview APPEND PROPERTY
-    LINK_DEPENDS "${CMAKE_SOURCE_DIR}/web/widget.html;${NOVELTEA_RUNTIME_ASSET_STAMP}")
+    LINK_DEPENDS
+        "${CMAKE_SOURCE_DIR}/web/widget.html;${CMAKE_SOURCE_DIR}/web/persistent_fs.js;${NOVELTEA_RUNTIME_ASSET_STAMP}")
 
 if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(noveltea-editor-preview PRIVATE -flto)

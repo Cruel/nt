@@ -1,5 +1,8 @@
 # Platform Export Support Matrix
 
+Cross-platform hotspot fixture and build certification is recorded in
+`docs/architecture/certifications/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME_CERTIFICATION.md`.
+
 ## Status
 
 Support matrix version: **1**. The native desktop rows describe published, dependency-audited player

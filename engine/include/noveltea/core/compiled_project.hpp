@@ -347,7 +347,7 @@ struct RoomExitHotspotActivation {
 using RoomHotspotActivation = std::variant<VerbHotspotActivation, RoomExitHotspotActivation>;
 struct RectHotspotShape {
     NormalizedRect bounds;
-    auto operator<=>(const RectHotspotShape&) const = default;
+    bool operator==(const RectHotspotShape&) const = default;
 };
 struct RoomHotspot {
     HotspotId id;

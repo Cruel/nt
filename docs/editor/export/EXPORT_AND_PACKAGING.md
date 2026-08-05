@@ -1,5 +1,8 @@
 # Export and Packaging
 
+Hotspot closure, built-in material resources, derived-mask treatment, and fixture materialization are
+specified in `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md`.
+
 ## One Gameplay Producer
 
 The editor has one gameplay producer:

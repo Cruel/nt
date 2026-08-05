@@ -31,9 +31,9 @@ Read the specific component doc before changing its schema, commands, editor UI,
 
 - `docs/migration/STATUS.md` and `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` record
   final migration dispositions and independently deferred work.
-- `docs/architecture/plans/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME_IMPLEMENTATION_PLAN.md` is the
-  active implementation contract for Room and Interactable hotspots, hotspot-aware Interaction
-  context, runtime-generated masks, and world pointer activation.
+- `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md` is the permanent contract for Room
+  and Interactable hotspots, hotspot-aware Interaction context, runtime-generated masks, and world
+  pointer activation.
 
 ## Code Areas
 

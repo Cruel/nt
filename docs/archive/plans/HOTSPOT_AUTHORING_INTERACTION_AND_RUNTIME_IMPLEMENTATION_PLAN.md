@@ -2,7 +2,7 @@
 
 ## Status
 
-Status: Active implementation plan
+Status: Completed and archived
 
 Created: 2026-08-05
 
@@ -2261,6 +2261,21 @@ the characterized target set.
 - Every Definition-of-Done item is verified or explicitly blocked by an environment limitation.
 - No active-plan-only architectural knowledge remains undocumented.
 
+#### Completion finding (2026-08-05)
+
+Phase 12 exposed and fixed three concrete cross-platform integration defects: fixture wrappers did
+not supply the materializer's required default output root; `RectHotspotShape` requested an
+unsupported three-way comparison through equality-only `NormalizedRect`; and the Web editor-preview
+target omitted the persistent-filesystem JavaScript library required by shared debug UI code.
+Representative 1080p/4K preparation and residency measurements were added as durable native
+coverage. Headless X11 and absent-device manual checks are recorded as environment-limited in the
+certification rather than product failures. Final closure reran the no-thread non-GPU matrix with
+`ctest --test-dir build/linux-debug-no-threads --output-on-failure -LE gpu`: 784/784 tests passed.
+The unrestricted 802-test invocation retained the documented headless limitation, with only the 14
+X11-dependent readback capture/verification tests failing. After applying the repository formatter,
+`cmake --build --preset linux-debug --target format-check` passed. No later implementation scope
+exists or was introduced, and the Phase 12 implementation unit is complete.
+
 ## 15. Required test and manual-smoke matrix
 
 ### 15.1 Authoring and editor
@@ -2450,7 +2465,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 9: Hotspot material binding and built-in overlays
 - [x] Phase 10: Presentation hotspot projection and overlay rendering
 - [x] Phase 11: World hit testing and host pointer activation
-- [ ] Phase 12: Cross-platform verification, documentation, and archival
+- [x] Phase 12: Cross-platform verification, documentation, and archival
 
 ### Phase 2 implementation findings
 

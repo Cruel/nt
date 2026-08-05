@@ -1,5 +1,8 @@
 # Assets Documentation Overview
 
+Hotspot alpha coverage, generated masks, residency, and prefetch integration are specified in
+`docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md`.
+
 ## Purpose
 
 Use this entrypoint before changing asset loading, asset metadata, project asset import, package asset export, font/material asset lookup, or typed asset-manager behavior.

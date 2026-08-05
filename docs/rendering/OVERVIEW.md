@@ -1,5 +1,8 @@
 # Rendering Documentation Overview
 
+Hotspot projection, overlay ordering, highlight material binding, and mask sampling are specified in
+`docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md`.
+
 ## Purpose
 
 Use this entrypoint before changing bgfx renderer behavior, text shaping/layout/rasterization, shader/material runtime policy, ActiveText rendering, RmlUi renderer integration, render perf diagnostics, or platform rendering behavior.
