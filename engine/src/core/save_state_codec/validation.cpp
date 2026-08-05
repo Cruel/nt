@@ -826,7 +826,62 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                 } else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
                     const auto* program = interaction_program(project, item.program);
                     const auto* verb = project.find_verb(item.invocation.verb);
-                    return program && verb && item.invocation.operands.size() == verb->arity &&
+                    const bool hotspot_valid =
+                        !item.invocation.hotspot ||
+                        std::visit(
+                            [&project, &item](const auto& reference) {
+                                using H = std::decay_t<decltype(reference)>;
+                                if constexpr (std::is_same_v<H, compiled::RoomHotspotRef>) {
+                                    const auto* room = project.find_room(reference.room);
+                                    if (!room || !item.invocation.operands.empty())
+                                        return false;
+                                    const auto found =
+                                        std::find_if(room->hotspots.begin(), room->hotspots.end(),
+                                                     [&reference](const auto& hotspot) {
+                                                         return hotspot.id == reference.hotspot_id;
+                                                     });
+                                    if (found == room->hotspots.end())
+                                        return false;
+                                    const auto* activation =
+                                        std::get_if<compiled::VerbHotspotActivation>(
+                                            &found->activation);
+                                    return activation && activation->verb == item.invocation.verb;
+                                } else {
+                                    const auto* interactable =
+                                        project.find_interactable(reference.interactable);
+                                    if (!interactable || item.invocation.operands.size() != 1 ||
+                                        item.invocation.operands.front() !=
+                                            compiled::InteractionSubject{
+                                                compiled::InteractableInteractionSubject{
+                                                    reference.interactable}})
+                                        return false;
+                                    const compiled::InteractableHotspotBehavior* behavior = nullptr;
+                                    std::visit(
+                                        [&behavior, &reference](const auto& collection) {
+                                            using C = std::decay_t<decltype(collection)>;
+                                            if constexpr (std::is_same_v<
+                                                              C, compiled::SpriteAlphaHotspots>) {
+                                                if (collection.hotspot.id == reference.hotspot_id)
+                                                    behavior = &collection.hotspot;
+                                            } else {
+                                                const auto found = std::find_if(
+                                                    collection.hotspots.begin(),
+                                                    collection.hotspots.end(),
+                                                    [&reference](const auto& hotspot) {
+                                                        return hotspot.id == reference.hotspot_id;
+                                                    });
+                                                if (found != collection.hotspots.end())
+                                                    behavior = &*found;
+                                            }
+                                        },
+                                        interactable->presentation.hotspots);
+                                    return behavior &&
+                                           behavior->activation.verb == item.invocation.verb;
+                                }
+                            },
+                            *item.invocation.hotspot);
+                    return program && verb && hotspot_valid &&
+                           item.invocation.operands.size() == verb->arity &&
                            std::all_of(
                                item.invocation.operands.begin(), item.invocation.operands.end(),
                                [&project](const compiled::InteractionSubject& subject) {

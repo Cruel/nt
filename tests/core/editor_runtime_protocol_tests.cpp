@@ -99,7 +99,7 @@ TEST_CASE("focused Room v2 decoder admits the strict native contract")
 TEST_CASE("editor runtime input protocol decodes only closed typed inputs")
 {
     const nlohmann::json document = {{"schema", runtime_input_schema},
-                                     {"version", 1},
+                                     {"version", 2},
                                      {"input", {{"type", "navigate"}, {"exit", "north-exit"}}}};
     auto result = decode_editor_runtime_input(document);
     REQUIRE(result);
@@ -108,22 +108,48 @@ TEST_CASE("editor runtime input protocol decodes only closed typed inputs")
     CHECK(input->exit.text() == "north-exit");
 }
 
+TEST_CASE("editor runtime input protocol decodes canonical hotspot activation")
+{
+    auto result = decode_editor_runtime_input({{"schema", runtime_input_schema},
+                                               {"version", 2},
+                                               {"input",
+                                                {{"type", "activate-hotspot"},
+                                                 {"hotspot",
+                                                  {{"kind", "interactable-hotspot"},
+                                                   {"interactable", "key"},
+                                                   {"hotspotId", "key-alpha"}}}}}});
+    REQUIRE(result);
+    const auto* input = std::get_if<ActivateHotspotInput>(&result.value());
+    REQUIRE(input != nullptr);
+    const auto* hotspot = std::get_if<compiled::InteractableHotspotRef>(&input->hotspot);
+    REQUIRE(hotspot != nullptr);
+    CHECK(hotspot->interactable.text() == "key");
+    CHECK(hotspot->hotspot_id.text() == "key-alpha");
+
+    CHECK_FALSE(decode_editor_runtime_input(
+        {{"schema", runtime_input_schema},
+         {"version", 1},
+         {"input",
+          {{"type", "activate-hotspot"},
+           {"hotspot", {{"kind", "room-hotspot"}, {"room", "start"}, {"hotspotId", "door"}}}}}}));
+}
+
 TEST_CASE("editor runtime input protocol rejects malformed and open payloads")
 {
     CHECK_FALSE(decode_editor_runtime_input_text("{"));
     CHECK_FALSE(decode_editor_runtime_input(
-        {{"schema", runtime_input_schema}, {"version", 2}, {"input", {{"type", "continue"}}}}));
+        {{"schema", runtime_input_schema}, {"version", 1}, {"input", {{"type", "continue"}}}}));
     CHECK_FALSE(decode_editor_runtime_input(
         {{"schema", runtime_input_schema},
-         {"version", 1},
+         {"version", 2},
          {"input", {{"type", "continue"}, {"payload", nlohmann::json::object()}}}}));
     CHECK_FALSE(
         decode_editor_runtime_input({{"schema", runtime_input_schema},
-                                     {"version", 1},
+                                     {"version", 2},
                                      {"input", {{"type", "navigate"}, {"exit", "Missing_ID"}}}}));
     CHECK_FALSE(
         decode_editor_runtime_input({{"schema", runtime_input_schema},
-                                     {"version", 1},
+                                     {"version", 2},
                                      {"input",
                                       {{"type", "set-variable"},
                                        {"variable", "score"},
@@ -136,7 +162,7 @@ TEST_CASE("editor runtime input protocol rejects malformed and open payloads")
     EditorRuntimeProtocolLimits string_limits;
     string_limits.max_string_bytes = 3;
     CHECK_FALSE(decode_editor_runtime_input({{"schema", runtime_input_schema},
-                                             {"version", 1},
+                                             {"version", 2},
                                              {"input", {{"type", "navigate"}, {"exit", "north"}}}},
                                             string_limits));
 
@@ -144,7 +170,7 @@ TEST_CASE("editor runtime input protocol rejects malformed and open payloads")
     cardinality_limits.max_ids_per_input = 1;
     CHECK_FALSE(decode_editor_runtime_input(
         {{"schema", runtime_input_schema},
-         {"version", 1},
+         {"version", 2},
          {"input", {{"type", "select-subjects"}, {"subjects", {"key", "door"}}}}},
         cardinality_limits));
 
@@ -152,19 +178,19 @@ TEST_CASE("editor runtime input protocol rejects malformed and open payloads")
     invalid_utf8.push_back(static_cast<char>(0xff));
     CHECK_FALSE(
         decode_editor_runtime_input({{"schema", runtime_input_schema},
-                                     {"version", 1},
+                                     {"version", 2},
                                      {"input", {{"type", "navigate"}, {"exit", invalid_utf8}}}}));
 
     CHECK_FALSE(
         decode_editor_runtime_input({{"schema", runtime_input_schema},
-                                     {"version", 1},
+                                     {"version", 2},
                                      {"input", {{"type", "select-subjects"}, {"subjects", {7}}}}}));
 }
 
 TEST_CASE("editor runtime input protocol decodes typed property debugger mutations")
 {
     auto result = decode_editor_runtime_input({{"schema", runtime_input_schema},
-                                               {"version", 1},
+                                               {"version", 2},
                                                {"input",
                                                 {{"type", "set-property"},
                                                  {"owner", {{"kind", "room"}, {"id", "atrium"}}},
@@ -177,7 +203,7 @@ TEST_CASE("editor runtime input protocol decodes typed property debugger mutatio
     CHECK(input->property.text() == "mood");
 
     CHECK_FALSE(decode_editor_runtime_input({{"schema", runtime_input_schema},
-                                             {"version", 1},
+                                             {"version", 2},
                                              {"input",
                                               {{"type", "set-property"},
                                                {"owner", {{"kind", "unknown"}, {"id", "atrium"}}},
@@ -518,7 +544,7 @@ TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
     const nlohmann::json door = {{"kind", "interactable"}, {"id", "door"}};
     const nlohmann::json document = {
         {"schema", playback_schema},
-        {"version", 1},
+        {"version", 2},
         {"id", "smoke"},
         {"steps",
          {{{"index", 0}, {"input", {{"type", "begin-playback"}}}},
@@ -543,20 +569,20 @@ TEST_CASE("editor playback protocol rejects invalid cardinality indexes and fiel
     EditorRuntimeProtocolLimits limits;
     limits.max_steps = 1;
     CHECK_FALSE(decode_editor_playback({{"schema", playback_schema},
-                                        {"version", 1},
+                                        {"version", 2},
                                         {"id", "too-many"},
                                         {"steps",
                                          {{{"index", 0}, {"input", {{"type", "continue"}}}},
                                           {{"index", 1}, {"input", {{"type", "continue"}}}}}}},
                                        limits));
     CHECK_FALSE(decode_editor_playback({{"schema", playback_schema},
-                                        {"version", 1},
+                                        {"version", 2},
                                         {"id", "duplicate"},
                                         {"steps",
                                          {{{"index", 0}, {"input", {{"type", "continue"}}}},
                                           {{"index", 0}, {"input", {{"type", "continue"}}}}}}}));
     CHECK_FALSE(decode_editor_playback({{"schema", playback_schema},
-                                        {"version", 1},
+                                        {"version", 2},
                                         {"id", "open"},
                                         {"steps",
                                          {{{"index", 0},
@@ -586,7 +612,7 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
     CHECK(snapshot ==
           nlohmann::json{
               {"schema", debug_snapshot_schema},
-              {"version", 1},
+              {"version", 2},
               {"previewRunning", true},
               {"publication",
                {{"revision", 1},
@@ -639,7 +665,7 @@ TEST_CASE("typed playback report encoder has stable external shape")
     CHECK(
         report ==
         nlohmann::json{{"schema", playback_report_schema},
-                       {"version", 1},
+                       {"version", 2},
                        {"id", "smoke"},
                        {"passed", true},
                        {"steps",
@@ -696,7 +722,7 @@ TEST_CASE("typed debug snapshot exposes checkpoint readiness without a safety ov
                  .desired_audio = {DesiredAudioInstanceId::create("ambience").value()}}},
         .retained_revision = SaveCheckpointRevision::from_number(3),
         .retained_metadata =
-            SaveCheckpointMetadata{.save_format_version = 6,
+            SaveCheckpointMetadata{.save_format_version = 7,
                                    .project = ProjectId::create("preview-project").value(),
                                    .project_version = "9C",
                                    .play_time = std::chrono::milliseconds{1200},

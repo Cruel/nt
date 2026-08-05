@@ -1309,6 +1309,12 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         result.diagnostics = as_diagnostics(std::move(invoked).error());
                     else
                         result.diagnostics = run_kernel(result.events, result.observations);
+                } else if constexpr (std::is_same_v<T, core::ActivateHotspotInput>) {
+                    auto invoked = m_kernel->activate_hotspot(value.hotspot);
+                    if (!invoked)
+                        result.diagnostics = as_diagnostics(std::move(invoked).error());
+                    else
+                        result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
                     auto changed = m_kernel->gateway().set_variable(value.variable, value.value);
                     if (!changed)

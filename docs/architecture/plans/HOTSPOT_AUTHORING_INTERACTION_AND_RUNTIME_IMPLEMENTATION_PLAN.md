@@ -2334,7 +2334,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 3: Shared React image stage and hotspot editor
 - [x] Phase 4: Room and Interactable hotspot authoring
 - [x] Phase 5: React Room composition and placement tools
-- [ ] Phase 6: Hotspot activation, Interaction context, and save-state version 7
+- [x] Phase 6: Hotspot activation, Interaction context, and save-state version 7
 - [ ] Phase 7: Alpha coverage in existing image preparation
 - [ ] Phase 8: Binary custom-mask preparation and prefetch
 - [ ] Phase 9: Hotspot material binding and built-in overlays
@@ -2389,6 +2389,49 @@ use existing memoized selectors/graph queries rather than scanning the project o
   compiled-project, and shader-material-document inventory rows.
 - Compiled-project goldens were regenerated from the current compiler and verified byte-for-byte by
   the full golden corpus.
+
+### Phase 6 implementation findings
+
+- **Exact hotspot context is runtime invocation identity, not a caller-supplied matching hint.** The
+  generic `RuntimeExecutor::interact` and script/gateway `run_interaction` paths remain hotspot-null.
+  Only the private activation path can construct an invocation carrying `HotspotRef`, which prevents
+  native, Lua, RmlUi, debugger, and playback callers from spoofing exact hotspot rules.
+- **The resolved Room presentation is the existing activation admission boundary.** Interactable
+  activation can validate active-Room ownership plus current enabled/visible state against the
+  existing `RoomPresentationResolution`; Room hotspot ownership is validated against the active
+  Room. Phase 10 still owns immutable hotspot projection, hover eligibility, and overlay publication,
+  and Phase 11 still owns pointer hit testing, so their scope and sequencing did not change.
+- **Room-exit hotspots reuse canonical navigation without a parallel flow.** Activation resolves the
+  authored hotspot and calls the existing `navigate(RoomExitId)` path. The resulting
+  `RoomTransitionFrame` therefore retains the exact selected-exit reference and existing exit
+  condition, transition, and lifecycle processing.
+- **The editor runtime protocol has one shared version across runtime input, playback, and debugger
+  snapshots.** Adding `ActivateHotspotInput` and exact hotspot projection required an atomic protocol
+  v1-to-v2 cutover. The test-playback producer, native decoder, fixtures/tests, and schema-policy
+  inventory now agree on v2; no same-version optional compatibility field was added.
+- **Save restoration validates durable identity, not transient eligibility.** Save state v7 persists
+  explicit `hotspot: null` for generic invocations or an exact owner-qualified hotspot reference.
+  Linking verifies owner kind, hotspot identity, activation Verb, and canonical operands while not
+  requiring the owner to remain currently visible or enabled, allowing a yielded interaction to
+  restore after its initiating world state changes.
+
+### Phase 6 final validation
+
+- `cmake --build --preset linux-debug`: passed for all native libraries, applications, tools, public
+  header probes, and test executables.
+- Focused native hotspot, generic-Interaction, runtime-protocol, and save-state-v7 tests passed,
+  including Room Verb, Interactable Verb, Room exit, selected rule/program, non-spoofing generic
+  invocation, strict protocol-v1 rejection, exact save round-trip, stale-reference rejection, Verb
+  mismatch rejection, and save-state-v6 rejection.
+- `pnpm -C editor run check:schema-version-policy`: passed with editor playback v2 and save state v7
+  as the sole current contract versions.
+- `pnpm -C editor run test -- src/renderer/test/test-playback-project.test.ts
+  src/renderer/test/authoring-interactions.test.ts`: passed the focused playback and Interaction
+  authoring suites.
+- `clang-format --dry-run --Werror` passed for every Phase 6-touched C++ file, and
+  `git diff --check` passed. The repository-wide `format-check` target still reports inherited
+  formatting violations in earlier hotspot-contract files outside the Phase 6 delta; Phase 6 did
+  not expand its scope to rewrite that unrelated work.
 
 ## 19. Definition of done
 

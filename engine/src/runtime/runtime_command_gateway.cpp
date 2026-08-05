@@ -1032,6 +1032,16 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::activate_hotspot(core::compiled::HotspotRef hotspot)
+{
+    auto available = require_services("Game.activate_hotspot");
+    if (!available)
+        return available;
+    m_services->queue_input(core::ActivateHotspotInput{std::move(hotspot)});
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 core::Result<void, core::Diagnostics> RuntimeCommandGateway::save(core::TypedSaveSlotId slot)
 {
     auto available = require_services("Game.save");

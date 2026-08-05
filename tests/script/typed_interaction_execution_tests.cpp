@@ -196,4 +196,110 @@ TEST_CASE("typed Interaction falls back child-to-root and emits typed undefined 
     CHECK(room.value().controls.size() == inventory.value().controls.size());
 }
 
+TEST_CASE("Room and Interactable hotspot activation preserve exact invocation context")
+{
+    SECTION("Room hotspot")
+    {
+        RuntimeFixture fixture;
+        auto project = decode(load_document());
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
+        REQUIRE(created);
+        auto kernel = std::move(created).value();
+        drive_to_room(*kernel);
+
+        const core::compiled::HotspotRef hotspot = core::compiled::RoomHotspotRef{
+            id<core::RoomId>("start"), id<core::HotspotId>("inspect-door")};
+        REQUIRE(kernel->activate_hotspot(hotspot));
+        auto interaction = kernel->interaction_view("en");
+        REQUIRE(interaction);
+        CHECK(interaction.value().hotspot == hotspot);
+        REQUIRE(interaction.value().program);
+        const auto* program =
+            std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+        REQUIRE(program != nullptr);
+        CHECK(program->rule == id<core::InteractionRuleId>("room-hotspot-context"));
+        const auto* frame =
+            std::get_if<core::InteractionFrame>(&kernel->state().flow_stack().back());
+        REQUIRE(frame != nullptr);
+        CHECK(frame->invocation.hotspot == hotspot);
+        CHECK(frame->invocation.operands.empty());
+    }
+
+    SECTION("Interactable hotspot")
+    {
+        auto document = load_document();
+        definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+        RuntimeFixture fixture;
+        auto project = decode(std::move(document));
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
+        REQUIRE(created);
+        auto kernel = std::move(created).value();
+        drive_to_room(*kernel);
+
+        const core::compiled::HotspotRef hotspot = core::compiled::InteractableHotspotRef{
+            id<core::InteractableId>("key"), id<core::HotspotId>("key-alpha")};
+        REQUIRE(kernel->activate_hotspot(hotspot));
+        auto interaction = kernel->interaction_view("en");
+        REQUIRE(interaction);
+        CHECK(interaction.value().hotspot == hotspot);
+        REQUIRE(interaction.value().program);
+        const auto* program =
+            std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+        REQUIRE(program != nullptr);
+        CHECK(program->rule == id<core::InteractionRuleId>("interactable-hotspot-context"));
+        const auto* frame =
+            std::get_if<core::InteractionFrame>(&kernel->state().flow_stack().back());
+        REQUIRE(frame != nullptr);
+        CHECK(frame->invocation.hotspot == hotspot);
+        REQUIRE(frame->invocation.operands.size() == 1);
+    }
+}
+
+TEST_CASE("generic Interaction invocation cannot spoof hotspot context")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    REQUIRE(kernel->interact(
+        id<core::VerbId>("use"),
+        {core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}));
+    auto active = kernel->interaction_view("en");
+    REQUIRE(active);
+    CHECK_FALSE(active.value().hotspot);
+    REQUIRE(active.value().program);
+    const auto* selected = std::get_if<core::InteractionRuleProgramRef>(&*active.value().program);
+    REQUIRE(selected != nullptr);
+    CHECK(selected->rule == id<core::InteractionRuleId>("any-context"));
+    const auto* frame = std::get_if<core::InteractionFrame>(&kernel->state().flow_stack().back());
+    REQUIRE(frame != nullptr);
+    CHECK_FALSE(frame->invocation.hotspot);
+}
+
+TEST_CASE("Room exit hotspot routes through selected-exit navigation")
+{
+    RuntimeFixture fixture;
+    auto project = decode(load_document());
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    REQUIRE(kernel->activate_hotspot(core::compiled::RoomHotspotRef{
+        id<core::RoomId>("start"), id<core::HotspotId>("north-door")}));
+    REQUIRE_FALSE(kernel->state().flow_stack().empty());
+    const auto* frame =
+        std::get_if<core::RoomTransitionFrame>(&kernel->state().flow_stack().back());
+    REQUIRE(frame != nullptr);
+    REQUIRE(frame->selected_exit);
+    CHECK(frame->selected_exit->room == id<core::RoomId>("start"));
+    CHECK(frame->selected_exit->exit_id == id<core::RoomExitId>("north-exit"));
+}
+
 } // namespace noveltea::script::test

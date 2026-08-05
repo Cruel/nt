@@ -96,6 +96,7 @@ struct InteractionView {
     VerbId verb;
     std::optional<RoomId> room;
     std::vector<compiled::InteractionSubject> operands;
+    std::optional<compiled::HotspotRef> hotspot;
     std::optional<InteractionProgramRef> program;
     std::optional<std::string> notification;
 };

@@ -707,6 +707,39 @@ nlohmann::json encode_subject(const compiled::InteractionSubject& subject)
         subject);
 }
 
+std::optional<compiled::HotspotRef> hotspot_field(const nlohmann::json& object,
+                                                  std::string_view key, Diagnostics& diagnostics,
+                                                  std::string_view path,
+                                                  const EditorRuntimeProtocolLimits& limits)
+{
+    const auto found = object.find(key);
+    const auto field_path = std::string(path) + "/" + std::string(key);
+    if (found == object.end() || !found->is_object()) {
+        diagnostics.push_back(
+            error("editor_protocol.wrong_type", "Hotspot must be an object.", field_path));
+        return std::nullopt;
+    }
+    auto kind = string_field(*found, "kind", diagnostics, field_path, limits);
+    auto id = id_field<HotspotId>(*found, "hotspotId", diagnostics, field_path, limits);
+    if (kind && *kind == "room-hotspot") {
+        exact_fields(*found, {"kind", "room", "hotspotId"}, diagnostics, field_path);
+        auto room = id_field<RoomId>(*found, "room", diagnostics, field_path, limits);
+        if (room && id)
+            return compiled::RoomHotspotRef{std::move(*room), std::move(*id)};
+    } else if (kind && *kind == "interactable-hotspot") {
+        exact_fields(*found, {"kind", "interactable", "hotspotId"}, diagnostics, field_path);
+        auto interactable =
+            id_field<InteractableId>(*found, "interactable", diagnostics, field_path, limits);
+        if (interactable && id)
+            return compiled::InteractableHotspotRef{std::move(*interactable), std::move(*id)};
+    } else if (kind) {
+        diagnostics.push_back(error("editor_protocol.invalid_hotspot_kind",
+                                    "Hotspot kind must be room-hotspot or interactable-hotspot.",
+                                    field_path + "/kind"));
+    }
+    return std::nullopt;
+}
+
 Result<RuntimeInputMessage, Diagnostics>
 decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolLimits& limits,
                     std::string_view path, bool require_envelope)
@@ -816,6 +849,11 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
         auto operands = subject_array(*input, "operands", diagnostics, path, limits);
         if (verb && operands)
             return success(InvokeInteractionInput{std::move(*verb), std::move(*operands)});
+    } else if (*type == "activate-hotspot") {
+        exact_fields(*input, {"type", "hotspot"}, diagnostics, path);
+        auto hotspot = hotspot_field(*input, "hotspot", diagnostics, path, limits);
+        if (hotspot)
+            return success(ActivateHotspotInput{std::move(*hotspot)});
     } else if (*type == "set-variable") {
         exact_fields(*input, {"type", "variable", "value"}, diagnostics, path);
         auto variable = id_field<VariableId>(*input, "variable", diagnostics, path, limits);
@@ -917,9 +955,26 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
         out["scene"] = {{"id", view.scene->scene.text()},
                         {"hasText", view.scene->text.has_value()},
                         {"hasChoice", view.scene->choice.has_value()}};
-    if (view.interaction)
+    if (view.interaction) {
+        nlohmann::json hotspot = nullptr;
+        if (view.interaction->hotspot)
+            hotspot = std::visit(
+                [](const auto& reference) -> nlohmann::json {
+                    using H = std::decay_t<decltype(reference)>;
+                    if constexpr (std::is_same_v<H, compiled::RoomHotspotRef>)
+                        return {{"kind", "room-hotspot"},
+                                {"room", reference.room.text()},
+                                {"hotspotId", reference.hotspot_id.text()}};
+                    else
+                        return {{"kind", "interactable-hotspot"},
+                                {"interactable", reference.interactable.text()},
+                                {"hotspotId", reference.hotspot_id.text()}};
+                },
+                *view.interaction->hotspot);
         out["interaction"] = {{"verb", view.interaction->verb.text()},
-                              {"operands", nlohmann::json::array()}};
+                              {"operands", nlohmann::json::array()},
+                              {"hotspot", std::move(hotspot)}};
+    }
     if (view.interaction)
         for (const auto& operand : view.interaction->operands)
             out["interaction"]["operands"].push_back(encode_subject(operand));

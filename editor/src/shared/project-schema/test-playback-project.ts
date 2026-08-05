@@ -130,7 +130,7 @@ export function buildRuntimePlaybackSpecFromTestData(
   }
   const spec: Record<string, unknown> = {
     schema: 'noveltea.editor.playback',
-    version: 1,
+    version: 2,
     id: testId,
     steps,
   };

@@ -278,6 +278,59 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     CHECK(std::holds_alternative<SavedInteractionFrame>(interaction.value().flow_stack.front()));
 }
 
+TEST_CASE("save-state version 7 round-trips and validates exact hotspot invocation context")
+{
+    const auto project = load_fixture("interaction-program.json");
+    auto state = make_state(project);
+    FlowExecutor flow(project, state);
+    REQUIRE(flow.advance_room_transition(RoomTransitionStage::BeforeEnter));
+    REQUIRE(flow.advance_room_transition(RoomTransitionStage::BeforeEnter, 1));
+    REQUIRE(flow.advance_room_transition(RoomTransitionStage::CommitRoomSwitch));
+    REQUIRE(flow.advance_room_transition(RoomTransitionStage::AfterEnter));
+    REQUIRE(flow.advance_room_transition(RoomTransitionStage::AfterEnter, 1));
+    REQUIRE(flow.advance_room_transition(RoomTransitionStage::Complete));
+    REQUIRE(flow.complete_room_transition());
+    const compiled::HotspotRef hotspot =
+        compiled::InteractableHotspotRef{id<InteractableId>("key"), id<HotspotId>("key-alpha")};
+    REQUIRE(flow.start_interaction(
+        InteractionInvocationContext{
+            id<VerbId>("use"),
+            id<RoomId>("start"),
+            {
+                compiled::InteractableInteractionSubject{id<InteractableId>("key")},
+            },
+            hotspot},
+        InteractionRuleProgramRef{id<InteractionId>("actions"),
+                                  id<InteractionRuleId>("interactable-hotspot-context")}));
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    REQUIRE(encoded.value()["flowStack"].size() == 1);
+    CHECK(encoded.value()["flowStack"][0]["invocation"]["hotspot"] ==
+          nlohmann::json{{"kind", "interactable-hotspot"},
+                         {"interactable", "key"},
+                         {"hotspotId", "key-alpha"}});
+
+    auto decoded = decode_save_state(project, encoded.value(), "hotspot-save.json");
+    REQUIRE(decoded);
+    const auto& frame = std::get<SavedInteractionFrame>(decoded.value().flow_stack.front());
+    CHECK(frame.invocation.hotspot == hotspot);
+
+    auto stale = encoded.value();
+    stale["flowStack"][0]["invocation"]["hotspot"]["hotspotId"] = "missing";
+    CHECK_FALSE(decode_save_state(project, stale, "hotspot-save.json"));
+
+    auto mismatched = encoded.value();
+    mismatched["flowStack"][0]["invocation"]["verb"] = "unlock";
+    CHECK_FALSE(decode_save_state(project, mismatched, "hotspot-save.json"));
+
+    auto old_shape = encoded.value();
+    old_shape["version"] = 6;
+    old_shape["flowStack"][0]["invocation"].erase("hotspot");
+    CHECK_FALSE(decode_save_state(project, old_shape, "save-v6.json"));
+}
+
 TEST_CASE("desired presentation save restore remaps Scene and current Room owners and omits shell")
 {
     SECTION("Scene invocation owners remap while shell records are omitted")

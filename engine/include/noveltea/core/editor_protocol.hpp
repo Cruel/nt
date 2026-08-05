@@ -15,7 +15,7 @@ inline constexpr std::string_view runtime_input_schema = "noveltea.editor.runtim
 inline constexpr std::string_view playback_schema = "noveltea.editor.playback";
 inline constexpr std::string_view playback_report_schema = "noveltea.editor.playback-report";
 inline constexpr std::string_view debug_snapshot_schema = "noveltea.editor.debug-snapshot";
-inline constexpr std::uint32_t editor_runtime_protocol_version = 1;
+inline constexpr std::uint32_t editor_runtime_protocol_version = 2;
 
 struct EditorRuntimeProtocolLimits {
     std::size_t max_document_bytes = 256 * 1024;

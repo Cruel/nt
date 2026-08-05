@@ -392,7 +392,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 TEST_CASE(
     "typed runtime session dispatches lifecycle debug mutation and save load without legacy IO")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 25);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 26);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
