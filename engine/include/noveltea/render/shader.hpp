@@ -101,6 +101,11 @@ struct ShaderStandardInputs {
     Vec2 viewport_pixel_dimensions{};
     Vec2 pointer_position{};
     bool pointer_valid = false;
+    std::array<float, 4> hotspot_bounds{};
+    bool hotspot_hovered = false;
+    bool hotspot_pressed = false;
+    Vec2 hotspot_image_dimensions{};
+    Vec2 hotspot_mask_dimensions{};
 };
 
 struct ShaderSourceRef {

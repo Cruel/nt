@@ -2149,6 +2149,34 @@ the characterized target set.
 - v2 interface validation distinguishes alpha-compatible and custom-compatible hotspot materials.
 - Built-ins render in Linux and Web shader/material tests.
 
+#### Phase 9 implementation findings and validation
+
+- `ShaderStandardInputs` is the existing renderer-wide value carrier, so the five hotspot uniform
+  bindings were activated there rather than through a hotspot-only uniform cache. The material
+  binder accepts one explicit dynamic hotspot image handle and one optional mask handle; bound
+  samplers bypass Material texture assignments while every unbound sampler continues through the
+  existing mandatory lease lookup and sampler policy.
+- Native material parsing now rejects any static texture assignment targeting an engine-bound
+  sampler. Package assembly derives alpha/custom usage from compiled Room and Interactable hotspot
+  definitions and validates the referenced hotspot-overlay Shader against the exact interface needed
+  by each usage. A single authored Material used by both modes must therefore satisfy both interfaces,
+  which is impossible by design because alpha compatibility forbids the mask binding; authors must
+  use distinct Materials. This is consistent with the existing editor mode-specific validation and
+  requires no Phase 10-12 sequencing change.
+- Built-in `system/hotspot_alpha` and `system/hotspot_custom` material projects use engine-owned
+  system shader binaries for `glsl-120`, `essl-100`, and `essl-300`. The alpha shader samples only
+  source alpha. The custom shader samples the binary owner mask, clips to active UV bounds, and emits
+  premultiplied-alpha sheen/border output. Phase 10 remains responsible for choosing these built-ins,
+  retaining their system program handles, and submitting overlay draws.
+- Validation completed on 2026-08-05 with the Linux build, focused binder/interface/parser tests, the
+  material/shader test selection, shader verification, formatting, and all C++ policy gates. The Web
+  build compiled and staged both new hotspot shader variants, then failed at the unrelated existing
+  editor-preview link boundary because `ui_debug_imgui.cpp` references the unresolved
+  `noveltea_web_sync_persistent_fs` symbol. The repository-wide Linux test run likewise reached an
+  unrelated layout-scale readback sandbox that remained running for more than three minutes and was
+  terminated; the focused Phase 9 tests and the broader material/shader selection passed. Neither
+  environment failure changes Phase 10-12 scope or leaves Phase 9 behavior ambiguous.
+
 ### Phase 10: Presentation hotspot projection and overlay rendering
 
 #### Required work
@@ -2397,7 +2425,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 6: Hotspot activation, Interaction context, and save-state version 7
 - [x] Phase 7: Alpha coverage in existing image preparation
 - [x] Phase 8: Binary custom-mask preparation and prefetch
-- [ ] Phase 9: Hotspot material binding and built-in overlays
+- [x] Phase 9: Hotspot material binding and built-in overlays
 - [ ] Phase 10: Presentation hotspot projection and overlay rendering
 - [ ] Phase 11: World hit testing and host pointer activation
 - [ ] Phase 12: Cross-platform verification, documentation, and archival

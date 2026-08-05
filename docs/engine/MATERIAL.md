@@ -201,7 +201,16 @@ Native runtime material types include:
 - `ShaderMaterialProject`;
 - parser diagnostics and fallback material factories.
 
-The bgfx renderer has a material binder and typed asset loader for material definitions. Runtime material loading depends on shader program loading and texture resolution.
+The bgfx renderer has a material binder and typed asset loader for material definitions. Runtime
+material loading depends on shader program loading and texture resolution. Hotspot-overlay materials
+use engine-bound image and optional binary-mask samplers plus the standard bounds, hover, pressed,
+image-dimension, and mask-dimension uniforms. Material records cannot assign static textures to those
+bound samplers; additional unbound sampler assignments remain ordinary mandatory material texture
+dependencies. Native package assembly validates alpha and custom hotspot interfaces separately.
+
+The engine also supplies `system/hotspot_alpha` and `system/hotspot_custom` built-in materials backed
+by renderer-variant system shader binaries. The alpha built-in samples only the source image alpha;
+the custom built-in samples the source image and owner mask and clips the effect to the active bounds.
 
 ## Export / Package Status
 

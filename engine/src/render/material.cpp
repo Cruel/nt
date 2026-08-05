@@ -132,6 +132,113 @@ MaterialDefinition make_rmlui_decorator_fallback_material()
     return material;
 }
 
+ShaderMaterialProject make_builtin_hotspot_material_project()
+{
+    const auto system_binary = [](std::string variant, std::string path) {
+        return ShaderCompiledBinaryRef::trusted_system(std::move(variant), std::move(path));
+    };
+    const auto stage = [&](ShaderStage shader_stage, std::string_view program,
+                           std::string_view suffix) {
+        ShaderStageDefinition result;
+        result.stage = shader_stage;
+        result.compiled = {
+            system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/" + std::string(program) +
+                                          "." + std::string(suffix) + ".bin"),
+            system_binary("essl-100", "system:/shaders/bgfx/essl-100/" + std::string(program) +
+                                          "." + std::string(suffix) + ".bin"),
+            system_binary("essl-300", "system:/shaders/bgfx/essl-300/" + std::string(program) +
+                                          "." + std::string(suffix) + ".bin"),
+        };
+        return result;
+    };
+    const auto uniform = [](std::string name, ShaderUniformType type, ShaderInputSemantic binding) {
+        return ShaderUniformDeclaration{.name = std::move(name),
+                                        .type = type,
+                                        .default_value = std::monostate{},
+                                        .range = {},
+                                        .editor_label = {},
+                                        .binding = binding};
+    };
+    const auto make_shader = [&](std::string id, std::string display_name, std::string program,
+                                 bool custom) {
+        ShaderDefinition shader;
+        shader.id = ShaderId(std::move(id));
+        shader.display_name = std::move(display_name);
+        shader.roles = {ShaderRole::HotspotOverlay};
+        shader.stages = {stage(ShaderStage::Vertex, program, "vs"),
+                         stage(ShaderStage::Fragment, program, "fs")};
+        shader.uniforms = {
+            uniform("u_hotspotBounds", ShaderUniformType::Vec4,
+                    ShaderInputSemantic::EngineHotspotBounds),
+            uniform("u_hotspotHovered", ShaderUniformType::Bool,
+                    ShaderInputSemantic::EngineHotspotHovered),
+            uniform("u_hotspotPressed", ShaderUniformType::Bool,
+                    ShaderInputSemantic::EngineHotspotPressed),
+            uniform("u_hotspotImageDimensions", ShaderUniformType::Vec2,
+                    ShaderInputSemantic::EngineHotspotImageDimensions),
+            uniform("u_hotspotMaskDimensions", ShaderUniformType::Vec2,
+                    ShaderInputSemantic::EngineHotspotMaskDimensions),
+        };
+        shader.samplers.push_back(ShaderSamplerDeclaration{
+            .name = "s_hotspotImage", .binding = ShaderSamplerSemantic::EngineHotspotImage});
+        if (custom)
+            shader.samplers.push_back(ShaderSamplerDeclaration{
+                .name = "s_hotspotMask", .binding = ShaderSamplerSemantic::EngineHotspotMask});
+        return shader;
+    };
+
+    ShaderMaterialProject project;
+    project.shaders.push_back(
+        make_shader("system/hotspot_alpha", "Built-in Alpha Hotspot", "hotspot_alpha", false));
+    project.shaders.push_back(
+        make_shader("system/hotspot_custom", "Built-in Custom Hotspot", "hotspot_custom", true));
+    project.materials.push_back(MaterialDefinition{.id = MaterialId("system/hotspot_alpha"),
+                                                   .role = ShaderRole::HotspotOverlay,
+                                                   .shader = ShaderId("system/hotspot_alpha"),
+                                                   .display_name = "Built-in Alpha Hotspot",
+                                                   .uniforms = {},
+                                                   .textures = {}});
+    project.materials.push_back(MaterialDefinition{.id = MaterialId("system/hotspot_custom"),
+                                                   .role = ShaderRole::HotspotOverlay,
+                                                   .shader = ShaderId("system/hotspot_custom"),
+                                                   .display_name = "Built-in Custom Hotspot",
+                                                   .uniforms = {},
+                                                   .textures = {}});
+    return project;
+}
+
+bool hotspot_material_interface_compatible(const ShaderDefinition& shader,
+                                           HotspotMaterialInterface interface) noexcept
+{
+    if (std::find(shader.roles.begin(), shader.roles.end(), ShaderRole::HotspotOverlay) ==
+        shader.roles.end())
+        return false;
+
+    const auto uniform_count = [&](ShaderInputSemantic semantic, ShaderUniformType type) {
+        return std::count_if(shader.uniforms.begin(), shader.uniforms.end(),
+                             [&](const ShaderUniformDeclaration& uniform) {
+                                 return uniform.binding == semantic && uniform.type == type;
+                             });
+    };
+    if (uniform_count(ShaderInputSemantic::EngineHotspotBounds, ShaderUniformType::Vec4) != 1 ||
+        uniform_count(ShaderInputSemantic::EngineHotspotHovered, ShaderUniformType::Bool) != 1 ||
+        uniform_count(ShaderInputSemantic::EngineHotspotPressed, ShaderUniformType::Bool) != 1 ||
+        uniform_count(ShaderInputSemantic::EngineHotspotImageDimensions, ShaderUniformType::Vec2) !=
+            1 ||
+        uniform_count(ShaderInputSemantic::EngineHotspotMaskDimensions, ShaderUniformType::Vec2) !=
+            1)
+        return false;
+
+    const auto sampler_count = [&](ShaderSamplerSemantic semantic) {
+        return std::count_if(
+            shader.samplers.begin(), shader.samplers.end(),
+            [&](const ShaderSamplerDeclaration& sampler) { return sampler.binding == semantic; });
+    };
+    return sampler_count(ShaderSamplerSemantic::EngineHotspotImage) == 1 &&
+           sampler_count(ShaderSamplerSemantic::EngineHotspotMask) ==
+               (interface == HotspotMaterialInterface::Custom ? 1 : 0);
+}
+
 std::string_view to_string(MaterialDiagnosticCode code) noexcept
 {
     switch (code) {

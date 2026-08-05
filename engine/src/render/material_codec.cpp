@@ -999,9 +999,15 @@ void parse_material_textures(const nlohmann::json& material_json, const ShaderDe
                            "cannot validate material texture without a known shader");
             continue;
         }
-        if (find_sampler_decl(*shader, name) == nullptr) {
+        const auto* declaration = find_sampler_decl(*shader, name);
+        if (declaration == nullptr) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::UndeclaredSampler, path,
                            "material assigns undeclared shader sampler: " + name);
+            continue;
+        }
+        if (declaration->binding) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidTextureSource, path,
+                           "material cannot assign a texture to engine-bound sampler: " + name);
             continue;
         }
 

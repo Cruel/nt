@@ -161,13 +161,15 @@ std::array<float, 4> pack_shader_standard_input(ShaderInputSemantic semantic,
     case ShaderInputSemantic::EnginePointerValid:
         return {inputs.pointer_valid ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
     case ShaderInputSemantic::EngineHotspotBounds:
+        return inputs.hotspot_bounds;
     case ShaderInputSemantic::EngineHotspotHovered:
+        return {inputs.hotspot_hovered ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
     case ShaderInputSemantic::EngineHotspotPressed:
+        return {inputs.hotspot_pressed ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
     case ShaderInputSemantic::EngineHotspotImageDimensions:
+        return {inputs.hotspot_image_dimensions.x, inputs.hotspot_image_dimensions.y, 0.0f, 0.0f};
     case ShaderInputSemantic::EngineHotspotMaskDimensions:
-        // Phase 2 admits the strict interface, but runtime hotspot values are not bound until
-        // Phase 9.
-        return {};
+        return {inputs.hotspot_mask_dimensions.x, inputs.hotspot_mask_dimensions.y, 0.0f, 0.0f};
     }
     return {};
 }
@@ -358,6 +360,28 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
 
     uint8_t texture_stage = inputs.first_texture_stage;
     for (const auto& sampler : resolved.program->samplers) {
+        if (sampler.binding == ShaderSamplerSemantic::EngineHotspotImage) {
+            if (!bgfx::isValid(inputs.hotspot_image)) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                               material_context(material_id, inputs.role),
+                               "hotspot image binding is not resident");
+                return {};
+            }
+            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.hotspot_image,
+                             bgfx_sampler_flags(inputs.hotspot_image_sampler));
+            continue;
+        }
+        if (sampler.binding == ShaderSamplerSemantic::EngineHotspotMask) {
+            if (!bgfx::isValid(inputs.hotspot_mask)) {
+                add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
+                               material_context(material_id, inputs.role),
+                               "hotspot mask binding is not resident");
+                return {};
+            }
+            bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.hotspot_mask,
+                             bgfx_sampler_flags(MaterialTextureSampler::ClampNearest));
+            continue;
+        }
         if (inputs.role == ShaderRole::ActiveText && is_glyph_atlas_sampler(sampler.name) &&
             bgfx::isValid(inputs.glyph_atlas)) {
             bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), inputs.glyph_atlas,

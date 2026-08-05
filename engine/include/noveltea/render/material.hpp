@@ -95,6 +95,11 @@ enum class PostprocessScope {
     FullGameViewport,
 };
 
+enum class HotspotMaterialInterface {
+    Alpha,
+    Custom,
+};
+
 struct MaterialUniformAssignment {
     std::string name;
     ShaderUniformValue value;
@@ -143,6 +148,10 @@ using MaterialParseResult = ShaderMaterialProjectParseResult;
 
 [[nodiscard]] MaterialDefinition make_engine_2d_fallback_material();
 [[nodiscard]] MaterialDefinition make_rmlui_decorator_fallback_material();
+[[nodiscard]] ShaderMaterialProject make_builtin_hotspot_material_project();
+[[nodiscard]] bool
+hotspot_material_interface_compatible(const ShaderDefinition& shader,
+                                      HotspotMaterialInterface interface) noexcept;
 
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticCode code) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticSeverity severity) noexcept;

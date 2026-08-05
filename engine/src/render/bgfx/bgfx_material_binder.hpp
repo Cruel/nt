@@ -36,6 +36,9 @@ struct BgfxMaterialBindInputs {
     const QuadCommand* quad_command = nullptr;
     bgfx::TextureHandle glyph_atlas = BGFX_INVALID_HANDLE;
     ShaderStandardInputs standard_inputs{};
+    bgfx::TextureHandle hotspot_image = BGFX_INVALID_HANDLE;
+    MaterialTextureSampler hotspot_image_sampler = MaterialTextureSampler::ClampLinear;
+    bgfx::TextureHandle hotspot_mask = BGFX_INVALID_HANDLE;
     uint8_t first_texture_stage = 0;
 };
 

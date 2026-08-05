@@ -513,3 +513,44 @@ TEST_CASE("remaining deferred roles and fallback records are explicit")
     CHECK(rmlui_fallback.id.value() == "system/fallback/rmlui_decorator_error");
     CHECK(rmlui_fallback.role == noveltea::ShaderRole::RmlUiDecorator);
 }
+
+TEST_CASE("built-in hotspot materials expose distinct alpha and custom interfaces")
+{
+    const auto project = noveltea::make_builtin_hotspot_material_project();
+    REQUIRE(project.shaders.size() == 2);
+    REQUIRE(project.materials.size() == 2);
+    CHECK(noveltea::hotspot_material_interface_compatible(
+        project.shaders[0], noveltea::HotspotMaterialInterface::Alpha));
+    CHECK_FALSE(noveltea::hotspot_material_interface_compatible(
+        project.shaders[0], noveltea::HotspotMaterialInterface::Custom));
+    CHECK(noveltea::hotspot_material_interface_compatible(
+        project.shaders[1], noveltea::HotspotMaterialInterface::Custom));
+    CHECK_FALSE(noveltea::hotspot_material_interface_compatible(
+        project.shaders[1], noveltea::HotspotMaterialInterface::Alpha));
+    CHECK(project.materials[0].textures.empty());
+    CHECK(project.materials[1].textures.empty());
+}
+
+TEST_CASE("material documents reject assignments to engine-bound hotspot samplers")
+{
+    const auto parsed = noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v2",
+      "shaders":{
+        "hotspot/test":{
+          "stages":{"fragment":{"source":"project:/hotspot.fs.sc"}},
+          "samplers":{"s_image":{"type":"texture2d","binding":"engine.hotspot_image"}},
+          "roles":["hotspot-overlay"],
+          "role_bindings":{}
+        }
+      },
+      "materials":{
+        "hotspot/test":{
+          "role":"hotspot-overlay",
+          "shader":"hotspot/test",
+          "textures":{"s_image":{"source":"project:/image.png","sampler":"clamp-linear"}}
+        }
+      }
+    })json");
+    CHECK_FALSE(parsed.ok());
+    CHECK(has_code(parsed, MaterialDiagnosticCode::InvalidTextureSource));
+}

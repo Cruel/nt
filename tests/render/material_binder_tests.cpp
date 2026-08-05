@@ -237,3 +237,29 @@ TEST_CASE("material binder keeps world UI media and viewport standard inputs dis
     CHECK(viewport == std::array<float, 4>{3840.0f, 2160.0f, 0.0f, 0.0f});
     CHECK(world != ui);
 }
+
+TEST_CASE("material binder packs hotspot overlay standard inputs")
+{
+    // The hotspot draw context is packed through the same standard-input path as other roles.
+    using noveltea::ShaderInputSemantic;
+    using noveltea::ShaderStandardInputs;
+    using noveltea::bgfx_backend::pack_shader_standard_input;
+
+    ShaderStandardInputs inputs;
+    inputs.hotspot_bounds = {0.1f, 0.2f, 0.3f, 0.4f};
+    inputs.hotspot_hovered = true;
+    inputs.hotspot_pressed = true;
+    inputs.hotspot_image_dimensions = {1920.0f, 1080.0f};
+    inputs.hotspot_mask_dimensions = {640.0f, 360.0f};
+
+    CHECK(pack_shader_standard_input(ShaderInputSemantic::EngineHotspotBounds, inputs) ==
+          inputs.hotspot_bounds);
+    CHECK(pack_shader_standard_input(ShaderInputSemantic::EngineHotspotHovered, inputs) ==
+          std::array<float, 4>{1.0f, 0.0f, 0.0f, 0.0f});
+    CHECK(pack_shader_standard_input(ShaderInputSemantic::EngineHotspotPressed, inputs) ==
+          std::array<float, 4>{1.0f, 0.0f, 0.0f, 0.0f});
+    CHECK(pack_shader_standard_input(ShaderInputSemantic::EngineHotspotImageDimensions, inputs) ==
+          std::array<float, 4>{1920.0f, 1080.0f, 0.0f, 0.0f});
+    CHECK(pack_shader_standard_input(ShaderInputSemantic::EngineHotspotMaskDimensions, inputs) ==
+          std::array<float, 4>{640.0f, 360.0f, 0.0f, 0.0f});
+}
