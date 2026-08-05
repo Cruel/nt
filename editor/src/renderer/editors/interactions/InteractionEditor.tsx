@@ -1,3 +1,5 @@
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +14,15 @@ import {
   type InteractionRule,
 } from '../../../shared/project-schema/authoring-interactions';
 import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
+import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
+import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
+import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
+import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import {
+  buildInteractableDetailTabForRecord,
+  buildRoomDetailTabForRecord,
+} from '@/workbench/editor-registry';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import {
   authoringProjectFromDocument,
   defaultInteractionProgram,
@@ -40,7 +51,46 @@ function ContextEditor({
   project: AuthoringEditorProject;
   onChange: (next: InteractionRule) => void;
 }) {
+  const { t } = useTranslation('workspace');
+  const [ownerSelectorOpen, setOwnerSelectorOpen] = useState(false);
   const context = rule.context;
+  const hotspotOwnerKind =
+    context.kind === 'hotspot' && context.hotspot.kind === 'interactable-hotspot'
+      ? 'interactable'
+      : 'room';
+  const hotspotOwnerId =
+    context.kind === 'hotspot'
+      ? context.hotspot.kind === 'room-hotspot'
+        ? context.hotspot.room.$ref.id
+        : context.hotspot.interactable.$ref.id
+      : '';
+  const matchingHotspots =
+    hotspotOwnerKind === 'room'
+      ? (() => {
+          const data = parseRoomData(project.rooms[hotspotOwnerId]?.data);
+          return (data?.hotspots ?? []).filter(
+            (item) =>
+              item.activation.kind === 'verb' &&
+              item.activation.verb?.$ref.id === rule.verb.$ref.id,
+          );
+        })()
+      : (() => {
+          const data = parseInteractableData(project.interactables[hotspotOwnerId]?.data);
+          const items =
+            data?.presentation.hotspots.kind === 'sprite-alpha'
+              ? [data.presentation.hotspots.hotspot]
+              : (data?.presentation.hotspots.hotspots ?? []);
+          return items.filter((item) => item.activation.verb?.$ref.id === rule.verb.$ref.id);
+        })();
+  const ownerItems = useMemo(
+    () =>
+      filterSelectorItems(buildCommandPaletteItems(project, t), {
+        collections: [hotspotOwnerKind === 'room' ? 'rooms' : 'interactables'],
+        includeActions: false,
+      }),
+    [hotspotOwnerKind, project, t],
+  );
+  const selectedOwnerItem = ownerItems.find((item) => item.entityId === hotspotOwnerId) ?? null;
   return (
     <div className="grid gap-2 md:grid-cols-3">
       <div>
@@ -66,6 +116,25 @@ function ContextEditor({
                 ...rule,
                 context: { kind, condition: { kind: 'lua-predicate', source: 'return true' } },
               });
+            } else if (kind === 'hotspot') {
+              const roomId = Object.keys(project.rooms)[0] ?? '';
+              const room = parseRoomData(project.rooms[roomId]?.data);
+              const hotspot = room?.hotspots.find(
+                (item) =>
+                  item.activation.kind === 'verb' &&
+                  item.activation.verb?.$ref.id === rule.verb.$ref.id,
+              );
+              onChange({
+                ...rule,
+                context: {
+                  kind: 'hotspot',
+                  hotspot: {
+                    kind: 'room-hotspot',
+                    room: typedRef('rooms', roomId),
+                    hotspotId: hotspot?.id ?? '',
+                  },
+                },
+              });
             } else {
               onChange({ ...rule, context: { kind: 'any' } });
             }
@@ -79,6 +148,7 @@ function ContextEditor({
             Room placement
           </SelectItem>
           <SelectItem value="predicate">Predicate</SelectItem>
+          <SelectItem value="hotspot">{t('hotspots.context.hotspot')}</SelectItem>
         </Select>
       </div>
       {context.kind === 'active-room' && (
@@ -147,6 +217,132 @@ function ContextEditor({
           }
         />
       )}
+      {context.kind === 'hotspot' && (
+        <>
+          <Select
+            value={hotspotOwnerKind}
+            onValueChange={(kind) => {
+              const ownerKind = String(kind);
+              if (ownerKind === 'room') {
+                const roomId = Object.keys(project.rooms)[0] ?? '';
+                onChange({
+                  ...rule,
+                  context: {
+                    kind: 'hotspot',
+                    hotspot: {
+                      kind: 'room-hotspot',
+                      room: typedRef('rooms', roomId),
+                      hotspotId: '',
+                    },
+                  },
+                });
+              } else {
+                const interactableId = Object.keys(project.interactables)[0] ?? '';
+                onChange({
+                  ...rule,
+                  context: {
+                    kind: 'hotspot',
+                    hotspot: {
+                      kind: 'interactable-hotspot',
+                      interactable: typedRef('interactables', interactableId),
+                      hotspotId: '',
+                    },
+                  },
+                });
+              }
+            }}
+          >
+            <SelectItem value="room">{t('hotspots.context.room')}</SelectItem>
+            <SelectItem value="interactable">{t('hotspots.context.interactable')}</SelectItem>
+          </Select>
+          <Button type="button" variant="outline" onClick={() => setOwnerSelectorOpen(true)}>
+            {selectedOwnerItem?.title ?? (hotspotOwnerId || t('hotspots.selectOwner'))}
+          </Button>
+          <Select
+            value={context.hotspot.hotspotId}
+            onValueChange={(hotspotId) =>
+              onChange({
+                ...rule,
+                context: {
+                  kind: 'hotspot',
+                  hotspot: { ...context.hotspot, hotspotId: String(hotspotId) },
+                },
+              })
+            }
+          >
+            {matchingHotspots.map((hotspot) => (
+              <SelectItem key={hotspot.id} value={hotspot.id}>
+                {hotspot.label} ({hotspot.id})
+              </SelectItem>
+            ))}
+            {!matchingHotspots.some((hotspot) => hotspot.id === context.hotspot.hotspotId) &&
+            context.hotspot.hotspotId ? (
+              <SelectItem value={context.hotspot.hotspotId}>
+                {t('hotspots.context.invalid', { id: context.hotspot.hotspotId })}
+              </SelectItem>
+            ) : null}
+          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={!hotspotOwnerId || !context.hotspot.hotspotId}
+            onClick={() => {
+              if (!hotspotOwnerId || !context.hotspot.hotspotId) return;
+              const record =
+                hotspotOwnerKind === 'room'
+                  ? project.rooms[hotspotOwnerId]
+                  : project.interactables[hotspotOwnerId];
+              const tab =
+                hotspotOwnerKind === 'room'
+                  ? buildRoomDetailTabForRecord(hotspotOwnerId, record?.label ?? hotspotOwnerId)
+                  : buildInteractableDetailTabForRecord(
+                      hotspotOwnerId,
+                      record?.label ?? hotspotOwnerId,
+                    );
+              navigateToWorkbenchTarget({
+                tab,
+                target: {
+                  id: `${hotspotOwnerKind}.hotspot.${context.hotspot.hotspotId}`,
+                  block: 'center',
+                  flash: true,
+                },
+              });
+            }}
+          >
+            {t('hotspots.openOwner')}
+          </Button>
+          <SearchSelectorDialog
+            open={ownerSelectorOpen}
+            title={t('hotspots.selectOwner')}
+            placeholder={t('hotspots.searchOwners')}
+            emptyMessage={t('hotspots.noOwners')}
+            items={ownerItems}
+            selectedId={selectedOwnerItem?.id ?? null}
+            onOpenChange={setOwnerSelectorOpen}
+            onSelect={(item) => {
+              const ownerId = item.entityId ?? '';
+              onChange({
+                ...rule,
+                context: {
+                  kind: 'hotspot',
+                  hotspot:
+                    hotspotOwnerKind === 'room'
+                      ? {
+                          kind: 'room-hotspot',
+                          room: typedRef('rooms', ownerId),
+                          hotspotId: '',
+                        }
+                      : {
+                          kind: 'interactable-hotspot',
+                          interactable: typedRef('interactables', ownerId),
+                          hotspotId: '',
+                        },
+                },
+              });
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -169,7 +365,10 @@ function RuleEditor({
   onDelete: () => void;
 }) {
   return (
-    <section className="space-y-3 rounded border p-3">
+    <section
+      className="space-y-3 rounded border p-3"
+      data-workbench-anchor={`interaction.rule.${rule.id}`}
+    >
       <div className="grid gap-2 md:grid-cols-4">
         <div>
           <Label>Rule ID</Label>

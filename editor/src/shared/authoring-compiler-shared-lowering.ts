@@ -112,10 +112,9 @@ function compileVerbActivation(activation: {
   kind: 'verb';
   verb: { $ref: { id: string } } | null;
 }) {
-  return {
-    kind: 'verb' as const,
-    verb: { kind: 'verb' as const, id: activation.verb!.$ref.id },
-  };
+  return activation.verb
+    ? { kind: 'verb' as const, verb: { kind: 'verb' as const, id: activation.verb.$ref.id } }
+    : null;
 }
 
 function materialRef(ref: { $ref: { id: string } } | null | undefined) {
@@ -203,6 +202,37 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
     return { diagnostics };
   }
+
+  for (const [roomId, record] of sortedEntries(project.rooms)) {
+    const room = parseRoomData(record.data);
+    for (const [index, hotspot] of (room?.hotspots ?? []).entries()) {
+      if (hotspot.activation.kind === 'verb' && !hotspot.activation.verb)
+        diagnostics.push({
+          code: 'hotspot.compiled.unbound_verb',
+          path: `/rooms/${roomId}/data/hotspots/${index}/activation/verb`,
+          message: `Room hotspot '${hotspot.id}' must bind a Verb before compilation.`,
+        });
+    }
+  }
+  for (const [interactableId, record] of sortedEntries(project.interactables)) {
+    const interactable = parseInteractableData(record.data);
+    const hotspots =
+      interactable?.presentation.hotspots.kind === 'sprite-alpha'
+        ? [interactable.presentation.hotspots.hotspot]
+        : (interactable?.presentation.hotspots.hotspots ?? []);
+    for (const [index, hotspot] of hotspots.entries()) {
+      if (!hotspot.activation.verb)
+        diagnostics.push({
+          code: 'hotspot.compiled.unbound_verb',
+          path:
+            interactable?.presentation.hotspots.kind === 'sprite-alpha'
+              ? `/interactables/${interactableId}/data/presentation/hotspots/hotspot/activation/verb`
+              : `/interactables/${interactableId}/data/presentation/hotspots/hotspots/${index}/activation/verb`,
+          message: `Interactable hotspot '${hotspot.id}' must bind a Verb before compilation.`,
+        });
+    }
+  }
+  if (diagnostics.length > 0) return { diagnostics };
 
   const requireData = <T>(value: T | null, path: string): T | undefined => {
     if (value) return value;
@@ -381,7 +411,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
         activation:
           hotspot.activation.kind === 'verb'
-            ? compileVerbActivation(hotspot.activation)
+            ? compileVerbActivation(hotspot.activation)!
             : { kind: 'exit', exitId: hotspot.activation.exitId },
       })),
       cast: data.cast.map((entry) => ({
@@ -459,7 +489,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                   ...hotspotDefinition.hotspot,
                   condition: compileCondition(hotspotDefinition.hotspot.condition),
                   highlight: compileHighlight(hotspotDefinition.hotspot.highlight),
-                  activation: compileVerbActivation(hotspotDefinition.hotspot.activation),
+                  activation: compileVerbActivation(hotspotDefinition.hotspot.activation)!,
                 },
               }
             : {
@@ -470,7 +500,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                   condition: compileCondition(hotspot.condition),
                   inputOrder: hotspot.inputOrder,
                   highlight: compileHighlight(hotspot.highlight),
-                  activation: compileVerbActivation(hotspot.activation),
+                  activation: compileVerbActivation(hotspot.activation)!,
                   shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
                 })),
               },

@@ -52,6 +52,7 @@ export interface HotspotImageStageProps {
   camera: ImageStageCamera;
   alphaVisualization?: boolean;
   alphaCoverage?: ImageData | null;
+  visibleImageGuide?: ImageNormalizedRect | null;
   placedObjectLayer?: ReactNode;
   className?: string;
   onSelectionChange(id: string | null): void;
@@ -116,14 +117,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       restoredCamera.pan.y !== props.camera.pan.y
     )
       props.onCameraChange(restoredCamera);
-  }, [
-    props,
-    restoredCamera.pan.x,
-    restoredCamera.pan.y,
-    restoredCamera.zoom,
-    viewport.height,
-    viewport.width,
-  ]);
+  }, [props, restoredCamera, viewport]);
   const cameraPan =
     gesture?.kind === 'pan'
       ? clampImageStageCamera(viewport, props.imageSize, {
@@ -240,9 +234,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
   const geometry = (item: HotspotStageItem): HotspotStageGeometry =>
     item.geometry ?? { kind: 'rect', bounds: item.bounds };
   const draftBounds = (item: HotspotStageItem, itemGeometry: HotspotStageGeometry) =>
-    gesture &&
-    (gesture.kind === 'move' || gesture.kind === 'resize') &&
-    gesture.id === item.id
+    gesture && (gesture.kind === 'move' || gesture.kind === 'resize') && gesture.id === item.id
       ? gesture.draft
       : itemGeometry.kind === 'rect'
         ? itemGeometry.bounds
@@ -297,6 +289,24 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
           className="pointer-events-none absolute inset-0 size-full overflow-visible"
           data-geometry-layer=""
         >
+          {props.visibleImageGuide
+            ? (() => {
+                const guide = imageRectToStage(props.visibleImageGuide, imageRect);
+                return (
+                  <rect
+                    x={guide.x}
+                    y={guide.y}
+                    width={guide.width}
+                    height={guide.height}
+                    className="fill-transparent stroke-foreground/70"
+                    data-runtime-visible-area-guide=""
+                    strokeWidth={2}
+                    strokeDasharray="8 5"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              })()
+            : null}
           {props.hotspots.map((item) => {
             const itemGeometry = geometry(item);
             const selected = item.id === props.selectedHotspotId;
@@ -402,16 +412,8 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
               <rect
                 key={`${item.id}-${handle}`}
                 data-resize-handle={handle}
-                x={
-                  rect.x +
-                  (Number.parseFloat(handlePosition[handle].left) / 100) * rect.width -
-                  4
-                }
-                y={
-                  rect.y +
-                  (Number.parseFloat(handlePosition[handle].top) / 100) * rect.height -
-                  4
-                }
+                x={rect.x + (Number.parseFloat(handlePosition[handle].left) / 100) * rect.width - 4}
+                y={rect.y + (Number.parseFloat(handlePosition[handle].top) / 100) * rect.height - 4}
                 width={8}
                 height={8}
                 className="pointer-events-auto fill-background stroke-foreground"

@@ -432,5 +432,68 @@
       "manifest": "Manifesto",
       "manifestNotReady": "O manifesto ainda não está pronto."
     }
+  },
+  "hotspots": {
+    "subtitle": "Edição de hotspot relativa à imagem",
+    "invalidImage": "Selecione um recurso de imagem válido com dimensões antes de editar hotspots.",
+    "tools": { "select": "Selecionar", "draw-rect": "Desenhar", "pan": "Mover visão" },
+    "fields": {
+      "id": "ID",
+      "label": "Rótulo",
+      "inputOrder": "Ordem de entrada",
+      "highlight": "Destaque",
+      "highlightMaterial": "Material de destaque",
+      "activation": "Ativação",
+      "verb": "Verbo ({{count}} operandos)",
+      "exit": "Saída",
+      "condition": "Condição",
+      "variable": "Variável",
+      "operator": "Operador",
+      "value": "Valor",
+      "luaPredicate": "Predicado Lua"
+    },
+    "highlight": { "default": "Padrão", "material": "Material", "none": "Nenhum" },
+    "activation": { "verb": "Verbo", "exit": "Saída da sala" },
+    "condition": {
+      "always": "Sempre",
+      "variable": "Comparação de variável",
+      "lua": "Predicado Lua"
+    },
+    "operators": {
+      "equal": "Igual",
+      "not-equal": "Diferente",
+      "less": "Menor",
+      "less-equal": "Menor ou igual",
+      "greater": "Maior",
+      "greater-equal": "Maior ou igual",
+      "truthy": "Verdadeiro",
+      "falsy": "Falso"
+    },
+    "unbound": "Não vinculado",
+    "selectOwner": "Selecionar proprietário do hotspot",
+    "searchOwners": "Pesquisar salas ou interagíveis",
+    "noOwners": "Nenhum proprietário de hotspot correspondente.",
+    "openOwner": "Abrir hotspot",
+    "searchRecords": "Pesquisar registros",
+    "selectVerb": "Selecionar verbo",
+    "selectMaterial": "Selecionar material de hotspot",
+    "noMatchingRecords": "Nenhum registro compatível.",
+    "defaultLabel": "Hotspot",
+    "roomTitle": "Hotspots do plano de fundo",
+    "mode": {
+      "label": "Modo de hotspot",
+      "alpha": "Alfa",
+      "custom": "Personalizado",
+      "alphaTitle": "Hotspot alfa padrão",
+      "customTitle": "Hotspots personalizados"
+    },
+    "context": {
+      "hotspot": "Hotspot",
+      "room": "Sala",
+      "interactable": "Interagível",
+      "invalid": "Inválido: {{id}}"
+    },
+    "delete": "Excluir hotspot",
+    "selectPrompt": "Selecione um hotspot para editar seu comportamento."
   }
 }

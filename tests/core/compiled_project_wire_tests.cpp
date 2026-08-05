@@ -219,27 +219,29 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
             decode_shared_project(fixture("interaction-program"), "interaction-program.json");
         REQUIRE(result);
         const auto& project = result.value();
-        REQUIRE(project.verbs.size() == 4);
-        CHECK(project.verbs[2].default_program.instructions.size() == 1);
-        REQUIRE(project.interactions.front().rules.size() == 4);
+        REQUIRE(project.verbs.size() == 5);
+        CHECK(project.verbs[3].default_program.instructions.size() == 1);
+        REQUIRE(project.interactions.front().rules.size() == 6);
         const auto& rules = project.interactions.front().rules;
-        CHECK(std::holds_alternative<AnyInteractionContext>(rules[0].context));
-        REQUIRE(rules[0].program.instructions.size() == 6);
-        CHECK(std::holds_alternative<ApplyEffectInstruction>(rules[0].program.instructions[0]));
+        CHECK(std::holds_alternative<HotspotInteractionContext>(rules[0].context));
+        CHECK(std::holds_alternative<HotspotInteractionContext>(rules[1].context));
+        CHECK(std::holds_alternative<AnyInteractionContext>(rules[2].context));
+        REQUIRE(rules[2].program.instructions.size() == 6);
+        CHECK(std::holds_alternative<ApplyEffectInstruction>(rules[2].program.instructions[0]));
         CHECK(
-            std::holds_alternative<MoveInteractableInstruction>(rules[0].program.instructions[1]));
+            std::holds_alternative<MoveInteractableInstruction>(rules[2].program.instructions[1]));
         CHECK(std::holds_alternative<SetInteractableStateInstruction>(
-            rules[0].program.instructions[2]));
-        CHECK(std::holds_alternative<NotifyInstruction>(rules[0].program.instructions[3]));
+            rules[2].program.instructions[2]));
+        CHECK(std::holds_alternative<NotifyInstruction>(rules[2].program.instructions[3]));
         CHECK(std::holds_alternative<CallSceneInteractionInstruction>(
-            rules[0].program.instructions[4]));
+            rules[2].program.instructions[4]));
         CHECK(std::holds_alternative<CallDialogueInteractionInstruction>(
-            rules[0].program.instructions[5]));
-        CHECK(std::holds_alternative<ActiveRoomInteractionContext>(rules[1].context));
-        CHECK(std::holds_alternative<PlacementInteractionContext>(rules[2].context));
-        CHECK(std::holds_alternative<PredicateInteractionContext>(rules[3].context));
-        CHECK(std::holds_alternative<AnyInteractableOperand>(rules[1].operands.front()));
-        CHECK(std::get<MoveInteractableInstruction>(rules[2].program.instructions.front())
+            rules[2].program.instructions[5]));
+        CHECK(std::holds_alternative<ActiveRoomInteractionContext>(rules[3].context));
+        CHECK(std::holds_alternative<PlacementInteractionContext>(rules[4].context));
+        CHECK(std::holds_alternative<PredicateInteractionContext>(rules[5].context));
+        CHECK(std::holds_alternative<AnyInteractableOperand>(rules[3].operands.front()));
+        CHECK(std::get<MoveInteractableInstruction>(rules[4].program.instructions.front())
                   .id.text() == "room-placement");
     }
 }
@@ -257,10 +259,10 @@ TEST_CASE("compiled project decoder rejects specialized discriminants and incomp
          {"definitions", "dialogues", "1", "program", "blocks", "0", "segments", "0"}},
         {"dialogue-program", {"definitions", "dialogues", "1", "program", "edges", "0"}},
         {"interaction-program",
-         {"definitions", "interactions", "0", "rules", "0", "program", "instructions", "0"}},
-        {"interaction-program", {"definitions", "interactions", "0", "rules", "0", "context"}},
+         {"definitions", "interactions", "0", "rules", "2", "program", "instructions", "0"}},
+        {"interaction-program", {"definitions", "interactions", "0", "rules", "2", "context"}},
         {"interaction-program",
-         {"definitions", "interactions", "0", "rules", "0", "operands", "0"}},
+         {"definitions", "interactions", "0", "rules", "2", "operands", "0"}},
     };
     for (const auto& mutation : mutations) {
         auto document = fixture(mutation.fixture_name);
@@ -685,7 +687,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
         noveltea::core::decode_compiled_project(fixture("interaction-program"), "interaction.json");
     REQUIRE(interaction);
     REQUIRE(interaction.value().interactions().size() == 2);
-    CHECK(interaction.value().interactions().front().rules.size() == 4);
+    CHECK(interaction.value().interactions().front().rules.size() == 6);
 }
 
 TEST_CASE("compiled image sampling is required and decodes explicitly")

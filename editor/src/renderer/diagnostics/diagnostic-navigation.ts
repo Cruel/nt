@@ -5,6 +5,8 @@ import {
   buildLayoutDetailTabForRecord,
   buildMaterialDetailTabForRecord,
   buildProjectSettingsTab,
+  buildInteractableDetailTabForRecord,
+  buildInteractionDetailTabForRecord,
   buildRoomDetailTabForRecord,
   buildSceneDetailTabForRecord,
   buildShaderDetailTabForRecord,
@@ -241,6 +243,12 @@ export function resolveProjectDiagnosticTarget(
       const rowId = arrayItemId(data, 'exits', index);
       if (rowId) return rowTarget(tab, `room.exit.${rowId}`, { kind: 'room-exit', index, rowId });
     }
+    if (scope === 'data' && field === 'hotspots') {
+      const index = indexedSegment(segments[4]);
+      const rowId = arrayItemId(data, 'hotspots', index);
+      if (rowId)
+        return rowTarget(tab, `room.hotspot.${rowId}`, { kind: 'room-hotspot', index, rowId });
+    }
     const anchor =
       scope === 'data'
         ? field === 'description'
@@ -251,13 +259,60 @@ export function resolveProjectDiagnosticTarget(
               ? 'room.exits'
               : field === 'placements'
                 ? 'room.placements'
-                : field === 'overlays'
-                  ? 'room.overlays'
-                  : field === 'lifecycle'
-                    ? 'room.lifecycle'
-                    : 'room.summary'
+                : field === 'hotspots'
+                  ? 'room.hotspots'
+                  : field === 'overlays'
+                    ? 'room.overlays'
+                    : field === 'lifecycle'
+                      ? 'room.lifecycle'
+                      : 'room.summary'
         : 'room.summary';
     return target(tab, anchor);
+  }
+
+  if (collection === 'interactables' && project.interactables[id]) {
+    const tab = buildInteractableDetailTabForRecord(id, recordLabel(project, 'interactables', id));
+    const data = dataRecord(project, 'interactables', id);
+    if (scope === 'data' && field === 'presentation' && segments[4] === 'hotspots') {
+      const hotspotContainer = data?.presentation;
+      const presentation =
+        typeof hotspotContainer === 'object' && hotspotContainer !== null
+          ? (hotspotContainer as Record<string, unknown>)
+          : null;
+      const hotspotMode = presentation?.hotspots;
+      if (typeof hotspotMode === 'object' && hotspotMode !== null && !Array.isArray(hotspotMode)) {
+        const mode = hotspotMode as Record<string, unknown>;
+        const rowId =
+          mode.kind === 'sprite-alpha'
+            ? typeof (mode.hotspot as { id?: unknown } | undefined)?.id === 'string'
+              ? ((mode.hotspot as { id: string }).id ?? null)
+              : null
+            : arrayItemId(mode, 'hotspots', indexedSegment(segments[6]));
+        if (rowId)
+          return rowTarget(tab, `interactable.hotspot.${rowId}`, {
+            kind: 'interactable-hotspot',
+            rowId,
+          });
+      }
+      return target(tab, 'interactable.hotspots');
+    }
+    return target(tab, 'interactable.summary');
+  }
+
+  if (collection === 'interactions' && project.interactions[id]) {
+    const tab = buildInteractionDetailTabForRecord(id, recordLabel(project, 'interactions', id));
+    const data = dataRecord(project, 'interactions', id);
+    if (scope === 'data' && field === 'rules') {
+      const index = indexedSegment(segments[4]);
+      const rowId = arrayItemId(data, 'rules', index);
+      if (rowId)
+        return rowTarget(tab, `interaction.rule.${rowId}`, {
+          kind: 'interaction-rule',
+          index,
+          rowId,
+        });
+    }
+    return target(tab, 'interaction.summary');
   }
 
   if (collection === 'dialogues' && project.dialogues[id]) {

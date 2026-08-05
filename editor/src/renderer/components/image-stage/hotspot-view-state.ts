@@ -1,7 +1,4 @@
-import {
-  clampImageStageCamera,
-  type StageSize,
-} from './image-stage-transforms';
+import { clampImageStageCamera, type StageSize } from './image-stage-transforms';
 
 export const HOTSPOT_VIEW_STATE_SCHEMA = 'noveltea.editor.hotspot-view' as const;
 export const HOTSPOT_VIEW_STATE_VERSION = 1 as const;

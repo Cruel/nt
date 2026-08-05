@@ -189,6 +189,33 @@ describe('HotspotImageStage', () => {
     expect(onDelete).toHaveBeenCalledWith('door');
   });
 
+  it('renders the Room runtime-visible image guide without changing editable UV geometry', () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      clientWidth: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 300 },
+    });
+    render(
+      <HotspotImageStage
+        imageSize={{ width: 1000, height: 2000 }}
+        hotspots={[
+          { id: 'door', label: 'Door', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+        ]}
+        visibleImageGuide={{ x: 0, y: 0.359375, width: 1, height: 0.28125 }}
+        selectedHotspotId="door"
+        tool="select"
+        camera={{ zoom: 1, pan: { x: 0, y: 0 } }}
+        onSelectionChange={vi.fn()}
+        onCameraChange={vi.fn()}
+        onCreate={vi.fn()}
+        onCommitBounds={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    expect(document.querySelector('[data-runtime-visible-area-guide]')).not.toBeNull();
+    expect(document.querySelector('[data-hotspot-id="door"]')).not.toBeNull();
+  });
+
   it('exposes polygon-ready display and selection without enabling polygon editing', () => {
     const onSelectionChange = vi.fn();
     render(

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ArrowRight, ChevronsUpDown, Image, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +23,7 @@ import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
+import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import {
   defaultHotspotViewState,
@@ -73,6 +74,7 @@ import {
 import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import { buildRoomDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { RoomExitDirectionSelector } from './RoomExitDirectionSelector';
 
 const backgroundFitLabels = {
@@ -568,6 +570,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const document = useProjectStore((state) => state.document);
+  const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(document) ? document : null;
   const record = roomId && project ? project.rooms[roomId] : null;
@@ -623,6 +626,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       [data.hotspots, hotspotView, previewCollapsed],
     ),
   );
+  useEffect(
+    () =>
+      registerWorkbenchTargetHandler(tab.id, 'room.hotspot', (target) => {
+        const id = target.id.slice('room.hotspot.'.length);
+        if (!data.hotspots.some((hotspot) => hotspot.id === id)) return false;
+        setHotspotView((current) => ({ ...current, selectedHotspotId: id }));
+        return false;
+      }),
+    [data.hotspots, tab.id],
+  );
   if (!project || !record || !roomId)
     return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
   const previewSplitOrientation = resolveEditorPreviewSplitOrientation(
@@ -637,6 +650,24 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+  const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
+    useCommandStore.getState().executeCommand({
+      type,
+      label,
+      payload: { roomId, ...payload },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+  const nextHotspotId = () => {
+    const ids = new Set(data.hotspots.map((item) => item.id));
+    let index = 1;
+    while (ids.has(index === 1 ? 'hotspot' : `hotspot-${index}`)) index += 1;
+    return index === 1 ? 'hotspot' : `hotspot-${index}`;
+  };
+  const nextHotspotInputOrder = data.hotspots.reduce(
+    (maximum, item) => Math.max(maximum, item.inputOrder),
+    -1,
+  );
   const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label }));
   const exitDestinationItems = data.exits.map((exit) => ({
     id: exit.target.$ref.id,
@@ -911,6 +942,53 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
             </div>
           </section>
+
+          <HotspotAuthoringPanel
+            anchorPrefix="room"
+            project={project}
+            projectFilePath={projectFilePath}
+            title={t('hotspots.roomTitle')}
+            assetId={data.background.asset?.$ref.id ?? null}
+            hotspots={data.hotspots}
+            selectedView={hotspotView}
+            arity={0}
+            roomVisibleGuide={{
+              referenceSize: projectSettingsFromProject(project).display.referenceResolution,
+              fit: data.background.fit,
+            }}
+            exits={data.exits.map((exit) => ({ id: exit.id, label: exit.id }))}
+            onViewChange={setHotspotView}
+            onAdd={(bounds) => {
+              const id = nextHotspotId();
+              executeHotspot('room.addHotspot', 'Add room hotspot', {
+                hotspot: {
+                  id,
+                  label: t('hotspots.defaultLabel'),
+                  condition: { kind: 'always' },
+                  inputOrder: Math.min(2147483647, nextHotspotInputOrder + 1),
+                  highlight: { kind: 'default' },
+                  activation: { kind: 'verb', verb: null },
+                  shape: { kind: 'rect', bounds },
+                },
+              });
+              setHotspotView((view) => ({ ...view, selectedHotspotId: id, tool: 'select' }));
+            }}
+            onDelete={(hotspotId) =>
+              executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
+            }
+            onRename={(hotspotId, nextId) =>
+              executeHotspot('room.renameHotspot', 'Rename room hotspot', { hotspotId, nextId })
+            }
+            onUpdate={(hotspotId, hotspot) =>
+              executeHotspot('room.updateHotspot', 'Update room hotspot', { hotspotId, hotspot })
+            }
+            onBounds={(hotspotId, bounds) =>
+              executeHotspot('room.setHotspotBounds', 'Set room hotspot bounds', {
+                hotspotId,
+                bounds,
+              })
+            }
+          />
 
           <section
             className="overflow-hidden rounded-lg border bg-card/30"

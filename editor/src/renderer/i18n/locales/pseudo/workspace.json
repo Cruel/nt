@@ -396,5 +396,68 @@
       "manifest": "⟦Manifest⟧",
       "manifestNotReady": "⟦Manifest is not ready.⟧"
     }
+  },
+  "hotspots": {
+    "subtitle": "⟦Image-relative hotspot authoring⟧",
+    "invalidImage": "⟦Select a valid image asset with dimensions before authoring hotspots.⟧",
+    "tools": { "select": "⟦Select⟧", "draw-rect": "⟦Draw⟧", "pan": "⟦Pan⟧" },
+    "fields": {
+      "id": "⟦ID⟧",
+      "label": "⟦Label⟧",
+      "inputOrder": "⟦Input order⟧",
+      "highlight": "⟦Highlight⟧",
+      "highlightMaterial": "⟦Highlight material⟧",
+      "activation": "⟦Activation⟧",
+      "verb": "⟦Verb ({{count}} operands)⟧",
+      "exit": "⟦Exit⟧",
+      "condition": "⟦Condition⟧",
+      "variable": "⟦Variable⟧",
+      "operator": "⟦Operator⟧",
+      "value": "⟦Value⟧",
+      "luaPredicate": "⟦Lua predicate⟧"
+    },
+    "highlight": { "default": "⟦Default⟧", "material": "⟦Material⟧", "none": "⟦None⟧" },
+    "activation": { "verb": "⟦Verb⟧", "exit": "⟦Room exit⟧" },
+    "condition": {
+      "always": "⟦Always⟧",
+      "variable": "⟦Variable comparison⟧",
+      "lua": "⟦Lua predicate⟧"
+    },
+    "operators": {
+      "equal": "⟦Equal⟧",
+      "not-equal": "⟦Not equal⟧",
+      "less": "⟦Less than⟧",
+      "less-equal": "⟦Less than or equal⟧",
+      "greater": "⟦Greater than⟧",
+      "greater-equal": "⟦Greater than or equal⟧",
+      "truthy": "⟦Truthy⟧",
+      "falsy": "⟦Falsy⟧"
+    },
+    "unbound": "⟦Unbound⟧",
+    "selectOwner": "⟦Select hotspot owner⟧",
+    "searchOwners": "⟦Search Rooms or Interactables⟧",
+    "noOwners": "⟦No matching hotspot owners.⟧",
+    "openOwner": "⟦Open hotspot⟧",
+    "searchRecords": "⟦Search records⟧",
+    "selectVerb": "⟦Select Verb⟧",
+    "selectMaterial": "⟦Select hotspot Material⟧",
+    "noMatchingRecords": "⟦No compatible records.⟧",
+    "defaultLabel": "⟦Hotspot⟧",
+    "roomTitle": "⟦Background hotspots⟧",
+    "mode": {
+      "label": "⟦Hotspot mode⟧",
+      "alpha": "⟦Alpha⟧",
+      "custom": "⟦Custom⟧",
+      "alphaTitle": "⟦Default alpha hotspot⟧",
+      "customTitle": "⟦Custom hotspots⟧"
+    },
+    "context": {
+      "hotspot": "⟦Hotspot⟧",
+      "room": "⟦Room⟧",
+      "interactable": "⟦Interactable⟧",
+      "invalid": "⟦Invalid: {{id}}⟧"
+    },
+    "delete": "⟦Delete hotspot⟧",
+    "selectPrompt": "⟦Select a hotspot to edit its behavior.⟧"
   }
 }

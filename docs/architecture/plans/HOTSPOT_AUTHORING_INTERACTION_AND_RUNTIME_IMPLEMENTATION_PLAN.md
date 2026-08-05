@@ -1935,6 +1935,42 @@ the characterized target set.
 - Default alpha remains singular.
 - All edits use project commands/save units; no direct project mutation occurs.
 
+#### Phase 4 implementation findings and validation
+
+- The compiled-project contract requires every compiled Verb activation to contain a concrete Verb,
+  while the current authoring contract intentionally permits `verb: null` so a newly created hotspot
+  can remain visibly incomplete. Shared lowering now preflights every Room and Interactable hotspot,
+  reports `hotspot.compiled.unbound_verb` at the exact authoring path, and returns no draft when one is
+  unbound. It no longer dereferences a nullable authoring Verb or manufactures a compiled fallback.
+  This preserves the existing Phase 6 activation boundary and requires no downstream scope change.
+- Exact hotspot Problems navigation reuses the existing workbench reveal-target mechanism. Room and
+  Interactable owner editors register target handlers that select the nested hotspot in their
+  Phase-3 tab-state payload, while Interaction hotspot fields link through the same owner-specific
+  target. No parallel navigation event or editor-local protocol was introduced.
+- The Room authoring surface continues to expose the complete source image. Its read-only runtime
+  visible-area guide is derived from the Phase-3 `roomBackgroundTransform()` helper using project
+  reference resolution, source image dimensions, and the current background fit. The guide therefore
+  reflects cover cropping and center clipping without changing hotspot UV coordinates or reusing
+  Room placement bounds.
+- Searchable owner, Verb, and Material selection reuses the existing command-palette selector item
+  source. Owner lists are collection-filtered, hotspot Verbs are additionally arity-filtered, and
+  highlight Materials are additionally filtered to the `hotspot-overlay` role. Invalid decoded
+  Interaction hotspot selections remain visible until explicitly repaired.
+- Room and Interactable hotspot changes use the fine-grained manual-save commands declared by this
+  plan. Draw, move, and resize gestures still commit exactly once through the shared Phase-3 stage;
+  hotspot rename rewrites exact Interaction references atomically, and deletion or either mode-switch
+  direction is blocked while removed hotspot identities remain referenced. Default-alpha mode
+  retains exactly one behavior record and Custom mode may remain empty.
+- Validation completed on 2026-08-05. Focused compiler, command, diagnostic-navigation, owner-editor,
+  and image-stage tests passed. `pnpm -C editor run check` passed formatting, lint with zero warnings,
+  TypeScript, and schema-policy checks. `pnpm -C editor run test` passed 182 files with one skipped
+  file: 1,134 tests passed and four were skipped. `pnpm -C editor run build` passed Electron
+  main/preload/tools packaging, renderer production build, bundle policy, and all prerequisite checks.
+  The unpacked editor package was built and `pnpm -C editor run package:smoke` passed every main,
+  renderer, preload, packaged-protocol, engine-preview, editor-asset, native-tool, and Sharp check.
+  The Linux smoke emitted the existing non-fatal DBus, GLib, GPU, and Sharp/Electron warnings. The
+  environment used Node 22.22.1 while `editor/package.json` declares Node 24.18.0; every gate passed.
+
 ### Phase 5: React Room composition and placement tools
 
 #### Required work
@@ -2272,7 +2308,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 1: Characterization and contract fixtures
 - [x] Phase 2: Atomic project, compiled, material, and graph contract cutover
 - [x] Phase 3: Shared React image stage and hotspot editor
-- [ ] Phase 4: Room and Interactable hotspot authoring
+- [x] Phase 4: Room and Interactable hotspot authoring
 - [ ] Phase 5: React Room composition and placement tools
 - [ ] Phase 6: Hotspot activation, Interaction context, and save-state version 7
 - [ ] Phase 7: Alpha coverage in existing image preparation

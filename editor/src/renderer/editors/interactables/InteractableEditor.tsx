@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   defaultHotspotViewState,
   parseHotspotViewTabState,
@@ -6,6 +7,8 @@ import {
   type HotspotEditorViewStateV1,
 } from '@/components/image-stage/hotspot-view-state';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -27,6 +30,7 @@ import {
   useWorkbenchTabStateStore,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 
 const INTERACTABLE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.interactable';
 type InteractableEditorTabState = WorkbenchTabStatePayload & {
@@ -54,7 +58,9 @@ function parseInteractableEditorTabState(
 
 const refValue = (ref: { $ref: { id: string } } | null) => ref?.$ref.id ?? '__none__';
 export function InteractableEditor({ tab }: WorkbenchEditorProps) {
+  const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
+  const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const project = isAuthoringProject(document) ? document : null;
   const interactableId = tab.resource?.entityId;
   const record = interactableId && project ? project.interactables[interactableId] : null;
@@ -93,6 +99,16 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       [hotspotIds, hotspotView],
     ),
   );
+  useEffect(
+    () =>
+      registerWorkbenchTargetHandler(tab.id, 'interactable.hotspot', (target) => {
+        const id = target.id.slice('interactable.hotspot.'.length);
+        if (!hotspotIds.includes(id)) return false;
+        setHotspotView((current) => ({ ...current, selectedHotspotId: id }));
+        return false;
+      }),
+    [hotspotIds, tab.id],
+  );
   const placementOptions = useMemo(
     () =>
       project
@@ -115,6 +131,24 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('interactables', interactableId),
       persistencePolicy: 'manual-save',
     });
+  const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
+    useCommandStore.getState().executeCommand({
+      type,
+      label,
+      payload: { interactableId, ...payload },
+      originSaveUnitId: recordSaveUnitId('interactables', interactableId),
+      persistencePolicy: 'manual-save',
+    });
+  const hotspotMode = data.presentation.hotspots;
+  const hotspotItems =
+    hotspotMode.kind === 'sprite-alpha' ? [hotspotMode.hotspot] : hotspotMode.hotspots;
+  const nextHotspotId = () => {
+    const ids = new Set(hotspotItems.map((item) => item.id));
+    let index = 1;
+    while (ids.has(index === 1 ? 'hotspot' : `hotspot-${index}`)) index += 1;
+    return index === 1 ? 'hotspot' : `hotspot-${index}`;
+  };
+  const nextInputOrder = hotspotItems.reduce((max, item) => Math.max(max, item.inputOrder), -1);
   return (
     <div className="h-full overflow-auto bg-background p-4">
       <div className="flex gap-2">
@@ -256,6 +290,88 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           />
           Visible initially
         </label>
+      </div>
+      <div className="mt-4 max-w-5xl space-y-3">
+        <div className="flex items-center gap-2">
+          <Label>{t('hotspots.mode.label')}</Label>
+          <Button
+            size="sm"
+            variant={hotspotMode.kind === 'sprite-alpha' ? 'default' : 'outline'}
+            onClick={() =>
+              executeHotspot('interactable.setHotspotMode', 'Use sprite alpha hotspot', {
+                kind: 'sprite-alpha',
+              })
+            }
+          >
+            {t('hotspots.mode.alpha')}
+          </Button>
+          <Button
+            size="sm"
+            variant={hotspotMode.kind === 'custom' ? 'default' : 'outline'}
+            onClick={() =>
+              executeHotspot('interactable.setHotspotMode', 'Use custom hotspots', {
+                kind: 'custom',
+              })
+            }
+          >
+            {t('hotspots.mode.custom')}
+          </Button>
+        </div>
+        <HotspotAuthoringPanel
+          anchorPrefix="interactable"
+          project={project}
+          projectFilePath={projectFilePath}
+          title={
+            hotspotMode.kind === 'sprite-alpha'
+              ? t('hotspots.mode.alphaTitle')
+              : t('hotspots.mode.customTitle')
+          }
+          assetId={data.presentation.sprite?.$ref.id ?? null}
+          hotspots={hotspotItems}
+          selectedView={hotspotView}
+          arity={1}
+          alphaMode={hotspotMode.kind === 'sprite-alpha'}
+          onViewChange={setHotspotView}
+          onAdd={(bounds) => {
+            if (hotspotMode.kind !== 'custom') return;
+            const id = nextHotspotId();
+            executeHotspot('interactable.addHotspot', 'Add interactable hotspot', {
+              hotspot: {
+                id,
+                label: t('hotspots.defaultLabel'),
+                condition: { kind: 'always' },
+                inputOrder: Math.min(2147483647, nextInputOrder + 1),
+                highlight: { kind: 'default' },
+                activation: { kind: 'verb', verb: null },
+                shape: { kind: 'rect', bounds },
+              },
+            });
+            setHotspotView((view) => ({ ...view, selectedHotspotId: id, tool: 'select' }));
+          }}
+          onDelete={(hotspotId) =>
+            executeHotspot('interactable.deleteHotspot', 'Delete interactable hotspot', {
+              hotspotId,
+            })
+          }
+          onRename={(hotspotId, nextId) =>
+            executeHotspot('interactable.renameHotspot', 'Rename interactable hotspot', {
+              hotspotId,
+              nextId,
+            })
+          }
+          onUpdate={(hotspotId, hotspot) =>
+            executeHotspot('interactable.updateHotspot', 'Update interactable hotspot', {
+              hotspotId,
+              hotspot,
+            })
+          }
+          onBounds={(hotspotId, bounds) =>
+            executeHotspot('interactable.setHotspotBounds', 'Set interactable hotspot bounds', {
+              hotspotId,
+              bounds,
+            })
+          }
+        />
       </div>
     </div>
   );

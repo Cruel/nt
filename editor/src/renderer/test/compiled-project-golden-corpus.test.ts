@@ -92,7 +92,9 @@ describe('compiled project cross-language golden corpus', () => {
   it('rejects null compiled hotspot Verb activations', () => {
     const interaction = structuredClone(compileFixture(interactionProgramGoldenProject()));
     const room = interaction.definitions.rooms.find((candidate) => candidate.id === 'start')!;
-    const activation = room.hotspots.find((candidate) => candidate.id === 'inspect-door')!.activation;
+    const activation = room.hotspots.find(
+      (candidate) => candidate.id === 'inspect-door',
+    )!.activation;
     if (activation.kind !== 'verb') throw new Error('Expected Verb hotspot activation.');
     (activation as { verb: unknown }).verb = null;
     expect(compiledProjectWireV3Schema.safeParse(interaction).success).toBe(false);
@@ -236,7 +238,9 @@ describe('compiled project cross-language golden corpus', () => {
       kind: 'sprite-alpha',
       hotspot: { id: 'key-alpha', highlight: { kind: 'default' } },
     });
-    const coin = interaction.definitions.interactables.find((candidate) => candidate.id === 'coin')!;
+    const coin = interaction.definitions.interactables.find(
+      (candidate) => candidate.id === 'coin',
+    )!;
     expect(coin.presentation.hotspots).toMatchObject({
       kind: 'custom',
       hotspots: [

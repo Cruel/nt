@@ -1,7 +1,4 @@
-import type {
-  AssetKind,
-  ImageAssetMetadata,
-} from './project-schema/authoring-assets';
+import type { AssetKind, ImageAssetMetadata } from './project-schema/authoring-assets';
 
 interface ImportedAssetMetadataBase {
   originalPath: string;

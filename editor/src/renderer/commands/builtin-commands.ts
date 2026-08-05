@@ -36,6 +36,15 @@ import { replaceCharacterDataPatches } from '@/project/character-operations';
 import { replaceInteractableDataPatches } from '@/project/interactable-operations';
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
+import {
+  deleteInteractableHotspot,
+  deleteRoomHotspot,
+  renameHotspot,
+  setInteractableHotspotMode,
+  updateInteractableHotspots,
+  updateRoomHotspots,
+  validBounds,
+} from '@/project/hotspot-operations';
 import { generateAuthoringRepairPlan, recordTarget } from '@/project/authoring-repair';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
 import {
@@ -77,6 +86,11 @@ import {
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
 import { imageAssetMetadataSchema } from '../../shared/project-schema/authoring-assets';
+import { roomHotspotDataSchema } from '../../shared/project-schema/authoring-rooms';
+import {
+  interactableHotspotBehaviorSchema,
+  interactableHotspotsSchema,
+} from '../../shared/project-schema/authoring-interactables';
 import {
   buildReferenceIndexFromGraph,
   type ReferenceIndex,
@@ -702,6 +716,42 @@ const interactableReplaceDataSchema = z.object({
 });
 const dialogueReplaceDataSchema = z.object({ dialogueId: entityIdSchema, data: z.unknown() });
 const roomReplaceDataSchema = z.object({ roomId: entityIdSchema, data: z.unknown() });
+const roomHotspotSchema = z.object({ roomId: entityIdSchema, hotspotId: entityIdSchema });
+const roomAddHotspotSchema = z.object({ roomId: entityIdSchema, hotspot: roomHotspotDataSchema });
+const roomRenameHotspotSchema = roomHotspotSchema.extend({ nextId: entityIdSchema });
+const roomUpdateHotspotSchema = roomHotspotSchema.extend({
+  hotspot: roomHotspotDataSchema.omit({ id: true, shape: true }),
+});
+const roomSetHotspotBoundsSchema = roomHotspotSchema.extend({ bounds: z.unknown() });
+const roomReorderHotspotsSchema = z.object({
+  roomId: entityIdSchema,
+  hotspotIds: z.array(entityIdSchema),
+});
+const interactableHotspotSchema = z.object({
+  interactableId: entityIdSchema,
+  hotspotId: entityIdSchema,
+});
+const interactableAddHotspotSchema = z.object({
+  interactableId: entityIdSchema,
+  hotspot: interactableHotspotsSchema.options[1].shape.hotspots.element,
+});
+const interactableRenameHotspotSchema = interactableHotspotSchema.extend({
+  nextId: entityIdSchema,
+});
+const interactableUpdateHotspotSchema = interactableHotspotSchema.extend({
+  hotspot: interactableHotspotBehaviorSchema.omit({ id: true }),
+});
+const interactableSetHotspotBoundsSchema = interactableHotspotSchema.extend({
+  bounds: z.unknown(),
+});
+const interactableReorderHotspotsSchema = z.object({
+  interactableId: entityIdSchema,
+  hotspotIds: z.array(entityIdSchema),
+});
+const interactableSetHotspotModeSchema = z.object({
+  interactableId: entityIdSchema,
+  kind: z.enum(['sprite-alpha', 'custom']),
+});
 const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unknown() });
 const testReplaceDataSchema = z.object({ testId: entityIdSchema, data: z.unknown() });
 const layoutReplaceDataSchema = z.object({ layoutId: entityIdSchema, data: z.unknown() });
@@ -1047,6 +1097,165 @@ export const roomReplaceDataCommand: CommandHandler = ({ document, payload }) =>
     replaceRoomDataPatches(document, parsed),
   );
 
+export const roomAddHotspotCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomAddHotspotSchema, payload, ({ roomId, hotspot }) =>
+    updateRoomHotspots(document, roomId, (data) =>
+      data.hotspots.some((item) => item.id === hotspot.id)
+        ? null
+        : { ...data, hotspots: [...data.hotspots, hotspot] },
+    ),
+  );
+export const roomDeleteHotspotCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomHotspotSchema, payload, ({ roomId, hotspotId }) =>
+    deleteRoomHotspot(document, roomId, hotspotId),
+  );
+export const roomRenameHotspotCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomRenameHotspotSchema, payload, ({ roomId, hotspotId, nextId }) =>
+    renameHotspot(document, 'room', roomId, hotspotId, nextId),
+  );
+export const roomUpdateHotspotCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomUpdateHotspotSchema, payload, ({ roomId, hotspotId, hotspot }) =>
+    updateRoomHotspots(document, roomId, (data) => ({
+      ...data,
+      hotspots: data.hotspots.map((item) =>
+        item.id === hotspotId ? { ...item, ...hotspot } : item,
+      ),
+    })),
+  );
+export const roomSetHotspotBoundsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomSetHotspotBoundsSchema, payload, ({ roomId, hotspotId, bounds }) =>
+    validBounds(bounds)
+      ? updateRoomHotspots(document, roomId, (data) => ({
+          ...data,
+          hotspots: data.hotspots.map((item) =>
+            item.id === hotspotId
+              ? { ...item, shape: { kind: 'rect', bounds: bounds as never } }
+              : item,
+          ),
+        }))
+      : { patches: [], diagnostics: [error('Hotspot bounds are invalid.')] },
+  );
+export const roomReorderHotspotsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomReorderHotspotsSchema, payload, ({ roomId, hotspotIds }) =>
+    updateRoomHotspots(document, roomId, (data) => {
+      if (
+        hotspotIds.length !== data.hotspots.length ||
+        new Set(hotspotIds).size !== hotspotIds.length
+      )
+        return null;
+      const byId = new Map(data.hotspots.map((item) => [item.id, item]));
+      const hotspots = hotspotIds.map((id) => byId.get(id));
+      return hotspots.every(Boolean)
+        ? { ...data, hotspots: hotspots as typeof data.hotspots }
+        : null;
+    }),
+  );
+
+export const interactableAddHotspotCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(interactableAddHotspotSchema, payload, ({ interactableId, hotspot }) =>
+    updateInteractableHotspots(document, interactableId, (data) =>
+      data.presentation.hotspots.kind !== 'custom' ||
+      data.presentation.hotspots.hotspots.some((item) => item.id === hotspot.id)
+        ? null
+        : {
+            ...data,
+            presentation: {
+              ...data.presentation,
+              hotspots: {
+                kind: 'custom',
+                hotspots: [...data.presentation.hotspots.hotspots, hotspot],
+              },
+            },
+          },
+    ),
+  );
+export const interactableDeleteHotspotCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(interactableHotspotSchema, payload, ({ interactableId, hotspotId }) =>
+    deleteInteractableHotspot(document, interactableId, hotspotId),
+  );
+export const interactableRenameHotspotCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(
+    interactableRenameHotspotSchema,
+    payload,
+    ({ interactableId, hotspotId, nextId }) =>
+      renameHotspot(document, 'interactable', interactableId, hotspotId, nextId),
+  );
+export const interactableUpdateHotspotCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(
+    interactableUpdateHotspotSchema,
+    payload,
+    ({ interactableId, hotspotId, hotspot }) =>
+      updateInteractableHotspots(document, interactableId, (data) => {
+        const current = data.presentation.hotspots;
+        const hotspots =
+          current.kind === 'sprite-alpha'
+            ? {
+                kind: 'sprite-alpha' as const,
+                hotspot:
+                  current.hotspot.id === hotspotId
+                    ? { id: hotspotId, ...hotspot }
+                    : current.hotspot,
+              }
+            : {
+                kind: 'custom' as const,
+                hotspots: current.hotspots.map((item) =>
+                  item.id === hotspotId ? { ...item, ...hotspot } : item,
+                ),
+              };
+        return { ...data, presentation: { ...data.presentation, hotspots } };
+      }),
+  );
+export const interactableSetHotspotBoundsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(
+    interactableSetHotspotBoundsSchema,
+    payload,
+    ({ interactableId, hotspotId, bounds }) =>
+      validBounds(bounds)
+        ? updateInteractableHotspots(document, interactableId, (data) =>
+            data.presentation.hotspots.kind !== 'custom'
+              ? null
+              : {
+                  ...data,
+                  presentation: {
+                    ...data.presentation,
+                    hotspots: {
+                      kind: 'custom',
+                      hotspots: data.presentation.hotspots.hotspots.map((item) =>
+                        item.id === hotspotId
+                          ? { ...item, shape: { kind: 'rect', bounds: bounds as never } }
+                          : item,
+                      ),
+                    },
+                  },
+                },
+          )
+        : { patches: [], diagnostics: [error('Hotspot bounds are invalid.')] },
+  );
+export const interactableReorderHotspotsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(interactableReorderHotspotsSchema, payload, ({ interactableId, hotspotIds }) =>
+    updateInteractableHotspots(document, interactableId, (data) => {
+      if (data.presentation.hotspots.kind !== 'custom') return null;
+      const current = data.presentation.hotspots.hotspots;
+      if (hotspotIds.length !== current.length || new Set(hotspotIds).size !== hotspotIds.length)
+        return null;
+      const byId = new Map(current.map((item) => [item.id, item]));
+      const hotspots = hotspotIds.map((id) => byId.get(id));
+      return hotspots.every(Boolean)
+        ? {
+            ...data,
+            presentation: {
+              ...data.presentation,
+              hotspots: { kind: 'custom', hotspots: hotspots as typeof current },
+            },
+          }
+        : null;
+    }),
+  );
+export const interactableSetHotspotModeCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(interactableSetHotspotModeSchema, payload, ({ interactableId, kind }) =>
+    setInteractableHotspotMode(document, interactableId, kind),
+  );
+
 export const sceneReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(sceneReplaceDataSchema, payload, (parsed) =>
     replaceSceneDataPatches(document, parsed),
@@ -1208,6 +1417,19 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'interactable.replaceData': interactableReplaceDataCommand,
     'dialogue.replaceData': dialogueReplaceDataCommand,
     'room.replaceData': roomReplaceDataCommand,
+    'room.addHotspot': roomAddHotspotCommand,
+    'room.deleteHotspot': roomDeleteHotspotCommand,
+    'room.renameHotspot': roomRenameHotspotCommand,
+    'room.updateHotspot': roomUpdateHotspotCommand,
+    'room.setHotspotBounds': roomSetHotspotBoundsCommand,
+    'room.reorderHotspots': roomReorderHotspotsCommand,
+    'interactable.addHotspot': interactableAddHotspotCommand,
+    'interactable.deleteHotspot': interactableDeleteHotspotCommand,
+    'interactable.renameHotspot': interactableRenameHotspotCommand,
+    'interactable.updateHotspot': interactableUpdateHotspotCommand,
+    'interactable.setHotspotBounds': interactableSetHotspotBoundsCommand,
+    'interactable.reorderHotspots': interactableReorderHotspotsCommand,
+    'interactable.setHotspotMode': interactableSetHotspotModeCommand,
     'scene.replaceData': sceneReplaceDataCommand,
     'test.replaceData': testReplaceDataCommand,
     'verb.replaceData': verbReplaceDataCommand,

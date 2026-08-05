@@ -26,7 +26,22 @@ function projectWithRecords(): AuthoringProject {
       placements: [{ id: 'door' }],
       exits: [{ id: 'north-door' }],
       overlays: [{ id: 'hud' }],
+      hotspots: [{ id: 'door-hotspot' }],
     } as never,
+  };
+  project.interactables.door = {
+    id: 'door',
+    label: 'Door',
+    data: {
+      presentation: {
+        hotspots: { kind: 'custom', hotspots: [{ id: 'handle' }] },
+      },
+    } as never,
+  };
+  project.interactions.inspect = {
+    id: 'inspect',
+    label: 'Inspect',
+    data: { rules: [{ id: 'handle-rule' }] } as never,
   };
   project.dialogues.intro = {
     id: 'intro',
@@ -110,6 +125,20 @@ describe('diagnostic navigation', () => {
       resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/overlays/0/layout/$ref')?.target
         ?.id,
     ).toBe('room.overlays');
+    expect(
+      resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/hotspots/0/activation/verb')
+        ?.target?.id,
+    ).toBe('room.hotspot.door-hotspot');
+    expect(
+      resolveProjectDiagnosticTarget(
+        project,
+        '/interactables/door/data/presentation/hotspots/hotspots/0/activation/verb',
+      )?.target?.id,
+    ).toBe('interactable.hotspot.handle');
+    expect(
+      resolveProjectDiagnosticTarget(project, '/interactions/inspect/data/rules/0/context/hotspot')
+        ?.target?.id,
+    ).toBe('interaction.rule.handle-rule');
     expect(resolveProjectDiagnosticTarget(project, '/project/name')?.target?.id).toBe(
       'projectSettings.field.projectName',
     );

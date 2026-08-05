@@ -451,7 +451,9 @@ describe('authoring compiler framework', () => {
   it('losslessly lowers Dialogue graphs, Interaction instructions and retained Verb fallback chains', () => {
     const project = validProject();
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
-    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    const key = defaultInteractableData('Key');
+    key.presentation.hotspots = { kind: 'custom', hotspots: [] };
+    project.interactables.key = { id: 'key', label: 'Key', data: key };
     project.rooms.foyer!.data.placements = [
       {
         id: 'key-place',
@@ -762,6 +764,24 @@ describe('authoring compiler framework', () => {
     expect(result.diagnostics).toEqual([
       expect.objectContaining({ code: 'COMPILER_ENTRYPOINT_REQUIRED', path: '/entrypoint' }),
     ]);
+  });
+
+  it('reports an unbound hotspot Verb without throwing during shared lowering', () => {
+    const project = validProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+
+    const result = lowerSharedAuthoringProject(project);
+
+    expect(result.draft).toBeUndefined();
+    expect(result.diagnostics).toContainEqual({
+      code: 'hotspot.compiled.unbound_verb',
+      path: '/interactables/key/data/presentation/hotspots/hotspot/activation/verb',
+      message: "Interactable hotspot 'primary' must bind a Verb before compilation.",
+    });
   });
 
   it('strictly rejects invalid V2 boundary data and produces deterministic diagnostics independent of map insertion order', () => {

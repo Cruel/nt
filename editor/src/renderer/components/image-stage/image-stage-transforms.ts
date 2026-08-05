@@ -232,7 +232,10 @@ export function roomBackgroundTransform(
   };
 }
 
-export function referenceRectToStage(bounds: ReferenceNormalizedRect, viewport: StageSize): StageRect {
+export function referenceRectToStage(
+  bounds: ReferenceNormalizedRect,
+  viewport: StageSize,
+): StageRect {
   return {
     x: bounds.x * viewport.width,
     y: bounds.y * viewport.height,
