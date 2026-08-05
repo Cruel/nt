@@ -4,6 +4,10 @@
 
 A `VerbDefinition` describes an interaction verb with arity zero through two, ordered operand-role labels, action-text template, quick-action behavior, availability condition, and owned default `InteractionProgram`.
 
+Room Verb hotspots bind only zero-arity Verbs. Interactable hotspots bind only one-arity Verbs and use
+their owner as the operand. Availability is resolved into immutable hotspot presentation eligibility,
+then checked again by the canonical runtime activation transaction before execution.
+
 Verb is property-bearing and may `extends` another Verb. Declared custom properties use normal live property inheritance. Verb additionally has the only V1 behavioral inheritance rule.
 
 ## Behavioral inheritance
@@ -26,14 +30,14 @@ generic JSON escape hatch.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific Verb record, optional same-type `extends`, typed properties, arity/roles, text template, availability, and default program.
+- **Authoring version 3:** collection-specific Verb record, optional same-type `extends`, typed properties, arity/roles, text template, availability, and default program.
 - **Compiled:** linked `VerbDefinition`, retained parent edge/index, typed condition and program, and property assignments.
 - **Mutable:** only property overrides and execution frames/results in `SessionState`; the definition is immutable.
 - **Tooling only:** labels/notes not explicitly runtime-visible, categories, tags, colors, sort keys, and editor preview state.
 
 ## Current authoring implementation
 
-The editor implements the strict V2 Verb schema and creation/detail path. A Verb records arity,
+The editor implements the strict current Verb schema and creation/detail path. A Verb records arity,
 ordered role labels, action text, quick-action state, availability, and a closed default Interaction
 Program whose instructions carry stable nested IDs. Validation rejects role-count/arity mismatches,
 duplicate instruction IDs, and invalid program references. The compiler lowers each Verb's own

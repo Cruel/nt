@@ -31,6 +31,19 @@ CompiledProject fixture()
     return std::move(decoded).value();
 }
 
+CompiledProject hotspot_fixture()
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/interaction-program.json");
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)), {});
+    auto decoded =
+        decode_compiled_project(nlohmann::json::parse(source), "interaction-program.json");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
 ResolvedRoomPresentation resolve_room(const CompiledProject& project, const SessionState& state)
 {
     REQUIRE(state.room_visit());
@@ -229,6 +242,76 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
     CHECK(focused_baseline.value().interactables == runtime.value().interactables);
     CHECK(focused_baseline.value().props == runtime.value().props);
     CHECK(focused_baseline.value().environments == runtime.value().environments);
+}
+
+TEST_CASE(
+    "runtime hotspot projection preserves eligibility while focused Room preview stays passive")
+{
+    const auto project = hotspot_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    REQUIRE(state.room_visit());
+
+    RoomPresentationResolver resolver;
+    auto resolution = resolver.resolve(
+        project, state, *state.room_visit(),
+        [](const Condition& condition) {
+            return Result<bool, Diagnostics>::success(std::holds_alternative<Always>(condition));
+        },
+        [](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(std::visit(
+                [](const auto& value) -> std::string {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, LuaTextExpression>)
+                        return value.source;
+                    else
+                        return value.value;
+                },
+                source));
+        });
+    REQUIRE(resolution);
+    REQUIRE(resolution.value().presentation.hotspots.size() == 3);
+
+    const auto find_hotspot = [&](const char* hotspot_id) {
+        return std::find_if(
+            resolution.value().presentation.hotspots.begin(),
+            resolution.value().presentation.hotspots.end(), [&](const auto& hotspot) {
+                return std::visit(
+                    [&](const auto& ref) { return ref.hotspot_id == id<HotspotId>(hotspot_id); },
+                    hotspot.ref);
+            });
+    };
+    const auto inspect = find_hotspot("inspect-door");
+    const auto exit = find_hotspot("north-door");
+    const auto alpha = find_hotspot("key-alpha");
+    REQUIRE(inspect != resolution.value().presentation.hotspots.end());
+    REQUIRE(exit != resolution.value().presentation.hotspots.end());
+    REQUIRE(alpha != resolution.value().presentation.hotspots.end());
+    CHECK(inspect->condition_eligible);
+    CHECK(inspect->activation_available);
+    CHECK(exit->condition_eligible);
+    CHECK_FALSE(exit->activation_available);
+    CHECK(alpha->condition_eligible);
+    CHECK_FALSE(alpha->activation_available);
+
+    auto runtime = PresentationProjector::project(project, state, &resolution.value().presentation);
+    REQUIRE(runtime);
+    REQUIRE(runtime.value().hotspots.size() == 3);
+    CHECK(std::count_if(runtime.value().hotspots.begin(), runtime.value().hotspots.end(),
+                        [](const auto& hotspot) {
+                            return hotspot.condition_eligible && !hotspot.activation_available;
+                        }) == 2);
+    CHECK(std::any_of(runtime.value().hotspots.begin(), runtime.value().hotspots.end(),
+                      [](const auto& hotspot) {
+                          return std::holds_alternative<AlphaHotspotShape>(hotspot.shape);
+                      }));
+
+    auto focused = RoomPresentationSnapshotProjector::project(
+        resolution.value(), build_room_presentation_visual_catalog(project, resolution.value()));
+    REQUIRE(focused);
+    CHECK(focused.value().hotspots.empty());
 }
 
 TEST_CASE("presentation projector represents absent optional families explicitly")

@@ -2269,12 +2269,29 @@ unsupported three-way comparison through equality-only `NormalizedRect`; and the
 target omitted the persistent-filesystem JavaScript library required by shared debug UI code.
 Representative 1080p/4K preparation and residency measurements were added as durable native
 coverage. Headless X11 and absent-device manual checks are recorded as environment-limited in the
-certification rather than product failures. Final closure reran the no-thread non-GPU matrix with
-`ctest --test-dir build/linux-debug-no-threads --output-on-failure -LE gpu`: 784/784 tests passed.
-The unrestricted 802-test invocation retained the documented headless limitation, with only the 14
-X11-dependent readback capture/verification tests failing. After applying the repository formatter,
-`cmake --build --preset linux-debug --target format-check` passed. No later implementation scope
-exists or was introduced, and the Phase 12 implementation unit is complete.
+certification rather than product failures.
+
+The final review found and corrected four closure inconsistencies without adding later scope:
+
+- runtime projection now has a direct regression proving ineligible hotspot values remain present for
+  rendering/inspection while focused Room preview remains passive;
+- the native editor tool's synthesized package manifest now declares
+  `noveltea.shader-materials.v2`, matching the metadata decoder and package contract;
+- the layout-scale and world-transition readback fixtures now use strict
+  `noveltea.compiled.project` version 3 rather than the rejected version 2 schema; and
+- permanent entity, resource, shader/material, rendering, host-input, preview, package, migration,
+  overview, and certification documentation now carries the implemented hotspot contract and current
+  schema versions instead of relying on this archived plan.
+
+Final closure reran both threaded and no-thread non-GPU matrices: each passed 785/785 tests. The
+bounded unrestricted threaded invocation ran 803 tests and passed 795; the eight remaining failures
+are exactly X11-dependent readback capture or downstream missing-capture verifier cases. The corrected
+layout-scale capture/verifier pair passed 2/2 under Xvfb, confirming no schema/runtime defect remains.
+The editor suite passed 184 files and 1,140 tests, both Web modes built, Android
+`:app:assembleDebug` passed, package staging/smoke passed, and a direct native headless export verified
+both the package manifest and embedded shader metadata use `noveltea.shader-materials.v2`. The final
+C++ format and policy gates passed. No later implementation scope exists or was introduced, and the
+Phase 12 implementation unit and complete plan are done.
 
 ## 15. Required test and manual-smoke matrix
 
@@ -2618,8 +2635,9 @@ use existing memoized selectors/graph queries rather than scanning the project o
   Interactable alpha/custom overlay preparation, authored highlight Material selection, exact owner
   rect/UV reuse, no-highlight resource suppression, transient hover/pressed replacement without new
   resource resolution or base-batch mutation, and failed candidate rollback.
-- `noveltea_presentation_tests`: passed 1,557 assertions in 72 test cases, including the complete
-  Room/runtime projection and focused-preview boundary.
+- `noveltea_presentation_tests`: passed 1,579 assertions in 73 test cases after final review added a
+  direct regression for preserved ineligible runtime hotspots and the passive focused-preview
+  boundary.
 - Phase 11 and Phase 12 scope, sequencing, and exit gates remain unchanged; no implementation from
   either later phase was added.
 

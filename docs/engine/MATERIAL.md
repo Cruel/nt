@@ -10,7 +10,7 @@ This document covers the new material authoring component. Legacy shader/materia
 
 Materials are implemented as a typed authoring collection in the editor. The Material editor supports shader selection, role selection, inheritance, uniform overrides, texture slots, preview geometry/background, and a live engine preview.
 
-The engine has runtime material metadata parsing under `noveltea.shader-materials.v1`, fallback material definitions, bgfx material binding, and typed material asset loading. Export builds shader/material metadata from authoring shader and material records.
+The engine has runtime material metadata parsing under `noveltea.shader-materials.v2`, fallback material definitions, bgfx material binding, and typed material asset loading. Export builds shader/material metadata from authoring shader and material records.
 
 ## Collection
 
@@ -179,7 +179,7 @@ The editor uses `material.replaceData` for data edits and updates preview data t
 
 ## Editor Preview
 
-Material preview uses `buildMaterialPreviewDocumentData()` and the shared `noveltea.shader-materials.v1` metadata. The preview payload includes:
+Material preview uses `buildMaterialPreviewDocumentData()` and the shared `noveltea.shader-materials.v2` metadata. The preview payload includes:
 
 - generated shader/material metadata;
 - diagnostics from shader/material conversion;
@@ -218,7 +218,7 @@ or shader-program leases.
 
 ## Export / Package Status
 
-`buildShaderMaterialProject()` converts resolved authoring material records into `noveltea.shader-materials.v1` material metadata. It emits:
+`buildShaderMaterialProject()` converts resolved authoring material records into `noveltea.shader-materials.v2` material metadata. It emits:
 
 - display name;
 - selected role;

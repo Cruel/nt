@@ -6,9 +6,9 @@ The project root owns identity, runtime settings, feature flags, localization, s
 entrypoint, collection indexes, and editor metadata. It is not an entity, property owner, or generic
 mutation target.
 
-Authoring uses strict `noveltea.authoring.project` version 2. The editor owns, reads, writes, and
+Authoring uses strict `noveltea.authoring.project` version 3. The editor owns, reads, writes, and
 validates it; native runtime code never parses it. Compilation emits strict canonical
-`noveltea.compiled.project` version 2.
+`noveltea.compiled.project` version 3.
 
 ## Collections
 

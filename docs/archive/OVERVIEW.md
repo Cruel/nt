@@ -20,6 +20,11 @@
 - The completed host/module-boundary plan and its pre-cutover ownership/dependency inventories.
 - The completed authoring dependency graph, graph-backed repair, and unified focused Room/Layout/Shader
   preview implementation plan.
+- `docs/archive/plans/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME_IMPLEMENTATION_PLAN.md` is the
+  completed hotspot authoring, exact Interaction activation, generated-mask, world rendering/input,
+  and cross-platform verification plan. Its current contract and certification are
+  `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md` and
+  `docs/architecture/certifications/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME_CERTIFICATION.md`.
 - The runtime capability cutover baseline and pre-consolidation presentation/checkpoint history.
 - The no-exceptions/no-RTTI migration benchmark comparison.
 - Reports mapping old NovelTea systems and current framework state.

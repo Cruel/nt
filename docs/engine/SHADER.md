@@ -10,7 +10,7 @@ This document covers the new shader authoring component. Legacy shader editor be
 
 Shaders are implemented as a typed authoring collection in the editor. The Shader editor supports inline stage source, source-asset references, interface declarations, roles, compiled output metadata, helper compile actions, and a live material-style preview.
 
-The engine has runtime shader/material metadata types and parsers under `noveltea.shader-materials.v1`, bgfx shader loading and program caching, and shader compiler/manifest support. Platform shader compilation remains a package/build workflow rather than runtime compilation on all targets.
+The engine has runtime shader/material metadata types and parsers under `noveltea.shader-materials.v2`, bgfx shader loading and program caching, and shader compiler/manifest support. Platform shader compilation remains a package/build workflow rather than runtime compilation on all targets.
 
 ## Collection
 
@@ -159,6 +159,23 @@ The former `engine.dpi_scale` and `rmlui.dpi_scale` bindings are not accepted be
 
 A sampler declaration has a name and currently supports `texture2d`.
 
+Every sampler also declares an explicit binding. Ordinary samplers use `null`; hotspot highlight
+Shaders use `engine.hotspot_image` and, for custom mode, `engine.hotspot_mask`. Default-alpha
+interfaces require exactly one image binding and no mask binding. Custom interfaces require exactly
+one of each. Authored Materials cannot override these engine-bound samplers.
+
+Hotspot highlight uniforms use the existing typed uniform binding field:
+
+```text
+engine.hotspot_bounds
+engine.hotspot_hovered
+engine.hotspot_pressed
+engine.hotspot_image_dimensions
+engine.hotspot_mask_dimensions
+```
+
+Validation requires their exact `vec4`, `bool`, `bool`, `vec2`, and `vec2` types respectively.
+
 ### Role Bindings
 
 Role bindings may specify role-specific vertex/fragment shader references. If no explicit bindings exist, the shader's `roles` array is used as the runtime role declaration.
@@ -271,7 +288,7 @@ result at the scope boundary.
 ## Export / Package Status
 
 `buildShaderMaterialProject()` converts authoring shaders into strict
-`noveltea.shader-materials.v1` metadata. Stage source is emitted either as inline `source_text` or as
+`noveltea.shader-materials.v2` metadata. Stage source is emitted either as inline `source_text` or as
 a `project:/...` source path derived from a shader-source asset. Compiled maps are emitted when
 present. Runtime role membership is always the required `roles` array. Role-specific stage selection
 is always the separate required `role_bindings` object, emitted as `{}` when no overrides exist.

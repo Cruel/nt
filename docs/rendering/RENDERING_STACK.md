@@ -107,6 +107,18 @@ The backend centralizes:
 - deterministic `PresentationPlane`, family, authored order, stable identity, and sublayer sorting;
 - Map imagery as an engine-rendered `GameUi` underlay below the ordinary RmlUi Map Layout.
 
+Committed hotspot hit targets and highlight surfaces copy the exact owner draw rectangle, UV crop,
+plane, family, authored order, stable identity, and base sublayer from this frame. Rendering and hit
+testing therefore share the same background-fit and Interactable-placement geometry. Eligible hit
+targets sort by the owner's complete draw tuple, then descending hotspot input priority and ascending
+hotspot ID. Alpha-transparent pixels and ineligible targets pass through.
+
+Hover/pressed state is owner-thread transient state. Updating it copies the committed immutable base
+world/GameUi batches and appends only the selected overlay; it does not publish a presentation
+snapshot, acquire resources, or rebuild base draws. A failed overlay/resource candidate preserves the
+prior complete frame. `none` highlight policy creates no overlay surface or mask while retaining the
+semantic hit target.
+
 `Engine::render()` submits this batch before runtime UI. The built-in Game HUD document root is
 transparent. NovelTea enables the external renderer's opt-in `preserve_backbuffer` mode, which uses
 an offscreen RmlUi root and alpha-composites it over the engine world instead of clearing or replacing

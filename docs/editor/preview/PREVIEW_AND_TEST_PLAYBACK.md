@@ -5,7 +5,7 @@
 Full-game preview and `.ntpkg` export use `buildCompiledRuntimeExport` as their single
 project-derived compilation and runtime-readiness path. Authoring-test playback uses the same
 compiled publication contract. The published value is canonical `noveltea.compiled.project` V2
-plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
+wire revision, schema version 3, plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 
 Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
@@ -29,11 +29,16 @@ path as packaged playback;
 `runtime::RuntimeSession`.
 
 The transport message name is an external protocol operation, not a schema name. Its `project`
-payload must be `noveltea.compiled.project` version 2.
+payload must be `noveltea.compiled.project` version 3.
 
 Live commands lower to stable typed inputs for start/stop/reset/time, continue, dialogue choice,
 navigation, selection, interaction, declared variable changes, inventory location changes, room
-teleport, fast-forward, recorder controls, and debug snapshot requests.
+teleport, owner-qualified hotspot activation, fast-forward, recorder controls, and debug snapshot
+requests. Generic Verb invocation cannot supply exact hotspot context.
+
+Focused Room preview remains `noveltea.room-preview` version 2 and is passive: its projected snapshot
+contains no hotspot values and it does not install world hotspot input. Play preview uses the normal
+runtime projection and world controller in the same preview executable.
 
 Finite presentation in Play preview uses the same `PresentationCoordinator` and typed renderer
 backend as packaged playback. Runtime load/reset/project replacement terminates in-flight

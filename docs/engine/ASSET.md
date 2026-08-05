@@ -205,6 +205,17 @@ The native runtime `AssetManager` supports:
 - owner-thread publication and lookup of residency-managed `AssetLease<T>` values;
 - resource-alias resolution into typed requests.
 
+Image preparation can retain one-bit source-alpha occupancy beside the shared texture lease when a
+sprite-alpha hotspot requires it. The exact CPU charge is `ceil(width / 8) * height`; it is prepared
+once per source texture generation, shared by every owner using that texture, and evicted with the
+texture residency.
+
+Custom hotspot highlighting uses a typed owner-derived binary `R8` mask request. Preparation
+rasterizes the owner-union rectangles at source texel centers through the existing worker/cooperative
+executor, request coalescing, prefetch, reservation, telemetry, owner-thread bgfx finalization,
+mandatory publication, and eviction paths. Distinct owners may share one source texture while
+retaining different masks. CPU hit testing remains analytic and does not read the generated mask.
+
 Runtime logical paths are handled by `AssetPath` and `AssetSource` implementations. The authoring asset source path is not itself a runtime path until export/preview translates it.
 
 Production consumers do not synchronously prepare typed resources. Mandatory world/material/Layout
@@ -251,6 +262,10 @@ Authoring export maps asset kinds to package prefixes:
 - binary to `resources/`.
 
 Runtime packages can include all project assets or only assets discovered from currently supported references. Runtime package export omits shader source assets when building a runtime package profile that strips shader sources.
+
+Alpha occupancy and custom hotspot masks are runtime-derived residency, not package files or
+authoring assets. They are never exported, written to the filesystem, or retained in a
+cross-generation content cache.
 
 ## Scripting Status
 

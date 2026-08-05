@@ -32,6 +32,14 @@ An accepted host result means only that the runtime disposition is not `Failed`.
 that a new publication was produced. Events and diagnostics remain ordered output from the same
 dispatch and must not cause recursive dispatch.
 
+`HostInputRouter` remains the sole RmlUi/Layout admission authority. After it projects host pointer
+coordinates and admits gameplay, `WorldHotspotController` performs backend-neutral hit testing and
+primary-pointer capture against the committed world generation. A world activation is dispatched as
+one owner-qualified `ActivateHotspotInput` through the ordinary runtime gateway; generic Verb input
+cannot inject exact hotspot context. UI admission changes, focus/window/touch cancellation,
+presentation replacement, reset, preview pause, and shutdown cancel world hover/press/capture state
+before any runtime work is submitted. Focused authoring previews keep this controller disabled.
+
 ## Layout realization
 
 `layout_realization_contracts.hpp` keeps logical mounted Layout state in the existing presentation

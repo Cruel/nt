@@ -57,6 +57,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md` is the permanent cross-cutting
   contract for Room/Interactable hotspot authoring, runtime-generated masks, Interaction/exit
   activation, world hit testing, and highlight materials.
+- `docs/architecture/certifications/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME_CERTIFICATION.md`
+  records final automated, cross-platform, performance/residency, and environment-limited evidence
+  for that contract.
 
 ## Code Areas
 

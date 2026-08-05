@@ -2,7 +2,8 @@
 
 ## Contract
 
-A `RoomDefinition` is immutable compiled gameplay content. It owns its background, conditional
+A `RoomDefinition` is immutable compiled gameplay content. It owns its background, image-relative
+hotspots, conditional
 world-overlay Layout mounts, declarative cast, props, and reconstructible environment loops, optional typed composition Script hook,
 description, ordered enter/leave hooks, exits, and generic `RoomPlacement` anchors. A Room may `extends`
 another Room only for declared custom-property lookup; exits, placements, overlays, resources, and
@@ -22,6 +23,12 @@ and effect index.
 
 Every exit has a stable ID and a typed target Room. Lua, Map, player, editor playback, and tests all
 lower navigation into the same typed input and lifecycle transaction.
+
+Room hotspots have stable IDs within their Room, normalized rectangular image bounds, a condition,
+signed input priority, highlight policy, and either a zero-arity Verb or one of the Room's exits.
+Exit activation reuses the selected-exit navigation path above; it does not create a second
+transition or lifecycle implementation. Exact hotspot activation enters runtime only through the
+owner-qualified typed activation input.
 
 The final animated request contract is `RoomNavigationTransitionOperation`. It is deliberately
 distinct from `SceneTransitionGroupOperation`, but both embed the same
@@ -58,7 +65,8 @@ with explicit presentation owners use the scoped desired-state path and are pers
 
 ## Authoring and validation
 
-The V2 editor uses strict Room records with typed descriptions, conditions/effects, exits and optional
+The current version-3 authoring schema uses strict Room records with typed descriptions,
+conditions/effects, exits and optional
 transition overrides, placements, cast, props, environment loops, overlays, and composition hooks. Validation rejects
 duplicate nested IDs, stale Room/Character/Layout/resource/Script references, invalid placement
 ownership, invalid pose/expression/idle combinations, invalid environment resources/opacity/planes,
@@ -66,6 +74,11 @@ invalid transitions, bounds, and hook data. The
 compiled transition precedence contract is explicit request, selected exit override, then project
 default. Live realization uses the final revision-bound Room-navigation operation contract described
 above.
+
+The Room editor uses the shared React image stage for hotspot create/move/resize/delete and composes it
+with command-backed Interactable placement editing. Room background `cover`, `contain`, `stretch`, and
+`center` transforms use the same normalized image-coordinate policy consumed by runtime projection.
+No editor-preview-only manipulation contract exists.
 
 ## Editor preview
 

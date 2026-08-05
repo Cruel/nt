@@ -9,6 +9,7 @@ import type {
   ToolDiagnostic,
 } from '../../shared/editor-tooling';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
+import { AUTHORING_PROJECT_SCHEMA_VERSION } from '../../shared/project-schema/authoring-collections';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
@@ -228,7 +229,7 @@ export async function openProject(projectPath: string) {
         severity: 'error',
         category: 'authoring.unsupported_schema',
         path: '/schema',
-        message: 'Project must use noveltea.authoring.project version 2.',
+        message: `Project must use noveltea.authoring.project version ${AUTHORING_PROJECT_SCHEMA_VERSION}.`,
         boundaries: ['authoring', 'runtime-package'],
         ownerPaths: ['/schema'],
       }),
@@ -264,7 +265,7 @@ export function listPlaybackTests(project: unknown) {
           severity: 'error',
           category: 'Project schema',
           path: '/schema',
-          message: 'Project must use noveltea.authoring.project version 2.',
+          message: `Project must use noveltea.authoring.project version ${AUTHORING_PROJECT_SCHEMA_VERSION}.`,
         },
       ],
     });
