@@ -397,12 +397,15 @@
     "title": "Room composition",
     "description": "Move and resize reference-space placements over the configured background fit.",
     "placeInteractable": "Place Interactable",
+    "cancelPlacement": "Cancel placement",
+    "dragPlacement": "Drag a non-zero rectangle to create the Interactable's dedicated placement.",
     "searchInteractables": "Search Interactables",
     "noInteractables": "No Interactables are available.",
     "sharedTitle": "Shared placement",
     "sharedDescription": "Moving or resizing this placement affects every listed occupant.",
-    "detach": "Detach",
-    "createDedicated": "Create dedicated placement"
+    "detach": "Create dedicated placement",
+    "createDedicated": "Create dedicated placement",
+    "moveToPlacement": "Move to placement"
   },
   "hotspots": {
     "subtitle": "Image-relative hotspot authoring",

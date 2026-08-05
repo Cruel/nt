@@ -157,6 +157,40 @@ TEST_CASE("typed Interaction selects exact operands before wildcard and mutates 
     CHECK(std::holds_alternative<core::compiled::InventoryLocation>(key->location));
 }
 
+TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto generic = definition(document, "interactions", "actions")["rules"][2];
+    generic["id"] = "generic-subject";
+    generic["operands"] = nlohmann::json::array({{{"kind", "any-subject"}}});
+    generic["context"] = {{"kind", "any"}};
+    generic["program"] = program(nlohmann::json::array());
+    auto typed = generic;
+    typed["id"] = "typed-interactable";
+    typed["operands"] = nlohmann::json::array({{{"kind", "any-interactable"}}});
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(generic), std::move(typed)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    REQUIRE(kernel->interact(
+        id<core::VerbId>("use"),
+        {core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}));
+    auto interaction = kernel->interaction_view("en");
+    REQUIRE(interaction);
+    REQUIRE(interaction.value().program);
+    const auto* selected =
+        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+    REQUIRE(selected != nullptr);
+    CHECK(selected->rule == id<core::InteractionRuleId>("typed-interactable"));
+}
+
 TEST_CASE("typed Interaction falls back child-to-root and emits typed undefined fallback")
 {
     auto document = load_document();

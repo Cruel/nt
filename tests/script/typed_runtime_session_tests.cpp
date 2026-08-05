@@ -1287,6 +1287,28 @@ TEST_CASE("runtime script API routes autosave and rejects malformed interaction 
     CHECK(has_output_kind(drained, DispatchArtifactKind::SaveOutcome));
 }
 
+TEST_CASE("runtime script API activates exact hotspot identities")
+{
+    Fixture fixture("interaction-program.json");
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(published_view(started).room);
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = Game.activate_hotspot('room-hotspot', 'start', 'inspect-door')\n"
+        "assert(ok and err == nil)",
+        "script-api-hotspot"));
+    auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(drained.diagnostics.empty());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = Game.activate_hotspot('unknown', 'start', 'inspect-door')\n"
+        "assert(not ok and err ~= nil)",
+        "script-api-hotspot-invalid-kind"));
+}
+
 TEST_CASE("runtime script API teardown leaves inert bindings without a stale target")
 {
     Fixture fixture;

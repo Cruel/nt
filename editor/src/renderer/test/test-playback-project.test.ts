@@ -8,6 +8,7 @@ import {
   defaultTestStep,
   testCharacterSubject,
   testInteractableRef,
+  testInteractableHotspotRef,
   testInteractableSubject,
   testSceneRef,
   testVariableRef,
@@ -42,6 +43,12 @@ describe('authoring test playback project adapter', () => {
           verb: testVerbRef('look'),
           operands: [testCharacterSubject('guard'), testInteractableSubject('lamp')],
         },
+      },
+      {
+        ...defaultTestStep('activate-hotspot'),
+        id: 'hotspot',
+        label: 'Hotspot',
+        activateHotspot: { hotspot: testInteractableHotspotRef('lamp', 'primary') },
       },
       {
         ...defaultTestStep('load-save'),
@@ -82,7 +89,18 @@ describe('authoring test playback project adapter', () => {
             ],
           },
         },
-        { index: 5, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
+        {
+          index: 5,
+          input: {
+            type: 'activate-hotspot',
+            hotspot: {
+              kind: 'interactable-hotspot',
+              interactable: 'lamp',
+              hotspotId: 'primary',
+            },
+          },
+        },
+        { index: 6, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
       ],
     });
   });

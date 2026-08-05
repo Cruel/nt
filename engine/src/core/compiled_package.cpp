@@ -394,11 +394,10 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
             const auto found = registries.material_indexes.find(material);
             if (found != registries.material_indexes.end() &&
                 shader_materials->materials[found->second].role != ShaderRole::HotspotOverlay)
-                add_assembly_error(
-                    diagnostics, "runtime_package.invalid_hotspot_material_role",
-                    "Hotspot highlight material '" + material +
-                        "' must use the hotspot-overlay role.",
-                    "/materials");
+                add_assembly_error(diagnostics, "runtime_package.invalid_hotspot_material_role",
+                                   "Hotspot highlight material '" + material +
+                                       "' must use the hotspot-overlay role.",
+                                   "/materials");
         }
     }
 

@@ -324,6 +324,11 @@ bool RuntimePreviewController::run_interaction(
     return m_preview_host->run_interaction(verb_id, std::move(operands));
 }
 
+bool RuntimePreviewController::activate_hotspot(core::compiled::HotspotRef hotspot)
+{
+    return m_preview_host->activate_hotspot(std::move(hotspot));
+}
+
 std::string RuntimePreviewController::set_variable(const std::string& variable_id,
                                                    core::RuntimeValue value)
 {

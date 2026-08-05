@@ -47,6 +47,7 @@ public:
     bool clear_subject_selection();
     bool run_interaction(const std::string& verb_id,
                          std::vector<core::compiled::InteractionSubject> operands);
+    bool activate_hotspot(core::compiled::HotspotRef hotspot);
 
     std::string set_variable(const std::string& variable_id, core::RuntimeValue value);
     std::string reset_variable(const std::string& variable_id);

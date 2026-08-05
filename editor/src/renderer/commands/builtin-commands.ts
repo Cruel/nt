@@ -37,6 +37,12 @@ import { replaceInteractableDataPatches } from '@/project/interactable-operation
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import {
+  detachInteractablePlacementPatches,
+  moveInteractableToPlacementPatches,
+  placeInteractablePatches,
+  setRoomPlacementBoundsPatches,
+} from '@/project/room-placement-operations';
+import {
   deleteInteractableHotspot,
   deleteRoomHotspot,
   renameHotspot,
@@ -87,6 +93,7 @@ import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
 import { imageAssetMetadataSchema } from '../../shared/project-schema/authoring-assets';
 import { roomHotspotDataSchema } from '../../shared/project-schema/authoring-rooms';
+import { roomNormalizedRectSchema } from '../../shared/project-schema/authoring-rooms';
 import {
   interactableHotspotBehaviorSchema,
   interactableHotspotsSchema,
@@ -727,6 +734,28 @@ const roomReorderHotspotsSchema = z.object({
   roomId: entityIdSchema,
   hotspotIds: z.array(entityIdSchema),
 });
+const roomSetPlacementBoundsSchema = z.object({
+  roomId: entityIdSchema,
+  placementId: entityIdSchema,
+  bounds: roomNormalizedRectSchema,
+});
+const roomPlaceInteractableSchema = z.object({
+  roomId: entityIdSchema,
+  interactableId: entityIdSchema,
+  placementId: entityIdSchema,
+  bounds: roomNormalizedRectSchema,
+});
+const roomMoveInteractableToPlacementSchema = z.object({
+  roomId: entityIdSchema,
+  interactableId: entityIdSchema,
+  placementId: entityIdSchema,
+});
+const roomDetachInteractablePlacementSchema = z.object({
+  roomId: entityIdSchema,
+  interactableId: entityIdSchema,
+  sourcePlacementId: entityIdSchema,
+  placementId: entityIdSchema,
+});
 const interactableHotspotSchema = z.object({
   interactableId: entityIdSchema,
   hotspotId: entityIdSchema,
@@ -1151,6 +1180,23 @@ export const roomReorderHotspotsCommand: CommandHandler = ({ document, payload }
     }),
   );
 
+export const roomSetPlacementBoundsCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomSetPlacementBoundsSchema, payload, (parsed) =>
+    setRoomPlacementBoundsPatches(document, parsed),
+  );
+export const roomPlaceInteractableCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomPlaceInteractableSchema, payload, (parsed) =>
+    placeInteractablePatches(document, parsed),
+  );
+export const roomMoveInteractableToPlacementCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomMoveInteractableToPlacementSchema, payload, (parsed) =>
+    moveInteractableToPlacementPatches(document, parsed),
+  );
+export const roomDetachInteractablePlacementCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomDetachInteractablePlacementSchema, payload, (parsed) =>
+    detachInteractablePlacementPatches(document, parsed),
+  );
+
 export const interactableAddHotspotCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(interactableAddHotspotSchema, payload, ({ interactableId, hotspot }) =>
     updateInteractableHotspots(document, interactableId, (data) =>
@@ -1423,6 +1469,10 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'room.updateHotspot': roomUpdateHotspotCommand,
     'room.setHotspotBounds': roomSetHotspotBoundsCommand,
     'room.reorderHotspots': roomReorderHotspotsCommand,
+    'room.setPlacementBounds': roomSetPlacementBoundsCommand,
+    'room.placeInteractable': roomPlaceInteractableCommand,
+    'room.moveInteractableToPlacement': roomMoveInteractableToPlacementCommand,
+    'room.detachInteractablePlacement': roomDetachInteractablePlacementCommand,
     'interactable.addHotspot': interactableAddHotspotCommand,
     'interactable.deleteHotspot': interactableDeleteHotspotCommand,
     'interactable.renameHotspot': interactableRenameHotspotCommand,
@@ -1519,6 +1569,14 @@ export function labelForCommand(type: string): string {
       return 'Update dialogue';
     case 'room.replaceData':
       return 'Update room';
+    case 'room.setPlacementBounds':
+      return 'Update room placement bounds';
+    case 'room.placeInteractable':
+      return 'Place interactable';
+    case 'room.moveInteractableToPlacement':
+      return 'Move interactable to placement';
+    case 'room.detachInteractablePlacement':
+      return 'Create dedicated interactable placement';
     case 'scene.replaceData':
       return 'Update scene';
     case 'test.replaceData':

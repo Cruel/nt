@@ -108,6 +108,7 @@ public:
     [[nodiscard]] bool clear_subject_selection();
     [[nodiscard]] bool run_interaction(const std::string& verb_id,
                                        std::vector<core::compiled::InteractionSubject> operands);
+    [[nodiscard]] bool activate_hotspot(core::compiled::HotspotRef hotspot);
 
     [[nodiscard]] PreviewMutationResult set_variable(const std::string& variable_id,
                                                      core::RuntimeValue value);

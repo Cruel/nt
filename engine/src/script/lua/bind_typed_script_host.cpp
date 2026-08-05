@@ -500,6 +500,40 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
             }
             return mutation(view, host->run_interaction(std::move(*verb_ref), std::move(operands)));
         });
+    game.set_function(
+        "activate_hotspot",
+        [host](std::string kind, std::string owner_id, std::string hotspot_id,
+               sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto hotspot = parse_id<core::HotspotId>(std::move(hotspot_id));
+            if (!hotspot)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(hotspot.error()));
+            if (kind == "room-hotspot") {
+                auto owner = parse_id<core::RoomId>(std::move(owner_id));
+                return owner ? mutation(view, host->activate_hotspot(core::compiled::RoomHotspotRef{
+                                                  std::move(*owner.value_if()),
+                                                  std::move(*hotspot.value_if())}))
+                             : mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                  owner.error()));
+            }
+            if (kind == "interactable-hotspot") {
+                auto owner = parse_id<core::InteractableId>(std::move(owner_id));
+                return owner
+                           ? mutation(
+                                 view,
+                                 host->activate_hotspot(core::compiled::InteractableHotspotRef{
+                                     std::move(*owner.value_if()), std::move(*hotspot.value_if())}))
+                           : mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                owner.error()));
+            }
+            return mutation(
+                view,
+                core::Result<void, core::Diagnostics>::failure(core::Diagnostics{core::Diagnostic{
+                    .code = "runtime.invalid_hotspot_kind",
+                    .message = "Game.activate_hotspot kind must be room-hotspot or "
+                               "interactable-hotspot"}}));
+        });
     game.set_function("save", [host](std::uint32_t slot, sol::this_state state) {
         return mutation(sol::state_view(state), host->save(core::TypedSaveSlotId::manual(slot)));
     });
@@ -530,6 +564,7 @@ void clear_typed_script_host(lua_State* state)
     game["select_object"] = sol::lua_nil;
     game["clear_selection"] = sol::lua_nil;
     game["run_action"] = sol::lua_nil;
+    game["activate_hotspot"] = sol::lua_nil;
     game["save"] = sol::lua_nil;
     game["load"] = sol::lua_nil;
     game["autosave"] = sol::lua_nil;

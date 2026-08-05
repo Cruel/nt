@@ -362,6 +362,39 @@ void RuntimeUiBinder::install_lua_api()
         return dispatch_layout_input(
             core::RuntimeInputMessage{core::InvokeInteractionInput{*id.value_if(), {}}});
     });
+    ui.set_function("activate_hotspot", [this, require_view](std::string kind,
+                                                             std::string owner_text,
+                                                             std::string hotspot_text) {
+        if (!require_view())
+            return false;
+        auto hotspot = core::HotspotId::create(std::move(hotspot_text));
+        if (!hotspot) {
+            core::append_diagnostics(m_diagnostics, hotspot.error());
+            return false;
+        }
+        if (kind == "room-hotspot") {
+            auto owner = core::RoomId::create(std::move(owner_text));
+            if (!owner) {
+                core::append_diagnostics(m_diagnostics, owner.error());
+                return false;
+            }
+            return dispatch_layout_input(
+                core::RuntimeInputMessage{core::ActivateHotspotInput{core::compiled::RoomHotspotRef{
+                    std::move(*owner.value_if()), std::move(*hotspot.value_if())}}});
+        }
+        if (kind == "interactable-hotspot") {
+            auto owner = core::InteractableId::create(std::move(owner_text));
+            if (!owner) {
+                core::append_diagnostics(m_diagnostics, owner.error());
+                return false;
+            }
+            return dispatch_layout_input(core::RuntimeInputMessage{
+                core::ActivateHotspotInput{core::compiled::InteractableHotspotRef{
+                    std::move(*owner.value_if()), std::move(*hotspot.value_if())}}});
+        }
+        return invalid("runtime_ui.invalid_hotspot_kind", "Hotspot kind must be room-hotspot or "
+                                                          "interactable-hotspot");
+    });
     game["ui"] = std::move(ui);
 }
 

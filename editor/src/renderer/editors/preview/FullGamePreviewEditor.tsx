@@ -63,6 +63,8 @@ import {
   type ProjectValidationDiagnostic,
 } from '../../../shared/project-schema/project-validation';
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
+import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
+import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import {
   parseVariableData,
   parseVariableDefaultText,
@@ -74,6 +76,7 @@ import {
 } from '../../../shared/project-schema/recorded-test-draft';
 import type {
   PreviewInteractionSubject,
+  PreviewHotspotRef,
   RuntimeDebugEntityRef,
   RuntimeDebugSnapshot,
   PreviewToEditorMessage,
@@ -96,6 +99,7 @@ interface RecordedRuntimeAction {
     subjects?: PreviewInteractionSubject[];
     verbId?: string;
     operands?: PreviewInteractionSubject[];
+    hotspot?: PreviewHotspotRef;
     documentId?: string;
     target?: string;
     selector?: string;
@@ -327,6 +331,8 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
       return 'Clear subject selection';
     case 'run-interaction':
       return `Run ${action.input.verbId ?? 'interaction'}`;
+    case 'activate-hotspot':
+      return `Activate ${action.input.hotspot?.hotspotId ?? 'hotspot'}`;
     case 'ui-click':
       return `Click ${action.input.selector ?? action.input.target ?? 'UI target'}`;
     default:
@@ -449,7 +455,47 @@ function executeRecordedAction(
         action.input.verbId ?? '',
         action.input.operands ?? [],
       );
+    case 'activate-hotspot':
+      return action.input.hotspot
+        ? context.controller.activateRuntimeHotspot(action.input.hotspot)
+        : Promise.resolve();
   }
+}
+
+function authoredHotspotInputs(
+  project: AuthoringProject | null,
+  currentRoomId: string | undefined,
+): Array<{ hotspot: PreviewHotspotRef; label: string }> {
+  if (!project) return [];
+  const result: Array<{ hotspot: PreviewHotspotRef; label: string }> = [];
+  if (currentRoomId) {
+    const room = parseRoomData(project.rooms[currentRoomId]?.data);
+    for (const hotspot of room?.hotspots ?? []) {
+      result.push({
+        hotspot: { kind: 'room-hotspot', room: currentRoomId, hotspotId: hotspot.id },
+        label: `${project.rooms[currentRoomId]?.label ?? currentRoomId}: ${hotspot.label}`,
+      });
+    }
+  }
+  for (const [interactableId, record] of Object.entries(project.interactables)) {
+    const interactable = parseInteractableData(record.data);
+    if (!interactable) continue;
+    const hotspots =
+      interactable.presentation.hotspots.kind === 'sprite-alpha'
+        ? [interactable.presentation.hotspots.hotspot]
+        : interactable.presentation.hotspots.hotspots;
+    for (const hotspot of hotspots) {
+      result.push({
+        hotspot: {
+          kind: 'interactable-hotspot',
+          interactable: interactableId,
+          hotspotId: hotspot.id,
+        },
+        label: `${record.label}: ${hotspot.label}`,
+      });
+    }
+  }
+  return result;
 }
 
 function InfoRow({
@@ -604,6 +650,7 @@ function InputAvailabilityPanel({
 }) {
   const controller = controlsContext?.controller ?? null;
   const inputs = snapshot?.availableInputs;
+  const hotspotInputs = authoredHotspotInputs(project, snapshot?.currentRoomId);
   return (
     <Panel
       title="Player input"
@@ -690,6 +737,30 @@ function InputAvailabilityPanel({
           }
         >
           {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/{action.objectCount})
+        </Button>
+      ))}
+      {hotspotInputs.map(({ hotspot, label }) => (
+        <Button
+          key={`${hotspot.kind}:${'room' in hotspot ? hotspot.room : hotspot.interactable}:${hotspot.hotspotId}`}
+          size="sm"
+          variant="outline"
+          className="w-full justify-start"
+          disabled={!controller}
+          onClick={() =>
+            controller &&
+            onCommand(
+              () => controller.activateRuntimeHotspot(hotspot),
+              `Hotspot ${hotspot.hotspotId} sent`,
+              {
+                recordedAction: createRecordedAction('activate-hotspot', label, {
+                  type: 'activate-hotspot',
+                  hotspot,
+                }),
+              },
+            )
+          }
+        >
+          Activate {label}
         </Button>
       ))}
       {(inputs?.clickableTargets ?? [])

@@ -718,8 +718,7 @@ private:
                                                       std::to_string(hotspot_index);
                             if (!hotspot_ids.insert(hotspot.id).second)
                                 error("compiled_project.duplicate_nested_id",
-                                      "Duplicate Interactable hotspot ID.",
-                                      hotspot_path + "/id");
+                                      "Duplicate Interactable hotspot ID.", hotspot_path + "/id");
                             validate_hotspot_common(hotspot.condition, hotspot.highlight,
                                                     hotspot_path);
                             validate_hotspot_verb(hotspot.activation, 1,
@@ -775,15 +774,17 @@ private:
                                         const auto* hotspot = room_hotspot(reference);
                                         if (!hotspot) {
                                             error("compiled_project.unresolved_nested_reference",
-                                                  "Room hotspot context references a missing hotspot.",
+                                                  "Room hotspot context references a missing "
+                                                  "hotspot.",
                                                   rule_path + "/context/hotspot/hotspotId");
                                             return;
                                         }
-                                        const auto* activation =
-                                            std::get_if<VerbHotspotActivation>(&hotspot->activation);
+                                        const auto* activation = std::get_if<VerbHotspotActivation>(
+                                            &hotspot->activation);
                                         if (!activation)
                                             error("compiled_project.invalid_hotspot_context",
-                                                  "Interaction context cannot target an exit hotspot.",
+                                                  "Interaction context cannot target an exit "
+                                                  "hotspot.",
                                                   rule_path + "/context/hotspot/hotspotId");
                                         else if (activation->verb != rule.verb)
                                             error("compiled_project.invalid_hotspot_context",
@@ -791,7 +792,8 @@ private:
                                                   rule_path + "/verb");
                                         if (!rule.operands.empty())
                                             error("compiled_project.invalid_hotspot_context",
-                                                  "Room hotspot Interaction rules must not declare operands.",
+                                                  "Room hotspot Interaction rules must not declare "
+                                                  "operands.",
                                                   rule_path + "/operands");
                                     } else {
                                         require(m_interactables, reference.interactable,
@@ -799,33 +801,33 @@ private:
                                                 rule_path + "/context/hotspot/interactable");
                                         const auto* hotspot = interactable_hotspot(reference);
                                         if (!hotspot) {
-                                            error(
-                                                "compiled_project.unresolved_nested_reference",
-                                                "Interactable hotspot context references a missing hotspot.",
-                                                rule_path + "/context/hotspot/hotspotId");
+                                            error("compiled_project.unresolved_nested_reference",
+                                                  "Interactable hotspot context references a "
+                                                  "missing hotspot.",
+                                                  rule_path + "/context/hotspot/hotspotId");
                                             return;
                                         }
                                         if (hotspot->activation.verb != rule.verb)
                                             error("compiled_project.invalid_hotspot_context",
-                                                  "Interaction Verb must match its Interactable hotspot.",
+                                                  "Interaction Verb must match its Interactable "
+                                                  "hotspot.",
                                                   rule_path + "/verb");
                                         const bool compatible_operand =
                                             rule.operands.size() == 1 &&
                                             std::visit(
                                                 [&](const auto& operand) {
                                                     using O = std::decay_t<decltype(operand)>;
-                                                    if constexpr (std::is_same_v<O,
-                                                                 AnyInteractableOperand> ||
+                                                    if constexpr (std::is_same_v<
+                                                                      O, AnyInteractableOperand> ||
                                                                   std::is_same_v<
                                                                       O,
                                                                       AnyInteractionSubjectOperand>)
                                                         return true;
-                                                    else if constexpr (std::is_same_v<O,
-                                                                      ExactOperand>) {
-                                                        const auto* subject =
-                                                            std::get_if<
-                                                                InteractableInteractionSubject>(
-                                                                &operand.subject);
+                                                    else if constexpr (std::is_same_v<
+                                                                           O, ExactOperand>) {
+                                                        const auto* subject = std::get_if<
+                                                            InteractableInteractionSubject>(
+                                                            &operand.subject);
                                                         return subject &&
                                                                subject->interactable ==
                                                                    reference.interactable;
@@ -835,7 +837,8 @@ private:
                                                 rule.operands.front());
                                         if (!compatible_operand)
                                             error("compiled_project.invalid_hotspot_context",
-                                                  "Interactable hotspot Interaction rules require one compatible operand.",
+                                                  "Interactable hotspot Interaction rules require "
+                                                  "one compatible operand.",
                                                   rule_path + "/operands");
                                     }
                                 },

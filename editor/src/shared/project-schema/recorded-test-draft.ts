@@ -3,6 +3,8 @@ import {
   defaultTestStep,
   testCharacterSubject,
   testInteractableSubject,
+  testInteractableHotspotRef,
+  testRoomHotspotRef,
   testVerbRef,
   type TestData,
   type TestStepData,
@@ -15,6 +17,7 @@ export type RecordedRuntimeInputKind =
   | 'select-subjects'
   | 'clear-subject-selection'
   | 'run-interaction'
+  | 'activate-hotspot'
   | 'ui-click';
 
 export interface RecordedRuntimeActionInput {
@@ -24,6 +27,9 @@ export interface RecordedRuntimeActionInput {
   subjects?: Array<{ kind: 'character' | 'interactable'; id: string }>;
   verbId?: string;
   operands?: Array<{ kind: 'character' | 'interactable'; id: string }>;
+  hotspot?:
+    | { kind: 'room-hotspot'; room: string; hotspotId: string }
+    | { kind: 'interactable-hotspot'; interactable: string; hotspotId: string };
   documentId?: string;
   target?: string;
   selector?: string;
@@ -145,6 +151,23 @@ export function lowerRecordedRuntimeActionToTestStep(
         action,
         index,
       );
+    case 'activate-hotspot': {
+      const hotspot = input.hotspot;
+      const authored =
+        hotspot?.kind === 'room-hotspot'
+          ? testRoomHotspotRef(hotspot.room, hotspot.hotspotId)
+          : hotspot?.kind === 'interactable-hotspot'
+            ? testInteractableHotspotRef(hotspot.interactable, hotspot.hotspotId)
+            : null;
+      return withStepIdentity(
+        {
+          ...defaultTestStep('activate-hotspot', action.label || 'Activate hotspot'),
+          activateHotspot: { hotspot: authored },
+        },
+        action,
+        index,
+      );
+    }
     case 'ui-click': {
       const selector = input.selector?.trim() || input.target?.trim() || '#nt-title-start';
       return withStepIdentity(

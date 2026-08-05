@@ -50,6 +50,7 @@ import {
   type RoomData,
   type RoomEnvironmentData,
   type RoomExitData,
+  type RoomNormalizedRect,
   type RoomOverlayData,
   type RoomPlacementData,
   type RoomPropData,
@@ -563,6 +564,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [compositionBackgroundUrl, setCompositionBackgroundUrl] = useState<string | null>(null);
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
   const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
+  const [placingInteractableId, setPlacingInteractableId] = useState<string | null>(null);
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
@@ -759,7 +761,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         : [];
     }),
   ];
-  const placeInteractable = (interactableId: string) => {
+  const placeInteractable = (interactableId: string, bounds: RoomNormalizedRect) => {
     const interactableRecord = project.interactables[interactableId];
     const interactable = parseInteractableData(interactableRecord?.data);
     if (!interactable) return;
@@ -767,110 +769,38 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       data.placements.map((placement) => placement.id),
       `${interactableId}-placement`,
     );
-    const placement: RoomPlacementData = {
-      id: placementId,
-      bounds: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
-      order: data.placements.length,
-      presentation: { label: null, layout: null },
-    };
-    const commandStore = useCommandStore.getState();
-    commandStore.beginTransaction({
-      label: 'Place interactable in room',
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
-    commandStore.executeCommand({
-      type: 'room.replaceData',
-      label: 'Create dedicated placement',
-      payload: { roomId, data: { ...data, placements: [...data.placements, placement] } },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
-    commandStore.executeCommand({
-      type: 'interactable.replaceData',
-      label: 'Assign interactable placement',
-      payload: {
-        interactableId,
-        data: {
-          ...interactable,
-          initialState: {
-            ...interactable.initialState,
-            location: {
-              kind: 'room-placement',
-              placement: { room: roomId, placement: placementId },
-            },
-          },
-        },
-      },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
-    commandStore.commitTransaction();
-    setSelectedPlacementId(placementId);
-  };
-  const detachInteractable = (interactableId: string) => {
-    const interactable = parseInteractableData(project.interactables[interactableId]?.data);
-    if (!interactable) return;
     useCommandStore.getState().executeCommand({
-      type: 'interactable.replaceData',
-      label: 'Detach interactable from placement',
-      payload: {
-        interactableId,
-        data: {
-          ...interactable,
-          initialState: { ...interactable.initialState, location: { kind: 'nowhere' } },
-        },
-      },
-      originSaveUnitId: recordSaveUnitId('interactables', interactableId),
+      type: 'room.placeInteractable',
+      label: 'Place interactable in room',
+      payload: { roomId, interactableId, placementId, bounds },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+    setSelectedPlacementId(placementId);
+    setPlacingInteractableId(null);
   };
-  const createDedicatedPlacement = (interactableId: string, sourcePlacementId: string) => {
-    const interactable = parseInteractableData(project.interactables[interactableId]?.data);
-    const source = data.placements.find((placement) => placement.id === sourcePlacementId);
-    if (!interactable || !source) return;
+  const detachInteractable = (interactableId: string, sourcePlacementId: string) => {
     const placementId = nextId(
       data.placements.map((placement) => placement.id),
       `${interactableId}-placement`,
     );
-    const placement: RoomPlacementData = {
-      ...source,
-      id: placementId,
-      order: data.placements.length,
-    };
-    const commandStore = useCommandStore.getState();
-    commandStore.beginTransaction({
+    useCommandStore.getState().executeCommand({
+      type: 'room.detachInteractablePlacement',
       label: 'Create dedicated Interactable placement',
+      payload: { roomId, interactableId, sourcePlacementId, placementId },
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
-    commandStore.executeCommand({
-      type: 'room.replaceData',
-      label: 'Create dedicated placement',
-      payload: { roomId, data: { ...data, placements: [...data.placements, placement] } },
+    setSelectedPlacementId(placementId);
+  };
+  const moveInteractableToPlacement = (interactableId: string, placementId: string) => {
+    useCommandStore.getState().executeCommand({
+      type: 'room.moveInteractableToPlacement',
+      label: 'Move Interactable to placement',
+      payload: { roomId, interactableId, placementId },
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
-    commandStore.executeCommand({
-      type: 'interactable.replaceData',
-      label: 'Assign dedicated placement',
-      payload: {
-        interactableId,
-        data: {
-          ...interactable,
-          initialState: {
-            ...interactable.initialState,
-            location: {
-              kind: 'room-placement',
-              placement: { room: roomId, placement: placementId },
-            },
-          },
-        },
-      },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
-    commandStore.commitTransaction();
     setSelectedPlacementId(placementId);
   };
   const selectedPlacementInteractables = selectedPlacementId
@@ -1565,11 +1495,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </div>
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={() => setInteractableSelectorOpen(true)}
+                  variant={placingInteractableId ? 'secondary' : 'outline'}
+                  onClick={() => {
+                    if (placingInteractableId) setPlacingInteractableId(null);
+                    else setInteractableSelectorOpen(true);
+                  }}
                 >
                   <Plus data-icon="inline-start" />
-                  {t('roomComposition.placeInteractable')}
+                  {placingInteractableId
+                    ? t('roomComposition.cancelPlacement')
+                    : t('roomComposition.placeInteractable')}
                 </Button>
               </div>
               <RoomCompositionStage
@@ -1583,9 +1518,31 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   occupants: placementOccupants(placement.id),
                 }))}
                 selectedId={selectedPlacementId}
+                placementDraftLabel={
+                  placingInteractableId
+                    ? (project.interactables[placingInteractableId]?.label ?? placingInteractableId)
+                    : null
+                }
                 onSelectionChange={setSelectedPlacementId}
-                onCommitBounds={(id, bounds) => replacePlacement(id, { bounds })}
+                onCommitBounds={(placementId, bounds) =>
+                  useCommandStore.getState().executeCommand({
+                    type: 'room.setPlacementBounds',
+                    label: 'Update room placement bounds',
+                    payload: { roomId, placementId, bounds },
+                    originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                    persistencePolicy: 'manual-save',
+                  })
+                }
+                onCommitPlacement={(bounds) => {
+                  if (placingInteractableId) placeInteractable(placingInteractableId, bounds);
+                }}
+                onCancelPlacement={() => setPlacingInteractableId(null)}
               />
+              {placingInteractableId ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('roomComposition.dragPlacement')}
+                </p>
+              ) : null}
               {selectedPlacementId && placementOccupants(selectedPlacementId).length > 1 ? (
                 <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
@@ -1600,19 +1557,29 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => detachInteractable(interactable.id)}
+                          onClick={() =>
+                            detachInteractable(interactable.id, selectedPlacementId!)
+                          }
                         >
                           {t('roomComposition.detach')}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            createDedicatedPlacement(interactable.id, selectedPlacementId)
-                          }
+                        <Select
+                          value={selectedPlacementId ?? undefined}
+                          onValueChange={(placementId) => {
+                            if (placementId) moveInteractableToPlacement(interactable.id, placementId);
+                          }}
                         >
-                          {t('roomComposition.createDedicated')}
-                        </Button>
+                          <SelectTrigger className="h-8 w-48">
+                            <SelectValue placeholder={t('roomComposition.moveToPlacement')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {data.placements.map((placement) => (
+                              <SelectItem key={placement.id} value={placement.id}>
+                                {placement.id}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     ))}
                   </div>
@@ -2410,7 +2377,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             onOpenChange={setInteractableSelectorOpen}
             onSelect={(item) => {
               if (!item.entityId) return;
-              placeInteractable(item.entityId);
+              setPlacingInteractableId(item.entityId);
               setInteractableSelectorOpen(false);
             }}
           />

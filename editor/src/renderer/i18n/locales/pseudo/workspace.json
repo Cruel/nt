@@ -401,12 +401,15 @@
     "title": "[Řööɱ çöɱþöşïţïöñ]",
     "description": "[Möövë äñð řëşïzë řëƒëřëñçë-şþäçë þläçëɱëñţş övëř ţhë çöñƒïğüřëð þäçķğřöüñð ƒïţ.]",
     "placeInteractable": "[Þläçë Ïñţëřäçţäþlë]",
+    "cancelPlacement": "[Çäñçël þläçëɱëñţ]",
+    "dragPlacement": "[Ðřäğ ä ñöñ-zëřö řëçţäñğlë ţö çřëäţë ţhë Ïñţëřäçţäþlë'ş ðëðïçäţëð þläçëɱëñţ.]",
     "searchInteractables": "[Şëäřçh Ïñţëřäçţäþlëş]",
     "noInteractables": "[Ñö Ïñţëřäçţäþlëş äřë äväïläþlë.]",
     "sharedTitle": "[Şhäřëð þläçëɱëñţ]",
     "sharedDescription": "[Möövïñğ öř řëşïzïñğ ţhïş þläçëɱëñţ äƒƒëçţş ëvëřÿ lïşţëð öççüþäñţ.]",
-    "detach": "[Ðëţäçh]",
-    "createDedicated": "[Çřëäţë ðëðïçäţëð þläçëɱëñţ]"
+    "detach": "[Çřëäţë ðëðïçäţëð þläçëɱëñţ]",
+    "createDedicated": "[Çřëäţë ðëðïçäţëð þläçëɱëñţ]",
+    "moveToPlacement": "[Mövë ţö þläçëɱëñţ]"
   },
   "hotspots": {
     "subtitle": "⟦Image-relative hotspot authoring⟧",

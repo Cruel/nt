@@ -124,16 +124,17 @@ const ACTIVE_REVIEWED_FIELD_EFFECT_CODES =
   REVIEWED_FIELD_EFFECT_CODES.slice(11, 12) +
   REVIEWED_FIELD_EFFECT_CODES.slice(13);
 
-const PHASE_TWO_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
+const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
   [/^\/assets\/\*\/data\/imageMetadata\//, OWNER],
   [/^\/interactables\/\*\/data\/presentation\/hotspots\//, OWNER],
   [/^\/interactions\/\*\/data\/rules\/\*\/context\/hotspot\//, OWNER],
   [/^\/rooms\/\*\/data\/hotspots\//, OWNER],
+  [/^\/tests\/\*\/data\/steps\/\*\/activateHotspot\/hotspot\//, OWNER],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
 ]);
 
-function phaseTwoFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
-  return PHASE_TWO_FIELD_EFFECTS.find(([pattern]) => pattern.test(path))?.[1];
+function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
+  return EXPLICIT_FIELD_EFFECTS.find(([pattern]) => pattern.test(path))?.[1];
 }
 
 function reviewedFieldEffect(
@@ -176,13 +177,13 @@ function fnv1a(value: string): string {
 const schemaLeafPaths = new Set<JsonPointer>();
 collectSchemaLeafPaths(authoringProjectSchema, [], schemaLeafPaths);
 const sortedSchemaLeafPaths = [...schemaLeafPaths].sort();
-const phaseTwoLeafCount = sortedSchemaLeafPaths.filter((path) => phaseTwoFieldEffect(path)).length;
+const explicitLeafCount = sortedSchemaLeafPaths.filter((path) => explicitFieldEffect(path)).length;
 if (
-  ACTIVE_REVIEWED_FIELD_EFFECT_CODES.length + phaseTwoLeafCount !==
+  ACTIVE_REVIEWED_FIELD_EFFECT_CODES.length + explicitLeafCount !==
   sortedSchemaLeafPaths.length
 ) {
   throw new Error(
-    `Authoring graph field effect declarations changed: expected ${ACTIVE_REVIEWED_FIELD_EFFECT_CODES.length + phaseTwoLeafCount} schema leaves, received ${sortedSchemaLeafPaths.length}. Review every leaf and update the declaration sequence.`,
+    `Authoring graph field effect declarations changed: expected ${ACTIVE_REVIEWED_FIELD_EFFECT_CODES.length + explicitLeafCount} schema leaves, received ${sortedSchemaLeafPaths.length}. Review every leaf and update the declaration sequence.`,
   );
 }
 
@@ -190,9 +191,9 @@ export const AUTHORING_GRAPH_FIELD_METADATA: readonly AuthoringGraphFieldMetadat
   (() => {
     let reviewedIndex = 0;
     return sortedSchemaLeafPaths.map((path) => {
-      const phaseTwoEffect = phaseTwoFieldEffect(path);
+      const explicitEffect = explicitFieldEffect(path);
       const effect =
-        phaseTwoEffect ??
+        explicitEffect ??
         reviewedFieldEffect(ACTIVE_REVIEWED_FIELD_EFFECT_CODES[reviewedIndex++], path);
       return Object.freeze({ path, effect, schemaRoot: schemaRootForPath(path) });
     });
@@ -239,7 +240,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     settings: '88ac0f8d',
     shaders: '94d3aa6e',
     startupHook: '4fa45604',
-    tests: 'c4de6b91',
+    tests: '2dead819',
     variables: '9ac2af8d',
     verbs: 'f605dc9b',
   });

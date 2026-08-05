@@ -14,13 +14,16 @@ export interface RoomCompositionStageProps {
   fallbackColor: string | null;
   items: readonly RoomCompositionItem[];
   selectedId: string | null;
+  placementDraftLabel?: string | null;
   onSelectionChange(id: string | null): void;
   onCommitBounds(id: string, bounds: RoomNormalizedRect): void;
+  onCommitPlacement?(bounds: RoomNormalizedRect): void;
+  onCancelPlacement?(): void;
 }
 
 type Gesture = {
-  id: string;
-  kind: 'move' | 'resize';
+  id: string | null;
+  kind: 'move' | 'resize' | 'place';
   pointerId: number;
   startX: number;
   startY: number;
@@ -56,6 +59,23 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
       draft: item.bounds,
     });
   };
+  const beginPlacement = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!props.placementDraftLabel || !props.onCommitPlacement) {
+      props.onSelectionChange(null);
+      return;
+    }
+    const current = point(event);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setGesture({
+      id: null,
+      kind: 'place',
+      pointerId: event.pointerId,
+      startX: current.x,
+      startY: current.y,
+      initial: { x: current.x, y: current.y, width: 0.000_001, height: 0.000_001 },
+      draft: { x: current.x, y: current.y, width: 0.000_001, height: 0.000_001 },
+    });
+  };
   const move = (event: ReactPointerEvent) => {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     const current = point(event);
@@ -68,16 +88,26 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
             x: clamp(gesture.initial.x + dx, 0, 1 - gesture.initial.width),
             y: clamp(gesture.initial.y + dy, 0, 1 - gesture.initial.height),
           }
-        : {
+        : gesture.kind === 'resize'
+          ? {
             ...gesture.initial,
             width: clamp(gesture.initial.width + dx, 0.01, 1 - gesture.initial.x),
             height: clamp(gesture.initial.height + dy, 0.01, 1 - gesture.initial.y),
-          };
+            }
+          : {
+              x: Math.min(gesture.startX, current.x),
+              y: Math.min(gesture.startY, current.y),
+              width: Math.abs(current.x - gesture.startX),
+              height: Math.abs(current.y - gesture.startY),
+            };
     setGesture({ ...gesture, draft });
   };
   const finish = (event: ReactPointerEvent) => {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
-    props.onCommitBounds(gesture.id, gesture.draft);
+    if (gesture.kind === 'place') {
+      if (gesture.draft.width > 0 && gesture.draft.height > 0)
+        props.onCommitPlacement?.(gesture.draft);
+    } else if (gesture.id) props.onCommitBounds(gesture.id, gesture.draft);
     setGesture(null);
   };
   const objectFit =
@@ -89,12 +119,18 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
   return (
     <div
       ref={rootRef}
-      className="relative aspect-video min-h-64 overflow-hidden rounded-lg border bg-muted/30"
+      className={`relative aspect-video min-h-64 overflow-hidden rounded-lg border bg-muted/30 ${props.placementDraftLabel ? 'cursor-crosshair' : ''}`}
       style={{ backgroundColor: props.fallbackColor ?? undefined }}
-      onPointerDown={() => props.onSelectionChange(null)}
+      tabIndex={0}
+      onPointerDown={beginPlacement}
       onPointerMove={move}
       onPointerUp={finish}
       onPointerCancel={() => setGesture(null)}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        setGesture(null);
+        props.onCancelPlacement?.();
+      }}
       data-testid="room-composition-stage"
     >
       {props.backgroundUrl ? (
@@ -137,6 +173,22 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
           </div>
         );
       })}
+      {gesture?.kind === 'place' ? (
+        <div
+          className="pointer-events-none absolute border-2 border-dashed border-primary bg-primary/10"
+          style={{
+            left: `${gesture.draft.x * 100}%`,
+            top: `${gesture.draft.y * 100}%`,
+            width: `${gesture.draft.width * 100}%`,
+            height: `${gesture.draft.height * 100}%`,
+          }}
+          data-testid="room-placement-draft"
+        >
+          <div className="truncate bg-background/80 px-1 py-0.5 text-[10px] font-medium">
+            {props.placementDraftLabel}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

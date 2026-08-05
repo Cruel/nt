@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import { hotspotRefSchema, type HotspotRefData } from './authoring-hotspots';
+import { parseInteractableData } from './authoring-interactables';
+import { parseRoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const testInputTypeValues = [
@@ -10,6 +13,7 @@ export const testInputTypeValues = [
   'select-subjects',
   'clear-subject-selection',
   'run-interaction',
+  'activate-hotspot',
   'load-save',
   'set-entrypoint',
   'ui-click',
@@ -116,6 +120,10 @@ export const testStepDataSchema = z
       })
       .strict()
       .default({ verb: null, operands: [] }),
+    activateHotspot: z
+      .object({ hotspot: hotspotRefSchema.nullable().default(null) })
+      .strict()
+      .default({ hotspot: null }),
     loadSave: z
       .object({ slotId: z.string().default(''), payload: z.json().default(null) })
       .strict()
@@ -171,6 +179,7 @@ export type TestVariableRef = z.infer<typeof testVariableRefSchema>;
 export type TestEntrypointRef = z.infer<typeof testEntrypointRefSchema>;
 export type TestAnyRef = z.infer<typeof testAnyRefSchema>;
 export type TestInteractionSubject = z.infer<typeof testInteractionSubjectSchema>;
+export type TestHotspotRef = HotspotRefData;
 export type TestAssertionData = z.infer<typeof testAssertionDataSchema>;
 export type TestStepData = z.infer<typeof testStepDataSchema>;
 export type TestData = z.infer<typeof testDataSchema>;
@@ -219,6 +228,23 @@ export function testInteractableRef(id: string): TestInteractableRef {
 }
 export function testVerbRef(id: string): TestVerbRef {
   return { $ref: { collection: 'verbs', id } };
+}
+export function testRoomHotspotRef(roomId: string, hotspotId: string): TestHotspotRef {
+  return {
+    kind: 'room-hotspot',
+    room: { $ref: { collection: 'rooms', id: roomId } },
+    hotspotId,
+  };
+}
+export function testInteractableHotspotRef(
+  interactableId: string,
+  hotspotId: string,
+): TestHotspotRef {
+  return {
+    kind: 'interactable-hotspot',
+    interactable: { $ref: { collection: 'interactables', id: interactableId } },
+    hotspotId,
+  };
 }
 export function testVariableRef(id: string): TestVariableRef {
   return { $ref: { collection: 'variables', id } };
@@ -370,6 +396,56 @@ function validateStep(
         diagnostics,
       ),
     );
+  }
+  if (step.input === 'activate-hotspot') {
+    const hotspot = step.activateHotspot.hotspot;
+    if (!hotspot) {
+      diagnostics.push(
+        diagnostic(`${path}/activateHotspot/hotspot`, 'activate-hotspot requires a hotspot.'),
+      );
+    } else if (hotspot.kind === 'room-hotspot') {
+      const roomId = hotspot.room.$ref.id;
+      const room = parseRoomData(project.rooms[roomId]?.data);
+      if (!room)
+        diagnostics.push(
+          diagnostic(
+            `${path}/activateHotspot/hotspot/room/$ref`,
+            `Missing Room '${roomId}'.`,
+          ),
+        );
+      else if (!room.hotspots.some((item) => item.id === hotspot.hotspotId))
+        diagnostics.push(
+          diagnostic(
+            `${path}/activateHotspot/hotspot/hotspotId`,
+            `Missing Room hotspot '${hotspot.hotspotId}'.`,
+          ),
+        );
+    } else {
+      const interactableId = hotspot.interactable.$ref.id;
+      const interactable = parseInteractableData(project.interactables[interactableId]?.data);
+      if (!interactable)
+        diagnostics.push(
+          diagnostic(
+            `${path}/activateHotspot/hotspot/interactable/$ref`,
+            `Missing Interactable '${interactableId}'.`,
+          ),
+        );
+      else {
+        const exists =
+          interactable.presentation.hotspots.kind === 'sprite-alpha'
+            ? interactable.presentation.hotspots.hotspot.id === hotspot.hotspotId
+            : interactable.presentation.hotspots.hotspots.some(
+                (item) => item.id === hotspot.hotspotId,
+              );
+        if (!exists)
+          diagnostics.push(
+            diagnostic(
+              `${path}/activateHotspot/hotspot/hotspotId`,
+              `Missing Interactable hotspot '${hotspot.hotspotId}'.`,
+            ),
+          );
+      }
+    }
   }
   if (step.input === 'set-entrypoint')
     validateRef(

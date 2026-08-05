@@ -61,6 +61,25 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
       operands: step.runInteraction.operands.map(typedSubject),
     };
   }
+  if (step.input === 'activate-hotspot') {
+    const hotspot = step.activateHotspot.hotspot;
+    if (!hotspot) return null;
+    return {
+      type: 'activate-hotspot',
+      hotspot:
+        hotspot.kind === 'room-hotspot'
+          ? {
+              kind: hotspot.kind,
+              room: hotspot.room.$ref.id,
+              hotspotId: hotspot.hotspotId,
+            }
+          : {
+              kind: hotspot.kind,
+              interactable: hotspot.interactable.$ref.id,
+              hotspotId: hotspot.hotspotId,
+            },
+    };
+  }
   if (step.input === 'load-save') {
     const slot = step.loadSave.slotId.trim();
     if (slot === 'autosave') return { type: 'load', slot: { kind: 'autosave' } };

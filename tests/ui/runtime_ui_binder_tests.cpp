@@ -10,6 +10,8 @@
 #include <utility>
 #include <variant>
 
+#include <lua.hpp>
+
 namespace {
 
 class RecordingRuntimeUiInputSink final : public noveltea::RuntimeUiInputSink {
@@ -141,4 +143,37 @@ TEST_CASE("RuntimeUiBinder captures event outputs without recursively invoking t
     CHECK(binder.dispatch_input(
         noveltea::core::RuntimeInputMessage{noveltea::core::ContinueInput{}}));
     CHECK(sink.gameplay_inputs == 1);
+}
+
+TEST_CASE("RuntimeUiBinder Lua API dispatches exact hotspot activation")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::RuntimeUiBinder binder(diagnostics);
+    RecordingRuntimeUiInputSink sink;
+    binder.bind_input_sink(&sink);
+    binder.bind_layout_gameplay_admission([]() { return true; });
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "room";
+    REQUIRE(binder.apply(values));
+
+    lua_State* state = luaL_newstate();
+    REQUIRE(state != nullptr);
+    luaL_openlibs(state);
+    binder.set_lua_state(state);
+    REQUIRE(
+        luaL_dostring(
+            state, "assert(Game.ui.activate_hotspot('interactable-hotspot', 'key', 'primary'))") ==
+        LUA_OK);
+    REQUIRE(sink.last_gameplay_input);
+    const auto* activation =
+        std::get_if<noveltea::core::ActivateHotspotInput>(&*sink.last_gameplay_input);
+    REQUIRE(activation != nullptr);
+    CHECK(activation->hotspot ==
+          noveltea::core::compiled::HotspotRef{noveltea::core::compiled::InteractableHotspotRef{
+              noveltea::core::InteractableId::create("key").value(),
+              noveltea::core::HotspotId::create("primary").value()}});
+
+    binder.set_lua_state(nullptr);
+    lua_close(state);
 }

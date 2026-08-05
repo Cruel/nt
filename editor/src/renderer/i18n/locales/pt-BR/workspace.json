@@ -437,12 +437,15 @@
     "title": "Composição da sala",
     "description": "Mova e redimensione posicionamentos no espaço de referência sobre o ajuste de fundo configurado.",
     "placeInteractable": "Posicionar interagível",
+    "cancelPlacement": "Cancelar posicionamento",
+    "dragPlacement": "Arraste um retângulo não vazio para criar o posicionamento dedicado do interagível.",
     "searchInteractables": "Pesquisar interagíveis",
     "noInteractables": "Nenhum interagível está disponível.",
     "sharedTitle": "Posicionamento compartilhado",
     "sharedDescription": "Mover ou redimensionar este posicionamento afeta todos os ocupantes listados.",
-    "detach": "Desvincular",
-    "createDedicated": "Criar posicionamento dedicado"
+    "detach": "Criar posicionamento dedicado",
+    "createDedicated": "Criar posicionamento dedicado",
+    "moveToPlacement": "Mover para posicionamento"
   },
   "hotspots": {
     "subtitle": "Edição de hotspot relativa à imagem",

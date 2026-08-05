@@ -54,6 +54,15 @@ describe('recorded test draft conversion', () => {
               ],
             },
           },
+          {
+            id: 'hotspot-1',
+            kind: 'activate-hotspot',
+            label: 'Open the door',
+            input: {
+              type: 'activate-hotspot',
+              hotspot: { kind: 'room-hotspot', room: 'foyer', hotspotId: 'door' },
+            },
+          },
         ],
       },
       { label: 'Recorded Smoke' },
@@ -95,6 +104,17 @@ describe('recorded test draft conversion', () => {
                 interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
               },
             ],
+          },
+        },
+        {
+          id: 'hotspot-1',
+          input: 'activate-hotspot',
+          activateHotspot: {
+            hotspot: {
+              kind: 'room-hotspot',
+              room: { $ref: { collection: 'rooms', id: 'foyer' } },
+              hotspotId: 'door',
+            },
           },
         },
       ],

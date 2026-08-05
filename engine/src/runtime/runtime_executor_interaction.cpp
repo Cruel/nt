@@ -137,6 +137,7 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
     struct Candidate {
         core::InteractionRuleProgramRef reference;
         std::size_t exact_operands = 0;
+        std::size_t typed_wildcards = 0;
         bool exact_hotspot = false;
         std::size_t declaration_order = 0;
     };
@@ -148,6 +149,7 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
             if (rule.verb != verb_id || rule.operands.size() != operands.size())
                 continue;
             std::size_t exact = 0;
+            std::size_t typed_wildcards = 0;
             bool matches = true;
             for (std::size_t index = 0; index < operands.size(); ++index) {
                 if (const auto* expected =
@@ -158,11 +160,13 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
                                rule.operands[index])) {
                     matches = std::holds_alternative<core::compiled::CharacterInteractionSubject>(
                         operands[index]);
+                    ++typed_wildcards;
                 } else if (std::holds_alternative<core::compiled::AnyInteractableOperand>(
                                rule.operands[index])) {
                     matches =
                         std::holds_alternative<core::compiled::InteractableInteractionSubject>(
                             operands[index]);
+                    ++typed_wildcards;
                 }
             }
             if (!matches)
@@ -227,12 +231,19 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
                 continue;
             const bool exact_hotspot =
                 std::holds_alternative<core::compiled::HotspotInteractionContext>(rule.context);
-            Candidate candidate{
-                {interaction.identity.id, rule.id}, exact, exact_hotspot, current_order};
+            Candidate candidate{{interaction.identity.id, rule.id},
+                                exact,
+                                typed_wildcards,
+                                exact_hotspot,
+                                current_order};
             if (!selected || candidate.exact_operands > selected->exact_operands ||
-                (candidate.exact_operands == selected->exact_operands && candidate.exact_hotspot &&
-                 !selected->exact_hotspot) ||
                 (candidate.exact_operands == selected->exact_operands &&
+                 candidate.typed_wildcards > selected->typed_wildcards) ||
+                (candidate.exact_operands == selected->exact_operands &&
+                 candidate.typed_wildcards == selected->typed_wildcards &&
+                 candidate.exact_hotspot && !selected->exact_hotspot) ||
+                (candidate.exact_operands == selected->exact_operands &&
+                 candidate.typed_wildcards == selected->typed_wildcards &&
                  candidate.exact_hotspot == selected->exact_hotspot &&
                  candidate.declaration_order < selected->declaration_order))
                 selected = std::move(candidate);

@@ -1309,6 +1309,9 @@ thead, tbody, tfoot {
         case 'runtime-run-interaction':
           finishRuntimeCommand('noveltea_runtime_run_interaction', 'number', ['string', 'string'], [message.verbId, JSON.stringify(message.operands || [])], `Runtime interaction '${message.verbId}' was not handled in the current runtime mode.`);
           return true;
+        case 'runtime-activate-hotspot':
+          finishRuntimeCommand('noveltea_runtime_activate_hotspot', 'number', ['string'], [JSON.stringify(message.hotspot)], `Runtime hotspot '${message.hotspot && message.hotspot.hotspotId}' was not handled in the current runtime mode.`);
+          return true;
         case 'runtime-request-debug-snapshot':
           if (emitRuntimeDebugSnapshot(message, { failOnError: true })) {
             send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });

@@ -271,6 +271,9 @@ export function usePreviewTransport({
         verbId: string,
         operands: import('../../shared/preview-protocol').PreviewInteractionSubject[],
       ) => send({ type: 'runtime-run-interaction', verbId, operands }),
+      activateRuntimeHotspot: (
+        hotspot: import('../../shared/preview-protocol').PreviewHotspotRef,
+      ) => send({ type: 'runtime-activate-hotspot', hotspot }),
       requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
       requestAssetProfiler: (cursor?: { sessionId: bigint; afterSequence: bigint }) =>
         send<AssetProfilerWirePayload>(

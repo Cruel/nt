@@ -424,6 +424,26 @@ describe('preview protocol validation', () => {
     expect(
       isEditorToPreviewMessage({
         version: 1,
+        type: 'runtime-activate-hotspot',
+        requestId: 'runtime-hotspot',
+        hotspot: {
+          kind: 'interactable-hotspot',
+          interactable: 'lamp',
+          hotspotId: 'primary',
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-activate-hotspot',
+        requestId: 'runtime-hotspot-bad',
+        hotspot: { kind: 'room-hotspot', room: '', hotspotId: 'door' },
+      }),
+    ).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
         type: 'runtime-request-debug-snapshot',
         requestId: 'runtime-debug',
       }),
