@@ -6,8 +6,9 @@
 <meta name="screen-orientation" content="landscape">
 <title>NovelTea Web Prototype</title>
 <style>
-  body { margin: 0; overflow: hidden; background: #111; color: #ddd; font-family: sans-serif; }
-  canvas { display: block; width: 100vw; height: 100vh; background: #181820; }
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #111; color: #ddd; font-family: sans-serif; }
+  body { position: relative; }
+  canvas { position: absolute; left: 0; top: 0; display: block; max-width: none; max-height: none; background: #181820; }
   #status { position: fixed; left: 16px; top: 16px; color: #ddd; font-size: 14px; line-height: 1.4; }
   #fps-counter { display: none; position: fixed; left: 16px; bottom: 16px; z-index: 9; padding: 4px 6px; border-radius: 4px; background: rgba(15, 23, 42, 0.84); color: #cbd5e1; font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; pointer-events: none; }
 </style>
@@ -84,7 +85,7 @@
       const maxDpr = parseFloat(params.get('maxDpr') || '0') || 0;
       const actualDpr = currentDevicePixelRatio();
       const dpr = maxDpr > 0 ? Math.min(actualDpr, maxDpr) : actualDpr;
-      const rect = canvas.getBoundingClientRect();
+      const rect = document.body.getBoundingClientRect();
       const logicalWidth = Math.max(1, Math.round(rect.width));
       const logicalHeight = Math.max(1, Math.round(rect.height));
       const framebufferWidth = Math.max(1, Math.round(logicalWidth * dpr));
@@ -94,8 +95,19 @@
       if (!runtimeReady) {
         canvas.width = framebufferWidth;
         canvas.height = framebufferHeight;
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
       }
-      pendingResize = { logicalWidth, logicalHeight, framebufferWidth, framebufferHeight, scaleX, scaleY };
+      pendingResize = {
+        logicalWidth,
+        logicalHeight,
+        framebufferWidth,
+        framebufferHeight,
+        scaleX,
+        scaleY,
+        cssWidth: rect.width,
+        cssHeight: rect.height,
+      };
       scheduleResizeApply();
     }
 
@@ -108,19 +120,44 @@
       });
     }
 
+    function applyCanvasPresentation(resize) {
+      const canvas = document.getElementById('canvas');
+      const capacityWidth = typeof Module._noveltea_preview_backbuffer_width === 'function'
+        ? Module._noveltea_preview_backbuffer_width()
+        : canvas.width;
+      const capacityHeight = typeof Module._noveltea_preview_backbuffer_height === 'function'
+        ? Module._noveltea_preview_backbuffer_height()
+        : canvas.height;
+      if (capacityWidth <= 0 || capacityHeight <= 0) return false;
+      canvas.style.width = `${resize.cssWidth * capacityWidth / resize.framebufferWidth}px`;
+      canvas.style.height = `${resize.cssHeight * capacityHeight / resize.framebufferHeight}px`;
+      return true;
+    }
+
     function applyPendingResize() {
       if (!pendingResize || !runtimeReady || typeof Module._noveltea_preview_resize !== 'function') return;
       const resize = pendingResize;
       const key = `${resize.logicalWidth}x${resize.logicalHeight}:${resize.framebufferWidth}x${resize.framebufferHeight}:${resize.scaleX}x${resize.scaleY}`;
-      if (key === appliedResizeKey) return;
-      Module._noveltea_preview_resize(
+      if (key === appliedResizeKey) {
+        applyCanvasPresentation(resize);
+        return;
+      }
+      const applied = Module._noveltea_preview_resize(
         resize.logicalWidth,
         resize.logicalHeight,
         resize.framebufferWidth,
         resize.framebufferHeight,
         resize.scaleX,
         resize.scaleY);
+      if (applied !== 1) {
+        scheduleResizeApply();
+        return;
+      }
       appliedResizeKey = key;
+      applyCanvasPresentation(resize);
+      requestAnimationFrame(() => {
+        if (pendingResize) applyCanvasPresentation(pendingResize);
+      });
       const gl = typeof GL !== 'undefined' && GL.currentContext ? GL.currentContext.GLctx : null;
       console.log('[surface:web]', {
         devicePixelRatio: window.devicePixelRatio || 1,
@@ -135,7 +172,7 @@
 
     armDevicePixelRatioWatcher();
     resizeCanvas();
-    new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));
+    new ResizeObserver(resizeCanvas).observe(document.body);
     window.addEventListener('resize', resizeCanvas);
     window.addEventListener('pageshow', resizeCanvas);
     document.addEventListener('visibilitychange', () => {

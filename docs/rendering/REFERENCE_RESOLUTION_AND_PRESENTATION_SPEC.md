@@ -108,6 +108,37 @@ Operating-system desktop scale and browser device-pixel ratio contribute only to
 framebuffer dimensions supplied by the platform. They must not independently change authored game
 composition.
 
+### Web retained backbuffer capacity
+
+The active Web host framebuffer size remains the visible output size used by presentation,
+viewport fitting, input projection, world raster resolution, UI raster resolution, and capture
+cropping. It is distinct from the browser canvas's allocated drawing-buffer capacity.
+
+To avoid clearing the WebGL canvas for every intermediate browser resize, the Web backend may retain
+a drawing-buffer allocation larger than the active host framebuffer. The retained capacity must obey
+these rules:
+
+- it may grow when the active framebuffer no longer fits, but ordinary resizing must not shrink it;
+- a resize that fits within the retained capacity must update presentation and render viewports
+  without calling `bgfx::reset()` or changing the canvas width/height attributes;
+- the Web platform adapter must leave browser resize ownership to the shell instead of enabling
+  SDL's automatic resizable-canvas callback, which independently changes those attributes;
+- unused capacity lies outside the active top-left framebuffer rectangle and must be clipped from
+  browser presentation and input;
+- canvas CSS sizing must map the active framebuffer rectangle exactly onto the visible browser
+  surface, so retained capacity does not alter DPR, pointer coordinates, or authored composition;
+- SDL Web pointer events must be reprojected from the retained canvas CSS extent into the active
+  host-logical extent without changing the SDL window or canvas allocation. Updating either extent
+  through SDL would clear the WebGL drawing buffer and reintroduce resize flicker;
+- capacity dimensions are renderer allocation state only. They must not replace the active host
+  framebuffer dimensions in `HostSurfaceMetrics` or any derived presentation metric;
+- screenshot callbacks may receive the complete retained allocation, but the requested game capture
+  remains cropped to the active fitted viewport.
+
+Growing the retained allocation is an exceptional swapchain reset and may interrupt one frame.
+Shrinking the browser viewport or resizing again within the retained capacity must preserve the
+canvas allocation and continue rendering without a drawing-buffer reset.
+
 ### Fitted game viewport
 
 The game viewport is the project-aspect rectangle centered and aspect-fitted inside the complete host

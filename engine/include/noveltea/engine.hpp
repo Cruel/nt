@@ -46,6 +46,7 @@ public:
     bool tick();
     void resize(const HostSurfaceMetrics& surface);
     const PresentationMetrics& presentation() const;
+    IntegerSize backbuffer_size() const;
     void shutdown();
     void request_stop();
     bool is_running() const;

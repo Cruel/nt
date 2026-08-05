@@ -129,18 +129,33 @@ struct WebPlayerState {
 
 WebPlayerState* g_web_player_state = nullptr;
 
-extern "C" EMSCRIPTEN_KEEPALIVE void
+extern "C" EMSCRIPTEN_KEEPALIVE std::int32_t
 noveltea_player_resize(int logical_width, int logical_height, int framebuffer_width,
                        int framebuffer_height, float host_logical_to_framebuffer_scale_x,
                        float host_logical_to_framebuffer_scale_y)
 {
     if (!g_web_player_state || !g_web_player_state->engine)
-        return;
+        return 0;
     auto host = noveltea::make_host_surface_metrics(logical_width, logical_height,
                                                     framebuffer_width, framebuffer_height);
     host.logical_to_framebuffer_scale = {host_logical_to_framebuffer_scale_x,
                                          host_logical_to_framebuffer_scale_y};
     g_web_player_state->engine->resize(noveltea::sanitize_host_surface_metrics(host));
+    return 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE std::int32_t noveltea_player_backbuffer_width()
+{
+    return g_web_player_state && g_web_player_state->engine
+               ? g_web_player_state->engine->backbuffer_size().width
+               : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE std::int32_t noveltea_player_backbuffer_height()
+{
+    return g_web_player_state && g_web_player_state->engine
+               ? g_web_player_state->engine->backbuffer_size().height
+               : 0;
 }
 
 void web_main_loop(void* opaque)

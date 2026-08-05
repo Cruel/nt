@@ -48,6 +48,36 @@ static void make_ortho(float* out, float width, float height)
     out[15] = 1.0f;
 }
 
+namespace {
+
+#if defined(NOVELTEA_PLATFORM_WEB)
+[[nodiscard]] int align_backbuffer_dimension(int value)
+{
+    constexpr int alignment = 64;
+    return ((std::max(value, 1) + alignment - 1) / alignment) * alignment;
+}
+#endif
+
+[[nodiscard]] IntegerSize resolve_backbuffer_size(IntegerSize current, IntegerSize required)
+{
+#if defined(NOVELTEA_PLATFORM_WEB)
+    auto grow_dimension = [](int current_value, int required_value) {
+        if (current_value >= required_value)
+            return current_value;
+        if (current_value <= 0)
+            return align_backbuffer_dimension(required_value);
+        const int headroom = std::max(64, current_value / 4);
+        return align_backbuffer_dimension(std::max(required_value, current_value + headroom));
+    };
+    return {grow_dimension(current.width, required.width),
+            grow_dimension(current.height, required.height)};
+#else
+    return {std::max(required.width, 1), std::max(required.height, 1)};
+#endif
+}
+
+} // namespace
+
 class RendererCallback final : public bgfx::CallbackI {
 public:
     enum class RequestKind : std::uint8_t {
@@ -363,8 +393,9 @@ bool Renderer::initialize(const RendererConfig& config)
     init.callback = &s_renderer_callback;
     const PresentationMetrics presentation = config.presentation;
     const HostSurfaceMetrics host = sanitize_host_surface_metrics(presentation.host);
-    init.resolution.width = static_cast<uint32_t>(host.framebuffer_size.width);
-    init.resolution.height = static_cast<uint32_t>(host.framebuffer_size.height);
+    const IntegerSize backbuffer_size = resolve_backbuffer_size({}, host.framebuffer_size);
+    init.resolution.width = static_cast<uint32_t>(backbuffer_size.width);
+    init.resolution.height = static_cast<uint32_t>(backbuffer_size.height);
     // Keep swapchain MSAA off. RmlUi resolves its own offscreen MSAA before final presentation,
     // matching the upstream GL3 renderer's normal-backbuffer final pass.
     init.resolution.reset = (config.vsync ? BGFX_RESET_VSYNC : 0);
@@ -375,6 +406,7 @@ bool Renderer::initialize(const RendererConfig& config)
     }
 
     m_presentation = presentation;
+    m_backbuffer_size = backbuffer_size;
     m_bar_color_rgba = config.bar_color_rgba;
     m_vsync = config.vsync;
     m_assets = config.assets;
@@ -525,7 +557,7 @@ void Renderer::submit_screenshot_request(std::string output_path,
                                                      : RendererCallback::RequestKind::File,
                                   .capture_id = capture_id.value_or(0),
                                   .output_path = std::move(output_path),
-                                  .captured_host_size = m_presentation.host.framebuffer_size,
+                                  .captured_host_size = m_backbuffer_size,
                                   .crop = m_presentation.viewport.host_framebuffer_rect});
     const std::string callback_path =
         "__noveltea_game_viewport_capture_" + std::to_string(callback_id) + ".ntcapture";
@@ -578,17 +610,23 @@ void Renderer::resize(const PresentationMetrics& presentation)
     destroy_world_transition_surfaces();
     destroy_postprocess_surface();
     const HostSurfaceMetrics& host = m_presentation.host;
-
-    bgfx::reset(static_cast<uint32_t>(host.framebuffer_size.width),
-                static_cast<uint32_t>(host.framebuffer_size.height),
-                (m_vsync ? BGFX_RESET_VSYNC : 0));
+    const IntegerSize next_backbuffer_size =
+        resolve_backbuffer_size(m_backbuffer_size, host.framebuffer_size);
+    if (next_backbuffer_size != m_backbuffer_size) {
+        bgfx::reset(static_cast<uint32_t>(next_backbuffer_size.width),
+                    static_cast<uint32_t>(next_backbuffer_size.height),
+                    (m_vsync ? BGFX_RESET_VSYNC : 0));
+        m_backbuffer_size = next_backbuffer_size;
+    }
     bgfx::setViewRect(ViewPresentationClear, 0, 0,
                       static_cast<uint16_t>(host.framebuffer_size.width),
                       static_cast<uint16_t>(host.framebuffer_size.height));
     if (!prepare_ordinary_world_surface())
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "[renderer] failed to resize ordinary world color target");
-    SDL_Log("[renderer] resized %s", format_presentation_metrics(m_presentation).c_str());
+    SDL_Log("[renderer] resized %s backbuffer=%dx%d",
+            format_presentation_metrics(m_presentation).c_str(), m_backbuffer_size.width,
+            m_backbuffer_size.height);
     resize_text();
 }
 
@@ -606,6 +644,7 @@ void Renderer::shutdown()
         m_pending_screenshot_capture.reset();
         m_outstanding_screenshot_capture.reset();
         m_next_screenshot_callback_id = 1;
+        m_backbuffer_size = {};
         m_initialized = false;
         std::printf("[renderer] bgfx shutdown\n");
     }

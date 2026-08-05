@@ -141,6 +141,7 @@ public:
     const char* active_shader_variant() const;
     const char* texture_status() const { return m_texture_status.c_str(); }
     bool is_initialized() const { return m_initialized; }
+    IntegerSize backbuffer_size() const { return m_backbuffer_size; }
     const PresentationMetrics& presentation() const { return m_presentation; }
     const ReferenceFrameMetrics& reference_frame() const { return m_presentation.reference; }
     const WorldRasterMetrics& world_raster() const { return m_presentation.world_raster; }
@@ -200,6 +201,7 @@ private:
     bool m_initialized = false;
     bool m_vsync = true;
     PresentationMetrics m_presentation{};
+    IntegerSize m_backbuffer_size{};
     std::uint32_t m_bar_color_rgba = 0x000000ff;
 
     // Scissor stack (logical coords, pushed at logical coords, converted on pop).

@@ -6,7 +6,8 @@
 <title>NovelTea Editor Preview Widget</title>
 <style>
   html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #111318; color: #cbd5e1; font-family: sans-serif; }
-  canvas { display: block; width: 100vw; height: 100vh; background: #111318; }
+  body { position: relative; }
+  canvas { position: absolute; left: 0; top: 0; display: block; max-width: none; max-height: none; background: #111318; }
   #status { display: none; position: fixed; left: 10px; top: 10px; right: 10px; z-index: 10; padding: 8px 10px; border-radius: 4px; background: rgba(127, 29, 29, 240); color: #fee2e2; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; pointer-events: none; white-space: pre-wrap; }
   #fps-counter { display: none; position: fixed; left: 10px; bottom: 10px; z-index: 9; padding: 4px 6px; border-radius: 4px; background: rgba(15, 23, 42, 0.84); color: #cbd5e1; font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; pointer-events: none; }
 </style>
@@ -1533,16 +1534,20 @@ thead, tbody, tfoot {
 
     function resizeCanvas() {
       const canvas = document.getElementById('canvas');
-      const rect = canvas.getBoundingClientRect();
+      const rect = document.body.getBoundingClientRect();
       const resize = resolvePreviewSurfaceMetrics(
         rect.width,
         rect.height,
         currentDevicePixelRatio(),
         diagnosticMaxDpr,
       );
-      if (canvas.width !== resize.framebufferWidth) canvas.width = resize.framebufferWidth;
-      if (canvas.height !== resize.framebufferHeight) canvas.height = resize.framebufferHeight;
-      pendingResize = resize;
+      if (!runtimeReady) {
+        if (canvas.width !== resize.framebufferWidth) canvas.width = resize.framebufferWidth;
+        if (canvas.height !== resize.framebufferHeight) canvas.height = resize.framebufferHeight;
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+      }
+      pendingResize = { ...resize, cssWidth: rect.width, cssHeight: rect.height };
       scheduleResizeApply();
     }
 
@@ -1570,19 +1575,45 @@ thead, tbody, tfoot {
       });
     }
 
+    function applyCanvasPresentation(resize) {
+      const canvas = document.getElementById('canvas');
+      if (!resize || resize.framebufferWidth <= 0 || resize.framebufferHeight <= 0) return false;
+      const capacityWidth = typeof Module._noveltea_preview_backbuffer_width === 'function'
+        ? Module._noveltea_preview_backbuffer_width()
+        : canvas.width;
+      const capacityHeight = typeof Module._noveltea_preview_backbuffer_height === 'function'
+        ? Module._noveltea_preview_backbuffer_height()
+        : canvas.height;
+      if (capacityWidth <= 0 || capacityHeight <= 0) return false;
+      canvas.style.width = `${resize.cssWidth * capacityWidth / resize.framebufferWidth}px`;
+      canvas.style.height = `${resize.cssHeight * capacityHeight / resize.framebufferHeight}px`;
+      return true;
+    }
+
     function applyPendingResize() {
       if (!pendingResize || !runtimeReady || typeof Module._noveltea_preview_resize !== 'function') return;
       const resize = pendingResize;
       const key = `${resize.logicalWidth}x${resize.logicalHeight}:${resize.framebufferWidth}x${resize.framebufferHeight}:${resize.scaleX}x${resize.scaleY}`;
-      if (key === appliedResizeKey && !forcePendingResize) return;
-      Module._noveltea_preview_resize(resize.logicalWidth, resize.logicalHeight, resize.framebufferWidth, resize.framebufferHeight, resize.scaleX, resize.scaleY);
+      if (key === appliedResizeKey && !forcePendingResize) {
+        applyCanvasPresentation(resize);
+        return;
+      }
+      const applied = Module._noveltea_preview_resize(resize.logicalWidth, resize.logicalHeight, resize.framebufferWidth, resize.framebufferHeight, resize.scaleX, resize.scaleY);
+      if (applied !== 1) {
+        scheduleResizeApply();
+        return;
+      }
       appliedResizeKey = key;
       forcePendingResize = false;
+      applyCanvasPresentation(resize);
+      requestAnimationFrame(() => {
+        if (pendingResize) applyCanvasPresentation(pendingResize);
+      });
     }
 
     armDevicePixelRatioWatcher();
     resizeCanvas();
-    new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));
+    new ResizeObserver(resizeCanvas).observe(document.body);
     window.addEventListener('resize', resizeCanvas);
     window.addEventListener('pageshow', resizeCanvas);
     document.addEventListener('visibilitychange', () => {

@@ -356,22 +356,33 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_fast_forward_to_input()
     return result.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE void noveltea_preview_resize(int logical_width, int logical_height,
-                                                  int framebuffer_width, int framebuffer_height,
-                                                  float host_logical_to_framebuffer_scale_x,
-                                                  float host_logical_to_framebuffer_scale_y)
+EMSCRIPTEN_KEEPALIVE int noveltea_preview_resize(int logical_width, int logical_height,
+                                                 int framebuffer_width, int framebuffer_height,
+                                                 float host_logical_to_framebuffer_scale_x,
+                                                 float host_logical_to_framebuffer_scale_y)
 {
     auto* engine = preview_engine();
     if (!engine)
-        return;
+        return 0;
     auto surface = noveltea::make_host_surface_metrics(logical_width, logical_height,
                                                        framebuffer_width, framebuffer_height);
     surface.logical_to_framebuffer_scale = {host_logical_to_framebuffer_scale_x,
                                             host_logical_to_framebuffer_scale_y};
     surface = noveltea::sanitize_host_surface_metrics(surface);
-    emscripten_set_canvas_element_size("#canvas", surface.framebuffer_size.width,
-                                       surface.framebuffer_size.height);
     engine->resize(surface);
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE int noveltea_preview_backbuffer_width()
+{
+    auto* engine = preview_engine();
+    return engine ? engine->backbuffer_size().width : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int noveltea_preview_backbuffer_height()
+{
+    auto* engine = preview_engine();
+    return engine ? engine->backbuffer_size().height : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void noveltea_audio_play_sfx(const char* path, float volume, float pitch)

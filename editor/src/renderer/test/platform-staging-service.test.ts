@@ -373,6 +373,11 @@ describe('platform staging service', () => {
     expect(names.some((name) => /^player\.[0-9a-f]{16}\.data$/.test(name))).toBe(true);
     const index = fs.readFileSync(path.join(webRequest.outputDirectory, 'index.html'), 'utf8');
     expect(index).toContain('Module._noveltea_player_resize(r.logicalWidth,r.logicalHeight');
+    expect(index).toContain('Module._noveltea_player_backbuffer_width()');
+    expect(index).toContain('Module._noveltea_player_backbuffer_height()');
+    expect(index).toContain('new ResizeObserver(measureCanvas).observe(document.body)');
+    expect(index).toContain('if(!runtimeReady){if(canvas.width!==resize.framebufferWidth)');
+    expect(index).toContain("canvas.style.width=r.cssWidth*capacityWidth/r.framebufferWidth+'px'");
     expect(index).toContain("window.matchMedia('(resolution: '+currentDevicePixelRatio()+'dppx)')");
     expect(index).toContain(
       "dprMediaQuery.addEventListener('change',handleDevicePixelRatioChange,{once:true})",

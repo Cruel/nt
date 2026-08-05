@@ -36,23 +36,33 @@ function loadSurfaceMetricsResolver(widget: string): ResolvePreviewSurfaceMetric
 }
 
 describe('preview widget resize bridge', () => {
-  it('fills the iframe viewport and applies only the newest distinct resize tuple', () => {
+  it('keeps a retained backing store while applying only the newest distinct resize tuple', () => {
     const widget = readFileSync('../web/widget.html', 'utf8');
 
-    expect(widget).toContain('canvas { display: block; width: 100vw; height: 100vh;');
     expect(widget).toContain(
-      "new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));",
+      'canvas { position: absolute; left: 0; top: 0; display: block; max-width: none;',
     );
-    expect(widget).toContain('pendingResize = resize;');
-    expect(widget).toContain('canvas.width = resize.framebufferWidth;');
-    expect(widget).toContain('canvas.height = resize.framebufferHeight;');
+    expect(widget).toContain('const rect = document.body.getBoundingClientRect();');
+    expect(widget).toContain(
+      'pendingResize = { ...resize, cssWidth: rect.width, cssHeight: rect.height };',
+    );
+    expect(widget).toContain('if (!runtimeReady) {');
+    expect(widget).toContain('canvas.width !== resize.framebufferWidth');
+    expect(widget).toContain('canvas.height !== resize.framebufferHeight');
+    expect(widget).toContain('Module._noveltea_preview_backbuffer_width()');
+    expect(widget).toContain('Module._noveltea_preview_backbuffer_height()');
+    expect(widget).toContain(
+      'canvas.style.width = `${resize.cssWidth * capacityWidth / resize.framebufferWidth}px`;',
+    );
+    expect(widget).toContain('new ResizeObserver(resizeCanvas).observe(document.body);');
     expect(widget).toContain('if (resizeScheduled) return;');
     expect(widget).toContain('requestAnimationFrame(() => {');
-    expect(widget).toContain('if (key === appliedResizeKey && !forcePendingResize) return;');
+    expect(widget).toContain('if (key === appliedResizeKey && !forcePendingResize) {');
     expect(widget).toContain(
       'forcePendingResize = true;\n        resizeCanvas();\n        applyPendingResize();',
     );
     expect(widget).toContain('Module._noveltea_preview_resize(');
+    expect(widget).toContain('if (applied !== 1) {');
     expect(widget).toContain("window.addEventListener('pageshow', resizeCanvas);");
     expect(widget).toContain("document.addEventListener('visibilitychange'");
     expect(widget).toContain(

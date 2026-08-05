@@ -2260,7 +2260,7 @@ bool Engine::Impl::shutdown()
         return false;
 
     // Asset leases can own bgfx resources. Release every published lease set while the renderer is
-    // still alive; otherwise late member destruction may try to destroy textures after
+    // still alive; otherwise late member destruction may attempt to destroy textures after
     // bgfx::shutdown.
     m_game_host.runtime_presentation().bind_mandatory_asset_gate(nullptr);
     m_mandatory_assets.clear_package_on_owner();
@@ -2386,6 +2386,8 @@ bool Engine::tick() { return m_impl->tick(); }
 void Engine::resize(const HostSurfaceMetrics& surface) { m_impl->resize(surface); }
 
 const PresentationMetrics& Engine::presentation() const { return m_impl->m_presentation; }
+
+IntegerSize Engine::backbuffer_size() const { return m_impl->m_renderer.backbuffer_size(); }
 
 void Engine::shutdown()
 {

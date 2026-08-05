@@ -27,7 +27,7 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         -sEXIT_RUNTIME=0
         -sFORCE_FILESYSTEM=1
-        -sEXPORTED_FUNCTIONS=['_main','_noveltea_player_resize','_noveltea_player_prepare_package','_noveltea_player_commit_package','_noveltea_player_retained_package_bytes']
+        -sEXPORTED_FUNCTIONS=['_main','_noveltea_player_resize','_noveltea_player_backbuffer_width','_noveltea_player_backbuffer_height','_noveltea_player_prepare_package','_noveltea_player_commit_package','_noveltea_player_retained_package_bytes']
         -sEXPORTED_RUNTIME_METHODS=['FS','addRunDependency','removeRunDependency']
         -lidbfs.js
         "SHELL:--shell-file ${CMAKE_SOURCE_DIR}/web/player_shell.html"

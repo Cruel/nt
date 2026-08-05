@@ -17,6 +17,8 @@ public:
     ~App();
 
     int run(int argc, char* argv[]);
+    void resize(const HostSurfaceMetrics& surface);
+    [[nodiscard]] IntegerSize backbuffer_size() const;
 
 private:
     struct Options {

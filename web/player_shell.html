@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>NovelTea Player</title>
   <style>
-    html,body,#canvas{width:100%;height:100%;margin:0;background:#05070b}
-    body{overflow:hidden;font-family:system-ui,sans-serif}
-    #canvas{display:block}
+    html,body{width:100%;height:100%;margin:0;background:#05070b}
+    body{position:relative;overflow:hidden;font-family:system-ui,sans-serif}
+    #canvas{position:absolute;left:0;top:0;display:block;max-width:none;max-height:none}
     #loading{position:fixed;inset:0;z-index:2;display:grid;place-items:center;padding:2rem;background:#05070b;color:#f8fafc}
     #loading-card{width:min(32rem,100%);text-align:center}
     #loading-progress{width:100%;height:1rem}
@@ -44,6 +44,8 @@
       };
       let runtimeReady = false;
       let pendingResize = null;
+      let resizeScheduled = false;
+      let appliedResizeKey = '';
 
       function renderLoading(record) {
         loading.style.display = record.state === 'Completed' ? 'none' : 'grid';
@@ -62,30 +64,75 @@
       }
 
       function measure() {
-        const rect = canvas.getBoundingClientRect();
+        const rect = document.body.getBoundingClientRect();
         const dpr = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
           ? window.devicePixelRatio : 1;
         const logicalWidth = Math.max(1, Math.round(rect.width));
         const logicalHeight = Math.max(1, Math.round(rect.height));
         const framebufferWidth = Math.max(1, Math.round(rect.width * dpr));
         const framebufferHeight = Math.max(1, Math.round(rect.height * dpr));
-        canvas.width = framebufferWidth;
-        canvas.height = framebufferHeight;
+        if (!runtimeReady) {
+          canvas.width = framebufferWidth;
+          canvas.height = framebufferHeight;
+          canvas.style.width = `${rect.width}px`;
+          canvas.style.height = `${rect.height}px`;
+        }
         pendingResize = {
           logicalWidth, logicalHeight, framebufferWidth, framebufferHeight,
           scaleX: framebufferWidth / logicalWidth,
           scaleY: framebufferHeight / logicalHeight,
+          cssWidth: rect.width,
+          cssHeight: rect.height,
         };
-        if (runtimeReady && typeof Module._noveltea_player_resize === 'function') {
-          const value = pendingResize;
-          Module._noveltea_player_resize(
-            value.logicalWidth, value.logicalHeight,
-            value.framebufferWidth, value.framebufferHeight,
-            value.scaleX, value.scaleY);
-        }
+        scheduleResize();
       }
 
-      new ResizeObserver(measure).observe(canvas);
+      function applyCanvasPresentation(value) {
+        const capacityWidth = typeof Module._noveltea_player_backbuffer_width === 'function'
+          ? Module._noveltea_player_backbuffer_width()
+          : canvas.width;
+        const capacityHeight = typeof Module._noveltea_player_backbuffer_height === 'function'
+          ? Module._noveltea_player_backbuffer_height()
+          : canvas.height;
+        if (capacityWidth <= 0 || capacityHeight <= 0) return false;
+        canvas.style.width = `${value.cssWidth * capacityWidth / value.framebufferWidth}px`;
+        canvas.style.height = `${value.cssHeight * capacityHeight / value.framebufferHeight}px`;
+        return true;
+      }
+
+      function applyResize() {
+        if (!runtimeReady || !pendingResize || typeof Module._noveltea_player_resize !== 'function') return;
+        const value = pendingResize;
+        const key = `${value.logicalWidth}x${value.logicalHeight}:${value.framebufferWidth}x${value.framebufferHeight}:${value.scaleX}x${value.scaleY}`;
+        if (key === appliedResizeKey) {
+          applyCanvasPresentation(value);
+          return;
+        }
+        const applied = Module._noveltea_player_resize(
+          value.logicalWidth, value.logicalHeight,
+          value.framebufferWidth, value.framebufferHeight,
+          value.scaleX, value.scaleY);
+        if (applied !== 1) {
+          scheduleResize();
+          return;
+        }
+        appliedResizeKey = key;
+        applyCanvasPresentation(value);
+        requestAnimationFrame(() => {
+          if (pendingResize) applyCanvasPresentation(pendingResize);
+        });
+      }
+
+      function scheduleResize() {
+        if (resizeScheduled) return;
+        resizeScheduled = true;
+        requestAnimationFrame(() => {
+          resizeScheduled = false;
+          applyResize();
+        });
+      }
+
+      new ResizeObserver(measure).observe(document.body);
       window.addEventListener('resize', measure);
       measure();
 

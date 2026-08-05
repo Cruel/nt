@@ -8,13 +8,136 @@
 #include <string>
 #include <vector>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/html5.h>
+#endif
+
 namespace noveltea {
+
+#if defined(__EMSCRIPTEN__)
+struct WebPointerEventScale {
+    AxisScale mouse{};
+    AxisScale touch{};
+    bool valid = false;
+};
+#endif
 
 struct PlatformState {
     SDL_Window* window = nullptr;
     std::vector<SDL_Event> events;
     std::string canvas_selector;
+#if defined(__EMSCRIPTEN__)
+    WebPointerEventScale pointer_event_scale{};
+    bool pointer_event_scale_dirty = true;
+#endif
 };
+
+#if defined(__EMSCRIPTEN__)
+namespace {
+
+[[nodiscard]] bool valid_css_extent(double width, double height)
+{
+    return std::isfinite(width) && std::isfinite(height) && width > 0.0 && height > 0.0;
+}
+
+[[nodiscard]] WebPointerEventScale
+resolve_web_pointer_event_scale(const PlatformState& state, const HostSurfaceMetrics& surface)
+{
+    WebPointerEventScale result;
+    if (!state.window || state.canvas_selector.empty())
+        return result;
+
+    double canvas_css_width = 0.0;
+    double canvas_css_height = 0.0;
+    if (emscripten_get_element_css_size(state.canvas_selector.c_str(), &canvas_css_width,
+                                        &canvas_css_height) != EMSCRIPTEN_RESULT_SUCCESS ||
+        !valid_css_extent(canvas_css_width, canvas_css_height))
+        return result;
+
+    double host_css_width = static_cast<double>(surface.logical_size.width);
+    double host_css_height = static_cast<double>(surface.logical_size.height);
+    double measured_host_css_width = 0.0;
+    double measured_host_css_height = 0.0;
+    if (emscripten_get_element_css_size("body", &measured_host_css_width,
+                                        &measured_host_css_height) == EMSCRIPTEN_RESULT_SUCCESS &&
+        valid_css_extent(measured_host_css_width, measured_host_css_height)) {
+        host_css_width = measured_host_css_width;
+        host_css_height = measured_host_css_height;
+    }
+
+    int sdl_width = 0;
+    int sdl_height = 0;
+    if (!SDL_GetWindowSize(state.window, &sdl_width, &sdl_height) || sdl_width <= 0 ||
+        sdl_height <= 0)
+        return result;
+
+    // SDL first projects DOM mouse coordinates through its fixed logical window and the retained
+    // canvas CSS extent. Undo that projection, then map CSS pixels into the active host surface.
+    result.mouse.x = static_cast<float>((canvas_css_width * surface.logical_size.width) /
+                                        (static_cast<double>(sdl_width) * host_css_width));
+    result.mouse.y = static_cast<float>((canvas_css_height * surface.logical_size.height) /
+                                        (static_cast<double>(sdl_height) * host_css_height));
+
+    // SDL touch coordinates are normalized directly against the retained canvas CSS extent.
+    if (canvas_css_width > 1.0 && host_css_width > 1.0)
+        result.touch.x = static_cast<float>((canvas_css_width - 1.0) / (host_css_width - 1.0));
+    if (canvas_css_height > 1.0 && host_css_height > 1.0)
+        result.touch.y = static_cast<float>((canvas_css_height - 1.0) / (host_css_height - 1.0));
+    result.valid = true;
+    return result;
+}
+
+[[nodiscard]] bool is_web_pointer_event(const SDL_Event& event)
+{
+    switch (event.type) {
+    case SDL_EVENT_MOUSE_MOTION:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+    case SDL_EVENT_MOUSE_WHEEL:
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void remap_web_pointer_event(SDL_Event& event, const WebPointerEventScale& scale)
+{
+    switch (event.type) {
+    case SDL_EVENT_MOUSE_MOTION:
+        event.motion.x *= scale.mouse.x;
+        event.motion.y *= scale.mouse.y;
+        event.motion.xrel *= scale.mouse.x;
+        event.motion.yrel *= scale.mouse.y;
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        event.button.x *= scale.mouse.x;
+        event.button.y *= scale.mouse.y;
+        break;
+    case SDL_EVENT_MOUSE_WHEEL:
+        event.wheel.mouse_x *= scale.mouse.x;
+        event.wheel.mouse_y *= scale.mouse.y;
+        break;
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+        event.tfinger.x *= scale.touch.x;
+        event.tfinger.y *= scale.touch.y;
+        event.tfinger.dx *= scale.touch.x;
+        event.tfinger.dy *= scale.touch.y;
+        break;
+    default:
+        break;
+    }
+}
+
+} // namespace
+#endif
 
 Platform::Platform() : m_state(std::make_unique<PlatformState>()) {}
 Platform::~Platform() { shutdown(); }
@@ -43,6 +166,11 @@ bool Platform::initialize(const PlatformConfig& config)
     m_surface = make_host_surface_metrics(config.width, config.height, config.width, config.height);
 
     SDL_WindowFlags win_flags = config.resizable ? SDL_WINDOW_RESIZABLE : 0;
+#if defined(__EMSCRIPTEN__)
+    // The browser shell owns CSS size, DPR, and retained drawing-buffer capacity. Letting SDL's
+    // resizable-window callback resize the canvas would clear WebGL behind that ownership boundary.
+    win_flags &= ~SDL_WINDOW_RESIZABLE;
+#endif
     m_state->window = SDL_CreateWindow(config.title, m_surface.logical_size.width,
                                        m_surface.logical_size.height, win_flags);
     if (!m_state->window) {
@@ -87,6 +215,20 @@ void Platform::poll_events()
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+#if defined(__EMSCRIPTEN__)
+        if (is_web_pointer_event(event)) {
+            if (m_state->pointer_event_scale_dirty) {
+                const WebPointerEventScale resolved = resolve_web_pointer_event_scale(
+                    *m_state, sanitize_host_surface_metrics(m_surface));
+                if (resolved.valid) {
+                    m_state->pointer_event_scale = resolved;
+                    m_state->pointer_event_scale_dirty = false;
+                }
+            }
+            if (m_state->pointer_event_scale.valid)
+                remap_web_pointer_event(event, m_state->pointer_event_scale);
+        }
+#endif
         m_state->events.push_back(event);
     }
 }
@@ -96,6 +238,11 @@ void Platform::request_quit() { m_quit = true; }
 void Platform::set_surface_metrics(HostSurfaceMetrics surface)
 {
     m_surface = sanitize_host_surface_metrics(surface);
+#if defined(__EMSCRIPTEN__)
+    // The shell may change both the active body extent and retained canvas CSS extent around this
+    // resize call. Resolve their pointer projection lazily after the browser has applied both.
+    m_state->pointer_event_scale_dirty = true;
+#endif
     std::printf("[surface] logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
                 m_surface.logical_size.width, m_surface.logical_size.height,
                 m_surface.framebuffer_size.width, m_surface.framebuffer_size.height,

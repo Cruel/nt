@@ -46,7 +46,7 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         -sEXIT_RUNTIME=0
         -sFORCE_FILESYSTEM=1
-        "-sEXPORTED_FUNCTIONS=['_main']"
+        "-sEXPORTED_FUNCTIONS=['_main','_noveltea_preview_resize','_noveltea_preview_backbuffer_width','_noveltea_preview_backbuffer_height']"
         -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']
         -lidbfs.js
         --shell-file "${SHELL_FILE}"

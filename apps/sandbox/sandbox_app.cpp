@@ -22,6 +22,10 @@
 namespace noveltea {
 
 namespace {
+#if defined(__EMSCRIPTEN__)
+App* g_web_app = nullptr;
+#endif
+
 bool parse_surface_size(const std::string& token, HostSurfaceMetrics& surface)
 {
     const size_t separator = token.find('x');
@@ -60,9 +64,17 @@ bool parse_resize_sequence(const char* value, std::vector<HostSurfaceMetrics>& s
 
 App::~App()
 {
+#if defined(__EMSCRIPTEN__)
+    if (g_web_app == this)
+        g_web_app = nullptr;
+#endif
     m_demo_harness.shutdown();
     m_engine.shutdown();
 }
+
+void App::resize(const HostSurfaceMetrics& surface) { m_engine.resize(surface); }
+
+IntegerSize App::backbuffer_size() const { return m_engine.backbuffer_size(); }
 
 bool App::parse_options(int argc, char* argv[], Options& options) const
 {
@@ -325,6 +337,7 @@ int App::run(int argc, char* argv[])
         return 1;
 #if defined(__EMSCRIPTEN__)
     std::printf("[app] registering Emscripten main loop\n");
+    g_web_app = this;
     emscripten_set_main_loop_arg(&App::web_tick, this, 0, true);
     return 0;
 #else
@@ -393,7 +406,38 @@ void App::web_tick(void* user_data)
 #endif
         app->m_demo_harness.shutdown();
         app->m_engine.shutdown();
+#if defined(__EMSCRIPTEN__)
+        if (g_web_app == app)
+            g_web_app = nullptr;
+#endif
     }
 }
+
+#if defined(__EMSCRIPTEN__)
+extern "C" EMSCRIPTEN_KEEPALIVE int
+noveltea_preview_resize(int logical_width, int logical_height, int framebuffer_width,
+                        int framebuffer_height, float host_logical_to_framebuffer_scale_x,
+                        float host_logical_to_framebuffer_scale_y)
+{
+    if (!g_web_app)
+        return 0;
+    auto surface = make_host_surface_metrics(logical_width, logical_height, framebuffer_width,
+                                             framebuffer_height);
+    surface.logical_to_framebuffer_scale = {host_logical_to_framebuffer_scale_x,
+                                            host_logical_to_framebuffer_scale_y};
+    g_web_app->resize(sanitize_host_surface_metrics(surface));
+    return 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int noveltea_preview_backbuffer_width()
+{
+    return g_web_app ? g_web_app->backbuffer_size().width : 0;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int noveltea_preview_backbuffer_height()
+{
+    return g_web_app ? g_web_app->backbuffer_size().height : 0;
+}
+#endif
 
 } // namespace noveltea
