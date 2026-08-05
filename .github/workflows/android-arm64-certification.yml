@@ -2,8 +2,6 @@ name: Android arm64 16 KiB certification
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "23 4 * * 1"
 
 concurrency:
   group: android-arm64-certification
