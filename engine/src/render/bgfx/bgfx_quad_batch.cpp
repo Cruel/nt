@@ -764,10 +764,31 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     inputs.paint_dimensions = {command.rect.width, command.rect.height};
     if (command.time_seconds)
         inputs.time_seconds = *command.time_seconds;
+    inputs.hotspot_bounds = {command.hotspot_bounds.x, command.hotspot_bounds.y,
+                             command.hotspot_bounds.width, command.hotspot_bounds.height};
+    inputs.hotspot_hovered = command.hotspot_hovered;
+    inputs.hotspot_pressed = command.hotspot_pressed;
+    inputs.hotspot_image_dimensions = {command.hotspot_image_dimensions.width,
+                                       command.hotspot_image_dimensions.height};
+    inputs.hotspot_mask_dimensions = {command.hotspot_mask_dimensions.width,
+                                      command.hotspot_mask_dimensions.height};
+    const bool hotspot_overlay = command.hotspot_image_dimensions.width > 0.0f &&
+                                 command.hotspot_image_dimensions.height > 0.0f;
+    bgfx::TextureHandle hotspot_image = BGFX_INVALID_HANDLE;
+    if (hotspot_overlay && command.texture.valid())
+        hotspot_image = bgfx::TextureHandle{command.texture.handle};
+    bgfx::TextureHandle hotspot_mask = BGFX_INVALID_HANDLE;
+    if (command.hotspot_mask && command.hotspot_mask->valid())
+        hotspot_mask = bgfx::TextureHandle{command.hotspot_mask->handle};
     const auto bound = m_material_binder->bind_material(
         *m_shader_materials, command.material,
-        BgfxMaterialBindInputs{
-            .role = ShaderRole::Engine2D, .quad_command = &command, .standard_inputs = inputs},
+        BgfxMaterialBindInputs{.role = hotspot_overlay ? ShaderRole::HotspotOverlay
+                                                       : ShaderRole::Engine2D,
+                               .quad_command = &command,
+                               .standard_inputs = inputs,
+                               .hotspot_image = hotspot_image,
+                               .hotspot_image_sampler = command.texture_sampler,
+                               .hotspot_mask = hotspot_mask},
         &diagnostics);
     for (const auto& diagnostic : diagnostics) {
         SDL_Log("[renderer] material diagnostic: %s: %s", diagnostic.context.c_str(),

@@ -473,6 +473,130 @@ Result<RuntimePresentationSnapshot, Diagnostics>
 RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& resolution,
                                            const RoomPresentationVisualCatalog& visuals)
 {
+    RoomPresentationResolution passive = resolution;
+    passive.presentation.hotspots.clear();
+    RuntimePresentationSnapshot result;
+    Diagnostics diagnostics;
+    result.mode = PresentationRuntimeMode::Room;
+    result.current_room = passive.presentation.visit.room;
+    if (passive.presentation.background.asset || passive.presentation.background.color ||
+        passive.presentation.background.material)
+        result.background = PresentationBackground{
+            passive.presentation.background.asset, passive.presentation.background.color,
+            passive.presentation.background.fit, passive.presentation.background.material};
+
+    const auto placement =
+        [&](const RoomPlacementId& id) -> const RoomPresentationVisualCatalog::Placement* {
+        const auto found = std::find_if(visuals.placements.begin(), visuals.placements.end(),
+                                        [&](const auto& value) { return value.placement == id; });
+        return found == visuals.placements.end() ? nullptr : &*found;
+    };
+    for (const auto& interactable : passive.presentation.interactables) {
+        const auto visual = std::find_if(
+            visuals.interactables.begin(), visuals.interactables.end(),
+            [&](const auto& value) { return value.interactable == interactable.interactable; });
+        const auto* bounds = placement(interactable.placement);
+        if (visual == visuals.interactables.end() || bounds == nullptr) {
+            diagnostics.push_back(invalid("presentation.room_interactable_visual_missing",
+                                          "Room Interactable visual catalog entry is missing"));
+            continue;
+        }
+        result.interactables.push_back(
+            PresentationInteractable{interactable.interactable,
+                                     {passive.presentation.visit.room, interactable.placement},
+                                     bounds->bounds,
+                                     visual->sprite,
+                                     visual->material,
+                                     PresentationPlane::WorldContent,
+                                     bounds->order,
+                                     interactable.enabled,
+                                     interactable.visible});
+    }
+    // Reuse the complete projector for production paths; focused preview callers require only the
+    // pre-existing passive Room fields and initialize the new hotspot collection empty.
+    for (const auto& actor : passive.presentation.actors) {
+        const auto visual = std::find_if(
+            visuals.characters.begin(), visuals.characters.end(), [&](const auto& value) {
+                return value.character == actor.character && value.pose == actor.pose &&
+                       value.expression == actor.expression && value.idle_id == actor.idle;
+            });
+        const auto* bounds = placement(actor.placement);
+        if (visual == visuals.characters.end() || bounds == nullptr) {
+            diagnostics.push_back(invalid("presentation.room_actor_visual_missing",
+                                          "Room actor visual catalog entry is missing"));
+            continue;
+        }
+        const ActorPresentationKey key = std::visit(
+            [](const auto& value) -> ActorPresentationKey {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, PersistentCharacterPresentationId>)
+                    return CharacterActorKey{value.character};
+                else
+                    return RoomCastActorKey{value.room, value.entry};
+            },
+            actor.id);
+        result.actors.push_back(
+            {key,
+             actor.character,
+             actor.pose,
+             actor.expression,
+             visual->idle,
+             visual->pose_sprite,
+             visual->pose_material,
+             visual->anchor,
+             visual->offset,
+             visual->scale,
+             visual->expression_sprite,
+             visual->expression_material,
+             {},
+             compiled::RoomPlacementRef{passive.presentation.visit.room, actor.placement},
+             bounds->bounds,
+             PresentationPlane::WorldContent,
+             actor.order,
+             actor.enabled,
+             actor.visible,
+             true});
+    }
+    for (const auto& prop : passive.presentation.props) {
+        const auto* bounds = placement(prop.placement);
+        if (bounds == nullptr) {
+            diagnostics.push_back(invalid("presentation.room_prop_placement_missing",
+                                          "Room prop placement is missing"));
+            continue;
+        }
+        result.props.push_back(PresentationProp{
+            RoomPropPresentationKey{passive.presentation.visit.room, prop.prop},
+            RoomPresentationOwner{passive.presentation.visit.room}, prop.asset, prop.material,
+            compiled::RoomPlacementRef{passive.presentation.visit.room, prop.placement},
+            bounds->bounds, PresentationPlane::WorldContent, prop.order, prop.visible});
+    }
+    for (const auto& environment : passive.presentation.environments) {
+        auto instance =
+            room_environment_instance(passive.presentation.visit.room, environment.environment);
+        auto stop_key =
+            room_environment_stop_key(passive.presentation.visit.room, environment.environment);
+        if (!instance || !stop_key) {
+            append_diagnostics(diagnostics, !instance ? std::move(instance.error())
+                                                      : std::move(stop_key.error()));
+            continue;
+        }
+        result.environments.push_back(PresentationEnvironment{
+            std::move(*instance.value_if()), RoomPresentationOwner{passive.presentation.visit.room},
+            std::move(*stop_key.value_if()), environment.asset, environment.material,
+            environment.bounds, environment.plane, environment.order, environment.clock,
+            environment.scroll_per_second, environment.opacity, environment.visible});
+    }
+    canonicalize(result);
+    if (!diagnostics.empty())
+        return Result<RuntimePresentationSnapshot, Diagnostics>::failure(std::move(diagnostics));
+    return Result<RuntimePresentationSnapshot, Diagnostics>::success(std::move(result));
+}
+
+Result<RuntimePresentationSnapshot, Diagnostics>
+RoomPresentationSnapshotProjector::project(const CompiledProject& project,
+                                           const RoomPresentationResolution& resolution,
+                                           const RoomPresentationVisualCatalog& visuals)
+{
     RuntimePresentationSnapshot result;
     Diagnostics diagnostics;
     result.mode = PresentationRuntimeMode::Room;
@@ -585,6 +709,41 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
             environment.bounds, environment.plane, environment.order, environment.clock,
             environment.scroll_per_second, environment.opacity, environment.visible});
     }
+    for (const auto& hotspot : resolution.presentation.hotspots) {
+        std::optional<AssetId> source;
+        if (std::holds_alternative<compiled::RoomHotspotRef>(hotspot.ref)) {
+            source = resolution.presentation.background.asset;
+        } else {
+            const auto& ref = std::get<compiled::InteractableHotspotRef>(hotspot.ref);
+            const auto visual = std::find_if(
+                visuals.interactables.begin(), visuals.interactables.end(),
+                [&](const auto& candidate) { return candidate.interactable == ref.interactable; });
+            if (visual != visuals.interactables.end())
+                source = visual->sprite;
+        }
+        const auto* image = source ? project.find_asset(*source) : nullptr;
+        if (!source || image == nullptr || !image->width || !image->height || *image->width == 0 ||
+            *image->height == 0 || *image->width > UINT16_MAX || *image->height > UINT16_MAX) {
+            diagnostics.push_back(invalid("presentation.hotspot_source_image_invalid",
+                                          "Presented hotspot requires a dimensioned source image"));
+            continue;
+        }
+        const auto shape = std::visit(
+            [](const auto& value) -> std::variant<AlphaHotspotShape, compiled::NormalizedRect> {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, std::monostate>)
+                    return AlphaHotspotShape{};
+                else
+                    return value.bounds;
+            },
+            hotspot.shape);
+        result.hotspots.push_back(
+            {hotspot.ref, hotspot.label, hotspot.condition_eligible, hotspot.activation_available,
+             hotspot.activation, shape, hotspot.input_order, hotspot.highlight, *source,
+             static_cast<std::uint16_t>(*image->width), static_cast<std::uint16_t>(*image->height),
+             hotspot.interactable_placement, hotspot.interactable_bounds, hotspot.owner_plane,
+             hotspot.owner_order});
+    }
     canonicalize(result);
     if (!diagnostics.empty())
         return Result<RuntimePresentationSnapshot, Diagnostics>::failure(std::move(diagnostics));
@@ -625,7 +784,7 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
                      .controls = {}},
             {}};
         auto baseline = RoomPresentationSnapshotProjector::project(
-            resolution, build_room_presentation_visual_catalog(project, resolution));
+            project, resolution, build_room_presentation_visual_catalog(project, resolution));
         if (!baseline) {
             append_diagnostics(diagnostics, std::move(baseline.error()));
         } else {
@@ -635,6 +794,7 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
             result.interactables = std::move(value.interactables);
             result.props = std::move(value.props);
             result.environments = std::move(value.environments);
+            result.hotspots = std::move(value.hotspots);
         }
     }
 

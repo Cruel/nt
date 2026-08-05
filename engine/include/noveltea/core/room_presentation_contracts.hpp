@@ -175,6 +175,21 @@ struct ResolvedRoomEnvironment {
     bool visible = true;
 };
 
+struct ResolvedPresentationHotspot {
+    compiled::HotspotRef ref;
+    std::string label;
+    bool condition_eligible = false;
+    bool activation_available = false;
+    std::variant<compiled::VerbHotspotActivation, compiled::RoomExitHotspotActivation> activation;
+    std::variant<std::monostate, compiled::RectHotspotShape> shape;
+    std::int32_t input_order = 0;
+    compiled::HotspotHighlight highlight;
+    std::optional<compiled::RoomPlacementRef> interactable_placement;
+    std::optional<compiled::NormalizedRect> interactable_bounds;
+    PresentationPlane owner_plane = PresentationPlane::WorldBackground;
+    std::int32_t owner_order = 0;
+};
+
 struct RoomPresentationDraft {
     compiled::BackgroundPresentation background;
     std::vector<ResolvedRoomActor> actors;
@@ -192,6 +207,7 @@ struct ResolvedRoomPresentation {
     std::vector<ResolvedRoomProp> props;
     std::vector<ResolvedRoomEnvironment> environments;
     std::vector<RoomOverlayView> overlays;
+    std::vector<ResolvedPresentationHotspot> hotspots;
 };
 
 struct RoomPresentationResolution {

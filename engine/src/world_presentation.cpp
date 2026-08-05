@@ -123,7 +123,7 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
         command.material = *visual.material;
     draws.push_back({plane, family, order, std::move(stable_identity), sublayer, std::move(command),
                      std::move(actor_idle), environment_clock, environment_scroll_per_second,
-                     visual.texture_lease, visual.material_lease});
+                     visual.texture_lease, visual.material_lease, std::nullopt});
 }
 
 void append_resource_diagnostics(core::Diagnostics& diagnostics,
@@ -161,6 +161,39 @@ std::chrono::microseconds clock_time(const core::RuntimeClockUpdate& clock,
 std::string loop_key(const WorldPresentationDraw& draw)
 {
     return std::to_string(static_cast<std::uint8_t>(draw.family)) + ":" + draw.stable_identity;
+}
+
+bool same_hotspot_owner(const core::compiled::HotspotRef& left,
+                        const core::compiled::HotspotRef& right)
+{
+    if (left.index() != right.index())
+        return false;
+    return std::visit(
+        [](const auto& lhs, const auto& rhs) {
+            using L = std::decay_t<decltype(lhs)>;
+            using R = std::decay_t<decltype(rhs)>;
+            if constexpr (!std::is_same_v<L, R>)
+                return false;
+            else if constexpr (std::is_same_v<L, core::compiled::RoomHotspotRef>)
+                return lhs.room == rhs.room;
+            else
+                return lhs.interactable == rhs.interactable;
+        },
+        left, right);
+}
+
+std::string hotspot_identity(const core::compiled::HotspotRef& ref)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::RoomHotspotRef>)
+                return "room/" + value.room.text() + "/hotspot/" + value.hotspot_id.text();
+            else
+                return "interactable/" + value.interactable.text() + "/hotspot/" +
+                       value.hotspot_id.text();
+        },
+        ref);
 }
 
 } // namespace
@@ -263,6 +296,79 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         result.material_lease = *lease;
     }
     return core::Result<WorldPreparedVisual, core::Diagnostics>::success(std::move(result));
+}
+
+core::Result<WorldPreparedHotspotResources, core::Diagnostics>
+AssetWorldPresentationResourceResolver::resolve_hotspot(
+    const core::PresentationHotspot& hotspot,
+    std::span<const core::PresentationHotspot> owner_hotspots, std::string_view context)
+{
+    WorldPreparedHotspotResources result;
+    if (std::holds_alternative<core::compiled::NoHotspotHighlight>(hotspot.highlight))
+        return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::success(
+            std::move(result));
+
+    const bool custom = std::holds_alternative<core::compiled::NormalizedRect>(hotspot.shape);
+    if (const auto* authored =
+            std::get_if<core::compiled::MaterialHotspotHighlight>(&hotspot.highlight)) {
+        const assets::MaterialAssetRequest request{.id = authored->material.text()};
+        const auto* lease = m_assets.leased_material_on_owner(request);
+        if (lease == nullptr || lease->asset().definition == nullptr ||
+            lease->asset().definition->role != ShaderRole::HotspotOverlay) {
+            return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::failure(
+                {diagnostic("presentation.hotspot_material_lease_missing",
+                            "Mandatory hotspot-overlay Material is unavailable: " +
+                                authored->material.text(),
+                            context)});
+        }
+        lease->mark_used_on_owner();
+        result.material = MaterialId(authored->material.text());
+        result.material_lease = *lease;
+    } else {
+        const auto interface =
+            custom ? HotspotMaterialInterface::Custom : HotspotMaterialInterface::Alpha;
+        if (!m_builtin_program_validator || !m_builtin_program_validator(interface)) {
+            return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::failure(
+                {diagnostic("presentation.hotspot_builtin_program_missing",
+                            "Required renderer-owned hotspot overlay program is unavailable",
+                            context)});
+        }
+        result.material = MaterialId(std::string(custom ? builtin_hotspot_custom_material_id
+                                                        : builtin_hotspot_alpha_material_id));
+    }
+
+    if (custom) {
+        assets::HotspotMaskAssetRequest request{
+            .owner = std::visit(
+                [](const auto& ref) -> core::compiled::HotspotOwnerRef {
+                    using T = std::decay_t<decltype(ref)>;
+                    if constexpr (std::is_same_v<T, core::compiled::RoomHotspotRef>)
+                        return core::compiled::RoomHotspotOwnerRef{ref.room};
+                    else
+                        return core::compiled::InteractableHotspotOwnerRef{ref.interactable};
+                },
+                hotspot.ref),
+            .width = hotspot.source_width,
+            .height = hotspot.source_height,
+            .regions = {}};
+        for (const auto& candidate : owner_hotspots) {
+            if (const auto* bounds = std::get_if<core::compiled::NormalizedRect>(&candidate.shape))
+                request.regions.push_back(
+                    {std::visit([](const auto& ref) { return ref.hotspot_id; }, candidate.ref),
+                     *bounds});
+        }
+        const auto* lease = m_assets.leased_hotspot_mask_on_owner(request);
+        if (lease == nullptr) {
+            return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::failure(
+                {diagnostic("presentation.hotspot_mask_lease_missing",
+                            "Mandatory generated hotspot mask is unavailable", context)});
+        }
+        lease->mark_used_on_owner();
+        result.mask = lease->asset();
+        result.mask_lease = *lease;
+    }
+    return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::success(
+        std::move(result));
 }
 
 Rect WorldPresentationLayoutPolicy::normalized_rect(const core::compiled::NormalizedRect& bounds,
@@ -389,6 +495,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                                            std::nullopt,
                                            std::nullopt,
                                            {0.0, 0.0},
+                                           std::nullopt,
                                            std::nullopt,
                                            std::nullopt});
             }
@@ -529,6 +636,72 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         }
     }
 
+    for (const auto& hotspot : snapshot.hotspots) {
+        if (std::holds_alternative<core::compiled::NoHotspotHighlight>(hotspot.highlight))
+            continue;
+        const WorldPresentationDraw* owner_draw = nullptr;
+        if (std::holds_alternative<core::compiled::RoomHotspotRef>(hotspot.ref)) {
+            const auto found =
+                std::find_if(candidate.draws.begin(), candidate.draws.end(), [](const auto& draw) {
+                    return draw.family == WorldDrawFamily::Background &&
+                           draw.stable_identity == "background" && draw.sublayer == 1;
+                });
+            if (found != candidate.draws.end())
+                owner_draw = &*found;
+        } else {
+            const auto& ref = std::get<core::compiled::InteractableHotspotRef>(hotspot.ref);
+            const auto found =
+                std::find_if(candidate.draws.begin(), candidate.draws.end(), [&](const auto& draw) {
+                    return draw.family == WorldDrawFamily::Interactable &&
+                           draw.stable_identity == ref.interactable.text() && draw.sublayer == 0;
+                });
+            if (found != candidate.draws.end())
+                owner_draw = &*found;
+        }
+        if (owner_draw == nullptr || !owner_draw->command.texture.valid()) {
+            diagnostics.push_back(diagnostic("presentation.hotspot_owner_visual_missing",
+                                             "Hotspot owner has no prepared source-image draw",
+                                             hotspot_identity(hotspot.ref)));
+            continue;
+        }
+        std::vector<core::PresentationHotspot> owner_hotspots;
+        for (const auto& candidate_hotspot : snapshot.hotspots) {
+            if (same_hotspot_owner(hotspot.ref, candidate_hotspot.ref))
+                owner_hotspots.push_back(candidate_hotspot);
+        }
+        auto resources =
+            m_resources.resolve_hotspot(hotspot, owner_hotspots, hotspot_identity(hotspot.ref));
+        if (!resources) {
+            core::append_diagnostics(diagnostics, std::move(resources.error()));
+            continue;
+        }
+        auto prepared = std::move(*resources.value_if());
+        WorldPresentationDraw overlay = *owner_draw;
+        overlay.sublayer = static_cast<std::uint8_t>(owner_draw->sublayer + 1);
+        overlay.stable_identity = owner_draw->stable_identity;
+        overlay.command.material = prepared.material;
+        overlay.command.hotspot_bounds = std::visit(
+            [](const auto& shape) -> Rect {
+                using T = std::decay_t<decltype(shape)>;
+                if constexpr (std::is_same_v<T, core::AlphaHotspotShape>)
+                    return {0.0f, 0.0f, 1.0f, 1.0f};
+                else
+                    return {static_cast<float>(shape.x), static_cast<float>(shape.y),
+                            static_cast<float>(shape.width), static_cast<float>(shape.height)};
+            },
+            hotspot.shape);
+        overlay.command.hotspot_image_dimensions = {static_cast<float>(hotspot.source_width),
+                                                    static_cast<float>(hotspot.source_height)};
+        if (prepared.mask) {
+            overlay.command.hotspot_mask = Texture{prepared.mask->handle};
+            overlay.command.hotspot_mask_dimensions = {static_cast<float>(prepared.mask->width),
+                                                       static_cast<float>(prepared.mask->height)};
+        }
+        overlay.material_lease = std::move(prepared.material_lease);
+        overlay.hotspot_mask_lease = std::move(prepared.mask_lease);
+        candidate.hotspot_surfaces.push_back({hotspot.ref, std::move(overlay)});
+    }
+
     if (!diagnostics.empty())
         return core::Result<bool, core::Diagnostics>::failure(std::move(diagnostics));
 
@@ -551,9 +724,9 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
 void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                                                const core::RuntimeClockUpdate* clock)
 {
-    frame.batch.clear();
-    frame.world_composition_batch.clear();
-    frame.game_ui_underlay_batch.clear();
+    frame.base_batch.clear();
+    frame.base_world_composition_batch.clear();
+    frame.base_game_ui_underlay_batch.clear();
     for (const auto& draw : frame.draws) {
         QuadCommand command = draw.command;
         double elapsed_seconds = 0.0;
@@ -604,16 +777,66 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
             command.time_seconds = static_cast<float>(elapsed_seconds);
         }
 
-        frame.batch.draw_material_textured_quad(
+        frame.base_batch.draw_material_textured_quad(
             command.rect, command.material, command.texture, command.uv, command.color,
             command.depth, command.layer, command.time_seconds, command.texture_sampler);
         QuadBatch& composition_batch = draw.plane == core::PresentationPlane::GameUi
-                                           ? frame.game_ui_underlay_batch
-                                           : frame.world_composition_batch;
+                                           ? frame.base_game_ui_underlay_batch
+                                           : frame.base_world_composition_batch;
         composition_batch.draw_material_textured_quad(
             command.rect, command.material, command.texture, command.uv, command.color,
             command.depth, command.layer, command.time_seconds, command.texture_sampler);
     }
+    rebuild_hotspot_overlays(frame);
+}
+
+void WorldPresentationBackend::rebuild_hotspot_overlays(WorldPresentationFrame& frame)
+{
+    frame.batch = frame.base_batch;
+    frame.world_composition_batch = frame.base_world_composition_batch;
+    frame.game_ui_underlay_batch = frame.base_game_ui_underlay_batch;
+    const auto active = m_hotspot_visual_state.pressed ? m_hotspot_visual_state.pressed
+                                                       : m_hotspot_visual_state.hovered;
+    if (!active)
+        return;
+    const auto found = std::find_if(frame.hotspot_surfaces.begin(), frame.hotspot_surfaces.end(),
+                                    [&](const auto& surface) { return surface.ref == *active; });
+    if (found == frame.hotspot_surfaces.end())
+        return;
+    QuadCommand command = found->overlay.command;
+    command.hotspot_hovered = m_hotspot_visual_state.hovered == active;
+    command.hotspot_pressed = m_hotspot_visual_state.pressed == active;
+    frame.batch.draw(command);
+    QuadBatch& composition_batch = found->overlay.plane == core::PresentationPlane::GameUi
+                                       ? frame.game_ui_underlay_batch
+                                       : frame.world_composition_batch;
+    composition_batch.draw(std::move(command));
+}
+
+bool WorldPresentationBackend::update_hotspot_visual_state(HotspotInteractionVisualState state)
+{
+    if (state.hovered == m_hotspot_visual_state.hovered &&
+        state.pressed == m_hotspot_visual_state.pressed)
+        return false;
+    const auto valid = [&](const auto& ref) {
+        return !ref ||
+               (m_frame &&
+                std::any_of(m_frame->hotspot_surfaces.begin(), m_frame->hotspot_surfaces.end(),
+                            [&](const auto& surface) { return surface.ref == *ref; }));
+    };
+    if (!valid(state.hovered))
+        state.hovered.reset();
+    if (!valid(state.pressed))
+        state.pressed.reset();
+    m_hotspot_visual_state = std::move(state);
+    for (auto& [_, frame] : m_frames)
+        rebuild_hotspot_overlays(frame);
+    if (m_snapshot) {
+        const auto found = m_frames.find(m_snapshot->revision.number());
+        if (found != m_frames.end())
+            m_frame = found->second;
+    }
+    return true;
 }
 
 void WorldPresentationBackend::realize(const core::RuntimeClockUpdate& clock)
@@ -701,6 +924,7 @@ void WorldPresentationBackend::reset()
     m_frames.clear();
     m_loop_epochs.clear();
     m_generation = 0;
+    m_hotspot_visual_state = {};
 }
 
 const WorldPresentationFrame* WorldPresentationBackend::frame() const noexcept
@@ -744,6 +968,7 @@ void WorldPresentationBackend::swap_prepared(WorldPresentationBackend& prepared)
     swap(m_frames, prepared.m_frames);
     swap(m_loop_epochs, prepared.m_loop_epochs);
     swap(m_generation, prepared.m_generation);
+    swap(m_hotspot_visual_state, prepared.m_hotspot_visual_state);
 }
 
 void WorldPresentationBackend::discard_revision(

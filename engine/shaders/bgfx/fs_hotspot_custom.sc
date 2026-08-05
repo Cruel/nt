@@ -30,10 +30,10 @@ void main()
         min(hotspotCoverage(v_texcoord0 + vec2(0.0, texel.y)),
             hotspotCoverage(v_texcoord0 - vec2(0.0, texel.y))));
     float border = clamp(coverage - neighbor, 0.0, 1.0);
-    float active = max(u_hotspotHovered.x, u_hotspotPressed.x);
+    float interaction = max(u_hotspotHovered.x, u_hotspotPressed.x);
     float sweep = 0.5 + 0.5 * sin((v_texcoord0.x + v_texcoord0.y) * 18.0 - u_time.x * 3.5);
     float intensity = mix(0.24, 0.44, u_hotspotPressed.x) + border * 0.46 + sweep * 0.12;
-    float alpha = coverage * active * intensity;
+    float alpha = coverage * interaction * intensity;
     vec3 color = mix(vec3(0.08, 0.58, 0.92), vec3(0.48, 0.94, 1.0),
                      clamp(border + sweep * 0.35, 0.0, 1.0));
     gl_FragColor = vec4(color * alpha, alpha) * v_color0;

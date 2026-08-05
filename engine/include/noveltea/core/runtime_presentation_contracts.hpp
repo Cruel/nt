@@ -140,6 +140,29 @@ struct PresentationDesiredAudio {
     bool operator==(const PresentationDesiredAudio&) const = default;
 };
 
+struct AlphaHotspotShape {
+    bool operator==(const AlphaHotspotShape&) const = default;
+};
+
+struct PresentationHotspot {
+    compiled::HotspotRef ref;
+    std::string label;
+    bool condition_eligible = false;
+    bool activation_available = false;
+    std::variant<compiled::VerbHotspotActivation, compiled::RoomExitHotspotActivation> activation;
+    std::variant<AlphaHotspotShape, compiled::NormalizedRect> shape;
+    std::int32_t input_order = 0;
+    compiled::HotspotHighlight highlight;
+    AssetId source_image;
+    std::uint16_t source_width = 0;
+    std::uint16_t source_height = 0;
+    std::optional<compiled::RoomPlacementRef> interactable_placement;
+    std::optional<compiled::NormalizedRect> interactable_bounds;
+    PresentationPlane owner_plane = PresentationPlane::WorldBackground;
+    std::int32_t owner_order = 0;
+    bool operator==(const PresentationHotspot&) const = default;
+};
+
 struct RuntimePresentationSnapshot {
     PresentationSnapshotRevision revision = PresentationSnapshotRevision::from_number(0);
     PresentationRuntimeMode mode = PresentationRuntimeMode::Flow;
@@ -153,6 +176,7 @@ struct RuntimePresentationSnapshot {
     PresentationTextAndChoice text_and_choice;
     std::optional<PresentationMap> map;
     std::vector<PresentationDesiredAudio> desired_audio;
+    std::vector<PresentationHotspot> hotspots;
     bool operator==(const RuntimePresentationSnapshot&) const = default;
 };
 

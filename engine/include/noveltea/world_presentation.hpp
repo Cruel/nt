@@ -8,6 +8,7 @@
 #include "noveltea/render/quad_batch.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -25,6 +26,13 @@ struct WorldPreparedVisual {
     std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
 };
 
+struct WorldPreparedHotspotResources {
+    MaterialId material;
+    std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
+    std::optional<assets::HotspotMaskAsset> mask;
+    std::optional<assets::AssetLease<assets::HotspotMaskAsset>> mask_lease;
+};
+
 class WorldPresentationResourceResolver {
 public:
     virtual ~WorldPresentationResourceResolver() = default;
@@ -32,6 +40,10 @@ public:
     [[nodiscard]] virtual core::Result<WorldPreparedVisual, core::Diagnostics>
     resolve(std::optional<core::AssetId> asset, std::optional<core::MaterialId> material,
             std::string_view context) = 0;
+    [[nodiscard]] virtual core::Result<WorldPreparedHotspotResources, core::Diagnostics>
+    resolve_hotspot(const core::PresentationHotspot& hotspot,
+                    std::span<const core::PresentationHotspot> owner_hotspots,
+                    std::string_view context) = 0;
 };
 
 struct WorldPresentationImageResource {
@@ -53,15 +65,25 @@ public:
 
     void bind_project(const core::CompiledProject& project);
     void bind_catalog(WorldPresentationResourceCatalog catalog);
+    void
+    bind_builtin_program_validator(std::function<bool(HotspotMaterialInterface)> validator) noexcept
+    {
+        m_builtin_program_validator = std::move(validator);
+    }
     void clear();
 
     [[nodiscard]] core::Result<WorldPreparedVisual, core::Diagnostics>
     resolve(std::optional<core::AssetId> asset, std::optional<core::MaterialId> material,
             std::string_view context) override;
+    [[nodiscard]] core::Result<WorldPreparedHotspotResources, core::Diagnostics>
+    resolve_hotspot(const core::PresentationHotspot& hotspot,
+                    std::span<const core::PresentationHotspot> owner_hotspots,
+                    std::string_view context) override;
 
 private:
     const assets::AssetManager& m_assets;
     std::unordered_map<std::string, WorldPresentationImageResource> m_images;
+    std::function<bool(HotspotMaterialInterface)> m_builtin_program_validator;
 };
 
 struct WorldFittedRect {
@@ -100,12 +122,27 @@ struct WorldPresentationDraw {
     core::compiled::Vector2 environment_scroll_per_second{0.0, 0.0};
     std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
     std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
+    std::optional<assets::AssetLease<assets::HotspotMaskAsset>> hotspot_mask_lease;
+};
+
+struct WorldPreparedHotspotSurface {
+    core::compiled::HotspotRef ref;
+    WorldPresentationDraw overlay;
+};
+
+struct HotspotInteractionVisualState {
+    std::optional<core::compiled::HotspotRef> hovered;
+    std::optional<core::compiled::HotspotRef> pressed;
 };
 
 struct WorldPresentationFrame {
     core::PresentationSnapshotRevision revision =
         core::PresentationSnapshotRevision::from_number(0);
     std::vector<WorldPresentationDraw> draws;
+    std::vector<WorldPreparedHotspotSurface> hotspot_surfaces;
+    QuadBatch base_world_composition_batch;
+    QuadBatch base_game_ui_underlay_batch;
+    QuadBatch base_batch;
     QuadBatch world_composition_batch;
     QuadBatch game_ui_underlay_batch;
     QuadBatch batch;
@@ -125,6 +162,7 @@ public:
     void realize(const core::RuntimeClockUpdate& clock);
     [[nodiscard]] core::Result<bool, core::Diagnostics> resize(Size viewport);
     void reset();
+    [[nodiscard]] bool update_hotspot_visual_state(HotspotInteractionVisualState state);
 
     [[nodiscard]] const WorldPresentationFrame* frame() const noexcept;
     [[nodiscard]] const WorldPresentationFrame*
@@ -146,6 +184,7 @@ private:
 
     void rebuild_batches(WorldPresentationFrame& frame,
                          const core::RuntimeClockUpdate* clock = nullptr);
+    void rebuild_hotspot_overlays(WorldPresentationFrame& frame);
     void prune_loop_epochs();
 
     WorldPresentationResourceResolver& m_resources;
@@ -156,6 +195,7 @@ private:
     std::unordered_map<std::uint64_t, WorldPresentationFrame> m_frames;
     std::unordered_map<std::string, LoopEpoch> m_loop_epochs;
     std::uint64_t m_generation = 0;
+    HotspotInteractionVisualState m_hotspot_visual_state;
 };
 
 } // namespace noveltea

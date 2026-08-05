@@ -48,8 +48,12 @@ build_room_presentation_visual_catalog(const CompiledProject& project,
 
 class RoomPresentationSnapshotProjector final {
 public:
+    // Focused preview intentionally projects no hotspot definitions or runtime hotspot resources.
     [[nodiscard]] static Result<RuntimePresentationSnapshot, Diagnostics>
     project(const RoomPresentationResolution& resolution,
+            const RoomPresentationVisualCatalog& visuals);
+    [[nodiscard]] static Result<RuntimePresentationSnapshot, Diagnostics>
+    project(const CompiledProject& project, const RoomPresentationResolution& resolution,
             const RoomPresentationVisualCatalog& visuals);
 };
 

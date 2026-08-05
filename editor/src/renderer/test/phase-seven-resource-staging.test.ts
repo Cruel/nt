@@ -72,7 +72,10 @@ function focusedStageHarness(
 ): Harness {
   const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
   const proposalStart = widget.indexOf('function proposedFocusedResourceGeneration(');
-  const proposalEnd = widget.indexOf('\n    function isFocusedEditorDocumentCommand', proposalStart);
+  const proposalEnd = widget.indexOf(
+    '\n    function isFocusedEditorDocumentCommand',
+    proposalStart,
+  );
   const start = widget.indexOf('async function stageFocusedManifest(');
   const end = widget.indexOf('\n    function collectProjectAssetPaths', start);
   expect(proposalStart).toBeGreaterThanOrEqual(0);

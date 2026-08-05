@@ -1376,6 +1376,10 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         rollback();
         return false;
     }
+    m_world_presentation_resources.bind_builtin_program_validator(
+        [this](HotspotMaterialInterface interface) {
+            return m_renderer.builtin_hotspot_program(interface) != UINT16_MAX;
+        });
     renderer_initialized = true;
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (m_editor_asset_profiler != nullptr) {

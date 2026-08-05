@@ -190,9 +190,9 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     }
 
     RoomPresentationResolverCore core;
-    return core.resolve(
+    auto resolved = core.resolve(
         definition, state_view, visit,
-        [evaluate = std::move(evaluate), conditions](RoomPresentationConditionToken token) {
+        [evaluate, conditions](RoomPresentationConditionToken token) {
             if (token >= conditions.size())
                 return Result<bool, Diagnostics>::failure(
                     error("room_resolution.invalid_condition_token",
@@ -207,6 +207,88 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
             return resolve_text(*texts[token]);
         },
         composition, room->compose ? &*room->compose : nullptr);
+    if (!resolved)
+        return resolved;
+
+    auto& presentation = resolved.value_if()->presentation;
+    const auto activation_available =
+        [&](const compiled::RoomHotspotActivation& activation) -> Result<bool, Diagnostics> {
+        if (const auto* verb = std::get_if<compiled::VerbHotspotActivation>(&activation)) {
+            const auto* definition = project.find_verb(verb->verb);
+            if (definition == nullptr)
+                return Result<bool, Diagnostics>::failure(
+                    error("room_resolution.hotspot_verb_missing",
+                          "Hotspot activation references a missing Verb"));
+            return evaluate(definition->availability);
+        }
+        const auto& exit = std::get<compiled::RoomExitHotspotActivation>(activation);
+        const auto found = std::find_if(
+            resolved.value_if()->view.exits.begin(), resolved.value_if()->view.exits.end(),
+            [&](const RoomExitView& candidate) { return candidate.exit == exit.exit_id; });
+        if (found == resolved.value_if()->view.exits.end())
+            return Result<bool, Diagnostics>::failure(
+                error("room_resolution.hotspot_exit_missing",
+                      "Hotspot activation references a missing Room exit"));
+        return Result<bool, Diagnostics>::success(found->enabled);
+    };
+    for (const auto& hotspot : room->hotspots) {
+        auto condition = evaluate(hotspot.condition);
+        auto available = activation_available(hotspot.activation);
+        if (!condition || !available)
+            return Result<RoomPresentationResolution, Diagnostics>::failure(
+                !condition ? condition.error() : available.error());
+        presentation.hotspots.push_back({compiled::RoomHotspotRef{room->identity.id, hotspot.id},
+                                         hotspot.label, *condition.value_if(),
+                                         *available.value_if(), hotspot.activation, hotspot.shape,
+                                         hotspot.input_order, hotspot.highlight, std::nullopt,
+                                         std::nullopt, PresentationPlane::WorldBackground, 0});
+    }
+    for (const auto& interactable : presentation.interactables) {
+        const auto* definition = project.find_interactable(interactable.interactable);
+        if (definition == nullptr || !definition->presentation.sprite)
+            continue;
+        const auto placement = std::find_if(
+            room->placements.begin(), room->placements.end(),
+            [&](const auto& candidate) { return candidate.id == interactable.placement; });
+        if (placement == room->placements.end())
+            continue;
+        const auto append = [&](const compiled::InteractableHotspotBehavior& hotspot,
+                                std::variant<std::monostate, compiled::RectHotspotShape> shape)
+            -> Result<void, Diagnostics> {
+            auto condition = evaluate(hotspot.condition);
+            const auto* verb = project.find_verb(hotspot.activation.verb);
+            if (!condition || verb == nullptr)
+                return Result<void, Diagnostics>::failure(
+                    !condition ? condition.error()
+                               : error("room_resolution.hotspot_verb_missing",
+                                       "Hotspot activation references a missing Verb"));
+            auto available = evaluate(verb->availability);
+            if (!available)
+                return Result<void, Diagnostics>::failure(available.error());
+            presentation.hotspots.push_back(
+                {compiled::InteractableHotspotRef{interactable.interactable, hotspot.id},
+                 hotspot.label, *condition.value_if(), *available.value_if(), hotspot.activation,
+                 std::move(shape), hotspot.input_order, hotspot.highlight,
+                 compiled::RoomPlacementRef{visit.room, interactable.placement}, placement->bounds,
+                 PresentationPlane::WorldContent, placement->order});
+            return Result<void, Diagnostics>::success();
+        };
+        if (const auto* alpha =
+                std::get_if<compiled::SpriteAlphaHotspots>(&definition->presentation.hotspots)) {
+            auto added = append(alpha->hotspot, std::monostate{});
+            if (!added)
+                return Result<RoomPresentationResolution, Diagnostics>::failure(added.error());
+        } else {
+            for (const auto& hotspot :
+                 std::get<compiled::CustomInteractableHotspots>(definition->presentation.hotspots)
+                     .hotspots) {
+                auto added = append(hotspot, hotspot.shape);
+                if (!added)
+                    return Result<RoomPresentationResolution, Diagnostics>::failure(added.error());
+            }
+        }
+    }
+    return resolved;
 }
 
 Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::resolve(
@@ -444,7 +526,8 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
                                           std::move(draft.interactables),
                                           std::move(draft.props),
                                           std::move(draft.environments),
-                                          std::move(draft.overlays)};
+                                          std::move(draft.overlays),
+                                          {}};
     return Result<RoomPresentationResolution, Diagnostics>::success(
         {std::move(presentation), std::move(view), std::move(subjects)});
 }

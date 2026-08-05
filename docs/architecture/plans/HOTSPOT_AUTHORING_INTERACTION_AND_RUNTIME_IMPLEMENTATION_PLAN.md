@@ -2072,10 +2072,18 @@ the characterized target set.
   that a sprite participates in a default-alpha Interactable. The current manifest now carries the
   derived `retainAlphaCoverage` marker for those exact canonical image resources, allowing the
   existing focused-preview request path to obey the same pre-request ordering contract.
+- The Phases 7-9 review found two repeated-publication holes in that ordering seam. The Web staging
+  generation did not treat a `retainAlphaCoverage` change as a resource change, and the native
+  focused presenter plus mandatory package gate attempted to reinstall the deliberately
+  duplicate-rejecting requirement map when an identical source generation was applied again. Web
+  staging now advances the generation when the marker changes; the native owners reuse only the
+  exact requirement set already installed for that generation and diagnose any changed set without
+  a generation advance. Focused and package-rebind tests cover both paths.
 - The retained coverage uses the fixed row-major, least-significant-bit-first layout and charges the
   resident vector's measured allocation through prepared-CPU residency accounting. It is owned by
   `TextureAsset`, so ordinary typed texture eviction destroys the coverage without a separate lease
-  or invalidation path.
+  or invalidation path. The review added an explicit multi-row/non-byte-aligned bit-layout test for
+  clamped, edge, non-finite, and malformed UV sampling in addition to the decode-path tests.
 - Exercising the current structured dependency fixture exposed two stale fixture/codec assumptions:
   ad-hoc image resources lacked the now-required dimensions, and strict runtime-package shader
   manifest shape validation omitted the v2 sampler `binding` field already required by the material
@@ -2119,6 +2127,10 @@ the characterized target set.
   vector before owner finalization. The existing orchestrator therefore supplies worker/cooperative
   execution, priority promotion, prefetch-to-demand joining, invalidation, and reservation release;
   no synchronous fallback, generated file, or cache service was introduced.
+- The Phases 7-9 review found that the mask task constructor allocated the full output vector before
+  the request orchestrator performed residency admission. Allocation now occurs on the first
+  admitted preparation step while the constructor exposes only the exact estimated temporary/GPU
+  cost. The immutable owner-key mismatch diagnostic also has direct test coverage.
 - Owner-thread finalization validates sampled `R8` support with `bgfx::isTextureValid`, uploads one
   clamp-nearest non-mipmapped texture, charges the measured temporary allocation and exact
   `width * height` GPU residency, and destroys the bgfx handle through the residency-owned owner-thread
@@ -2163,19 +2175,29 @@ the characterized target set.
   which is impossible by design because alpha compatibility forbids the mask binding; authors must
   use distinct Materials. This is consistent with the existing editor mode-specific validation and
   requires no Phase 10-12 sequencing change.
-- Built-in `system/hotspot_alpha` and `system/hotspot_custom` material projects use engine-owned
-  system shader binaries for `glsl-120`, `essl-100`, and `essl-300`. The alpha shader samples only
-  source alpha. The custom shader samples the binary owner mask, clips to active UV bounds, and emits
-  premultiplied-alpha sheen/border output. Phase 10 remains responsible for choosing these built-ins,
-  retaining their system program handles, and submitting overlay draws.
-- Validation completed on 2026-08-05 with the Linux build, focused binder/interface/parser tests, the
-  material/shader test selection, shader verification, formatting, and all C++ policy gates. The Web
-  build compiled and staged both new hotspot shader variants, then failed at the unrelated existing
-  editor-preview link boundary because `ui_debug_imgui.cpp` references the unresolved
-  `noveltea_web_sync_persistent_fs` symbol. The repository-wide Linux test run likewise reached an
-  unrelated layout-scale readback sandbox that remained running for more than three minutes and was
-  terminated; the focused Phase 9 tests and the broader material/shader selection passed. Neither
-  environment failure changes Phase 10-12 scope or leaves Phase 9 behavior ambiguous.
+- The Phases 7-9 review found the committed built-ins used non-contract IDs and deferred renderer
+  ownership of their system programs to Phase 10, contrary to the fixed Phase-9 boundary. The
+  built-ins now use `system/fallback/hotspot_alpha` and `system/fallback/hotspot_custom`; the renderer
+  has explicit `SystemShader` entries, loads/owns/destroys both program handles at 2D initialization,
+  and exposes a system-material binder path that uses those handles without package leases. Phase 10
+  remains responsible only for selecting/validating those existing handles with the world candidate
+  and submitting overlay draws.
+- Both built-ins expose the five hotspot bindings plus the existing engine-time input. The alpha
+  shader binds only the source image and derives a moving border/sheen from neighboring source-alpha
+  samples. The custom shader binds the source image plus binary owner mask, clips to active UV bounds,
+  and derives the same premultiplied-alpha effect from neighboring mask samples. Pressed state remains
+  visible when hover has left the target.
+- Android verification found `active` was reserved by ESSL 3.00 even though the shaders compiled for
+  Linux and Web; the local variable was renamed and all three required variants now compile and stage.
+  Validation completed on 2026-08-05 with the Linux build, full content/asset/asset-telemetry/render-
+  backend/host suites, a separate cooperative-only Linux build and the corresponding asset/asset-
+  telemetry/render-backend/host suites, focused editor staging tests, the full editor check and test
+  suite, formatting and C++ policy gates, threaded Web editor-preview build, no-thread Web player
+  build, and Android `essl-300` shader compilation. The generic threaded `web-debug` all-target
+  build still reaches the unrelated existing editor-preview link boundary where
+  `ui_debug_imgui.cpp` references unresolved `noveltea_web_sync_persistent_fs`; the dedicated
+  `web-editor-preview` target links successfully.
+  This does not change Phase 10-12 scope or leave Phase 9 behavior ambiguous.
 
 ### Phase 10: Presentation hotspot projection and overlay rendering
 
@@ -2426,7 +2448,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 7: Alpha coverage in existing image preparation
 - [x] Phase 8: Binary custom-mask preparation and prefetch
 - [x] Phase 9: Hotspot material binding and built-in overlays
-- [ ] Phase 10: Presentation hotspot projection and overlay rendering
+- [x] Phase 10: Presentation hotspot projection and overlay rendering
 - [ ] Phase 11: World hit testing and host pointer activation
 - [ ] Phase 12: Cross-platform verification, documentation, and archival
 
@@ -2546,6 +2568,45 @@ use existing memoized selectors/graph queries rather than scanning the project o
   and `git diff --check` all passed. Package smoke emitted the existing non-fatal Linux
   DBus/GLib/GPU and Sharp/Electron warnings. The local Node runtime remained 22.22.1 while the package
   declares 24.18.0.
+
+### Phase 10 implementation findings
+
+- **Eligibility belongs to resolved Room presentation, not renderer preparation.** Hotspot
+  conditions and Verb/exit availability are evaluated with the same Room resolver state used for
+  exits and presented Interactables, then carried as separate immutable booleans into the runtime
+  snapshot. The world backend never executes gameplay predicates while preparing or hovering an
+  overlay.
+- **Exact owner draw commands are the shared geometry seam.** The existing pure
+  `WorldPresentationLayoutPolicy` remains the sole producer of background fit rectangles/UVs.
+  Prepared hotspot surfaces copy their owner's committed quad rectangle, UVs, plane, order, texture,
+  and sampler rather than recomputing fit math. Phase 11 can consume the same committed surfaces and
+  draw keys without introducing an input-only geometry implementation.
+- **Transient overlays require immutable base batches.** Each committed frame now retains base
+  world/game-UI/combined batches separately. Replacing hover or pressed state copies those committed
+  batches and appends only the selected transient overlay; it does not resolve resources, republish a
+  snapshot, or reconstruct base draw commands.
+- **Built-in program ownership stays renderer-local.** Candidate preparation borrows the Phase 9
+  built-in hotspot Material IDs but validates the corresponding renderer-owned alpha/custom program
+  handle through an injected owner-thread validator. Authored hotspot Materials continue to retain
+  the mandatory Material lease, while the committed mandatory lease set retains their Shader/static
+  texture dependencies. No package lease or duplicate program ownership was introduced.
+- **Focused Room preview remains passive.** The shared focused-preview projection overload clears
+  hotspot values and preserves its existing version-2 passive contract. Production runtime
+  projection uses the project-aware overload and publishes hotspot source identities/dimensions.
+  This concrete boundary does not change Phase 11 scope.
+
+### Phase 10 final validation
+
+- `cmake --build --preset linux-debug --target noveltea_engine
+  noveltea_render_backend_tests noveltea_presentation_tests`: passed.
+- `noveltea_render_backend_tests`: passed 373 assertions in 45 test cases, including Room and
+  Interactable alpha/custom overlay preparation, authored highlight Material selection, exact owner
+  rect/UV reuse, no-highlight resource suppression, transient hover/pressed replacement without new
+  resource resolution or base-batch mutation, and failed candidate rollback.
+- `noveltea_presentation_tests`: passed 1,557 assertions in 72 test cases, including the complete
+  Room/runtime projection and focused-preview boundary.
+- Phase 11 and Phase 12 scope, sequencing, and exit gates remain unchanged; no implementation from
+  either later phase was added.
 
 ## 19. Definition of done
 

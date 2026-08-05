@@ -26,6 +26,13 @@ public:
             result.material = noveltea::MaterialId(material->text());
         return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
     }
+
+    Result<WorldPreparedHotspotResources, Diagnostics>
+    resolve_hotspot(const PresentationHotspot&, std::span<const PresentationHotspot>,
+                    std::string_view) override
+    {
+        return Result<WorldPreparedHotspotResources, Diagnostics>::success({});
+    }
 };
 
 RuntimePresentationSnapshot snapshot(std::uint64_t revision)

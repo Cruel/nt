@@ -79,7 +79,38 @@ public:
         return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
     }
 
+    Result<WorldPreparedHotspotResources, Diagnostics>
+    resolve_hotspot(const PresentationHotspot& hotspot, std::span<const PresentationHotspot>,
+                    std::string_view context) override
+    {
+        ++hotspot_resolve_calls;
+        if (fail_hotspot_resources) {
+            return Result<WorldPreparedHotspotResources, Diagnostics>::failure(
+                {{.code = "test.hotspot_resource_failure",
+                  .message = "failed hotspot resources",
+                  .source_path = std::string(context)}});
+        }
+        WorldPreparedHotspotResources result;
+        if (const auto* authored =
+                std::get_if<compiled::MaterialHotspotHighlight>(&hotspot.highlight))
+            result.material = noveltea::MaterialId(authored->material.text());
+        else
+            result.material =
+                noveltea::MaterialId(std::holds_alternative<AlphaHotspotShape>(hotspot.shape)
+                                         ? std::string(builtin_hotspot_alpha_material_id)
+                                         : std::string(builtin_hotspot_custom_material_id));
+        if (std::holds_alternative<compiled::NormalizedRect>(hotspot.shape))
+            result.mask =
+                assets::HotspotMaskAsset{.owner = compiled::RoomHotspotOwnerRef{id<RoomId>("room")},
+                                         .handle = 91,
+                                         .width = hotspot.source_width,
+                                         .height = hotspot.source_height};
+        return Result<WorldPreparedHotspotResources, Diagnostics>::success(std::move(result));
+    }
+
     std::size_t resolve_calls = 0;
+    std::size_t hotspot_resolve_calls = 0;
+    bool fail_hotspot_resources = false;
 
 private:
     std::unordered_map<std::string, assets::TextureAsset> m_textures;
@@ -447,4 +478,151 @@ TEST_CASE("world transition composition excludes the GameUi underlay")
     CHECK(backend.frame()->world_composition_batch.commands().front().layer ==
           GameLayer::Background);
     CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer == GameLayer::UIOverlay);
+}
+
+TEST_CASE("hotspot overlays reuse the prepared owner geometry and update transiently")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 1600, 900);
+    WorldPresentationBackend backend(resources);
+
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                                 .color = std::nullopt,
+                                                 .fit = compiled::BackgroundFit::Cover,
+                                                 .material = std::nullopt};
+    const compiled::HotspotRef hotspot_ref =
+        compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk")};
+    snapshot.hotspots.push_back(
+        {hotspot_ref, "Desk", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+         compiled::NormalizedRect{0.2, 0.3, 0.4, 0.2}, 5, compiled::DefaultHotspotHighlight{},
+         id<AssetId>("room-image"), 1600, 900, std::nullopt, std::nullopt,
+         PresentationPlane::WorldBackground, 0});
+
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    REQUIRE(backend.frame());
+    REQUIRE(backend.frame()->hotspot_surfaces.size() == 1);
+    const auto& owner = backend.frame()->draws.back().command;
+    const auto& overlay = backend.frame()->hotspot_surfaces.front().overlay.command;
+    CHECK(overlay.rect.x == Catch::Approx(owner.rect.x));
+    CHECK(overlay.rect.y == Catch::Approx(owner.rect.y));
+    CHECK(overlay.rect.width == Catch::Approx(owner.rect.width));
+    CHECK(overlay.rect.height == Catch::Approx(owner.rect.height));
+    CHECK(overlay.uv.x == Catch::Approx(owner.uv.x));
+    CHECK(overlay.uv.y == Catch::Approx(owner.uv.y));
+    CHECK(overlay.uv.width == Catch::Approx(owner.uv.width));
+    CHECK(overlay.uv.height == Catch::Approx(owner.uv.height));
+    CHECK(overlay.hotspot_bounds.x == Catch::Approx(0.2f));
+    CHECK(overlay.hotspot_bounds.y == Catch::Approx(0.3f));
+    CHECK(overlay.hotspot_bounds.width == Catch::Approx(0.4f));
+    CHECK(overlay.hotspot_bounds.height == Catch::Approx(0.2f));
+    CHECK(resources.hotspot_resolve_calls == 1);
+    const auto base_command_count = backend.frame()->base_world_composition_batch.commands().size();
+    const auto base_texture =
+        backend.frame()->base_world_composition_batch.commands().front().texture.handle;
+
+    REQUIRE(backend.update_hotspot_visual_state({hotspot_ref, std::nullopt}));
+    REQUIRE(backend.frame());
+    REQUIRE(backend.frame()->world_composition_batch.commands().size() == base_command_count + 1);
+    const auto& hovered = backend.frame()->world_composition_batch.commands().back();
+    CHECK(hovered.hotspot_hovered);
+    CHECK_FALSE(hovered.hotspot_pressed);
+    CHECK(resources.hotspot_resolve_calls == 1);
+    CHECK(backend.frame()->base_world_composition_batch.commands().size() == base_command_count);
+    CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          base_texture);
+
+    REQUIRE(backend.update_hotspot_visual_state({hotspot_ref, hotspot_ref}));
+    const auto& pressed = backend.frame()->world_composition_batch.commands().back();
+    CHECK(pressed.hotspot_hovered);
+    CHECK(pressed.hotspot_pressed);
+    CHECK(resources.hotspot_resolve_calls == 1);
+}
+
+TEST_CASE("no-highlight hotspots stay semantic and allocate no overlay resources")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 1600, 900);
+    WorldPresentationBackend backend(resources);
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                                 .color = std::nullopt,
+                                                 .fit = compiled::BackgroundFit::Stretch,
+                                                 .material = std::nullopt};
+    snapshot.hotspots.push_back(
+        {compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("hidden")}, "Hidden", true,
+         true, compiled::VerbHotspotActivation{id<VerbId>("inspect")}, AlphaHotspotShape{}, 0,
+         compiled::NoHotspotHighlight{}, id<AssetId>("room-image"), 1600, 900, std::nullopt,
+         std::nullopt, PresentationPlane::WorldBackground, 0});
+
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    REQUIRE(backend.frame());
+    CHECK(backend.frame()->hotspot_surfaces.empty());
+    CHECK(resources.hotspot_resolve_calls == 0);
+}
+
+TEST_CASE("Interactable hotspot overlays inherit placement geometry and authored Material")
+{
+    FakeWorldResources resources;
+    resources.add_texture("item", 23, 400, 200);
+    WorldPresentationBackend backend(resources);
+    auto snapshot = base_snapshot();
+    snapshot.interactables.push_back({id<InteractableId>("key"),
+                                      {id<RoomId>("room"), id<RoomPlacementId>("table")},
+                                      {0.25, 0.4, 0.3, 0.2},
+                                      id<AssetId>("item"),
+                                      std::nullopt,
+                                      PresentationPlane::WorldContent,
+                                      12,
+                                      true,
+                                      true});
+    const compiled::HotspotRef hotspot_ref =
+        compiled::InteractableHotspotRef{id<InteractableId>("key"), id<HotspotId>("inspect")};
+    snapshot.hotspots.push_back(
+        {hotspot_ref, "Inspect", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+         AlphaHotspotShape{}, 0,
+         compiled::MaterialHotspotHighlight{id<core::MaterialId>("custom-highlight")},
+         id<AssetId>("item"), 400, 200,
+         compiled::RoomPlacementRef{id<RoomId>("room"), id<RoomPlacementId>("table")},
+         compiled::NormalizedRect{0.25, 0.4, 0.3, 0.2}, PresentationPlane::WorldContent, 12});
+
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    REQUIRE(backend.frame());
+    REQUIRE(backend.frame()->hotspot_surfaces.size() == 1);
+    const auto* owner = find_draw(*backend.frame(), "key");
+    REQUIRE(owner);
+    const auto& overlay = backend.frame()->hotspot_surfaces.front().overlay;
+    CHECK(overlay.command.rect.x == Catch::Approx(owner->command.rect.x));
+    CHECK(overlay.command.rect.y == Catch::Approx(owner->command.rect.y));
+    CHECK(overlay.command.rect.width == Catch::Approx(owner->command.rect.width));
+    CHECK(overlay.command.rect.height == Catch::Approx(owner->command.rect.height));
+    CHECK(overlay.command.material.value() == "custom-highlight");
+    CHECK(overlay.order == owner->order);
+    CHECK(overlay.sublayer == owner->sublayer + 1);
+}
+
+TEST_CASE("failed hotspot preparation preserves the prior world candidate")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 1600, 900);
+    WorldPresentationBackend backend(resources);
+    auto prior = base_snapshot(1);
+    prior.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                              .color = std::nullopt,
+                                              .fit = compiled::BackgroundFit::Stretch,
+                                              .material = std::nullopt};
+    REQUIRE(backend.reconcile(prior, {1000.0f, 500.0f}));
+
+    auto candidate = prior;
+    candidate.revision = PresentationSnapshotRevision::from_number(2);
+    candidate.hotspots.push_back(
+        {compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk")}, "Desk", true, true,
+         compiled::VerbHotspotActivation{id<VerbId>("inspect")}, AlphaHotspotShape{}, 0,
+         compiled::DefaultHotspotHighlight{}, id<AssetId>("room-image"), 1600, 900, std::nullopt,
+         std::nullopt, PresentationPlane::WorldBackground, 0});
+    resources.fail_hotspot_resources = true;
+    CHECK_FALSE(backend.reconcile(candidate, {1000.0f, 500.0f}));
+    REQUIRE(backend.frame());
+    CHECK(backend.frame()->revision.number() == 1);
+    CHECK(backend.frame(PresentationSnapshotRevision::from_number(2)) == nullptr);
 }

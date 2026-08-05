@@ -32,6 +32,12 @@ struct QuadCommand {
     MaterialTextureSampler texture_sampler = MaterialTextureSampler::ClampLinear;
     MaterialId material{};
     std::optional<float> time_seconds;
+    std::optional<Texture> hotspot_mask;
+    Rect hotspot_bounds{};
+    Size hotspot_image_dimensions{};
+    Size hotspot_mask_dimensions{};
+    bool hotspot_hovered = false;
+    bool hotspot_pressed = false;
     float depth = 0.0f;
     GameLayer layer = GameLayer::Main;
 };
@@ -39,6 +45,7 @@ struct QuadCommand {
 class QuadBatch {
 public:
     void clear() { m_commands.clear(); }
+    void draw(QuadCommand command) { m_commands.push_back(std::move(command)); }
 
     void draw_colored_quad(Rect rect, Color color, float depth = 0.0f,
                            GameLayer layer = GameLayer::Main)
