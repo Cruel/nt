@@ -167,8 +167,31 @@ core::LoadedCompiledPackage collector_package()
           {"id", "shared-alpha"},
           {"inputOrder", 0},
           {"label", "Shared alpha"}}}};
-    document["definitions"]["interactables"][0]["presentation"]["hotspots"] = alpha_hotspot;
+    document["definitions"]["interactables"][0]["presentation"]["hotspots"] = {
+        {"kind", "custom"},
+        {"hotspots",
+         nlohmann::json::array(
+             {{{"activation", {{"kind", "verb"}, {"verb", {{"id", "use"}, {"kind", "verb"}}}}},
+               {"condition", {{"kind", "always"}}},
+               {"highlight", {{"kind", "none"}}},
+               {"id", "coin-none"},
+               {"inputOrder", 0},
+               {"label", "Coin none"},
+               {"shape",
+                {{"kind", "rect"},
+                 {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}}}}}})}};
     document["definitions"]["interactables"][2]["presentation"]["hotspots"] = alpha_hotspot;
+    const nlohmann::json hall_hotspot = {
+        {"activation", {{"kind", "exit"}, {"exitId", "south-exit"}}},
+        {"condition", {{"kind", "always"}}},
+        {"highlight", {{"kind", "default"}}},
+        {"id", "hall-door"},
+        {"inputOrder", 0},
+        {"label", "Hall door"},
+        {"shape",
+         {{"kind", "rect"},
+          {"bounds", {{"x", 0.25}, {"y", 0.25}, {"width", 0.5}, {"height", 0.5}}}}}};
+    document["definitions"]["rooms"][0]["hotspots"] = nlohmann::json::array({hall_hotspot});
 
     auto project = core::decode_compiled_project(document, "structured-prefetch-project.json");
     if (!project) {
@@ -213,6 +236,8 @@ assets::StructuredAssetRequestDescriptor descriptor(Request request,
         key = assets::make_font_cache_key(request, generation);
     else if constexpr (std::is_same_v<Request, assets::TextureAssetRequest>)
         key = assets::make_texture_cache_key(request, generation);
+    else if constexpr (std::is_same_v<Request, assets::HotspotMaskAssetRequest>)
+        key = assets::make_hotspot_mask_cache_key(request, generation);
     else if constexpr (std::is_same_v<Request, assets::ShaderProgramAssetRequest>)
         key = assets::make_shader_program_cache_key(request, generation);
     else if constexpr (std::is_same_v<Request, assets::MaterialAssetRequest>)
@@ -343,6 +368,24 @@ private:
     DispatchRecorder& m_recorder;
 };
 
+class RecordingHotspotMaskLoader final : public assets::HotspotMaskAssetLoader {
+public:
+    explicit RecordingHotspotMaskLoader(DispatchRecorder& recorder) : m_recorder(recorder) {}
+    std::unique_ptr<assets::AssetPreparationTask<assets::HotspotMaskAsset>>
+    create_hotspot_mask_preparation_task(const assets::HotspotMaskAssetRequest& request) override
+    {
+        m_recorder.calls.push_back("hotspot-mask");
+        return std::make_unique<ImmediatePreparationTask<assets::HotspotMaskAsset>>(
+            assets::HotspotMaskAsset{.owner = request.owner,
+                                     .handle = 3,
+                                     .width = request.width,
+                                     .height = request.height});
+    }
+
+private:
+    DispatchRecorder& m_recorder;
+};
+
 class RecordingShaderLoader final : public assets::ShaderProgramAssetLoader {
 public:
     explicit RecordingShaderLoader(DispatchRecorder& recorder) : m_recorder(recorder) {}
@@ -421,6 +464,7 @@ struct PlannerFixture {
     DispatchRecorder recorder;
     RecordingFontLoader fonts{recorder};
     RecordingTextureLoader textures{recorder};
+    RecordingHotspotMaskLoader hotspot_masks{recorder};
     RecordingShaderLoader shaders{recorder};
     RecordingMaterialLoader materials{recorder};
     RecordingAudioLoader audio{recorder};
@@ -430,6 +474,7 @@ struct PlannerFixture {
         REQUIRE(manager.configure_async_requests(executor, residency, telemetry));
         manager.bind_font_loader(&fonts);
         manager.bind_texture_loader(&textures);
+        manager.bind_hotspot_mask_loader(&hotspot_masks);
         manager.bind_shader_program_loader(&shaders);
         manager.bind_material_loader(&materials);
         manager.bind_audio_loader(&audio);
@@ -535,6 +580,18 @@ TEST_CASE("structured collector builds typed ordered closure without dynamic sou
         find_request<assets::TextureAssetRequest>(collected.direct_next, [](const auto& request) {
             return request.path == "$draw.texture";
         }));
+    const auto room_mask = find_request<assets::HotspotMaskAssetRequest>(
+        collected.direct_next, [](const auto& request) {
+            const auto* owner = std::get_if<core::compiled::RoomHotspotOwnerRef>(&request.owner);
+            return owner != nullptr && owner->room.text() == "hall" && request.width == 1920 &&
+                   request.height == 1080 && request.regions.size() == 1;
+        });
+    REQUIRE(room_mask);
+    CHECK_FALSE(find_request<assets::HotspotMaskAssetRequest>(
+        collected.direct_next, [](const auto& request) {
+            return std::holds_alternative<core::compiled::InteractableHotspotOwnerRef>(
+                request.owner);
+        }));
 
     REQUIRE(find_request<assets::TextureAssetRequest>(
         collected.adjacent_alternatives, [](const auto& request) {
@@ -596,6 +653,39 @@ TEST_CASE("optional adjacency diagnostics do not block current mandatory publica
     gate.commit_candidate_on_owner();
     CHECK(fixture.manager.has_published_leases_on_owner());
     gate.clear_package_on_owner();
+}
+
+TEST_CASE("direct-next hotspot mask prefetch is ready for the mandatory publication gate",
+          "[assets][structured-prefetch][hotspot-mask]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-120", generation);
+    assets::StructuredAssetDependencyContext context;
+    context.direct_next = core::compiled::Entrypoint{id<core::RoomId>("hall")};
+    const assets::StructuredAssetDependencyCollector collector(index);
+    const auto collected = collector.collect(context);
+    const auto mask = find_request<assets::HotspotMaskAssetRequest>(
+        collected.direct_next, [](const auto&) { return true; });
+    REQUIRE(mask);
+
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto report = planner.replace_generation_on_owner(collected);
+    REQUIRE(report);
+    fixture.run_until_idle();
+    CHECK(std::count(fixture.recorder.calls.begin(), fixture.recorder.calls.end(),
+                     "hotspot-mask") == 1);
+
+    assets::MandatoryAssetRequestGroup mandatory(
+        fixture.manager, {collected.direct_next[*mask]},
+        {.reason = assets::AssetRequestReason::Demand, .show_overlay_immediately = true});
+    mandatory.poll_on_owner();
+    CHECK(mandatory.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
+    auto leases = mandatory.take_ready_leases_on_owner();
+    REQUIRE(leases);
+    CHECK(leases->find_hotspot_mask(collected.direct_next[*mask].cache_key) != nullptr);
 }
 
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER

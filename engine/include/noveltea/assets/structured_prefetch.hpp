@@ -25,8 +25,8 @@ enum class PrefetchPredictionKind : std::uint8_t {
 class AssetManager;
 
 using StructuredAssetRequest =
-    std::variant<FontAssetRequest, TextureAssetRequest, ShaderProgramAssetRequest,
-                 MaterialAssetRequest, AudioAssetRequest>;
+    std::variant<FontAssetRequest, TextureAssetRequest, HotspotMaskAssetRequest,
+                 ShaderProgramAssetRequest, MaterialAssetRequest, AudioAssetRequest>;
 
 struct StructuredAssetRequestDescriptor {
     StructuredAssetRequest request;

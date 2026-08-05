@@ -14,8 +14,8 @@
 namespace noveltea::assets {
 
 using StructuredAssetLease =
-    std::variant<AssetLease<FontAsset>, AssetLease<TextureAsset>, AssetLease<ShaderProgramAsset>,
-                 AssetLease<MaterialAsset>, AssetLease<AudioAsset>>;
+    std::variant<AssetLease<FontAsset>, AssetLease<TextureAsset>, AssetLease<HotspotMaskAsset>,
+                 AssetLease<ShaderProgramAsset>, AssetLease<MaterialAsset>, AssetLease<AudioAsset>>;
 
 struct StructuredAssetLeaseRecord {
     StructuredAssetRequestDescriptor descriptor;
@@ -38,6 +38,8 @@ public:
     [[nodiscard]] const AssetLease<FontAsset>* find_font(const AssetCacheKey& key) const noexcept;
     [[nodiscard]] const AssetLease<TextureAsset>*
     find_texture(const AssetCacheKey& key) const noexcept;
+    [[nodiscard]] const AssetLease<HotspotMaskAsset>*
+    find_hotspot_mask(const AssetCacheKey& key) const noexcept;
     [[nodiscard]] const AssetLease<ShaderProgramAsset>*
     find_shader_program(const AssetCacheKey& key) const noexcept;
     [[nodiscard]] const AssetLease<MaterialAsset>*

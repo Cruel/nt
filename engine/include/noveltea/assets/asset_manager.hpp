@@ -66,6 +66,7 @@ public:
     [[nodiscard]] const ResourceAliasRegistry& resource_aliases() const noexcept;
     void bind_font_loader(FontAssetLoader* loader) const;
     void bind_texture_loader(TextureAssetLoader* loader) const;
+    void bind_hotspot_mask_loader(HotspotMaskAssetLoader* loader) const;
     void bind_shader_program_loader(ShaderProgramAssetLoader* loader) const;
     void bind_material_loader(MaterialAssetLoader* loader) const;
     void bind_audio_loader(AudioAssetLoader* loader) const;
@@ -88,6 +89,9 @@ public:
     request_font(const FontAssetRequest& request, AssetRequestReason reason) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
     request_texture(const TextureAssetRequest& request, AssetRequestReason reason) noexcept;
+    [[nodiscard]] core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>
+    request_hotspot_mask(const HotspotMaskAssetRequest& request,
+                         AssetRequestReason reason) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>
     request_shader_program(const ShaderProgramAssetRequest& request,
                            AssetRequestReason reason) noexcept;
@@ -100,6 +104,9 @@ public:
     prefetch_font(const FontAssetRequest& request, PrefetchGenerationId generation) noexcept;
     [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
     prefetch_texture(const TextureAssetRequest& request, PrefetchGenerationId generation) noexcept;
+    [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
+    prefetch_hotspot_mask(const HotspotMaskAssetRequest& request,
+                          PrefetchGenerationId generation) noexcept;
     [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
     prefetch_shader_program(const ShaderProgramAssetRequest& request,
                             PrefetchGenerationId generation) noexcept;
@@ -135,6 +142,8 @@ public:
     leased_font_on_owner(const FontAssetRequest& request) const noexcept;
     [[nodiscard]] const AssetLease<TextureAsset>*
     leased_texture_on_owner(const TextureAssetRequest& request) const noexcept;
+    [[nodiscard]] const AssetLease<HotspotMaskAsset>*
+    leased_hotspot_mask_on_owner(const HotspotMaskAssetRequest& request) const noexcept;
     [[nodiscard]] const AssetLease<ShaderProgramAsset>*
     leased_shader_program_on_owner(const ShaderProgramAssetRequest& request) const noexcept;
     [[nodiscard]] const AssetLease<MaterialAsset>*
@@ -171,6 +180,7 @@ private:
     ResourceAliasRegistry m_resource_aliases{};
     mutable FontAssetLoader* m_font_loader = nullptr;
     mutable TextureAssetLoader* m_texture_loader = nullptr;
+    mutable HotspotMaskAssetLoader* m_hotspot_mask_loader = nullptr;
     mutable ShaderProgramAssetLoader* m_shader_program_loader = nullptr;
     mutable MaterialAssetLoader* m_material_loader = nullptr;
     mutable AudioAssetLoader* m_audio_loader = nullptr;
@@ -178,6 +188,7 @@ private:
     std::shared_ptr<AsyncState> m_async;
     std::unique_ptr<LeaseState> m_leases;
     mutable TexturePreparationRequirementMap m_texture_preparation_requirements;
+    mutable std::map<AssetCacheKey, HotspotMaskAssetRequest> m_hotspot_mask_requests;
 };
 
 } // namespace noveltea::assets

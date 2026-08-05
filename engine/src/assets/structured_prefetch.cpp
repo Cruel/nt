@@ -106,6 +106,13 @@ texture_descriptor(const core::compiled::AssetResource& asset, AssetSourceGenera
     return {.request = request, .cache_key = make_texture_cache_key(request, generation)};
 }
 
+[[nodiscard]] StructuredAssetRequestDescriptor
+hotspot_mask_descriptor(HotspotMaskAssetRequest request, AssetSourceGeneration generation)
+{
+    const auto key = make_hotspot_mask_cache_key(request, generation);
+    return {.request = std::move(request), .cache_key = key};
+}
+
 [[nodiscard]] StructuredAssetRequestDescriptor texture_descriptor(std::string_view path,
                                                                   MaterialTextureSampler sampler,
                                                                   AssetSourceGeneration generation)
@@ -168,6 +175,8 @@ struct StructuredAssetDependencyIndex::Impl {
     std::unordered_map<core::LayoutId, const core::compiled::LayoutResource*> layouts;
     std::unordered_map<core::CharacterId, const core::compiled::CharacterDefinition*> characters;
     std::unordered_map<core::RoomId, const core::compiled::RoomDefinition*> rooms;
+    std::unordered_map<core::InteractableId, const core::compiled::InteractableDefinition*>
+        interactables;
     std::unordered_map<core::SceneId, const core::compiled::SceneDefinition*> scenes;
     std::unordered_map<core::DialogueId, const core::compiled::DialogueDefinition*> dialogues;
     std::unordered_map<std::string, MaterialDependencies> material_dependencies;
@@ -264,6 +273,81 @@ struct StructuredAssetDependencyIndex::Impl {
             append_material(output, *background.material, collection_diagnostics, context);
     }
 
+    void append_highlight_material(DescriptorAccumulator& output,
+                                   const core::compiled::HotspotHighlight& highlight,
+                                   core::Diagnostics& collection_diagnostics,
+                                   std::string_view context) const
+    {
+        if (const auto* material =
+                std::get_if<core::compiled::MaterialHotspotHighlight>(&highlight)) {
+            append_material(output, material->material, collection_diagnostics, context);
+        }
+    }
+
+    void append_room_hotspots(DescriptorAccumulator& output,
+                              const core::compiled::RoomDefinition& room,
+                              core::Diagnostics& collection_diagnostics) const
+    {
+        if (room.hotspots.empty() || !room.background.asset)
+            return;
+        bool requires_mask = false;
+        HotspotMaskAssetRequest request{
+            .owner = core::compiled::RoomHotspotOwnerRef{.room = room.identity.id}, .regions = {}};
+        for (const auto& hotspot : room.hotspots) {
+            requires_mask |=
+                !std::holds_alternative<core::compiled::NoHotspotHighlight>(hotspot.highlight);
+            request.regions.push_back({.hotspot = hotspot.id, .bounds = hotspot.shape.bounds});
+            append_highlight_material(output, hotspot.highlight, collection_diagnostics,
+                                      "Room hotspot highlight");
+        }
+        if (!requires_mask)
+            return;
+        const auto* image = find_asset(*room.background.asset);
+        if (!image || !image->width || !image->height || *image->width > UINT16_MAX ||
+            *image->height > UINT16_MAX) {
+            add_diagnostic(collection_diagnostics, "assets.hotspot_mask.invalid_dimensions",
+                           "Room hotspot mask source image has invalid dimensions");
+            return;
+        }
+        request.width = static_cast<std::uint16_t>(*image->width);
+        request.height = static_cast<std::uint16_t>(*image->height);
+        output.add(hotspot_mask_descriptor(std::move(request), source_generation));
+    }
+
+    void append_interactable_hotspots(DescriptorAccumulator& output,
+                                      const core::compiled::InteractableDefinition& interactable,
+                                      core::Diagnostics& collection_diagnostics) const
+    {
+        const auto* custom = std::get_if<core::compiled::CustomInteractableHotspots>(
+            &interactable.presentation.hotspots);
+        if (!custom || custom->hotspots.empty() || !interactable.presentation.sprite)
+            return;
+        bool requires_mask = false;
+        HotspotMaskAssetRequest request{
+            .owner = core::compiled::InteractableHotspotOwnerRef{.interactable =
+                                                                     interactable.identity.id},
+            .regions = {}};
+        for (const auto& hotspot : custom->hotspots) {
+            requires_mask |=
+                !std::holds_alternative<core::compiled::NoHotspotHighlight>(hotspot.highlight);
+            request.regions.push_back({.hotspot = hotspot.id, .bounds = hotspot.shape.bounds});
+            append_highlight_material(output, hotspot.highlight, collection_diagnostics,
+                                      "Interactable hotspot highlight");
+        }
+        if (!requires_mask)
+            return;
+        const auto* image = find_asset(*interactable.presentation.sprite);
+        if (!image || !image->width || !image->height || *image->width > UINT16_MAX ||
+            *image->height > UINT16_MAX) {
+            add_diagnostic(collection_diagnostics, "assets.hotspot_mask.invalid_dimensions",
+                           "Interactable hotspot mask source image has invalid dimensions");
+            return;
+        }
+        request.width = static_cast<std::uint16_t>(*image->width);
+        request.height = static_cast<std::uint16_t>(*image->height);
+        output.add(hotspot_mask_descriptor(std::move(request), source_generation));
+    }
+
     void append_character(DescriptorAccumulator& output, const core::CharacterId& character_id,
                           std::optional<core::CharacterPoseId> requested_pose,
                           std::optional<core::CharacterExpressionId> requested_expression,
@@ -346,6 +430,7 @@ struct StructuredAssetDependencyIndex::Impl {
         }
         const auto& room = *found->second;
         append_background(output, room.background, collection_diagnostics, "Room background");
+        append_room_hotspots(output, room, collection_diagnostics);
         for (const auto& placement : room.placements) {
             if (placement.presentation.layout)
                 append_layout(output, *placement.presentation.layout, collection_diagnostics,
@@ -387,6 +472,7 @@ struct StructuredAssetDependencyIndex::Impl {
                 if (interactable->presentation.material)
                     append_material(output, *interactable->presentation.material,
                                     collection_diagnostics, "Room initial interactable");
+                append_interactable_hotspots(output, *interactable, collection_diagnostics);
             }
         }
     }
@@ -578,6 +664,7 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
     for (const auto& dialogue : project.dialogues())
         impl->dialogues.emplace(dialogue.identity.id, &dialogue);
     for (const auto& interactable : project.interactables()) {
+        impl->interactables.emplace(interactable.identity.id, &interactable);
         if (interactable.presentation.sprite &&
             std::holds_alternative<core::compiled::SpriteAlphaHotspots>(
                 interactable.presentation.hotspots)) {
@@ -742,6 +829,18 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
             if (interactable.material)
                 m_index.m_impl->append_material(current, *interactable.material,
                                                 current_diagnostics, "current interactable");
+            if (const auto definition =
+                    m_index.m_impl->interactables.find(interactable.interactable);
+                definition != m_index.m_impl->interactables.end()) {
+                m_index.m_impl->append_interactable_hotspots(current, *definition->second,
+                                                             current_diagnostics);
+            }
+        }
+        if (snapshot->current_room) {
+            if (const auto room = m_index.m_impl->rooms.find(*snapshot->current_room);
+                room != m_index.m_impl->rooms.end()) {
+                m_index.m_impl->append_room_hotspots(current, *room->second, current_diagnostics);
+            }
         }
         for (const auto& prop : snapshot->props) {
             if (!prop.visible)
@@ -844,6 +943,8 @@ namespace {
                 return make_font_cache_key(value, generation);
             else if constexpr (std::is_same_v<T, TextureAssetRequest>)
                 return make_texture_cache_key(value, generation);
+            else if constexpr (std::is_same_v<T, HotspotMaskAssetRequest>)
+                return make_hotspot_mask_cache_key(value, generation);
             else if constexpr (std::is_same_v<T, ShaderProgramAssetRequest>)
                 return make_shader_program_cache_key(value, generation);
             else if constexpr (std::is_same_v<T, MaterialAssetRequest>)
@@ -865,6 +966,8 @@ dispatch_prefetch(AssetManager& assets, const StructuredAssetRequest& request,
                 return assets.prefetch_font(value, generation);
             else if constexpr (std::is_same_v<T, TextureAssetRequest>)
                 return assets.prefetch_texture(value, generation);
+            else if constexpr (std::is_same_v<T, HotspotMaskAssetRequest>)
+                return assets.prefetch_hotspot_mask(value, generation);
             else if constexpr (std::is_same_v<T, ShaderProgramAssetRequest>)
                 return assets.prefetch_shader_program(value, generation);
             else if constexpr (std::is_same_v<T, MaterialAssetRequest>)

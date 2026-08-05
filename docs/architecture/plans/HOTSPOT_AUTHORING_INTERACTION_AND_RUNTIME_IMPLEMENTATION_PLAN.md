@@ -2100,6 +2100,37 @@ the characterized target set.
 - Cancellation releases temporary bytes.
 - No generated files or separate cache service exist.
 
+#### Phase 8 implementation findings and validation
+
+- Custom masks now use one typed `HotspotMaskAssetRequest`/`HotspotMaskAsset` path through the
+  existing request orchestrator, mandatory lease set, prefetch planner, residency manager, telemetry,
+  and profiler. The cache identity remains exactly owner kind plus owner ID plus source generation;
+  because that identity intentionally excludes dimensions and rectangle payloads, `AssetManager`
+  records the first immutable request for each key and rejects any later mismatch before work can
+  coalesce. This is the concrete enforcement seam required by the Phase-1 cache contract and does
+  not change later-phase scope.
+- The structured dependency index retains immutable Room and Interactable definitions so collection
+  can construct complete source-resolution mask requests without querying runtime loaders or mutable
+  editor state. Room masks use the compiled Room background image dimensions; custom Interactable
+  masks use the compiled sprite dimensions. Material highlights remain in the same dependency closure,
+  and owners whose custom hotspots are all `none` produce no mask request.
+- Preparation rasterizes the binary union at texel centers with half-open normalized rectangles and
+  yields after at most 64 rows or 256 KiB of output per step. Cancellation discards the temporary
+  vector before owner finalization. The existing orchestrator therefore supplies worker/cooperative
+  execution, priority promotion, prefetch-to-demand joining, invalidation, and reservation release;
+  no synchronous fallback, generated file, or cache service was introduced.
+- Owner-thread finalization validates sampled `R8` support with `bgfx::isTextureValid`, uploads one
+  clamp-nearest non-mipmapped texture, charges the measured temporary allocation and exact
+  `width * height` GPU residency, and destroys the bgfx handle through the residency-owned owner-thread
+  callback. The existing bgfx typed loader is bound as the mask loader alongside texture loading, so
+  no parallel renderer resource owner was added.
+- Focused tests prove exact 4x4 union bytes, source dimensions, one finalization for prefetch joined by
+  demand, cancellation without finalization, residency-owned destruction, all-`none` omission, and a
+  direct-next structured prefetch becoming immediately ready in the mandatory publication group.
+  Validation completed on 2026-08-05 with the Linux build, focused hotspot-mask and structured-prefetch
+  suites, the full asset suite, formatting/policy gates, and the applicable cross-platform builds
+  recorded below. No implementation finding required a Phase 9-12 scope or sequencing change.
+
 ### Phase 9: Hotspot material binding and built-in overlays
 
 #### Required work
@@ -2365,7 +2396,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 5: React Room composition and placement tools
 - [x] Phase 6: Hotspot activation, Interaction context, and save-state version 7
 - [x] Phase 7: Alpha coverage in existing image preparation
-- [ ] Phase 8: Binary custom-mask preparation and prefetch
+- [x] Phase 8: Binary custom-mask preparation and prefetch
 - [ ] Phase 9: Hotspot material binding and built-in overlays
 - [ ] Phase 10: Presentation hotspot projection and overlay rendering
 - [ ] Phase 11: World hit testing and host pointer activation

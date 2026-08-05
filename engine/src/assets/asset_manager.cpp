@@ -327,6 +327,7 @@ struct AssetManager::AsyncState {
         : residency(std::move(residency)), telemetry(telemetry),
           fonts(executor, this->residency, telemetry),
           textures(executor, this->residency, telemetry),
+          hotspot_masks(executor, this->residency, telemetry),
           shaders(executor, this->residency, telemetry),
           materials(executor, this->residency, telemetry),
           audio(executor, this->residency, telemetry)
@@ -337,6 +338,7 @@ struct AssetManager::AsyncState {
     {
         fonts.invalidate_generation_on_owner(generation);
         textures.invalidate_generation_on_owner(generation);
+        hotspot_masks.invalidate_generation_on_owner(generation);
         shaders.invalidate_generation_on_owner(generation);
         materials.invalidate_generation_on_owner(generation);
         audio.invalidate_generation_on_owner(generation);
@@ -345,14 +347,15 @@ struct AssetManager::AsyncState {
     std::size_t retry_deferred_on_owner() noexcept
     {
         return fonts.retry_deferred_on_owner() + textures.retry_deferred_on_owner() +
-               shaders.retry_deferred_on_owner() + materials.retry_deferred_on_owner() +
-               audio.retry_deferred_on_owner();
+               hotspot_masks.retry_deferred_on_owner() + shaders.retry_deferred_on_owner() +
+               materials.retry_deferred_on_owner() + audio.retry_deferred_on_owner();
     }
 
     std::shared_ptr<ResidencyManager> residency;
     core::AssetTelemetrySink* telemetry = nullptr;
     AssetRequestOrchestrator<FontAsset> fonts;
     AssetRequestOrchestrator<TextureAsset> textures;
+    AssetRequestOrchestrator<HotspotMaskAsset> hotspot_masks;
     AssetRequestOrchestrator<ShaderProgramAsset> shaders;
     AssetRequestOrchestrator<MaterialAsset> materials;
     AssetRequestOrchestrator<AudioAsset> audio;
@@ -1034,6 +1037,12 @@ void AssetManager::bind_texture_loader(TextureAssetLoader* loader) const
     m_texture_loader = loader;
     bump_source_generation_on_owner();
 }
+
+void AssetManager::bind_hotspot_mask_loader(HotspotMaskAssetLoader* loader) const
+{
+    m_hotspot_mask_loader = loader;
+    bump_source_generation_on_owner();
+}
 void AssetManager::bind_shader_program_loader(ShaderProgramAssetLoader* loader) const
 {
     if (m_shader_program_loader == loader)
@@ -1163,6 +1172,8 @@ std::vector<core::AssetProfilerEntry> AssetManager::asset_profiler_inventory_on_
                 value->resize(suffix);
             return std::pair{Type::Image, std::move(*value)};
         }
+        if (auto value = strip_prefix("hotspot-mask|"))
+            return std::pair{Type::Image, std::move(*value)};
         if (auto value = strip_prefix("audio|")) {
             for (int suffix_count = 0; suffix_count < 2; ++suffix_count) {
                 const auto suffix = value->rfind('|');
@@ -1247,6 +1258,7 @@ std::vector<core::AssetProfilerEntry> AssetManager::asset_profiler_inventory_on_
 
     add_orchestrator(Type::Font, m_async->fonts.profiler_entries_on_owner());
     add_orchestrator(Type::Image, m_async->textures.profiler_entries_on_owner());
+    add_orchestrator(Type::Image, m_async->hotspot_masks.profiler_entries_on_owner());
     add_orchestrator(Type::Shader, m_async->shaders.profiler_entries_on_owner());
     add_orchestrator(Type::Material, m_async->materials.profiler_entries_on_owner());
     add_orchestrator(Type::Audio, m_async->audio.profiler_entries_on_owner());
@@ -1330,6 +1342,7 @@ void AssetManager::bump_source_generation_on_owner() const noexcept
     if (m_async != nullptr && previous.valid())
         m_async->invalidate_generation_on_owner(previous);
     m_texture_preparation_requirements.clear();
+    m_hotspot_mask_requests.clear();
 }
 
 core::Result<AssetSourceGeneration, core::Diagnostic>
@@ -1388,6 +1401,32 @@ AssetManager::request_texture(const TextureAssetRequest& request,
              .message = "bound texture loader cannot create asynchronous preparation tasks"});
     }
     return m_async->textures.request_on_owner(key, reason, std::move(task));
+}
+
+core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>
+AssetManager::request_hotspot_mask(const HotspotMaskAssetRequest& request,
+                                   AssetRequestReason reason) noexcept
+{
+    if (m_async == nullptr || m_hotspot_mask_loader == nullptr) {
+        return core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>::failure(
+            {.code = "assets.hotspot_mask.unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no hotspot mask loader is bound"});
+    }
+    const auto key = make_hotspot_mask_cache_key(request, m_source_generation);
+    const auto [found, inserted] = m_hotspot_mask_requests.emplace(key, request);
+    if (!inserted && found->second != request) {
+        return core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>::failure(
+            {.code = "assets.hotspot_mask.request_mismatch",
+             .message = "hotspot mask owner was requested with different dimensions or regions"});
+    }
+    auto task = m_hotspot_mask_loader->create_hotspot_mask_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>::failure(
+            {.code = "assets.hotspot_mask.preparation_unavailable",
+             .message = "bound hotspot mask loader cannot create a preparation task"});
+    }
+    return m_async->hotspot_masks.request_on_owner(key, reason, std::move(task));
 }
 
 core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>
@@ -1493,6 +1532,32 @@ AssetManager::prefetch_texture(const TextureAssetRequest& request,
              .message = "bound texture loader cannot create asynchronous preparation tasks"});
     }
     return m_async->textures.prefetch_on_owner(key, generation, std::move(task));
+}
+
+core::Result<PrefetchTicket, core::Diagnostic>
+AssetManager::prefetch_hotspot_mask(const HotspotMaskAssetRequest& request,
+                                    PrefetchGenerationId generation) noexcept
+{
+    if (m_async == nullptr || m_hotspot_mask_loader == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.hotspot_mask.unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no hotspot mask loader is bound"});
+    }
+    const auto key = make_hotspot_mask_cache_key(request, m_source_generation);
+    const auto [found, inserted] = m_hotspot_mask_requests.emplace(key, request);
+    if (!inserted && found->second != request) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.hotspot_mask.request_mismatch",
+             .message = "hotspot mask owner was requested with different dimensions or regions"});
+    }
+    auto task = m_hotspot_mask_loader->create_hotspot_mask_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.hotspot_mask.preparation_unavailable",
+             .message = "bound hotspot mask loader cannot create a preparation task"});
+    }
+    return m_async->hotspot_masks.prefetch_on_owner(key, generation, std::move(task));
 }
 
 core::Result<PrefetchTicket, core::Diagnostic>
@@ -1705,6 +1770,18 @@ AssetManager::leased_texture_on_owner(const TextureAssetRequest& request) const 
         m_leases->candidate, m_leases->published, m_leases->supplemental,
         m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_texture(key); });
+}
+
+const AssetLease<HotspotMaskAsset>*
+AssetManager::leased_hotspot_mask_on_owner(const HotspotMaskAssetRequest& request) const noexcept
+{
+    const auto key = make_hotspot_mask_cache_key(request, m_source_generation);
+    if (m_leases == nullptr)
+        return nullptr;
+    return find_leased_asset<AssetLease<HotspotMaskAsset>>(
+        m_leases->candidate, m_leases->published, m_leases->supplemental,
+        m_leases->focused_candidate, m_leases->focused_published,
+        [&](const auto& set) { return set.find_hotspot_mask(key); });
 }
 
 const AssetLease<ShaderProgramAsset>* AssetManager::leased_shader_program_on_owner(

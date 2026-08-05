@@ -567,6 +567,99 @@ TexturePreparationTask::finalize_on_owner() noexcept
     return m_impl->owner.finalize_texture_on_owner(std::move(m_impl->prepared));
 }
 
+struct HotspotMaskPreparationTask::Impl {
+    Impl(HotspotMaskPreparationOwner& configured_owner,
+         assets::HotspotMaskAssetRequest configured_request)
+        : owner(configured_owner), request(std::move(configured_request)), prepared{request, {}}
+    {
+        const auto byte_count = static_cast<std::uint64_t>(request.width) * request.height;
+        estimate.gpu_bytes = byte_count;
+        estimate.temporary_bytes = byte_count;
+        prepared.bytes.assign(static_cast<std::size_t>(byte_count), 0u);
+        estimate.temporary_bytes = prepared.bytes.capacity();
+    }
+
+    HotspotMaskPreparationOwner& owner;
+    assets::HotspotMaskAssetRequest request;
+    PreparedHotspotMaskUpload prepared;
+    assets::ResidencyCost estimate;
+    std::uint32_t next_row = 0;
+    bool finalized = false;
+};
+
+HotspotMaskPreparationTask::HotspotMaskPreparationTask(HotspotMaskPreparationOwner& owner,
+                                                       assets::HotspotMaskAssetRequest request)
+    : m_impl(std::make_unique<Impl>(owner, std::move(request)))
+{
+}
+
+HotspotMaskPreparationTask::~HotspotMaskPreparationTask() = default;
+
+assets::ResidencyCost HotspotMaskPreparationTask::estimated_cost_on_owner() const noexcept
+{
+    return m_impl->estimate;
+}
+
+assets::AssetPreparationTelemetry HotspotMaskPreparationTask::telemetry_on_owner() const noexcept
+{
+    return {.uncompressed_bytes =
+                static_cast<std::uint64_t>(m_impl->request.width) * m_impl->request.height};
+}
+
+jobs::JobStepOutcome HotspotMaskPreparationTask::step(jobs::JobContext& context) noexcept
+{
+    if (context.cancellation_requested()) {
+        m_impl->prepared.bytes.clear();
+        m_impl->prepared.bytes.shrink_to_fit();
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+    if (m_impl->request.width == 0 || m_impl->request.height == 0 ||
+        m_impl->request.regions.empty()) {
+        return {
+            .status = jobs::JobStepStatus::Failed,
+            .diagnostics = {{.code = "assets.hotspot_mask.invalid_request",
+                             .message = "hotspot mask requires nonzero dimensions and regions"}}};
+    }
+    const std::uint32_t rows_by_bytes =
+        std::max<std::uint32_t>(1u, (256u * 1024u) / m_impl->request.width);
+    const std::uint32_t rows_this_step = std::min<std::uint32_t>(64u, rows_by_bytes);
+    const std::uint32_t end_row =
+        std::min<std::uint32_t>(m_impl->request.height, m_impl->next_row + rows_this_step);
+    for (std::uint32_t y = m_impl->next_row; y < end_row; ++y) {
+        const double v = (static_cast<double>(y) + 0.5) / m_impl->request.height;
+        for (std::uint32_t x = 0; x < m_impl->request.width; ++x) {
+            const double u = (static_cast<double>(x) + 0.5) / m_impl->request.width;
+            const bool covered =
+                std::any_of(m_impl->request.regions.begin(), m_impl->request.regions.end(),
+                            [u, v](const assets::HotspotMaskRegionInput& region) {
+                                const auto& bounds = region.bounds;
+                                return u >= bounds.x && v >= bounds.y &&
+                                       u < bounds.x + bounds.width && v < bounds.y + bounds.height;
+                            });
+            if (covered) {
+                m_impl->prepared.bytes[static_cast<std::size_t>(y) * m_impl->request.width + x] =
+                    255u;
+            }
+        }
+    }
+    m_impl->next_row = end_row;
+    return {.status = end_row == m_impl->request.height ? jobs::JobStepStatus::Completed
+                                                        : jobs::JobStepStatus::Yielded,
+            .diagnostics = {}};
+}
+
+core::Result<assets::PreparedAsset<assets::HotspotMaskAsset>, core::Diagnostics>
+HotspotMaskPreparationTask::finalize_on_owner() noexcept
+{
+    if (m_impl->next_row != m_impl->request.height || m_impl->finalized) {
+        return preparation_failure<assets::HotspotMaskAsset>(
+            "assets.hotspot_mask.not_ready",
+            "hotspot mask preparation was finalized before it was ready");
+    }
+    m_impl->finalized = true;
+    return m_impl->owner.finalize_hotspot_mask_on_owner(std::move(m_impl->prepared));
+}
+
 struct ShaderMaterialPreparationTask<assets::ShaderProgramAsset>::Impl {
     enum class Stage : std::uint8_t {
         Vertex,
@@ -769,6 +862,7 @@ BgfxTypedAssetLoader::BgfxTypedAssetLoader(const assets::AssetManager& assets,
 
 BgfxTypedAssetLoader::~BgfxTypedAssetLoader()
 {
+    m_assets.bind_hotspot_mask_loader(nullptr);
     m_assets.bind_texture_loader(nullptr);
     m_assets.bind_shader_program_loader(nullptr);
     m_assets.bind_material_loader(nullptr);
@@ -817,6 +911,14 @@ BgfxTypedAssetLoader::create_texture_preparation_task(const assets::TextureAsset
 {
     auto& owner = static_cast<TexturePreparationOwner&>(*this);
     return std::make_unique<TexturePreparationTask>(m_assets, owner, request);
+}
+
+std::unique_ptr<assets::AssetPreparationTask<assets::HotspotMaskAsset>>
+BgfxTypedAssetLoader::create_hotspot_mask_preparation_task(
+    const assets::HotspotMaskAssetRequest& request)
+{
+    auto& owner = static_cast<HotspotMaskPreparationOwner&>(*this);
+    return std::make_unique<HotspotMaskPreparationTask>(owner, request);
 }
 
 assets::AssetLoadResult<assets::TextureAsset>
@@ -1023,6 +1125,47 @@ BgfxTypedAssetLoader::finalize_texture_on_owner(PreparedTextureUpload prepared) 
                  bgfx::destroy(resident);
              asset.handle = assets::invalid_typed_asset_handle;
          }});
+}
+
+core::Result<assets::PreparedAsset<assets::HotspotMaskAsset>, core::Diagnostics>
+BgfxTypedAssetLoader::finalize_hotspot_mask_on_owner(PreparedHotspotMaskUpload prepared) noexcept
+{
+    constexpr std::uint64_t flags = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP |
+                                    BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT |
+                                    BGFX_SAMPLER_MIP_POINT;
+    if (!bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::R8, flags)) {
+        return preparation_failure<assets::HotspotMaskAsset>(
+            "assets.hotspot_mask.r8_unsupported",
+            "active renderer does not support sampled R8 hotspot masks");
+    }
+    const auto expected =
+        static_cast<std::size_t>(prepared.request.width) * prepared.request.height;
+    if (prepared.request.width == 0 || prepared.request.height == 0 ||
+        prepared.bytes.size() != expected ||
+        prepared.bytes.size() > std::numeric_limits<std::uint32_t>::max()) {
+        return preparation_failure<assets::HotspotMaskAsset>(
+            "assets.hotspot_mask.invalid_upload",
+            "prepared hotspot mask upload does not match its dimensions");
+    }
+    const auto handle = bgfx::createTexture2D(
+        prepared.request.width, prepared.request.height, false, 1, bgfx::TextureFormat::R8, flags,
+        bgfx::copy(prepared.bytes.data(), static_cast<std::uint32_t>(prepared.bytes.size())));
+    if (!bgfx::isValid(handle)) {
+        return preparation_failure<assets::HotspotMaskAsset>(
+            "assets.hotspot_mask.create_failed", "bgfx could not create the hotspot mask texture");
+    }
+    return core::Result<assets::PreparedAsset<assets::HotspotMaskAsset>, core::Diagnostics>::
+        success({.asset = assets::HotspotMaskAsset{.owner = std::move(prepared.request.owner),
+                                                   .handle = handle.idx,
+                                                   .width = prepared.request.width,
+                                                   .height = prepared.request.height},
+                 .cost = {.gpu_bytes = expected},
+                 .destroy_on_owner = [](assets::HotspotMaskAsset& asset) {
+                     const bgfx::TextureHandle resident{asset.handle};
+                     if (bgfx::isValid(resident))
+                         bgfx::destroy(resident);
+                     asset.handle = assets::invalid_typed_asset_handle;
+                 }});
 }
 
 core::Result<assets::PreparedAsset<assets::ShaderProgramAsset>, core::Diagnostics>

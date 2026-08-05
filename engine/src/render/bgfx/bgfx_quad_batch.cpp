@@ -630,6 +630,7 @@ void Renderer::create_2d()
     m_typed_asset_loader->set_fallback_texture(bgfx::TextureHandle{m_checker_texture});
     m_typed_asset_loader->set_shader_material_project(m_shader_materials);
     m_assets->bind_texture_loader(m_typed_asset_loader.get());
+    m_assets->bind_hotspot_mask_loader(m_typed_asset_loader.get());
     m_assets->bind_shader_program_loader(m_typed_asset_loader.get());
     m_assets->bind_material_loader(m_typed_asset_loader.get());
     m_material_binder = std::make_unique<BgfxMaterialBinder>(
@@ -640,6 +641,7 @@ void Renderer::destroy_2d()
 {
     if (m_assets) {
         m_assets->bind_texture_loader(nullptr);
+        m_assets->bind_hotspot_mask_loader(nullptr);
         m_assets->bind_shader_program_loader(nullptr);
         m_assets->bind_material_loader(nullptr);
     }

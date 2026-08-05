@@ -28,6 +28,11 @@ struct PreparedTextureUpload {
     std::optional<assets::TextureAlphaCoverage> alpha_coverage;
 };
 
+struct PreparedHotspotMaskUpload {
+    assets::HotspotMaskAssetRequest request;
+    std::vector<std::uint8_t> bytes;
+};
+
 struct PreparedShaderProgram {
     assets::ShaderProgramAssetRequest request;
     assets::AssetBytes vertex_bytes;
@@ -40,6 +45,14 @@ public:
     [[nodiscard]] virtual core::Result<assets::PreparedAsset<assets::TextureAsset>,
                                        core::Diagnostics>
     finalize_texture_on_owner(PreparedTextureUpload prepared) noexcept = 0;
+};
+
+class HotspotMaskPreparationOwner {
+public:
+    virtual ~HotspotMaskPreparationOwner() = default;
+    [[nodiscard]] virtual core::Result<assets::PreparedAsset<assets::HotspotMaskAsset>,
+                                       core::Diagnostics>
+    finalize_hotspot_mask_on_owner(PreparedHotspotMaskUpload prepared) noexcept = 0;
 };
 
 class ShaderMaterialPreparationOwner {
@@ -67,6 +80,23 @@ public:
     [[nodiscard]] assets::AssetPreparationTelemetry telemetry_on_owner() const noexcept override;
     [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override;
     [[nodiscard]] core::Result<assets::PreparedAsset<assets::TextureAsset>, core::Diagnostics>
+    finalize_on_owner() noexcept override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
+};
+
+class HotspotMaskPreparationTask final
+    : public assets::AssetPreparationTask<assets::HotspotMaskAsset> {
+public:
+    HotspotMaskPreparationTask(HotspotMaskPreparationOwner& owner,
+                               assets::HotspotMaskAssetRequest request);
+    ~HotspotMaskPreparationTask() override;
+    [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override;
+    [[nodiscard]] assets::AssetPreparationTelemetry telemetry_on_owner() const noexcept override;
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override;
+    [[nodiscard]] core::Result<assets::PreparedAsset<assets::HotspotMaskAsset>, core::Diagnostics>
     finalize_on_owner() noexcept override;
 
 private:
@@ -122,9 +152,11 @@ private:
                                                   std::uint16_t width, std::uint16_t height);
 
 class BgfxTypedAssetLoader final : public assets::TextureAssetLoader,
+                                   public assets::HotspotMaskAssetLoader,
                                    public assets::ShaderProgramAssetLoader,
                                    public assets::MaterialAssetLoader,
                                    private TexturePreparationOwner,
+                                   private HotspotMaskPreparationOwner,
                                    private ShaderMaterialPreparationOwner {
 public:
     BgfxTypedAssetLoader(const assets::AssetManager& assets, BgfxShaderProgramCache& programs);
@@ -138,6 +170,8 @@ public:
     load_texture(const assets::TextureAssetRequest& request) override;
     [[nodiscard]] std::unique_ptr<assets::AssetPreparationTask<assets::TextureAsset>>
     create_texture_preparation_task(const assets::TextureAssetRequest& request) override;
+    [[nodiscard]] std::unique_ptr<assets::AssetPreparationTask<assets::HotspotMaskAsset>>
+    create_hotspot_mask_preparation_task(const assets::HotspotMaskAssetRequest& request) override;
     [[nodiscard]] assets::AssetLoadResult<assets::ShaderProgramAsset>
     load_shader_program(const assets::ShaderProgramAssetRequest& request) override;
     [[nodiscard]] std::unique_ptr<assets::AssetPreparationTask<assets::ShaderProgramAsset>>
@@ -160,6 +194,8 @@ private:
     load_decoded_texture(const assets::TextureAssetRequest& request);
     [[nodiscard]] core::Result<assets::PreparedAsset<assets::TextureAsset>, core::Diagnostics>
     finalize_texture_on_owner(PreparedTextureUpload prepared) noexcept override;
+    [[nodiscard]] core::Result<assets::PreparedAsset<assets::HotspotMaskAsset>, core::Diagnostics>
+    finalize_hotspot_mask_on_owner(PreparedHotspotMaskUpload prepared) noexcept override;
     [[nodiscard]] core::Result<assets::PreparedAsset<assets::ShaderProgramAsset>, core::Diagnostics>
     finalize_shader_program_on_owner(PreparedShaderProgram prepared) noexcept override;
     [[nodiscard]] core::Result<assets::PreparedAsset<assets::MaterialAsset>, core::Diagnostics>

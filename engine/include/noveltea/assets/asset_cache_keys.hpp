@@ -5,6 +5,8 @@
 
 #include <cstdint>
 #include <string>
+#include <type_traits>
+#include <variant>
 
 namespace noveltea::assets {
 
@@ -23,6 +25,22 @@ namespace noveltea::assets {
     return {.stable_identity = "texture|" + request.path + "|" +
                                std::to_string(static_cast<std::uint32_t>(request.sampler)),
             .source_generation = generation};
+}
+
+[[nodiscard]] inline AssetCacheKey
+make_hotspot_mask_cache_key(const HotspotMaskAssetRequest& request,
+                            AssetSourceGeneration generation)
+{
+    const auto identity = std::visit(
+        [](const auto& owner) {
+            using Owner = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<Owner, core::compiled::RoomHotspotOwnerRef>)
+                return std::string{"room|"} + owner.room.text();
+            else
+                return std::string{"interactable|"} + owner.interactable.text();
+        },
+        request.owner);
+    return {.stable_identity = "hotspot-mask|" + identity, .source_generation = generation};
 }
 
 [[nodiscard]] inline AssetCacheKey

@@ -14,8 +14,8 @@ namespace {
 
 using StructuredAssetRequestHandle =
     std::variant<AssetRequestHandle<FontAsset>, AssetRequestHandle<TextureAsset>,
-                 AssetRequestHandle<ShaderProgramAsset>, AssetRequestHandle<MaterialAsset>,
-                 AssetRequestHandle<AudioAsset>>;
+                 AssetRequestHandle<HotspotMaskAsset>, AssetRequestHandle<ShaderProgramAsset>,
+                 AssetRequestHandle<MaterialAsset>, AssetRequestHandle<AudioAsset>>;
 
 struct PendingRecord {
     StructuredAssetRequestDescriptor descriptor;
@@ -90,6 +90,13 @@ submit_request(AssetManager& assets, const StructuredAssetRequestDescriptor& des
                     StructuredAssetRequestHandle{std::move(*result.value_if())});
             } else if constexpr (std::is_same_v<T, TextureAssetRequest>) {
                 auto result = assets.request_texture(request, reason);
+                if (!result)
+                    return core::Result<StructuredAssetRequestHandle, core::Diagnostic>::failure(
+                        std::move(result).error());
+                return core::Result<StructuredAssetRequestHandle, core::Diagnostic>::success(
+                    StructuredAssetRequestHandle{std::move(*result.value_if())});
+            } else if constexpr (std::is_same_v<T, HotspotMaskAssetRequest>) {
+                auto result = assets.request_hotspot_mask(request, reason);
                 if (!result)
                     return core::Result<StructuredAssetRequestHandle, core::Diagnostic>::failure(
                         std::move(result).error());
@@ -194,6 +201,12 @@ const AssetLease<TextureAsset>*
 StructuredAssetLeaseSet::find_texture(const AssetCacheKey& key) const noexcept
 {
     return find_lease<TextureAsset>(m_records, key);
+}
+
+const AssetLease<HotspotMaskAsset>*
+StructuredAssetLeaseSet::find_hotspot_mask(const AssetCacheKey& key) const noexcept
+{
+    return find_lease<HotspotMaskAsset>(m_records, key);
 }
 
 const AssetLease<ShaderProgramAsset>*

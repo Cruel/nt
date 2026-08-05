@@ -2,6 +2,7 @@
 
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/audio/audio_types.hpp"
+#include "noveltea/core/compiled_project.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/shader_manifest.hpp"
 #include "noveltea/text/font.hpp"
@@ -73,6 +74,27 @@ struct TextureAsset {
     std::optional<TextureAlphaCoverage> alpha_coverage;
 };
 
+struct HotspotMaskRegionInput {
+    core::HotspotId hotspot;
+    core::compiled::NormalizedRect bounds;
+    bool operator==(const HotspotMaskRegionInput&) const = default;
+};
+
+struct HotspotMaskAssetRequest {
+    core::compiled::HotspotOwnerRef owner;
+    std::uint16_t width = 0;
+    std::uint16_t height = 0;
+    std::vector<HotspotMaskRegionInput> regions;
+    bool operator==(const HotspotMaskAssetRequest&) const = default;
+};
+
+struct HotspotMaskAsset {
+    core::compiled::HotspotOwnerRef owner;
+    std::uint16_t handle = invalid_typed_asset_handle;
+    std::uint16_t width = 0;
+    std::uint16_t height = 0;
+};
+
 [[nodiscard]] inline bool texture_alpha_coverage_contains(const TextureAlphaCoverage& coverage,
                                                           float u, float v) noexcept
 {
@@ -139,6 +161,13 @@ public:
     load_texture(const TextureAssetRequest& request) = 0;
     [[nodiscard]] virtual std::unique_ptr<AssetPreparationTask<TextureAsset>>
     create_texture_preparation_task(const TextureAssetRequest& request) = 0;
+};
+
+class HotspotMaskAssetLoader {
+public:
+    virtual ~HotspotMaskAssetLoader() = default;
+    [[nodiscard]] virtual std::unique_ptr<AssetPreparationTask<HotspotMaskAsset>>
+    create_hotspot_mask_preparation_task(const HotspotMaskAssetRequest& request) = 0;
 };
 
 class ShaderProgramAssetLoader {

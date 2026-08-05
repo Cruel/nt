@@ -275,6 +275,45 @@ private:
     std::shared_ptr<PreparationProbe> m_probe;
 };
 
+class TestHotspotMaskLoader final : public assets::HotspotMaskAssetLoader,
+                                    public bgfx_backend::HotspotMaskPreparationOwner {
+public:
+    explicit TestHotspotMaskLoader(std::shared_ptr<PreparationProbe> probe)
+        : m_probe(std::move(probe))
+    {
+    }
+
+    std::unique_ptr<assets::AssetPreparationTask<assets::HotspotMaskAsset>>
+    create_hotspot_mask_preparation_task(const assets::HotspotMaskAssetRequest& request) override
+    {
+        return std::make_unique<bgfx_backend::HotspotMaskPreparationTask>(*this, request);
+    }
+
+    core::Result<assets::PreparedAsset<assets::HotspotMaskAsset>, core::Diagnostics>
+    finalize_hotspot_mask_on_owner(
+        bgfx_backend::PreparedHotspotMaskUpload prepared) noexcept override
+    {
+        m_bytes = prepared.bytes;
+        m_probe->finalizations.fetch_add(1, std::memory_order_relaxed);
+        auto probe = m_probe;
+        return core::Result<assets::PreparedAsset<assets::HotspotMaskAsset>, core::Diagnostics>::
+            success({.asset = assets::HotspotMaskAsset{.owner = std::move(prepared.request.owner),
+                                                       .handle = 72,
+                                                       .width = prepared.request.width,
+                                                       .height = prepared.request.height},
+                     .cost = {.gpu_bytes = prepared.bytes.size()},
+                     .destroy_on_owner = [probe = std::move(probe)](assets::HotspotMaskAsset&) {
+                         probe->destructions.fetch_add(1, std::memory_order_relaxed);
+                     }});
+    }
+
+    const std::vector<std::uint8_t>& bytes() const noexcept { return m_bytes; }
+
+private:
+    std::shared_ptr<PreparationProbe> m_probe;
+    std::vector<std::uint8_t> m_bytes;
+};
+
 class TestShaderMaterialLoader final : public assets::ShaderProgramAssetLoader,
                                        public assets::MaterialAssetLoader,
                                        public bgfx_backend::ShaderMaterialPreparationOwner {
@@ -760,6 +799,78 @@ TEST_CASE("Texture prefetch coalesces with demand and canceled preparation never
             executor, [&] { return canceled.state() == assets::AssetRequestState::Canceled; }));
         CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
     }
+    shutdown(executor);
+}
+
+TEST_CASE("Hotspot mask preparation rasterizes binary unions and demand joins prefetched work",
+          "[assets][hotspot-mask]")
+{
+    jobs::InlineJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), nullptr,
+                                                                     executor.mode());
+    auto probe = std::make_shared<PreparationProbe>();
+    probe->owner_thread = std::this_thread::get_id();
+    assets::AssetManager manager;
+    TestHotspotMaskLoader loader(probe);
+    manager.bind_hotspot_mask_loader(&loader);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+
+    const auto room = core::RoomId::create("mask-room");
+    const auto first = core::HotspotId::create("first");
+    const auto second = core::HotspotId::create("second");
+    REQUIRE(room);
+    REQUIRE(first);
+    REQUIRE(second);
+    const assets::HotspotMaskAssetRequest request{
+        .owner = core::compiled::RoomHotspotOwnerRef{.room = *room.value_if()},
+        .width = 4,
+        .height = 4,
+        .regions = {{.hotspot = *first.value_if(),
+                     .bounds = {.x = 0.0, .y = 0.0, .width = 0.5, .height = 0.5}},
+                    {.hotspot = *second.value_if(),
+                     .bounds = {.x = 0.5, .y = 0.5, .width = 0.5, .height = 0.5}}}};
+
+    const auto generation = manager.create_prefetch_generation_on_owner();
+    REQUIRE(generation);
+    auto prefetched = manager.prefetch_hotspot_mask(request, *generation.value_if());
+    REQUIRE(prefetched);
+    auto demanded = manager.request_hotspot_mask(request, assets::AssetRequestReason::Demand);
+    REQUIRE(demanded);
+    auto demand = std::move(demanded).value();
+    REQUIRE(
+        drive_until(executor, [&] { return demand.state() == assets::AssetRequestState::Ready; }));
+    CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
+    REQUIRE(loader.bytes().size() == 16);
+    CHECK(loader.bytes() == std::vector<std::uint8_t>{255, 255, 0, 0, 255, 255, 0, 0, 0, 0, 255,
+                                                      255, 0, 0, 255, 255});
+
+    auto lease = std::move(demand).take_ready();
+    REQUIRE(lease);
+    CHECK((*lease)->width == 4);
+    CHECK((*lease)->height == 4);
+    const auto key = lease->cache_key();
+    lease->reset();
+    std::move(*prefetched.value_if()).cancel();
+    CHECK(residency->evict_on_owner(key, assets::ResidencyEvictionReason::ExplicitRelease));
+    CHECK(probe->destructions.load(std::memory_order_relaxed) == 1);
+
+    const auto canceled_room = core::RoomId::create("canceled-room");
+    REQUIRE(canceled_room);
+    auto canceled_request = request;
+    canceled_request.owner = core::compiled::RoomHotspotOwnerRef{.room = *canceled_room.value_if()};
+    canceled_request.width = 1024;
+    canceled_request.height = 1024;
+    auto canceled_result =
+        manager.request_hotspot_mask(canceled_request, assets::AssetRequestReason::Demand);
+    REQUIRE(canceled_result);
+    auto canceled = std::move(canceled_result).value();
+    canceled.cancel();
+    (void)executor.advance_one_step();
+    (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    CHECK(probe->finalizations.load(std::memory_order_relaxed) == 1);
+    const auto canceled_accounting = residency->accounting_on_owner();
+    CHECK(canceled_accounting.current.temporary_bytes == 0);
+    CHECK(canceled_accounting.high_water.temporary_bytes >= 1024u * 1024u);
     shutdown(executor);
 }
 
