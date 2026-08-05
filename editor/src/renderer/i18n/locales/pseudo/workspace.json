@@ -397,6 +397,17 @@
       "manifestNotReady": "⟦Manifest is not ready.⟧"
     }
   },
+  "roomComposition": {
+    "title": "[Řööɱ çöɱþöşïţïöñ]",
+    "description": "[Möövë äñð řëşïzë řëƒëřëñçë-şþäçë þläçëɱëñţş övëř ţhë çöñƒïğüřëð þäçķğřöüñð ƒïţ.]",
+    "placeInteractable": "[Þläçë Ïñţëřäçţäþlë]",
+    "searchInteractables": "[Şëäřçh Ïñţëřäçţäþlëş]",
+    "noInteractables": "[Ñö Ïñţëřäçţäþlëş äřë äväïläþlë.]",
+    "sharedTitle": "[Şhäřëð þläçëɱëñţ]",
+    "sharedDescription": "[Möövïñğ öř řëşïzïñğ ţhïş þläçëɱëñţ äƒƒëçţş ëvëřÿ lïşţëð öççüþäñţ.]",
+    "detach": "[Ðëţäçh]",
+    "createDedicated": "[Çřëäţë ðëðïçäţëð þläçëɱëñţ]"
+  },
   "hotspots": {
     "subtitle": "⟦Image-relative hotspot authoring⟧",
     "invalidImage": "⟦Select a valid image asset with dimensions before authoring hotspots.⟧",

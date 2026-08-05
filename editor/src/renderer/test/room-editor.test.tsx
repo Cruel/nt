@@ -497,4 +497,41 @@ describe('RoomEditor', () => {
       }),
     );
   });
+  it('places an existing Interactable through one dedicated Room placement transaction', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass Key',
+      data: defaultInteractableData('Brass Key'),
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
+    fireEvent.click(screen.getByRole('button', { name: /Brass Key/i }));
+
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        rooms: {
+          foyer: {
+            data: { placements: [expect.objectContaining({ id: 'key-placement' })] },
+          },
+        },
+        interactables: {
+          key: {
+            data: {
+              initialState: {
+                location: {
+                  kind: 'room-placement',
+                  placement: { room: 'foyer', placement: 'key-placement' },
+                },
+              },
+            },
+          },
+        },
+      }),
+    );
+    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+  });
 });

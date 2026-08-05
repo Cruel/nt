@@ -1988,6 +1988,30 @@ the characterized target set.
 - Shared placement behavior is explicit and tested.
 - No preview manipulation protocol was added.
 
+#### Phase 5 implementation findings and validation
+
+- The existing Room placement contract is already reference-normalized, so the composition surface
+  can edit `RoomPlacementData.bounds` directly without introducing a second coordinate contract or
+  converting through background-image UVs. The stage renders the configured Room background fit as
+  passive context while placement geometry remains tied to the full reference viewport.
+- `RoomCompositionStage` owns only local pointer gesture drafts. Move and southeast-resize gestures
+  publish one `room.replaceData` command on pointer completion; selection and in-progress geometry
+  remain editor-local state. Current cast, prop, and persistent Interactable occupants are rendered
+  as placement labels so shared anchors are visible before editing.
+- Placing an existing Interactable from the Room editor uses the shared searchable record selector,
+  creates a dedicated placement, and updates the Interactable initial location inside one command
+  transaction and one undo entry. Shared placements expose an explicit warning plus per-Interactable
+  Detach and Create dedicated placement actions. Dedicated creation clones the current bounds before
+  reassigning only the chosen Interactable.
+- The focused engine preview remains the existing passive `DerivedPreviewPane`. Phase 5 added no
+  preview command, input, manipulation, or protocol message, and no later-phase runtime behavior was
+  implemented.
+- New Room-composition copy is localized in `en-US`, `pt-BR`, and the pseudo locale. Validation on
+  2026-08-05 passed the focused Phase 5 suites (15 tests), `pnpm -C editor run check`, the full
+  editor suite (183 files passed and one skipped; 1,136 tests passed and four skipped), and
+  `pnpm -C editor run build`. Existing unrelated React `act(...)` warnings remain. The environment
+  used Node 22.22.1 while `editor/package.json` declares Node 24.18.0; all gates passed.
+
 ### Phase 6: Hotspot activation, Interaction context, and save-state version 7
 
 #### Required work
@@ -2309,7 +2333,7 @@ use existing memoized selectors/graph queries rather than scanning the project o
 - [x] Phase 2: Atomic project, compiled, material, and graph contract cutover
 - [x] Phase 3: Shared React image stage and hotspot editor
 - [x] Phase 4: Room and Interactable hotspot authoring
-- [ ] Phase 5: React Room composition and placement tools
+- [x] Phase 5: React Room composition and placement tools
 - [ ] Phase 6: Hotspot activation, Interaction context, and save-state version 7
 - [ ] Phase 7: Alpha coverage in existing image preparation
 - [ ] Phase 8: Binary custom-mask preparation and prefetch

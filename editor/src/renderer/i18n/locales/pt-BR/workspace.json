@@ -433,6 +433,17 @@
       "manifestNotReady": "O manifesto ainda não está pronto."
     }
   },
+  "roomComposition": {
+    "title": "Composição da sala",
+    "description": "Mova e redimensione posicionamentos no espaço de referência sobre o ajuste de fundo configurado.",
+    "placeInteractable": "Posicionar interagível",
+    "searchInteractables": "Pesquisar interagíveis",
+    "noInteractables": "Nenhum interagível está disponível.",
+    "sharedTitle": "Posicionamento compartilhado",
+    "sharedDescription": "Mover ou redimensionar este posicionamento afeta todos os ocupantes listados.",
+    "detach": "Desvincular",
+    "createDedicated": "Criar posicionamento dedicado"
+  },
   "hotspots": {
     "subtitle": "Edição de hotspot relativa à imagem",
     "invalidImage": "Selecione um recurso de imagem válido com dimensões antes de editar hotspots.",

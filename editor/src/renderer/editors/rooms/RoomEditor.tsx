@@ -24,6 +24,7 @@ import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
+import { RoomCompositionStage } from '@/components/room-composition-stage';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import {
   defaultHotspotViewState,
@@ -76,6 +77,8 @@ import { buildRoomDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { RoomExitDirectionSelector } from './RoomExitDirectionSelector';
+import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 
 const backgroundFitLabels = {
   cover: 'Cover',
@@ -557,6 +560,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [backgroundSelectorOpen, setBackgroundSelectorOpen] = useState(false);
   const [destinationSelectorExitId, setDestinationSelectorExitId] = useState<string | null>(null);
+  const [compositionBackgroundUrl, setCompositionBackgroundUrl] = useState<string | null>(null);
+  const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
+  const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
@@ -589,6 +595,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     () =>
       filterSelectorItems(selectorItems, {
         collections: ['rooms'],
+        includeActions: false,
+      }),
+    [selectorItems],
+  );
+  const interactableItems = useMemo(
+    () =>
+      filterSelectorItems(selectorItems, {
+        collections: ['interactables'],
         includeActions: false,
       }),
     [selectorItems],
@@ -636,6 +650,24 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       }),
     [data.hotspots, tab.id],
   );
+  const backgroundAssetData =
+    project && data.background.asset
+      ? parseAssetData(project.assets[data.background.asset.$ref.id]?.data)
+      : null;
+  useEffect(() => {
+    let cancelled = false;
+    if (!projectFilePath || backgroundAssetData?.kind !== 'image') {
+      setCompositionBackgroundUrl(null);
+      return;
+    }
+    window.noveltea
+      .resolveProjectAssetUrl(projectFilePath, backgroundAssetData.source.path)
+      .then((result) => !cancelled && setCompositionBackgroundUrl(result?.url ?? null))
+      .catch(() => !cancelled && setCompositionBackgroundUrl(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [backgroundAssetData, projectFilePath]);
   if (!project || !record || !roomId)
     return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
   const previewSplitOrientation = resolveEditorPreviewSplitOrientation(
@@ -713,6 +745,144 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       },
       'Update room placement',
     );
+  const placementOccupants = (placementId: string) => [
+    ...data.cast
+      .filter((entry) => entry.placementId === placementId)
+      .map((entry) => project.characters[entry.character.$ref.id]?.label ?? entry.id),
+    ...data.props.filter((entry) => entry.placementId === placementId).map((entry) => entry.id),
+    ...Object.entries(project.interactables).flatMap(([id, interactable]) => {
+      const parsed = parseInteractableData(interactable.data);
+      return parsed?.initialState.location.kind === 'room-placement' &&
+        parsed.initialState.location.placement.room === roomId &&
+        parsed.initialState.location.placement.placement === placementId
+        ? [interactable.label || id]
+        : [];
+    }),
+  ];
+  const placeInteractable = (interactableId: string) => {
+    const interactableRecord = project.interactables[interactableId];
+    const interactable = parseInteractableData(interactableRecord?.data);
+    if (!interactable) return;
+    const placementId = nextId(
+      data.placements.map((placement) => placement.id),
+      `${interactableId}-placement`,
+    );
+    const placement: RoomPlacementData = {
+      id: placementId,
+      bounds: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
+      order: data.placements.length,
+      presentation: { label: null, layout: null },
+    };
+    const commandStore = useCommandStore.getState();
+    commandStore.beginTransaction({
+      label: 'Place interactable in room',
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+    commandStore.executeCommand({
+      type: 'room.replaceData',
+      label: 'Create dedicated placement',
+      payload: { roomId, data: { ...data, placements: [...data.placements, placement] } },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+    commandStore.executeCommand({
+      type: 'interactable.replaceData',
+      label: 'Assign interactable placement',
+      payload: {
+        interactableId,
+        data: {
+          ...interactable,
+          initialState: {
+            ...interactable.initialState,
+            location: {
+              kind: 'room-placement',
+              placement: { room: roomId, placement: placementId },
+            },
+          },
+        },
+      },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+    commandStore.commitTransaction();
+    setSelectedPlacementId(placementId);
+  };
+  const detachInteractable = (interactableId: string) => {
+    const interactable = parseInteractableData(project.interactables[interactableId]?.data);
+    if (!interactable) return;
+    useCommandStore.getState().executeCommand({
+      type: 'interactable.replaceData',
+      label: 'Detach interactable from placement',
+      payload: {
+        interactableId,
+        data: {
+          ...interactable,
+          initialState: { ...interactable.initialState, location: { kind: 'nowhere' } },
+        },
+      },
+      originSaveUnitId: recordSaveUnitId('interactables', interactableId),
+      persistencePolicy: 'manual-save',
+    });
+  };
+  const createDedicatedPlacement = (interactableId: string, sourcePlacementId: string) => {
+    const interactable = parseInteractableData(project.interactables[interactableId]?.data);
+    const source = data.placements.find((placement) => placement.id === sourcePlacementId);
+    if (!interactable || !source) return;
+    const placementId = nextId(
+      data.placements.map((placement) => placement.id),
+      `${interactableId}-placement`,
+    );
+    const placement: RoomPlacementData = {
+      ...source,
+      id: placementId,
+      order: data.placements.length,
+    };
+    const commandStore = useCommandStore.getState();
+    commandStore.beginTransaction({
+      label: 'Create dedicated Interactable placement',
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+    commandStore.executeCommand({
+      type: 'room.replaceData',
+      label: 'Create dedicated placement',
+      payload: { roomId, data: { ...data, placements: [...data.placements, placement] } },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+    commandStore.executeCommand({
+      type: 'interactable.replaceData',
+      label: 'Assign dedicated placement',
+      payload: {
+        interactableId,
+        data: {
+          ...interactable,
+          initialState: {
+            ...interactable.initialState,
+            location: {
+              kind: 'room-placement',
+              placement: { room: roomId, placement: placementId },
+            },
+          },
+        },
+      },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+    commandStore.commitTransaction();
+    setSelectedPlacementId(placementId);
+  };
+  const selectedPlacementInteractables = selectedPlacementId
+    ? Object.entries(project.interactables).flatMap(([id, record]) => {
+        const parsed = parseInteractableData(record.data);
+        return parsed?.initialState.location.kind === 'room-placement' &&
+          parsed.initialState.location.placement.room === roomId &&
+          parsed.initialState.location.placement.placement === selectedPlacementId
+          ? [{ id, label: record.label || id }]
+          : [];
+      })
+    : [];
   const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
     commit(
       {
@@ -1381,6 +1551,73 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   />
                 </div>
               ))}
+            </section>
+            <section
+              className="space-y-3 rounded-xl border bg-card/20 p-4"
+              data-workbench-anchor="room.composition"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold">{t('roomComposition.title')}</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {t('roomComposition.description')}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setInteractableSelectorOpen(true)}
+                >
+                  <Plus data-icon="inline-start" />
+                  {t('roomComposition.placeInteractable')}
+                </Button>
+              </div>
+              <RoomCompositionStage
+                backgroundUrl={compositionBackgroundUrl}
+                backgroundFit={data.background.fit}
+                fallbackColor={data.background.color}
+                items={data.placements.map((placement) => ({
+                  id: placement.id,
+                  label: placement.id,
+                  bounds: placement.bounds,
+                  occupants: placementOccupants(placement.id),
+                }))}
+                selectedId={selectedPlacementId}
+                onSelectionChange={setSelectedPlacementId}
+                onCommitBounds={(id, bounds) => replacePlacement(id, { bounds })}
+              />
+              {selectedPlacementId && placementOccupants(selectedPlacementId).length > 1 ? (
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  <div>
+                    <div className="font-medium">{t('roomComposition.sharedTitle')}</div>
+                    <p className="text-muted-foreground">
+                      {t('roomComposition.sharedDescription')}
+                    </p>
+                    {selectedPlacementInteractables.map((interactable) => (
+                      <div key={interactable.id} className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{interactable.label}</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => detachInteractable(interactable.id)}
+                        >
+                          {t('roomComposition.detach')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            createDedicatedPlacement(interactable.id, selectedPlacementId)
+                          }
+                        >
+                          {t('roomComposition.createDedicated')}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </section>
             <section
               className="space-y-4 rounded-xl border bg-card/20 p-4"
@@ -2163,6 +2400,20 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </section>
           </div>
 
+          <SearchSelectorDialog
+            open={interactableSelectorOpen}
+            title={t('roomComposition.placeInteractable')}
+            placeholder={t('roomComposition.searchInteractables')}
+            emptyMessage={t('roomComposition.noInteractables')}
+            items={interactableItems}
+            selectedId={null}
+            onOpenChange={setInteractableSelectorOpen}
+            onSelect={(item) => {
+              if (!item.entityId) return;
+              placeInteractable(item.entityId);
+              setInteractableSelectorOpen(false);
+            }}
+          />
           <SearchSelectorDialog
             open={backgroundSelectorOpen}
             title={t('selectors.backgroundImage.title')}
