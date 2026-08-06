@@ -25,9 +25,12 @@ export interface EditableHotspot {
   label: string;
   condition: Condition;
   inputOrder: number;
-  highlight: { kind: 'default' | 'none' | 'material'; material?: { $ref: { id: string } } };
+  highlight: {
+    kind: 'default' | 'none' | 'material';
+    material?: { $ref: { collection: 'materials'; id: string } };
+  };
   activation:
-    | { kind: 'verb'; verb: { $ref: { id: string } } | null }
+    | { kind: 'verb'; verb: { $ref: { collection: 'verbs'; id: string } } | null }
     | { kind: 'exit'; exitId: string };
   shape?: { kind: 'rect'; bounds: ImageNormalizedRect };
 }
@@ -106,7 +109,16 @@ export function HotspotAuthoringPanel(props: Props) {
     props.onViewChange({ ...props.selectedView, ...patch });
   const updateSelected = (patch: Partial<Omit<EditableHotspot, 'id' | 'shape'>>) => {
     if (!selected) return;
-    props.onUpdate(selected.id, { ...selected, ...patch });
+    // Interactable hotspot updates use the behavior schema, which intentionally
+    // excludes the editor-only geometry shape.
+    props.onUpdate(selected.id, {
+      label: selected.label,
+      condition: selected.condition,
+      inputOrder: selected.inputOrder,
+      highlight: selected.highlight,
+      activation: selected.activation,
+      ...patch,
+    });
   };
   const metadata = assetData?.kind === 'image' ? assetData.imageMetadata : null;
   const visibleImageGuide = useMemo(
@@ -229,7 +241,15 @@ export function HotspotAuthoringPanel(props: Props) {
                   updateSelected({
                     highlight:
                       kind === 'material'
-                        ? { kind: 'material', material: { $ref: { id: materials[0]?.[0] ?? '' } } }
+                        ? {
+                            kind: 'material',
+                            material: {
+                              $ref: {
+                                collection: 'materials',
+                                id: materials[0]?.[0] ?? '',
+                              },
+                            },
+                          }
                         : { kind: kind as 'default' | 'none' },
                   })
                 }
@@ -248,7 +268,10 @@ export function HotspotAuthoringPanel(props: Props) {
                   value={selected.highlight.material?.$ref.id ?? ''}
                   onValueChange={(id) =>
                     updateSelected({
-                      highlight: { kind: 'material', material: { $ref: { id: String(id) } } },
+                      highlight: {
+                        kind: 'material',
+                        material: { $ref: { collection: 'materials', id: String(id) } },
+                      },
                     })
                   }
                 >
@@ -297,7 +320,10 @@ export function HotspotAuthoringPanel(props: Props) {
                     updateSelected({
                       activation: {
                         kind: 'verb',
-                        verb: id === '__none__' ? null : { $ref: { id: String(id) } },
+                        verb:
+                          id === '__none__'
+                            ? null
+                            : { $ref: { collection: 'verbs', id: String(id) } },
                       },
                     })
                   }
@@ -482,11 +508,17 @@ export function HotspotAuthoringPanel(props: Props) {
           if (!selected || !item.entityId) return;
           if (recordSelector === 'material')
             updateSelected({
-              highlight: { kind: 'material', material: { $ref: { id: item.entityId } } },
+              highlight: {
+                kind: 'material',
+                material: { $ref: { collection: 'materials', id: item.entityId } },
+              },
             });
           else
             updateSelected({
-              activation: { kind: 'verb', verb: { $ref: { id: item.entityId } } },
+              activation: {
+                kind: 'verb',
+                verb: { $ref: { collection: 'verbs', id: item.entityId } },
+              },
             });
         }}
       />

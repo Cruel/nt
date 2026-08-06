@@ -217,7 +217,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     setGesture(null);
   };
 
-  const wheel = (event: React.WheelEvent) => {
+  const wheel = (event: WheelEvent) => {
     event.preventDefault();
     const nextZoom = Math.min(
       16,
@@ -230,6 +230,16 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       }),
     );
   };
+
+  useEffect(() => {
+    const element = rootRef.current;
+    if (!element) return;
+
+    // React's delegated wheel listener may be passive in Chromium. The stage owns
+    // the gesture, so install an explicitly non-passive listener at its boundary.
+    element.addEventListener('wheel', wheel, { passive: false });
+    return () => element.removeEventListener('wheel', wheel);
+  }, [wheel]);
 
   const geometry = (item: HotspotStageItem): HotspotStageGeometry =>
     item.geometry ?? { kind: 'rect', bounds: item.bounds };
@@ -250,7 +260,6 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
         onPointerMove={updateGesture}
         onPointerUp={finishGesture}
         onPointerCancel={() => setGesture(null)}
-        onWheel={wheel}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && gesture) {
             event.preventDefault();

@@ -410,4 +410,34 @@ describe('HotspotImageStage', () => {
     expect(onCameraChange).toHaveBeenCalledTimes(2);
     expect(onCameraChange.mock.calls[1]?.[0].zoom).toBeGreaterThan(1);
   });
+
+  it('prevents the browser from scrolling the editor surface while zooming', () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      clientWidth: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 400 },
+    });
+    const onCameraChange = vi.fn();
+    render(
+      <HotspotImageStage
+        imageSize={{ width: 100, height: 100 }}
+        hotspots={[]}
+        selectedHotspotId={null}
+        tool="select"
+        camera={{ zoom: 1, pan: { x: 0, y: 0 } }}
+        onSelectionChange={vi.fn()}
+        onCameraChange={onCameraChange}
+        onCreate={vi.fn()}
+        onCommitBounds={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    const stage = document.querySelector<HTMLElement>(
+      '[data-hotspot-image-stage] > div[tabindex]',
+    )!;
+    const event = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    stage.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(onCameraChange).toHaveBeenCalledTimes(1);
+  });
 });
