@@ -1,4 +1,5 @@
 #include "core/compiled_project_wire.hpp"
+#include "../support/json_test_utils.hpp"
 
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/json_access.hpp>
@@ -794,9 +795,11 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(room_result.error(), "compiled_project.hotspot_verb_arity_mismatch"));
 
         auto interactable = fixture("interaction-program");
+        auto* key =
+            test_support::json_object_by_id(interactable["definitions"]["interactables"], "key");
+        REQUIRE(key != nullptr);
         auto* interactable_verb =
-            path_member(interactable, {"definitions", "interactables", "2", "presentation",
-                                       "hotspots", "hotspot", "activation", "verb", "id"});
+            path_member(*key, {"presentation", "hotspots", "hotspot", "activation", "verb", "id"});
         REQUIRE(interactable_verb != nullptr);
         *interactable_verb = "inspect";
         auto interactable_result = noveltea::core::decode_compiled_project(
@@ -818,8 +821,10 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(room_result.error(), "compiled_project.hotspot_source_image_required"));
 
         auto interactable = fixture("interaction-program");
-        auto* sprite = path_member(interactable,
-                                   {"definitions", "interactables", "2", "presentation", "sprite"});
+        auto* key =
+            test_support::json_object_by_id(interactable["definitions"]["interactables"], "key");
+        REQUIRE(key != nullptr);
+        auto* sprite = path_member(*key, {"presentation", "sprite"});
         REQUIRE(sprite != nullptr);
         *sprite = nullptr;
         auto interactable_result = noveltea::core::decode_compiled_project(
@@ -1156,8 +1161,10 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("Interactable initial location references a missing generic placement")
     {
         auto document = fixture("comprehensive");
-        auto* placement = path_member(document, {"definitions", "interactables", "2",
-                                                 "initialState", "location", "placement"});
+        auto* key =
+            test_support::json_object_by_id(document["definitions"]["interactables"], "key");
+        REQUIRE(key != nullptr);
+        auto* placement = path_member(*key, {"initialState", "location", "placement"});
         REQUIRE(placement != nullptr);
         (*placement)["placementId"] = "missing-placement";
         auto result = noveltea::core::decode_compiled_project(document, "room.json");

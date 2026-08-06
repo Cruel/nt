@@ -1,6 +1,6 @@
 {
   "schema": "noveltea.authoring.project",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "project": {
     "id": "golden-minimal",
     "name": "Golden Minimal",
@@ -143,9 +143,11 @@
         "placements": [],
         "cast": [],
         "props": [],
+        "hotspots": [],
         "environments": [],
         "compose": null,
         "exits": [],
+        "interactables": [],
         "lifecycle": {
           "canEnter": {
             "kind": "always"

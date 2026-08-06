@@ -5,6 +5,8 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/json_access.hpp>
 
+#include "../support/json_test_utils.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <fstream>
@@ -252,8 +254,11 @@ TEST_CASE("compiled package rejects inventory and cross-document reference failu
     SECTION("hotspot highlight material has the wrong role")
     {
         auto document = read_json("interaction-program");
-        document["definitions"]["interactables"][0]["presentation"]["hotspots"]["hotspots"][0]
-                ["highlight"]["material"]["id"] = "sprite-material";
+        auto* coin =
+            test_support::json_object_by_id(document["definitions"]["interactables"], "coin");
+        REQUIRE(coin != nullptr);
+        (*coin)["presentation"]["hotspots"]["hotspots"][0]["highlight"]["material"]["id"] =
+            "sprite-material";
         auto decoded = decode_compiled_project(document, "interaction-program.json");
         REQUIRE(decoded.has_value());
         auto project = std::move(decoded).value();

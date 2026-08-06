@@ -219,7 +219,7 @@ TEST_CASE("native SaveState projects only persisted typed session families")
     CHECK(std::holds_alternative<compiled::RoomPlacementRef>(key->location));
     const auto coin = find_interactable("coin");
     REQUIRE(coin != save.interactables.end());
-    CHECK(std::holds_alternative<compiled::InventoryLocation>(coin->location));
+    CHECK(std::holds_alternative<compiled::NowhereLocation>(coin->location));
     const auto dust = find_interactable("dust");
     REQUIRE(dust != save.interactables.end());
     CHECK(std::holds_alternative<compiled::NowhereLocation>(dust->location));

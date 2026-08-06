@@ -7,6 +7,7 @@
 #include "noveltea/core/compiled_package_codec.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/jobs/inline_job_executor.hpp"
+#include "../support/json_test_utils.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -167,7 +168,9 @@ core::LoadedCompiledPackage collector_package()
           {"id", "shared-alpha"},
           {"inputOrder", 0},
           {"label", "Shared alpha"}}}};
-    document["definitions"]["interactables"][0]["presentation"]["hotspots"] = {
+    auto* coin = test_support::json_object_by_id(document["definitions"]["interactables"], "coin");
+    REQUIRE(coin != nullptr);
+    (*coin)["presentation"]["hotspots"] = {
         {"kind", "custom"},
         {"hotspots",
          nlohmann::json::array(
@@ -180,7 +183,9 @@ core::LoadedCompiledPackage collector_package()
                {"shape",
                 {{"kind", "rect"},
                  {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}}}}}})}};
-    document["definitions"]["interactables"][2]["presentation"]["hotspots"] = alpha_hotspot;
+    auto* key = test_support::json_object_by_id(document["definitions"]["interactables"], "key");
+    REQUIRE(key != nullptr);
+    (*key)["presentation"]["hotspots"] = alpha_hotspot;
     const nlohmann::json hall_hotspot = {
         {"activation", {{"kind", "exit"}, {"exitId", "south-exit"}}},
         {"condition", {{"kind", "always"}}},

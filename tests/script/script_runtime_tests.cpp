@@ -871,7 +871,7 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         assert(not present and type(property_error) == "string")
 
         local location, location_error = noveltea.interactables.location("coin")
-        assert(location_error == nil and location.kind == "inventory")
+        assert(location_error == nil and location.kind == "nowhere")
         location, location_error = noveltea.interactables.location("key")
         assert(location_error == nil and location.kind == "room-placement")
         assert(location.room == "start" and location.placement == "key-placement")

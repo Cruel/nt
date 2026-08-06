@@ -322,7 +322,7 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
 
     REQUIRE(state.interactables().size() == compiled_project.interactables().size());
     REQUIRE(state.interactable(coin) != nullptr);
-    CHECK(std::holds_alternative<compiled::InventoryLocation>(state.interactable(coin)->location));
+    CHECK(std::holds_alternative<compiled::NowhereLocation>(state.interactable(coin)->location));
     REQUIRE(state.interactable(key) != nullptr);
     const auto* initial_placement =
         std::get_if<compiled::RoomPlacementRef>(&state.interactable(key)->location);
