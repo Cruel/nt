@@ -128,7 +128,7 @@ describe('new entity wizard registry', () => {
         draft: draft('interactables'),
       }),
     ).toMatchObject({
-      data: { kind: 'interactable', initialState: { location: { kind: 'nowhere' } } },
+      data: { kind: 'interactable', initialState: { enabled: true, visible: true } },
     });
     expect(newEntityWizardDefinition('verbs').supportLevel).toBe('typed');
     expect(newEntityWizardDefinition('interactions').supportLevel).toBe('typed');

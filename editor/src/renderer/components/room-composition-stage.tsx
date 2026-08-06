@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { RoomNormalizedRect } from '../../shared/project-schema/authoring-rooms';
 
 export interface RoomCompositionItem {
@@ -12,13 +12,14 @@ export interface RoomCompositionStageProps {
   backgroundUrl: string | null;
   backgroundFit: 'cover' | 'contain' | 'stretch' | 'center';
   fallbackColor: string | null;
+  referenceResolution: { width: number; height: number };
   items: readonly RoomCompositionItem[];
   selectedId: string | null;
   placementDraftLabel?: string | null;
-  onSelectionChange(id: string | null): void;
-  onCommitBounds(id: string, bounds: RoomNormalizedRect): void;
-  onCommitPlacement?(bounds: RoomNormalizedRect): void;
-  onCancelPlacement?(): void;
+  onSelectionChange: (id: string | null) => void;
+  onCommitBounds: (id: string, bounds: RoomNormalizedRect) => void;
+  onCommitPlacement?: (bounds: RoomNormalizedRect) => void;
+  onCancelPlacement?: () => void;
 }
 
 type Gesture = {
@@ -32,26 +33,109 @@ type Gesture = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const defaultPlacementSize = { width: 0.2, height: 0.2 } as const;
+const minimumPlacementDragPixels = 4;
+
+function defaultPlacementAt(x: number, y: number): RoomNormalizedRect {
+  return {
+    x: clamp(x - defaultPlacementSize.width / 2, 0, 1 - defaultPlacementSize.width),
+    y: clamp(y - defaultPlacementSize.height / 2, 0, 1 - defaultPlacementSize.height),
+    ...defaultPlacementSize,
+  };
+}
 
 export function RoomCompositionStage(props: RoomCompositionStageProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [gesture, setGesture] = useState<Gesture | null>(null);
+  const gestureRef = useRef<Gesture | null>(null);
+  const callbacksRef = useRef({
+    onCommitBounds: props.onCommitBounds,
+    onCommitPlacement: props.onCommitPlacement,
+  });
+  callbacksRef.current = {
+    onCommitBounds: props.onCommitBounds,
+    onCommitPlacement: props.onCommitPlacement,
+  };
+  const [gesture, setGestureState] = useState<Gesture | null>(null);
+  const setGesture = (next: Gesture | null) => {
+    gestureRef.current = next;
+    setGestureState(next);
+  };
   const boundsFor = (item: RoomCompositionItem) =>
     gesture?.id === item.id ? gesture.draft : item.bounds;
-  const point = (event: ReactPointerEvent) => {
+  const point = (clientX: number, clientY: number) => {
     const rect = rootRef.current?.getBoundingClientRect();
     return rect
       ? {
-          x: clamp((event.clientX - rect.left) / rect.width, 0, 1),
-          y: clamp((event.clientY - rect.top) / rect.height, 0, 1),
+          x: clamp((clientX - rect.left) / rect.width, 0, 1),
+          y: clamp((clientY - rect.top) / rect.height, 0, 1),
         }
       : { x: 0, y: 0 };
   };
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const active = gestureRef.current;
+      if (!active || active.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      const current = point(event.clientX, event.clientY);
+      const dx = current.x - active.startX;
+      const dy = current.y - active.startY;
+      const draft =
+        active.kind === 'move'
+          ? {
+              ...active.initial,
+              x: clamp(active.initial.x + dx, 0, 1 - active.initial.width),
+              y: clamp(active.initial.y + dy, 0, 1 - active.initial.height),
+            }
+          : active.kind === 'resize'
+            ? {
+                ...active.initial,
+                width: clamp(active.initial.width + dx, 0.01, 1 - active.initial.x),
+                height: clamp(active.initial.height + dy, 0.01, 1 - active.initial.y),
+              }
+            : {
+                x: Math.min(active.startX, current.x),
+                y: Math.min(active.startY, current.y),
+                width: Math.abs(current.x - active.startX),
+                height: Math.abs(current.y - active.startY),
+              };
+      setGesture({ ...active, draft });
+    };
+    const finish = (event: PointerEvent) => {
+      const active = gestureRef.current;
+      if (!active || active.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      if (active.kind === 'place') {
+        const rect = rootRef.current?.getBoundingClientRect();
+        const draggedFarEnough = rect
+          ? Math.abs(active.draft.width * rect.width) >= minimumPlacementDragPixels &&
+            Math.abs(active.draft.height * rect.height) >= minimumPlacementDragPixels
+          : false;
+        callbacksRef.current.onCommitPlacement?.(draggedFarEnough ? active.draft : active.initial);
+      } else if (active.id) callbacksRef.current.onCommitBounds(active.id, active.draft);
+      setGesture(null);
+    };
+    const cancel = (event: PointerEvent) => {
+      if (gestureRef.current?.pointerId !== event.pointerId) return;
+      setGesture(null);
+    };
+    const cancelOnBlur = () => setGesture(null);
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', finish, { passive: false });
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('blur', cancelOnBlur);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('blur', cancelOnBlur);
+    };
+  }, []);
   const begin = (event: ReactPointerEvent, item: RoomCompositionItem, kind: Gesture['kind']) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
     event.stopPropagation();
     props.onSelectionChange(item.id);
-    const current = point(event);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const current = point(event.clientX, event.clientY);
     setGesture({
       id: item.id,
       kind,
@@ -63,72 +147,39 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
     });
   };
   const beginPlacement = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     if (!props.placementDraftLabel || !props.onCommitPlacement) {
       props.onSelectionChange(null);
       return;
     }
-    const current = point(event);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    const current = point(event.clientX, event.clientY);
     setGesture({
       id: null,
       kind: 'place',
       pointerId: event.pointerId,
       startX: current.x,
       startY: current.y,
-      initial: { x: current.x, y: current.y, width: 0.000_001, height: 0.000_001 },
-      draft: { x: current.x, y: current.y, width: 0.000_001, height: 0.000_001 },
+      initial: defaultPlacementAt(current.x, current.y),
+      draft: defaultPlacementAt(current.x, current.y),
     });
-  };
-  const move = (event: ReactPointerEvent) => {
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    const current = point(event);
-    const dx = current.x - gesture.startX;
-    const dy = current.y - gesture.startY;
-    const draft =
-      gesture.kind === 'move'
-        ? {
-            ...gesture.initial,
-            x: clamp(gesture.initial.x + dx, 0, 1 - gesture.initial.width),
-            y: clamp(gesture.initial.y + dy, 0, 1 - gesture.initial.height),
-          }
-        : gesture.kind === 'resize'
-          ? {
-              ...gesture.initial,
-              width: clamp(gesture.initial.width + dx, 0.01, 1 - gesture.initial.x),
-              height: clamp(gesture.initial.height + dy, 0.01, 1 - gesture.initial.y),
-            }
-          : {
-              x: Math.min(gesture.startX, current.x),
-              y: Math.min(gesture.startY, current.y),
-              width: Math.abs(current.x - gesture.startX),
-              height: Math.abs(current.y - gesture.startY),
-            };
-    setGesture({ ...gesture, draft });
-  };
-  const finish = (event: ReactPointerEvent) => {
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    if (gesture.kind === 'place') {
-      if (gesture.draft.width > 0 && gesture.draft.height > 0)
-        props.onCommitPlacement?.(gesture.draft);
-    } else if (gesture.id) props.onCommitBounds(gesture.id, gesture.draft);
-    setGesture(null);
   };
   const objectFit =
     props.backgroundFit === 'stretch'
       ? 'fill'
       : props.backgroundFit === 'center'
-        ? 'none'
+        ? 'scale-down'
         : props.backgroundFit;
   return (
     <div
       ref={rootRef}
-      className={`relative aspect-video min-h-64 overflow-hidden rounded-lg border bg-muted/30 ${props.placementDraftLabel ? 'cursor-crosshair' : ''}`}
-      style={{ backgroundColor: props.fallbackColor ?? undefined }}
+      className={`relative w-full touch-none select-none overflow-hidden rounded-lg border bg-muted/30 ${props.placementDraftLabel ? 'cursor-crosshair' : ''}`}
+      style={{
+        aspectRatio: `${props.referenceResolution.width} / ${props.referenceResolution.height}`,
+        backgroundColor: props.fallbackColor ?? undefined,
+      }}
       tabIndex={0}
       onPointerDown={beginPlacement}
-      onPointerMove={move}
-      onPointerUp={finish}
-      onPointerCancel={() => setGesture(null)}
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return;
         setGesture(null);
@@ -169,7 +220,7 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
               <button
                 type="button"
                 aria-label={`Resize ${item.label}`}
-                className="absolute -bottom-1.5 -right-1.5 size-3 cursor-se-resize rounded-sm border bg-background"
+                className="absolute -bottom-2 -right-2 size-4 cursor-se-resize rounded-sm border bg-background"
                 onPointerDown={(event) => begin(event, item, 'resize')}
               />
             ) : null}

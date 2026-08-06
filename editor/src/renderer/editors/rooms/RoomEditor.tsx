@@ -752,27 +752,28 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       .filter((entry) => entry.placementId === placementId)
       .map((entry) => project.characters[entry.character.$ref.id]?.label ?? entry.id),
     ...data.props.filter((entry) => entry.placementId === placementId).map((entry) => entry.id),
-    ...Object.entries(project.interactables).flatMap(([id, interactable]) => {
-      const parsed = parseInteractableData(interactable.data);
-      return parsed?.initialState.location.kind === 'room-placement' &&
-        parsed.initialState.location.placement.room === roomId &&
-        parsed.initialState.location.placement.placement === placementId
-        ? [interactable.label || id]
-        : [];
-    }),
+    ...data.interactables
+      .filter((entry) => entry.placementId === placementId)
+      .map((entry) => project.interactables[entry.interactable.$ref.id]?.label ?? entry.id),
   ];
   const placeInteractable = (interactableId: string, bounds: RoomNormalizedRect) => {
     const interactableRecord = project.interactables[interactableId];
     const interactable = parseInteractableData(interactableRecord?.data);
     if (!interactable) return;
+    const instanceId = nextId(
+      Object.values(project.rooms).flatMap(
+        (room) => parseRoomData(room.data)?.interactables.map((entry) => entry.id) ?? [],
+      ),
+      interactableId,
+    );
     const placementId = nextId(
       data.placements.map((placement) => placement.id),
-      `${interactableId}-placement`,
+      `${instanceId}-placement`,
     );
     useCommandStore.getState().executeCommand({
       type: 'room.placeInteractable',
-      label: 'Place interactable in room',
-      payload: { roomId, interactableId, placementId, bounds },
+      label: 'Place Interactable instance in Room',
+      payload: { roomId, interactableId, instanceId, placementId, bounds },
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
@@ -804,14 +805,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     setSelectedPlacementId(placementId);
   };
   const selectedPlacementInteractables = selectedPlacementId
-    ? Object.entries(project.interactables).flatMap(([id, record]) => {
-        const parsed = parseInteractableData(record.data);
-        return parsed?.initialState.location.kind === 'room-placement' &&
-          parsed.initialState.location.placement.room === roomId &&
-          parsed.initialState.location.placement.placement === selectedPlacementId
-          ? [{ id, label: record.label || id }]
-          : [];
-      })
+    ? data.interactables
+        .filter((entry) => entry.placementId === selectedPlacementId)
+        .map((entry) => ({
+          id: entry.id,
+          label: project.interactables[entry.interactable.$ref.id]?.label ?? entry.id,
+        }))
     : [];
   const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
     commit(
@@ -1511,6 +1510,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 backgroundUrl={compositionBackgroundUrl}
                 backgroundFit={data.background.fit}
                 fallbackColor={data.background.color}
+                referenceResolution={
+                  projectSettingsFromProject(project).display.referenceResolution
+                }
                 items={data.placements.map((placement) => ({
                   id: placement.id,
                   label: placement.id,

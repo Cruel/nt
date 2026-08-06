@@ -105,24 +105,20 @@ type ReviewedFieldEffectCode = 'n' | 'o' | 's' | 'y' | 't' | 'a' | 'l' | 'p' | '
 // n=none, o=owner, s=source, y=symbol, t=structural, a=asset reverse impact,
 // l=localization reverse impact, p=property assignment, v=structural variant.
 const REVIEWED_FIELD_EFFECT_CODES =
-  'nnaanannnnnnnnannyonnnnnnnnonoonoonnonnnnvoonnnnonoonnnoonoyopooonnsssssssssvnsnoonsnooonnnsoonnssss' +
-  'sssssovsnnonnoooonnsssssssssvnsnoonsnoooonnsssssssssovsnnoonnnnoyopoonnvoonnoooonoyopnsssssssssvnsno' +
-  'onooooonoooonoooonsnoonooonnsssssssssovsnoonoonnoonoyopoooooooooooonnnoonsnnnoonnoonsnnnnsssssssssnn' +
-  'nnyolyyooooononsssssssssovsnnnoonnnnoonoonsssssssssovsnnoyoponnnnnnnoonnoonnnnnnnnnnyonnnnnnnnyonnnn' +
-  'oonnoooosssssssssvnsnoononnonnsssssssssoonsssssssssovsnnoonnnnnsssssssssvnsnooooonnnnnnsssssssssvnsn' +
-  'oononoonnnnnnsnoonsnoonsnoonsnoosssssssssnnsnoosssssssssnnsnoosssssssssvnsnooooonnnnnnonnsssssssssov' +
-  'snoooosssssssssvnsnooooononnoyopoooonnoooonnnoonsssssssssvnsnoooonoonoooonnnooooonnnnnnnnnnnssssssss' +
-  'svnsnoooonnnnononoonoonnnsssssssssvnsnoonsnooonsssssssssovsnonnnsssssssssovsnnnnnnnsoonnnsssssssssov' +
-  'snnnnnoonnnnnoyopnnnoovsnyonnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn' +
-  'nnnnnnnnnnnnnnnnoonnnnnnoooooooooooooooooonnoonoonnnnnnoonnnnnnnnnnnnnnnyossnoonsnnnnoonoonnonnnnoo' +
-  'snnnosnnnnnnoooooonoooooonoonnnnnyonnnnnnyonsssssssssovsnnsssssssssnnsnoooooonsnoonooonnsssssssssovs' +
-  'snoonoonnnnnnoyop';
+  'nnaanannnnnnannyonnnnnnnnonoonoonnonnnnvoonnnnonoonnnoonoyopooonnsssssssssvnsnoonsnooonnnsoonnssssss' +
+  'sssovsnnonnoooonnsssssssssvnsnoonsnoooonnsssssssssovsnnoonnnnoyopoonnnnoooonoyopnsssssssssvnsnoonooo' +
+  'oonoooonoooonsnoonooonnsssssssssovsnoonoonnoonoyopoooooooooooonnnoonsnnnoonnoonsnnnnsssssssssnnnnyol' +
+  'yyooooononsssssssssovsnnnoonnnnoonoonsssssssssovsnnoyoponnnnnnnoonnoonnnnnnnnnnyonnnnnnnnyonnnnoonno' +
+  'ooosssssssssvnsnoononnonnsssssssssoonsssssssssovsnnoonnnnnsssssssssvnsnooooonnnnnnsssssssssvnsnoonon' +
+  'oonnnnsssssssssvnsnoonooononnnsnoonsnoonsnoonsnoosssssssssnnsnoosssssssssnnsnoosssssssssvnsnooooonnn' +
+  'nnnonnsssssssssovsnoooosssssssssvnsnooooononnoyopoooonnoooonnnoonsssssssssvnsnoooonoonoooonnnooooonn' +
+  'nnnnnnnnnsssssssssvnsnoooonnnnononoonoonnnsssssssssvnsnoonsnooonsssssssssovsnonnnsssssssssovsnnnnnnn' +
+  'soonnnsssssssssovsnnnnnoonnnnnoyopnnnoovsnyonnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn' +
+  'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoonnnnnnoooooooooooooooooonnoonoonnnnnnoonnnnnnnnnnnnnnnyossnoonsnn' +
+  'nnoonoonnonnnnoosnnnosnnnnnnoooooonoooooonoonnnnnyonnnnnnyonsssssssssovsnnsssssssssnnsnoooooonsnoono' +
+  'oonnsssssssssovssnoonoonnnnnnoyop';
 
-// Authoring V3 retires the V2 preview height/width leaves at legacy sorted positions 10 and 12.
-const ACTIVE_REVIEWED_FIELD_EFFECT_CODES =
-  REVIEWED_FIELD_EFFECT_CODES.slice(0, 10) +
-  REVIEWED_FIELD_EFFECT_CODES.slice(11, 12) +
-  REVIEWED_FIELD_EFFECT_CODES.slice(13);
+const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = REVIEWED_FIELD_EFFECT_CODES;
 
 const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
   [/^\/assets\/\*\/data\/imageMetadata\//, OWNER],
@@ -224,7 +220,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     characters: '249ac48b',
     dialogues: 'e674338a',
     entrypoint: 'a61673d4',
-    interactables: 'e9df40de',
+    interactables: '9e7a7329',
     interactions: '42041028',
     layouts: '87e0b859',
     localization: '3f6d0d11',
@@ -232,7 +228,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     properties: '1ff9b7f3',
-    rooms: 'bb71e6a4',
+    rooms: '075a2c6a',
     scenes: 'd05f7981',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',

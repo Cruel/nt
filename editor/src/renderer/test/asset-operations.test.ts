@@ -117,6 +117,7 @@ describe('asset operations', () => {
         overlays: [],
         cast: [],
         props: [],
+        interactables: [],
         environments: [],
         compose: null,
         hotspots: [],

@@ -470,13 +470,16 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   }
 
   const interactables: SharedInteractableDefinition[] = [];
-  for (const [id, record] of sortedEntries(project.interactables)) {
-    const data = requireData(parseInteractableData(record.data), `/interactables/${id}/data`);
-    if (!data) continue;
-    const location = data.initialState.location;
+  const instantiatedDefinitions = new Set<string>();
+  const compileInteractable = (
+    id: string,
+    record: AuthoringRecordBase,
+    data: NonNullable<ReturnType<typeof parseInteractableData>>,
+    initialState: SharedInteractableDefinition['initialState'],
+  ): SharedInteractableDefinition => {
     const hotspotDefinition = data.presentation.hotspots!;
-    interactables.push({
-      ...propertyBase(id, record),
+    return {
+      ...propertyBase(id, { ...record, extends: null }),
       displayName: data.displayName,
       presentation: {
         sprite: assetRef(data.presentation.sprite),
@@ -505,21 +508,48 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                 })),
               },
       },
-      initialState: {
+      initialState,
+    };
+  };
+  for (const [roomId, roomRecord] of sortedEntries(project.rooms)) {
+    const room = requireData(parseRoomData(roomRecord.data), `/rooms/${roomId}/data`);
+    if (!room) continue;
+    for (const instance of [...room.interactables].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    )) {
+      const definitionRecord = project.interactables[instance.interactable.$ref.id];
+      const data = requireData(
+        parseInteractableData(definitionRecord?.data),
+        `/rooms/${roomId}/data/interactables/${instance.id}/interactable`,
+      );
+      if (!data || !definitionRecord) continue;
+      instantiatedDefinitions.add(instance.interactable.$ref.id);
+      interactables.push(
+        compileInteractable(instance.id, definitionRecord, data, {
+          enabled: instance.enabled,
+          visible: instance.visible,
+          location: {
+            kind: 'room-placement',
+            placement: {
+              room: roomRef(roomId),
+              placementId: instance.placementId,
+            },
+          },
+        }),
+      );
+    }
+  }
+  for (const [id, record] of sortedEntries(project.interactables)) {
+    if (instantiatedDefinitions.has(id)) continue;
+    const data = requireData(parseInteractableData(record.data), `/interactables/${id}/data`);
+    if (!data) continue;
+    interactables.push(
+      compileInteractable(id, record, data, {
         enabled: data.initialState.enabled,
         visible: data.initialState.visible,
-        location:
-          location.kind === 'room-placement'
-            ? {
-                kind: 'room-placement',
-                placement: {
-                  room: roomRef(location.placement.room),
-                  placementId: location.placement.placement,
-                },
-              }
-            : { kind: location.kind },
-      },
-    });
+        location: { kind: 'nowhere' },
+      }),
+    );
   }
 
   const verbs: SharedVerbDefinition[] = [];

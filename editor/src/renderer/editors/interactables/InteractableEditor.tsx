@@ -23,7 +23,6 @@ import {
   type InteractableData,
 } from '../../../shared/project-schema/authoring-interactables';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   useWorkbenchEditorTabState,
@@ -109,18 +108,6 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       }),
     [hotspotIds, tab.id],
   );
-  const placementOptions = useMemo(
-    () =>
-      project
-        ? Object.entries(project.rooms).flatMap(([roomId, room]) => {
-            const roomData = parseRoomData(room.data);
-            return (
-              roomData?.placements.map((placement) => ({ roomId, placementId: placement.id })) ?? []
-            );
-          })
-        : [],
-    [project],
-  );
   if (!project || !record || !interactableId)
     return <div className="p-4 text-sm text-muted-foreground">Interactable record not found.</div>;
   const commit = (next: InteractableData, label: string) =>
@@ -156,7 +143,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         <Badge variant="outline">{interactableId}</Badge>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Unique Interactable definition and initial state declaration.
+        Reusable Interactable definition. Add instances from a Room editor.
       </p>
       <div className="mt-4 grid max-w-2xl gap-3 rounded border p-3 md:grid-cols-2">
         <div>
@@ -217,43 +204,6 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
             {Object.entries(project.materials).map(([id, material]) => (
               <SelectItem key={id} value={id}>
                 {material.label}
-              </SelectItem>
-            ))}
-          </Select>
-        </div>
-        <div>
-          <Label>Initial location</Label>
-          <Select
-            value={
-              data.initialState.location.kind === 'room-placement'
-                ? `${data.initialState.location.placement.room}:${data.initialState.location.placement.placement}`
-                : data.initialState.location.kind
-            }
-            onValueChange={(value) => {
-              const selected = String(value);
-              const location =
-                selected === 'inventory'
-                  ? { kind: 'inventory' as const }
-                  : selected === 'nowhere'
-                    ? { kind: 'nowhere' as const }
-                    : (() => {
-                        const [room, placement] = selected.split(':');
-                        return { kind: 'room-placement' as const, placement: { room, placement } };
-                      })();
-              commit(
-                { ...data, initialState: { ...data.initialState, location } },
-                'Update interactable location',
-              );
-            }}
-          >
-            <SelectItem value="nowhere">Nowhere</SelectItem>
-            <SelectItem value="inventory">Inventory</SelectItem>
-            {placementOptions.map((option) => (
-              <SelectItem
-                key={`${option.roomId}:${option.placementId}`}
-                value={`${option.roomId}:${option.placementId}`}
-              >
-                {option.roomId} / {option.placementId}
               </SelectItem>
             ))}
           </Select>

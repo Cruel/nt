@@ -503,6 +503,8 @@ function resolvedProperty(
 
 function buildAdmissionAndState(
   project: AuthoringProject,
+  roomId: string,
+  room: RoomData,
   targets: readonly AdmissionTarget[],
   compositionTargets: readonly AdmissionTarget[],
   structuredConditionVariableIds: readonly string[],
@@ -532,6 +534,13 @@ function buildAdmissionAndState(
         propertyId: target.propertyId,
       });
     }
+  }
+  for (const instance of room.interactables) {
+    definitions.set(`interactables:${instance.id}`, {
+      collection: 'interactables',
+      id: instance.id,
+    });
+    interactableLocationIds.add(instance.id);
   }
   const compositionDraftCharacterIds = new Set<string>();
   const compositionDraftInteractableIds = new Set<string>();
@@ -584,25 +593,30 @@ function buildAdmissionAndState(
           item.collection === 'dialogues' ||
           item.collection === 'characters' ||
           item.collection === 'interactables'
-            ? (((project[item.collection][item.id]?.data as { displayName?: unknown } | undefined)
-                ?.displayName as string | undefined) ?? null)
+            ? item.collection === 'interactables' && !project.interactables[item.id]
+              ? room.interactables.find((instance) => instance.id === item.id)?.interactable.$ref.id
+                ? (parseInteractableData(
+                    project.interactables[
+                      room.interactables.find((instance) => instance.id === item.id)!.interactable
+                        .$ref.id
+                    ]?.data,
+                  )?.displayName ?? null)
+                : null
+              : (((project[item.collection][item.id]?.data as { displayName?: unknown } | undefined)
+                  ?.displayName as string | undefined) ?? null)
             : null,
       })),
       interactableLocations: sortedLocationIds.flatMap((interactableId) => {
-        const location = parseInteractableData(project.interactables[interactableId]?.data)
-          ?.initialState.location;
-        if (!location) return [];
+        const instance = room.interactables.find((item) => item.id === interactableId);
+        if (!instance) return [];
         return [
           {
             interactableId,
-            location:
-              location.kind === 'room-placement'
-                ? {
-                    kind: 'room-placement' as const,
-                    roomId: location.placement.room,
-                    placementId: location.placement.placement,
-                  }
-                : { kind: location.kind },
+            location: {
+              kind: 'room-placement' as const,
+              roomId,
+              placementId: instance.placementId,
+            },
           },
         ];
       }),
@@ -833,22 +847,22 @@ export function buildFocusedRoomPreview(
         },
       ];
     });
-  const interactables = Object.entries(project.interactables)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .flatMap(([interactableId, interactableRecord], order) => {
-      const data = parseInteractableData(interactableRecord.data);
-      const location = data?.initialState.location;
-      if (!data || location?.kind !== 'room-placement' || location.placement.room !== roomId)
-        return [];
+  const interactables = [...room.interactables]
+    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+    .flatMap((instance) => {
+      const definition = parseInteractableData(
+        project.interactables[instance.interactable.$ref.id]?.data,
+      );
+      if (!definition) return [];
       return [
         {
-          interactableId,
-          placementId: location.placement.placement,
-          spriteAssetId: data.presentation.sprite?.$ref.id ?? null,
-          materialId: data.presentation.material?.$ref.id ?? null,
-          enabled: data.initialState.enabled,
-          visible: data.initialState.visible,
-          order,
+          interactableId: instance.id,
+          placementId: instance.placementId,
+          spriteAssetId: definition.presentation.sprite?.$ref.id ?? null,
+          materialId: definition.presentation.material?.$ref.id ?? null,
+          enabled: instance.enabled,
+          visible: instance.visible,
+          order: instance.order,
         },
       ];
     });
@@ -856,6 +870,8 @@ export function buildFocusedRoomPreview(
   const targets = admissionTargets(graph, closure);
   const { admission, state } = buildAdmissionAndState(
     project,
+    roomId,
+    room,
     targets,
     compositionDraftTargets(graph, roomId, room, relevantSourceAnalysis),
     structuredConditionVariableIds(room),

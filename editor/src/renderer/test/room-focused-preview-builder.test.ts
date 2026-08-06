@@ -34,6 +34,17 @@ function fixture() {
       },
     },
   ];
+  room.interactables = [
+    {
+      id: 'key',
+      interactable: { $ref: { collection: 'interactables', id: 'key' } },
+      condition: { kind: 'always' },
+      placementId: 'door',
+      enabled: true,
+      visible: true,
+      order: 0,
+    },
+  ];
   project.rooms.bedroom = { id: 'bedroom', label: 'Bedroom record', data: room };
   project.localization.catalogs.en!['bedroom-description'] = 'A quiet bedroom.';
 
@@ -45,10 +56,6 @@ function fixture() {
   project.characters.alice = { id: 'alice', label: 'Alice', data: character };
 
   const interactable = defaultInteractableData('Key');
-  interactable.initialState.location = {
-    kind: 'room-placement',
-    placement: { room: 'bedroom', placement: 'door' },
-  };
   project.interactables.key = { id: 'key', label: 'Key', data: interactable };
   return project;
 }

@@ -1,6 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
-import { parseInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { parseCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
   parseInteractionData,
@@ -71,6 +70,10 @@ function repairLocalPlacementReferences(data: RoomData, changes: PlacementChange
       ...entry,
       placementId: repairedPlacementId(entry.placementId, changes) ?? entry.placementId,
     })),
+    interactables: data.interactables.flatMap((entry) => {
+      const placementId = repairedPlacementId(entry.placementId, changes);
+      return placementId ? [{ ...entry, placementId }] : [];
+    }),
   };
 }
 
@@ -232,36 +235,6 @@ export function replaceRoomDataPatches(
           value: toJsonValue(next),
         });
       }
-    }
-    for (const [interactableId, interactableRecord] of Object.entries(document.interactables)) {
-      const interactable = parseInteractableData(interactableRecord.data);
-      const location = interactable?.initialState.location;
-      if (
-        !interactable ||
-        location?.kind !== 'room-placement' ||
-        location.placement.room !== payload.roomId
-      )
-        continue;
-
-      if (changes.nextIds.has(location.placement.placement)) continue;
-      const renamed = changes.renamed.get(location.placement.placement);
-      const next = {
-        ...interactable,
-        initialState: {
-          ...interactable.initialState,
-          location: renamed
-            ? {
-                kind: 'room-placement' as const,
-                placement: { room: payload.roomId, placement: renamed },
-              }
-            : { kind: 'nowhere' as const },
-        },
-      };
-      patches.push({
-        op: 'replace',
-        path: buildJsonPointer(['interactables', interactableId, 'data']),
-        value: toJsonValue(next),
-      });
     }
     for (const [characterId, characterRecord] of Object.entries(document.characters)) {
       const character = parseCharacterData(characterRecord.data);

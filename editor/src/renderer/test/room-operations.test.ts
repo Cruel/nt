@@ -64,7 +64,7 @@ describe('room commands', () => {
     });
   });
 
-  it('repairs Character and Interactable initial locations when placements are renamed or removed', () => {
+  it('repairs Character locations and Room-owned Interactable instances with placement changes', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.placements = [
@@ -75,10 +75,17 @@ describe('room commands', () => {
       },
     ];
     const lamp = defaultInteractableData('Lamp');
-    lamp.initialState.location = {
-      kind: 'room-placement',
-      placement: { room: 'foyer', placement: 'lamp-placement' },
-    };
+    room.interactables = [
+      {
+        id: 'lamp',
+        interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
+        condition: { kind: 'always' },
+        placementId: 'lamp-placement',
+        enabled: true,
+        visible: true,
+        order: 0,
+      },
+    ];
     const guard = defaultCharacterData('Guard');
     guard.initialWorldState.location = {
       kind: 'room-placement',
@@ -97,15 +104,10 @@ describe('room commands', () => {
     });
     expect(renameResult.ok, JSON.stringify(renameResult.diagnostics, null, 2)).toBe(true);
     expect(renameResult.document).toMatchObject({
-      interactables: {
-        lamp: {
+      rooms: {
+        foyer: {
           data: {
-            initialState: {
-              location: {
-                kind: 'room-placement',
-                placement: { room: 'foyer', placement: 'lamp-anchor' },
-              },
-            },
+            interactables: [expect.objectContaining({ id: 'lamp', placementId: 'lamp-anchor' })],
           },
         },
       },
@@ -134,7 +136,7 @@ describe('room commands', () => {
     });
     expect(removeResult.ok).toBe(true);
     expect(removeResult.document).toMatchObject({
-      interactables: { lamp: { data: { initialState: { location: { kind: 'nowhere' } } } } },
+      rooms: { foyer: { data: { interactables: [] } } },
     });
     expect(removeResult.document).toMatchObject({
       characters: { guard: { data: { initialWorldState: { location: { kind: 'nowhere' } } } } },

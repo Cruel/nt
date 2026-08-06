@@ -529,8 +529,8 @@ describe('RoomEditor', () => {
       }),
     });
     fireEvent.pointerDown(stage, { pointerId: 2, clientX: 100, clientY: 100 });
-    fireEvent.pointerMove(stage, { pointerId: 2, clientX: 400, clientY: 250 });
-    fireEvent.pointerUp(stage, { pointerId: 2, clientX: 400, clientY: 250 });
+    fireEvent.pointerMove(window, { pointerId: 2, clientX: 400, clientY: 250 });
+    fireEvent.pointerUp(window, { pointerId: 2, clientX: 400, clientY: 250 });
 
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
@@ -542,18 +542,13 @@ describe('RoomEditor', () => {
                   id: 'key-placement',
                 }),
               ],
-            },
-          },
-        },
-        interactables: {
-          key: {
-            data: {
-              initialState: {
-                location: {
-                  kind: 'room-placement',
-                  placement: { room: 'foyer', placement: 'key-placement' },
-                },
-              },
+              interactables: [
+                expect.objectContaining({
+                  id: 'key',
+                  interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                  placementId: 'key-placement',
+                }),
+              ],
             },
           },
         },
@@ -568,5 +563,148 @@ describe('RoomEditor', () => {
     expect(placement?.bounds.width).toBeCloseTo(0.3);
     expect(placement?.bounds.height).toBeCloseTo(0.3);
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
+  });
+
+  it('moves and resizes an existing placement through window-level pointer gestures', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'key-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        order: 0,
+        presentation: { label: null, layout: null },
+      },
+    ];
+    const key = defaultInteractableData('Brass Key');
+    room.interactables = [
+      {
+        id: 'key',
+        interactable: { $ref: { collection: 'interactables', id: 'key' } },
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        enabled: true,
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.interactables.key = { id: 'key', label: 'Brass Key', data: key };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    const stage = screen.getByTestId('room-composition-stage');
+    Object.defineProperty(stage, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        toJSON: () => ({}),
+      }),
+    });
+    const placement = screen.getByTestId('room-placement-key-placement');
+    fireEvent.pointerDown(placement, { button: 0, pointerId: 11, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(window, { pointerId: 11, clientX: 300, clientY: 150 });
+    fireEvent.pointerUp(window, { pointerId: 11, clientX: 300, clientY: 150 });
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        rooms: {
+          foyer: {
+            data: {
+              placements: [
+                expect.objectContaining({
+                  bounds: { x: 0.3, y: 0.3, width: 0.2, height: 0.2 },
+                }),
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    const resize = screen.getByRole('button', { name: 'Resize key-placement' });
+    fireEvent.pointerDown(resize, { button: 0, pointerId: 12, clientX: 500, clientY: 250 });
+    fireEvent.pointerMove(window, { pointerId: 12, clientX: 700, clientY: 350 });
+    fireEvent.pointerUp(window, { pointerId: 12, clientX: 700, clientY: 350 });
+    await waitFor(() => {
+      const document = useProjectStore.getState().document;
+      expect(isAuthoringProject(document)).toBe(true);
+      if (!isAuthoringProject(document)) return;
+      const bounds = parseRoomData(document.rooms.foyer?.data)?.placements[0]?.bounds;
+      expect(bounds?.x).toBeCloseTo(0.3);
+      expect(bounds?.y).toBeCloseTo(0.3);
+      expect(bounds?.width).toBeCloseTo(0.4);
+      expect(bounds?.height).toBeCloseTo(0.4);
+    });
+  });
+
+  it('allows placing the same Interactable definition multiple times', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'key-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        order: 0,
+        presentation: { label: null, layout: null },
+      },
+    ];
+    const key = defaultInteractableData('Brass Key');
+    room.interactables = [
+      {
+        id: 'key',
+        interactable: { $ref: { collection: 'interactables', id: 'key' } },
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        enabled: true,
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.interactables.key = { id: 'key', label: 'Brass Key', data: key };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
+    fireEvent.click(screen.getByRole('button', { name: /Brass Key/i }));
+    const stage = screen.getByTestId('room-composition-stage');
+    Object.defineProperty(stage, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        toJSON: () => ({}),
+      }),
+    });
+    fireEvent.pointerDown(stage, { button: 0, pointerId: 20, clientX: 600, clientY: 200 });
+    fireEvent.pointerUp(window, { pointerId: 20, clientX: 600, clientY: 200 });
+
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        rooms: {
+          foyer: {
+            data: {
+              interactables: [
+                expect.objectContaining({ id: 'key', placementId: 'key-placement' }),
+                expect.objectContaining({ id: 'key-2', placementId: 'key-2-placement' }),
+              ],
+            },
+          },
+        },
+      }),
+    );
   });
 });

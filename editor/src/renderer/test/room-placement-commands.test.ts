@@ -29,6 +29,7 @@ describe('Room placement commands', () => {
       payload: {
         roomId: 'foyer',
         interactableId: 'key',
+        instanceId: 'key',
         placementId: 'key-placement',
         bounds: { x: 0.3, y: 0.4, width: 0.2, height: 0.1 },
       },
@@ -53,25 +54,22 @@ describe('Room placement commands', () => {
                 },
               },
             ],
-          },
-        },
-      },
-      interactables: {
-        key: {
-          data: {
-            initialState: {
-              location: {
-                kind: 'room-placement',
-                placement: { room: 'foyer', placement: 'key-placement' },
+            interactables: [
+              {
+                id: 'key',
+                interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                condition: { kind: 'always' },
+                placementId: 'key-placement',
+                enabled: true,
+                visible: true,
+                order: 0,
               },
-            },
+            ],
           },
         },
       },
     });
-    expect(placed.historyEntry?.affectedPaths).toEqual(
-      expect.arrayContaining(['/rooms/foyer/data', '/interactables/key/data']),
-    );
+    expect(placed.historyEntry?.affectedPaths).toEqual(['/rooms/foyer/data']);
     expect(undoCommand(placed.state).document).toEqual(state.document);
   });
 
@@ -92,12 +90,19 @@ describe('Room placement commands', () => {
         presentation: { label: null, layout: null },
       },
     ];
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     const key = defaultInteractableData('Key');
-    key.initialState.location = {
-      kind: 'room-placement',
-      placement: { room: 'foyer', placement: 'shared' },
-    };
+    room.interactables = [
+      {
+        id: 'key',
+        interactable: { $ref: { collection: 'interactables', id: 'key' } },
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        enabled: true,
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.interactables.key = { id: 'key', label: 'Key', data: key };
     let state = createInitialCommandBusState(toJsonValue(project));
 
@@ -136,18 +141,7 @@ describe('Room placement commands', () => {
                 order: 4,
               },
             ],
-          },
-        },
-      },
-      interactables: {
-        key: {
-          data: {
-            initialState: {
-              location: {
-                kind: 'room-placement',
-                placement: { room: 'foyer', placement: 'key-placement' },
-              },
-            },
+            interactables: [expect.objectContaining({ id: 'key', placementId: 'key-placement' })],
           },
         },
       },

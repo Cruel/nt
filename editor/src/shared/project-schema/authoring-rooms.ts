@@ -7,6 +7,7 @@ import {
   conditionSchema,
   effectSchema,
   inlineTextContent,
+  interactableRefSchema,
   layoutRefSchema,
   materialRefSchema,
   roomRefSchema,
@@ -49,6 +50,7 @@ export const roomAssetRefSchema = assetRefSchema;
 export const roomMaterialRefSchema = materialRefSchema;
 export const roomLayoutRefSchema = layoutRefSchema;
 export const roomCharacterRefSchema = characterRefSchema;
+export const roomInteractableRefSchema = interactableRefSchema;
 export const roomScriptRefSchema = scriptRefSchema;
 export const roomRoomRefSchema = roomRefSchema;
 export const roomNormalizedRectSchema = strict({
@@ -106,6 +108,15 @@ export const roomPropDataSchema = strict({
   visible: z.boolean(),
   order: z.number().int(),
 });
+export const roomInteractableDataSchema = strict({
+  id: entityIdSchema,
+  interactable: roomInteractableRefSchema,
+  condition: conditionSchema,
+  placementId: entityIdSchema,
+  enabled: z.boolean(),
+  visible: z.boolean(),
+  order: z.number().int(),
+});
 export const roomEnvironmentDataSchema = strict({
   id: entityIdSchema,
   condition: conditionSchema,
@@ -155,6 +166,7 @@ export const roomDataSchema = strict({
   overlays: z.array(roomOverlayDataSchema),
   cast: z.array(roomCastDataSchema),
   props: z.array(roomPropDataSchema),
+  interactables: z.array(roomInteractableDataSchema),
   environments: z.array(roomEnvironmentDataSchema).default([]),
   compose: roomCompositionHookSchema.nullable(),
   lifecycle: roomLifecycleDataSchema,
@@ -173,6 +185,7 @@ export type RoomOverlayData = z.infer<typeof roomOverlayDataSchema>;
 export type RoomPlacementData = z.infer<typeof roomPlacementDataSchema>;
 export type RoomCastData = z.infer<typeof roomCastDataSchema>;
 export type RoomPropData = z.infer<typeof roomPropDataSchema>;
+export type RoomInteractableData = z.infer<typeof roomInteractableDataSchema>;
 export type RoomEnvironmentData = z.infer<typeof roomEnvironmentDataSchema>;
 export type RoomNavigationTransition = z.infer<typeof roomNavigationTransitionSchema>;
 export type RoomExitData = z.infer<typeof roomExitDataSchema>;
@@ -213,6 +226,7 @@ export function defaultRoomData(label = 'Room'): RoomData {
     placements: [],
     cast: [],
     props: [],
+    interactables: [],
     environments: [],
     compose: null,
     exits: [],
@@ -241,6 +255,9 @@ export const roomLayoutRef = (id: string): RoomLayoutRef => ({
 });
 export const roomCharacterRef = (id: string): RoomCharacterRef => ({
   $ref: { collection: 'characters', id },
+});
+export const roomInteractableRef = (id: string) => ({
+  $ref: { collection: 'interactables' as const, id },
 });
 export const roomRoomRef = (id: string): RoomRoomRef => ({ $ref: { collection: 'rooms', id } });
 
@@ -359,6 +376,7 @@ export function validateRoomData(
   uniqueIds(data.placements, `${base}/placements`, 'placement', diagnostics);
   uniqueIds(data.cast, `${base}/cast`, 'cast', diagnostics);
   uniqueIds(data.props, `${base}/props`, 'prop', diagnostics);
+  uniqueIds(data.interactables, `${base}/interactables`, 'Interactable instance', diagnostics);
   uniqueIds(data.environments, `${base}/environments`, 'environment', diagnostics);
   uniqueIds(data.hotspots, `${base}/hotspots`, 'hotspot', diagnostics);
   const placements = new Set(data.placements.map((placement) => placement.id));
@@ -466,6 +484,21 @@ export function validateRoomData(
     if (entry.material && !project.materials[entry.material.$ref.id])
       diagnostics.push(
         diagnostic(`${path}/material/$ref`, `Missing material '${entry.material.$ref.id}'.`),
+      );
+    validateCondition(project, entry.condition, `${path}/condition`, diagnostics);
+  });
+  data.interactables.forEach((entry, index) => {
+    const path = `${base}/interactables/${index}`;
+    if (!project.interactables[entry.interactable.$ref.id])
+      diagnostics.push(
+        diagnostic(
+          `${path}/interactable/$ref`,
+          `Missing Interactable definition '${entry.interactable.$ref.id}'.`,
+        ),
+      );
+    if (!placements.has(entry.placementId))
+      diagnostics.push(
+        diagnostic(`${path}/placementId`, `Missing placement '${entry.placementId}'.`),
       );
     validateCondition(project, entry.condition, `${path}/condition`, diagnostics);
   });

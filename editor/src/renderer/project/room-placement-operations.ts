@@ -25,10 +25,6 @@ function roomPath(roomId: string) {
   return buildJsonPointer(['rooms', roomId, 'data']);
 }
 
-function interactablePath(interactableId: string) {
-  return buildJsonPointer(['interactables', interactableId, 'data']);
-}
-
 function validBounds(bounds: RoomNormalizedRect) {
   return (
     roomNormalizedRectSchema.safeParse(bounds).success &&
@@ -60,47 +56,19 @@ function loadedRecords(
   if (!interactable)
     return {
       patches: [],
-      diagnostics: [error('Interactable record does not exist.', interactablePath(interactableId))],
+      diagnostics: [
+        error(
+          'Interactable record does not exist.',
+          buildJsonPointer(['interactables', interactableId, 'data']),
+        ),
+      ],
     };
   return { room, interactable };
 }
 
-function locationAt(roomId: string, placementId: string) {
-  return {
-    kind: 'room-placement' as const,
-    placement: { room: roomId, placement: placementId },
-  };
-}
-
-function moveInteractable(
-  interactable: InteractableData,
-  roomId: string,
-  placementId: string,
-): InteractableData {
-  return {
-    ...interactable,
-    initialState: {
-      ...interactable.initialState,
-      location: locationAt(roomId, placementId),
-    },
-  };
-}
-
-function crossRecordResult(
-  roomId: string,
-  room: RoomData,
-  interactableId: string,
-  interactable: InteractableData,
-): EntityOperationResult {
-  const patches = [
-    { op: 'replace' as const, path: roomPath(roomId), value: toJsonValue(room) },
-    {
-      op: 'replace' as const,
-      path: interactablePath(interactableId),
-      value: toJsonValue(interactable),
-    },
-  ];
-  return { patches, affectedPaths: patches.map((patch) => patch.path) };
+function roomResult(roomId: string, room: RoomData): EntityOperationResult {
+  const patch = { op: 'replace' as const, path: roomPath(roomId), value: toJsonValue(room) };
+  return { patches: [patch], affectedPaths: [patch.path] };
 }
 
 export function setRoomPlacementBoundsPatches(
@@ -147,6 +115,7 @@ export function placeInteractablePatches(
   payload: {
     roomId: string;
     interactableId: string;
+    instanceId: string;
     placementId: string;
     bounds: RoomNormalizedRect;
   },
@@ -157,6 +126,8 @@ export function placeInteractablePatches(
     return { patches: [], diagnostics: [error('Room placement bounds are invalid.')] };
   if (loaded.room.placements.some((item) => item.id === payload.placementId))
     return { patches: [], diagnostics: [error('Room placement ID already exists.')] };
+  if (loaded.room.interactables.some((item) => item.id === payload.instanceId))
+    return { patches: [], diagnostics: [error('Room Interactable instance ID already exists.')] };
   const maximumOrder = loaded.room.placements.reduce(
     (maximum, placement) => Math.max(maximum, placement.order ?? 0),
     -1,
@@ -170,28 +141,42 @@ export function placeInteractablePatches(
       layout: null,
     },
   };
-  return crossRecordResult(
-    payload.roomId,
-    { ...loaded.room, placements: [...loaded.room.placements, placement] },
-    payload.interactableId,
-    moveInteractable(loaded.interactable!, payload.roomId, payload.placementId),
-  );
+  return roomResult(payload.roomId, {
+    ...loaded.room,
+    placements: [...loaded.room.placements, placement],
+    interactables: [
+      ...loaded.room.interactables,
+      {
+        id: payload.instanceId,
+        interactable: {
+          $ref: { collection: 'interactables', id: payload.interactableId },
+        },
+        condition: { kind: 'always' },
+        placementId: payload.placementId,
+        enabled: loaded.interactable!.initialState.enabled,
+        visible: loaded.interactable!.initialState.visible,
+        order: loaded.room.interactables.length,
+      },
+    ],
+  });
 }
 
 export function moveInteractableToPlacementPatches(
   document: unknown,
   payload: { roomId: string; interactableId: string; placementId: string },
 ): EntityOperationResult {
-  const loaded = loadedRecords(document, payload.roomId, payload.interactableId);
+  const loaded = loadedRecords(document, payload.roomId);
   if ('patches' in loaded) return loaded;
   if (!loaded.room.placements.some((item) => item.id === payload.placementId))
     return { patches: [], diagnostics: [error('Room placement does not exist.')] };
-  const patch = {
-    op: 'replace' as const,
-    path: interactablePath(payload.interactableId),
-    value: toJsonValue(moveInteractable(loaded.interactable!, payload.roomId, payload.placementId)),
-  };
-  return { patches: [patch], affectedPaths: [patch.path] };
+  if (!loaded.room.interactables.some((item) => item.id === payload.interactableId))
+    return { patches: [], diagnostics: [error('Room Interactable instance does not exist.')] };
+  return roomResult(payload.roomId, {
+    ...loaded.room,
+    interactables: loaded.room.interactables.map((item) =>
+      item.id === payload.interactableId ? { ...item, placementId: payload.placementId } : item,
+    ),
+  });
 }
 
 export function detachInteractablePlacementPatches(
@@ -203,19 +188,15 @@ export function detachInteractablePlacementPatches(
     placementId: string;
   },
 ): EntityOperationResult {
-  const loaded = loadedRecords(document, payload.roomId, payload.interactableId);
+  const loaded = loadedRecords(document, payload.roomId);
   if ('patches' in loaded) return loaded;
   if (loaded.room.placements.some((item) => item.id === payload.placementId))
     return { patches: [], diagnostics: [error('Room placement ID already exists.')] };
   const source = loaded.room.placements.find((item) => item.id === payload.sourcePlacementId);
   if (!source)
     return { patches: [], diagnostics: [error('Source Room placement does not exist.')] };
-  const current = loaded.interactable!.initialState.location;
-  if (
-    current.kind !== 'room-placement' ||
-    current.placement.room !== payload.roomId ||
-    current.placement.placement !== payload.sourcePlacementId
-  )
+  const instance = loaded.room.interactables.find((item) => item.id === payload.interactableId);
+  if (!instance || instance.placementId !== payload.sourcePlacementId)
     return {
       patches: [],
       diagnostics: [error('Interactable is not assigned to the source Room placement.')],
@@ -224,14 +205,15 @@ export function detachInteractablePlacementPatches(
     ...source,
     id: payload.placementId,
     presentation: {
-      label: inlineTextContent(loaded.interactable!.displayName),
+      label: source.presentation.label,
       layout: null,
     },
   };
-  return crossRecordResult(
-    payload.roomId,
-    { ...loaded.room, placements: [...loaded.room.placements, placement] },
-    payload.interactableId,
-    moveInteractable(loaded.interactable!, payload.roomId, payload.placementId),
-  );
+  return roomResult(payload.roomId, {
+    ...loaded.room,
+    placements: [...loaded.room.placements, placement],
+    interactables: loaded.room.interactables.map((item) =>
+      item.id === payload.interactableId ? { ...item, placementId: payload.placementId } : item,
+    ),
+  });
 }

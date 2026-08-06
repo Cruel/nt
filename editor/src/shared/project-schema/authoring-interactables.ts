@@ -1,8 +1,6 @@
 import { z } from 'zod';
-import { entityIdSchema } from './authoring-common';
 import { assetRefSchema, materialRefSchema } from './authoring-flow';
 import { parseAssetData } from './authoring-assets';
-import { parseRoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import {
   defaultHotspotBehavior,
@@ -14,12 +12,6 @@ import {
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
 export const interactableMaterialRefSchema = materialRefSchema;
-export const roomPlacementRefSchema = strict({ room: entityIdSchema, placement: entityIdSchema });
-export const interactableInitialLocationSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('inventory') }),
-  strict({ kind: z.literal('nowhere') }),
-  strict({ kind: z.literal('room-placement'), placement: roomPlacementRefSchema }),
-]);
 export const interactableHotspotBehaviorSchema = strict({
   ...hotspotCommonShape,
   activation: verbHotspotActivationSchema,
@@ -46,13 +38,11 @@ export const interactableDataSchema = strict({
     hotspots: interactableHotspotsSchema,
   }),
   initialState: strict({
-    location: interactableInitialLocationSchema,
     enabled: z.boolean(),
     visible: z.boolean(),
   }),
 });
 export type InteractableData = z.infer<typeof interactableDataSchema>;
-export type InteractableInitialLocation = z.infer<typeof interactableInitialLocationSchema>;
 export type InteractableHotspots = z.infer<typeof interactableHotspotsSchema>;
 export interface InteractableSchemaDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -86,7 +76,7 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
       material: null,
       hotspots: { kind: 'sprite-alpha', hotspot: defaultHotspotBehavior(label) },
     },
-    initialState: { location: { kind: 'nowhere' }, enabled: true, visible: true },
+    initialState: { enabled: true, visible: true },
   };
 }
 export const interactableAssetRef = (id: string) => ({
@@ -133,27 +123,5 @@ export function validateInteractableData(
         `Missing material '${data.presentation.material.$ref.id}'.`,
       ),
     );
-  const location = data.initialState.location;
-  if (location.kind === 'room-placement') {
-    const room = project.rooms[location.placement.room];
-    const roomData = room ? parseRoomData(room.data) : null;
-    const placement = roomData?.placements.find(
-      (candidate) => candidate.id === location.placement.placement,
-    );
-    if (!room)
-      diagnostics.push(
-        diagnostic(
-          `${base}/initialState/location/placement/room`,
-          `Missing room '${location.placement.room}'.`,
-        ),
-      );
-    else if (!placement)
-      diagnostics.push(
-        diagnostic(
-          `${base}/initialState/location/placement/placement`,
-          `Missing placement '${location.placement.placement}'.`,
-        ),
-      );
-  }
   return diagnostics;
 }

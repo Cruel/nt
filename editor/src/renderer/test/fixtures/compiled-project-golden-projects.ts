@@ -310,10 +310,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     material: interactableMaterialRef('sprite-material'),
     hotspots: key.presentation.hotspots,
   };
-  key.initialState.location = {
-    kind: 'room-placement',
-    placement: { room: 'start', placement: 'key-placement' },
-  };
   project.interactables.key = { id: 'key', label: 'Key', properties: { enabled: true }, data: key };
 
   const coin = defaultInteractableData('Coin');
@@ -323,12 +319,10 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     material: interactableMaterialRef('sprite-material'),
     hotspots: coin.presentation.hotspots,
   };
-  coin.initialState.location = { kind: 'inventory' };
   project.interactables.coin = { id: 'coin', label: 'Coin', data: coin };
 
   const dust = defaultInteractableData('Dust');
   dust.presentation.hotspots = { kind: 'custom', hotspots: [] };
-  dust.initialState.location = { kind: 'nowhere' };
   project.interactables.dust = { id: 'dust', label: 'Dust', data: dust };
 
   const start = defaultRoomData('Start');
@@ -356,6 +350,17 @@ export function comprehensiveGoldenProject(): AuthoringProject {
         label: { markup: 'plain', source: { kind: 'lua-expression', source: 'key_label()' } },
         layout: roomLayoutRef('hud-inline'),
       },
+    },
+  ];
+  start.interactables = [
+    {
+      id: 'key',
+      interactable: { $ref: { collection: 'interactables', id: 'key' } },
+      condition: { kind: 'always' },
+      placementId: 'key-placement',
+      enabled: true,
+      visible: true,
+      order: 0,
     },
   ];
   start.exits = [

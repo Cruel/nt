@@ -742,6 +742,7 @@ const roomSetPlacementBoundsSchema = z.object({
 const roomPlaceInteractableSchema = z.object({
   roomId: entityIdSchema,
   interactableId: entityIdSchema,
+  instanceId: entityIdSchema,
   placementId: entityIdSchema,
   bounds: roomNormalizedRectSchema,
 });
