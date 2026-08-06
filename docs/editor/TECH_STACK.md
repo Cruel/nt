@@ -356,9 +356,11 @@ Rules:
 - Use the existing iframe/MessageChannel preview boundary.
 - Route preview ownership through `PreviewManager` once implemented.
 - Do not let arbitrary components create unlimited preview iframes.
-- Use cached thumbnail requests for asset/material/layout cards.
-- Store generated thumbnails in editor cache/session data, not runtime project
-  data.
+- Direct image-asset cards and search results use the immutable cache service documented in
+  `docs/editor/IMAGE_THUMBNAIL_CACHE.md`; generated derivatives are central editor cache data, never
+  project/session/runtime-package data.
+- Material, layout, room, scene, and character thumbnails are rendered-preview scope and must remain
+  separate from the direct-image service.
 - Keep preview protocol messages typed and validated.
 
 ## Editor Localization

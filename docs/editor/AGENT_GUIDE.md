@@ -22,6 +22,8 @@ Use these documents as the main references for editor work:
 
 - `docs/editor/OVERVIEW.md` is the editor documentation map.
 - `docs/editor/TECH_STACK.md` describes the editor technology direction.
+- `docs/editor/IMAGE_THUMBNAIL_CACHE.md` describes direct image-asset thumbnail cache ownership,
+  requests, lifecycle, clearing, and full-source exceptions.
 - `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` describes the workbench milestone direction.
 - the editor agent guide describes tab-state preservation and preview host ownership.
 - `docs/editor/LOCALIZATION.md` describes localization status and conventions.
@@ -127,6 +129,11 @@ Stable user-facing strings should use i18n resources under `editor/src/renderer/
 ### UI Components
 
 Use shadcn Base UI components whenever an appropriate component exists. Keep generated components close to upstream output and adapt usage code rather than rewriting generated primitives.
+
+Compact image-asset UI must use the cached thumbnail contract in
+`docs/editor/IMAGE_THUMBNAIL_CACHE.md`. Do not route reduced cards/results through
+`resolveProjectAssetUrl`, and do not conflate direct-image derivatives with engine-rendered entity
+preview thumbnails.
 
 Editors that divide a large form into a left category rail must use
 `editor/src/renderer/components/CategorizedEditorLayout.tsx`. This shared shell owns the responsive

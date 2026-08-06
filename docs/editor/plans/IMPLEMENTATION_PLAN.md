@@ -583,10 +583,12 @@ Preview documents should be narrow and mode-specific. Example preview documents:
 ### Snapshot and Thumbnail Strategy
 
 Thumbnail previews should not require one always-live iframe per thumbnail.
-Recommended v1 approach:
+Direct image-asset thumbnails are implemented by the permanent cache contract in
+`docs/editor/IMAGE_THUMBNAIL_CACHE.md`. The recommendations below apply only to future
+engine-rendered entity previews:
 
 - Use one preview session to render requested thumbnails sequentially.
-- Cache thumbnails by content hash/revision.
+- Cache rendered output by the complete rendered-preview dependency identity.
 - Invalidate thumbnails when dependent records/assets/materials change.
 - Store generated thumbnails as editor cache, not runtime project data.
 - Fall back to symbolic cards when preview is unavailable.

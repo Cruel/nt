@@ -27,6 +27,8 @@ their visible category and message must use plain, localizable product language 
 
 - `docs/editor/AGENT_GUIDE.md` — editor-wide agent practices, workbench navigation, diagnostics, tab state, preview ownership, localization, UI components, and verification.
 - `docs/editor/TECH_STACK.md` — editor dependency and component standards, shadcn/Base UI usage, forms, tables, source editing, preview, localization, and testing standards.
+- `docs/editor/IMAGE_THUMBNAIL_CACHE.md` — permanent direct-image thumbnail cache contract,
+  request/lifecycle behavior, clearing, fallbacks, and retained original-image consumers.
 - `docs/editor/LOCALIZATION.md` — current locale status, namespace coverage, and translation conventions.
 - `docs/architecture/SCHEMA_VERSION_POLICY.md` — mandatory current-only handling for project,
   metadata, session, tab/draft, preview, cache, package, and export contracts.
@@ -53,6 +55,9 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
   focused preview, native presenter, cross-platform, package-smoke, and manual-smoke certification.
 - `docs/runtime/OVERVIEW.md` — runtime/package/test recorder context that editor preview work must align with.
 - `docs/engine/TEST.md` — authoring test editor and playback integration.
+
+Direct image-asset thumbnails are not rendered-preview sessions. See
+`docs/editor/IMAGE_THUMBNAIL_CACHE.md` for their permanent authority.
 
 ## Project and Entity Editor Surfaces
 
