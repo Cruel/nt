@@ -121,6 +121,19 @@ interface NovelTeaElectronApiContract {
     projectFilePath: string,
     projectRelativePath: string,
   ): Promise<ProjectAssetUrlResponse | null>;
+  requestImageThumbnail?(
+    request: import('./image-thumbnails').ImageThumbnailRequest,
+  ): Promise<import('./image-thumbnails').ImageThumbnailResult>;
+  prewarmImageThumbnails?(
+    request: import('./image-thumbnails').ImageThumbnailPrewarmRequest,
+  ): Promise<import('./image-thumbnails').ImageThumbnailPrewarmResult>;
+  cancelImageThumbnailPrewarm?(
+    request: import('./image-thumbnails').CancelImageThumbnailPrewarmRequest,
+  ): Promise<import('./image-thumbnails').CancelImageThumbnailPrewarmResult>;
+  clearEditorCache?(): Promise<import('./image-thumbnails').ClearEditorCacheResult>;
+  onEditorCacheEpoch?(
+    callback: (event: import('./image-thumbnails').EditorCacheEpochEvent) => void,
+  ): () => void;
   readProjectTextSources(
     request: import('./project-text-sources').ReadProjectTextSourcesRequest,
   ): Promise<import('./project-text-sources').ReadProjectTextSourcesResponse>;
