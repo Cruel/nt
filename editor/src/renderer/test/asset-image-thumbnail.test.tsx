@@ -28,6 +28,7 @@ const readyResult = (url: string, cacheEpoch = 0): ImageThumbnailResult => ({
 
 describe('AssetImageThumbnail', () => {
   beforeEach(() => {
+    vi.stubGlobal('devicePixelRatio', 1);
     useProjectStore.getState().loadProjectDocument({
       document: { project: { schema: 'noveltea.authoring.project', version: 2 } },
       projectPath: '/mock/project',
@@ -113,6 +114,45 @@ describe('AssetImageThumbnail', () => {
         variant: { kind: 'minimum-size', widthPx: 200, heightPx: 120, fit: 'contain' },
       }),
     );
+  });
+
+  it('omits malformed project hashes and does not re-request equivalent mounted props', async () => {
+    vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue(
+      readyResult('noveltea-thumbnail://image-v1/aa/stable.webp'),
+    );
+    const malformedSource = { ...source, contentHash: 'SHA256:not-canonical' };
+    const { rerender } = render(
+      <AssetImageThumbnail
+        label="Hero"
+        source={malformedSource}
+        request={{ kind: 'slot', width: 48, height: 36 }}
+      />,
+    );
+
+    expect(await screen.findByAltText('Hero')).toHaveAttribute(
+      'src',
+      'noveltea-thumbnail://image-v1/aa/stable.webp',
+    );
+    expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
+      source: {
+        projectFilePath: '/mock/project/project.json',
+        projectRelativePath: source.projectRelativePath,
+        width: source.width,
+        height: source.height,
+        orientation: source.orientation,
+      },
+      variant: { kind: 'minimum-size', widthPx: 48, heightPx: 36, fit: 'cover' },
+    });
+
+    rerender(
+      <AssetImageThumbnail
+        label="Hero"
+        source={{ ...malformedSource }}
+        request={{ kind: 'slot', width: 48, height: 36 }}
+      />,
+    );
+    await Promise.resolve();
+    expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a stale result after the source changes', async () => {

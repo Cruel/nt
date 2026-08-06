@@ -429,4 +429,23 @@ describe('SettingsPage editor cache', () => {
     );
     expect(clear).toHaveBeenCalledTimes(1);
   });
+
+  it('shows localized failure feedback inside the confirmation dialog', async () => {
+    vi.spyOn(window.noveltea, 'clearEditorCache').mockResolvedValue({
+      ok: false,
+      message: 'sensitive cache path failure',
+      cacheEpoch: 3,
+    });
+    await renderSettingsPage();
+    selectSettingsCategory('Workspace');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Editor Cache' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear Editor Cache' }));
+
+    expect(
+      await within(dialog).findByText('The editor cache could not be cleared.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('sensitive cache path failure')).not.toBeInTheDocument();
+  });
 });

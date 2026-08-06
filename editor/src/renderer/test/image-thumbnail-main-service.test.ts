@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   createImageThumbnailProtocolHandler,
   createImageThumbnailUrl,
@@ -235,6 +235,99 @@ describe('main-process image thumbnail service', () => {
       source: validSource,
       variant: { kind: 'profile', profile: 'compact' },
     });
+  });
+
+  it('does not admit new prewarm batches while the editor cache is clearing', async () => {
+    const fixture = await fixtureProject();
+    const source = await writeRaster(fixture.assetDirectory);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    let release!: () => void;
+    const clearing = service.cache.clear(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+      () => undefined,
+    );
+
+    const result = await service.prewarm({
+      projectGeneration: 'generation-a',
+      sources: [
+        {
+          projectFilePath: fixture.projectFilePath,
+          projectRelativePath: 'assets/images/source.png',
+          contentHash: source.hash,
+          width: 8,
+          height: 4,
+          orientation: 1,
+        },
+      ],
+    });
+    expect(result).toEqual({ ok: false, message: 'Editor cache is clearing.' });
+    release();
+    await clearing;
+  });
+
+  it('keeps filesystem admission bounded across concurrent prewarm batches', async () => {
+    const fixture = await fixtureProject();
+    const generated = await Promise.all(
+      Array.from({ length: 16 }, (_, index) =>
+        writeRaster(fixture.assetDirectory, `source-${index}.png`),
+      ),
+    );
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const sources = generated.map((source, index) => ({
+      projectFilePath: fixture.projectFilePath,
+      projectRelativePath: `assets/images/source-${index}.png`,
+      contentHash: source.hash,
+      width: 8,
+      height: 4,
+      orientation: 1 as const,
+    }));
+    const sourcePaths = new Set(generated.map((source) => source.filePath));
+    const originalStat = fs.stat.bind(fs);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let activeSourceStats = 0;
+    let maximumSourceStats = 0;
+    const statSpy = vi.spyOn(fs, 'stat').mockImplementation(async (filePath) => {
+      if (!sourcePaths.has(String(filePath))) return originalStat(filePath);
+      activeSourceStats += 1;
+      maximumSourceStats = Math.max(maximumSourceStats, activeSourceStats);
+      await gate;
+      try {
+        return await originalStat(filePath);
+      } finally {
+        activeSourceStats -= 1;
+      }
+    });
+
+    const first = service.prewarm({
+      projectGeneration: 'generation-a',
+      sources: sources.slice(0, 8),
+    });
+    const second = service.prewarm({
+      projectGeneration: 'generation-a',
+      sources: sources.slice(8),
+    });
+    while (activeSourceStats < 8) await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(maximumSourceStats).toBe(8);
+    release();
+
+    expect(await first).toEqual({ ok: true, accepted: 8, deduplicated: 0, rejected: 0 });
+    expect(await second).toEqual({ ok: true, accepted: 8, deduplicated: 0, rejected: 0 });
+    statSpy.mockRestore();
+    await Promise.all(
+      sources.map((source) =>
+        service.request({
+          source,
+          variant: { kind: 'profile', profile: 'compact' },
+        }),
+      ),
+    );
   });
 
   it('publishes immutably across service instances and rejects cache-directory escapes', async () => {

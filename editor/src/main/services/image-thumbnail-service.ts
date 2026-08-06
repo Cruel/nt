@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import type {
   CancelImageThumbnailPrewarmResult,
   ImageThumbnailErrorCode,
+  ImageThumbnailPrewarmRequest,
   ImageThumbnailPrewarmResult,
   ImageThumbnailRequest,
   ImageThumbnailResult,
@@ -120,6 +121,7 @@ export class ImageThumbnailService {
   readonly #hashlessInFlight = new Map<string, Promise<ImageThumbnailResult>>();
   readonly #activeSettlements = new Map<number, Set<Promise<unknown>>>();
   readonly #prewarmSignatures = new Set<string>();
+  #prewarmAdmissionTail: Promise<void> = Promise.resolve();
   #activeProjectGeneration: string | null = null;
   #active = 0;
 
@@ -175,6 +177,9 @@ export class ImageThumbnailService {
   }
 
   async prewarm(value: unknown): Promise<ImageThumbnailPrewarmResult> {
+    if (this.cache.isClearing) {
+      return { ok: false, message: 'Editor cache is clearing.' };
+    }
     let request;
     try {
       request = parseImageThumbnailPrewarmRequest(value);
@@ -188,12 +193,26 @@ export class ImageThumbnailService {
       this.#prewarmSignatures.clear();
     }
 
+    const admission = this.#prewarmAdmissionTail.then(() => this.#admitPrewarm(request));
+    this.#prewarmAdmissionTail = admission.then(
+      () => undefined,
+      () => undefined,
+    );
+    return admission;
+  }
+
+  async #admitPrewarm(request: ImageThumbnailPrewarmRequest): Promise<ImageThumbnailPrewarmResult> {
     let accepted = 0;
     let deduplicated = 0;
     let rejected = 0;
     let cursor = 0;
     const admit = async () => {
       while (cursor < request.sources.length) {
+        if (this.cache.isClearing || this.#activeProjectGeneration !== request.projectGeneration) {
+          rejected += request.sources.length - cursor;
+          cursor = request.sources.length;
+          return;
+        }
         const sourceValue = request.sources[cursor++];
         let source;
         try {
@@ -223,7 +242,7 @@ export class ImageThumbnailService {
           rejected += 1;
           continue;
         }
-        if (this.#activeProjectGeneration !== request.projectGeneration) {
+        if (this.cache.isClearing || this.#activeProjectGeneration !== request.projectGeneration) {
           rejected += 1;
           continue;
         }
@@ -283,6 +302,7 @@ export class ImageThumbnailService {
       () => {
         this.#inFlight.clear();
         this.#hashlessInFlight.clear();
+        this.#prewarmSignatures.clear();
       },
     );
   }

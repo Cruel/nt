@@ -1,6 +1,9 @@
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
-import { isCanonicalImageThumbnailContentHash } from '../../shared/image-thumbnails';
+import {
+  IMAGE_THUMBNAIL_MAX_PREWARM_BATCH_SIZE,
+  isCanonicalImageThumbnailContentHash,
+} from '../../shared/image-thumbnails';
 
 export class ImageThumbnailPrewarmCoordinator {
   #generation: string | null = null;
@@ -45,18 +48,28 @@ export class ImageThumbnailPrewarmCoordinator {
       if (!currentIds.has(assetId)) this.#signatures.delete(assetId);
     }
     if (sources.length > 0 && this.#generation) {
-      void window.noveltea.prewarmImageThumbnails({
-        projectGeneration: this.#generation,
-        sources,
-      });
+      for (
+        let offset = 0;
+        offset < sources.length;
+        offset += IMAGE_THUMBNAIL_MAX_PREWARM_BATCH_SIZE
+      ) {
+        void window.noveltea
+          .prewarmImageThumbnails({
+            projectGeneration: this.#generation,
+            sources: sources.slice(offset, offset + IMAGE_THUMBNAIL_MAX_PREWARM_BATCH_SIZE),
+          })
+          .catch(() => undefined);
+      }
     }
   }
 
   cancel(): void {
     if (this.#generation) {
-      void window.noveltea.cancelImageThumbnailPrewarm({
-        projectGeneration: this.#generation,
-      });
+      void window.noveltea
+        .cancelImageThumbnailPrewarm({
+          projectGeneration: this.#generation,
+        })
+        .catch(() => undefined);
     }
     this.#generation = null;
     this.#projectFilePath = null;

@@ -357,12 +357,15 @@ export function SettingsPage({
         });
         setClearCacheDialogOpen(false);
       } else {
-        setClearCacheFeedback({ kind: 'error', message: result.message });
+        setClearCacheFeedback({
+          kind: 'error',
+          message: t('settings:workspace.cache.failure'),
+        });
       }
-    } catch (error) {
+    } catch {
       setClearCacheFeedback({
         kind: 'error',
-        message: error instanceof Error ? error.message : t('settings:workspace.cache.failure'),
+        message: t('settings:workspace.cache.failure'),
       });
     } finally {
       setClearCacheBusy(false);
@@ -875,7 +878,10 @@ export function SettingsPage({
                     type="button"
                     variant="outline"
                     disabled={clearCacheBusy}
-                    onClick={() => setClearCacheDialogOpen(true)}
+                    onClick={() => {
+                      setClearCacheFeedback(null);
+                      setClearCacheDialogOpen(true);
+                    }}
                   >
                     {clearCacheBusy
                       ? t('settings:workspace.cache.clearing')
@@ -1372,6 +1378,9 @@ export function SettingsPage({
               {t('settings:workspace.cache.dialog.description')}
             </DialogDescription>
           </DialogHeader>
+          {clearCacheFeedback?.kind === 'error' ? (
+            <p className="text-sm text-destructive">{clearCacheFeedback.message}</p>
+          ) : null}
           <DialogFooter>
             <Button
               type="button"

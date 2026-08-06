@@ -113,10 +113,10 @@
     "cache": {
       "action": "Limpar cache do editor",
       "clearing": "Limpando…",
-      "description": "Remove arquivos recriáveis gerados pelo editor. Os arquivos do projeto e as configurações não são afetados. Outra instância do editor em execução pode preencher novamente o cache compartilhado.",
+      "description": "Remove arquivos recriáveis gerados pelo editor. Os arquivos do projeto e as configurações não são afetados. Outra instância do editor em execução pode preencher novamente o cache compartilhado; feche as outras instâncias primeiro se o cache precisar permanecer vazio.",
       "dialog": {
         "confirm": "Limpar cache do editor",
-        "description": "Isso remove todos os arquivos recriáveis do cache compartilhado do editor. Os arquivos do projeto e as preferências não serão alterados.",
+        "description": "Isso remove todos os arquivos recriáveis do cache compartilhado do editor. Os arquivos do projeto e as preferências não serão alterados. Feche as outras instâncias primeiro se o cache precisar permanecer vazio.",
         "title": "Limpar o cache do editor?"
       },
       "failure": "Não foi possível limpar o cache do editor.",

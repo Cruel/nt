@@ -11,10 +11,12 @@ import {
 import { usePreferencesStore } from '@/stores/preferences-store';
 
 beforeEach(() => {
+  vi.stubGlobal('devicePixelRatio', 1);
   useProjectStore.getState().clearProject();
   usePreferencesStore.getState().resetToDefaults();
   clearWorkbenchRevealTargets();
   vi.mocked(window.noveltea.resolveProjectAssetUrl).mockClear();
+  vi.mocked(window.noveltea.requestImageThumbnail).mockClear();
 });
 
 describe('CommandPaletteDialog', () => {
@@ -43,8 +45,21 @@ describe('CommandPaletteDialog', () => {
 
     expect(screen.getByText('Logo')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByAltText('Logo')).toBeInTheDocument());
-    expect(window.noveltea.requestImageThumbnail).toHaveBeenCalled();
+    expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
+      source: {
+        projectFilePath: '/mock/project.json',
+        projectRelativePath: 'assets/images/logo.png',
+        width: 256,
+        height: 256,
+        orientation: 1,
+      },
+      variant: { kind: 'minimum-size', widthPx: 48, heightPx: 36, fit: 'cover' },
+    });
     expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
+    expect(screen.getByAltText('Logo')).toHaveAttribute(
+      'src',
+      expect.stringContaining('noveltea-thumbnail:'),
+    );
   });
 
   it('opens settings as a workbench tab', async () => {

@@ -6,7 +6,10 @@ import type {
   ImageThumbnailProfile,
   ImageThumbnailSource,
 } from '../../shared/image-thumbnails';
-import { imageThumbnailPhysicalSlot } from '../../shared/image-thumbnails';
+import {
+  imageThumbnailPhysicalSlot,
+  isCanonicalImageThumbnailContentHash,
+} from '../../shared/image-thumbnails';
 import { useImageThumbnail } from './image-thumbnail-client';
 import { observeThumbnailVisibility } from './thumbnail-visibility-service';
 
@@ -35,6 +38,14 @@ export function AssetImageThumbnail({
   const containerRef = useRef<HTMLSpanElement>(null);
   const [intersecting, setIntersecting] = useState(requestMode === 'eager');
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const requestKind = request.kind;
+  const requestProfile = request.kind === 'profile' ? request.profile : null;
+  const requestWidth = request.kind === 'slot' ? request.width : null;
+  const requestHeight = request.kind === 'slot' ? request.height : null;
+  const fit = request.fit ?? 'cover';
+  const contentHash = isCanonicalImageThumbnailContentHash(source.contentHash)
+    ? source.contentHash
+    : undefined;
 
   useEffect(() => {
     const element = containerRef.current;
@@ -50,20 +61,44 @@ export function AssetImageThumbnail({
   const thumbnailRequest = useMemo(() => {
     if (!projectFilePath || !intersecting) return null;
     const variant =
-      request.kind === 'profile'
-        ? { kind: 'profile' as const, profile: request.profile }
-        : request.width > 0 && request.height > 0
+      requestKind === 'profile' && requestProfile
+        ? { kind: 'profile' as const, profile: requestProfile }
+        : requestWidth && requestHeight && requestWidth > 0 && requestHeight > 0
           ? {
               kind: 'minimum-size' as const,
-              ...imageThumbnailPhysicalSlot(request.width, request.height, window.devicePixelRatio),
-              fit: request.fit ?? 'cover',
+              ...imageThumbnailPhysicalSlot(requestWidth, requestHeight, window.devicePixelRatio),
+              fit,
             }
           : null;
-    return variant ? { source: { ...source, projectFilePath }, variant } : null;
-  }, [intersecting, projectFilePath, request, source]);
+    return variant
+      ? {
+          source: {
+            projectFilePath,
+            projectRelativePath: source.projectRelativePath,
+            ...(contentHash ? { contentHash } : {}),
+            width: source.width,
+            height: source.height,
+            orientation: source.orientation,
+          },
+          variant,
+        }
+      : null;
+  }, [
+    contentHash,
+    fit,
+    intersecting,
+    projectFilePath,
+    requestHeight,
+    requestKind,
+    requestProfile,
+    requestWidth,
+    source.height,
+    source.orientation,
+    source.projectRelativePath,
+    source.width,
+  ]);
 
   const thumbnail = useImageThumbnail(thumbnailRequest);
-  const fit = request.fit ?? 'cover';
   const url = thumbnail.status === 'ready' && thumbnail.result?.ok ? thumbnail.result.url : null;
 
   useEffect(() => setImageLoadFailed(false), [url]);

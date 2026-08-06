@@ -7,6 +7,8 @@ export const IMAGE_THUMBNAIL_PROFILES = {
   large: 1024,
 } as const;
 
+export const IMAGE_THUMBNAIL_MAX_PREWARM_BATCH_SIZE = 50_000;
+
 export type ImageThumbnailProfile = keyof typeof IMAGE_THUMBNAIL_PROFILES;
 export type ImageThumbnailFit = 'cover' | 'contain';
 export type ImageThumbnailOrientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -134,7 +136,7 @@ const projectGenerationSchema = z.string().min(1).max(512);
 export const imageThumbnailPrewarmRequestSchema = z
   .object({
     projectGeneration: projectGenerationSchema,
-    sources: z.array(z.unknown()).max(50_000),
+    sources: z.array(z.unknown()).max(IMAGE_THUMBNAIL_MAX_PREWARM_BATCH_SIZE),
   })
   .strict();
 

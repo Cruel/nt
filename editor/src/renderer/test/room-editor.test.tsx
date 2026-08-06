@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vite-plus/test';
+import { describe, expect, it, beforeEach, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import {
@@ -48,6 +48,7 @@ beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
   clearWorkbenchTabStates();
+  vi.mocked(window.noveltea.requestImageThumbnail).mockClear();
 });
 describe('RoomEditor', () => {
   it('splits Room editing into the shared categorical layout', () => {
@@ -144,11 +145,27 @@ describe('RoomEditor', () => {
       },
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
     renderEditor();
 
     fireEvent.click(screen.getByRole('button', { name: /choose an image/i }));
     expect(screen.getByText('Choose a background image')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
+        source: {
+          projectFilePath: '/mock/project/project.json',
+          projectRelativePath: 'assets/images/foyer.png',
+          width: 1920,
+          height: 1080,
+          orientation: 1,
+        },
+        variant: { kind: 'minimum-size', widthPx: 80, heightPx: 48, fit: 'cover' },
+      }),
+    );
     fireEvent.click(screen.getByRole('button', { name: /foyer background/i }));
 
     await waitFor(() =>
@@ -163,6 +180,10 @@ describe('RoomEditor', () => {
           },
         },
       }),
+    );
+    expect(await screen.findByAltText('Foyer Background')).toHaveAttribute(
+      'src',
+      expect.stringContaining('noveltea-thumbnail:'),
     );
   });
   it('shows visual background-fit options and updates the selected fit', async () => {
