@@ -37,12 +37,20 @@ describe('AssetImageThumbnail', () => {
   });
 
   it('defers invisible thumbnails without issuing IPC', () => {
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     render(
       <AssetImageThumbnail
         label="Hero"
         source={source}
         request={{ kind: 'profile', profile: 'compact' }}
-        visible={false}
+        requestMode="visible"
       />,
     );
 
@@ -86,17 +94,6 @@ describe('AssetImageThumbnail', () => {
   });
 
   it('uses DPR-aware physical slot dimensions', async () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
-      width: 80,
-      height: 48,
-      top: 0,
-      right: 80,
-      bottom: 48,
-      left: 0,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    });
     vi.stubGlobal('devicePixelRatio', 2.5);
     vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue(
       readyResult('noveltea-thumbnail://image-v1/aa/dpr.webp'),
@@ -106,7 +103,7 @@ describe('AssetImageThumbnail', () => {
       <AssetImageThumbnail
         label="Hero"
         source={source}
-        request={{ kind: 'slot', fit: 'contain' }}
+        request={{ kind: 'slot', width: 80, height: 48, fit: 'contain' }}
       />,
     );
 

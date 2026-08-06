@@ -8,10 +8,11 @@ import type {
 } from '../../shared/image-thumbnails';
 import { imageThumbnailPhysicalSlot } from '../../shared/image-thumbnails';
 import { useImageThumbnail } from './image-thumbnail-client';
+import { observeThumbnailVisibility } from './thumbnail-visibility-service';
 
 export type AssetImageThumbnailRequest =
   | { kind: 'profile'; profile: ImageThumbnailProfile; fit?: ImageThumbnailFit }
-  | { kind: 'slot'; fit: ImageThumbnailFit };
+  | { kind: 'slot'; width: number; height: number; fit?: ImageThumbnailFit };
 
 export type AssetImageThumbnailSource = Omit<ImageThumbnailSource, 'projectFilePath'>;
 
@@ -19,71 +20,53 @@ interface AssetImageThumbnailProps {
   label: string;
   source: AssetImageThumbnailSource;
   request: AssetImageThumbnailRequest;
+  requestMode?: 'eager' | 'visible';
   className?: string;
-  visible?: boolean;
 }
 
 export function AssetImageThumbnail({
   label,
   source,
   request,
+  requestMode = 'eager',
   className = 'h-9 w-12',
-  visible = true,
 }: AssetImageThumbnailProps) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const containerRef = useRef<HTMLSpanElement>(null);
-  const [intersecting, setIntersecting] = useState(false);
-  const [slot, setSlot] = useState({ width: 0, height: 0 });
+  const [intersecting, setIntersecting] = useState(requestMode === 'eager');
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
 
   useEffect(() => {
     const element = containerRef.current;
-    if (!element || !visible) {
-      setIntersecting(false);
-      return;
-    }
-    if (typeof IntersectionObserver === 'undefined') {
+    if (requestMode === 'eager') {
       setIntersecting(true);
       return;
     }
-    const observer = new IntersectionObserver(([entry]) =>
-      setIntersecting(entry?.isIntersecting ?? false),
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [visible]);
-
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element || request.kind !== 'slot') return;
-    const update = () => {
-      const rect = element.getBoundingClientRect();
-      setSlot({ width: Math.max(0, rect.width), height: Math.max(0, rect.height) });
-    };
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [request.kind]);
+    if (!element) return;
+    setIntersecting(false);
+    return observeThumbnailVisibility(element, setIntersecting);
+  }, [requestMode]);
 
   const thumbnailRequest = useMemo(() => {
-    if (!projectFilePath || !visible || !intersecting) return null;
+    if (!projectFilePath || !intersecting) return null;
     const variant =
       request.kind === 'profile'
         ? { kind: 'profile' as const, profile: request.profile }
-        : slot.width > 0 && slot.height > 0
+        : request.width > 0 && request.height > 0
           ? {
               kind: 'minimum-size' as const,
-              ...imageThumbnailPhysicalSlot(slot.width, slot.height, window.devicePixelRatio),
-              fit: request.fit,
+              ...imageThumbnailPhysicalSlot(request.width, request.height, window.devicePixelRatio),
+              fit: request.fit ?? 'cover',
             }
           : null;
     return variant ? { source: { ...source, projectFilePath }, variant } : null;
-  }, [intersecting, projectFilePath, request, slot.height, slot.width, source, visible]);
+  }, [intersecting, projectFilePath, request, source]);
 
   const thumbnail = useImageThumbnail(thumbnailRequest);
   const fit = request.fit ?? 'cover';
   const url = thumbnail.status === 'ready' && thumbnail.result?.ok ? thumbnail.result.url : null;
+
+  useEffect(() => setImageLoadFailed(false), [url]);
 
   return (
     <span
@@ -100,10 +83,12 @@ export function AssetImageThumbnail({
           backgroundSize: '8px 8px',
         }}
       />
-      {url ? (
+      {url && !imageLoadFailed ? (
         <img
           src={url}
           alt={label}
+          loading="lazy"
+          onError={() => setImageLoadFailed(true)}
           className={`relative h-full w-full ${fit === 'contain' ? 'object-contain' : 'object-cover'}`}
         />
       ) : (

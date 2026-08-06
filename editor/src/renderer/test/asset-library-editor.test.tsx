@@ -23,6 +23,7 @@ function project() {
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],
       extension: '.png',
+      contentHash: `sha256:${'b'.repeat(64)}`,
       imageMetadata: { width: 256, height: 256, hasAlpha: true, orientation: 1 },
     },
   };
@@ -48,10 +49,23 @@ beforeEach(() => {
     url: 'data:image/png;base64,bW9jaw==',
     absolutePath: '/mock/project/assets/images/logo.png',
   });
+  vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue({
+    ok: true,
+    url: 'noveltea-thumbnail://image-v1/aa/card.webp',
+    cacheKey: 'a'.repeat(64),
+    sourceRevision: `sha256:${'b'.repeat(64)}`,
+    profile: 'card',
+    width: 256,
+    height: 256,
+    cacheStatus: 'hit',
+    sourceLimited: true,
+    tierLimited: false,
+    cacheEpoch: 0,
+  });
 });
 
 describe('AssetLibraryEditor', () => {
-  it('renders compact image thumbnails and audio controls from resolved project asset URLs', async () => {
+  it('renders image cards from thumbnail URLs while retaining resolved audio URLs', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock/project',
@@ -60,10 +74,17 @@ describe('AssetLibraryEditor', () => {
     render(<AssetLibraryEditor tab={tab} />);
 
     await waitFor(() =>
-      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
-        '/mock/project/game.json',
-        'assets/images/logo.png',
-      ),
+      expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
+        source: {
+          projectFilePath: '/mock/project/game.json',
+          projectRelativePath: 'assets/images/logo.png',
+          contentHash: `sha256:${'b'.repeat(64)}`,
+          width: 256,
+          height: 256,
+          orientation: 1,
+        },
+        variant: { kind: 'profile', profile: 'card' },
+      }),
     );
     await waitFor(() =>
       expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
@@ -71,7 +92,14 @@ describe('AssetLibraryEditor', () => {
         'assets/audio/click.mp3',
       ),
     );
-    expect(screen.getByAltText('Logo')).toHaveAttribute('src', 'data:image/png;base64,bW9jaw==');
+    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalledWith(
+      '/mock/project/game.json',
+      'assets/images/logo.png',
+    );
+    expect(screen.getByAltText('Logo')).toHaveAttribute(
+      'src',
+      'noveltea-thumbnail://image-v1/aa/card.webp',
+    );
     expect(screen.getByText('Click')).toBeInTheDocument();
     expect(document.querySelector('audio')).toBeTruthy();
   });

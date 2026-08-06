@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { useProjectStore } from '@/project/project-store';
+import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import type { AssetData } from '../../../shared/project-schema/authoring-assets';
 
 interface AssetPreviewProps {
@@ -41,7 +42,8 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
   const [assetUrl, setAssetUrl] = useState<string | null>(null);
   const [absolutePath, setAbsolutePath] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const canResolve = Boolean(projectFilePath) && (data.kind === 'image' || data.kind === 'audio');
+  const canResolve =
+    Boolean(projectFilePath) && (data.kind === 'audio' || (!compact && data.kind === 'image'));
 
   useEffect(() => {
     let canceled = false;
@@ -67,10 +69,26 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
   }, [canResolve, data.source.path, deletedAsset, projectFilePath]);
 
   if (compact) {
+    const imageSource =
+      data.kind === 'image' && data.imageMetadata
+        ? {
+            projectRelativePath: data.source.path,
+            contentHash: data.contentHash,
+            width: data.imageMetadata.width,
+            height: data.imageMetadata.height,
+            orientation: data.imageMetadata.orientation,
+          }
+        : null;
     return (
       <div className="flex h-full w-full items-center justify-center overflow-hidden bg-muted/20">
-        {data.kind === 'image' && assetUrl ? (
-          <img src={assetUrl} alt={label} className="h-full w-full object-cover" loading="lazy" />
+        {imageSource ? (
+          <AssetImageThumbnail
+            label={label}
+            source={imageSource}
+            request={{ kind: 'profile', profile: 'card', fit: 'cover' }}
+            requestMode="visible"
+            className="h-full w-full rounded-none border-0"
+          />
         ) : data.kind === 'audio' ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2">
             <Badge variant="secondary" className="text-[10px]">
@@ -90,7 +108,7 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
             {data.kind}
           </Badge>
         )}
-        {data.kind === 'image' && !assetUrl ? (
+        {data.kind === 'image' && !imageSource ? (
           <span className="px-2 text-center text-[10px] text-muted-foreground">image</span>
         ) : null}
       </div>

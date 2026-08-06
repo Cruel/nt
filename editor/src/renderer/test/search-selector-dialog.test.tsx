@@ -149,7 +149,7 @@ describe('SearchSelectorDialog', () => {
         height: 1080,
         orientation: 1,
       },
-      variant: { kind: 'profile', profile: 'compact' },
+      variant: { kind: 'minimum-size', widthPx: 48, heightPx: 36, fit: 'cover' },
     });
     expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
     expect(await screen.findByAltText('Logo')).toHaveAttribute(

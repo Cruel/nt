@@ -1081,7 +1081,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       <AssetImageThumbnail
                         label={selectedBackgroundItem.preview.label}
                         source={selectedBackgroundItem.preview.source}
-                        request={{ kind: 'profile', profile: 'compact', fit: 'cover' }}
+                        request={{ kind: 'slot', width: 80, height: 48, fit: 'cover' }}
+                        requestMode="eager"
                         className="h-12 w-20"
                       />
                     ) : (
@@ -2614,7 +2615,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           emptyMessage={t('selectors.backgroundImage.empty')}
           items={imageAssetItems}
           selectedId={selectedBackgroundItem?.id ?? null}
-          leadingMediaSize={{ width: '5rem', height: '3rem' }}
+          leadingMediaSize={{ width: 80, height: 48 }}
           onOpenChange={setBackgroundSelectorOpen}
           onSelect={(item) => {
             if (!item.entityId) return;

@@ -78,13 +78,24 @@ function HighlightedMatch({ match }: { match: SelectorMatch | undefined }) {
   );
 }
 
-function DefaultPreview({ item, className }: { item: SelectorItem; className?: string }) {
+function DefaultPreview({
+  item,
+  width,
+  height,
+  className,
+}: {
+  item: SelectorItem;
+  width: number;
+  height: number;
+  className?: string;
+}) {
   if (item.preview?.kind === 'image') {
     return (
       <AssetImageThumbnail
         label={item.preview.label}
         source={item.preview.source}
-        request={{ kind: 'profile', profile: 'compact', fit: 'cover' }}
+        request={{ kind: 'slot', width, height, fit: 'cover' }}
+        requestMode="eager"
         className={className}
       />
     );
@@ -103,8 +114,8 @@ interface SearchSelectorDialogProps {
   onOpenChange: (open: boolean) => void;
   limit?: number;
   leadingMediaSize?: {
-    width: string;
-    height: string;
+    width: number;
+    height: number;
   };
   renderPreview?: (item: SelectorItem) => ReactNode;
 }
@@ -125,8 +136,8 @@ export function SearchSelectorDialog({
   const { t } = useTranslation('workspace');
   const [query, setQuery] = useState('');
   const [viewAll, setViewAll] = useState(false);
-  const leadingMediaWidth = leadingMediaSize?.width ?? '3rem';
-  const leadingMediaHeight = leadingMediaSize?.height ?? '2.25rem';
+  const leadingMediaWidth = leadingMediaSize?.width ?? 48;
+  const leadingMediaHeight = leadingMediaSize?.height ?? 36;
   const searchLimit = viewAll ? items.length : limit;
   const searchResults = useMemo(
     () => searchSelectorItems(items, query, searchLimit),
@@ -201,12 +212,14 @@ export function SearchSelectorDialog({
             const titleMatch = result.matches.find((match) => match.fieldKind === 'title');
             const sideMatch = result.matches.find((match) => match.fieldKind !== 'title');
             const selected = selectedId === result.item.id;
-            const gridTemplateColumns = `${leadingMediaWidth} minmax(22rem,3fr) minmax(0,1fr)`;
+            const gridTemplateColumns = `${leadingMediaWidth}px minmax(22rem,3fr) minmax(0,1fr)`;
             const preview = renderPreview ? (
               renderPreview(result.item)
             ) : result.item.preview?.kind === 'image' ? (
               <DefaultPreview
                 item={result.item}
+                width={leadingMediaWidth}
+                height={leadingMediaHeight}
                 className={leadingMediaSize ? 'h-full w-full' : undefined}
               />
             ) : null;
@@ -222,7 +235,7 @@ export function SearchSelectorDialog({
               >
                 <span
                   className="relative flex items-center justify-center overflow-visible"
-                  style={{ width: leadingMediaWidth, height: leadingMediaHeight }}
+                  style={{ width: `${leadingMediaWidth}px`, height: `${leadingMediaHeight}px` }}
                 >
                   {preview ??
                     (Icon ? (
