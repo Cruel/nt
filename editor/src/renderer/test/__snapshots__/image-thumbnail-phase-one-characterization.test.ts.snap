@@ -1,0 +1,71 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`image thumbnail Phase 1 characterization > records pure tier-selection vectors for the next phase 1`] = `
+[
+  {
+    "fit": "cover",
+    "name": "square-cover",
+    "required": [
+      96,
+      96,
+    ],
+    "source": [
+      1000,
+      1000,
+    ],
+    "tier": 192,
+  },
+  {
+    "fit": "cover",
+    "name": "portrait-cover",
+    "required": [
+      192,
+      96,
+    ],
+    "source": [
+      500,
+      1000,
+    ],
+    "tier": 384,
+  },
+  {
+    "fit": "contain",
+    "name": "panorama-contain",
+    "required": [
+      192,
+      96,
+    ],
+    "source": [
+      2000,
+      500,
+    ],
+    "tier": 192,
+  },
+  {
+    "fit": "contain",
+    "name": "low-resolution",
+    "required": [
+      192,
+      96,
+    ],
+    "source": [
+      64,
+      32,
+    ],
+    "tier": 192,
+  },
+  {
+    "fit": "contain",
+    "name": "high-dpr",
+    "required": [
+      384,
+      384,
+    ],
+    "source": [
+      1000,
+      1000,
+    ],
+    "tier": 384,
+  },
+]
+`;

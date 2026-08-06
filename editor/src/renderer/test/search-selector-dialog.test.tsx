@@ -1,13 +1,19 @@
-import { describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import type { SelectorItem } from '@/workspace/command-palette-search';
+import { useProjectStore } from '@/project/project-store';
 
 const items: SelectorItem[] = [
   { id: 'alpha', kind: 'record', title: 'Alpha', tags: [], collectionTerms: [], actionTerms: [] },
   { id: 'beta', kind: 'record', title: 'Beta', tags: [], collectionTerms: [], actionTerms: [] },
   { id: 'gamma', kind: 'record', title: 'Gamma', tags: [], collectionTerms: [], actionTerms: [] },
 ];
+
+beforeEach(() => {
+  useProjectStore.getState().clearProject();
+  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockClear();
+});
 
 describe('SearchSelectorDialog', () => {
   it('pins the selected item to the top of the results', () => {
@@ -91,5 +97,51 @@ describe('SearchSelectorDialog', () => {
     fireEvent.click(screen.getByLabelText('View all results'));
     expect(screen.getByLabelText('Show limited results')).toBeInTheDocument();
     expect(screen.getByText('Item 30')).toBeInTheDocument();
+  });
+
+  it('renders image results through the current full-source URL path', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: { project: { schema: 'noveltea.authoring.project', version: 2 } },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    const imageItems: SelectorItem[] = [
+      {
+        id: 'logo',
+        kind: 'record',
+        title: 'Logo',
+        tags: [],
+        collectionTerms: [],
+        actionTerms: [],
+        preview: {
+          kind: 'image',
+          label: 'Logo',
+          sourcePath: 'assets/images/logo.png',
+        },
+      },
+    ];
+
+    render(
+      <SearchSelectorDialog
+        open
+        title="Pick image"
+        placeholder="Search"
+        emptyMessage="Empty"
+        items={imageItems}
+        onSelect={vi.fn()}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+        '/mock/project/project.json',
+        'assets/images/logo.png',
+      ),
+    );
+    expect(await screen.findByAltText('Logo')).toHaveAttribute(
+      'src',
+      'data:image/png;base64,bW9jaw==',
+    );
   });
 });

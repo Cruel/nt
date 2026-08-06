@@ -13,7 +13,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
-import { PACKAGE_SMOKE_FLAG, PACKAGE_SMOKE_PREFIX, runPackageSmoke } from './main/package-smoke';
+import {
+  PACKAGE_SMOKE_FLAG,
+  PACKAGE_SMOKE_PREFIX,
+  runPackageSmoke,
+  THUMBNAIL_PROTOCOL_CHARACTERIZATION_SCHEME,
+} from './main/package-smoke';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
 import {
   cancelComfyUiJob,
@@ -122,6 +127,19 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
+  ...(process.argv.includes(PACKAGE_SMOKE_FLAG)
+    ? [
+        {
+          scheme: THUMBNAIL_PROTOCOL_CHARACTERIZATION_SCHEME,
+          privileges: {
+            standard: true,
+            secure: true,
+            supportFetchAPI: true,
+            corsEnabled: true,
+          },
+        },
+      ]
+    : []),
 ]);
 
 // WSL2 and some remote/Linux GPU stacks blocklist WebGL in Electron even when
