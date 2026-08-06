@@ -5,6 +5,7 @@ import {
   protocol,
   type BrowserWindow as BrowserWindowType,
 } from 'electron';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -85,6 +86,101 @@ async function characterizeThumbnailProtocolFromDevelopmentOrigin(): Promise<boo
     window.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     protocol.unhandle(THUMBNAIL_PROTOCOL_CHARACTERIZATION_SCHEME);
+  }
+}
+
+async function characterizeProductionThumbnailProtocol(
+  window: BrowserWindowType,
+): Promise<boolean> {
+  const fixtureRoot = await fs.promises.mkdtemp(
+    path.join(app.getPath('temp'), 'noveltea-thumbnail-package-smoke-'),
+  );
+  try {
+    const projectFilePath = path.join(fixtureRoot, 'project.json');
+    const sourceDirectory = path.join(fixtureRoot, 'assets', 'images');
+    const sourcePath = path.join(sourceDirectory, 'source.png');
+    await fs.promises.mkdir(sourceDirectory, { recursive: true });
+    await fs.promises.writeFile(projectFilePath, '{}');
+    const sourceBytes = await sharp({
+      create: {
+        width: 3,
+        height: 2,
+        channels: 4,
+        background: { r: 80, g: 120, b: 160, alpha: 0.5 },
+      },
+    })
+      .png()
+      .toBuffer();
+    await fs.promises.writeFile(sourcePath, sourceBytes);
+    const request = {
+      source: {
+        projectFilePath,
+        projectRelativePath: 'assets/images/source.png',
+        contentHash: `sha256:${crypto.createHash('sha256').update(sourceBytes).digest('hex')}`,
+        width: 3,
+        height: 2,
+        orientation: 1,
+      },
+      variant: { kind: 'profile', profile: 'compact' },
+    };
+    const requestLiteral = JSON.stringify(request);
+    const proof = (await window.webContents.executeJavaScript(
+      `(async () => {
+        const first = await window.noveltea.requestImageThumbnail(${requestLiteral});
+        if (!first.ok) return { first, second: null, loaded: false, width: 0, height: 0 };
+        const image = await new Promise((resolve) => {
+          const element = new Image();
+          element.onload = () => resolve({ loaded: true, width: element.naturalWidth, height: element.naturalHeight });
+          element.onerror = () => resolve({ loaded: false, width: 0, height: 0 });
+          element.src = first.url;
+        });
+        const second = await window.noveltea.requestImageThumbnail(${requestLiteral});
+        return { first, second, ...image };
+      })()`,
+      true,
+    )) as {
+      first: {
+        ok: boolean;
+        url?: string;
+        cacheKey?: string;
+        cacheStatus?: string;
+      };
+      second: {
+        ok: boolean;
+        url?: string;
+        cacheKey?: string;
+        cacheStatus?: string;
+      } | null;
+      loaded: boolean;
+      width: number;
+      height: number;
+    };
+    if (
+      !proof.first.ok ||
+      !proof.second?.ok ||
+      !proof.first.url?.startsWith('noveltea-thumbnail://cache/image-v1/') ||
+      proof.first.cacheStatus !== 'generated' ||
+      proof.second.cacheStatus !== 'hit' ||
+      proof.first.cacheKey !== proof.second.cacheKey ||
+      proof.first.url !== proof.second.url ||
+      !proof.loaded ||
+      proof.width !== 3 ||
+      proof.height !== 2
+    ) {
+      return false;
+    }
+    const response = await net.fetch(proof.first.url);
+    return (
+      response.ok &&
+      response.headers.get('content-type') === 'image/webp' &&
+      response.headers.get('cache-control') === 'public, max-age=31536000, immutable' &&
+      response.headers.get('cross-origin-resource-policy') === 'cross-origin' &&
+      response.headers.get('access-control-allow-origin') === '*' &&
+      response.headers.get('x-content-type-options') === 'nosniff' &&
+      (await response.arrayBuffer()).byteLength > 0
+    );
+  } finally {
+    await fs.promises.rm(fixtureRoot, { recursive: true, force: true });
   }
 }
 
@@ -228,6 +324,7 @@ export async function runPackageSmoke(
     }
     checks.thumbnailProtocolDevelopmentOrigin =
       await characterizeThumbnailProtocolFromDevelopmentOrigin();
+    checks.thumbnailProductionProtocol = await characterizeProductionThumbnailProtocol(window);
 
     const success = Object.values(checks).every(Boolean);
     return {

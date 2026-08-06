@@ -168,8 +168,13 @@ app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 
 let mainWindow: BrowserWindow | null = null;
 const enginePreviewServer = new EnginePreviewServer();
+const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
+  ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
+  : undefined;
 const imageThumbnailService = new ImageThumbnailService(
-  resolveEditorCacheRoot(resolveSystemCachePath(app.getPath('home'))),
+  packageSmokeCacheRoot
+    ? path.resolve(packageSmokeCacheRoot)
+    : resolveEditorCacheRoot(resolveSystemCachePath(app.getPath('home'))),
 );
 imageThumbnailService.cache.onEpochChanged((cacheEpoch) => {
   for (const window of BrowserWindow.getAllWindows()) {

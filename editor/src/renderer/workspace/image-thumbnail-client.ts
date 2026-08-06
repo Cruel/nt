@@ -11,6 +11,8 @@ let cacheEpoch = 0;
 let subscribedEpochMethod: typeof window.noveltea.onEditorCacheEpoch | null = null;
 let unsubscribeEpoch: (() => void) | null = null;
 
+export type ImageThumbnailClientStatus = 'idle' | 'deferred' | 'loading' | 'ready' | 'error';
+
 function ensureEpochSubscription() {
   if (
     typeof window === 'undefined' ||
@@ -55,20 +57,23 @@ export function useEditorCacheEpoch(): number {
   );
 }
 
-export function useImageThumbnail(request: ImageThumbnailRequest | null): {
-  status: 'deferred' | 'loading' | 'ready' | 'error';
+export function useImageThumbnail(
+  request: ImageThumbnailRequest | null,
+  deferred = false,
+): {
+  status: ImageThumbnailClientStatus;
   result: ImageThumbnailResult | null;
 } {
   const epoch = useEditorCacheEpoch();
   const [state, setState] = useState<{
-    status: 'deferred' | 'loading' | 'ready' | 'error';
+    status: ImageThumbnailClientStatus;
     result: ImageThumbnailResult | null;
-  }>({ status: request ? 'loading' : 'deferred', result: null });
+  }>({ status: request ? 'loading' : deferred ? 'deferred' : 'idle', result: null });
 
   useEffect(() => {
     let active = true;
     if (!request) {
-      setState({ status: 'deferred', result: null });
+      setState({ status: deferred ? 'deferred' : 'idle', result: null });
       return () => {
         active = false;
       };
@@ -86,7 +91,7 @@ export function useImageThumbnail(request: ImageThumbnailRequest | null): {
     return () => {
       active = false;
     };
-  }, [request, epoch]);
+  }, [deferred, request, epoch]);
 
   return state;
 }

@@ -98,7 +98,7 @@ export function AssetImageThumbnail({
     source.width,
   ]);
 
-  const thumbnail = useImageThumbnail(thumbnailRequest);
+  const thumbnail = useImageThumbnail(thumbnailRequest, requestMode === 'visible' && !intersecting);
   const url = thumbnail.status === 'ready' && thumbnail.result?.ok ? thumbnail.result.url : null;
 
   useEffect(() => setImageLoadFailed(false), [url]);

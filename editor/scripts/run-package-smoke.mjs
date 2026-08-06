@@ -59,7 +59,11 @@ const commandArguments =
   process.platform === 'linux' ? ['-a', ...argumentsList] : argumentsList.slice(1);
 const child = spawn(command, commandArguments, {
   cwd: temporaryRoot,
-  env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
+  env: {
+    ...process.env,
+    ELECTRON_ENABLE_LOGGING: '1',
+    NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT: path.join(temporaryRoot, 'editor-cache'),
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
   detached: process.platform !== 'win32',
   windowsHide: true,
