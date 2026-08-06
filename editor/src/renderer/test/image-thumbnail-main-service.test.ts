@@ -200,6 +200,43 @@ describe('main-process image thumbnail service', () => {
     await expect(fs.stat(service.imageCacheRoot)).rejects.toThrow();
   });
 
+  it('admits compact prewarm work incrementally and rejects hashless or missing sources', async () => {
+    const fixture = await fixtureProject();
+    const source = await writeRaster(fixture.assetDirectory);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const validSource = {
+      projectFilePath: fixture.projectFilePath,
+      projectRelativePath: 'assets/images/source.png',
+      contentHash: source.hash,
+      width: 8,
+      height: 4,
+      orientation: 1 as const,
+    };
+
+    const first = await service.prewarm({
+      projectGeneration: 'generation-a',
+      sources: [
+        validSource,
+        { ...validSource, contentHash: undefined },
+        { ...validSource, projectRelativePath: 'assets/images/missing.png' },
+      ],
+    });
+    expect(first).toEqual({ ok: true, accepted: 1, deduplicated: 0, rejected: 2 });
+
+    const second = await service.prewarm({
+      projectGeneration: 'generation-a',
+      sources: [validSource],
+    });
+    expect(second).toEqual({ ok: true, accepted: 0, deduplicated: 1, rejected: 0 });
+
+    const canceled = service.cancelPrewarm({ projectGeneration: 'generation-a' });
+    expect(canceled.ok).toBe(true);
+    await service.request({
+      source: validSource,
+      variant: { kind: 'profile', profile: 'compact' },
+    });
+  });
+
   it('publishes immutably across service instances and rejects cache-directory escapes', async () => {
     const fixture = await fixtureProject();
     const source = await writeRaster(fixture.assetDirectory);

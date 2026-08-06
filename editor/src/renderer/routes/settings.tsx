@@ -338,6 +338,36 @@ export function SettingsPage({
     [onActiveCategoryChange],
   );
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [clearCacheDialogOpen, setClearCacheDialogOpen] = useState(false);
+  const [clearCacheBusy, setClearCacheBusy] = useState(false);
+  const [clearCacheFeedback, setClearCacheFeedback] = useState<{
+    kind: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const clearEditorCache = useCallback(async () => {
+    setClearCacheBusy(true);
+    setClearCacheFeedback(null);
+    try {
+      const result = await window.noveltea.clearEditorCache();
+      if (result.ok) {
+        setClearCacheFeedback({
+          kind: 'success',
+          message: t('settings:workspace.cache.success'),
+        });
+        setClearCacheDialogOpen(false);
+      } else {
+        setClearCacheFeedback({ kind: 'error', message: result.message });
+      }
+    } catch (error) {
+      setClearCacheFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : t('settings:workspace.cache.failure'),
+      });
+    } finally {
+      setClearCacheBusy(false);
+    }
+  }, [t]);
   const categories: CategorizedEditorCategory<EditorSettingsCategory>[] = [
     {
       id: 'appearance',
@@ -830,6 +860,40 @@ export function SettingsPage({
                   <p className="text-[11px] text-destructive">{defaultProjectDirectoryError}</p>
                 ) : null}
               </div>
+              <div
+                className="grid gap-2 border-t pt-4"
+                data-workbench-anchor="settings.workspace.cache"
+              >
+                <div className="flex items-start justify-between gap-6">
+                  <div>
+                    <Label>{t('settings:workspace.cache.title')}</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t('settings:workspace.cache.description')}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={clearCacheBusy}
+                    onClick={() => setClearCacheDialogOpen(true)}
+                  >
+                    {clearCacheBusy
+                      ? t('settings:workspace.cache.clearing')
+                      : t('settings:workspace.cache.action')}
+                  </Button>
+                </div>
+                {clearCacheFeedback ? (
+                  <p
+                    className={
+                      clearCacheFeedback.kind === 'error'
+                        ? 'text-xs text-destructive'
+                        : 'text-xs text-muted-foreground'
+                    }
+                  >
+                    {clearCacheFeedback.message}
+                  </p>
+                ) : null}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1296,6 +1360,36 @@ export function SettingsPage({
             </Button>
             <Button type="button" variant="destructive" onClick={resetAllSettings}>
               {t('settings:reset.dialog.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={clearCacheDialogOpen} onOpenChange={setClearCacheDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('settings:workspace.cache.dialog.title')}</DialogTitle>
+            <DialogDescription>
+              {t('settings:workspace.cache.dialog.description')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={clearCacheBusy}
+              onClick={() => setClearCacheDialogOpen(false)}
+            >
+              {t('common:actions.cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={clearCacheBusy}
+              onClick={() => void clearEditorCache()}
+            >
+              {clearCacheBusy
+                ? t('settings:workspace.cache.clearing')
+                : t('settings:workspace.cache.dialog.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

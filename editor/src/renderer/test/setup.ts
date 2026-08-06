@@ -260,6 +260,13 @@ Object.defineProperty(window, 'noveltea', {
       tierLimited: false,
       cacheEpoch: 0,
     }),
+    prewarmImageThumbnails: vi.fn().mockResolvedValue({
+      ok: true,
+      accepted: 0,
+      deduplicated: 0,
+      rejected: 0,
+    }),
+    cancelImageThumbnailPrewarm: vi.fn().mockResolvedValue({ ok: true, canceled: 0 }),
     clearEditorCache: vi.fn().mockResolvedValue({ ok: true, cacheEpoch: 1 }),
     onEditorCacheEpoch: vi.fn().mockImplementation((callback) => {
       (

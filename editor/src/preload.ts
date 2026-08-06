@@ -149,6 +149,10 @@ const api: NovelTeaElectronApi = {
     ),
   requestImageThumbnail: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL, request),
+  prewarmImageThumbnails: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREWARM_IMAGE_THUMBNAILS, request),
+  cancelImageThumbnailPrewarm: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CANCEL_IMAGE_THUMBNAIL_PREWARM, request),
   clearEditorCache: () => ipcRenderer.invoke(IPC_CHANNELS.CLEAR_EDITOR_CACHE),
   onEditorCacheEpoch: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>

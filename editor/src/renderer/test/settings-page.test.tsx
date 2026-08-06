@@ -406,3 +406,27 @@ describe('SettingsPage code editor theme selector', () => {
     });
   });
 });
+
+describe('SettingsPage editor cache', () => {
+  it('requires confirmation, reports success, and remains separate from reset settings', async () => {
+    const clear = vi
+      .spyOn(window.noveltea, 'clearEditorCache')
+      .mockResolvedValue({ ok: true, cacheEpoch: 2 });
+    await renderSettingsPage();
+    selectSettingsCategory('Workspace');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Editor Cache' }));
+    expect(clear).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Clear Editor Cache' }),
+    );
+    await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Editor cache cleared.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset All Settings' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset All Settings' }),
+    );
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+});

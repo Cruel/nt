@@ -73,6 +73,7 @@ import {
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
+import { ImageThumbnailPrewarmCoordinator } from '@/workspace/image-thumbnail-prewarm';
 import {
   dispatchWorkspaceToolbarCommand,
   WORKSPACE_TOOLBAR_COMMAND_EVENT,
@@ -230,6 +231,7 @@ export function WorkspacePage() {
   const completingWindowClose = useRef(false);
   const persistentRecoveryDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const metadataFlushPromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const imageThumbnailPrewarmRef = useRef<ImageThumbnailPrewarmCoordinator | null>(null);
   const flushProjectEditorMetadataRef = useRef<
     (reason: 'debounce' | 'close-project' | 'window-close' | 'switch-project') => Promise<boolean>
   >(async () => true);
@@ -298,6 +300,21 @@ export function WorkspacePage() {
   const clearAssetTrashProject = useAssetTrashStore((state) => state.clearProject);
   const resetCommandHistory = useCommandStore((state) => state.resetCommandHistory);
   const nodes = useMemo(() => buildProjectTree(project, tests), [project, tests]);
+
+  if (!imageThumbnailPrewarmRef.current) {
+    imageThumbnailPrewarmRef.current = new ImageThumbnailPrewarmCoordinator();
+  }
+
+  useEffect(() => {
+    imageThumbnailPrewarmRef.current?.publish(authoringProjectForEditor(project), projectFilePath);
+  }, [project, projectFilePath]);
+
+  useEffect(
+    () => () => {
+      imageThumbnailPrewarmRef.current?.cancel();
+    },
+    [],
+  );
 
   useEffect(() => {
     latestProjectFilePathRef.current = projectFilePath;

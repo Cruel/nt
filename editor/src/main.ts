@@ -936,6 +936,14 @@ void app.whenReady().then(() => {
     imageThumbnailService.request(request, 'interactive'),
   );
 
+  ipcMain.handle(IPC_CHANNELS.PREWARM_IMAGE_THUMBNAILS, (_event, request: unknown) =>
+    imageThumbnailService.prewarm(request),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.CANCEL_IMAGE_THUMBNAIL_PREWARM, (_event, request: unknown) =>
+    imageThumbnailService.cancelPrewarm(request),
+  );
+
   ipcMain.handle(IPC_CHANNELS.CLEAR_EDITOR_CACHE, () => imageThumbnailService.clearEditorCache());
 
   ipcMain.handle(

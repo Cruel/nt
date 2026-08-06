@@ -3,13 +3,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import type {
+  CancelImageThumbnailPrewarmResult,
   ImageThumbnailErrorCode,
+  ImageThumbnailPrewarmResult,
   ImageThumbnailRequest,
   ImageThumbnailResult,
 } from '../../shared/image-thumbnails';
 import {
   createImageThumbnailDerivativeKey,
   imageThumbnailOutputDimensions,
+  parseCancelImageThumbnailPrewarmRequest,
+  parseImageThumbnailPrewarmRequest,
+  parseImageThumbnailPrewarmSource,
   parseImageThumbnailRequest,
   selectImageThumbnailTier,
 } from '../../shared/image-thumbnails';
@@ -26,6 +31,7 @@ type Priority = 'interactive' | 'prewarm';
 type Task<T> = {
   priority: Priority;
   epoch: number;
+  projectGeneration?: string;
   run: () => Promise<T>;
   resolve: (value: T) => void;
 };
@@ -37,6 +43,7 @@ type PreparedHashlessRequest =
 const SUPPORTED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg']);
 const MAX_INPUT_PIXELS = 268_402_689;
 const GENERATION_TIMEOUT_MS = 30_000;
+const PREWARM_ADMISSION_CONCURRENCY = 8;
 const CACHE_WRITE_ERROR_CODES = new Set(['EACCES', 'EDQUOT', 'ENOSPC', 'EPERM', 'EROFS']);
 
 function failure(
@@ -112,6 +119,8 @@ export class ImageThumbnailService {
   readonly #inFlight = new Map<string, Promise<ImageThumbnailResult>>();
   readonly #hashlessInFlight = new Map<string, Promise<ImageThumbnailResult>>();
   readonly #activeSettlements = new Map<number, Set<Promise<unknown>>>();
+  readonly #prewarmSignatures = new Set<string>();
+  #activeProjectGeneration: string | null = null;
   #active = 0;
 
   constructor(editorCacheRoot: string) {
@@ -119,7 +128,11 @@ export class ImageThumbnailService {
     this.imageCacheRoot = resolveImageThumbnailCacheRoot(editorCacheRoot);
   }
 
-  request(value: unknown, priority: Priority = 'interactive'): Promise<ImageThumbnailResult> {
+  request(
+    value: unknown,
+    priority: Priority = 'interactive',
+    projectGeneration?: string,
+  ): Promise<ImageThumbnailResult> {
     if (this.cache.isClearing) {
       return Promise.resolve(
         failure(this.cache.epoch, 'cache_cleared', 'Editor cache is clearing.'),
@@ -144,16 +157,119 @@ export class ImageThumbnailService {
       ]);
       const existing = this.#hashlessInFlight.get(provisional);
       if (existing) return existing;
-      const pending = this.#enqueue(priority, this.cache.epoch, () =>
-        this.#prepareHashlessRequest(request),
+      const pending = this.#enqueue(
+        priority,
+        this.cache.epoch,
+        () => this.#prepareHashlessRequest(request),
+        projectGeneration,
       ).then((prepared) =>
-        prepared.ok ? this.#requestCanonical(prepared.request, priority) : prepared.result,
+        prepared.ok
+          ? this.#requestCanonical(prepared.request, priority, projectGeneration)
+          : prepared.result,
       );
       this.#hashlessInFlight.set(provisional, pending);
       void pending.finally(() => this.#hashlessInFlight.delete(provisional));
       return pending;
     }
-    return this.#requestCanonical(request, priority);
+    return this.#requestCanonical(request, priority, projectGeneration);
+  }
+
+  async prewarm(value: unknown): Promise<ImageThumbnailPrewarmResult> {
+    let request;
+    try {
+      request = parseImageThumbnailPrewarmRequest(value);
+    } catch {
+      return { ok: false, message: 'Invalid thumbnail prewarm request.' };
+    }
+
+    if (this.#activeProjectGeneration !== request.projectGeneration) {
+      if (this.#activeProjectGeneration) this.#cancelPrewarmQueue(this.#activeProjectGeneration);
+      this.#activeProjectGeneration = request.projectGeneration;
+      this.#prewarmSignatures.clear();
+    }
+
+    let accepted = 0;
+    let deduplicated = 0;
+    let rejected = 0;
+    let cursor = 0;
+    const admit = async () => {
+      while (cursor < request.sources.length) {
+        const sourceValue = request.sources[cursor++];
+        let source;
+        try {
+          source = parseImageThumbnailPrewarmSource(sourceValue);
+        } catch {
+          rejected += 1;
+          continue;
+        }
+        if (!source.contentHash) {
+          rejected += 1;
+          continue;
+        }
+        const signature = JSON.stringify([
+          source.projectFilePath,
+          source.projectRelativePath,
+          source.contentHash,
+        ]);
+        if (this.#prewarmSignatures.has(signature)) {
+          deduplicated += 1;
+          continue;
+        }
+        const thumbnailRequest: ImageThumbnailRequest = {
+          source,
+          variant: { kind: 'profile', profile: 'compact' },
+        };
+        if (await this.#validateRequestSource(thumbnailRequest)) {
+          rejected += 1;
+          continue;
+        }
+        if (this.#activeProjectGeneration !== request.projectGeneration) {
+          rejected += 1;
+          continue;
+        }
+        const sourceKind =
+          path.extname(source.projectRelativePath).toLowerCase() === '.svg' ? 'svg' : 'raster';
+        const tier = selectImageThumbnailTier(source, thumbnailRequest.variant, sourceKind);
+        const key = createImageThumbnailDerivativeKey(
+          { ...source, contentHash: source.contentHash },
+          tier.tierLongEdge as 192,
+          {
+            sharpVersion: sharp.versions.sharp,
+            vipsVersion: sharp.versions.vips,
+          },
+        );
+        if (await this.#cacheHit(thumbnailRequest, key)) {
+          this.#prewarmSignatures.add(signature);
+          deduplicated += 1;
+          continue;
+        }
+        this.#prewarmSignatures.add(signature);
+        accepted += 1;
+        void this.request(thumbnailRequest, 'prewarm', request.projectGeneration);
+      }
+    };
+    await Promise.all(
+      Array.from(
+        { length: Math.min(PREWARM_ADMISSION_CONCURRENCY, request.sources.length) },
+        admit,
+      ),
+    );
+    return { ok: true, accepted, deduplicated, rejected };
+  }
+
+  cancelPrewarm(value: unknown): CancelImageThumbnailPrewarmResult {
+    let request;
+    try {
+      request = parseCancelImageThumbnailPrewarmRequest(value);
+    } catch {
+      return { ok: false, message: 'Invalid thumbnail prewarm cancellation request.' };
+    }
+    const canceled = this.#cancelPrewarmQueue(request.projectGeneration);
+    if (this.#activeProjectGeneration === request.projectGeneration) {
+      this.#activeProjectGeneration = null;
+      this.#prewarmSignatures.clear();
+    }
+    return { ok: true, canceled };
   }
 
   async clearEditorCache(): Promise<{ ok: boolean; message?: string; cacheEpoch: number }> {
@@ -174,6 +290,7 @@ export class ImageThumbnailService {
   async #requestCanonical(
     request: ImageThumbnailRequest,
     priority: Priority,
+    projectGeneration?: string,
   ): Promise<ImageThumbnailResult> {
     if (this.cache.isClearing) {
       return failure(this.cache.epoch, 'cache_cleared', 'Editor cache is clearing.');
@@ -193,16 +310,26 @@ export class ImageThumbnailService {
     const pending = this.#cacheHit(request, key).then(
       (hit) =>
         hit ??
-        this.#enqueue(priority, this.cache.epoch, () => this.#generate(request, priority, key)),
+        this.#enqueue(
+          priority,
+          this.cache.epoch,
+          () => this.#generate(request, priority, key),
+          projectGeneration,
+        ),
     );
     this.#inFlight.set(key, pending);
     void pending.finally(() => this.#inFlight.delete(key));
     return pending;
   }
 
-  #enqueue<T>(priority: Priority, epoch: number, run: () => Promise<T>): Promise<T> {
+  #enqueue<T>(
+    priority: Priority,
+    epoch: number,
+    run: () => Promise<T>,
+    projectGeneration?: string,
+  ): Promise<T> {
     return new Promise<T>((resolve) => {
-      const task: Task<T> = { priority, epoch, run, resolve };
+      const task: Task<T> = { priority, epoch, projectGeneration, run, resolve };
       (priority === 'interactive' ? this.#interactiveQueue : this.#prewarmQueue).push(
         task as Task<unknown>,
       );
@@ -247,6 +374,18 @@ export class ImageThumbnailService {
         task?.resolve(failure(this.cache.epoch + 1, 'cache_cleared', 'Editor cache was cleared.'));
       }
     }
+  }
+
+  #cancelPrewarmQueue(projectGeneration: string): number {
+    let canceled = 0;
+    for (let index = this.#prewarmQueue.length - 1; index >= 0; index -= 1) {
+      const task = this.#prewarmQueue[index];
+      if (task?.projectGeneration !== projectGeneration) continue;
+      this.#prewarmQueue.splice(index, 1);
+      task.resolve(failure(this.cache.epoch, 'cache_cleared', 'Thumbnail prewarm was canceled.'));
+      canceled += 1;
+    }
+    return canceled;
   }
 
   async #resolveSource(request: ImageThumbnailRequest): Promise<string> {
