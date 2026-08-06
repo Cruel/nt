@@ -262,7 +262,7 @@ export function usePreviewTransport({
         send<RuntimeFastForwardResult>({ type: 'runtime-fast-forward-to-input' }),
       selectDialogueOption: (optionIndex: number) =>
         send({ type: 'runtime-dialogue-option', optionIndex }),
-      navigateRuntime: (direction: number) => send({ type: 'runtime-navigate', direction }),
+      navigateRuntime: (exitId: string) => send({ type: 'runtime-navigate', exitId }),
       selectRuntimeSubjects: (
         subjects: import('../../shared/preview-protocol').PreviewInteractionSubject[],
       ) => send({ type: 'runtime-select-subjects', subjects }),

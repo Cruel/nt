@@ -11,7 +11,6 @@ TEST_CASE("RuntimeUiDocumentBinder handles empty typed state gracefully")
 {
     RuntimeUiDocumentBinder binder;
     TypedRuntimeUIViewState state;
-    binder.clear_missing_slot_log();
     CHECK(state.mode.empty());
     CHECK_FALSE(state.can_continue);
 }

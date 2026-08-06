@@ -127,18 +127,24 @@ TEST_CASE("HostInputRouter emits captured RuntimeUI inputs after routing")
 {
     HostInputRouter router;
     const auto presentation = test_presentation();
+    const auto exit = core::RoomExitId::create("north-exit");
+    REQUIRE(exit);
 
-    const auto result =
-        router.route(gameplay_key(), {.presentation = &presentation}, {.runtime_ui = [] {
-                         RuntimeUiInputResult result;
-                         result.consumed = true;
-                         result.runtime_inputs.emplace_back(core::ContinueInput{});
-                         result.shell_commands.emplace_back(core::OpenPauseShellCommand{});
-                         return result;
-                     }});
+    const auto result = router.route(
+        gameplay_key(), {.presentation = &presentation}, {.runtime_ui = [exit] {
+            RuntimeUiInputResult result;
+            result.consumed = true;
+            result.runtime_inputs.emplace_back(core::ContinueInput{});
+            result.runtime_inputs.emplace_back(core::NavigateRoomInput{*exit.value_if()});
+            result.shell_commands.emplace_back(core::OpenPauseShellCommand{});
+            return result;
+        }});
 
-    REQUIRE(result.runtime_inputs.size() == 1);
+    REQUIRE(result.runtime_inputs.size() == 2);
     CHECK(std::holds_alternative<core::ContinueInput>(result.runtime_inputs.front()));
+    const auto* navigation = std::get_if<core::NavigateRoomInput>(&result.runtime_inputs.back());
+    REQUIRE(navigation);
+    CHECK(navigation->exit == *exit.value_if());
     REQUIRE(result.tooling_actions.size() == 1);
     REQUIRE(
         std::holds_alternative<RuntimeShellCommandToolingAction>(result.tooling_actions.front()));
@@ -239,6 +245,42 @@ TEST_CASE("HostInputRouter suppresses hidden preview interaction")
     CHECK(result.tooling_actions.empty());
     REQUIRE(result.pointer_update);
     CHECK_FALSE(result.pointer_update->valid);
+}
+
+TEST_CASE("embedded preview focus changes do not suspend or resume the runtime")
+{
+    HostInputRouter router;
+    const auto presentation = test_presentation();
+
+    const auto lost = router.route(
+        {.kind = NormalizedHostEventKind::FocusLost},
+        {.presentation = &presentation, .mode = HostInputMode::Preview, .preview_visible = true},
+        passive_consumers());
+    CHECK(lost.lifecycle_actions.empty());
+
+    const auto gained = router.route(
+        {.kind = NormalizedHostEventKind::FocusGained},
+        {.presentation = &presentation, .mode = HostInputMode::Preview, .preview_visible = true},
+        passive_consumers());
+    CHECK(gained.lifecycle_actions.empty());
+}
+
+TEST_CASE("standalone runtime focus changes retain platform suspension semantics")
+{
+    HostInputRouter router;
+    const auto presentation = test_presentation();
+
+    const auto lost = router.route({.kind = NormalizedHostEventKind::FocusLost},
+                                   {.presentation = &presentation, .mode = HostInputMode::Runtime},
+                                   passive_consumers());
+    REQUIRE(lost.lifecycle_actions.size() == 1);
+    CHECK(std::holds_alternative<SuspendHostAction>(lost.lifecycle_actions.front()));
+
+    const auto gained = router.route(
+        {.kind = NormalizedHostEventKind::FocusGained},
+        {.presentation = &presentation, .mode = HostInputMode::Runtime}, passive_consumers());
+    REQUIRE(gained.lifecycle_actions.size() == 1);
+    CHECK(std::holds_alternative<ResumeHostAction>(gained.lifecycle_actions.front()));
 }
 
 TEST_CASE("HostInputRouter projects mouse coordinates and rejects presentation bars")

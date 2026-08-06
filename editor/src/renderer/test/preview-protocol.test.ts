@@ -660,7 +660,7 @@ describe('preview protocol validation', () => {
       availableInputs: {
         continue: false,
         dialogueOptions: [{ index: 0, label: 'Ask about the house', enabled: true }],
-        navigation: [{ index: 1, label: 'east', enabled: true }],
+        navigation: [{ exitId: 'east-exit', direction: 1, label: 'east', enabled: true }],
         actions: [
           { verbId: 'look', label: 'Look', objectCount: 1, selectedCount: 1, enabled: true },
         ],

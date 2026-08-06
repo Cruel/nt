@@ -6,6 +6,8 @@ Use this entrypoint before changing RmlUi runtime UI behavior, authored layouts,
 
 ## Current Documents
 
+- `docs/ui/BUILT_IN_LAYOUT_AUDIT.md` records the built-in system Layout audit, the completed game-HUD
+  replacement, asset URL rules, and the remaining menu redesign units.
 - `docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` is the authoritative role-by-role reference for system
   Layout slot IDs, custom runtime tags, generated markup hooks, and companion Lua handlers.
 - `docs/ui/RMLUI_RUNTIME_UI.md` describes runtime UI direction, asset lookup, document slot IDs, authored event handling, visual assets, encoded namespace paths, DPI/layout, binder architecture, template resolver, and document lifecycle.

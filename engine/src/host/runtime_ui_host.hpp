@@ -23,7 +23,6 @@ public:
     RuntimeUiHost& operator=(RuntimeUiHost&&) = delete;
 
     virtual void bind_input_sink(RuntimeUiInputSink* sink) noexcept = 0;
-    virtual void bind_asset_service(const RuntimeUiAssetService* service) noexcept = 0;
     [[nodiscard]] virtual bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) = 0;
     virtual void clear_gameplay_ui_values() = 0;
     virtual void clear_runtime_shell_view() = 0;

@@ -177,7 +177,8 @@ export interface RuntimeDebugDialogueOptionSnapshot {
 }
 
 export interface RuntimeDebugNavigationSnapshot {
-  index: number;
+  exitId: string;
+  direction: number;
   label: string;
   enabled: boolean;
 }
@@ -321,7 +322,7 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-continue'; requestId: string }
   | { version: 1; type: 'runtime-fast-forward-to-input'; requestId: string }
   | { version: 1; type: 'runtime-dialogue-option'; requestId: string; optionIndex: number }
-  | { version: 1; type: 'runtime-navigate'; requestId: string; direction: number }
+  | { version: 1; type: 'runtime-navigate'; requestId: string; exitId: string }
   | {
       version: 1;
       type: 'runtime-select-subjects';
@@ -665,8 +666,10 @@ function isRuntimeDebugDialogueOptionSnapshot(
 function isRuntimeDebugNavigationSnapshot(value: unknown): value is RuntimeDebugNavigationSnapshot {
   if (!isRecord(value)) return false;
   return (
-    typeof value.index === 'number' &&
-    Number.isInteger(value.index) &&
+    typeof value.exitId === 'string' &&
+    value.exitId.length > 0 &&
+    typeof value.direction === 'number' &&
+    Number.isInteger(value.direction) &&
     typeof value.label === 'string' &&
     typeof value.enabled === 'boolean'
   );
@@ -967,7 +970,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-dialogue-option':
       return typeof value.optionIndex === 'number' && Number.isInteger(value.optionIndex);
     case 'runtime-navigate':
-      return typeof value.direction === 'number' && Number.isInteger(value.direction);
+      return typeof value.exitId === 'string' && value.exitId.length > 0;
     case 'runtime-select-subjects':
       return Array.isArray(value.subjects) && value.subjects.every(isPreviewInteractionSubject);
     case 'runtime-run-interaction':

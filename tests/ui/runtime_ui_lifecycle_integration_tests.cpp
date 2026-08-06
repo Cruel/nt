@@ -8,11 +8,13 @@
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/ComputedValues.h>
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Types.h>
 #include <SDL3/SDL_events.h>
+#include <SDL3/SDL_mouse.h>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -150,9 +152,10 @@ constexpr const char* kMediaQueryDocument = R"(
 
 class RecordingRuntimeUiInputSink final : public noveltea::RuntimeUiInputSink {
 public:
-    [[nodiscard]] bool submit_gameplay_input(noveltea::core::RuntimeInputMessage) override
+    [[nodiscard]] bool submit_gameplay_input(noveltea::core::RuntimeInputMessage input) override
     {
         ++gameplay_inputs;
+        last_gameplay_input = std::move(input);
         return true;
     }
 
@@ -173,6 +176,7 @@ public:
     std::size_t gameplay_inputs = 0;
     std::size_t shell_commands = 0;
     std::size_t layout_events = 0;
+    std::optional<noveltea::core::RuntimeInputMessage> last_gameplay_input;
     noveltea::core::MountedLayoutOwner last_layout_owner =
         noveltea::core::MountedLayoutOwner::Gameplay;
 };
@@ -407,7 +411,7 @@ TEST_CASE("RuntimeUI keeps context-logical event coordinates and leaves on prese
     action->RemoveEventListener("mousemove", &coordinates);
 }
 
-TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values")
+TEST_CASE("RuntimeUI input sink rebinding preserves gameplay revision and shell bindings")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     REQUIRE(fixture.initialize());
@@ -439,11 +443,9 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
 
     ui.set_runtime_notification("after-rebind");
 
-    auto* runtime_mode = playback_driver->element("runtime_game", "rt_mode");
     auto* notification = playback_driver->element("runtime_game", "rt_notification");
-    REQUIRE(runtime_mode);
     REQUIRE(notification);
-    CHECK(runtime_mode->GetInnerRML() == "running");
+    CHECK(playback_driver->element("runtime_game", "rt_mode") == nullptr);
     CHECK(notification->GetInnerRML() == "after-rebind");
     CHECK(shell_status->GetInnerRML() == "shell-ready");
 
@@ -453,7 +455,7 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
     values.revision = 1;
     values.view.mode = "stale";
     CHECK_FALSE(ui.apply_gameplay_ui_values(values));
-    CHECK(runtime_mode->GetInnerRML() == "current");
+    CHECK(notification->GetInnerRML() == "after-rebind");
 }
 
 TEST_CASE("RuntimeUI built-in settings controls follow loaded project accessibility policy")
@@ -525,7 +527,7 @@ TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD docum
     REQUIRE(background);
     CHECK(mode->GetInnerRML() == "authored-room");
     CHECK(notification->GetInnerRML() == "authored-notification");
-    CHECK(background->GetInnerRML().empty());
+    CHECK(background->GetInnerRML().find("sentinel") != std::string::npos);
     CHECK(driver->document("runtime_game") == nullptr);
 
     REQUIRE(ui.reload_documents_and_styles());
@@ -535,6 +537,9 @@ TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD docum
     REQUIRE(notification);
     CHECK(mode->GetInnerRML() == "authored-room");
     CHECK(notification->GetInnerRML() == "authored-notification");
+    background = driver->element("authored-game-hud", "rt_background_image");
+    REQUIRE(background);
+    CHECK(background->GetInnerRML().find("sentinel") != std::string::npos);
 }
 
 TEST_CASE("RuntimeUI binds shell values to active authored system Layout documents")
@@ -631,6 +636,100 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
         noveltea::core::RuntimeClockUpdate{.gameplay_delta = std::chrono::milliseconds(10),
                                            .gameplay_time = std::chrono::milliseconds(2010)});
     CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
+}
+
+TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
+
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+    const auto room = noveltea::core::RoomId::create("start");
+    const auto target = noveltea::core::RoomId::create("hall");
+    const auto exit = noveltea::core::RoomExitId::create("north-exit");
+    REQUIRE(room);
+    REQUIRE(target);
+    REQUIRE(exit);
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "room";
+    values.view.can_continue = true;
+    values.view.room = noveltea::core::RoomView{
+        .room = *room.value_if(),
+        .description = "Start room.",
+        .exits = {{*exit.value_if(), *target.value_if(),
+                   noveltea::core::compiled::RoomExitDirection::Southwest, "Southwest", true}}};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("runtime_game");
+    REQUIRE(document);
+    Rml::ElementList navigation_buttons;
+    document->GetElementsByClassName(navigation_buttons, "nav-southwest");
+    REQUIRE(navigation_buttons.size() == 1);
+    auto* navigation_button = navigation_buttons.front();
+    const auto offset = navigation_button->GetAbsoluteOffset(Rml::BoxArea::Content);
+    const auto size = navigation_button->GetBox().GetSize(Rml::BoxArea::Content);
+    REQUIRE(size.x > 0.0f);
+    REQUIRE(size.y > 0.0f);
+
+    auto* text_panel = document->GetElementById("rt_text_panel");
+    REQUIRE(text_panel);
+    const auto text_offset = text_panel->GetAbsoluteOffset(Rml::BoxArea::Border);
+    const auto text_size = text_panel->GetBox().GetSize(Rml::BoxArea::Border);
+    CHECK(text_offset.x + text_size.x <= offset.x);
+
+    auto* active_text = document->GetElementById("rt_body");
+    REQUIRE(active_text);
+    const auto active_text_offset = active_text->GetAbsoluteOffset(Rml::BoxArea::Border);
+    const auto active_text_size = active_text->GetBox().GetSize(Rml::BoxArea::Border);
+    CHECK(active_text_offset.x >= text_offset.x);
+    CHECK(active_text_offset.x + active_text_size.x <= text_offset.x + text_size.x);
+    CHECK(text_panel->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::Auto);
+
+    values.revision = 2;
+    values.view.can_continue = false;
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
+    CHECK(text_panel->GetComputedValues().pointer_events() == Rml::Style::PointerEvents::None);
+    const noveltea::PresentationTransform transform{
+        noveltea::make_presentation_metrics(
+            noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+            {.reference = {.size = {1920, 1080}}})
+            .value()};
+    const auto host_point =
+        transform.reference_to_host_logical({offset.x + size.x * 0.5f, offset.y + size.y * 0.5f});
+
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = host_point.x;
+    motion.motion.y = host_point.y;
+    (void)ui.process_event(motion);
+    CHECK(navigation_button->IsPseudoClassSet("hover"));
+
+    SDL_Event press{};
+    press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    press.button.button = SDL_BUTTON_LEFT;
+    press.button.x = host_point.x;
+    press.button.y = host_point.y;
+    (void)ui.process_event(press);
+    press.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    const auto released = ui.process_event(press);
+
+    CHECK(input_sink.layout_events == 3);
+    CHECK(input_sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Gameplay);
+    CHECK(input_sink.gameplay_inputs == 0);
+    REQUIRE(released.runtime_inputs.size() == 1);
+    const auto* navigation =
+        std::get_if<noveltea::core::NavigateRoomInput>(&released.runtime_inputs.front());
+    REQUIRE(navigation);
+    CHECK(navigation->exit == *exit.value_if());
 }
 
 TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing document state")

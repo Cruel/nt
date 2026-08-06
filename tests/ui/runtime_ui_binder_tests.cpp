@@ -100,6 +100,8 @@ TEST_CASE("RuntimeUiBinder emits typed inputs and capabilities through the host 
     CHECK_FALSE(binder.dispatch_layout_input(
         noveltea::core::RuntimeInputMessage{noveltea::core::ContinueInput{}}));
     CHECK(sink.gameplay_inputs == 0);
+    REQUIRE_FALSE(diagnostics.empty());
+    CHECK(diagnostics.back().code == "runtime_ui.layout_input_blocked");
 
     binder.bind_layout_gameplay_admission([]() { return true; });
     CHECK(binder.dispatch_layout_input(

@@ -633,6 +633,20 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
     if (!target)
         return;
 
+    for (auto* current = target; current; current = current->GetParentNode()) {
+        const auto exit_text = current->GetAttribute<Rml::String>("data-exit-id", "");
+        if (exit_text.empty())
+            continue;
+        auto exit = core::RoomExitId::create(exit_text);
+        if (!exit) {
+            core::append_diagnostics(owner.typed_diagnostics, std::move(exit).error());
+            return;
+        }
+        (void)owner.dispatch_layout_typed_input(
+            core::RuntimeInputMessage{core::NavigateRoomInput{*exit.value_if()}});
+        return;
+    }
+
     if (owner.binder && owner.binder->has_input_sink() && owner.active_text_presenter &&
         find_ancestor_tag(target, "nt-active-text")) {
         const auto* gameplay_view = owner.binder->view();
@@ -1288,18 +1302,6 @@ core::ActiveTextPresentationPhase RuntimeUI::active_text_presentation_phase() co
     return m_state && m_state->active_text_presenter
                ? m_state->active_text_presenter->presentation_phase()
                : core::ActiveTextPresentationPhase::Stable;
-}
-
-void RuntimeUI::bind_asset_service(const RuntimeUiAssetService* service) noexcept
-{
-    if (!m_state)
-        return;
-    if (!m_state->binder) {
-        m_state->binder = std::make_unique<ui::rmlui::RuntimeUiBinder>(m_state->typed_diagnostics);
-        m_state->binder->set_lua_state(m_state->lua_state);
-    }
-    m_state->binder->bind_asset_service(service);
-    m_state->refresh_runtime_document();
 }
 
 void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)

@@ -185,11 +185,6 @@ class FakeRuntimeUiHost final : public RuntimeUiHost {
 public:
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept override { input_sink = sink; }
 
-    void bind_asset_service(const RuntimeUiAssetService* service) noexcept override
-    {
-        asset_service = service;
-    }
-
     [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override
     {
         gameplay_values = values;
@@ -221,7 +216,6 @@ public:
     }
 
     RuntimeUiInputSink* input_sink = nullptr;
-    const RuntimeUiAssetService* asset_service = nullptr;
     std::optional<RuntimeUiGameplayValues> gameplay_values;
     core::Diagnostics runtime_diagnostics;
     std::string runtime_notification;
@@ -241,6 +235,40 @@ std::string minimal_compiled_project_fixture()
     std::ifstream file(path, std::ios::binary);
     REQUIRE(file.good());
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+std::string navigable_compiled_project_fixture()
+{
+    auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    auto& rooms = project["definitions"]["rooms"];
+    REQUIRE(rooms.is_array());
+    REQUIRE(rooms.size() == 1);
+
+    auto hall = rooms.front();
+    hall["id"] = "hall";
+    hall["displayName"] = "Hall";
+    hall["description"] = {{"markup", "plain"},
+                           {"source", {{"kind", "inline"}, {"text", "Hall room."}}}};
+    hall["exits"] = nlohmann::json::array(
+        {{{"id", "south-exit"},
+          {"condition", {{"kind", "always"}}},
+          {"direction", "south"},
+          {"label", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "South"}}}}},
+          {"target", {{"kind", "room"}, {"id", "start"}}},
+          {"transition", nullptr}}});
+
+    rooms.front()["description"] = {{"markup", "plain"},
+                                    {"source", {{"kind", "inline"}, {"text", "Start room."}}}};
+    rooms.front()["exits"] = nlohmann::json::array(
+        {{{"id", "north-exit"},
+          {"condition", {{"kind", "always"}}},
+          {"direction", "north"},
+          {"label", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "North"}}}}},
+          {"target", {{"kind", "room"}, {"id", "hall"}}},
+          {"transition", nullptr}}});
+    rooms.push_back(std::move(hall));
+    return project.dump();
 }
 
 std::shared_ptr<assets::ZipAssetSource>
@@ -544,6 +572,84 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
     CHECK_FALSE(preview.dispatch(handle, core::RuntimeInputMessage{core::ContinueInput{}}));
     REQUIRE_FALSE(preview.preview_diagnostics().empty());
     CHECK(preview.preview_diagnostics().back().code == "preview.runtime.stale_handle");
+}
+
+TEST_CASE("PreviewHost exact-exit navigation transitions the active Room")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto project = navigable_compiled_project_fixture();
+    project_assets->add("navigable.json", assets::AssetBytes(project.begin(), project.end()),
+                        "preview-navigation-test");
+    assets.mount("project", project_assets);
+
+    script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer game_layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &game_layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = scripts,
+                   .diagnostic_sink = {}});
+    Renderer renderer;
+    ShaderMaterialProject shader_materials;
+    LayoutRealizer preview_layout_realizer(assets, runtime_ui);
+    bool preview_running = false;
+    PreviewHost preview({.game_host = host,
+                         .runtime_ui = runtime_ui,
+                         .scripts = scripts,
+                         .renderer = renderer,
+                         .shader_materials = shader_materials,
+                         .assets = assets,
+                         .audio_backend = audio,
+                         .layout_realizer = preview_layout_realizer,
+                         .load_game =
+                             [&host](GameHostLoadRequest request) {
+                                 CHECK(request.load_title_screen);
+                                 return static_cast<bool>(
+                                     host.load_compiled_project(std::move(request), {}));
+                             },
+                         .apply_authored_environment =
+                             [](const core::editor::TypedEditorAuthoredPreviewEnvironment&) {
+                                 return core::Result<void, core::Diagnostics>::success();
+                             },
+                         .clear_authored_environment =
+                             []() { return core::Result<void, core::Diagnostics>::success(); },
+                         .preview_running = preview_running});
+
+    REQUIRE(preview.load_project("project:/navigable.json"));
+    REQUIRE(preview.start());
+    REQUIRE(preview.publication());
+    REQUIRE(preview.publication()->gameplay_ui.room);
+    CHECK(preview.publication()->gameplay_ui.room->room.text() == "start");
+
+    const auto north_exit = core::RoomExitId::create("north-exit");
+    REQUIRE(north_exit);
+    REQUIRE(preview.navigate(*north_exit.value_if()));
+    REQUIRE(preview.publication());
+    REQUIRE(preview.publication()->gameplay_ui.room);
+    CHECK(preview.publication()->gameplay_ui.room->room.text() == "hall");
+    CHECK(preview.publication()->presentation.current_room->text() == "hall");
+
+    REQUIRE(preview.continue_dialogue());
+    CHECK_FALSE(preview.continue_dialogue());
 }
 
 TEST_CASE("PreviewHost keeps the active document when authored environment application fails")

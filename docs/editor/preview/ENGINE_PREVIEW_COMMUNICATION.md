@@ -262,6 +262,21 @@ Editor to preview:
 - `set-preview-wheel-routing`
 - `request-preview-snapshot`
 
+`runtime-navigate` carries the exact current `exitId`, not a direction ordinal. Runtime debug
+snapshots expose each available navigation input as `{ exitId, direction, label, enabled }`. The
+preview validates that the identified exit still belongs to the active Room and is enabled before
+submitting `NavigateRoomInput`; direction remains presentation and recorded-test metadata only.
+
+The Play preview loads the normal title screen. Starting the preview runtime is routed through the
+runtime shell's `StartGameShellCommand`, which starts gameplay, hides the modal title Layout, and
+shows the Game HUD as one operation. Native preview commands report success only for `Handled`
+runtime input; `Unhandled` is a rejected command rather than a successful no-op.
+
+Focus moving between the embedded game canvas and editor-owned inspector controls does not suspend
+the preview host. Preview suspension is controlled explicitly through `set-preview-activity`; SDL
+focus loss inside the embedded widget is not equivalent to a standalone player losing platform
+focus. Standalone runtime hosts retain the normal focus-loss suspension behavior.
+
 Preview to editor:
 
 - `ready`

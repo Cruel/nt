@@ -945,10 +945,21 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                                   .layout_instance = std::nullopt});
         }
         gameplay_ui.effective_gameplay_pause.paused = !pause_sources.empty();
+        if (gameplay_ui.room) {
+            const RoomDescriptionVisit visit{gameplay_ui.room->room, gameplay_ui.room->visits};
+            if (!m_room_description_visit || *m_room_description_visit != visit) {
+                m_room_description_visit = visit;
+                m_room_description_visible = !gameplay_ui.room->description.empty();
+            }
+            if (!m_room_description_visible)
+                gameplay_ui.room->description.clear();
+        }
         const bool has_choice = (gameplay_ui.scene && gameplay_ui.scene->choice) ||
                                 (gameplay_ui.dialogue && gameplay_ui.dialogue->choice);
+        const bool room_description_pending = gameplay_ui.room && m_room_description_visible;
         gameplay_ui.can_continue =
-            active_blocker<core::InputFlowBlocker>(*m_kernel) != nullptr && !has_choice;
+            (active_blocker<core::InputFlowBlocker>(*m_kernel) != nullptr && !has_choice) ||
+            room_description_pending;
     }
     m_script_view = gameplay_ui;
 
@@ -1220,6 +1231,8 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             m_next_capability_generation = *subsequent_generation;
                             m_kernel->gateway().bind_services(this);
                             m_selection.clear();
+                            m_room_description_visit.reset();
+                            m_room_description_visible = false;
                             m_pending_presentation.reset();
                             m_pending_audio.reset();
                             m_pending_events.clear();
@@ -1253,15 +1266,19 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     }
                 } else if constexpr (std::is_same_v<T, core::ContinueInput>) {
                     const auto* blocker = active_blocker<core::InputFlowBlocker>(*m_kernel);
-                    if (!blocker)
-                        result.disposition = runtime::RuntimeInputDisposition::Unhandled;
-                    else {
+                    if (blocker) {
                         auto completed = m_kernel->complete(
                             blocker->owner, core::AnyFlowBlockerHandle{blocker->handle});
                         if (!completed)
                             result.diagnostics = std::move(completed).error();
                         else
                             result.diagnostics = run_kernel(result.events, result.observations);
+                    } else if (m_room_description_visible && m_script_view.room) {
+                        m_room_description_visible = false;
+                        m_transaction_impacts.record(
+                            runtime::MutationImpact::GameplayUiInvalidated);
+                    } else {
+                        result.disposition = runtime::RuntimeInputDisposition::Unhandled;
                     }
                 } else if constexpr (std::is_same_v<T, core::SelectSceneChoiceInput> ||
                                      std::is_same_v<T, core::SelectDialogueChoiceInput>) {
@@ -1381,6 +1398,8 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 static_cast<void>(m_kernel->gateway().take_mutation_impacts());
                                 m_transaction_impacts.clear();
                                 m_selection.clear();
+                                m_room_description_visit.reset();
+                                m_room_description_visible = false;
                                 m_pending_presentation.reset();
                                 m_pending_audio.reset();
                                 m_pending_events.clear();

@@ -23,6 +23,7 @@ export type RecordedRuntimeInputKind =
 export interface RecordedRuntimeActionInput {
   type: string;
   optionIndex?: number;
+  exitId?: string;
   direction?: number;
   subjects?: Array<{ kind: 'character' | 'interactable'; id: string }>;
   verbId?: string;

@@ -83,6 +83,13 @@ private:
         bool room_navigation = false;
     };
 
+    struct RoomDescriptionVisit {
+        core::RoomId room;
+        std::uint64_t visits = 0;
+
+        auto operator<=>(const RoomDescriptionVisit&) const = default;
+    };
+
     RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
                    PresentationModelPort& presentation_model, PresentationRuntimePort& presentation,
                    core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
@@ -177,6 +184,8 @@ private:
     core::EffectiveGameplayPause m_effective_gameplay_pause;
     std::size_t m_playback_step = 0;
     std::vector<core::compiled::InteractionSubject> m_selection;
+    std::optional<RoomDescriptionVisit> m_room_description_visit;
+    bool m_room_description_visible = false;
     std::optional<PendingPresentationCompletion> m_pending_presentation;
     std::optional<core::AudioOperation> m_pending_audio;
     std::vector<RuntimeEvent> m_pending_events;

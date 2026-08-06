@@ -36,11 +36,6 @@ void RuntimeUiBinder::bind_input_sink(RuntimeUiInputSink* sink) noexcept
         remove_lua_api();
 }
 
-void RuntimeUiBinder::bind_asset_service(const RuntimeUiAssetService* service) noexcept
-{
-    m_asset_service = service;
-}
-
 void RuntimeUiBinder::bind_layout_gameplay_admission(std::function<bool()> admission)
 {
     m_layout_gameplay_admission = std::move(admission);
@@ -84,7 +79,7 @@ std::uint64_t RuntimeUiBinder::revision() const noexcept
 void RuntimeUiBinder::bind_document(Rml::ElementDocument& document, std::string_view notification)
 {
     if (const auto* current = view())
-        m_document_binder.bind(document, *current, m_asset_service, notification);
+        m_document_binder.bind(document, *current, notification);
 }
 
 bool RuntimeUiBinder::dispatch_input(const core::RuntimeInputMessage& input)
@@ -104,7 +99,10 @@ bool RuntimeUiBinder::dispatch_input(const core::RuntimeInputMessage& input)
 
 bool RuntimeUiBinder::dispatch_layout_input(const core::RuntimeInputMessage& input)
 {
-    return (!m_layout_gameplay_admission || m_layout_gameplay_admission()) && dispatch_input(input);
+    if (m_layout_gameplay_admission && !m_layout_gameplay_admission())
+        return invalid("runtime_ui.layout_input_blocked",
+                       "Gameplay input from RuntimeUI is blocked by the active Layout policy");
+    return dispatch_input(input);
 }
 
 bool RuntimeUiBinder::dispatch_shell_command(const core::RuntimeShellCommand& command)

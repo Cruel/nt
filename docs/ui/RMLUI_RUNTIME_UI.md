@@ -119,12 +119,18 @@ input listener. Copying a built-in RML/RCSS document into a project Layout and a
 system role therefore preserves its default behavior; projects may then change structure and styling
 while retaining any supported slot IDs they keep.
 
-System slot IDs are optional. Missing slots are tolerated, while retained IDs receive the same typed
-values regardless of whether the document came from the engine fallback or a project Layout. This
-includes gameplay slots such as `rt_background_image`; a project may keep that slot when it wants the
-current Room or Scene background asset available to the HUD, or omit it when it does not. Document
-reload and lifecycle-context recreation reapply the authoritative role bindings and preserve the
-same mounted system identity.
+System slot IDs are optional. Missing slots are tolerated silently, while retained IDs receive the
+same typed values regardless of whether the document came from the engine fallback or a project
+Layout. The game-HUD binder does not project Room or Scene background assets into RmlUi; the world
+renderer is the sole owner of those backgrounds. Document reload and lifecycle-context recreation
+reapply the authoritative role bindings and preserve the same mounted system identity.
+
+RmlUi source URLs use the mounted logical asset namespaces. Engine-owned fallback resources use
+`system|/path`, which the file interface resolves to `system:/path`. Project Layout resources use
+`project|/path`, which resolves to `project:/path`. A project image referenced from RML must also be
+declared in the Layout's image dependencies so focused preview and package assembly include it. The
+dependency declaration closes the resource graph; it does not rewrite an Asset ID into a URL inside
+the RML source.
 
 `docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` is the authoritative inventory of every currently supported
 system-role slot ID and custom runtime tag, including exact population behavior, generated markup

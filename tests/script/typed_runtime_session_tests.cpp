@@ -543,6 +543,47 @@ TEST_CASE("typed runtime session starts a representative Room session")
     CHECK(view.room->room.text() == "start");
 }
 
+TEST_CASE("Room descriptions are transient ActiveText messages for each Room visit")
+{
+    Fixture fixture("minimal.json");
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->gameplay_ui.room);
+    CHECK(started.publication->gameplay_ui.room->description == "Minimal room.");
+    CHECK(started.publication->gameplay_ui.can_continue);
+
+    auto dismissed = fixture.session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(dismissed.disposition == runtime::RuntimeInputDisposition::Handled);
+    REQUIRE(dismissed.publication);
+    REQUIRE(dismissed.publication->gameplay_ui.room);
+    CHECK(dismissed.publication->gameplay_ui.room->description.empty());
+    CHECK_FALSE(dismissed.publication->gameplay_ui.can_continue);
+
+    auto redundant = fixture.session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(redundant.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    CHECK_FALSE(redundant.publication);
+}
+
+TEST_CASE("typed Room navigation input commits the default Cut transition")
+{
+    Fixture fixture("comprehensive.json");
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->gameplay_ui.room);
+    CHECK(started.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("start"));
+
+    auto navigated = fixture.session->dispatch(core::RuntimeInputMessage{
+        core::NavigateRoomInput{make_id<core::RoomExitIdTag>("north-exit")}});
+    REQUIRE(navigated.diagnostics.empty());
+    CHECK(navigated.disposition == runtime::RuntimeInputDisposition::Handled);
+    REQUIRE(navigated.publication);
+    REQUIRE(navigated.publication->gameplay_ui.room);
+    CHECK(navigated.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("hall"));
+    CHECK(navigated.publication->presentation.current_room == make_id<core::RoomIdTag>("hall"));
+    CHECK(fixture.presentation.presentation_operations.empty());
+}
+
 TEST_CASE("failed Room recomposition republishes diagnostics with the prior complete target")
 {
     auto document = load_document("minimal.json");

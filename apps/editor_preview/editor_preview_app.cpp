@@ -289,10 +289,10 @@ EMSCRIPTEN_KEEPALIVE int noveltea_runtime_dialogue_option(int option_index)
     return preview && preview->select_dialogue_option(option_index) ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE int noveltea_runtime_navigate(int direction)
+EMSCRIPTEN_KEEPALIVE int noveltea_runtime_navigate(const char* exit_id)
 {
     auto* preview = preview_controller();
-    return preview && preview->navigate(direction) ? 1 : 0;
+    return preview && exit_id && preview->navigate(exit_id) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE int noveltea_runtime_select_subjects(const char* subjects_json)

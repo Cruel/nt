@@ -921,7 +921,6 @@ void GameHost::detach_runtime_bindings() noexcept
     m_dependencies.runtime_ui.bind_input_sink(nullptr);
     m_runtime_ui_input_sink.reset();
     m_retired_runtime_ui_input_sinks.clear();
-    m_dependencies.runtime_ui.bind_asset_service(nullptr);
     m_dependencies.runtime_ui.clear_gameplay_ui_values();
     m_dependencies.runtime_ui.clear_runtime_shell_view();
     m_dependencies.runtime_ui.set_runtime_notification({});
@@ -1077,7 +1076,6 @@ core::Result<void, core::Diagnostics> GameHost::attach_runtime_bindings(bool sho
                  .message = "Runtime bindings require an active running game"}));
 
     bind_runtime_ui_input_sink();
-    m_dependencies.runtime_ui.bind_asset_service(&m_runtime_ui_asset_service);
     if (m_runtime_publication &&
         !m_dependencies.runtime_ui.apply_gameplay_ui_values(RuntimeUiGameplayValues{
             m_runtime_publication->revision.number(), m_runtime_publication->gameplay_ui})) {

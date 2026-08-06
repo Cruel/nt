@@ -27,7 +27,6 @@ public:
 
     void set_lua_state(lua_State* state) noexcept;
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept;
-    void bind_asset_service(const RuntimeUiAssetService* service) noexcept;
     void bind_layout_gameplay_admission(std::function<bool()> admission);
 
     [[nodiscard]] bool apply(const RuntimeUiGameplayValues& values);
@@ -59,7 +58,6 @@ private:
     RuntimeUiDocumentBinder m_document_binder;
     lua_State* m_lua_state = nullptr;
     RuntimeUiInputSink* m_input_sink = nullptr;
-    const RuntimeUiAssetService* m_asset_service = nullptr;
     std::function<bool()> m_layout_gameplay_admission;
     std::optional<RuntimeUiGameplayValues> m_values;
     bool m_event_capture_active = false;

@@ -1,29 +1,45 @@
 <rml>
 <head>
-    <title>NovelTea Runtime</title>
+    <title>NovelTea Game HUD</title>
     <link type="text/rcss" href="runtime_game.rcss"/>
 </head>
 <body>
-    <div id="runtime_root">
-        <div id="top_bar">
-            <span id="rt_mode">idle</span>
-            <span id="rt_notification"></span>
-        </div>
-        <div id="content">
-            <div id="main_view">
+    <div id="rt_root">
+        <div id="rt_hud_header">
+            <div id="rt_header_copy">
                 <h1 id="rt_title"></h1>
-                <nt-active-text id="rt_body"></nt-active-text>
-                <div id="rt_prompt"></div>
-                <div id="rt_options"></div>
+                <p id="rt_notification"></p>
             </div>
-            <div id="side_view">
-                <div id="rt_navigation"></div>
+            <button id="rt_menu" onclick="Game.shell.pause()">Menu</button>
+        </div>
+        <div id="rt_interaction_dock">
+            <div id="rt_objects_group" class="rt-control-group">
+                <p class="rt-control-heading">Nearby</p>
                 <div id="rt_objects"></div>
-                <div id="rt_inventory"></div>
-                <div id="rt_actions"></div>
-                <nt-text-log id="rt_log"></nt-text-log>
-                <nt-map-view id="rt_map"></nt-map-view>
             </div>
+            <div id="rt_inventory_group" class="rt-control-group">
+                <p class="rt-control-heading">Inventory</p>
+                <div id="rt_inventory"></div>
+            </div>
+            <div id="rt_actions_group" class="rt-control-group">
+                <p class="rt-control-heading">Actions</p>
+                <div id="rt_actions"></div>
+            </div>
+        </div>
+        <div id="rt_text_panel">
+            <nt-active-text id="rt_body"></nt-active-text>
+            <div id="rt_options"></div>
+        </div>
+        <div id="rt_navigation">
+            <button id="rt_nav_northwest" class="nav nav-northwest nav-slot-northwest" data-direction="northwest"><span class="nav-glyph">NW</span><span class="nav-label"></span></button>
+            <button id="rt_nav_north" class="nav nav-north nav-slot-north" data-direction="north"><span class="nav-glyph">N</span><span class="nav-label"></span></button>
+            <button id="rt_nav_northeast" class="nav nav-northeast nav-slot-northeast" data-direction="northeast"><span class="nav-glyph">NE</span><span class="nav-label"></span></button>
+            <button id="rt_nav_west" class="nav nav-west nav-slot-west" data-direction="west"><span class="nav-glyph">W</span><span class="nav-label"></span></button>
+            <button id="rt_nav_custom" class="nav nav-custom nav-slot-custom" data-direction="custom"><span class="nav-glyph">GO</span><span class="nav-label"></span></button>
+            <button id="rt_nav_east" class="nav nav-east nav-slot-east" data-direction="east"><span class="nav-glyph">E</span><span class="nav-label"></span></button>
+            <button id="rt_nav_southwest" class="nav nav-southwest nav-slot-southwest" data-direction="southwest"><span class="nav-glyph">SW</span><span class="nav-label"></span></button>
+            <button id="rt_nav_south" class="nav nav-south nav-slot-south" data-direction="south"><span class="nav-glyph">S</span><span class="nav-label"></span></button>
+            <button id="rt_nav_southeast" class="nav nav-southeast nav-slot-southeast" data-direction="southeast"><span class="nav-glyph">SE</span><span class="nav-label"></span></button>
         </div>
     </div>
 </body>

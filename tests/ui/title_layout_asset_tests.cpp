@@ -63,3 +63,23 @@ TEST_CASE("built-in system menu assets use typed shell capabilities")
     CHECK(settings.find("Game.shell.set_text_scale_maximum()") != std::string::npos);
     CHECK(settings.find("set_text_scale(0.9)") == std::string::npos);
 }
+
+TEST_CASE("built-in game HUD is a transparent functional overlay")
+{
+    const auto root = std::filesystem::path(NOVELTEA_SOURCE_DIR);
+    const auto hud_root = root / "engine/assets/system/ui/runtime";
+    const auto rml = read_source_file(hud_root / "runtime_game.rml");
+    const auto rcss = read_source_file(hud_root / "runtime_game.rcss");
+
+    REQUIRE_FALSE(rml.empty());
+    REQUIRE_FALSE(rcss.empty());
+    CHECK(rml.find("system|/ui/runtime/runtime_game.rcss") != std::string::npos);
+    CHECK(rml.find("<nt-active-text id=\"rt_body\"") != std::string::npos);
+    CHECK(rml.find("id=\"rt_navigation\"") != std::string::npos);
+    CHECK(rml.find("id=\"rt_menu\" onclick=\"Game.shell.pause()\"") != std::string::npos);
+    CHECK(rml.find("rt_background_image") == std::string::npos);
+    CHECK(rml.find("rt_room_image") == std::string::npos);
+    CHECK(rcss.find("pointer-events: none") != std::string::npos);
+    CHECK(rcss.find(".nav-slot-northwest") != std::string::npos);
+    CHECK(rcss.find(".nav-slot-southeast") != std::string::npos);
+}

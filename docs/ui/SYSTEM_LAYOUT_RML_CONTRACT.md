@@ -20,10 +20,10 @@ The built-in source documents are useful working examples:
 
 ## Binding Rules
 
-System bindings are role-scoped, not global ID magic. An element named `rt_background_image` in an
-ordinary Layout, or in a system Layout assigned to an unrelated role, is not populated merely because
-the ID matches. `LayoutRealizer` publishes the active document for each mounted system role and
-`RuntimeUI` applies that role's binding contract to that document.
+System bindings are role-scoped, not global ID magic. An element named `rt_navigation` in an ordinary
+Layout, or in a system Layout assigned to an unrelated role, is not populated merely because the ID
+matches. `LayoutRealizer` publishes the active document for each mounted system role and `RuntimeUI`
+applies that role's binding contract to that document.
 
 All documented slots are optional. A project may omit any slot it does not want. When a populated
 slot is present, the engine generally replaces its complete inner RML whenever the corresponding
@@ -85,13 +85,12 @@ The active `game-hud` document receives the complete typed gameplay UI view.
 | `rt_mode` | Replaces inner RML with the escaped runtime mode string. |
 | `rt_title` | Replaces inner RML with the escaped current Map title when one is present; otherwise empty. |
 | `rt_notification` | Replaces inner RML with the escaped output notification. When that is empty, uses the current Interaction notification when available. |
-| `rt_background_image` | Replaces inner RML with one `<img class="background">` for the current Room background asset, or the Scene background when no Room view is active. It is empty when no background asset resolves. This is an additional HUD rendering of the asset; it does not replace the world renderer's background. |
 | `nt-active-text` tag | Preferred ActiveText host. The first tag receives the current Scene/Dialogue text or Room description snapshot and supplies the RmlUi layout box used by the direct text renderer. Its authored children are cleared. |
 | `rt_body` | Legacy text fallback used only when the document has no `nt-active-text` tag. Replaces inner RML with escaped paragraph markup. |
 | `rt_prompt` | Replaces inner RML with a `button.continue` calling `Game.ui.continue()` when continuation is available; otherwise empty. |
 | `rt_options` | Replaces inner RML with Scene-choice buttons, or Dialogue-choice buttons when no Scene choice is active. |
 | `rt_actors` | Replaces inner RML with metadata-only elements for visible Scene actors. |
-| `rt_navigation` | Replaces inner RML with Room-exit buttons. |
+| `rt_navigation` | Hosts the built-in directional Room-exit controls. The binder updates the permanent direction buttons' labels, `data-exit-id` values, and visibility from the enabled exits in the current Room. |
 | `rt_objects` | Replaces inner RML with selectable buttons for visible Room placement occupants. |
 | `rt_inventory` | Replaces inner RML with selectable buttons for visible inventory items. |
 | `rt_actions` | Replaces inner RML with an optional clear-selection button and the currently available Room or inventory interaction controls. |
@@ -100,10 +99,13 @@ The active `game-hud` document receives the complete typed gameplay UI view.
 | `nt-map-view` tag | Preferred Map component. The first tag receives the complete typed Map snapshot. |
 | `rt_map` | Legacy Map fallback used only when the document has no `nt-map-view` tag. |
 
-The following IDs appear in the current built-in runtime document or stylesheet but are not populated
-by the gameplay binder: `rt_asset_status`, `rt_room_image`, and `rt_cover_image`. They are not part of
-the automatic system Layout contract. Structural IDs such as `rt_root`, `top_bar`, `content`,
-`main_view`, and `side_view` are also ordinary authored markup.
+The world renderer is the sole owner of Room and Scene backgrounds. The game-HUD binder does not
+provide a background-image slot. A project that wants decorative HUD imagery should author ordinary
+RML images from declared Layout dependencies rather than redisplaying the active world background.
+
+The current built-in HUD also uses `rt_text_panel`, `rt_interaction_dock`, `rt_objects_group`,
+`rt_inventory_group`, and `rt_actions_group` as structural visibility hooks. When present, the binder
+hides empty groups and panels. A replacement Layout may omit those hooks and control its own structure.
 
 ### Generated Game HUD Markup
 
@@ -111,18 +113,39 @@ The engine-generated children expose these current styling and metadata hooks:
 
 | Parent slot | Generated hooks |
 | --- | --- |
-| `rt_background_image` | `img.background` |
 | `rt_prompt` | `button.continue` |
 | `rt_options` | `button.option`; disabled choices also receive class `disabled` and the `disabled` attribute |
 | `rt_actors` | `div.actor` with `data-character-id`, `data-slot-id`, `data-pose-id`, `data-expression-id`, and `data-presentation-complete` |
-| `rt_navigation` | `button.nav`; disabled exits also receive class `disabled` and the `disabled` attribute |
+| `rt_navigation` | Permanent `button.nav.nav-{direction}` controls with `data-direction` and binder-managed `data-exit-id`; each contains `span.nav-glyph` and `span.nav-label`. Direction tokens are `northwest`, `north`, `northeast`, `west`, `custom`, `east`, `southwest`, `south`, and `southeast`. Buttons without an enabled exit are hidden. |
 | `rt_objects` | `button.object`, with optional `selected` and `disabled` classes |
 | `rt_inventory` | `button.object`, with optional `selected` and `disabled` classes |
 | `rt_actions` | `button.clear-selection` and `button.action`; unavailable actions receive class `disabled` and the `disabled` attribute |
 
-Generated buttons call typed `Game.ui` functions using stable IDs from the current view. Those calls
-are validated again when activated, so stale, hidden, unknown, or disabled targets fail rather than
-submitting an invalid runtime input.
+Generated choice, object, inventory, and action buttons call typed `Game.ui` functions using stable
+IDs from the current view. Permanent navigation buttons carry a binder-managed `data-exit-id` and
+are dispatched directly by the RuntimeUI document listener. Both paths validate the current target
+before submitting typed runtime input, so stale, hidden, unknown, or disabled targets fail.
+
+Room descriptions are transient per Room visit. The first published view for a visit exposes the
+description through ActiveText and marks continuation available. Completing the ActiveText message
+clears the description from later gameplay-UI publications for that visit. Entering a different Room
+or beginning a later visit creates a new transient message. This dismissal is presentation/session
+state and is intentionally not serialized into save data.
+
+## Layout Asset URLs
+
+RML and RCSS use mounted logical namespaces rather than authoring Asset IDs:
+
+- `system|/ui/runtime/runtime_game.rcss` addresses an engine-owned resource under
+  `engine/assets/system`.
+- `project|/assets/images/navigation-arrow.png` addresses a packaged project resource.
+- relative URLs resolve from the current document and then through the project mount.
+
+Project-authored Layouts must declare referenced images, fonts, stylesheets, scripts, and materials in
+their dependency lists. That declaration makes focused preview, validation, prefetch, and export aware
+of the resources. It does not substitute `$ref` values into inline RML. Consequently, a future
+project navigation-arrow asset can be referenced by a `project|/...` URL and styled on the generated
+direction classes; an engine-provided default would use `system|/...` instead.
 
 ## Custom Runtime Elements
 

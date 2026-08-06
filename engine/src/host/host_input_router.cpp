@@ -176,14 +176,22 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
         result.lifecycle_actions.emplace_back(RequestQuitHostAction{});
         break;
     case NormalizedHostEventKind::WindowMinimized:
-    case NormalizedHostEventKind::FocusLost:
     case NormalizedHostEventKind::EnteredBackground:
         result.lifecycle_actions.emplace_back(SuspendHostAction{});
         break;
+    case NormalizedHostEventKind::FocusLost:
+        // Moving focus from an embedded preview canvas to editor-owned controls is not a platform
+        // suspension. Preview activity and visibility are governed explicitly by the editor bridge.
+        if (context.mode != HostInputMode::Preview)
+            result.lifecycle_actions.emplace_back(SuspendHostAction{});
+        break;
     case NormalizedHostEventKind::WindowRestored:
-    case NormalizedHostEventKind::FocusGained:
     case NormalizedHostEventKind::EnteredForeground:
         result.lifecycle_actions.emplace_back(ResumeHostAction{});
+        break;
+    case NormalizedHostEventKind::FocusGained:
+        if (context.mode != HostInputMode::Preview)
+            result.lifecycle_actions.emplace_back(ResumeHostAction{});
         break;
     case NormalizedHostEventKind::WindowResized:
         result.lifecycle_actions.emplace_back(RefreshHostSurfaceAction{});

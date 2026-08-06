@@ -42,7 +42,7 @@ public:
 
     bool continue_dialogue();
     bool select_dialogue_option(int option_index);
-    bool navigate(int direction);
+    bool navigate(std::string exit_id);
     bool select_subjects(std::vector<core::compiled::InteractionSubject> subjects);
     bool clear_subject_selection();
     bool run_interaction(const std::string& verb_id,

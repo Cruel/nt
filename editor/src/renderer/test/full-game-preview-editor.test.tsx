@@ -187,7 +187,12 @@ async function postInputSnapshot(
   previewPort: FakePort,
   options: {
     continue?: boolean;
-    navigation?: Array<{ index: number; label: string; enabled: boolean }>;
+    navigation?: Array<{
+      exitId: string;
+      direction: number;
+      label: string;
+      enabled: boolean;
+    }>;
     dialogueOptions?: Array<{ index: number; label: string; enabled: boolean }>;
     hotspots?: Array<{ hotspot: PreviewHotspotRef; label: string }>;
   } = {},
@@ -994,18 +999,24 @@ describe('FullGamePreviewEditor', () => {
 
     await postInputSnapshot(previewPort, {
       navigation: [
-        { index: 0, label: 'North', enabled: true },
-        { index: 1, label: 'South', enabled: true },
+        { exitId: 'north-exit', direction: 0, label: 'North', enabled: true },
+        { exitId: 'south-exit', direction: 1, label: 'South', enabled: true },
       ],
     });
 
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
-    await user.click(screen.getByText('Navigate 0: North'));
+    await user.click(screen.getByText('Navigate North'));
+    expect(latestRequest(editorPort, 'runtime-navigate')).toMatchObject({
+      exitId: 'north-exit',
+    });
     await resolveLatest(editorPort, previewPort, 'runtime-navigate');
-    await user.click(screen.getByText('Navigate 1: South'));
+    await user.click(screen.getByText('Navigate South'));
+    expect(latestRequest(editorPort, 'runtime-navigate')).toMatchObject({
+      exitId: 'south-exit',
+    });
     await resolveLatest(editorPort, previewPort, 'runtime-navigate');
-    await waitFor(() => expect(screen.getByText('2. Navigate 1')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('2. Navigate south-exit')).toBeInTheDocument());
 
     await user.click(screen.getByText('Undo Last'));
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-reset')).toBeDefined());
@@ -1017,8 +1028,10 @@ describe('FullGamePreviewEditor', () => {
     );
     await resolveLatest(editorPort, previewPort, 'runtime-request-debug-snapshot');
 
-    await waitFor(() => expect(screen.queryByText('2. Navigate 1')).not.toBeInTheDocument());
-    expect(screen.getByText('1. Navigate 0')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText('2. Navigate south-exit')).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText('1. Navigate north-exit')).toBeInTheDocument();
     expect(screen.getByText('Undo last recorded action')).toBeInTheDocument();
     const resetCount = editorPort.sent.filter(
       (message) => (message as { type?: string }).type === 'runtime-reset',

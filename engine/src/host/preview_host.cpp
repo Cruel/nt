@@ -414,8 +414,10 @@ bool PreviewHost::start()
             preview_error("preview.runtime.unloaded", "Cannot start an unloaded preview runtime."));
         return false;
     }
-    m_dependencies.preview_running = true;
-    const bool accepted = dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    const bool accepted = m_dependencies.game_host.submit_runtime_ui_shell_command(
+        core::RuntimeShellCommand{core::StartGameShellCommand{}});
+    if (accepted)
+        m_dependencies.preview_running = true;
     return accepted;
 }
 
@@ -461,7 +463,7 @@ bool PreviewHost::dispatch(PreviewRuntimeHandle handle, core::RuntimeInputMessag
     }
     auto result =
         m_dependencies.game_host.submit_runtime_input(handle.session_generation, std::move(input));
-    return result.accepted();
+    return result.disposition == runtime::RuntimeInputDisposition::Handled;
 }
 
 bool PreviewHost::dispatch(core::RuntimeInputMessage input)
@@ -485,18 +487,17 @@ bool PreviewHost::select_dialogue_option(int option_index)
         view->dialogue->choice->options[static_cast<std::size_t>(option_index)].edge}});
 }
 
-bool PreviewHost::navigate(int direction)
+bool PreviewHost::navigate(const core::RoomExitId& exit)
 {
     const auto& current = publication();
     const auto* view = current ? &current->gameplay_ui : nullptr;
     if (!view || !view->room)
         return false;
-    const auto exit = std::find_if(
-        view->room->exits.begin(), view->room->exits.end(), [&](const auto& candidate) {
-            return candidate.enabled && static_cast<int>(candidate.direction) == direction;
-        });
-    return exit != view->room->exits.end() &&
-           dispatch(core::RuntimeInputMessage{core::NavigateRoomInput{exit->exit}});
+    const auto selected = std::find_if(
+        view->room->exits.begin(), view->room->exits.end(),
+        [&](const auto& candidate) { return candidate.enabled && candidate.exit == exit; });
+    return selected != view->room->exits.end() &&
+           dispatch(core::RuntimeInputMessage{core::NavigateRoomInput{selected->exit}});
 }
 
 bool PreviewHost::select_subjects(std::vector<core::compiled::InteractionSubject> subjects)

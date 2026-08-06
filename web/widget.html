@@ -1307,7 +1307,7 @@ thead, tbody, tfoot {
           finishRuntimeCommand('noveltea_runtime_dialogue_option', 'number', ['number'], [message.optionIndex], `Runtime dialogue option ${message.optionIndex} was not handled in the current runtime mode.`);
           return true;
         case 'runtime-navigate':
-          finishRuntimeCommand('noveltea_runtime_navigate', 'number', ['number'], [message.direction], `Runtime navigation ${message.direction} was not handled in the current runtime mode.`);
+          finishRuntimeCommand('noveltea_runtime_navigate', 'number', ['string'], [message.exitId], `Runtime Room exit '${message.exitId}' was not handled in the current runtime mode.`);
           return true;
         case 'runtime-select-subjects':
           finishRuntimeCommand('noveltea_runtime_select_subjects', 'number', ['string'], [JSON.stringify(message.subjects || [])], 'Runtime subject selection was not handled in the current runtime mode.');

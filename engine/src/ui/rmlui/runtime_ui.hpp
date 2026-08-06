@@ -116,7 +116,6 @@ public:
     void clear_typed_runtime_diagnostics() override;
     [[nodiscard]] core::ActiveTextPresentationPhase
     active_text_presentation_phase() const noexcept override;
-    void bind_asset_service(const RuntimeUiAssetService* service) noexcept override;
     void bind_title_document(const std::string& project_title, const std::string& subtitle,
                              const std::string& start_label) override;
     void bind_layout_gameplay_admission(std::function<bool()> admission);

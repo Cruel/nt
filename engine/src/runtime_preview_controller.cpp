@@ -130,7 +130,8 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
     nlohmann::json navigation = nlohmann::json::array();
     if (view.room) {
         for (const auto& exit : view.room->exits) {
-            navigation.push_back({{"index", static_cast<int>(exit.direction)},
+            navigation.push_back({{"exitId", exit.exit.text()},
+                                  {"direction", static_cast<int>(exit.direction)},
                                   {"label", exit.label},
                                   {"enabled", exit.enabled}});
         }
@@ -325,9 +326,10 @@ bool RuntimePreviewController::select_dialogue_option(int option_index)
     return m_preview_host->select_dialogue_option(option_index);
 }
 
-bool RuntimePreviewController::navigate(int direction)
+bool RuntimePreviewController::navigate(std::string exit_id)
 {
-    return m_preview_host->navigate(direction);
+    auto exit = core::RoomExitId::create(std::move(exit_id));
+    return exit && m_preview_host->navigate(*exit.value_if());
 }
 
 bool RuntimePreviewController::select_subjects(

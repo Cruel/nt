@@ -94,6 +94,7 @@ interface RecordedRuntimeAction {
     type: RecordedRuntimeInputKind;
     optionIndex?: number;
     direction?: number;
+    exitId?: string;
     subjects?: PreviewInteractionSubject[];
     verbId?: string;
     operands?: PreviewInteractionSubject[];
@@ -322,7 +323,7 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
     case 'dialogue-option':
       return `Choice ${action.input.optionIndex ?? '—'}`;
     case 'navigate':
-      return `Navigate ${action.input.direction ?? '—'}`;
+      return `Navigate ${action.input.exitId ?? action.input.direction ?? '—'}`;
     case 'select-subjects':
       return `Select ${action.input.subjects?.map((subject) => `${subject.kind}:${subject.id}`).join(', ') || 'subjects'}`;
     case 'clear-subject-selection':
@@ -472,7 +473,7 @@ function executeRecordedAction(
     case 'dialogue-option':
       return context.controller.selectDialogueOption(action.input.optionIndex ?? 0);
     case 'navigate':
-      return context.controller.navigateRuntime(action.input.direction ?? 0);
+      return context.controller.navigateRuntime(action.input.exitId ?? '');
     case 'select-subjects':
       return context.controller.selectRuntimeSubjects(action.input.subjects ?? []);
     case 'clear-subject-selection':
@@ -694,7 +695,7 @@ function InputAvailabilityPanel({
       ))}
       {inputs?.navigation.map((direction) => (
         <Button
-          key={direction.index}
+          key={direction.exitId}
           size="sm"
           variant="outline"
           className="w-full justify-start"
@@ -702,18 +703,19 @@ function InputAvailabilityPanel({
           onClick={() =>
             controller &&
             onCommand(
-              () => controller.navigateRuntime(direction.index),
-              `Navigate ${direction.index} sent`,
+              () => controller.navigateRuntime(direction.exitId),
+              `Navigate ${direction.label} sent`,
               {
                 recordedAction: createRecordedAction('navigate', direction.label, {
                   type: 'navigate',
-                  direction: direction.index,
+                  exitId: direction.exitId,
+                  direction: direction.direction,
                 }),
               },
             )
           }
         >
-          Navigate {direction.index}: {direction.label}
+          Navigate {direction.label}
         </Button>
       ))}
       {inputs?.actions.map((action) => (
