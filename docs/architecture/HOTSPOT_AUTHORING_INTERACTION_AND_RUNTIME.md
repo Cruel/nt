@@ -29,9 +29,15 @@ engine-bound hotspot samplers.
 ## Editor behavior
 
 The shared React hotspot image stage provides selection, create, move, resize, delete, zoom, pan,
-fit, and image-coordinate conversion. The Room editor composes Room hotspot editing with existing
-Interactable placement. The Interactable editor authors alpha/custom mask behavior. Pointer capture,
-minimum sizes, normalized clamping, and one command transaction per completed gesture are required.
+fit, and image-coordinate conversion. Its normal interaction state has no select/pan tool switch:
+clicking a hotspot selects it, dragging a rectangular hotspot moves it, dragging a selected handle
+resizes it, and dragging empty image space pans the camera. `Add hotspot` temporarily changes the
+next drag into rectangular creation, then returns to normal interaction after a successful create;
+Escape or the cancel action exits creation without mutation. The Room editor composes Room hotspot
+editing with existing Interactable placement. The Interactable editor authors alpha/custom mask
+behavior. Desktop gestures use lifetime-installed window mouse listeners so move/up remain reliable
+when the cursor leaves SVG geometry or the stage. Minimum sizes, normalized clamping, and one command
+transaction per completed gesture are required.
 Focused Room preview remains protocol version 2 and deliberately receives no hotspot values or world
 hotspot input. Play preview uses the ordinary compiled runtime, immutable presentation projection,
 and typed activation path; no parallel editor-only runtime contract exists.

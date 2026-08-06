@@ -120,6 +120,7 @@ export function HotspotAuthoringPanel(props: Props) {
       ...patch,
     });
   };
+  const addingRectangle = props.selectedView.tool === 'draw-rect';
   const metadata = assetData?.kind === 'image' ? assetData.imageMetadata : null;
   const visibleImageGuide = useMemo(
     () =>
@@ -142,19 +143,20 @@ export function HotspotAuthoringPanel(props: Props) {
           <h3 className="font-medium">{props.title}</h3>
           <p className="text-xs text-muted-foreground">{t('hotspots.subtitle')}</p>
         </div>
-        <div className="flex gap-1">
-          {(['select', 'draw-rect', 'pan'] as const).map((tool) => (
-            <Button
-              key={tool}
-              size="sm"
-              variant={props.selectedView.tool === tool ? 'default' : 'outline'}
-              onClick={() => updateView({ tool })}
-            >
-              {t(`hotspots.tools.${tool}`)}
-            </Button>
-          ))}
-        </div>
+        <Button
+          size="sm"
+          variant={addingRectangle ? 'secondary' : 'outline'}
+          aria-pressed={addingRectangle}
+          onClick={() => updateView({ tool: addingRectangle ? 'select' : 'draw-rect' })}
+        >
+          {addingRectangle ? t('hotspots.cancelAdd') : t('hotspots.add')}
+        </Button>
       </div>
+      {addingRectangle ? (
+        <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          {t('hotspots.addInstruction')}
+        </p>
+      ) : null}
       {!metadata ? <p className="text-sm text-destructive">{t('hotspots.invalidImage')}</p> : null}
       {metadata ? (
         <HotspotImageStage
@@ -185,6 +187,7 @@ export function HotspotAuthoringPanel(props: Props) {
             updateView({ zoom: camera.zoom, panX: camera.pan.x, panY: camera.pan.y })
           }
           onCreate={(bounds) => props.onAdd(bounds)}
+          onCancelCreate={() => updateView({ tool: 'select' })}
           onCommitBounds={(id, bounds) => props.onBounds(id, bounds)}
           onDelete={(id) => props.onDelete(id)}
         />

@@ -69,6 +69,35 @@ describe('RoomEditor', () => {
     selectRoomCategory('Composition');
     expect(screen.getByText('Placements')).toBeInTheDocument();
   });
+  it('uses one temporary add action instead of persistent hotspot interaction modes', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    selectRoomCategory('Hotspots');
+    expect(screen.getByRole('button', { name: 'Add hotspot' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Draw' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Pan' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add hotspot' }));
+    expect(screen.getByRole('button', { name: 'Cancel add' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(
+      screen.getByText(
+        'Drag on the image to create a rectangular hotspot. Press Escape to cancel.',
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel add' }));
+    expect(screen.getByRole('button', { name: 'Add hotspot' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
   it('selects the owning Room category for workbench targets', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

@@ -408,9 +408,11 @@
     "moveToPlacement": "Move to placement"
   },
   "hotspots": {
-    "subtitle": "Image-relative hotspot authoring",
+    "subtitle": "Click a hotspot to select it, drag empty image space to pan, or add a new clickable region.",
     "invalidImage": "Select a valid image asset with dimensions before authoring hotspots.",
-    "tools": { "select": "Select", "draw-rect": "Draw", "pan": "Pan" },
+    "add": "Add hotspot",
+    "cancelAdd": "Cancel add",
+    "addInstruction": "Drag on the image to create a rectangular hotspot. Press Escape to cancel.",
     "fields": {
       "id": "ID",
       "label": "Label",

@@ -448,9 +448,11 @@
     "moveToPlacement": "Mover para posicionamento"
   },
   "hotspots": {
-    "subtitle": "Edição de hotspot relativa à imagem",
+    "subtitle": "Clique em um hotspot para selecioná-lo, arraste o espaço vazio da imagem para mover a visão ou adicione uma nova região clicável.",
     "invalidImage": "Selecione um recurso de imagem válido com dimensões antes de editar hotspots.",
-    "tools": { "select": "Selecionar", "draw-rect": "Desenhar", "pan": "Mover visão" },
+    "add": "Adicionar hotspot",
+    "cancelAdd": "Cancelar adição",
+    "addInstruction": "Arraste sobre a imagem para criar um hotspot retangular. Pressione Escape para cancelar.",
     "fields": {
       "id": "ID",
       "label": "Rótulo",

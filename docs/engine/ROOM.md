@@ -79,7 +79,10 @@ The Room editor uses the shared categorized-editor shell also used by Settings a
 General, Composition, Hotspots, Navigation, Contents, and Behavior categories keep only the selected
 group mounted, retain the selected category as Room tab state, and route workbench targets to their
 owning category before reveal. Composition contains the command-backed Interactable placement editor;
-Hotspots uses the shared React image stage for create/move/resize/delete. Room background `cover`,
+Hotspots uses the shared React image stage with direct manipulation: click a hotspot to select it,
+drag a rectangular hotspot or its handles to move/resize it, drag empty image space to pan, and use
+the temporary `Add hotspot` action to draw one new rectangle before returning to normal interaction.
+Room background `cover`,
 `contain`, `stretch`, and `center` transforms use the same normalized image-coordinate policy consumed
 by runtime projection. No editor-preview-only manipulation contract exists.
 

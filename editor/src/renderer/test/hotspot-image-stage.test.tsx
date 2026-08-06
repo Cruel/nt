@@ -252,7 +252,7 @@ describe('HotspotImageStage', () => {
     expect(polygon).not.toBeNull();
     expect(document.querySelector('[data-resize-handle]')).toBeNull();
     expect(screen.getByText('Order 7')).toBeInTheDocument();
-    fireEvent.pointerDown(polygon, { pointerId: 9, button: 0 });
+    fireEvent.mouseDown(polygon, { button: 0 });
     expect(onSelectionChange).toHaveBeenCalledWith('triangle');
   });
 
@@ -267,7 +267,7 @@ describe('HotspotImageStage', () => {
         imageSize={{ width: 100, height: 100 }}
         hotspots={[]}
         selectedHotspotId={null}
-        tool="pan"
+        tool="select"
         camera={{ zoom: 1, pan: { x: 1000, y: -1000 } }}
         onSelectionChange={vi.fn()}
         onCameraChange={onCameraChange}
@@ -285,7 +285,6 @@ describe('HotspotImageStage', () => {
     Object.defineProperties(HTMLElement.prototype, {
       clientWidth: { configurable: true, get: () => 400 },
       clientHeight: { configurable: true, get: () => 400 },
-      setPointerCapture: { configurable: true, value: vi.fn() },
     });
     const onCommitBounds = vi.fn();
     render(
@@ -305,10 +304,10 @@ describe('HotspotImageStage', () => {
       />,
     );
     const hotspot = document.querySelector<HTMLElement>('[data-hotspot-id="door"]')!;
-    fireEvent.pointerDown(hotspot, { pointerId: 1, button: 0, clientX: 40, clientY: 40 });
-    fireEvent.pointerMove(hotspot, { pointerId: 1, clientX: 80, clientY: 80 });
+    fireEvent.mouseDown(hotspot, { button: 0, clientX: 40, clientY: 40 });
+    fireEvent.mouseMove(window, { clientX: 80, clientY: 80 });
     expect(onCommitBounds).not.toHaveBeenCalled();
-    fireEvent.pointerUp(hotspot, { pointerId: 1, clientX: 80, clientY: 80 });
+    fireEvent.mouseUp(window, { clientX: 80, clientY: 80 });
     expect(onCommitBounds).toHaveBeenCalledTimes(1);
     expect(onCommitBounds).toHaveBeenCalledWith('door', {
       x: 0.2,
@@ -322,9 +321,9 @@ describe('HotspotImageStage', () => {
     Object.defineProperties(HTMLElement.prototype, {
       clientWidth: { configurable: true, get: () => 400 },
       clientHeight: { configurable: true, get: () => 400 },
-      setPointerCapture: { configurable: true, value: vi.fn() },
     });
     const onCreate = vi.fn();
+    const onCancelCreate = vi.fn();
     const onCommitBounds = vi.fn();
     const view = render(
       <HotspotImageStage
@@ -336,6 +335,7 @@ describe('HotspotImageStage', () => {
         onSelectionChange={vi.fn()}
         onCameraChange={vi.fn()}
         onCreate={onCreate}
+        onCancelCreate={onCancelCreate}
         onCommitBounds={onCommitBounds}
         onDelete={vi.fn()}
       />,
@@ -343,15 +343,16 @@ describe('HotspotImageStage', () => {
     const stage = document.querySelector<HTMLElement>(
       '[data-hotspot-image-stage] > div[tabindex]',
     )!;
-    fireEvent.pointerDown(stage, { pointerId: 2, button: 0, clientX: 40, clientY: 40 });
-    fireEvent.pointerMove(stage, { pointerId: 2, clientX: 120, clientY: 120 });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 40, clientY: 40 });
+    fireEvent.mouseMove(window, { clientX: 120, clientY: 120 });
     fireEvent.keyDown(stage, { key: 'Escape' });
-    fireEvent.pointerUp(stage, { pointerId: 2, clientX: 120, clientY: 120 });
+    fireEvent.mouseUp(window, { clientX: 120, clientY: 120 });
     expect(onCreate).not.toHaveBeenCalled();
+    expect(onCancelCreate).toHaveBeenCalledOnce();
 
-    fireEvent.pointerDown(stage, { pointerId: 3, button: 0, clientX: 40, clientY: 40 });
-    fireEvent.pointerMove(stage, { pointerId: 3, clientX: 120, clientY: 120 });
-    fireEvent.pointerUp(stage, { pointerId: 3, clientX: 120, clientY: 120 });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 40, clientY: 40 });
+    fireEvent.mouseMove(window, { clientX: 120, clientY: 120 });
+    fireEvent.mouseUp(window, { clientX: 120, clientY: 120 });
     expect(onCreate).toHaveBeenCalledTimes(1);
 
     view.rerender(
@@ -371,28 +372,36 @@ describe('HotspotImageStage', () => {
       />,
     );
     const handle = document.querySelector<SVGRectElement>('[data-resize-handle="se"]')!;
-    fireEvent.pointerDown(handle, { pointerId: 4, button: 0, clientX: 120, clientY: 120 });
-    fireEvent.pointerMove(handle, { pointerId: 4, clientX: 160, clientY: 160 });
+    expect(handle.getAttribute('width')).toBe('20');
+    expect(document.querySelector('[data-resize-handle-visual="se"]')).not.toBeNull();
+    fireEvent.mouseDown(handle, { button: 0, clientX: 120, clientY: 120 });
+    fireEvent.mouseMove(window, { clientX: 160, clientY: 160 });
     expect(onCommitBounds).not.toHaveBeenCalled();
-    fireEvent.pointerUp(handle, { pointerId: 4, clientX: 160, clientY: 160 });
+    fireEvent.mouseUp(window, { clientX: 160, clientY: 160 });
     expect(onCommitBounds).toHaveBeenCalledTimes(1);
+    const [resizedId, resizedBounds] = onCommitBounds.mock.calls[0]!;
+    expect(resizedId).toBe('door');
+    expect(resizedBounds.x).toBeCloseTo(0.1);
+    expect(resizedBounds.y).toBeCloseTo(0.1);
+    expect(resizedBounds.width).toBeCloseTo(0.3);
+    expect(resizedBounds.height).toBeCloseTo(0.3);
   });
 
-  it('publishes pan and zoom only through camera callbacks', () => {
+  it('pans empty image space by default, clears selection on an empty click, and keeps wheel zoom', () => {
     Object.defineProperties(HTMLElement.prototype, {
       clientWidth: { configurable: true, get: () => 400 },
       clientHeight: { configurable: true, get: () => 400 },
-      setPointerCapture: { configurable: true, value: vi.fn() },
     });
     const onCameraChange = vi.fn();
+    const onSelectionChange = vi.fn();
     render(
       <HotspotImageStage
         imageSize={{ width: 100, height: 100 }}
         hotspots={[]}
-        selectedHotspotId={null}
-        tool="pan"
+        selectedHotspotId="door"
+        tool="select"
         camera={{ zoom: 1, pan: { x: 0, y: 0 } }}
-        onSelectionChange={vi.fn()}
+        onSelectionChange={onSelectionChange}
         onCameraChange={onCameraChange}
         onCreate={vi.fn()}
         onCommitBounds={vi.fn()}
@@ -402,10 +411,16 @@ describe('HotspotImageStage', () => {
     const stage = document.querySelector<HTMLElement>(
       '[data-hotspot-image-stage] > div[tabindex]',
     )!;
-    fireEvent.pointerDown(stage, { pointerId: 5, button: 0, clientX: 50, clientY: 60 });
-    fireEvent.pointerMove(stage, { pointerId: 5, clientX: 80, clientY: 90 });
-    fireEvent.pointerUp(stage, { pointerId: 5, clientX: 80, clientY: 90 });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 50, clientY: 60 });
+    fireEvent.mouseMove(window, { clientX: 80, clientY: 90 });
+    fireEvent.mouseUp(window, { clientX: 80, clientY: 90 });
     expect(onCameraChange).toHaveBeenCalledWith({ zoom: 1, pan: { x: 30, y: 30 } });
+    expect(onSelectionChange).not.toHaveBeenCalled();
+
+    fireEvent.mouseDown(stage, { button: 0, clientX: 80, clientY: 90 });
+    fireEvent.mouseUp(window, { clientX: 80, clientY: 90 });
+    expect(onSelectionChange).toHaveBeenCalledWith(null);
+
     fireEvent.wheel(stage, { deltaY: -100 });
     expect(onCameraChange).toHaveBeenCalledTimes(2);
     expect(onCameraChange.mock.calls[1]?.[0].zoom).toBeGreaterThan(1);

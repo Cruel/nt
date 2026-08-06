@@ -2,7 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
 import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
@@ -55,18 +55,18 @@ export interface HotspotImageStageProps {
   visibleImageGuide?: ImageNormalizedRect | null;
   placedObjectLayer?: ReactNode;
   className?: string;
-  onSelectionChange(id: string | null): void;
-  onCameraChange(camera: ImageStageCamera): void;
-  onCreate(bounds: ImageNormalizedRect): void;
-  onCommitBounds(id: string, bounds: ImageNormalizedRect): void;
-  onDelete(id: string): void;
+  onSelectionChange: (id: string | null) => void;
+  onCameraChange: (camera: ImageStageCamera) => void;
+  onCreate: (bounds: ImageNormalizedRect) => void;
+  onCancelCreate?: () => void;
+  onCommitBounds: (id: string, bounds: ImageNormalizedRect) => void;
+  onDelete: (id: string) => void;
 }
 
 type Gesture =
-  | { kind: 'draw'; pointerId: number; start: StagePoint; current: StagePoint }
+  | { kind: 'draw'; start: StagePoint; current: StagePoint }
   | {
       kind: 'move';
-      pointerId: number;
       id: string;
       start: StagePoint;
       initial: ImageNormalizedRect;
@@ -74,14 +74,19 @@ type Gesture =
     }
   | {
       kind: 'resize';
-      pointerId: number;
       id: string;
       handle: ResizeHandle;
       start: StagePoint;
       initial: ImageNormalizedRect;
       draft: ImageNormalizedRect;
     }
-  | { kind: 'pan'; pointerId: number; start: StagePoint; initial: StagePoint; draft: StagePoint };
+  | {
+      kind: 'pan';
+      start: StagePoint;
+      initial: StagePoint;
+      draft: StagePoint;
+      moved: boolean;
+    };
 
 const handles: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 const handlePosition: Record<ResizeHandle, { left: string; top: string }> = {
@@ -94,11 +99,34 @@ const handlePosition: Record<ResizeHandle, { left: string; top: string }> = {
   sw: { left: '0%', top: '100%' },
   w: { left: '0%', top: '50%' },
 };
+const handleCursor: Record<ResizeHandle, string> = {
+  nw: 'nwse-resize',
+  n: 'ns-resize',
+  ne: 'nesw-resize',
+  e: 'ew-resize',
+  se: 'nwse-resize',
+  s: 'ns-resize',
+  sw: 'nesw-resize',
+  w: 'ew-resize',
+};
+const resizeHandleVisualSize = 8;
+const resizeHandleHitSize = 20;
+const minimumPanDistancePixels = 3;
+
+function pointInElement(element: HTMLElement | null, clientX: number, clientY: number): StagePoint {
+  const rect = element?.getBoundingClientRect();
+  return { x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0) };
+}
 
 export function HotspotImageStage(props: HotspotImageStageProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const gestureRef = useRef<Gesture | null>(null);
   const [viewport, setViewport] = useState<StageSize>({ width: 0, height: 0 });
-  const [gesture, setGesture] = useState<Gesture | null>(null);
+  const [gesture, setGestureState] = useState<Gesture | null>(null);
+  const setGesture = (next: Gesture | null) => {
+    gestureRef.current = next;
+    setGestureState(next);
+  };
   useEffect(() => {
     const element = rootRef.current;
     if (!element) return;
@@ -129,92 +157,123 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     zoom: restoredCamera.zoom,
     pan: cameraPan,
   });
-  const point = (event: ReactPointerEvent): StagePoint => {
-    const rect = rootRef.current?.getBoundingClientRect();
-    return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) };
+  const stageStateRef = useRef({
+    viewport,
+    imageSize: props.imageSize,
+    restoredCamera,
+    imageRect,
+    onSelectionChange: props.onSelectionChange,
+    onCameraChange: props.onCameraChange,
+    onCreate: props.onCreate,
+    onCommitBounds: props.onCommitBounds,
+  });
+  stageStateRef.current = {
+    viewport,
+    imageSize: props.imageSize,
+    restoredCamera,
+    imageRect,
+    onSelectionChange: props.onSelectionChange,
+    onCameraChange: props.onCameraChange,
+    onCreate: props.onCreate,
+    onCommitBounds: props.onCommitBounds,
   };
-  const uvPoint = (event: ReactPointerEvent) => stageToImageUv(point(event), imageRect);
-  const capture = (event: ReactPointerEvent) =>
-    event.currentTarget.setPointerCapture?.(event.pointerId);
 
-  const startBackgroundGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+  useEffect(() => {
+    const move = (event: MouseEvent) => {
+      const active = gestureRef.current;
+      if (!active) return;
+      event.preventDefault();
+      const state = stageStateRef.current;
+      const current = pointInElement(rootRef.current, event.clientX, event.clientY);
+      if (active.kind === 'draw') {
+        setGesture({ ...active, current: stageToImageUv(current, state.imageRect) });
+        return;
+      }
+      if (active.kind === 'pan') {
+        const delta = { x: current.x - active.start.x, y: current.y - active.start.y };
+        const next = clampImageStageCamera(state.viewport, state.imageSize, {
+          zoom: state.restoredCamera.zoom,
+          pan: {
+            x: active.initial.x + delta.x,
+            y: active.initial.y + delta.y,
+          },
+        });
+        setGesture({
+          ...active,
+          draft: next.pan,
+          moved: active.moved || Math.hypot(delta.x, delta.y) >= minimumPanDistancePixels,
+        });
+        return;
+      }
+      const startUv = stageToImageUv(active.start, state.imageRect);
+      const currentUv = stageToImageUv(current, state.imageRect);
+      const delta = { x: currentUv.x - startUv.x, y: currentUv.y - startUv.y };
+      const draft =
+        active.kind === 'move'
+          ? moveNormalizedRect(active.initial, delta)
+          : resizeNormalizedRect(active.initial, active.handle, delta, {
+              x: Math.min(1, 4 / Math.max(1, state.imageRect.width)),
+              y: Math.min(1, 4 / Math.max(1, state.imageRect.height)),
+            });
+      setGesture({ ...active, draft });
+    };
+    const finish = (event: MouseEvent) => {
+      const active = gestureRef.current;
+      if (!active) return;
+      event.preventDefault();
+      const state = stageStateRef.current;
+      if (active.kind === 'draw') {
+        const bounds = normalizedRectFromPoints(active.start, active.current);
+        if (
+          bounds.width * state.imageRect.width >= 4 &&
+          bounds.height * state.imageRect.height >= 4
+        )
+          state.onCreate(bounds);
+      } else if (active.kind === 'pan') {
+        if (active.moved)
+          state.onCameraChange({ zoom: state.restoredCamera.zoom, pan: active.draft });
+        else state.onSelectionChange(null);
+      } else if (
+        active.draft.x !== active.initial.x ||
+        active.draft.y !== active.initial.y ||
+        active.draft.width !== active.initial.width ||
+        active.draft.height !== active.initial.height
+      ) {
+        state.onCommitBounds(active.id, active.draft);
+      }
+      setGesture(null);
+    };
+    const cancel = () => setGesture(null);
+    window.addEventListener('mousemove', move, { passive: false });
+    window.addEventListener('mouseup', finish, { passive: false });
+    window.addEventListener('blur', cancel);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', finish);
+      window.removeEventListener('blur', cancel);
+    };
+  }, []);
+
+  const startBackgroundGesture = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
-    const start = point(event);
+    event.preventDefault();
+    event.currentTarget.focus();
+    const start = pointInElement(rootRef.current, event.clientX, event.clientY);
     if (props.tool === 'draw-rect') {
-      capture(event);
       setGesture({
         kind: 'draw',
-        pointerId: event.pointerId,
-        start: uvPoint(event),
-        current: uvPoint(event),
+        start: stageToImageUv(start, imageRect),
+        current: stageToImageUv(start, imageRect),
       });
       return;
     }
-    if (props.tool === 'pan' || event.shiftKey) {
-      capture(event);
-      setGesture({
-        kind: 'pan',
-        pointerId: event.pointerId,
-        start,
-        initial: restoredCamera.pan,
-        draft: restoredCamera.pan,
-      });
-      return;
-    }
-    props.onSelectionChange(null);
-  };
-
-  const updateGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    if (gesture.kind === 'draw') {
-      setGesture({ ...gesture, current: uvPoint(event) });
-      return;
-    }
-    const current = point(event);
-    if (gesture.kind === 'pan') {
-      const next = clampImageStageCamera(viewport, props.imageSize, {
-        zoom: restoredCamera.zoom,
-        pan: {
-          x: gesture.initial.x + current.x - gesture.start.x,
-          y: gesture.initial.y + current.y - gesture.start.y,
-        },
-      });
-      setGesture({
-        ...gesture,
-        draft: next.pan,
-      });
-      return;
-    }
-    const startUv = stageToImageUv(gesture.start, imageRect);
-    const currentUv = stageToImageUv(current, imageRect);
-    const delta = { x: currentUv.x - startUv.x, y: currentUv.y - startUv.y };
-    const draft =
-      gesture.kind === 'move'
-        ? moveNormalizedRect(gesture.initial, delta)
-        : resizeNormalizedRect(gesture.initial, gesture.handle, delta, {
-            x: Math.min(1, 4 / Math.max(1, imageRect.width)),
-            y: Math.min(1, 4 / Math.max(1, imageRect.height)),
-          });
-    setGesture({ ...gesture, draft });
-  };
-
-  const finishGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!gesture || gesture.pointerId !== event.pointerId) return;
-    if (gesture.kind === 'draw') {
-      const bounds = normalizedRectFromPoints(gesture.start, gesture.current);
-      if (bounds.width * imageRect.width >= 4 && bounds.height * imageRect.height >= 4)
-        props.onCreate(bounds);
-    } else if (gesture.kind === 'pan') {
-      props.onCameraChange({ zoom: restoredCamera.zoom, pan: gesture.draft });
-    } else if (
-      gesture.draft.x !== gesture.initial.x ||
-      gesture.draft.y !== gesture.initial.y ||
-      gesture.draft.width !== gesture.initial.width ||
-      gesture.draft.height !== gesture.initial.height
-    ) {
-      props.onCommitBounds(gesture.id, gesture.draft);
-    }
-    setGesture(null);
+    setGesture({
+      kind: 'pan',
+      start,
+      initial: restoredCamera.pan,
+      draft: restoredCamera.pan,
+      moved: false,
+    });
   };
 
   const wheelStateRef = useRef({
@@ -266,16 +325,20 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     <div className={`flex min-h-0 ${props.className ?? ''}`} data-hotspot-image-stage="">
       <div
         ref={rootRef}
-        className="relative min-h-64 flex-1 touch-none overflow-hidden rounded border bg-muted/30 outline-none"
+        className={`relative min-h-64 flex-1 touch-none overflow-hidden rounded border bg-muted/30 outline-none ${
+          props.tool === 'draw-rect'
+            ? 'cursor-crosshair'
+            : gesture?.kind === 'pan'
+              ? 'cursor-grabbing'
+              : 'cursor-grab'
+        }`}
         tabIndex={0}
-        onPointerDown={startBackgroundGesture}
-        onPointerMove={updateGesture}
-        onPointerUp={finishGesture}
-        onPointerCancel={() => setGesture(null)}
+        onMouseDown={startBackgroundGesture}
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && gesture) {
+          if (event.key === 'Escape' && (gesture || props.tool === 'draw-rect')) {
             event.preventDefault();
             setGesture(null);
+            if (props.tool === 'draw-rect') props.onCancelCreate?.();
             return;
           }
           if ((event.key === 'Delete' || event.key === 'Backspace') && props.selectedHotspotId) {
@@ -307,7 +370,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
           {props.placedObjectLayer}
         </div>
         <svg
-          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+          className="pointer-events-none absolute inset-0 z-10 size-full overflow-visible"
           data-geometry-layer=""
         >
           {props.visibleImageGuide
@@ -331,8 +394,9 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
           {props.hotspots.map((item) => {
             const itemGeometry = geometry(item);
             const selected = item.id === props.selectedHotspotId;
-            const selectOnly = (event: ReactPointerEvent<SVGGElement>) => {
-              if (props.tool !== 'select' || event.button !== 0) return;
+            const selectOnly = (event: ReactMouseEvent<SVGGElement>) => {
+              if (props.tool === 'draw-rect' || event.button !== 0) return;
+              event.preventDefault();
               event.stopPropagation();
               props.onSelectionChange(item.id);
             };
@@ -350,7 +414,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
                   data-hotspot-id={item.id}
                   data-hotspot-geometry="polygon"
                   data-selected={selected ? 'true' : 'false'}
-                  onPointerDown={selectOnly}
+                  onMouseDown={selectOnly}
                 >
                   <polygon
                     points={points}
@@ -375,15 +439,15 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
             }
             const bounds = draftBounds(item, itemGeometry) ?? itemGeometry.bounds;
             const rect = imageRectToStage(bounds, imageRect);
-            const beginMove = (event: ReactPointerEvent<SVGGElement>) => {
-              selectOnly(event);
-              if (props.tool !== 'select' || event.button !== 0) return;
-              capture(event);
+            const beginMove = (event: ReactMouseEvent<SVGGElement>) => {
+              if (props.tool === 'draw-rect' || event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              props.onSelectionChange(item.id);
               setGesture({
                 kind: 'move',
-                pointerId: event.pointerId,
                 id: item.id,
-                start: point(event),
+                start: pointInElement(rootRef.current, event.clientX, event.clientY),
                 initial: bounds,
                 draft: bounds,
               });
@@ -397,7 +461,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
                 data-hotspot-id={item.id}
                 data-hotspot-geometry="rect"
                 data-selected={selected ? 'true' : 'false'}
-                onPointerDown={beginMove}
+                onMouseDown={beginMove}
               >
                 <rect
                   x={rect.x}
@@ -420,7 +484,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
           })}
         </svg>
         <svg
-          className="pointer-events-none absolute inset-0 size-full overflow-visible"
+          className="pointer-events-none absolute inset-0 z-20 size-full overflow-visible"
           data-handles-feedback-layer=""
         >
           {props.hotspots.map((item) => {
@@ -429,31 +493,46 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
             const bounds = draftBounds(item, itemGeometry);
             if (!bounds) return null;
             const rect = imageRectToStage(bounds, imageRect);
-            return handles.map((handle) => (
-              <rect
-                key={`${item.id}-${handle}`}
-                data-resize-handle={handle}
-                x={rect.x + (Number.parseFloat(handlePosition[handle].left) / 100) * rect.width - 4}
-                y={rect.y + (Number.parseFloat(handlePosition[handle].top) / 100) * rect.height - 4}
-                width={8}
-                height={8}
-                className="pointer-events-auto fill-background stroke-foreground"
-                onPointerDown={(event) => {
-                  if (props.tool !== 'select' || event.button !== 0) return;
-                  event.stopPropagation();
-                  capture(event);
-                  setGesture({
-                    kind: 'resize',
-                    pointerId: event.pointerId,
-                    id: item.id,
-                    handle,
-                    start: point(event),
-                    initial: bounds,
-                    draft: bounds,
-                  });
-                }}
-              />
-            ));
+            return handles.map((handle) => {
+              const centerX =
+                rect.x + (Number.parseFloat(handlePosition[handle].left) / 100) * rect.width;
+              const centerY =
+                rect.y + (Number.parseFloat(handlePosition[handle].top) / 100) * rect.height;
+              return (
+                <g key={`${item.id}-${handle}`}>
+                  <rect
+                    data-resize-handle={handle}
+                    x={centerX - resizeHandleHitSize / 2}
+                    y={centerY - resizeHandleHitSize / 2}
+                    width={resizeHandleHitSize}
+                    height={resizeHandleHitSize}
+                    fill="transparent"
+                    style={{ cursor: handleCursor[handle], pointerEvents: 'all' }}
+                    onMouseDown={(event) => {
+                      if (props.tool === 'draw-rect' || event.button !== 0) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setGesture({
+                        kind: 'resize',
+                        id: item.id,
+                        handle,
+                        start: pointInElement(rootRef.current, event.clientX, event.clientY),
+                        initial: bounds,
+                        draft: bounds,
+                      });
+                    }}
+                  />
+                  <rect
+                    data-resize-handle-visual={handle}
+                    x={centerX - resizeHandleVisualSize / 2}
+                    y={centerY - resizeHandleVisualSize / 2}
+                    width={resizeHandleVisualSize}
+                    height={resizeHandleVisualSize}
+                    className="pointer-events-none fill-background stroke-foreground"
+                  />
+                </g>
+              );
+            });
           })}
           {gesture?.kind === 'draw'
             ? (() => {
