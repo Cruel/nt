@@ -30,9 +30,14 @@ type Task<T> = {
   resolve: (value: T) => void;
 };
 
+type PreparedHashlessRequest =
+  | { ok: true; request: ImageThumbnailRequest }
+  | { ok: false; result: ImageThumbnailResult };
+
 const SUPPORTED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg']);
 const MAX_INPUT_PIXELS = 268_402_689;
 const GENERATION_TIMEOUT_MS = 30_000;
+const CACHE_WRITE_ERROR_CODES = new Set(['EACCES', 'EDQUOT', 'ENOSPC', 'EPERM', 'EROFS']);
 
 function failure(
   cacheEpoch: number,
@@ -72,6 +77,31 @@ function detectedFormatMatches(extension: string, format?: string): boolean {
   if (!format) return false;
   if (extension === '.jpg' || extension === '.jpeg') return format === 'jpeg';
   return format === extension.slice(1);
+}
+
+function errnoCode(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException | undefined)?.code;
+}
+
+async function ensureCacheDirectory(
+  parentPath: string,
+  name: string,
+  containmentRootRealPath: string,
+): Promise<string> {
+  const directoryPath = path.join(parentPath, name);
+  try {
+    await fs.mkdir(directoryPath);
+  } catch (error) {
+    if (errnoCode(error) !== 'EEXIST') throw error;
+  }
+  const [entry, realPath] = await Promise.all([
+    fs.lstat(directoryPath),
+    fs.realpath(directoryPath),
+  ]);
+  if (!entry.isDirectory() || !isStrictlyContainedPath(containmentRootRealPath, realPath)) {
+    throw new Error('cache_write_failed');
+  }
+  return realPath;
 }
 
 export class ImageThumbnailService {
@@ -115,7 +145,9 @@ export class ImageThumbnailService {
       const existing = this.#hashlessInFlight.get(provisional);
       if (existing) return existing;
       const pending = this.#enqueue(priority, this.cache.epoch, () =>
-        this.#generate(request, priority),
+        this.#prepareHashlessRequest(request),
+      ).then((prepared) =>
+        prepared.ok ? this.#requestCanonical(prepared.request, priority) : prepared.result,
       );
       this.#hashlessInFlight.set(provisional, pending);
       void pending.finally(() => this.#hashlessInFlight.delete(provisional));
@@ -139,10 +171,15 @@ export class ImageThumbnailService {
     );
   }
 
-  #requestCanonical(
+  async #requestCanonical(
     request: ImageThumbnailRequest,
     priority: Priority,
   ): Promise<ImageThumbnailResult> {
+    if (this.cache.isClearing) {
+      return failure(this.cache.epoch, 'cache_cleared', 'Editor cache is clearing.');
+    }
+    const sourceFailure = await this.#validateRequestSource(request);
+    if (sourceFailure) return sourceFailure;
     const sourceKind =
       path.extname(request.source.projectRelativePath).toLowerCase() === '.svg' ? 'svg' : 'raster';
     const tier = selectImageThumbnailTier(request.source, request.variant, sourceKind);
@@ -229,6 +266,63 @@ export class ImageThumbnailService {
     return sourceRealPath;
   }
 
+  async #validateRequestSource(
+    request: ImageThumbnailRequest,
+  ): Promise<ImageThumbnailResult | null> {
+    try {
+      await this.#resolveSource(request);
+      return null;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'unsafe_source_path') {
+        return failure(this.cache.epoch, 'unsafe_source_path', 'Unsafe thumbnail source path.');
+      }
+      if (errnoCode(error) === 'ENOENT' || errnoCode(error) === 'ENOTDIR') {
+        return failure(this.cache.epoch, 'source_missing', 'Thumbnail source is missing.');
+      }
+      return failure(this.cache.epoch, 'source_missing', 'Thumbnail source is unavailable.');
+    }
+  }
+
+  async #prepareHashlessRequest(request: ImageThumbnailRequest): Promise<PreparedHashlessRequest> {
+    const epoch = this.cache.epoch;
+    try {
+      const sourcePath = await this.#resolveSource(request);
+      const extension = path.extname(request.source.projectRelativePath).toLowerCase();
+      if (!SUPPORTED_EXTENSIONS.has(extension)) {
+        return {
+          ok: false,
+          result: failure(epoch, 'unsupported_image', 'Unsupported image format.'),
+        };
+      }
+      const bytes = await fs.readFile(sourcePath);
+      const sourceRevision = `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+      return {
+        ok: true,
+        request: {
+          ...request,
+          source: { ...request.source, contentHash: sourceRevision },
+        },
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message === 'unsafe_source_path') {
+        return {
+          ok: false,
+          result: failure(epoch, 'unsafe_source_path', 'Unsafe thumbnail source path.'),
+        };
+      }
+      if (errnoCode(error) === 'ENOENT' || errnoCode(error) === 'ENOTDIR') {
+        return {
+          ok: false,
+          result: failure(epoch, 'source_missing', 'Thumbnail source is missing.'),
+        };
+      }
+      return {
+        ok: false,
+        result: failure(epoch, 'decode_failed', 'Image source could not be read.'),
+      };
+    }
+  }
+
   async #cacheHit(
     request: ImageThumbnailRequest,
     key: string,
@@ -236,12 +330,18 @@ export class ImageThumbnailService {
     try {
       await this.#resolveSource(request);
       const target = resolveImageThumbnailCachePath(this.imageCacheRoot, key);
-      const [rootRealPath, targetRealPath, stat] = await Promise.all([
+      const [rootRealPath, targetRealPath, stat, targetEntry] = await Promise.all([
         fs.realpath(this.imageCacheRoot),
         fs.realpath(target),
         fs.stat(target),
+        fs.lstat(target),
       ]);
-      if (!stat.isFile() || !isStrictlyContainedPath(rootRealPath, targetRealPath)) return null;
+      if (
+        !stat.isFile() ||
+        !targetEntry.isFile() ||
+        !isStrictlyContainedPath(rootRealPath, targetRealPath)
+      )
+        return null;
       const sourceKind =
         path.extname(request.source.projectRelativePath).toLowerCase() === '.svg'
           ? 'svg'
@@ -283,10 +383,11 @@ export class ImageThumbnailService {
   async #generate(
     request: ImageThumbnailRequest,
     priority: Priority,
-    knownKey?: string,
+    key: string,
   ): Promise<ImageThumbnailResult> {
     const epoch = this.cache.epoch;
     let tempPath: string | undefined;
+    let stage: 'source' | 'decode' | 'encode' | 'cache' = 'source';
     try {
       const sourcePath = await this.#resolveSource(request);
       const extension = path.extname(request.source.projectRelativePath).toLowerCase();
@@ -311,17 +412,6 @@ export class ImageThumbnailService {
         canonicalRequest.variant,
         sourceKind,
       );
-      const key =
-        knownKey ??
-        createImageThumbnailDerivativeKey(
-          canonicalRequest.source as typeof canonicalRequest.source & { contentHash: string },
-          tier.tierLongEdge as 192 | 384 | 1024,
-          { sharpVersion: sharp.versions.sharp, vipsVersion: sharp.versions.vips },
-        );
-      if (!knownKey) {
-        const existing = this.#inFlight.get(key);
-        if (existing) return existing;
-      }
       const cached = await this.#cacheHit(canonicalRequest, key);
       if (cached) return cached;
       if (sourceKind === 'svg') validateSvg(bytes);
@@ -337,6 +427,7 @@ export class ImageThumbnailService {
               ),
             )
           : undefined;
+      stage = 'decode';
       const metadata = await sharp(bytes, {
         animated: false,
         pages: 1,
@@ -367,12 +458,36 @@ export class ImageThumbnailService {
         tier.tierLongEdge,
         sourceKind,
       );
-      const target = resolveImageThumbnailCachePath(this.imageCacheRoot, key);
-      await fs.mkdir(path.dirname(target), { recursive: true });
+      stage = 'cache';
+      await fs.mkdir(this.cache.root, { recursive: true });
+      const [editorCacheRootEntry, editorCacheRootRealPath] = await Promise.all([
+        fs.lstat(this.cache.root),
+        fs.realpath(this.cache.root),
+      ]);
+      if (!editorCacheRootEntry.isDirectory()) {
+        throw new Error('cache_write_failed');
+      }
+      const thumbnailsRootRealPath = await ensureCacheDirectory(
+        editorCacheRootRealPath,
+        'thumbnails',
+        editorCacheRootRealPath,
+      );
+      const imageCacheRootRealPath = await ensureCacheDirectory(
+        thumbnailsRootRealPath,
+        'image-v1',
+        editorCacheRootRealPath,
+      );
+      const cacheDirectoryRealPath = await ensureCacheDirectory(
+        imageCacheRootRealPath,
+        key.slice(0, 2),
+        editorCacheRootRealPath,
+      );
+      const target = resolveImageThumbnailCachePath(imageCacheRootRealPath, key);
       tempPath = path.join(
-        path.dirname(target),
+        cacheDirectoryRealPath,
         `.${key}.${process.pid}.${crypto.randomUUID()}.tmp`,
       );
+      stage = 'encode';
       const pipeline = sharp(bytes, {
         animated: false,
         pages: 1,
@@ -388,23 +503,46 @@ export class ImageThumbnailService {
         })
         .webp({ lossless: true, effort: 4 })
         .toFile(tempPath);
+      let timeout: NodeJS.Timeout | undefined;
       const timed = await Promise.race([
         pipeline.then(() => 'done' as const),
-        new Promise<'timeout'>((resolve) =>
-          setTimeout(() => resolve('timeout'), GENERATION_TIMEOUT_MS),
-        ),
-      ]);
+        new Promise<'timeout'>((resolve) => {
+          timeout = setTimeout(() => resolve('timeout'), GENERATION_TIMEOUT_MS);
+          timeout.unref();
+        }),
+      ]).finally(() => {
+        if (timeout) clearTimeout(timeout);
+      });
       if (timed === 'timeout') {
-        void pipeline.finally(() => tempPath && fs.rm(tempPath, { force: true }));
+        const timedOutTempPath = tempPath;
+        tempPath = undefined;
+        void pipeline
+          .catch(() => undefined)
+          .then(() => fs.rm(timedOutTempPath, { force: true }).catch(() => undefined));
         return failure(epoch, 'generation_timeout', 'Thumbnail generation timed out.');
       }
       if (epoch !== this.cache.epoch || this.cache.isClearing) {
         return failure(this.cache.epoch, 'cache_cleared', 'Editor cache was cleared.');
       }
+      stage = 'cache';
+      let cacheStatus: 'hit' | 'generated' = 'generated';
       try {
         await fs.link(tempPath, target);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        cacheStatus = 'hit';
+      }
+      const [publishedRealPath, publishedStat, publishedEntry] = await Promise.all([
+        fs.realpath(target),
+        fs.stat(target),
+        fs.lstat(target),
+      ]);
+      if (
+        !publishedStat.isFile() ||
+        !publishedEntry.isFile() ||
+        !isStrictlyContainedPath(imageCacheRootRealPath, publishedRealPath)
+      ) {
+        throw new Error('cache_write_failed');
       }
       await fs.rm(tempPath, { force: true });
       tempPath = undefined;
@@ -416,7 +554,7 @@ export class ImageThumbnailService {
         profile: tier.profile,
         width: dimensions.width,
         height: dimensions.height,
-        cacheStatus: 'generated',
+        cacheStatus,
         sourceLimited: tier.sourceLimited,
         tierLimited: tier.tierLimited,
         cacheEpoch: epoch,
@@ -427,10 +565,15 @@ export class ImageThumbnailService {
         return failure(epoch, 'svg_external_resource', 'SVG contains an external resource.');
       if (code === 'unsafe_source_path')
         return failure(epoch, 'unsafe_source_path', 'Unsafe thumbnail source path.');
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        return failure(epoch, 'source_missing', 'Thumbnail source is missing.');
-      if ((error as NodeJS.ErrnoException).code === 'EACCES')
+      if (
+        code === 'cache_write_failed' ||
+        stage === 'cache' ||
+        (stage === 'encode' && CACHE_WRITE_ERROR_CODES.has(errnoCode(error) ?? ''))
+      )
         return failure(epoch, 'cache_write_failed', 'Thumbnail cache write failed.');
+      if (stage === 'source' && (errnoCode(error) === 'ENOENT' || errnoCode(error) === 'ENOTDIR'))
+        return failure(epoch, 'source_missing', 'Thumbnail source is missing.');
+      if (stage === 'encode') return failure(epoch, 'encode_failed', 'Thumbnail encoding failed.');
       return failure(
         epoch,
         'decode_failed',

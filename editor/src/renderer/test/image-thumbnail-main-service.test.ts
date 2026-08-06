@@ -9,6 +9,7 @@ import {
   createImageThumbnailUrl,
 } from '../../main/image-thumbnail-protocol';
 import { ImageThumbnailService } from '../../main/services/image-thumbnail-service';
+import { createImageThumbnailDerivativeKey } from '../../shared/image-thumbnails';
 
 const temporaryRoots: string[] = [];
 
@@ -114,6 +115,20 @@ describe('main-process image thumbnail service', () => {
     expect(left).toEqual(right);
     expect(left.ok && left.sourceRevision).toBe(source.hash);
 
+    const cardRequest = {
+      ...base,
+      variant: { kind: 'profile' as const, profile: 'card' as const },
+    };
+    const [hashless, canonical] = await Promise.all([
+      service.request(cardRequest),
+      service.request({
+        ...cardRequest,
+        source: { ...cardRequest.source, contentHash: source.hash },
+      }),
+    ]);
+    expect(hashless).toEqual(canonical);
+    expect(hashless.ok && hashless.cacheStatus).toBe('generated');
+
     const revisionMismatch = await service.request({
       ...base,
       source: { ...base.source, contentHash: `sha256:${'0'.repeat(64)}` },
@@ -184,6 +199,50 @@ describe('main-process image thumbnail service', () => {
     expect(first).toEqual({ ok: true, cacheEpoch: 1 });
     await expect(fs.stat(service.imageCacheRoot)).rejects.toThrow();
   });
+
+  it('publishes immutably across service instances and rejects cache-directory escapes', async () => {
+    const fixture = await fixtureProject();
+    const source = await writeRaster(fixture.assetDirectory);
+    const request = {
+      source: {
+        projectFilePath: fixture.projectFilePath,
+        projectRelativePath: 'assets/images/source.png',
+        contentHash: source.hash,
+        width: 8,
+        height: 4,
+        orientation: 1 as const,
+      },
+      variant: { kind: 'profile' as const, profile: 'compact' as const },
+    };
+    const firstService = new ImageThumbnailService(fixture.cacheRoot);
+    const secondService = new ImageThumbnailService(fixture.cacheRoot);
+    const [first, second] = await Promise.all([
+      firstService.request(request),
+      secondService.request(request),
+    ]);
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect([first.cacheStatus, second.cacheStatus].sort()).toEqual(['generated', 'hit']);
+    expect(first.cacheKey).toBe(second.cacheKey);
+
+    await fs.rm(fixture.cacheRoot, { recursive: true, force: true });
+    const escapedService = new ImageThumbnailService(fixture.cacheRoot);
+    const key = createImageThumbnailDerivativeKey(request.source, 192, {
+      sharpVersion: sharp.versions.sharp,
+      vipsVersion: sharp.versions.vips,
+    });
+    const outside = path.join(fixture.root, 'outside-cache');
+    await fs.mkdir(escapedService.imageCacheRoot, { recursive: true });
+    await fs.mkdir(outside, { recursive: true });
+    await fs.symlink(
+      outside,
+      path.join(escapedService.imageCacheRoot, key.slice(0, 2)),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    const escaped = await escapedService.request(request);
+    expect(escaped.ok || escaped.errorCode).toBe('cache_write_failed');
+    expect(await fs.readdir(outside)).toEqual([]);
+  });
 });
 
 describe('thumbnail protocol', () => {
@@ -221,5 +280,11 @@ describe('thumbnail protocol', () => {
     expect(
       (await handler(new Request(createImageThumbnailUrl(key, 2), { method: 'POST' }))).status,
     ).toBe(405);
+
+    const linkedKey = 'cd'.padEnd(64, '2');
+    const linkedTarget = path.join(imageRoot, 'cd', `${linkedKey}.webp`);
+    await fs.mkdir(path.dirname(linkedTarget), { recursive: true });
+    await fs.symlink(target, linkedTarget, process.platform === 'win32' ? 'file' : undefined);
+    expect((await handler(new Request(createImageThumbnailUrl(linkedKey, 2)))).status).toBe(404);
   });
 });

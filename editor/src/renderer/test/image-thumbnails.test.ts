@@ -15,6 +15,7 @@ import {
   resolveEditorCacheRoot,
   resolveImageThumbnailCachePath,
   resolveImageThumbnailCacheRoot,
+  resolveSystemCachePath,
 } from '../../main/services/image-thumbnail-cache-paths';
 
 const hash = `sha256:${'a'.repeat(64)}`;
@@ -175,5 +176,17 @@ describe('image thumbnail Phase 2 contracts', () => {
       false,
     );
     expect(() => resolveImageThumbnailCachePath(imageRoot, '../escape')).toThrow();
+  });
+
+  it('resolves the editor cache from platform cache conventions rather than userData', () => {
+    expect(resolveSystemCachePath('/home/user', { XDG_CACHE_HOME: '/cache' }, 'linux')).toBe(
+      path.resolve('/cache'),
+    );
+    expect(resolveSystemCachePath('/Users/user', {}, 'darwin')).toBe(
+      path.resolve('/Users/user/Library/Caches'),
+    );
+    expect(resolveSystemCachePath('C:\\Users\\user', { LOCALAPPDATA: 'D:\\Cache' }, 'win32')).toBe(
+      path.resolve('D:\\Cache'),
+    );
   });
 });

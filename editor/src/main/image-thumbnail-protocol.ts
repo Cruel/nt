@@ -66,12 +66,17 @@ export function createImageThumbnailProtocolHandler(imageCacheRoot: string) {
     }
     const target = resolveImageThumbnailCachePath(imageCacheRoot, match[2]);
     try {
-      const [rootRealPath, targetRealPath, stat] = await Promise.all([
+      const [rootRealPath, targetRealPath, stat, targetEntry] = await Promise.all([
         fs.realpath(imageCacheRoot),
         fs.realpath(target),
         fs.stat(target),
+        fs.lstat(target),
       ]);
-      if (!stat.isFile() || !isStrictlyContainedPath(rootRealPath, targetRealPath)) {
+      if (
+        !stat.isFile() ||
+        !targetEntry.isFile() ||
+        !isStrictlyContainedPath(rootRealPath, targetRealPath)
+      ) {
         return errorResponse(404, 'Thumbnail not found');
       }
       const body = request.method === 'HEAD' ? null : await fs.readFile(targetRealPath);

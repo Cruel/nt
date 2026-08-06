@@ -144,11 +144,10 @@ async function characterizeSharpFormats(): Promise<Record<string, boolean>> {
     'base64',
   );
   try {
-    const metadata = await sharp(bmp).metadata();
-    results.bmp =
-      String(metadata.format) === 'bmp' && metadata.width === 3 && metadata.height === 2;
+    await sharp(bmp).metadata();
+    results.bmpUnsupported = false;
   } catch {
-    results.bmp = false;
+    results.bmpUnsupported = true;
   }
   try {
     await sharp(Buffer.from('not an image')).metadata();
