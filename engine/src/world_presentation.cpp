@@ -834,17 +834,11 @@ void WorldHotspotController::synchronize_generation()
     if (m_generation == m_backend.generation())
         return;
     m_generation = m_backend.generation();
-    if (m_capture && !contains(m_capture->ref, m_capture->reference_position))
-        m_capture.reset();
-    if (m_capture) {
-        set_visual_state(std::nullopt,
-                         m_capture->activation_canceled
-                             ? std::optional<core::compiled::HotspotRef>{}
-                             : std::optional<core::compiled::HotspotRef>{m_capture->ref});
-    } else {
-        set_visual_state(m_last_mouse_valid ? hit_test(m_last_mouse_reference) : std::nullopt,
-                         std::nullopt);
-    }
+    // A committed replacement invalidates the gesture even when the same logical target survives.
+    m_capture.reset();
+    m_hovered.reset();
+    set_visual_state(m_last_mouse_valid ? hit_test(m_last_mouse_reference) : std::nullopt,
+                     std::nullopt);
 }
 
 void WorldHotspotController::presentation_changed() { synchronize_generation(); }

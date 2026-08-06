@@ -63,8 +63,6 @@ import {
   type ProjectValidationDiagnostic,
 } from '../../../shared/project-schema/project-validation';
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
-import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
-import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import {
   parseVariableData,
   parseVariableDefaultText,
@@ -365,6 +363,35 @@ function uiClickTarget(
   };
 }
 
+function hotspotInputTarget(value: unknown): { hotspot: PreviewHotspotRef; label: string } | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.kind !== 'hotspot' || typeof record.label !== 'string') return null;
+  const hotspot = record.hotspot;
+  if (typeof hotspot !== 'object' || hotspot === null || Array.isArray(hotspot)) return null;
+  const ref = hotspot as Record<string, unknown>;
+  if (typeof ref.hotspotId !== 'string' || !ref.hotspotId) return null;
+  if (ref.kind === 'room-hotspot' && typeof ref.room === 'string' && ref.room)
+    return {
+      hotspot: { kind: 'room-hotspot', room: ref.room, hotspotId: ref.hotspotId },
+      label: record.label,
+    };
+  if (
+    ref.kind === 'interactable-hotspot' &&
+    typeof ref.interactable === 'string' &&
+    ref.interactable
+  )
+    return {
+      hotspot: {
+        kind: 'interactable-hotspot',
+        interactable: ref.interactable,
+        hotspotId: ref.hotspotId,
+      },
+      label: record.label,
+    };
+  return null;
+}
+
 function normalizeTestId(value: string) {
   return value
     .trim()
@@ -462,40 +489,17 @@ function executeRecordedAction(
   }
 }
 
-function authoredHotspotInputs(
+function hotspotInputLabel(
   project: AuthoringProject | null,
-  currentRoomId: string | undefined,
-): Array<{ hotspot: PreviewHotspotRef; label: string }> {
-  if (!project) return [];
-  const result: Array<{ hotspot: PreviewHotspotRef; label: string }> = [];
-  if (currentRoomId) {
-    const room = parseRoomData(project.rooms[currentRoomId]?.data);
-    for (const hotspot of room?.hotspots ?? []) {
-      result.push({
-        hotspot: { kind: 'room-hotspot', room: currentRoomId, hotspotId: hotspot.id },
-        label: `${project.rooms[currentRoomId]?.label ?? currentRoomId}: ${hotspot.label}`,
-      });
-    }
-  }
-  for (const [interactableId, record] of Object.entries(project.interactables)) {
-    const interactable = parseInteractableData(record.data);
-    if (!interactable) continue;
-    const hotspots =
-      interactable.presentation.hotspots.kind === 'sprite-alpha'
-        ? [interactable.presentation.hotspots.hotspot]
-        : interactable.presentation.hotspots.hotspots;
-    for (const hotspot of hotspots) {
-      result.push({
-        hotspot: {
-          kind: 'interactable-hotspot',
-          interactable: interactableId,
-          hotspotId: hotspot.id,
-        },
-        label: `${record.label}: ${hotspot.label}`,
-      });
-    }
-  }
-  return result;
+  hotspot: PreviewHotspotRef,
+  label: string,
+) {
+  const ownerId = hotspot.kind === 'room-hotspot' ? hotspot.room : hotspot.interactable;
+  const owner =
+    hotspot.kind === 'room-hotspot'
+      ? project?.rooms[ownerId]?.label
+      : project?.interactables[ownerId]?.label;
+  return `${owner ?? ownerId}: ${label}`;
 }
 
 function InfoRow({
@@ -650,14 +654,16 @@ function InputAvailabilityPanel({
 }) {
   const controller = controlsContext?.controller ?? null;
   const inputs = snapshot?.availableInputs;
-  const hotspotInputs = authoredHotspotInputs(project, snapshot?.currentRoomId);
+  const hotspotInputs = (inputs?.clickableTargets ?? [])
+    .map(hotspotInputTarget)
+    .filter((target): target is NonNullable<typeof target> => target !== null);
   return (
     <Panel
       title="Player input"
       icon={<StepForward className="h-3.5 w-3.5" />}
       summary={
         inputs
-          ? `${inputs.dialogueOptions.length + inputs.navigation.length + inputs.actions.length + (inputs.continue ? 1 : 0)} available`
+          ? `${inputs.dialogueOptions.length + inputs.navigation.length + inputs.actions.length + hotspotInputs.length + (inputs.continue ? 1 : 0)} available`
           : 'None'
       }
       defaultOpen
@@ -739,30 +745,33 @@ function InputAvailabilityPanel({
           {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/{action.objectCount})
         </Button>
       ))}
-      {hotspotInputs.map(({ hotspot, label }) => (
-        <Button
-          key={`${hotspot.kind}:${'room' in hotspot ? hotspot.room : hotspot.interactable}:${hotspot.hotspotId}`}
-          size="sm"
-          variant="outline"
-          className="w-full justify-start"
-          disabled={!controller}
-          onClick={() =>
-            controller &&
-            onCommand(
-              () => controller.activateRuntimeHotspot(hotspot),
-              `Hotspot ${hotspot.hotspotId} sent`,
-              {
-                recordedAction: createRecordedAction('activate-hotspot', label, {
-                  type: 'activate-hotspot',
-                  hotspot,
-                }),
-              },
-            )
-          }
-        >
-          Activate {label}
-        </Button>
-      ))}
+      {hotspotInputs.map(({ hotspot, label }) => {
+        const displayLabel = hotspotInputLabel(project, hotspot, label);
+        return (
+          <Button
+            key={`${hotspot.kind}:${'room' in hotspot ? hotspot.room : hotspot.interactable}:${hotspot.hotspotId}`}
+            size="sm"
+            variant="outline"
+            className="w-full justify-start"
+            disabled={!controller}
+            onClick={() =>
+              controller &&
+              onCommand(
+                () => controller.activateRuntimeHotspot(hotspot),
+                `Hotspot ${hotspot.hotspotId} sent`,
+                {
+                  recordedAction: createRecordedAction('activate-hotspot', displayLabel, {
+                    type: 'activate-hotspot',
+                    hotspot,
+                  }),
+                },
+              )
+            }
+          >
+            Activate {displayLabel}
+          </Button>
+        );
+      })}
       {(inputs?.clickableTargets ?? [])
         .map(uiClickTarget)
         .filter((target): target is NonNullable<typeof target> => target !== null)
@@ -2107,23 +2116,25 @@ export function FullGamePreviewEditor() {
         eventLog: addLogEntry(current.eventLog, { label, severity: 'info' }),
       }));
       const recordedAction = options.recordedAction;
-      if (recordedAction) {
-        setRecorderDraft((current) => {
-          if (current.mode !== 'recording') return current;
-          return {
-            ...current,
-            actions: [...current.actions, recordedAction],
-            replayError: undefined,
-            traceEvents: addTraceEvent(current.traceEvents, {
-              label: `Recorded ${recordedActionLabel(recordedAction)}`,
-              detail: stringifyValue(recordedAction.input),
-              severity: 'info',
-            }),
-          };
-        });
-      }
       controlsRef.current?.sendRuntimeCommand(
-        command().then(() => requestDebugSnapshot(controlsRef.current)),
+        command().then(() => {
+          if (recordedAction) {
+            setRecorderDraft((current) => {
+              if (current.mode !== 'recording') return current;
+              return {
+                ...current,
+                actions: [...current.actions, recordedAction],
+                replayError: undefined,
+                traceEvents: addTraceEvent(current.traceEvents, {
+                  label: `Recorded ${recordedActionLabel(recordedAction)}`,
+                  detail: stringifyValue(recordedAction.input),
+                  severity: 'info',
+                }),
+              };
+            });
+          }
+          return requestDebugSnapshot(controlsRef.current);
+        }),
         label,
       );
     },

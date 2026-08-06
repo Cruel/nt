@@ -40,6 +40,24 @@ Interaction, Verb, Asset, Shader, Material, rendering, host-input, preview, pack
 overview, and archival documentation. These were closure corrections within Phases 10-12, not later
 feature work.
 
+## Post-certification review corrections
+
+A subsequent review found four contract violations that the original certification matrix did not
+exercise directly. Hotspot mutation preflight now consumes the structural dependency graph so
+authoring-test activation steps are blocked or rewritten together with Interaction contexts; rename
+rejects an exact source ID that no longer exists; presentation-generation replacement always cancels
+pointer capture even when the same hotspot survives; and Play-preview hotspot controls now come from
+the runtime's currently eligible hotspot projection. Recorder steps are committed only after command
+acceptance. Dedicated TypeScript and C++ regressions cover all four corrections.
+
+Post-correction verification passed the repository-wide editor check, the full editor suite (184
+passed files, one skipped file, 1,144 passed tests, and four skipped tests), Electron/tool packing,
+renderer production build, and bundle policy. Threaded and no-thread Linux builds each passed the
+complete 785/785 non-readback matrix; C++ formatting and policy gates passed; threaded and
+single-thread Web builds passed; and Android `:app:assembleDebug` passed. The preview transport
+remains version 1 because eligible hotspots use its existing runtime-owned `clickableTargets`
+extension list rather than adding a same-version required field.
+
 ## Performance and residency evidence
 
 The native test `Representative hotspot preparation measurements retain exact residency` measures

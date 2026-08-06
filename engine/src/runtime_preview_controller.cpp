@@ -146,6 +146,29 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
                            {"enabled", control.enabled}});
     }
 
+    nlohmann::json clickable_targets = nlohmann::json::array();
+    for (const auto& hotspot : presentation.hotspots) {
+        if (!hotspot.condition_eligible || !hotspot.activation_available)
+            continue;
+        clickable_targets.push_back(
+            {{"kind", "hotspot"},
+             {"hotspot",
+              std::visit(
+                  [](const auto& reference) {
+                      using T = std::decay_t<decltype(reference)>;
+                      if constexpr (std::is_same_v<T, core::compiled::RoomHotspotRef>)
+                          return nlohmann::json{{"kind", "room-hotspot"},
+                                                {"room", reference.room.text()},
+                                                {"hotspotId", reference.hotspot_id.text()}};
+                      else
+                          return nlohmann::json{{"kind", "interactable-hotspot"},
+                                                {"interactable", reference.interactable.text()},
+                                                {"hotspotId", reference.hotspot_id.text()}};
+                  },
+                  hotspot.ref)},
+             {"label", hotspot.label}});
+    }
+
     nlohmann::json selected_subjects = nlohmann::json::array();
     for (const auto& subject : view.selected_subjects)
         selected_subjects.push_back(std::visit(
@@ -220,7 +243,7 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
           {"navigation", std::move(navigation)},
           {"actions", std::move(actions)},
           {"selectedSubjects", selected_subjects},
-          {"clickableTargets", nlohmann::json::array()}}},
+          {"clickableTargets", std::move(clickable_targets)}}},
         {"variables", nlohmann::json::array()},
         {"inventory", std::move(inventory)},
         {"selectedSubjects", std::move(selected_subjects)},

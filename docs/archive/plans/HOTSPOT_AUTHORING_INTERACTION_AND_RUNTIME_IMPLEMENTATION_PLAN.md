@@ -2663,8 +2663,9 @@ use existing memoized selectors/graph queries rather than scanning the project o
   hotspot controller and typed activation path.
 - **Presentation generation is the transient-pointer invalidation key.** The controller stores only
   hotspot identity, host/reference pointer state, and backend generation. A committed revision
-  revalidates the captured target at its last reference position and recomputes mouse hover against
-  the replacement frame; it never retains a frame view or target pointer across reconciliation.
+  cancels capture and pressed state unconditionally, then recomputes mouse hover against the
+  replacement frame when appropriate; it never transfers a gesture or retains a frame view or target
+  pointer across reconciliation.
 - Phase 12 scope, sequencing, and exit gate remain unchanged. The implementation exposed no
   downstream ambiguity or unsafe dependency.
 
@@ -2678,6 +2679,29 @@ use existing memoized selectors/graph queries rather than scanning the project o
   UI-admission cancellation, plus presentation-generation invalidation.
 - `cmake --build --preset linux-debug --target format-check`: passed.
 - `git diff --check`: passed.
+
+### Post-certification review findings
+
+- **Nested hotspot references must use the complete graph closure.** The original hotspot command
+  helper maintained a partial Interaction-only scanner even though Test `activate-hotspot` steps
+  already contributed exact `hotspot-context` edges. Delete and mode-switch preflight now query the
+  structural graph, and rename rewrites every confirmed edge atomically. Exact source-ID validation
+  also prevents stale Room, custom, or sprite-alpha rename commands from changing owners or
+  references.
+- **Presentation replacement is a hard gesture boundary.** Revalidating the same logical hotspot in
+  a new backend generation incorrectly transferred a press into replacement state. Generation
+  synchronization now clears capture and pressed state unconditionally, then recomputes mouse hover
+  against the new committed frame only.
+- **Preview input availability is runtime state.** The Play inspector previously enumerated all
+  authored Interactable hotspots and recorded before runtime admission. Runtime debug snapshots now
+  publish only presented, condition-eligible, activation-available hotspots through the existing
+  transport-v1 `clickableTargets` extension list, and recorder mutation occurs only after the command
+  succeeds. Rejected activation cannot create a test step; no same-version protocol field was added.
+- **Post-correction validation is complete.** The repository-wide editor check passed; the full editor
+  suite passed 184 files and 1,144 tests with one file and four tests skipped; Electron/tool packing,
+  renderer production build, and bundle policy passed. Threaded and no-thread Linux non-readback
+  matrices each passed 785/785, C++ format/policy gates passed, both Web modes built, and Android
+  `:app:assembleDebug` passed.
 
 ## 19. Definition of done
 

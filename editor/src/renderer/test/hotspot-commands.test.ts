@@ -5,6 +5,11 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
+import {
+  defaultTestData,
+  defaultTestStep,
+  testRoomHotspotRef,
+} from '../../shared/project-schema/authoring-tests';
 
 const rect = { kind: 'rect' as const, bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } };
 const behavior = {
@@ -82,6 +87,72 @@ describe('hotspot commands', () => {
         inspect: { data: { rules: [{ context: { hotspot: { hotspotId: 'door' } } }] } },
       },
     });
+  });
+
+  it('uses graph-backed references to rewrite Test steps and block deletion', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.hotspots = [{ ...behavior, shape: rect }];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const test = defaultTestData('Hotspot test');
+    test.steps = [
+      {
+        ...defaultTestStep('activate-hotspot', 'Activate hotspot'),
+        activateHotspot: { hotspot: testRoomHotspotRef('foyer', 'hotspot') },
+      },
+    ];
+    project.tests.hotspot = { id: 'hotspot', label: 'Hotspot test', data: test };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const blocked = executeCommand(state, {
+      type: 'room.deleteHotspot',
+      payload: { roomId: 'foyer', hotspotId: 'hotspot' },
+    });
+    expect(blocked.ok).toBe(false);
+    expect(blocked.diagnostics[0]?.path).toBe(
+      '/tests/hotspot/data/steps/0/activateHotspot/hotspot',
+    );
+
+    const renamed = executeCommand(state, {
+      type: 'room.renameHotspot',
+      payload: { roomId: 'foyer', hotspotId: 'hotspot', nextId: 'door' },
+    });
+    expect(renamed.ok).toBe(true);
+    expect(renamed.document).toMatchObject({
+      rooms: { foyer: { data: { hotspots: [{ id: 'door' }] } } },
+      tests: {
+        hotspot: {
+          data: { steps: [{ activateHotspot: { hotspot: { hotspotId: 'door' } } }] },
+        },
+      },
+    });
+  });
+
+  it('rejects stale Room and sprite-alpha hotspot rename commands without patches', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.hotspots = [{ ...behavior, shape: rect }];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.interactables.lamp = {
+      id: 'lamp',
+      label: 'Lamp',
+      data: defaultInteractableData('Lamp'),
+    };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const roomRename = executeCommand(state, {
+      type: 'room.renameHotspot',
+      payload: { roomId: 'foyer', hotspotId: 'missing', nextId: 'door' },
+    });
+    expect(roomRename.ok).toBe(false);
+    expect(roomRename.diagnostics[0]?.message).toBe('Hotspot does not exist.');
+
+    const interactableRename = executeCommand(state, {
+      type: 'interactable.renameHotspot',
+      payload: { interactableId: 'lamp', hotspotId: 'missing', nextId: 'renamed' },
+    });
+    expect(interactableRename.ok).toBe(false);
+    expect(interactableRename.diagnostics[0]?.message).toBe('Hotspot does not exist.');
   });
 
   it('keeps alpha singular and refuses mode switches that remove referenced hotspots', () => {

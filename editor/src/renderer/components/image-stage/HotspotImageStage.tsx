@@ -217,29 +217,41 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     setGesture(null);
   };
 
-  const wheel = (event: WheelEvent) => {
-    event.preventDefault();
-    const nextZoom = Math.min(
-      16,
-      Math.max(0.1, props.camera.zoom * Math.exp(-event.deltaY * 0.001)),
-    );
-    props.onCameraChange(
-      clampImageStageCamera(viewport, props.imageSize, {
-        zoom: nextZoom,
-        pan: restoredCamera.pan,
-      }),
-    );
+  const wheelStateRef = useRef({
+    zoom: props.camera.zoom,
+    imageSize: props.imageSize,
+    pan: restoredCamera.pan,
+    viewport,
+    onCameraChange: (camera: ImageStageCamera) => props.onCameraChange(camera),
+  });
+  wheelStateRef.current = {
+    zoom: props.camera.zoom,
+    imageSize: props.imageSize,
+    pan: restoredCamera.pan,
+    viewport,
+    onCameraChange: (camera: ImageStageCamera) => props.onCameraChange(camera),
   };
 
   useEffect(() => {
     const element = rootRef.current;
     if (!element) return;
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const state = wheelStateRef.current;
+      const nextZoom = Math.min(16, Math.max(0.1, state.zoom * Math.exp(-event.deltaY * 0.001)));
+      state.onCameraChange(
+        clampImageStageCamera(state.viewport, state.imageSize, {
+          zoom: nextZoom,
+          pan: state.pan,
+        }),
+      );
+    };
 
     // React's delegated wheel listener may be passive in Chromium. The stage owns
     // the gesture, so install an explicitly non-passive listener at its boundary.
     element.addEventListener('wheel', wheel, { passive: false });
     return () => element.removeEventListener('wheel', wheel);
-  }, [wheel]);
+  }, []);
 
   const geometry = (item: HotspotStageItem): HotspotStageGeometry =>
     item.geometry ?? { kind: 'rect', bounds: item.bounds };

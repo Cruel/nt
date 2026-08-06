@@ -16,7 +16,11 @@ import {
   parseInteractableData,
   type InteractableData,
 } from '../../shared/project-schema/authoring-interactables';
-import { parseInteractionData } from '../../shared/project-schema/authoring-interactions';
+import {
+  buildAuthoringStructuralDependencyGraph,
+  incomingAuthoringDependencies,
+  nestedNodeKey,
+} from '../../shared/authoring-dependency-graph';
 
 const error = (message: string, path?: string) => ({ severity: 'error' as const, message, path });
 
@@ -27,36 +31,15 @@ function hotspotReferences(
   hotspotId: string,
 ) {
   if (!isAuthoringProject(document)) return [];
-  return Object.entries(document.interactions).flatMap(([interactionId, record]) => {
-    const data = parseInteractionData(record.data);
-    return (
-      data?.rules.flatMap((rule, index) => {
-        if (rule.context.kind !== 'hotspot') return [];
-        const ref = rule.context.hotspot;
-        const matches =
-          kind === 'room'
-            ? ref.kind === 'room-hotspot' &&
-              ref.room.$ref.id === ownerId &&
-              ref.hotspotId === hotspotId
-            : ref.kind === 'interactable-hotspot' &&
-              ref.interactable.$ref.id === ownerId &&
-              ref.hotspotId === hotspotId;
-        return matches
-          ? [
-              buildJsonPointer([
-                'interactions',
-                interactionId,
-                'data',
-                'rules',
-                String(index),
-                'context',
-                'hotspot',
-              ]),
-            ]
-          : [];
-      }) ?? []
-    );
-  });
+  const target = nestedNodeKey(
+    kind === 'room' ? 'rooms' : 'interactables',
+    ownerId,
+    kind === 'room' ? 'room-hotspot' : 'interactable-hotspot',
+    hotspotId,
+  );
+  return incomingAuthoringDependencies(buildAuthoringStructuralDependencyGraph(document), target)
+    .filter((edge) => edge.role === 'hotspot-context')
+    .map((edge) => edge.sourcePath);
 }
 
 function roomPatch(roomId: string, data: RoomData): JsonPatchOperation {
@@ -119,9 +102,7 @@ export function deleteRoomHotspot(
   if (references.length)
     return {
       patches: [],
-      diagnostics: [
-        error('Hotspot is referenced by an Interaction rule and cannot be deleted.', references[0]),
-      ],
+      diagnostics: [error('Hotspot is referenced and cannot be deleted.', references[0])],
     };
   return updateRoomHotspots(document, roomId, (data) => ({
     ...data,
@@ -138,9 +119,7 @@ export function deleteInteractableHotspot(
   if (references.length)
     return {
       patches: [],
-      diagnostics: [
-        error('Hotspot is referenced by an Interaction rule and cannot be deleted.', references[0]),
-      ],
+      diagnostics: [error('Hotspot is referenced and cannot be deleted.', references[0])],
     };
   return updateInteractableHotspots(document, interactableId, (data) =>
     data.presentation.hotspots.kind !== 'custom'
@@ -170,7 +149,11 @@ export function renameHotspot(
   const patches: JsonPatchOperation[] = [];
   if (kind === 'room') {
     const data = parseRoomData(document.rooms[ownerId]?.data);
-    if (!data || data.hotspots.some((item) => item.id === nextId))
+    if (!data)
+      return { patches: [], diagnostics: [error('Room record does not exist or is invalid.')] };
+    if (!data.hotspots.some((item) => item.id === hotspotId))
+      return { patches: [], diagnostics: [error('Hotspot does not exist.')] };
+    if (hotspotId !== nextId && data.hotspots.some((item) => item.id === nextId))
       return { patches: [], diagnostics: [error('Hotspot ID is invalid or already exists.')] };
     patches.push(
       roomPatch(ownerId, {
@@ -187,7 +170,9 @@ export function renameHotspot(
       data.presentation.hotspots.kind === 'sprite-alpha'
         ? [data.presentation.hotspots.hotspot]
         : data.presentation.hotspots.hotspots;
-    if (items.some((item) => item.id === nextId))
+    if (!items.some((item) => item.id === hotspotId))
+      return { patches: [], diagnostics: [error('Hotspot does not exist.')] };
+    if (hotspotId !== nextId && items.some((item) => item.id === nextId))
       return { patches: [], diagnostics: [error('Hotspot ID is invalid or already exists.')] };
     const hotspots =
       data.presentation.hotspots.kind === 'sprite-alpha'
@@ -205,34 +190,14 @@ export function renameHotspot(
       interactablePatch(ownerId, { ...data, presentation: { ...data.presentation, hotspots } }),
     );
   }
-  for (const [interactionId, record] of Object.entries(document.interactions)) {
-    const data = parseInteractionData(record.data);
-    if (!data) continue;
-    let changed = false;
-    const rules = data.rules.map((rule) => {
-      if (rule.context.kind !== 'hotspot') return rule;
-      const ref = rule.context.hotspot;
-      const matches =
-        kind === 'room'
-          ? ref.kind === 'room-hotspot' &&
-            ref.room.$ref.id === ownerId &&
-            ref.hotspotId === hotspotId
-          : ref.kind === 'interactable-hotspot' &&
-            ref.interactable.$ref.id === ownerId &&
-            ref.hotspotId === hotspotId;
-      if (!matches) return rule;
-      changed = true;
-      return {
-        ...rule,
-        context: { kind: 'hotspot' as const, hotspot: { ...ref, hotspotId: nextId } },
-      };
-    });
-    if (changed)
+  if (hotspotId !== nextId) {
+    for (const referencePath of hotspotReferences(document, kind, ownerId, hotspotId)) {
       patches.push({
         op: 'replace',
-        path: buildJsonPointer(['interactions', interactionId, 'data']),
-        value: toJsonValue({ ...data, rules }),
+        path: `${referencePath}/hotspotId`,
+        value: nextId,
       });
+    }
   }
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }
@@ -257,9 +222,7 @@ export function setInteractableHotspotMode(
   if (reference)
     return {
       patches: [],
-      diagnostics: [
-        error('Mode switch would remove a hotspot referenced by an Interaction rule.', reference),
-      ],
+      diagnostics: [error('Mode switch would remove a referenced hotspot.', reference)],
     };
   const hotspots =
     kind === 'custom'

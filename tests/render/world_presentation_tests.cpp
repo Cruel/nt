@@ -871,6 +871,18 @@ TEST_CASE("world hotspot capture revalidates release containment and presentatio
             .consumed);
     auto replacement = snapshot;
     replacement.revision = PresentationSnapshotRevision::from_number(2);
+    REQUIRE(backend.reconcile(replacement, {100.0f, 100.0f}));
+    controller.presentation_changed();
+    auto surviving_release = controller.handle(
+        {WorldPointerEventKind::MouseUp, {5.0f, 5.0f}, {5.0f, 5.0f}, 0, true, true});
+    CHECK_FALSE(surviving_release.consumed);
+    CHECK_FALSE(surviving_release.activation);
+
+    REQUIRE(
+        controller
+            .handle({WorldPointerEventKind::MouseDown, {5.0f, 5.0f}, {5.0f, 5.0f}, 0, true, true})
+            .consumed);
+    replacement.revision = PresentationSnapshotRevision::from_number(3);
     replacement.hotspots.clear();
     REQUIRE(backend.reconcile(replacement, {100.0f, 100.0f}));
     controller.presentation_changed();

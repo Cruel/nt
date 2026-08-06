@@ -12,6 +12,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
+import type { PreviewHotspotRef } from '../../shared/preview-protocol';
 
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -188,6 +189,7 @@ async function postInputSnapshot(
     continue?: boolean;
     navigation?: Array<{ index: number; label: string; enabled: boolean }>;
     dialogueOptions?: Array<{ index: number; label: string; enabled: boolean }>;
+    hotspots?: Array<{ hotspot: PreviewHotspotRef; label: string }>;
   } = {},
 ) {
   const waitingKind = options.dialogueOptions?.length
@@ -217,7 +219,10 @@ async function postInputSnapshot(
           navigation: options.navigation ?? [],
           actions: [],
           selectedSubjects: [],
-          clickableTargets: [],
+          clickableTargets: (options.hotspots ?? []).map((target) => ({
+            kind: 'hotspot',
+            ...target,
+          })),
         },
         variables: [],
         inventory: [],
@@ -897,6 +902,52 @@ describe('FullGamePreviewEditor', () => {
     expect(screen.queryByText('Delta Value')).not.toBeInTheDocument();
   });
 
+  it('uses runtime-eligible hotspot inputs and records only accepted activations', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.interactables.hidden = {
+      id: 'hidden',
+      label: 'Hidden object',
+      data: defaultInteractableData('Hidden object'),
+    };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const { editorPort, previewPort } = await renderConnectedPreview();
+
+    await postInputSnapshot(previewPort);
+    expect(screen.queryByText('Activate Hidden object: Hidden object')).not.toBeInTheDocument();
+
+    await postInputSnapshot(previewPort, {
+      hotspots: [
+        {
+          hotspot: { kind: 'room-hotspot', room: 'foyer', hotspotId: 'door' },
+          label: 'Door',
+        },
+      ],
+    });
+    const activation = screen.getByText('Activate foyer: Door');
+    await user.click(screen.getByText('Recording'));
+    await user.click(screen.getByText('Start Recording'));
+    await user.click(activation);
+    expect(screen.queryByText('1. Activate door')).not.toBeInTheDocument();
+
+    const rejected = latestRequest(editorPort, 'runtime-activate-hotspot');
+    expect(rejected).toBeDefined();
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: rejected!.requestId,
+        ok: false,
+        error: 'Hotspot is not currently eligible.',
+      });
+    });
+    expect(screen.queryByText('1. Activate door')).not.toBeInTheDocument();
+
+    await user.click(activation);
+    await resolveLatest(editorPort, previewPort, 'runtime-activate-hotspot');
+    await waitFor(() => expect(screen.getByText('1. Activate door')).toBeInTheDocument());
+  });
+
   it('records semantic runtime inputs and keeps trace events separate', async () => {
     const user = userEvent.setup();
     const { editorPort, previewPort } = await renderConnectedPreview();
@@ -908,10 +959,7 @@ describe('FullGamePreviewEditor', () => {
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
     await user.click(screen.getByText('Choice 0: Accept'));
-
-    await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
-    expect(screen.getAllByText(/"type": "dialogue-option"/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Recorded Choice 0')).toBeInTheDocument();
+    expect(screen.queryByText('1. Choice 0')).not.toBeInTheDocument();
 
     await act(async () => {
       previewPort.postMessage({
@@ -920,6 +968,13 @@ describe('FullGamePreviewEditor', () => {
         requestId: latestRequest(editorPort, 'runtime-dialogue-option')!.requestId,
         ok: true,
       });
+    });
+
+    await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
+    expect(screen.getAllByText(/"type": "dialogue-option"/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Recorded Choice 0')).toBeInTheDocument();
+
+    await act(async () => {
       previewPort.postMessage({
         version: 1,
         type: 'preview-diagnostic',
@@ -947,7 +1002,9 @@ describe('FullGamePreviewEditor', () => {
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
     await user.click(screen.getByText('Navigate 0: North'));
+    await resolveLatest(editorPort, previewPort, 'runtime-navigate');
     await user.click(screen.getByText('Navigate 1: South'));
+    await resolveLatest(editorPort, previewPort, 'runtime-navigate');
     await waitFor(() => expect(screen.getByText('2. Navigate 1')).toBeInTheDocument());
 
     await user.click(screen.getByText('Undo Last'));
@@ -980,6 +1037,7 @@ describe('FullGamePreviewEditor', () => {
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
     await user.click(screen.getByText('Choice 0: Accept'));
+    await resolveLatest(editorPort, previewPort, 'runtime-dialogue-option');
     await waitFor(() => expect(screen.getByText('1. Choice 0')).toBeInTheDocument());
     await user.click(screen.getByText('Stop'));
 

@@ -668,7 +668,13 @@ describe('preview protocol validation', () => {
           { kind: 'character', id: 'guard' },
           { kind: 'interactable', id: 'lamp' },
         ],
-        clickableTargets: [],
+        clickableTargets: [
+          {
+            kind: 'hotspot',
+            hotspot: { kind: 'room-hotspot', room: 'foyer', hotspotId: 'door' },
+            label: 'Door',
+          },
+        ],
       },
       variables: [
         {

@@ -36,6 +36,11 @@ navigation, selection, interaction, declared variable changes, inventory locatio
 teleport, owner-qualified hotspot activation, fast-forward, recorder controls, and debug snapshot
 requests. Generic Verb invocation cannot supply exact hotspot context.
 
+The interactive Player Input panel does not enumerate authored hotspot definitions. Runtime debug
+snapshots publish the owner-qualified hotspots that are currently presented, condition-eligible, and
+activation-available, and the panel renders only that list. Hidden, disabled, absent, and otherwise
+ineligible Interactables cannot produce enabled preview controls.
+
 Focused Room preview remains `noveltea.room-preview` version 2 and is passive: its projected snapshot
 contains no hotspot values and it does not install world hotspot input. Play preview uses the normal
 runtime projection and world controller in the same preview executable.
@@ -83,6 +88,10 @@ named `editor_runtime_protocol` decoder and drives `runtime::RuntimeSession`. It
 Recorded targets use stable IDs. Unsupported selector-based UI clicks, ambiguous index-only
 choice/navigation steps, arbitrary playback Lua, and old assertion payloads are rejected with
 structured diagnostics.
+
+Recording is acceptance-driven. A semantic input is appended to the recorder draft only after its
+request receives a successful command result. Rejected hotspot activations and other failed runtime
+commands remain diagnostics/trace events and do not become replayable test steps.
 
 Reports contain ordered runtime events, diagnostics, pass/fail state, and `finalPublication`, which
 encodes the coherent publication revision, gameplay UI view, presentation revision/desired-family

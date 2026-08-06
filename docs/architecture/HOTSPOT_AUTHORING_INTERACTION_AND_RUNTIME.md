@@ -13,6 +13,13 @@ condition, input order, highlight policy, and owner-qualified references. Mutati
 existing command bus so undo/redo, dirty state, dependency indexing, validation, and compilation
 remain atomic.
 
+Hotspot deletion, mode switching, and rename use the structural dependency graph's exact nested
+hotspot edges. Interaction contexts and authoring-test `activate-hotspot` steps therefore participate
+in the same reference preflight. Deletion or a destructive mode switch is blocked while either kind
+of reference exists. Rename first verifies that the exact source hotspot still exists, then rewrites
+the owner and every confirmed reference in one command transaction; stale rename commands produce no
+patches.
+
 The compiled-project boundary is strict and versioned. Image metadata is mandatory for image assets;
 shader samplers declare explicit engine bindings; hotspot owner, activation, shape, and exact runtime
 context are closed typed variants. Project-aware validation rejects missing owners, invalid Room exits,
@@ -58,11 +65,21 @@ must remain inside the captured target. UI admission changes, focus/window/touch
 presentation replacement, reset, pause, and shutdown clear transient hover/press/capture state without
 activation.
 
+Every committed presentation-generation change invalidates an existing pointer gesture even when an
+identically qualified hotspot remains at the same coordinates. Mouse hover may be recomputed from the
+new committed frame, but the old press/capture is never transferred to the replacement frame.
+
 Activation is admitted by the existing runtime command gateway. It validates active Room ownership,
 current visibility/enabled state, condition truth, and exact hotspot identity. Verb activations enter
 the canonical Interaction resolver with exact hotspot context; Room-exit activations reuse canonical
 navigation and transition processing. Lua, RmlUi, editor preview, debugger, and recorded playback all
 route through the same typed activation command.
+
+Play-preview player-input controls are projected from the current runtime presentation rather than
+from the authored project. The debug snapshot exposes only hotspots whose owner is currently
+presented and whose condition and activation availability are true. Recorder actions are appended
+only after the typed runtime command reports success, so a rejected or stale hotspot activation is
+not persisted into an authoring test.
 
 ## Export and package behavior
 
