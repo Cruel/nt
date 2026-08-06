@@ -51,4 +51,48 @@ describe('image thumbnail prewarm coordinator', () => {
     });
     expect(window.noveltea.prewarmImageThumbnails).toHaveBeenCalledTimes(3);
   });
+
+  it('publishes a 500-image stress manifest without creating browser image objects', () => {
+    const project = createAuthoringProject();
+    for (let index = 0; index < 500; index += 1) {
+      const family = index % 5;
+      const [width, height] =
+        family === 0
+          ? [3840, 2160]
+          : family === 1
+            ? [1920, 1080]
+            : family === 2
+              ? [512, 512]
+              : family === 3
+                ? [4096, 256]
+                : [256, 4096];
+      project.assets[`stress-${index}`] = {
+        id: `stress-${index}`,
+        label: `Stress ${index}`,
+        data: {
+          kind: 'image',
+          source: {
+            type: 'project-file',
+            path: `assets/images/stress-${index}.${index % 10 === 0 ? 'svg' : 'png'}`,
+          },
+          aliases: [],
+          contentHash: `sha256:${index.toString(16).padStart(64, '0')}`,
+          imageMetadata: {
+            width,
+            height,
+            hasAlpha: family === 2,
+            orientation: 1,
+          },
+        },
+      };
+    }
+    const imageConstructor = vi.spyOn(globalThis, 'Image');
+    const coordinator = new ImageThumbnailPrewarmCoordinator();
+    coordinator.publish(project, '/stress/project.json');
+    const calls = vi.mocked(window.noveltea.prewarmImageThumbnails).mock.calls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[0].sources).toHaveLength(500);
+    expect(imageConstructor).not.toHaveBeenCalled();
+    imageConstructor.mockRestore();
+  });
 });

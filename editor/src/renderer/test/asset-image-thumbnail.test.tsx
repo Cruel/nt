@@ -216,4 +216,46 @@ describe('AssetImageThumbnail', () => {
       'noveltea-thumbnail://image-v1/aa/new.webp',
     );
   });
+
+  it('suppresses a loading result across clear and replaces an already decoded image', async () => {
+    const resolvers: Array<(result: ImageThumbnailResult) => void> = [];
+    vi.mocked(window.noveltea.requestImageThumbnail).mockImplementation(
+      () => new Promise((resolve) => resolvers.push(resolve)),
+    );
+    render(
+      <AssetImageThumbnail
+        label="Hero"
+        source={source}
+        request={{ kind: 'profile', profile: 'compact' }}
+      />,
+    );
+    await waitFor(() => expect(resolvers).toHaveLength(1));
+    act(() => {
+      (
+        window as typeof window & {
+          __novelteaEditorCacheEpochListener?: (event: EditorCacheEpochEvent) => void;
+        }
+      ).__novelteaEditorCacheEpochListener?.({ cacheEpoch: 2 });
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    resolvers[0]!(readyResult('noveltea-thumbnail://image-v1/aa/stale-loading.webp'));
+    expect(screen.queryByAltText('Hero')).not.toBeInTheDocument();
+    resolvers[1]!(readyResult('noveltea-thumbnail://image-v1/aa/current-decoded.webp', 2));
+    const image = await screen.findByAltText('Hero');
+    expect(image).toHaveAttribute('src', 'noveltea-thumbnail://image-v1/aa/current-decoded.webp');
+    await act(async () => image.dispatchEvent(new Event('load')));
+    act(() => {
+      (
+        window as typeof window & {
+          __novelteaEditorCacheEpochListener?: (event: EditorCacheEpochEvent) => void;
+        }
+      ).__novelteaEditorCacheEpochListener?.({ cacheEpoch: 3 });
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(3));
+    resolvers[2]!(readyResult('noveltea-thumbnail://image-v1/aa/after-decoded-clear.webp', 3));
+    expect(await screen.findByAltText('Hero')).toHaveAttribute(
+      'src',
+      'noveltea-thumbnail://image-v1/aa/after-decoded-clear.webp',
+    );
+  });
 });

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -45,6 +46,31 @@ async function writeRaster(
     bytes,
     hash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
   };
+}
+
+function cachedPath(service: ImageThumbnailService, cacheKey: string): string {
+  return path.join(service.imageCacheRoot, cacheKey.slice(0, 2), `${cacheKey}.webp`);
+}
+
+async function firstPixel(filePath: string): Promise<number[]> {
+  return [...(await sharp(filePath).ensureAlpha().raw().toBuffer()).subarray(0, 4)];
+}
+
+async function runPublicationWorker(workerPath: string, target: string, marker: string) {
+  return new Promise<{ status: string; bytes: string }>((resolve, reject) => {
+    const child = spawn(process.execPath, [workerPath, target, marker], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => (stdout += String(chunk)));
+    child.stderr.on('data', (chunk) => (stderr += String(chunk)));
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code !== 0) return reject(new Error(stderr || `worker exited ${code}`));
+      resolve(JSON.parse(stdout) as { status: string; bytes: string });
+    });
+  });
 }
 
 afterEach(async () => {
@@ -173,6 +199,120 @@ describe('main-process image thumbnail service', () => {
     expect(unsafe.ok || unsafe.errorCode).toBe('svg_external_resource');
     const bmp = await service.request(requestFor('legacy.bmp', Buffer.from('BMnot-supported')));
     expect(bmp.ok || bmp.errorCode).toBe('unsupported_image');
+  });
+
+  it('publishes the production first frame for GIF, APNG-under-png, and animated WebP', async () => {
+    const fixture = await fixtureProject();
+    const frameWidth = 2;
+    const frameHeight = 2;
+    const frames = Buffer.alloc(frameWidth * frameHeight * 4 * 2);
+    for (let pixel = 0; pixel < frameWidth * frameHeight; pixel += 1) {
+      frames[pixel * 4] = 255;
+      frames[pixel * 4 + 3] = 255;
+    }
+    for (let pixel = frameWidth * frameHeight; pixel < frameWidth * frameHeight * 2; pixel += 1) {
+      frames[pixel * 4 + 1] = 255;
+      frames[pixel * 4 + 3] = 255;
+    }
+    const gif = await sharp(frames, {
+      raw: { width: frameWidth, height: frameHeight * 2, channels: 4, pageHeight: frameHeight },
+    })
+      .gif({ delay: [100, 100], loop: 0 })
+      .toBuffer();
+    const webp = await sharp(frames, {
+      raw: { width: frameWidth, height: frameHeight * 2, channels: 4, pageHeight: frameHeight },
+    })
+      .webp({ delay: [100, 100], loop: 0 })
+      .toBuffer();
+    const apng = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAAAAAAAAQCEeRdzAAAACGFjVEwAAAAGAAAAAAYNNbAAAAAaZmNUTAAAAAAAAAACAAAAAgAAAAAAAAAAAAEAGQAA9jTBKQAAABBJREFUeJxj+MfACEQMEAoAH+YD/ZCXc2YAAAAaZmNUTAAAAAEAAAABAAAAAQAAAAAAAAAAAAEAGQAA32zHLQAAABBmZEFUAAAAAnicY/jHwAgAAv8BAJGYHZAAAAAaZmNUTAAAAAMAAAABAAAAAQAAAAAAAAAAAAEAGQAAMvoUxAAAABBmZEFUAAAABHicY/jHwAgAAv8BADF9wk0AAAAaZmNUTAAAAAUAAAACAAAAAgAAAAAAAAAAAAEAGQAAbRuKbgAAABNmZEFUAAAABnicY2D4zwBCEAoAG/ID/Xb2qxwAAAAaZmNUTAAAAAcAAAABAAAAAQAAAAAAAAAAAAEAGQAAMqa1VwAAABBmZEFUAAAACHicY2D4zwAAAgIBACFgyEYAAAAaZmNUTAAAAAkAAAABAAAAAQAAAAAAAAAAAAEAGQAA39WECwAAABBmZEFUAAAACnicY2D4zwAAAgIBAEE8fQ0AAAAASUVORK5CYII=',
+      'base64',
+    );
+    const cases = [
+      ['animated.gif', gif],
+      ['animated.png', apng],
+      ['animated.webp', webp],
+    ] as const;
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    for (const [name, bytes] of cases) {
+      await fs.writeFile(path.join(fixture.assetDirectory, name), bytes);
+      const result = await service.request({
+        source: {
+          projectFilePath: fixture.projectFilePath,
+          projectRelativePath: `assets/images/${name}`,
+          contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+          width: 2,
+          height: 2,
+          orientation: 1,
+        },
+        variant: { kind: 'profile', profile: 'compact' },
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+      const pixel = await firstPixel(cachedPath(service, result.cacheKey));
+      expect(pixel[0]).toBeGreaterThan(200);
+      expect(pixel[1]).toBeLessThan(40);
+      expect(
+        (await sharp(cachedPath(service, result.cacheKey), { animated: true }).metadata()).pages,
+      ).toBeUndefined();
+    }
+  });
+
+  it('honors every EXIF orientation combination', async () => {
+    const fixture = await fixtureProject();
+    const raw = Buffer.from([
+      255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0, 0, 255, 255, 255, 0, 255,
+    ]);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    for (let orientation = 1; orientation <= 8; orientation += 1) {
+      const bytes = await sharp(raw, { raw: { width: 3, height: 2, channels: 3 } })
+        .jpeg({ quality: 100, chromaSubsampling: '4:4:4' })
+        .withMetadata({ orientation })
+        .toBuffer();
+      const name = `orientation-${orientation}.jpg`;
+      await fs.writeFile(path.join(fixture.assetDirectory, name), bytes);
+      const result = await service.request({
+        source: {
+          projectFilePath: fixture.projectFilePath,
+          projectRelativePath: `assets/images/${name}`,
+          contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+          width: 3,
+          height: 2,
+          orientation: orientation as 1,
+        },
+        variant: { kind: 'profile', profile: 'compact' },
+      });
+      expect(result.ok, `orientation ${orientation}`).toBe(true);
+      if (!result.ok) continue;
+      expect([result.width, result.height]).toEqual(orientation >= 5 ? [2, 3] : [3, 2]);
+    }
+  });
+
+  it('rasterizes viewBox-only SVG at compact, card, and large tiers', async () => {
+    const fixture = await fixtureProject();
+    const bytes = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect width="4" height="2" fill="#0f0"/></svg>',
+    );
+    await fs.writeFile(path.join(fixture.assetDirectory, 'viewbox.svg'), bytes);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    for (const [profile, expected] of [
+      ['compact', [192, 96]],
+      ['card', [384, 192]],
+      ['large', [1024, 512]],
+    ] as const) {
+      const result = await service.request({
+        source: {
+          projectFilePath: fixture.projectFilePath,
+          projectRelativePath: 'assets/images/viewbox.svg',
+          contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+          width: 4,
+          height: 2,
+          orientation: 1,
+        },
+        variant: { kind: 'profile', profile },
+      });
+      expect(result.ok && [result.width, result.height]).toEqual(expected);
+    }
   });
 
   it('advances cache epoch, joins concurrent clears, and removes published files', async () => {
@@ -372,6 +512,283 @@ describe('main-process image thumbnail service', () => {
     const escaped = await escapedService.request(request);
     expect(escaped.ok || escaped.errorCode).toBe('cache_write_failed');
     expect(await fs.readdir(outside)).toEqual([]);
+  });
+
+  it('publishes one immutable winner from two actual Node processes', async () => {
+    const fixture = await fixtureProject();
+    const target = path.join(fixture.root, 'cross-process.webp');
+    const worker = path.resolve('scripts/image-thumbnail-publication-worker.mjs');
+    const [left, right] = await Promise.all([
+      runPublicationWorker(worker, target, 'left'),
+      runPublicationWorker(worker, target, 'right'),
+    ]);
+    expect([left.status, right.status].sort()).toEqual(['generated', 'hit']);
+    const published = await fs.readFile(target, 'utf8');
+    expect(['left', 'right']).toContain(published);
+    expect(left.bytes).toBe(published);
+    expect(right.bytes).toBe(published);
+  });
+
+  it('promotes a queued prewarm derivative and never owns more than two Sharp pipelines', async () => {
+    const fixture = await fixtureProject();
+    const generated = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        sharp({
+          create: {
+            width: 2048,
+            height: 2048,
+            channels: 4,
+            background: { r: index * 20, g: 30, b: 40, alpha: 1 },
+          },
+        })
+          .png()
+          .toBuffer()
+          .then(async (bytes) => {
+            const name = `large-${index}.png`;
+            await fs.writeFile(path.join(fixture.assetDirectory, name), bytes);
+            return {
+              projectFilePath: fixture.projectFilePath,
+              projectRelativePath: `assets/images/${name}`,
+              contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+              width: 2048,
+              height: 2048,
+              orientation: 1 as const,
+            };
+          }),
+      ),
+    );
+    const admitted: Array<{ priority: string; key: string }> = [];
+    let maximumPipelines = 0;
+    const originalReadFile = fs.readFile.bind(fs);
+    let releaseFirstTwo!: () => void;
+    const firstTwoGate = new Promise<void>((resolve) => {
+      releaseFirstTwo = resolve;
+    });
+    const blockedPaths = new Set(
+      generated.slice(0, 2).map((source) => path.join(fixture.root, source.projectRelativePath)),
+    );
+    const readFileSpy = vi.spyOn(fs, 'readFile').mockImplementation(async (filePath, options) => {
+      if (typeof filePath === 'string' && blockedPaths.has(filePath)) await firstTwoGate;
+      return originalReadFile(filePath, options as never);
+    });
+    const service = new ImageThumbnailService(fixture.cacheRoot, {
+      instrumentation: {
+        onGenerationAdmitted: (priority, key) => admitted.push({ priority, key }),
+        onGenerationPipelineCountChanged: (count) => {
+          maximumPipelines = Math.max(maximumPipelines, count);
+        },
+      },
+    });
+    await service.prewarm({ projectGeneration: 'generation-a', sources: generated });
+    while (admitted.length < 2) await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    const promoted = service.request({
+      source: generated[3]!,
+      variant: { kind: 'profile', profile: 'compact' },
+    });
+    releaseFirstTwo();
+    await Promise.all(
+      generated.map((source) =>
+        service.request({ source, variant: { kind: 'profile', profile: 'compact' } }),
+      ),
+    );
+    expect((await promoted).ok).toBe(true);
+    expect(maximumPipelines).toBeLessThanOrEqual(2);
+    const promotedKey = createImageThumbnailDerivativeKey(generated[3]!, 192, {
+      sharpVersion: sharp.versions.sharp,
+      vipsVersion: sharp.versions.vips,
+    });
+    expect(admitted.find((entry) => entry.key === promotedKey)?.priority).toBe('interactive');
+    readFileSpy.mockRestore();
+  });
+
+  it('destroys a timed-out Sharp pipeline before releasing its scheduler ownership', async () => {
+    const fixture = await fixtureProject();
+    const bytes = await sharp({
+      create: { width: 4096, height: 4096, channels: 4, background: '#123456' },
+    })
+      .png()
+      .toBuffer();
+    await fs.writeFile(path.join(fixture.assetDirectory, 'timeout.png'), bytes);
+    const counts: number[] = [];
+    const service = new ImageThumbnailService(fixture.cacheRoot, {
+      generationTimeoutMs: 1,
+      instrumentation: { onGenerationPipelineCountChanged: (count) => counts.push(count) },
+    });
+    const result = await service.request({
+      source: {
+        projectFilePath: fixture.projectFilePath,
+        projectRelativePath: 'assets/images/timeout.png',
+        contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+        width: 4096,
+        height: 4096,
+        orientation: 1,
+      },
+      variant: { kind: 'profile', profile: 'large' },
+    });
+    expect(result.ok || result.errorCode).toBe('generation_timeout');
+    expect(counts.at(-1)).toBe(0);
+    expect(Math.max(...counts)).toBeLessThanOrEqual(1);
+  });
+
+  it('accepts in-root source links, rejects escaping links, and reuses renamed content', async () => {
+    const fixture = await fixtureProject();
+    const source = await writeRaster(fixture.assetDirectory, 'original.png');
+    await fs.symlink(source.filePath, path.join(fixture.assetDirectory, 'linked.png'));
+    const outside = path.join(fixture.root, '..', `outside-${crypto.randomUUID()}.png`);
+    await fs.writeFile(outside, source.bytes);
+    temporaryRoots.push(outside);
+    await fs.symlink(outside, path.join(fixture.assetDirectory, 'escaped.png'));
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const requestFor = (name: string) => ({
+      source: {
+        projectFilePath: fixture.projectFilePath,
+        projectRelativePath: `assets/images/${name}`,
+        contentHash: source.hash,
+        width: 8,
+        height: 4,
+        orientation: 1 as const,
+      },
+      variant: { kind: 'profile' as const, profile: 'compact' as const },
+    });
+    const linked = await service.request(requestFor('linked.png'));
+    expect(linked.ok).toBe(true);
+    const escaped = await service.request(requestFor('escaped.png'));
+    expect(escaped.ok || escaped.errorCode).toBe('unsafe_source_path');
+    await fs.rename(source.filePath, path.join(fixture.assetDirectory, 'renamed.png'));
+    const renamed = await service.request(requestFor('renamed.png'));
+    expect(renamed.ok && linked.ok && renamed.cacheKey).toBe(linked.ok && linked.cacheKey);
+    expect(renamed.ok && renamed.cacheStatus).toBe('hit');
+  });
+
+  it('keeps the old derivative until explicit reimport publishes a new revision', async () => {
+    const fixture = await fixtureProject();
+    const first = await writeRaster(fixture.assetDirectory, 'reimport.png', 255);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const requestFor = (hash: string) => ({
+      source: {
+        projectFilePath: fixture.projectFilePath,
+        projectRelativePath: 'assets/images/reimport.png',
+        contentHash: hash,
+        width: 8,
+        height: 4,
+        orientation: 1 as const,
+      },
+      variant: { kind: 'profile' as const, profile: 'compact' as const },
+    });
+    const oldResult = await service.request(requestFor(first.hash));
+    expect(oldResult.ok).toBe(true);
+    const replacement = await writeRaster(fixture.assetDirectory, 'reimport.png', 64);
+    const stale = await service.request(requestFor(first.hash));
+    expect(stale.ok && oldResult.ok && stale.cacheKey).toBe(oldResult.ok && oldResult.cacheKey);
+    const current = await service.request(requestFor(replacement.hash));
+    expect(current.ok).toBe(true);
+    if (!oldResult.ok || !current.ok) return;
+    expect(current.cacheKey).not.toBe(oldResult.cacheKey);
+    await expect(fs.stat(cachedPath(service, oldResult.cacheKey))).resolves.toBeDefined();
+    await expect(fs.stat(cachedPath(service, current.cacheKey))).resolves.toBeDefined();
+  });
+
+  it('rejects extreme raster dimensions before publication', async () => {
+    const fixture = await fixtureProject();
+    const bytes = await sharp({
+      create: { width: 1, height: 1, channels: 3, background: '#fff' },
+    })
+      .png()
+      .toBuffer();
+    // Rewrite IHDR dimensions beyond the production 268,402,689-pixel decompression boundary.
+    bytes.writeUInt32BE(20_000, 16);
+    bytes.writeUInt32BE(20_000, 20);
+    await fs.writeFile(path.join(fixture.assetDirectory, 'extreme.png'), bytes);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const result = await service.request({
+      source: {
+        projectFilePath: fixture.projectFilePath,
+        projectRelativePath: 'assets/images/extreme.png',
+        contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+        width: 20_000,
+        height: 20_000,
+        orientation: 1,
+      },
+      variant: { kind: 'profile', profile: 'compact' },
+    });
+    expect(result.ok || result.errorCode).toBe('decode_failed');
+    await expect(fs.stat(service.imageCacheRoot)).rejects.toThrow();
+  });
+
+  it('cancels queued work and waits for active work when clearing', async () => {
+    const fixture = await fixtureProject();
+    const base = await sharp({
+      create: { width: 4096, height: 4096, channels: 4, background: '#234567' },
+    })
+      .png()
+      .toBuffer();
+    const sources = await Promise.all(
+      Array.from({ length: 12 }, async (_, index) => {
+        const bytes = Buffer.concat([base, Buffer.from(`clear-${index}`)]);
+        const name = `clear-${index}.png`;
+        await fs.writeFile(path.join(fixture.assetDirectory, name), bytes);
+        return {
+          projectFilePath: fixture.projectFilePath,
+          projectRelativePath: `assets/images/${name}`,
+          contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+          width: 4096,
+          height: 4096,
+          orientation: 1 as const,
+        };
+      }),
+    );
+    let admitted = 0;
+    const service = new ImageThumbnailService(fixture.cacheRoot, {
+      instrumentation: { onGenerationAdmitted: () => (admitted += 1) },
+    });
+    const prewarm = await service.prewarm({ projectGeneration: 'clear-backlog', sources });
+    expect(prewarm.ok && prewarm.accepted).toBe(12);
+    const clearing = service.clearEditorCache();
+    expect(await clearing).toEqual({ ok: true, cacheEpoch: 1 });
+    expect(admitted).toBeLessThan(12);
+    await expect(fs.stat(service.imageCacheRoot)).rejects.toThrow();
+  }, 30_000);
+
+  it('removes old crash-orphan temp files and advances the epoch after failed deletion', async () => {
+    const fixture = await fixtureProject();
+    const source = await writeRaster(fixture.assetDirectory);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const request = {
+      source: {
+        projectFilePath: fixture.projectFilePath,
+        projectRelativePath: 'assets/images/source.png',
+        contentHash: source.hash,
+        width: 8,
+        height: 4,
+        orientation: 1 as const,
+      },
+      variant: { kind: 'profile' as const, profile: 'compact' as const },
+    };
+    const key = createImageThumbnailDerivativeKey(request.source, 192, {
+      sharpVersion: sharp.versions.sharp,
+      vipsVersion: sharp.versions.vips,
+    });
+    const directory = path.join(service.imageCacheRoot, key.slice(0, 2));
+    await fs.mkdir(directory, { recursive: true });
+    const orphan = path.join(directory, `.${key}.999.orphan.tmp`);
+    await fs.writeFile(orphan, 'orphan');
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await fs.utimes(orphan, old, old);
+    expect((await service.request(request)).ok).toBe(true);
+    await expect(fs.stat(orphan)).rejects.toThrow();
+
+    const epochs: number[] = [];
+    service.cache.onEpochChanged((epoch) => epochs.push(epoch));
+    const originalRm = fs.rm.bind(fs);
+    const rmSpy = vi.spyOn(fs, 'rm').mockImplementation(async (target, options) => {
+      if (String(target) === fixture.cacheRoot) throw new Error('forced deletion failure');
+      return originalRm(target, options);
+    });
+    const cleared = await service.clearEditorCache();
+    rmSpy.mockRestore();
+    expect(cleared).toEqual({ ok: false, message: 'forced deletion failure', cacheEpoch: 1 });
+    expect(epochs).toEqual([1]);
   });
 });
 

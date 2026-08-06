@@ -32,9 +32,20 @@ type Priority = 'interactive' | 'prewarm';
 type Task<T> = {
   priority: Priority;
   epoch: number;
+  cacheKey?: string;
   projectGeneration?: string;
   run: () => Promise<T>;
   resolve: (value: T) => void;
+};
+
+export type ImageThumbnailServiceInstrumentation = {
+  onGenerationPipelineCountChanged?: (activePipelines: number) => void;
+  onGenerationAdmitted?: (priority: Priority, cacheKey: string) => void;
+};
+
+export type ImageThumbnailServiceOptions = {
+  generationTimeoutMs?: number;
+  instrumentation?: ImageThumbnailServiceInstrumentation;
 };
 
 type PreparedHashlessRequest =
@@ -45,6 +56,7 @@ const SUPPORTED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', 
 const MAX_INPUT_PIXELS = 268_402_689;
 const GENERATION_TIMEOUT_MS = 30_000;
 const PREWARM_ADMISSION_CONCURRENCY = 8;
+const ORPHAN_TEMP_FILE_MAX_AGE_MS = 60 * 60 * 1000;
 const CACHE_WRITE_ERROR_CODES = new Set(['EACCES', 'EDQUOT', 'ENOSPC', 'EPERM', 'EROFS']);
 
 function failure(
@@ -121,13 +133,18 @@ export class ImageThumbnailService {
   readonly #hashlessInFlight = new Map<string, Promise<ImageThumbnailResult>>();
   readonly #activeSettlements = new Map<number, Set<Promise<unknown>>>();
   readonly #prewarmSignatures = new Set<string>();
+  readonly #generationTimeoutMs: number;
+  readonly #instrumentation?: ImageThumbnailServiceInstrumentation;
   #prewarmAdmissionTail: Promise<void> = Promise.resolve();
   #activeProjectGeneration: string | null = null;
   #active = 0;
+  #activeGenerationPipelines = 0;
 
-  constructor(editorCacheRoot: string) {
+  constructor(editorCacheRoot: string, options: ImageThumbnailServiceOptions = {}) {
     this.cache = new EditorCacheService(editorCacheRoot);
     this.imageCacheRoot = resolveImageThumbnailCacheRoot(editorCacheRoot);
+    this.#generationTimeoutMs = options.generationTimeoutMs ?? GENERATION_TIMEOUT_MS;
+    this.#instrumentation = options.instrumentation;
   }
 
   request(
@@ -326,7 +343,10 @@ export class ImageThumbnailService {
       { sharpVersion: sharp.versions.sharp, vipsVersion: sharp.versions.vips },
     );
     const existing = this.#inFlight.get(key);
-    if (existing) return existing;
+    if (existing) {
+      if (priority === 'interactive') this.#promoteQueuedPrewarm(key);
+      return existing;
+    }
     const pending = this.#cacheHit(request, key).then(
       (hit) =>
         hit ??
@@ -335,6 +355,7 @@ export class ImageThumbnailService {
           this.cache.epoch,
           () => this.#generate(request, priority, key),
           projectGeneration,
+          key,
         ),
     );
     this.#inFlight.set(key, pending);
@@ -347,14 +368,24 @@ export class ImageThumbnailService {
     epoch: number,
     run: () => Promise<T>,
     projectGeneration?: string,
+    cacheKey?: string,
   ): Promise<T> {
     return new Promise<T>((resolve) => {
-      const task: Task<T> = { priority, epoch, projectGeneration, run, resolve };
+      const task: Task<T> = { priority, epoch, cacheKey, projectGeneration, run, resolve };
       (priority === 'interactive' ? this.#interactiveQueue : this.#prewarmQueue).push(
         task as Task<unknown>,
       );
       this.#drain();
     });
+  }
+
+  #promoteQueuedPrewarm(cacheKey: string): void {
+    const index = this.#prewarmQueue.findIndex((task) => task.cacheKey === cacheKey);
+    if (index < 0) return;
+    const [task] = this.#prewarmQueue.splice(index, 1);
+    if (!task) return;
+    task.priority = 'interactive';
+    this.#interactiveQueue.push(task);
   }
 
   #drain(): void {
@@ -366,6 +397,8 @@ export class ImageThumbnailService {
         continue;
       }
       this.#active += 1;
+      if (task.cacheKey)
+        this.#instrumentation?.onGenerationAdmitted?.(task.priority, task.cacheKey);
       const settlement = task
         .run()
         .then(task.resolve, () =>
@@ -641,6 +674,7 @@ export class ImageThumbnailService {
         key.slice(0, 2),
         editorCacheRootRealPath,
       );
+      await this.#removeCrashOrphanTempFiles(cacheDirectoryRealPath);
       const target = resolveImageThumbnailCachePath(imageCacheRootRealPath, key);
       tempPath = path.join(
         cacheDirectoryRealPath,
@@ -660,24 +694,26 @@ export class ImageThumbnailService {
           fit: 'fill',
           withoutEnlargement: sourceKind === 'raster',
         })
-        .webp({ lossless: true, effort: 4 })
-        .toFile(tempPath);
+        .webp({ lossless: true, effort: 4 });
+      this.#activeGenerationPipelines += 1;
+      this.#instrumentation?.onGenerationPipelineCountChanged?.(this.#activeGenerationPipelines);
+      const pipelineSettlement = pipeline.toFile(tempPath).finally(() => {
+        this.#activeGenerationPipelines -= 1;
+        this.#instrumentation?.onGenerationPipelineCountChanged?.(this.#activeGenerationPipelines);
+      });
       let timeout: NodeJS.Timeout | undefined;
       const timed = await Promise.race([
-        pipeline.then(() => 'done' as const),
+        pipelineSettlement.then(() => 'done' as const),
         new Promise<'timeout'>((resolve) => {
-          timeout = setTimeout(() => resolve('timeout'), GENERATION_TIMEOUT_MS);
+          timeout = setTimeout(() => resolve('timeout'), this.#generationTimeoutMs);
           timeout.unref();
         }),
       ]).finally(() => {
         if (timeout) clearTimeout(timeout);
       });
       if (timed === 'timeout') {
-        const timedOutTempPath = tempPath;
-        tempPath = undefined;
-        void pipeline
-          .catch(() => undefined)
-          .then(() => fs.rm(timedOutTempPath, { force: true }).catch(() => undefined));
+        pipeline.destroy();
+        await pipelineSettlement.catch(() => undefined);
         return failure(epoch, 'generation_timeout', 'Thumbnail generation timed out.');
       }
       if (epoch !== this.cache.epoch || this.cache.isClearing) {
@@ -741,5 +777,19 @@ export class ImageThumbnailService {
     } finally {
       if (tempPath) await fs.rm(tempPath, { force: true }).catch(() => undefined);
     }
+  }
+
+  async #removeCrashOrphanTempFiles(cacheDirectoryRealPath: string): Promise<void> {
+    const cutoff = Date.now() - ORPHAN_TEMP_FILE_MAX_AGE_MS;
+    const entries = await fs.readdir(cacheDirectoryRealPath, { withFileTypes: true });
+    await Promise.all(
+      entries.map(async (entry) => {
+        if (!entry.isFile() || !entry.name.startsWith('.') || !entry.name.endsWith('.tmp')) return;
+        const candidate = path.join(cacheDirectoryRealPath, entry.name);
+        const stat = await fs.stat(candidate).catch(() => null);
+        if (!stat || stat.mtimeMs > cutoff) return;
+        await fs.rm(candidate, { force: true }).catch(() => undefined);
+      }),
+    );
   }
 }
