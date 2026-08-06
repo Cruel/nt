@@ -106,6 +106,15 @@ import type {
 } from './shared/editor-tooling';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
+import {
+  createImageThumbnailProtocolHandler,
+  IMAGE_THUMBNAIL_SCHEME,
+} from './main/image-thumbnail-protocol';
+import { ImageThumbnailService } from './main/services/image-thumbnail-service';
+import {
+  resolveEditorCacheRoot,
+  resolveSystemCachePath,
+} from './main/services/image-thumbnail-cache-paths';
 
 const USER_DATA_DIRECTORY_NAME = 'noveltea-editor';
 
@@ -120,6 +129,15 @@ configureApplicationPaths();
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'noveltea-editor',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+  {
+    scheme: IMAGE_THUMBNAIL_SCHEME,
     privileges: {
       standard: true,
       secure: true,
@@ -150,6 +168,9 @@ app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 
 let mainWindow: BrowserWindow | null = null;
 const enginePreviewServer = new EnginePreviewServer();
+const imageThumbnailService = new ImageThumbnailService(
+  resolveEditorCacheRoot(resolveSystemCachePath(app.getPath('home'))),
+);
 
 const DEV_SERVER_URL = process.env.NOVELTEA_EDITOR_DEV_SERVER_URL?.trim() || undefined;
 const isDev = !!DEV_SERVER_URL;
@@ -474,6 +495,10 @@ function createWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(() => {
+  protocol.handle(
+    IMAGE_THUMBNAIL_SCHEME,
+    createImageThumbnailProtocolHandler(imageThumbnailService.imageCacheRoot),
+  );
   if (isDev) installLocalDocumentIsolationHeaders();
   if (!isDev) registerPackagedEditorProtocol();
   configureTemplateRegistryRoot(

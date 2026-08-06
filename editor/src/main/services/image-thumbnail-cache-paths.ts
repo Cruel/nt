@@ -5,6 +5,18 @@ export const IMAGE_THUMBNAIL_CACHE_DIRECTORY = path.join('thumbnails', 'image-v1
 export const resolveEditorCacheRoot = (systemCachePath: string): string =>
   path.resolve(systemCachePath, 'noveltea-editor');
 
+export function resolveSystemCachePath(
+  homePath: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform === 'win32') {
+    return path.resolve(environment.LOCALAPPDATA ?? path.join(homePath, 'AppData', 'Local'));
+  }
+  if (platform === 'darwin') return path.resolve(homePath, 'Library', 'Caches');
+  return path.resolve(environment.XDG_CACHE_HOME ?? path.join(homePath, '.cache'));
+}
+
 export const resolveImageThumbnailCacheRoot = (editorCacheRoot: string): string =>
   path.resolve(editorCacheRoot, IMAGE_THUMBNAIL_CACHE_DIRECTORY);
 
