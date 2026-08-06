@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 
 describe('RoomCompositionStage', () => {
-  it('keeps gesture changes local and commits moved bounds once on pointer release', () => {
+  it('keeps gesture changes local and commits moved bounds once on mouse release', () => {
     const onCommitBounds = vi.fn();
     render(
       <RoomCompositionStage
@@ -37,10 +37,10 @@ describe('RoomCompositionStage', () => {
       toJSON: () => ({}),
     });
     const placement = screen.getByTestId('room-placement-desk');
-    fireEvent.pointerDown(placement, { pointerId: 1, button: 0, clientX: 100, clientY: 50 });
-    fireEvent.pointerMove(window, { pointerId: 1, clientX: 300, clientY: 150 });
+    fireEvent.mouseDown(placement, { button: 0, clientX: 100, clientY: 50 });
+    fireEvent.mouseMove(window, { clientX: 300, clientY: 150 });
     expect(onCommitBounds).not.toHaveBeenCalled();
-    fireEvent.pointerUp(window, { pointerId: 1, clientX: 300, clientY: 150 });
+    fireEvent.mouseUp(window, { clientX: 300, clientY: 150 });
     expect(onCommitBounds).toHaveBeenCalledOnce();
     expect(onCommitBounds).toHaveBeenCalledWith('desk', {
       x: 0.3,
@@ -80,9 +80,9 @@ describe('RoomCompositionStage', () => {
       height: 500,
       toJSON: () => ({}),
     });
-    fireEvent.pointerDown(stage, { pointerId: 2, button: 0, clientX: 100, clientY: 100 });
-    fireEvent.pointerMove(window, { pointerId: 2, clientX: 400, clientY: 250 });
-    fireEvent.pointerUp(window, { pointerId: 2, clientX: 400, clientY: 250 });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 400, clientY: 250 });
+    fireEvent.mouseUp(window, { clientX: 400, clientY: 250 });
     const committed = onCommitPlacement.mock.calls[0]?.[0];
     expect(committed?.x).toBeCloseTo(0.1);
     expect(committed?.y).toBeCloseTo(0.2);
@@ -122,8 +122,8 @@ describe('RoomCompositionStage', () => {
       toJSON: () => ({}),
     });
 
-    fireEvent.pointerDown(stage, { pointerId: 3, button: 0, clientX: 500, clientY: 250 });
-    fireEvent.pointerUp(window, { pointerId: 3, clientX: 500, clientY: 250 });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 500, clientY: 250 });
+    fireEvent.mouseUp(window, { clientX: 500, clientY: 250 });
     expect(onCommitPlacement).toHaveBeenCalledWith({
       x: 0.4,
       y: 0.4,
@@ -151,14 +151,53 @@ describe('RoomCompositionStage', () => {
       />,
     );
     const resize = screen.getByRole('button', { name: 'Resize Lamp' });
-    fireEvent.pointerDown(resize, { pointerId: 4, button: 0, clientX: 600, clientY: 300 });
-    fireEvent.pointerMove(window, { pointerId: 4, clientX: 700, clientY: 350 });
-    fireEvent.pointerUp(window, { pointerId: 4, clientX: 700, clientY: 350 });
+    fireEvent.mouseDown(resize, { button: 0, clientX: 600, clientY: 300 });
+    fireEvent.mouseMove(window, { clientX: 700, clientY: 350 });
+    fireEvent.mouseUp(window, { clientX: 700, clientY: 350 });
     expect(onCommitBounds).toHaveBeenCalledWith('lamp-placement', {
       x: 0.4,
       y: 0.4,
       width: 0.3,
       height: 0.3,
+    });
+  });
+
+  it('uses the supplied source-aspect placement size for click placement', () => {
+    const onCommitPlacement = vi.fn();
+    render(
+      <RoomCompositionStage
+        backgroundUrl={null}
+        backgroundFit="cover"
+        fallbackColor={null}
+        referenceResolution={{ width: 1920, height: 1080 }}
+        placementDraftSize={{ width: 0.1125, height: 0.2 }}
+        items={[]}
+        selectedId={null}
+        placementDraftLabel="Portrait"
+        onSelectionChange={() => {}}
+        onCommitBounds={() => {}}
+        onCommitPlacement={onCommitPlacement}
+      />,
+    );
+    const stage = screen.getByTestId('room-composition-stage');
+    vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 562.5,
+      width: 1000,
+      height: 562.5,
+      toJSON: () => ({}),
+    });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 500, clientY: 281.25 });
+    fireEvent.mouseUp(window, { clientX: 500, clientY: 281.25 });
+    expect(onCommitPlacement).toHaveBeenCalledWith({
+      x: 0.44375,
+      y: 0.4,
+      width: 0.1125,
+      height: 0.2,
     });
   });
 });

@@ -528,9 +528,9 @@ describe('RoomEditor', () => {
         toJSON: () => ({}),
       }),
     });
-    fireEvent.pointerDown(stage, { pointerId: 2, clientX: 100, clientY: 100 });
-    fireEvent.pointerMove(window, { pointerId: 2, clientX: 400, clientY: 250 });
-    fireEvent.pointerUp(window, { pointerId: 2, clientX: 400, clientY: 250 });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 400, clientY: 250 });
+    fireEvent.mouseUp(window, { clientX: 400, clientY: 250 });
 
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
@@ -609,9 +609,9 @@ describe('RoomEditor', () => {
       }),
     });
     const placement = screen.getByTestId('room-placement-key-placement');
-    fireEvent.pointerDown(placement, { button: 0, pointerId: 11, clientX: 100, clientY: 50 });
-    fireEvent.pointerMove(window, { pointerId: 11, clientX: 300, clientY: 150 });
-    fireEvent.pointerUp(window, { pointerId: 11, clientX: 300, clientY: 150 });
+    fireEvent.mouseDown(placement, { button: 0, clientX: 100, clientY: 50 });
+    fireEvent.mouseMove(window, { clientX: 300, clientY: 150 });
+    fireEvent.mouseUp(window, { clientX: 300, clientY: 150 });
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
         rooms: {
@@ -629,9 +629,9 @@ describe('RoomEditor', () => {
     );
 
     const resize = screen.getByRole('button', { name: 'Resize key-placement' });
-    fireEvent.pointerDown(resize, { button: 0, pointerId: 12, clientX: 500, clientY: 250 });
-    fireEvent.pointerMove(window, { pointerId: 12, clientX: 700, clientY: 350 });
-    fireEvent.pointerUp(window, { pointerId: 12, clientX: 700, clientY: 350 });
+    fireEvent.mouseDown(resize, { button: 0, clientX: 500, clientY: 250 });
+    fireEvent.mouseMove(window, { clientX: 700, clientY: 350 });
+    fireEvent.mouseUp(window, { clientX: 700, clientY: 350 });
     await waitFor(() => {
       const document = useProjectStore.getState().document;
       expect(isAuthoringProject(document)).toBe(true);
@@ -689,8 +689,8 @@ describe('RoomEditor', () => {
         toJSON: () => ({}),
       }),
     });
-    fireEvent.pointerDown(stage, { button: 0, pointerId: 20, clientX: 600, clientY: 200 });
-    fireEvent.pointerUp(window, { pointerId: 20, clientX: 600, clientY: 200 });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 600, clientY: 200 });
+    fireEvent.mouseUp(window, { clientX: 600, clientY: 200 });
 
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({

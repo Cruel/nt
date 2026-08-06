@@ -812,6 +812,24 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           label: project.interactables[entry.interactable.$ref.id]?.label ?? entry.id,
         }))
     : [];
+  const referenceResolution = projectSettingsFromProject(project).display.referenceResolution;
+  const placingInteractable = placingInteractableId
+    ? parseInteractableData(project.interactables[placingInteractableId]?.data)
+    : null;
+  const placingSprite = placingInteractable?.presentation.sprite
+    ? parseAssetData(project.assets[placingInteractable.presentation.sprite.$ref.id]?.data)
+    : null;
+  const placingImageMetadata = placingSprite?.kind === 'image' ? placingSprite.imageMetadata : null;
+  const placementDraftSize = placingImageMetadata
+    ? (() => {
+        const roomAspect = referenceResolution.width / referenceResolution.height;
+        const assetAspect = placingImageMetadata.width / placingImageMetadata.height;
+        const heightAtDefaultWidth = (0.2 * roomAspect) / assetAspect;
+        return heightAtDefaultWidth <= 0.2
+          ? { width: 0.2, height: heightAtDefaultWidth }
+          : { width: (0.2 * assetAspect) / roomAspect, height: 0.2 };
+      })()
+    : undefined;
   const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
     commit(
       {
@@ -1510,9 +1528,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 backgroundUrl={compositionBackgroundUrl}
                 backgroundFit={data.background.fit}
                 fallbackColor={data.background.color}
-                referenceResolution={
-                  projectSettingsFromProject(project).display.referenceResolution
-                }
+                referenceResolution={referenceResolution}
+                placementDraftSize={placementDraftSize}
                 items={data.placements.map((placement) => ({
                   id: placement.id,
                   label: placement.id,

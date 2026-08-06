@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import type { RoomNormalizedRect } from '../../shared/project-schema/authoring-rooms';
 
 export interface RoomCompositionItem {
@@ -13,6 +13,7 @@ export interface RoomCompositionStageProps {
   backgroundFit: 'cover' | 'contain' | 'stretch' | 'center';
   fallbackColor: string | null;
   referenceResolution: { width: number; height: number };
+  placementDraftSize?: Pick<RoomNormalizedRect, 'width' | 'height'>;
   items: readonly RoomCompositionItem[];
   selectedId: string | null;
   placementDraftLabel?: string | null;
@@ -25,7 +26,6 @@ export interface RoomCompositionStageProps {
 type Gesture = {
   id: string | null;
   kind: 'move' | 'resize' | 'place';
-  pointerId: number;
   startX: number;
   startY: number;
   initial: RoomNormalizedRect;
@@ -33,14 +33,18 @@ type Gesture = {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const defaultPlacementSize = { width: 0.2, height: 0.2 } as const;
+const fallbackPlacementSize = { width: 0.2, height: 0.2 } as const;
 const minimumPlacementDragPixels = 4;
 
-function defaultPlacementAt(x: number, y: number): RoomNormalizedRect {
+function defaultPlacementAt(
+  x: number,
+  y: number,
+  size: Pick<RoomNormalizedRect, 'width' | 'height'>,
+): RoomNormalizedRect {
   return {
-    x: clamp(x - defaultPlacementSize.width / 2, 0, 1 - defaultPlacementSize.width),
-    y: clamp(y - defaultPlacementSize.height / 2, 0, 1 - defaultPlacementSize.height),
-    ...defaultPlacementSize,
+    x: clamp(x - size.width / 2, 0, 1 - size.width),
+    y: clamp(y - size.height / 2, 0, 1 - size.height),
+    ...size,
   };
 }
 
@@ -72,9 +76,9 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
       : { x: 0, y: 0 };
   };
   useEffect(() => {
-    const move = (event: PointerEvent) => {
+    const move = (event: MouseEvent) => {
       const active = gestureRef.current;
-      if (!active || active.pointerId !== event.pointerId) return;
+      if (!active) return;
       event.preventDefault();
       const current = point(event.clientX, event.clientY);
       const dx = current.x - active.startX;
@@ -100,9 +104,9 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
               };
       setGesture({ ...active, draft });
     };
-    const finish = (event: PointerEvent) => {
+    const finish = (event: MouseEvent) => {
       const active = gestureRef.current;
-      if (!active || active.pointerId !== event.pointerId) return;
+      if (!active) return;
       event.preventDefault();
       if (active.kind === 'place') {
         const rect = rootRef.current?.getBoundingClientRect();
@@ -114,23 +118,17 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
       } else if (active.id) callbacksRef.current.onCommitBounds(active.id, active.draft);
       setGesture(null);
     };
-    const cancel = (event: PointerEvent) => {
-      if (gestureRef.current?.pointerId !== event.pointerId) return;
-      setGesture(null);
-    };
     const cancelOnBlur = () => setGesture(null);
-    window.addEventListener('pointermove', move, { passive: false });
-    window.addEventListener('pointerup', finish, { passive: false });
-    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('mousemove', move, { passive: false });
+    window.addEventListener('mouseup', finish, { passive: false });
     window.addEventListener('blur', cancelOnBlur);
     return () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', finish);
-      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', finish);
       window.removeEventListener('blur', cancelOnBlur);
     };
   }, []);
-  const begin = (event: ReactPointerEvent, item: RoomCompositionItem, kind: Gesture['kind']) => {
+  const begin = (event: ReactMouseEvent, item: RoomCompositionItem, kind: Gesture['kind']) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -139,14 +137,13 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
     setGesture({
       id: item.id,
       kind,
-      pointerId: event.pointerId,
       startX: current.x,
       startY: current.y,
       initial: item.bounds,
       draft: item.bounds,
     });
   };
-  const beginPlacement = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const beginPlacement = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     if (!props.placementDraftLabel || !props.onCommitPlacement) {
       props.onSelectionChange(null);
@@ -154,14 +151,14 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
     }
     event.preventDefault();
     const current = point(event.clientX, event.clientY);
+    const size = props.placementDraftSize ?? fallbackPlacementSize;
     setGesture({
       id: null,
       kind: 'place',
-      pointerId: event.pointerId,
       startX: current.x,
       startY: current.y,
-      initial: defaultPlacementAt(current.x, current.y),
-      draft: defaultPlacementAt(current.x, current.y),
+      initial: defaultPlacementAt(current.x, current.y, size),
+      draft: defaultPlacementAt(current.x, current.y, size),
     });
   };
   const objectFit =
@@ -179,7 +176,7 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
         backgroundColor: props.fallbackColor ?? undefined,
       }}
       tabIndex={0}
-      onPointerDown={beginPlacement}
+      onMouseDown={beginPlacement}
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return;
         setGesture(null);
@@ -209,7 +206,7 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
               width: `${bounds.width * 100}%`,
               height: `${bounds.height * 100}%`,
             }}
-            onPointerDown={(event) => begin(event, item, 'move')}
+            onMouseDown={(event) => begin(event, item, 'move')}
             data-testid={`room-placement-${item.id}`}
           >
             <div className="pointer-events-none truncate bg-background/80 px-1 py-0.5 text-[10px] font-medium">
@@ -221,7 +218,7 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
                 type="button"
                 aria-label={`Resize ${item.label}`}
                 className="absolute -bottom-2 -right-2 size-4 cursor-se-resize rounded-sm border bg-background"
-                onPointerDown={(event) => begin(event, item, 'resize')}
+                onMouseDown={(event) => begin(event, item, 'resize')}
               />
             ) : null}
           </div>
