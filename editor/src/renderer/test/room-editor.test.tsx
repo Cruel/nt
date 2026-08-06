@@ -11,6 +11,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { setTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import {
   captureWorkbenchTabState,
@@ -36,6 +37,12 @@ function renderEditor() {
     </div>,
   );
 }
+function selectRoomCategory(
+  name: 'General' | 'Composition' | 'Hotspots' | 'Navigation' | 'Contents' | 'Behavior',
+) {
+  const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
+  fireEvent.click(within(navigation).getByRole('button', { name }));
+}
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
@@ -43,13 +50,43 @@ beforeEach(() => {
   clearWorkbenchTabStates();
 });
 describe('RoomEditor', () => {
-  it('renders the V2 room editor with lifecycle, exits, and placements', () => {
+  it('splits Room editing into the shared categorical layout', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+
+    expect(screen.getByRole('navigation', { name: 'Room editor categories' })).toBeInTheDocument();
+    expect(screen.getByText('Room details')).toBeInTheDocument();
+    expect(screen.queryByText('Lifecycle')).toBeNull();
+
+    selectRoomCategory('Behavior');
     expect(screen.getByText('Lifecycle')).toBeInTheDocument();
+
+    selectRoomCategory('Navigation');
     expect(screen.getByText('Exits')).toBeInTheDocument();
+
+    selectRoomCategory('Composition');
+    expect(screen.getByText('Placements')).toBeInTheDocument();
+  });
+  it('selects the owning Room category for workbench targets', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    act(() => {
+      invokeWorkbenchTargetHandler(tab.id, {
+        id: 'room.placements',
+        requestId: 1,
+      });
+    });
+
+    const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
+    expect(within(navigation).getByRole('button', { name: 'Composition' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
     expect(screen.getByText('Placements')).toBeInTheDocument();
   });
   it('updates the display name through the command bus', async () => {
@@ -195,6 +232,7 @@ describe('RoomEditor', () => {
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Navigation');
 
     fireEvent.click(screen.getByRole('button', { name: /choose destination/i }));
     expect(screen.getByText('Choose an exit destination')).toBeInTheDocument();
@@ -235,6 +273,7 @@ describe('RoomEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Navigation');
 
     expect(screen.getByRole('button', { name: 'Custom direction' })).toHaveAttribute(
       'aria-pressed',
@@ -270,6 +309,7 @@ describe('RoomEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Navigation');
 
     expect(screen.queryByText('Define where the player can travel from this room.')).toBeNull();
     const exitCard = document.querySelector('[data-workbench-anchor="room.exit.hallway-exit"]');
@@ -312,6 +352,7 @@ describe('RoomEditor', () => {
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Navigation');
 
     fireEvent.click(screen.getByRole('button', { name: 'Long Hallway' }));
 
@@ -341,6 +382,7 @@ describe('RoomEditor', () => {
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Navigation');
 
     expect(screen.getByText('Long Hallway has no south exit back to Foyer.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add return exit' }));
@@ -411,6 +453,7 @@ describe('RoomEditor', () => {
     project.rooms.hallway = { id: 'hallway', label: 'Long Hallway', data: hallway };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Navigation');
 
     expect(
       screen.getByText('Long Hallway returns to Foyer via west, but south is expected.'),
@@ -446,7 +489,7 @@ describe('RoomEditor', () => {
     renderEditor();
 
     expect(screen.getByRole('separator', { name: 'Resize room preview' })).toBeInTheDocument();
-    expect(document.querySelector('[data-room-editor-scroll]')).toHaveClass('overflow-auto');
+    expect(screen.getByRole('main')).toHaveClass('overflow-y-auto');
   });
   it('captures and restores its tab-scoped preview collapse state', async () => {
     const project = createAuthoringProject();
@@ -464,8 +507,9 @@ describe('RoomEditor', () => {
 
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
       schema: 'noveltea.editor.tab-state.room',
-      schemaVersion: 3,
+      schemaVersion: 4,
       payload: {
+        activeCategory: 'general',
         previewCollapsed: true,
         hotspotView: {
           schema: 'noveltea.editor.hotspot-view',
@@ -491,6 +535,7 @@ describe('RoomEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Composition');
     fireEvent.click(screen.getByText('Add placement'));
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
@@ -510,6 +555,7 @@ describe('RoomEditor', () => {
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Composition');
 
     fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
     fireEvent.click(screen.getByRole('button', { name: /Brass Key/i }));
@@ -592,6 +638,7 @@ describe('RoomEditor', () => {
     project.interactables.key = { id: 'key', label: 'Brass Key', data: key };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Composition');
 
     const stage = screen.getByTestId('room-composition-stage');
     Object.defineProperty(stage, 'getBoundingClientRect', {
@@ -671,6 +718,7 @@ describe('RoomEditor', () => {
     project.interactables.key = { id: 'key', label: 'Brass Key', data: key };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('Composition');
 
     fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
     fireEvent.click(screen.getByRole('button', { name: /Brass Key/i }));

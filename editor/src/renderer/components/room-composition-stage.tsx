@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  roomBackgroundImageRect,
+  type StageSize,
+} from '@/components/image-stage/image-stage-transforms';
 import type { RoomNormalizedRect } from '../../shared/project-schema/authoring-rooms';
 
 export interface RoomCompositionItem {
@@ -10,6 +14,7 @@ export interface RoomCompositionItem {
 
 export interface RoomCompositionStageProps {
   backgroundUrl: string | null;
+  backgroundImageSize?: StageSize | null;
   backgroundFit: 'cover' | 'contain' | 'stretch' | 'center';
   fallbackColor: string | null;
   referenceResolution: { width: number; height: number };
@@ -51,6 +56,7 @@ function defaultPlacementAt(
 export function RoomCompositionStage(props: RoomCompositionStageProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const gestureRef = useRef<Gesture | null>(null);
+  const [loadedBackgroundSize, setLoadedBackgroundSize] = useState<StageSize | null>(null);
   const callbacksRef = useRef({
     onCommitBounds: props.onCommitBounds,
     onCommitPlacement: props.onCommitPlacement,
@@ -75,6 +81,9 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
         }
       : { x: 0, y: 0 };
   };
+  useEffect(() => {
+    setLoadedBackgroundSize(null);
+  }, [props.backgroundUrl]);
   useEffect(() => {
     const move = (event: MouseEvent) => {
       const active = gestureRef.current;
@@ -161,12 +170,14 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
       draft: defaultPlacementAt(current.x, current.y, size),
     });
   };
-  const objectFit =
-    props.backgroundFit === 'stretch'
-      ? 'fill'
-      : props.backgroundFit === 'center'
-        ? 'scale-down'
-        : props.backgroundFit;
+  const backgroundSize = props.backgroundImageSize ?? loadedBackgroundSize;
+  const backgroundRect =
+    props.backgroundUrl &&
+    backgroundSize &&
+    props.referenceResolution.width > 0 &&
+    props.referenceResolution.height > 0
+      ? roomBackgroundImageRect(props.referenceResolution, backgroundSize, props.backgroundFit)
+      : null;
   return (
     <div
       ref={rootRef}
@@ -189,8 +200,25 @@ export function RoomCompositionStage(props: RoomCompositionStageProps) {
           src={props.backgroundUrl}
           alt=""
           draggable={false}
-          className="pointer-events-none absolute inset-0 size-full select-none"
-          style={{ objectFit, objectPosition: 'center' }}
+          className={`pointer-events-none absolute max-w-none select-none ${backgroundRect ? '' : 'invisible'}`}
+          style={
+            backgroundRect
+              ? {
+                  left: `${(backgroundRect.x / props.referenceResolution.width) * 100}%`,
+                  top: `${(backgroundRect.y / props.referenceResolution.height) * 100}%`,
+                  width: `${(backgroundRect.width / props.referenceResolution.width) * 100}%`,
+                  height: `${(backgroundRect.height / props.referenceResolution.height) * 100}%`,
+                  objectFit: 'fill',
+                }
+              : undefined
+          }
+          onLoad={(event) => {
+            if (props.backgroundImageSize) return;
+            const { naturalWidth, naturalHeight } = event.currentTarget;
+            if (naturalWidth > 0 && naturalHeight > 0)
+              setLoadedBackgroundSize({ width: naturalWidth, height: naturalHeight });
+          }}
+          data-testid="room-composition-background"
         />
       ) : null}
       {props.items.map((item) => {

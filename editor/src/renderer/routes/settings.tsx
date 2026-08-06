@@ -23,9 +23,9 @@ import {
 } from '@/components/ui/select';
 import { PageHeader } from '@/components/page-header';
 import {
-  SettingsCategoryLayout,
-  type SettingsCategory,
-} from '@/components/settings/SettingsCategoryLayout';
+  CategorizedEditorLayout,
+  type CategorizedEditorCategory,
+} from '@/components/CategorizedEditorLayout';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import {
   codeEditorThemeLabel,
@@ -338,7 +338,7 @@ export function SettingsPage({
     [onActiveCategoryChange],
   );
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
-  const categories: SettingsCategory[] = [
+  const categories: CategorizedEditorCategory<EditorSettingsCategory>[] = [
     {
       id: 'appearance',
       label: t('settings:categories.appearance'),
@@ -519,10 +519,10 @@ export function SettingsPage({
   }
 
   return (
-    <SettingsCategoryLayout
+    <CategorizedEditorLayout
       categories={categories}
       activeCategory={activeCategory}
-      onCategoryChange={(category) => setActiveCategory(category as EditorSettingsCategory)}
+      onCategoryChange={setActiveCategory}
       navigationLabel={t('settings:categories.navigationLabel')}
       showActiveDescription={false}
       sidebarFooter={
@@ -1300,6 +1300,6 @@ export function SettingsPage({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </SettingsCategoryLayout>
+    </CategorizedEditorLayout>
   );
 }

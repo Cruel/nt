@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import {
-  SettingsCategoryLayout,
-  type SettingsCategory,
-} from '@/components/settings/SettingsCategoryLayout';
+  CategorizedEditorLayout,
+  type CategorizedEditorCategory,
+} from '@/components/CategorizedEditorLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -89,7 +89,7 @@ type ProjectSettingsCategory =
   | 'transitions'
   | 'status';
 
-const projectSettingsCategories: readonly SettingsCategory[] = [
+const projectSettingsCategories: readonly CategorizedEditorCategory<ProjectSettingsCategory>[] = [
   {
     id: 'general',
     label: 'General',
@@ -687,10 +687,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   }
 
   return (
-    <SettingsCategoryLayout
+    <CategorizedEditorLayout
       categories={projectSettingsCategories}
       activeCategory={activeCategory}
-      onCategoryChange={(category) => setActiveCategory(category as ProjectSettingsCategory)}
+      onCategoryChange={setActiveCategory}
       navigationLabel="Project settings categories"
       contentRef={scrollRef}
       showActiveDescription={false}
@@ -1628,6 +1628,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-    </SettingsCategoryLayout>
+    </CategorizedEditorLayout>
   );
 }

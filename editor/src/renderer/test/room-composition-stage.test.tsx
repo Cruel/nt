@@ -3,6 +3,76 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 
 describe('RoomCompositionStage', () => {
+  it('renders every Room background fit with runtime-equivalent reference geometry', () => {
+    const view = render(
+      <RoomCompositionStage
+        backgroundUrl="noveltea://background"
+        backgroundImageSize={{ width: 400, height: 800 }}
+        backgroundFit="cover"
+        fallbackColor={null}
+        referenceResolution={{ width: 2000, height: 1000 }}
+        items={[]}
+        selectedId={null}
+        onSelectionChange={() => {}}
+        onCommitBounds={() => {}}
+      />,
+    );
+    const image = screen.getByTestId('room-composition-background');
+    const geometry = () => [
+      Number.parseFloat(image.style.left),
+      Number.parseFloat(image.style.top),
+      Number.parseFloat(image.style.width),
+      Number.parseFloat(image.style.height),
+    ];
+
+    expect(geometry()).toEqual([0, -150, 100, 400]);
+
+    view.rerender(
+      <RoomCompositionStage
+        backgroundUrl="noveltea://background"
+        backgroundImageSize={{ width: 400, height: 800 }}
+        backgroundFit="contain"
+        fallbackColor={null}
+        referenceResolution={{ width: 2000, height: 1000 }}
+        items={[]}
+        selectedId={null}
+        onSelectionChange={() => {}}
+        onCommitBounds={() => {}}
+      />,
+    );
+    expect(geometry()).toEqual([37.5, 0, 25, 100]);
+
+    view.rerender(
+      <RoomCompositionStage
+        backgroundUrl="noveltea://background"
+        backgroundImageSize={{ width: 400, height: 800 }}
+        backgroundFit="stretch"
+        fallbackColor={null}
+        referenceResolution={{ width: 2000, height: 1000 }}
+        items={[]}
+        selectedId={null}
+        onSelectionChange={() => {}}
+        onCommitBounds={() => {}}
+      />,
+    );
+    expect(geometry()).toEqual([0, 0, 100, 100]);
+
+    view.rerender(
+      <RoomCompositionStage
+        backgroundUrl="noveltea://background"
+        backgroundImageSize={{ width: 400, height: 800 }}
+        backgroundFit="center"
+        fallbackColor={null}
+        referenceResolution={{ width: 2000, height: 1000 }}
+        items={[]}
+        selectedId={null}
+        onSelectionChange={() => {}}
+        onCommitBounds={() => {}}
+      />,
+    );
+    expect(geometry()).toEqual([40, 10, 20, 80]);
+  });
+
   it('keeps gesture changes local and commits moved bounds once on mouse release', () => {
     const onCommitBounds = vi.fn();
     render(

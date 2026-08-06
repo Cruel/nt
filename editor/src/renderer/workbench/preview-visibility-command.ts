@@ -14,7 +14,7 @@ interface PreviewTabStateContract {
 const previewTabStateContracts: Record<string, PreviewTabStateContract> = {
   'room-detail': {
     schema: 'noveltea.editor.tab-state.room',
-    schemaVersion: 3,
+    schemaVersion: 4,
   },
   'layout-detail': {
     schema: 'noveltea.editor.tab-state.layout',

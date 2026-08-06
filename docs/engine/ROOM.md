@@ -75,10 +75,13 @@ compiled transition precedence contract is explicit request, selected exit overr
 default. Live realization uses the final revision-bound Room-navigation operation contract described
 above.
 
-The Room editor uses the shared React image stage for hotspot create/move/resize/delete and composes it
-with command-backed Interactable placement editing. Room background `cover`, `contain`, `stretch`, and
-`center` transforms use the same normalized image-coordinate policy consumed by runtime projection.
-No editor-preview-only manipulation contract exists.
+The Room editor uses the shared categorized-editor shell also used by Settings and Project Settings.
+General, Composition, Hotspots, Navigation, Contents, and Behavior categories keep only the selected
+group mounted, retain the selected category as Room tab state, and route workbench targets to their
+owning category before reveal. Composition contains the command-backed Interactable placement editor;
+Hotspots uses the shared React image stage for create/move/resize/delete. Room background `cover`,
+`contain`, `stretch`, and `center` transforms use the same normalized image-coordinate policy consumed
+by runtime projection. No editor-preview-only manipulation contract exists.
 
 ## Editor preview
 

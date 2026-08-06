@@ -128,6 +128,13 @@ Stable user-facing strings should use i18n resources under `editor/src/renderer/
 
 Use shadcn Base UI components whenever an appropriate component exists. Keep generated components close to upstream output and adapt usage code rather than rewriting generated primitives.
 
+Editors that divide a large form into a left category rail must use
+`editor/src/renderer/components/CategorizedEditorLayout.tsx`. This shared shell owns the responsive
+vertical/sidebar and narrow horizontal navigation patterns, active-category accessibility state,
+optional category counts, content scrolling, header placement, and sidebar footer. Settings, Project
+Settings, and the Room editor use this same component; do not create editor-local copies of the
+category list layout or its responsive behavior.
+
 Editor-wide Settings and Project Settings share the compact category-selector layout. Keep new
 settings in the narrowest existing category where possible; when adding a category, preserve the
 responsive horizontal selector used by narrow editor panes and map workbench targets to the owning

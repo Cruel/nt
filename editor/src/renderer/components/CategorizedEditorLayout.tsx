@@ -1,29 +1,31 @@
 import type { ComponentType, ReactNode, Ref, SVGProps } from 'react';
 import { cn } from '@/lib/utils';
 
-type SettingsCategoryIcon = ComponentType<SVGProps<SVGSVGElement>>;
+type CategorizedEditorIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
-export interface SettingsCategory {
-  id: string;
+export interface CategorizedEditorCategory<Id extends string = string> {
+  id: Id;
   label: string;
   description?: string;
-  icon: SettingsCategoryIcon;
+  icon: CategorizedEditorIcon;
+  trailing?: ReactNode;
 }
 
-interface SettingsCategoryLayoutProps {
-  categories: readonly SettingsCategory[];
-  activeCategory: string;
-  onCategoryChange: (category: string) => void;
+interface CategorizedEditorLayoutProps<Id extends string> {
+  categories: readonly CategorizedEditorCategory<Id>[];
+  activeCategory: Id;
+  onCategoryChange: (category: Id) => void;
   navigationLabel: string;
   header: ReactNode;
   children: ReactNode;
   sidebarFooter?: ReactNode;
   contentRef?: Ref<HTMLDivElement>;
   className?: string;
+  contentContainerClassName?: string;
   showActiveDescription?: boolean;
 }
 
-export function SettingsCategoryLayout({
+export function CategorizedEditorLayout<Id extends string>({
   categories,
   activeCategory,
   onCategoryChange,
@@ -33,8 +35,9 @@ export function SettingsCategoryLayout({
   sidebarFooter,
   contentRef,
   className,
+  contentContainerClassName,
   showActiveDescription = true,
-}: SettingsCategoryLayoutProps) {
+}: CategorizedEditorLayoutProps<Id>) {
   const active = categories.find((category) => category.id === activeCategory) ?? categories[0];
 
   return (
@@ -67,7 +70,15 @@ export function SettingsCategoryLayout({
                 onClick={() => onCategoryChange(category.id)}
               >
                 <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-                <span className="whitespace-nowrap">{category.label}</span>
+                <span className="min-w-0 flex-1 truncate whitespace-nowrap">{category.label}</span>
+                {category.trailing ? (
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 text-[10px] tabular-nums text-muted-foreground"
+                  >
+                    {category.trailing}
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -78,7 +89,7 @@ export function SettingsCategoryLayout({
       </aside>
 
       <main ref={contentRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl p-3 sm:p-4">
+        <div className={cn('mx-auto w-full max-w-5xl p-3 sm:p-4', contentContainerClassName)}>
           {header}
           {showActiveDescription && active?.description ? (
             <p className="mt-1 text-xs text-muted-foreground">{active.description}</p>

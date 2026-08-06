@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowRight, ChevronsUpDown, Image, Plus, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Boxes,
+  ChevronsUpDown,
+  Image,
+  Layers3,
+  MousePointerClick,
+  Plus,
+  Settings2,
+  Trash2,
+  Waypoints,
+  Workflow,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ColorField } from '@/components/ui/color-field';
@@ -25,6 +38,10 @@ import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
+import {
+  CategorizedEditorLayout,
+  type CategorizedEditorCategory,
+} from '@/components/CategorizedEditorLayout';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import {
   defaultHotspotViewState,
@@ -88,6 +105,78 @@ const backgroundFitLabels = {
   center: 'Center',
 } satisfies Record<BackgroundFitMode, string>;
 
+type RoomEditorCategory =
+  | 'general'
+  | 'composition'
+  | 'hotspots'
+  | 'navigation'
+  | 'contents'
+  | 'behavior';
+
+const roomEditorCategories: readonly CategorizedEditorCategory<RoomEditorCategory>[] = [
+  {
+    id: 'general',
+    label: 'General',
+    description: 'Room identity, description, and background presentation.',
+    icon: Settings2,
+  },
+  {
+    id: 'composition',
+    label: 'Composition',
+    description: 'Place and arrange Interactable instances and reusable anchors.',
+    icon: Boxes,
+  },
+  {
+    id: 'hotspots',
+    label: 'Hotspots',
+    description: 'Define clickable regions on the Room background.',
+    icon: MousePointerClick,
+  },
+  {
+    id: 'navigation',
+    label: 'Navigation',
+    description: 'Connect this Room to other Rooms through exits.',
+    icon: Waypoints,
+  },
+  {
+    id: 'contents',
+    label: 'Contents',
+    description: 'Configure overlays, cast, props, and environmental layers.',
+    icon: Layers3,
+  },
+  {
+    id: 'behavior',
+    label: 'Behavior',
+    description: 'Configure lifecycle hooks and the optional composition script.',
+    icon: Workflow,
+  },
+];
+
+function isRoomEditorCategory(value: unknown): value is RoomEditorCategory {
+  return roomEditorCategories.some((category) => category.id === value);
+}
+
+function roomEditorCategoryForTarget(targetId: string): RoomEditorCategory {
+  if (targetId.startsWith('room.hotspot')) return 'hotspots';
+  if (targetId.startsWith('room.exit') || targetId === 'room.exits') return 'navigation';
+  if (
+    targetId.startsWith('room.composition') ||
+    targetId.startsWith('room.placement') ||
+    targetId === 'room.placements'
+  )
+    return 'composition';
+  if (
+    targetId.startsWith('room.overlay') ||
+    targetId.startsWith('room.cast') ||
+    targetId.startsWith('room.prop') ||
+    targetId.startsWith('room.environment')
+  )
+    return 'contents';
+  if (targetId.startsWith('room.lifecycle') || targetId.startsWith('room.compose'))
+    return 'behavior';
+  return 'general';
+}
+
 function BackgroundFitOption({ fit }: { fit: BackgroundFitMode }) {
   const Icon = backgroundFitIconByMode[fit];
   return (
@@ -101,9 +190,10 @@ function BackgroundFitOption({ fit }: { fit: BackgroundFitMode }) {
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
 type RoomEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
-  schemaVersion: 3;
+  schemaVersion: 4;
   payload: {
     scroll?: ScrollViewState;
+    activeCategory: RoomEditorCategory;
     previewCollapsed: boolean;
     hotspotView: HotspotEditorViewStateV1;
   };
@@ -114,7 +204,7 @@ function parseRoomEditorTabState(
 ): RoomEditorTabState['payload'] | null {
   if (
     value.schema !== ROOM_EDITOR_TAB_STATE_SCHEMA ||
-    value.schemaVersion !== 3 ||
+    value.schemaVersion !== 4 ||
     typeof value.payload !== 'object' ||
     value.payload === null ||
     Array.isArray(value.payload)
@@ -122,9 +212,15 @@ function parseRoomEditorTabState(
     return null;
   const payload = value.payload as Record<string, unknown>;
   const hotspotView = parseHotspotViewTabState(payload.hotspotView);
-  if (typeof payload.previewCollapsed !== 'boolean' || !hotspotView) return null;
+  if (
+    !isRoomEditorCategory(payload.activeCategory) ||
+    typeof payload.previewCollapsed !== 'boolean' ||
+    !hotspotView
+  )
+    return null;
   return {
     scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+    activeCategory: payload.activeCategory,
     previewCollapsed: payload.previewCollapsed,
     hotspotView,
   };
@@ -565,6 +661,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
   const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
   const [placingInteractableId, setPlacingInteractableId] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<RoomEditorCategory>(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState
+      ? (parseRoomEditorTabState(savedState)?.activeCategory ?? 'general')
+      : 'general';
+  });
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
@@ -614,12 +716,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 3,
+        schemaVersion: 4,
         captureTabState: () => ({
           schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 3,
+          schemaVersion: 4,
           payload: {
             scroll: captureScrollViewState(scrollRef.current),
+            activeCategory,
             previewCollapsed,
             hotspotView,
           },
@@ -627,6 +730,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         restoreTabState: (state) => {
           const parsed = parseRoomEditorTabState(state);
           if (!parsed) return;
+          setActiveCategory(parsed.activeCategory);
           setPreviewCollapsed(parsed.previewCollapsed);
           setHotspotView(
             restoreHotspotViewState(
@@ -639,15 +743,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           );
         },
       }),
-      [data.hotspots, hotspotView, previewCollapsed],
+      [activeCategory, data.hotspots, hotspotView, previewCollapsed],
     ),
   );
   useEffect(
     () =>
-      registerWorkbenchTargetHandler(tab.id, 'room.hotspot', (target) => {
-        const id = target.id.slice('room.hotspot.'.length);
-        if (!data.hotspots.some((hotspot) => hotspot.id === id)) return false;
-        setHotspotView((current) => ({ ...current, selectedHotspotId: id }));
+      registerWorkbenchTargetHandler(tab.id, 'room', (target) => {
+        setActiveCategory(roomEditorCategoryForTarget(target.id));
+        if (target.id.startsWith('room.hotspot.')) {
+          const id = target.id.slice('room.hotspot.'.length);
+          if (data.hotspots.some((hotspot) => hotspot.id === id))
+            setHotspotView((current) => ({ ...current, selectedHotspotId: id }));
+        }
         return false;
       }),
     [data.hotspots, tab.id],
@@ -655,6 +762,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const backgroundAssetData =
     project && data.background.asset
       ? parseAssetData(project.assets[data.background.asset.$ref.id]?.data)
+      : null;
+  const compositionBackgroundSize =
+    backgroundAssetData?.kind === 'image' && backgroundAssetData.imageMetadata
+      ? {
+          width: backgroundAssetData.imageMetadata.width,
+          height: backgroundAssetData.imageMetadata.height,
+        }
       : null;
   useEffect(() => {
     let cancelled = false;
@@ -866,6 +980,27 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       },
       'Update room environment',
     );
+  const categorizedRoomEditorCategories = roomEditorCategories.map((category) => {
+    switch (category.id) {
+      case 'composition':
+        return { ...category, trailing: data.placements.length };
+      case 'hotspots':
+        return { ...category, trailing: data.hotspots.length };
+      case 'navigation':
+        return { ...category, trailing: data.exits.length };
+      case 'contents':
+        return {
+          ...category,
+          trailing:
+            data.overlays.length + data.cast.length + data.props.length + data.environments.length,
+        };
+      default:
+        return category;
+    }
+  });
+  const activeRoomCategory =
+    categorizedRoomEditorCategories.find((category) => category.id === activeCategory) ??
+    categorizedRoomEditorCategories[0]!;
   return (
     <EditorPreviewSplit
       orientation={previewSplitOrientation}
@@ -885,22 +1020,24 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         />
       }
     >
-      <div ref={scrollRef} data-room-editor-scroll className="h-full min-h-0 overflow-auto">
-        <div className="mx-auto w-full max-w-6xl space-y-3 p-3 pb-8">
-          <header className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <h2 className="truncate text-xl font-semibold tracking-tight">{record.label}</h2>
-              <Badge variant="outline" className="font-mono text-[10px]">
-                {roomId}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{data.exits.length} exits</span>
-              <span aria-hidden="true">·</span>
-              <span>{data.placements.length} placements</span>
-            </div>
+      <CategorizedEditorLayout
+        categories={categorizedRoomEditorCategories}
+        activeCategory={activeCategory}
+        onCategoryChange={setActiveCategory}
+        navigationLabel="Room editor categories"
+        contentRef={scrollRef}
+        contentContainerClassName="max-w-6xl pb-8"
+        header={
+          <header className="flex min-w-0 flex-wrap items-center gap-2.5">
+            <h2 className="truncate text-lg font-semibold">{activeRoomCategory.label}</h2>
+            <span className="truncate text-xs text-muted-foreground">{record.label}</span>
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {roomId}
+            </Badge>
           </header>
-
+        }
+      >
+        {activeCategory === 'general' ? (
           <section
             className="overflow-hidden rounded-lg border bg-card/30"
             data-workbench-anchor="room.summary"
@@ -1059,7 +1196,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
             </div>
           </section>
+        ) : null}
 
+        {activeCategory === 'hotspots' ? (
           <HotspotAuthoringPanel
             anchorPrefix="room"
             project={project}
@@ -1106,7 +1245,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               })
             }
           />
+        ) : null}
 
+        {activeCategory === 'navigation' ? (
           <section
             className="overflow-hidden rounded-lg border bg-card/30"
             data-workbench-anchor="room.exits"
@@ -1447,58 +1588,56 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               })}
             </div>
           </section>
+        ) : null}
 
-          <div className="space-y-3 border-t pt-3">
-            <div>
-              <h3 className="text-sm font-semibold">Advanced room configuration</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Lifecycle hooks, placements, visual layers, cast, props, and composition.
-              </p>
-            </div>
-            <section
-              className="space-y-4 rounded-xl border bg-card/20 p-4"
-              data-workbench-anchor="room.lifecycle"
-            >
-              <h3 className="text-sm font-semibold">Lifecycle</h3>
-              {(['canEnter', 'canLeave'] as const).map((hook) => (
-                <div key={hook} className="space-y-1.5">
-                  <Label>{hook === 'canEnter' ? 'Can enter' : 'Can leave'}</Label>
-                  <ConditionEditor
-                    condition={data.lifecycle[hook]}
-                    variables={variables}
-                    onChange={(next) =>
-                      commit(
-                        { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
-                        `Update room ${hook}`,
-                      )
-                    }
-                  />
-                </div>
-              ))}
-              {(['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).map((hook) => (
-                <div key={hook} className="space-y-1.5 border-t pt-3">
-                  <Label>
-                    {hook === 'beforeEnter'
-                      ? 'Before entering'
-                      : hook === 'afterEnter'
-                        ? 'After entering'
-                        : hook === 'beforeLeave'
-                          ? 'Before leaving'
-                          : 'After leaving'}
-                  </Label>
-                  <EffectsEditor
-                    effects={data.lifecycle[hook]}
-                    variables={variables}
-                    onChange={(next) =>
-                      commit(
-                        { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
-                        `Update room ${hook}`,
-                      )
-                    }
-                  />
-                </div>
-              ))}
-            </section>
+        {activeCategory === 'behavior' ? (
+          <section
+            className="space-y-4 rounded-xl border bg-card/20 p-4"
+            data-workbench-anchor="room.lifecycle"
+          >
+            <h3 className="text-sm font-semibold">Lifecycle</h3>
+            {(['canEnter', 'canLeave'] as const).map((hook) => (
+              <div key={hook} className="space-y-1.5">
+                <Label>{hook === 'canEnter' ? 'Can enter' : 'Can leave'}</Label>
+                <ConditionEditor
+                  condition={data.lifecycle[hook]}
+                  variables={variables}
+                  onChange={(next) =>
+                    commit(
+                      { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
+                      `Update room ${hook}`,
+                    )
+                  }
+                />
+              </div>
+            ))}
+            {(['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).map((hook) => (
+              <div key={hook} className="space-y-1.5 border-t pt-3">
+                <Label>
+                  {hook === 'beforeEnter'
+                    ? 'Before entering'
+                    : hook === 'afterEnter'
+                      ? 'After entering'
+                      : hook === 'beforeLeave'
+                        ? 'Before leaving'
+                        : 'After leaving'}
+                </Label>
+                <EffectsEditor
+                  effects={data.lifecycle[hook]}
+                  variables={variables}
+                  onChange={(next) =>
+                    commit(
+                      { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
+                      `Update room ${hook}`,
+                    )
+                  }
+                />
+              </div>
+            ))}
+          </section>
+        ) : null}
+        {activeCategory === 'composition' ? (
+          <>
             <section
               className="space-y-3 rounded-xl border bg-card/20 p-4"
               data-workbench-anchor="room.composition"
@@ -1526,6 +1665,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <RoomCompositionStage
                 backgroundUrl={compositionBackgroundUrl}
+                backgroundImageSize={compositionBackgroundSize}
                 backgroundFit={data.background.fit}
                 fallbackColor={data.background.color}
                 referenceResolution={referenceResolution}
@@ -1647,113 +1787,177 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 <div
                   key={placement.id}
                   data-workbench-anchor={`room.placement.${placement.id}`}
-                  className="grid gap-3 rounded-lg border bg-background/60 p-3 md:grid-cols-3"
+                  className="space-y-4 rounded-lg border bg-background/60 p-4"
                 >
-                  <Input
-                    value={placement.id}
-                    onChange={(event) =>
-                      replacePlacement(placement.id, { id: event.currentTarget.value })
-                    }
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      commit(
-                        {
-                          ...data,
-                          placements: data.placements.filter((item) => item.id !== placement.id),
-                        },
-                        'Delete room placement',
-                      )
-                    }
-                  >
-                    Delete
-                  </Button>
-                  {(['x', 'y', 'width', 'height'] as const).map((field) => (
-                    <div key={field}>
-                      <Label>{field}</Label>
+                  <div className="flex flex-wrap items-end justify-between gap-3">
+                    <div className="min-w-56 flex-1 space-y-1.5">
+                      <Label htmlFor={`placement-${placement.id}-id`}>Placement ID</Label>
                       <Input
-                        value={String(placement.bounds[field])}
+                        id={`placement-${placement.id}-id`}
+                        value={placement.id}
                         onChange={(event) =>
-                          replacePlacement(placement.id, {
-                            bounds: {
-                              ...placement.bounds,
-                              [field]: numberValue(
-                                event.currentTarget.value,
-                                placement.bounds[field],
-                              ),
-                            },
-                          })
+                          replacePlacement(placement.id, { id: event.currentTarget.value })
                         }
                       />
                     </div>
-                  ))}
-                  <div className="md:col-span-2">
-                    <Label>Presentation label</Label>
-                    {placement.presentation.label ? (
-                      <TextContentEditor
-                        value={placement.presentation.label}
-                        onChange={(label) =>
-                          replacePlacement(placement.id, {
-                            presentation: { ...placement.presentation, label },
-                          })
-                        }
-                      />
-                    ) : (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">
+                        {placementOccupants(placement.id).length} occupant
+                        {placementOccupants(placement.id).length === 1 ? '' : 's'}
+                      </Badge>
                       <Button
-                        size="sm"
-                        variant="outline"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`Delete placement ${placement.id}`}
                         onClick={() =>
+                          commit(
+                            {
+                              ...data,
+                              placements: data.placements.filter(
+                                (item) => item.id !== placement.id,
+                              ),
+                            },
+                            'Delete room placement',
+                          )
+                        }
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-sm font-medium">Position and size</div>
+                      <p className="text-xs text-muted-foreground">
+                        Percentage of the Room presentation surface.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {(
+                        [
+                          ['x', 'Left'],
+                          ['y', 'Top'],
+                          ['width', 'Width'],
+                          ['height', 'Height'],
+                        ] as const
+                      ).map(([field, label]) => (
+                        <div key={field} className="space-y-1.5">
+                          <Label htmlFor={`placement-${placement.id}-${field}`}>{label}</Label>
+                          <div className="relative">
+                            <Input
+                              id={`placement-${placement.id}-${field}`}
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={0.1}
+                              className="pr-7 tabular-nums"
+                              value={Number((placement.bounds[field] * 100).toFixed(3))}
+                              onChange={(event) =>
+                                replacePlacement(placement.id, {
+                                  bounds: {
+                                    ...placement.bounds,
+                                    [field]:
+                                      numberValue(
+                                        event.currentTarget.value,
+                                        placement.bounds[field] * 100,
+                                      ) / 100,
+                                  },
+                                })
+                              }
+                            />
+                            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-muted-foreground">
+                              %
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 border-t pt-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium">Label</div>
+                          <p className="text-xs text-muted-foreground">
+                            Optional text exposed by this placement.
+                          </p>
+                        </div>
+                        {placement.presentation.label ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() =>
+                              replacePlacement(placement.id, {
+                                presentation: { ...placement.presentation, label: null },
+                              })
+                            }
+                          >
+                            Remove label
+                          </Button>
+                        ) : null}
+                      </div>
+                      {placement.presentation.label ? (
+                        <TextContentEditor
+                          value={placement.presentation.label}
+                          onChange={(label) =>
+                            replacePlacement(placement.id, {
+                              presentation: { ...placement.presentation, label },
+                            })
+                          }
+                        />
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            replacePlacement(placement.id, {
+                              presentation: {
+                                ...placement.presentation,
+                                label: inlineTextContent(''),
+                              },
+                            })
+                          }
+                        >
+                          Add label
+                        </Button>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-sm font-medium">Layout</div>
+                        <p className="text-xs text-muted-foreground">
+                          Optional presentation attached to this placement.
+                        </p>
+                      </div>
+                      <Select
+                        value={refValue(placement.presentation.layout)}
+                        onValueChange={(value) =>
                           replacePlacement(placement.id, {
                             presentation: {
                               ...placement.presentation,
-                              label: inlineTextContent(''),
+                              layout: value === '__none__' ? null : roomLayoutRef(String(value)),
                             },
                           })
                         }
                       >
-                        Add label
-                      </Button>
-                    )}
-                  </div>
-                  {placement.presentation.label ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        replacePlacement(placement.id, {
-                          presentation: { ...placement.presentation, label: null },
-                        })
-                      }
-                    >
-                      Clear label
-                    </Button>
-                  ) : null}
-                  <div>
-                    <Label>Presentation layout</Label>
-                    <Select
-                      value={refValue(placement.presentation.layout)}
-                      onValueChange={(value) =>
-                        replacePlacement(placement.id, {
-                          presentation: {
-                            ...placement.presentation,
-                            layout: value === '__none__' ? null : roomLayoutRef(String(value)),
-                          },
-                        })
-                      }
-                    >
-                      <SelectItem value="__none__">No layout</SelectItem>
-                      {layouts.map((layout) => (
-                        <SelectItem key={layout.id} value={layout.id}>
-                          {layout.label}
-                        </SelectItem>
-                      ))}
-                    </Select>
+                        <SelectItem value="__none__">No layout</SelectItem>
+                        {layouts.map((layout) => (
+                          <SelectItem key={layout.id} value={layout.id}>
+                            {layout.label}
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </div>
                   </div>
                 </div>
               ))}
             </section>
+          </>
+        ) : null}
+        {activeCategory === 'contents' ? (
+          <>
             <section
               className="space-y-4 rounded-xl border bg-card/20 p-4"
               data-workbench-anchor="room.overlays"
@@ -2330,112 +2534,114 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </div>
               ))}
             </section>
-            <section
-              className="space-y-4 rounded-xl border bg-card/20 p-4"
-              data-workbench-anchor="room.compose"
-            >
-              <div>
-                <h3 className="text-sm font-semibold">Composition hook</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Optional script used to customize the final room composition.
-                </p>
-              </div>
-              <Select
-                value={data.compose?.script.$ref.id ?? '__none__'}
-                onValueChange={(value) =>
-                  commit(
-                    {
-                      ...data,
-                      compose:
-                        value === '__none__'
-                          ? null
-                          : {
-                              script: { $ref: { collection: 'scripts', id: String(value) } },
-                              additionalDependencies: data.compose?.additionalDependencies ?? {
-                                targets: [],
-                              },
+          </>
+        ) : null}
+        {activeCategory === 'behavior' ? (
+          <section
+            className="space-y-4 rounded-xl border bg-card/20 p-4"
+            data-workbench-anchor="room.compose"
+          >
+            <div>
+              <h3 className="text-sm font-semibold">Composition hook</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Optional script used to customize the final room composition.
+              </p>
+            </div>
+            <Select
+              value={data.compose?.script.$ref.id ?? '__none__'}
+              onValueChange={(value) =>
+                commit(
+                  {
+                    ...data,
+                    compose:
+                      value === '__none__'
+                        ? null
+                        : {
+                            script: { $ref: { collection: 'scripts', id: String(value) } },
+                            additionalDependencies: data.compose?.additionalDependencies ?? {
+                              targets: [],
                             },
-                    },
-                    'Update room composition hook',
+                          },
+                  },
+                  'Update room composition hook',
+                )
+              }
+            >
+              <SelectItem value="__none__">No composition hook</SelectItem>
+              {scripts.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </Select>
+            {data.compose ? (
+              <LuaExplicitFallbackEditor
+                value={data.compose.additionalDependencies}
+                onChange={(additionalDependencies) =>
+                  commit(
+                    { ...data, compose: { ...data.compose!, additionalDependencies } },
+                    'Update room composition dependencies',
                   )
                 }
-              >
-                <SelectItem value="__none__">No composition hook</SelectItem>
-                {scripts.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </Select>
-              {data.compose ? (
-                <LuaExplicitFallbackEditor
-                  value={data.compose.additionalDependencies}
-                  onChange={(additionalDependencies) =>
-                    commit(
-                      { ...data, compose: { ...data.compose!, additionalDependencies } },
-                      'Update room composition dependencies',
-                    )
-                  }
-                />
-              ) : null}
-              <p className="text-xs text-muted-foreground">
-                The compiled hook has one fixed compose entrypoint, invoked when room composition is
-                evaluated at runtime.
-              </p>
-            </section>
-          </div>
+              />
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              The compiled hook has one fixed compose entrypoint, invoked when room composition is
+              evaluated at runtime.
+            </p>
+          </section>
+        ) : null}
 
-          <SearchSelectorDialog
-            open={interactableSelectorOpen}
-            title={t('roomComposition.placeInteractable')}
-            placeholder={t('roomComposition.searchInteractables')}
-            emptyMessage={t('roomComposition.noInteractables')}
-            items={interactableItems}
-            selectedId={null}
-            onOpenChange={setInteractableSelectorOpen}
-            onSelect={(item) => {
-              if (!item.entityId) return;
-              setPlacingInteractableId(item.entityId);
-              setInteractableSelectorOpen(false);
-            }}
-          />
-          <SearchSelectorDialog
-            open={backgroundSelectorOpen}
-            title={t('selectors.backgroundImage.title')}
-            placeholder={t('selectors.backgroundImage.placeholder')}
-            emptyMessage={t('selectors.backgroundImage.empty')}
-            items={imageAssetItems}
-            selectedId={selectedBackgroundItem?.id ?? null}
-            leadingMediaSize={{ width: '5rem', height: '3rem' }}
-            onOpenChange={setBackgroundSelectorOpen}
-            onSelect={(item) => {
-              if (!item.entityId) return;
-              commit(
-                {
-                  ...data,
-                  background: { ...data.background, asset: roomAssetRef(item.entityId) },
-                },
-                'Update room background',
-              );
-            }}
-          />
-          <SearchSelectorDialog
-            open={destinationSelectorExitId !== null}
-            title={t('selectors.roomDestination.title')}
-            placeholder={t('selectors.roomDestination.placeholder')}
-            emptyMessage={t('selectors.roomDestination.empty')}
-            items={roomItems}
-            selectedId={selectedDestinationItem?.id ?? null}
-            onOpenChange={(open) => {
-              if (!open) setDestinationSelectorExitId(null);
-            }}
-            onSelect={(item) => {
-              if (!destinationSelectorExitId || !item.entityId) return;
-              replaceExit(destinationSelectorExitId, { target: roomRoomRef(item.entityId) });
-            }}
-          />
-        </div>
-      </div>
+        <SearchSelectorDialog
+          open={interactableSelectorOpen}
+          title={t('roomComposition.placeInteractable')}
+          placeholder={t('roomComposition.searchInteractables')}
+          emptyMessage={t('roomComposition.noInteractables')}
+          items={interactableItems}
+          selectedId={null}
+          onOpenChange={setInteractableSelectorOpen}
+          onSelect={(item) => {
+            if (!item.entityId) return;
+            setPlacingInteractableId(item.entityId);
+            setInteractableSelectorOpen(false);
+          }}
+        />
+        <SearchSelectorDialog
+          open={backgroundSelectorOpen}
+          title={t('selectors.backgroundImage.title')}
+          placeholder={t('selectors.backgroundImage.placeholder')}
+          emptyMessage={t('selectors.backgroundImage.empty')}
+          items={imageAssetItems}
+          selectedId={selectedBackgroundItem?.id ?? null}
+          leadingMediaSize={{ width: '5rem', height: '3rem' }}
+          onOpenChange={setBackgroundSelectorOpen}
+          onSelect={(item) => {
+            if (!item.entityId) return;
+            commit(
+              {
+                ...data,
+                background: { ...data.background, asset: roomAssetRef(item.entityId) },
+              },
+              'Update room background',
+            );
+          }}
+        />
+        <SearchSelectorDialog
+          open={destinationSelectorExitId !== null}
+          title={t('selectors.roomDestination.title')}
+          placeholder={t('selectors.roomDestination.placeholder')}
+          emptyMessage={t('selectors.roomDestination.empty')}
+          items={roomItems}
+          selectedId={selectedDestinationItem?.id ?? null}
+          onOpenChange={(open) => {
+            if (!open) setDestinationSelectorExitId(null);
+          }}
+          onSelect={(item) => {
+            if (!destinationSelectorExitId || !item.entityId) return;
+            replaceExit(destinationSelectorExitId, { target: roomRoomRef(item.entityId) });
+          }}
+        />
+      </CategorizedEditorLayout>
     </EditorPreviewSplit>
   );
 }
