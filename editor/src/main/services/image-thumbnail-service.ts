@@ -12,12 +12,13 @@ import type {
 } from '../../shared/image-thumbnails';
 import {
   createImageThumbnailDerivativeKey,
+  imageThumbnailEncoderPolicy,
   imageThumbnailOutputDimensions,
   parseCancelImageThumbnailPrewarmRequest,
   parseImageThumbnailPrewarmRequest,
   parseImageThumbnailPrewarmSource,
   parseImageThumbnailRequest,
-  selectImageThumbnailTier,
+  resolveImageThumbnailProfile,
 } from '../../shared/image-thumbnails';
 import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
 import { createImageThumbnailUrl } from '../image-thumbnail-protocol';
@@ -147,6 +148,13 @@ export class ImageThumbnailService {
     this.#instrumentation = options.instrumentation;
   }
 
+  async removeObsoleteCacheVersions(): Promise<void> {
+    await fs.rm(path.join(path.dirname(this.imageCacheRoot), 'image-v1'), {
+      recursive: true,
+      force: true,
+    });
+  }
+
   request(
     value: unknown,
     priority: Priority = 'interactive',
@@ -246,6 +254,10 @@ export class ImageThumbnailService {
           source.projectFilePath,
           source.projectRelativePath,
           source.contentHash,
+          source.width,
+          source.height,
+          source.orientation,
+          source.sampling ?? 'linear',
         ]);
         if (this.#prewarmSignatures.has(signature)) {
           deduplicated += 1;
@@ -253,7 +265,7 @@ export class ImageThumbnailService {
         }
         const thumbnailRequest: ImageThumbnailRequest = {
           source,
-          variant: { kind: 'profile', profile: 'compact' },
+          variant: { kind: 'profile', profile: 'list' },
         };
         if (await this.#validateRequestSource(thumbnailRequest)) {
           rejected += 1;
@@ -265,10 +277,14 @@ export class ImageThumbnailService {
         }
         const sourceKind =
           path.extname(source.projectRelativePath).toLowerCase() === '.svg' ? 'svg' : 'raster';
-        const tier = selectImageThumbnailTier(source, thumbnailRequest.variant, sourceKind);
+        const profile = resolveImageThumbnailProfile(
+          source,
+          thumbnailRequest.variant.profile,
+          sourceKind,
+        );
         const key = createImageThumbnailDerivativeKey(
           { ...source, contentHash: source.contentHash },
-          tier.tierLongEdge as 192,
+          profile.profile,
           {
             sharpVersion: sharp.versions.sharp,
             vipsVersion: sharp.versions.vips,
@@ -336,10 +352,14 @@ export class ImageThumbnailService {
     if (sourceFailure) return sourceFailure;
     const sourceKind =
       path.extname(request.source.projectRelativePath).toLowerCase() === '.svg' ? 'svg' : 'raster';
-    const tier = selectImageThumbnailTier(request.source, request.variant, sourceKind);
+    const profile = resolveImageThumbnailProfile(
+      request.source,
+      request.variant.profile,
+      sourceKind,
+    );
     const key = createImageThumbnailDerivativeKey(
       { ...request.source, contentHash: request.source.contentHash! },
-      tier.tierLongEdge as 192 | 384 | 1024,
+      profile.profile,
       { sharpVersion: sharp.versions.sharp, vipsVersion: sharp.versions.vips },
     );
     const existing = this.#inFlight.get(key);
@@ -538,10 +558,14 @@ export class ImageThumbnailService {
         path.extname(request.source.projectRelativePath).toLowerCase() === '.svg'
           ? 'svg'
           : 'raster';
-      const tier = selectImageThumbnailTier(request.source, request.variant, sourceKind);
+      const profile = resolveImageThumbnailProfile(
+        request.source,
+        request.variant.profile,
+        sourceKind,
+      );
       const dimensions = imageThumbnailOutputDimensions(
         request.source,
-        tier.tierLongEdge,
+        profile.profile,
         sourceKind,
       );
       return {
@@ -549,12 +573,11 @@ export class ImageThumbnailService {
         url: createImageThumbnailUrl(key, this.cache.epoch),
         cacheKey: key,
         sourceRevision: request.source.contentHash!,
-        profile: tier.profile,
+        profile: profile.profile,
         width: dimensions.width,
         height: dimensions.height,
         cacheStatus: 'hit',
-        sourceLimited: tier.sourceLimited,
-        tierLimited: tier.tierLimited,
+        sourceLimited: profile.sourceLimited,
         cacheEpoch: this.cache.epoch,
       };
     } catch (error) {
@@ -599,9 +622,9 @@ export class ImageThumbnailService {
         source: { ...request.source, contentHash: sourceRevision },
       };
       const sourceKind = extension === '.svg' ? 'svg' : 'raster';
-      const tier = selectImageThumbnailTier(
+      const profile = resolveImageThumbnailProfile(
         canonicalRequest.source,
-        canonicalRequest.variant,
+        canonicalRequest.variant.profile,
         sourceKind,
       );
       const cached = await this.#cacheHit(canonicalRequest, key);
@@ -614,7 +637,8 @@ export class ImageThumbnailService {
               Math.max(
                 1,
                 Math.ceil(
-                  (72 * tier.tierLongEdge) / Math.max(request.source.width, request.source.height),
+                  (72 * Math.max(profile.width, profile.height)) /
+                    Math.max(request.source.width, request.source.height),
                 ),
               ),
             )
@@ -647,7 +671,7 @@ export class ImageThumbnailService {
       }
       const dimensions = imageThumbnailOutputDimensions(
         request.source,
-        tier.tierLongEdge,
+        profile.profile,
         sourceKind,
       );
       stage = 'cache';
@@ -666,7 +690,7 @@ export class ImageThumbnailService {
       );
       const imageCacheRootRealPath = await ensureCacheDirectory(
         thumbnailsRootRealPath,
-        'image-v1',
+        'image-v2',
         editorCacheRootRealPath,
       );
       const cacheDirectoryRealPath = await ensureCacheDirectory(
@@ -681,7 +705,7 @@ export class ImageThumbnailService {
         `.${key}.${process.pid}.${crypto.randomUUID()}.tmp`,
       );
       stage = 'encode';
-      const pipeline = sharp(bytes, {
+      let pipeline = sharp(bytes, {
         animated: false,
         pages: 1,
         page: 0,
@@ -691,10 +715,21 @@ export class ImageThumbnailService {
         .rotate()
         .toColorspace('srgb')
         .resize(dimensions.width, dimensions.height, {
-          fit: 'fill',
+          fit: profile.fit,
+          position: 'centre',
           withoutEnlargement: sourceKind === 'raster',
-        })
-        .webp({ lossless: true, effort: 4 });
+          kernel:
+            request.source.sampling === 'nearest' ? sharp.kernel.nearest : sharp.kernel.lanczos3,
+        });
+      pipeline =
+        imageThumbnailEncoderPolicy(request.source) === 'webp-lossless-effort-4-nearest-v1'
+          ? pipeline.webp({ lossless: true, effort: 4 })
+          : pipeline.webp({
+              quality: 85,
+              alphaQuality: 100,
+              smartSubsample: true,
+              effort: 4,
+            });
       this.#activeGenerationPipelines += 1;
       this.#instrumentation?.onGenerationPipelineCountChanged?.(this.#activeGenerationPipelines);
       const pipelineSettlement = pipeline.toFile(tempPath).finally(() => {
@@ -746,12 +781,11 @@ export class ImageThumbnailService {
         url: createImageThumbnailUrl(key, epoch),
         cacheKey: key,
         sourceRevision,
-        profile: tier.profile,
+        profile: profile.profile,
         width: dimensions.width,
         height: dimensions.height,
         cacheStatus,
-        sourceLimited: tier.sourceLimited,
-        tierLimited: tier.tierLimited,
+        sourceLimited: profile.sourceLimited,
         cacheEpoch: epoch,
       };
     } catch (error) {

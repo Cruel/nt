@@ -163,7 +163,7 @@ describe('RoomEditor', () => {
           height: 1080,
           orientation: 1,
         },
-        variant: { kind: 'minimum-size', widthPx: 80, heightPx: 48, fit: 'cover' },
+        variant: { kind: 'profile', profile: 'wide' },
       }),
     );
     fireEvent.click(screen.getByRole('button', { name: /foyer background/i }));

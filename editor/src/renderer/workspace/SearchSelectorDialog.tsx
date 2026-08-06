@@ -81,12 +81,10 @@ function HighlightedMatch({ match }: { match: SelectorMatch | undefined }) {
 function DefaultPreview({
   item,
   width,
-  height,
   className,
 }: {
   item: SelectorItem;
   width: number;
-  height: number;
   className?: string;
 }) {
   if (item.preview?.kind === 'image') {
@@ -94,7 +92,7 @@ function DefaultPreview({
       <AssetImageThumbnail
         label={item.preview.label}
         source={item.preview.source}
-        request={{ kind: 'slot', width, height, fit: 'cover' }}
+        request={{ profile: width >= 80 ? 'wide' : 'list' }}
         requestMode="eager"
         className={className}
       />
@@ -219,7 +217,6 @@ export function SearchSelectorDialog({
               <DefaultPreview
                 item={result.item}
                 width={leadingMediaWidth}
-                height={leadingMediaHeight}
                 className={leadingMediaSize ? 'h-full w-full' : undefined}
               />
             ) : null;

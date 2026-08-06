@@ -32,7 +32,14 @@ export class ImageThumbnailPrewarmCoordinator {
       )
         continue;
       currentIds.add(assetId);
-      const signature = `${data.source.path}\u0000${data.contentHash}`;
+      const signature = [
+        data.source.path,
+        data.contentHash,
+        data.imageMetadata.width,
+        data.imageMetadata.height,
+        data.imageMetadata.orientation,
+        data.sampling ?? 'linear',
+      ].join('\u0000');
       if (this.#signatures.get(assetId) === signature) continue;
       this.#signatures.set(assetId, signature);
       sources.push({
@@ -42,6 +49,7 @@ export class ImageThumbnailPrewarmCoordinator {
         width: data.imageMetadata.width,
         height: data.imageMetadata.height,
         orientation: data.imageMetadata.orientation,
+        sampling: data.sampling,
       });
     }
     for (const assetId of this.#signatures.keys()) {

@@ -506,7 +506,8 @@ function createWindow(): BrowserWindow {
   return mainWindow;
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
+  await imageThumbnailService.removeObsoleteCacheVersions();
   protocol.handle(
     IMAGE_THUMBNAIL_SCHEME,
     createImageThumbnailProtocolHandler(imageThumbnailService.imageCacheRoot),

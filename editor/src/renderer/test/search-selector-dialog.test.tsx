@@ -149,12 +149,12 @@ describe('SearchSelectorDialog', () => {
         height: 1080,
         orientation: 1,
       },
-      variant: { kind: 'minimum-size', widthPx: 48, heightPx: 36, fit: 'cover' },
+      variant: { kind: 'profile', profile: 'list' },
     });
     expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
     expect(await screen.findByAltText('Logo')).toHaveAttribute(
       'src',
-      `noveltea-thumbnail://image-v1/aa/${'a'.repeat(64)}.webp`,
+      `noveltea-thumbnail://image-v2/aa/${'a'.repeat(64)}.webp`,
     );
   });
 });

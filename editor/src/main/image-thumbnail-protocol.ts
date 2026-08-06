@@ -22,7 +22,7 @@ function errorResponse(status: number, message: string): Response {
 }
 
 export function createImageThumbnailUrl(cacheKey: string, cacheEpoch: number): string {
-  return `${IMAGE_THUMBNAIL_SCHEME}://cache/image-v1/${cacheKey.slice(0, 2)}/${cacheKey}.webp?epoch=${cacheEpoch}`;
+  return `${IMAGE_THUMBNAIL_SCHEME}://cache/image-v2/${cacheKey.slice(0, 2)}/${cacheKey}.webp?epoch=${cacheEpoch}`;
 }
 
 export function createImageThumbnailProtocolHandler(imageCacheRoot: string) {
@@ -60,7 +60,7 @@ export function createImageThumbnailProtocolHandler(imageCacheRoot: string) {
     } catch {
       return errorResponse(400, 'Invalid thumbnail path');
     }
-    const match = /^\/image-v1\/([0-9a-f]{2})\/([0-9a-f]{64})\.webp$/.exec(pathname);
+    const match = /^\/image-v2\/([0-9a-f]{2})\/([0-9a-f]{64})\.webp$/.exec(pathname);
     if (!match || match[1] !== match[2]?.slice(0, 2)) {
       return errorResponse(400, 'Invalid thumbnail path');
     }

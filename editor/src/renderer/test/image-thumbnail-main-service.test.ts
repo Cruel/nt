@@ -80,7 +80,7 @@ afterEach(async () => {
 });
 
 describe('main-process image thumbnail service', () => {
-  it('generates one lossless WebP, preserves alpha, and returns a disk hit', async () => {
+  it('generates one lossy-alpha WebP and returns a disk hit', async () => {
     const fixture = await fixtureProject();
     const source = await writeRaster(fixture.assetDirectory);
     const service = new ImageThumbnailService(fixture.cacheRoot);
@@ -93,7 +93,7 @@ describe('main-process image thumbnail service', () => {
         height: 4,
         orientation: 1 as const,
       },
-      variant: { kind: 'profile' as const, profile: 'compact' as const },
+      variant: { kind: 'profile' as const, profile: 'list' as const },
     };
 
     const [first, concurrent] = await Promise.all([
@@ -123,6 +123,96 @@ describe('main-process image thumbnail service', () => {
     expect(second.ok && second.cacheStatus).toBe('hit');
   });
 
+  it('makes photographic card thumbnails smaller than their JPEG source', async () => {
+    const fixture = await fixtureProject();
+    const width = 340;
+    const height = 576;
+    const pixels = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const offset = (y * width + x) * 3;
+        pixels[offset] = (x * 7 + y * 3 + ((x * y) % 97)) % 256;
+        pixels[offset + 1] = (x * 2 + y * 11) % 256;
+        pixels[offset + 2] = (x * 13 + y * 5) % 256;
+      }
+    }
+    const bytes = await sharp(pixels, { raw: { width, height, channels: 3 } })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    await fs.writeFile(path.join(fixture.assetDirectory, 'photo.jpg'), bytes);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const result = await service.request({
+      source: {
+        projectFilePath: fixture.projectFilePath,
+        projectRelativePath: 'assets/images/photo.jpg',
+        contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+        width,
+        height,
+        orientation: 1,
+      },
+      variant: { kind: 'profile', profile: 'card' },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const thumbnail = await fs.readFile(cachedPath(service, result.cacheKey));
+    expect([result.width, result.height]).toEqual([320, 320]);
+    expect(thumbnail.byteLength).toBeLessThan(bytes.byteLength);
+  });
+
+  it('keeps nearest-neighbor assets lossless', async () => {
+    const fixture = await fixtureProject();
+    const width = 96;
+    const height = 72;
+    const pixels = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const offset = (y * width + x) * 4;
+        const light = (Math.floor(x / 8) + Math.floor(y / 8)) % 2 === 0;
+        pixels[offset] = light ? 255 : 0;
+        pixels[offset + 1] = light ? 32 : 224;
+        pixels[offset + 2] = light ? 64 : 16;
+        pixels[offset + 3] = light ? 255 : 128;
+      }
+    }
+    const bytes = await sharp(pixels, { raw: { width, height, channels: 4 } })
+      .png()
+      .toBuffer();
+    await fs.writeFile(path.join(fixture.assetDirectory, 'pixel.png'), bytes);
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const result = await service.request({
+      source: {
+        projectFilePath: fixture.projectFilePath,
+        projectRelativePath: 'assets/images/pixel.png',
+        contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+        width,
+        height,
+        orientation: 1,
+        sampling: 'nearest',
+      },
+      variant: { kind: 'profile', profile: 'list' },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const output = await sharp(cachedPath(service, result.cacheKey)).ensureAlpha().raw().toBuffer();
+    expect(output).toEqual(pixels);
+  });
+
+  it('removes only the retired image-v1 cache subtree', async () => {
+    const fixture = await fixtureProject();
+    const service = new ImageThumbnailService(fixture.cacheRoot);
+    const v1 = path.join(fixture.cacheRoot, 'thumbnails', 'image-v1');
+    const v2 = service.imageCacheRoot;
+    await fs.mkdir(v1, { recursive: true });
+    await fs.mkdir(v2, { recursive: true });
+    await fs.writeFile(path.join(v1, 'retired.webp'), 'old');
+    await fs.writeFile(path.join(v2, 'current.webp'), 'current');
+
+    await service.removeObsoleteCacheVersions();
+
+    await expect(fs.stat(v1)).rejects.toThrow();
+    await expect(fs.readFile(path.join(v2, 'current.webp'), 'utf8')).resolves.toBe('current');
+  });
+
   it('deduplicates hashless requests and rejects revision or metadata mismatch without publication', async () => {
     const fixture = await fixtureProject();
     const source = await writeRaster(fixture.assetDirectory);
@@ -135,7 +225,7 @@ describe('main-process image thumbnail service', () => {
         height: 4,
         orientation: 1 as const,
       },
-      variant: { kind: 'profile' as const, profile: 'compact' as const },
+      variant: { kind: 'profile' as const, profile: 'list' as const },
     };
     const [left, right] = await Promise.all([service.request(base), service.request(base)]);
     expect(left).toEqual(right);
@@ -194,7 +284,7 @@ describe('main-process image thumbnail service', () => {
       variant: { kind: 'profile' as const, profile: 'card' as const },
     });
     const safe = await service.request(requestFor('safe.svg', svg));
-    expect(safe.ok && [safe.width, safe.height]).toEqual([384, 192]);
+    expect(safe.ok && [safe.width, safe.height]).toEqual([320, 320]);
     const unsafe = await service.request(requestFor('unsafe.svg', unsafeSvg));
     expect(unsafe.ok || unsafe.errorCode).toBe('svg_external_resource');
     const bmp = await service.request(requestFor('legacy.bmp', Buffer.from('BMnot-supported')));
@@ -245,7 +335,7 @@ describe('main-process image thumbnail service', () => {
           height: 2,
           orientation: 1,
         },
-        variant: { kind: 'profile', profile: 'compact' },
+        variant: { kind: 'profile', profile: 'list' },
       });
       expect(result.ok).toBe(true);
       if (!result.ok) continue;
@@ -280,7 +370,7 @@ describe('main-process image thumbnail service', () => {
           height: 2,
           orientation: orientation as 1,
         },
-        variant: { kind: 'profile', profile: 'compact' },
+        variant: { kind: 'profile', profile: 'list' },
       });
       expect(result.ok, `orientation ${orientation}`).toBe(true);
       if (!result.ok) continue;
@@ -288,7 +378,7 @@ describe('main-process image thumbnail service', () => {
     }
   });
 
-  it('rasterizes viewBox-only SVG at compact, card, and large tiers', async () => {
+  it('rasterizes viewBox-only SVG at list, wide, and card profiles', async () => {
     const fixture = await fixtureProject();
     const bytes = Buffer.from(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 2"><rect width="4" height="2" fill="#0f0"/></svg>',
@@ -296,9 +386,9 @@ describe('main-process image thumbnail service', () => {
     await fs.writeFile(path.join(fixture.assetDirectory, 'viewbox.svg'), bytes);
     const service = new ImageThumbnailService(fixture.cacheRoot);
     for (const [profile, expected] of [
-      ['compact', [192, 96]],
-      ['card', [384, 192]],
-      ['large', [1024, 512]],
+      ['list', [96, 72]],
+      ['wide', [160, 96]],
+      ['card', [320, 320]],
     ] as const) {
       const result = await service.request({
         source: {
@@ -328,7 +418,7 @@ describe('main-process image thumbnail service', () => {
         height: 4,
         orientation: 1,
       },
-      variant: { kind: 'profile', profile: 'compact' },
+      variant: { kind: 'profile', profile: 'list' },
     });
     expect(generated.ok).toBe(true);
     const [first, second] = await Promise.all([
@@ -340,7 +430,7 @@ describe('main-process image thumbnail service', () => {
     await expect(fs.stat(service.imageCacheRoot)).rejects.toThrow();
   });
 
-  it('admits compact prewarm work incrementally and rejects hashless or missing sources', async () => {
+  it('admits list-profile prewarm work incrementally and rejects hashless or missing sources', async () => {
     const fixture = await fixtureProject();
     const source = await writeRaster(fixture.assetDirectory);
     const service = new ImageThumbnailService(fixture.cacheRoot);
@@ -373,7 +463,7 @@ describe('main-process image thumbnail service', () => {
     expect(canceled.ok).toBe(true);
     await service.request({
       source: validSource,
-      variant: { kind: 'profile', profile: 'compact' },
+      variant: { kind: 'profile', profile: 'list' },
     });
   });
 
@@ -464,7 +554,7 @@ describe('main-process image thumbnail service', () => {
       sources.map((source) =>
         service.request({
           source,
-          variant: { kind: 'profile', profile: 'compact' },
+          variant: { kind: 'profile', profile: 'list' },
         }),
       ),
     );
@@ -482,7 +572,7 @@ describe('main-process image thumbnail service', () => {
         height: 4,
         orientation: 1 as const,
       },
-      variant: { kind: 'profile' as const, profile: 'compact' as const },
+      variant: { kind: 'profile' as const, profile: 'list' as const },
     };
     const firstService = new ImageThumbnailService(fixture.cacheRoot);
     const secondService = new ImageThumbnailService(fixture.cacheRoot);
@@ -497,7 +587,7 @@ describe('main-process image thumbnail service', () => {
 
     await fs.rm(fixture.cacheRoot, { recursive: true, force: true });
     const escapedService = new ImageThumbnailService(fixture.cacheRoot);
-    const key = createImageThumbnailDerivativeKey(request.source, 192, {
+    const key = createImageThumbnailDerivativeKey(request.source, 'list', {
       sharpVersion: sharp.versions.sharp,
       vipsVersion: sharp.versions.vips,
     });
@@ -584,17 +674,17 @@ describe('main-process image thumbnail service', () => {
     await new Promise((resolve) => setImmediate(resolve));
     const promoted = service.request({
       source: generated[3]!,
-      variant: { kind: 'profile', profile: 'compact' },
+      variant: { kind: 'profile', profile: 'list' },
     });
     releaseFirstTwo();
     await Promise.all(
       generated.map((source) =>
-        service.request({ source, variant: { kind: 'profile', profile: 'compact' } }),
+        service.request({ source, variant: { kind: 'profile', profile: 'list' } }),
       ),
     );
     expect((await promoted).ok).toBe(true);
     expect(maximumPipelines).toBeLessThanOrEqual(2);
-    const promotedKey = createImageThumbnailDerivativeKey(generated[3]!, 192, {
+    const promotedKey = createImageThumbnailDerivativeKey(generated[3]!, 'list', {
       sharpVersion: sharp.versions.sharp,
       vipsVersion: sharp.versions.vips,
     });
@@ -624,7 +714,7 @@ describe('main-process image thumbnail service', () => {
         height: 4096,
         orientation: 1,
       },
-      variant: { kind: 'profile', profile: 'large' },
+      variant: { kind: 'profile', profile: 'card' },
     });
     expect(result.ok || result.errorCode).toBe('generation_timeout');
     expect(counts.at(-1)).toBe(0);
@@ -649,7 +739,7 @@ describe('main-process image thumbnail service', () => {
         height: 4,
         orientation: 1 as const,
       },
-      variant: { kind: 'profile' as const, profile: 'compact' as const },
+      variant: { kind: 'profile' as const, profile: 'list' as const },
     });
     const linked = await service.request(requestFor('linked.png'));
     expect(linked.ok).toBe(true);
@@ -674,7 +764,7 @@ describe('main-process image thumbnail service', () => {
         height: 4,
         orientation: 1 as const,
       },
-      variant: { kind: 'profile' as const, profile: 'compact' as const },
+      variant: { kind: 'profile' as const, profile: 'list' as const },
     });
     const oldResult = await service.request(requestFor(first.hash));
     expect(oldResult.ok).toBe(true);
@@ -710,7 +800,7 @@ describe('main-process image thumbnail service', () => {
         height: 20_000,
         orientation: 1,
       },
-      variant: { kind: 'profile', profile: 'compact' },
+      variant: { kind: 'profile', profile: 'list' },
     });
     expect(result.ok || result.errorCode).toBe('decode_failed');
     await expect(fs.stat(service.imageCacheRoot)).rejects.toThrow();
@@ -763,9 +853,9 @@ describe('main-process image thumbnail service', () => {
         height: 4,
         orientation: 1 as const,
       },
-      variant: { kind: 'profile' as const, profile: 'compact' as const },
+      variant: { kind: 'profile' as const, profile: 'list' as const },
     };
-    const key = createImageThumbnailDerivativeKey(request.source, 192, {
+    const key = createImageThumbnailDerivativeKey(request.source, 'list', {
       sharpVersion: sharp.versions.sharp,
       vipsVersion: sharp.versions.vips,
     });
@@ -795,7 +885,7 @@ describe('main-process image thumbnail service', () => {
 describe('thumbnail protocol', () => {
   it('serves only valid content-keyed WebP paths and rejects traversal', async () => {
     const fixture = await fixtureProject();
-    const imageRoot = path.join(fixture.cacheRoot, 'thumbnails', 'image-v1');
+    const imageRoot = path.join(fixture.cacheRoot, 'thumbnails', 'image-v2');
     const key = 'ab'.padEnd(64, '1');
     const target = path.join(imageRoot, 'ab', `${key}.webp`);
     await fs.mkdir(path.dirname(target), { recursive: true });
@@ -817,7 +907,7 @@ describe('thumbnail protocol', () => {
     expect(
       (
         await handler(
-          new Request('noveltea-thumbnail://cache/image-v1/ab/%2e%2e%2fsecret.webp?epoch=0'),
+          new Request('noveltea-thumbnail://cache/image-v2/ab/%2e%2e%2fsecret.webp?epoch=0'),
         )
       ).status,
     ).toBe(400);

@@ -15,12 +15,15 @@ thumbnail IPC boundary.
 ## Cache root and identity
 
 The central cache-path helper resolves the platform cache directory, appends `noveltea-editor`, and
-stores image derivatives under `thumbnails/image-v1`. On Linux this follows `XDG_CACHE_HOME` when
+stores image derivatives under `thumbnails/image-v2`. On Linux this follows `XDG_CACHE_HOME` when
 set, otherwise `~/.cache`; corresponding platform cache conventions are used elsewhere. The cache is
 outside Electron `userData` and outside every project directory.
 
+Startup removes the retired `thumbnails/image-v1` subtree. V2 never probes or reuses V1 files.
+
 Each derivative is addressed by a SHA-256 key derived from source content, audited intrinsic
-metadata, the selected tier, and generator policy/version identity. Paths, asset IDs, and labels are
+metadata, the selected presentation profile, image sampling mode, and generator policy/version
+identity. Paths, asset IDs, and labels are
 not cache identity. Rename or move of unchanged content therefore reuses a derivative. A same-path
 file replacement remains the previously published project revision until explicit reimport updates
 the asset content hash; generation with a supplied hash fails with `source_revision_mismatch` when
@@ -33,19 +36,19 @@ shared cache afterward.
 
 ## Profiles and request semantics
 
-The centrally defined physical long-edge profiles are:
+The centrally defined physical output profiles match the editor surfaces that consume them:
 
-| Profile | Long edge |
-| --- | ---: |
-| `compact` | 192 px |
-| `card` | 384 px |
-| `large` | 1024 px |
+| Profile | Output | Current consumers |
+| --- | ---: | --- |
+| `list` | 96 × 72 px | Command Palette and ordinary image selectors |
+| `wide` | 160 × 96 px | Room background selector and selected-background summary |
+| `card` | 320 × 320 px | Assets-page image cards |
 
-Callers may request a named profile or a minimum physical slot with `cover` or `contain` fit. Slot
-requests account for source aspect ratio, EXIF orientation, and device-pixel ratio (clamped to 1–4)
-before selecting the smallest sufficient profile. Requests larger than `large` use `large` and report
-that the tier limited the result. Raster sources are never enlarged beyond their intrinsic
-resolution; SVG sources may be rasterized at any selected tier.
+Every profile uses centered `cover` output, so the cache does not preserve and encode source pixels
+that the fixed presentation will crop away in CSS. Consumers request a named profile directly; the
+renderer does not create arbitrary per-slot cache dimensions. Raster sources are never enlarged
+beyond their intrinsic resolution, so an undersized source can produce a smaller result. SVG sources
+are rasterized at the exact selected profile dimensions.
 
 A successful IPC response contains only metadata and a `noveltea-thumbnail://` URL. Protocol URLs
 include the current cache epoch and are constrained to the image cache namespace. Successful
@@ -59,9 +62,11 @@ PNG, JPEG, WebP, GIF, and SVG are supported V1 inputs. Animated GIF, animated PN
 `.png` name, and animated WebP are decoded with animation disabled and produce a static first-frame
 thumbnail. BMP is deliberately unsupported in V1 and falls back symbolically.
 
-Output is lossless WebP converted to sRGB. Alpha is preserved; thumbnail UI renders transparent
-images over its checkerboard rather than flattening them. EXIF orientation is applied before output
-dimensions are finalized.
+Output is WebP converted to sRGB. Ordinary images use quality 85, alpha quality 100, smart
+subsampling, and effort 4. Alpha is preserved; thumbnail UI renders transparent images over its
+checkerboard rather than flattening them. Assets whose project sampling mode is `nearest` use
+lossless WebP and nearest-neighbor resize so pixel art remains exact. EXIF orientation is applied
+before crop and resize.
 
 SVGs with explicit dimensions or only a `viewBox` receive bounded transparent raster output. SVG
 input fails closed when it contains scripts, entities/DOCTYPE declarations, stylesheets, base URLs,
@@ -72,15 +77,16 @@ Interactive work has priority over queued prewarm work.
 ## Lifecycle and prewarming
 
 Project open publishes the editor document without waiting for thumbnail work. The renderer submits
-compact prewarm batches for admitted image revisions, replaces ownership when the active project
+`list`-profile prewarm batches for admitted image revisions, replaces ownership when the active project
 generation changes, and incrementally schedules imported, generated, and explicitly reimported
 revisions. Prewarming generates cache files only; it does not create browser `Image` objects or hold
 decoded thumbnails in renderer memory.
 
 Assets-page cards request `card` derivatives only after the shared visibility service admits them.
-Command Palette and selector surfaces request eagerly when their result rows are rendered. The
-renderer suppresses stale asynchronous results and re-requests mounted visible thumbnails after a
-cache-epoch change. Offscreen cards wait until they become visible.
+Command Palette and ordinary selector surfaces request `list`; the larger Room image selector and
+selected summary request `wide`. The renderer suppresses stale asynchronous results and re-requests
+mounted visible thumbnails after a cache-epoch change. Offscreen cards wait until they become
+visible.
 
 External changes to an already tracked source file do not silently revise the project record.
 Explicit reimport owns content-hash publication and therefore thumbnail invalidation.

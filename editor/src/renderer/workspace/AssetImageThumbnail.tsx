@@ -1,21 +1,14 @@
 import { Image as ImageIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProjectStore } from '@/project/project-store';
-import type {
-  ImageThumbnailFit,
-  ImageThumbnailProfile,
-  ImageThumbnailSource,
-} from '../../shared/image-thumbnails';
-import {
-  imageThumbnailPhysicalSlot,
-  isCanonicalImageThumbnailContentHash,
-} from '../../shared/image-thumbnails';
+import type { ImageThumbnailProfile, ImageThumbnailSource } from '../../shared/image-thumbnails';
+import { isCanonicalImageThumbnailContentHash } from '../../shared/image-thumbnails';
 import { useImageThumbnail } from './image-thumbnail-client';
 import { observeThumbnailVisibility } from './thumbnail-visibility-service';
 
-export type AssetImageThumbnailRequest =
-  | { kind: 'profile'; profile: ImageThumbnailProfile; fit?: ImageThumbnailFit }
-  | { kind: 'slot'; width: number; height: number; fit?: ImageThumbnailFit };
+export interface AssetImageThumbnailRequest {
+  profile: ImageThumbnailProfile;
+}
 
 export type AssetImageThumbnailSource = Omit<ImageThumbnailSource, 'projectFilePath'>;
 
@@ -38,11 +31,6 @@ export function AssetImageThumbnail({
   const containerRef = useRef<HTMLSpanElement>(null);
   const [intersecting, setIntersecting] = useState(requestMode === 'eager');
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
-  const requestKind = request.kind;
-  const requestProfile = request.kind === 'profile' ? request.profile : null;
-  const requestWidth = request.kind === 'slot' ? request.width : null;
-  const requestHeight = request.kind === 'slot' ? request.height : null;
-  const fit = request.fit ?? 'cover';
   const contentHash = isCanonicalImageThumbnailContentHash(source.contentHash)
     ? source.contentHash
     : undefined;
@@ -60,41 +48,27 @@ export function AssetImageThumbnail({
 
   const thumbnailRequest = useMemo(() => {
     if (!projectFilePath || !intersecting) return null;
-    const variant =
-      requestKind === 'profile' && requestProfile
-        ? { kind: 'profile' as const, profile: requestProfile }
-        : requestWidth && requestHeight && requestWidth > 0 && requestHeight > 0
-          ? {
-              kind: 'minimum-size' as const,
-              ...imageThumbnailPhysicalSlot(requestWidth, requestHeight, window.devicePixelRatio),
-              fit,
-            }
-          : null;
-    return variant
-      ? {
-          source: {
-            projectFilePath,
-            projectRelativePath: source.projectRelativePath,
-            ...(contentHash ? { contentHash } : {}),
-            width: source.width,
-            height: source.height,
-            orientation: source.orientation,
-          },
-          variant,
-        }
-      : null;
+    return {
+      source: {
+        projectFilePath,
+        projectRelativePath: source.projectRelativePath,
+        ...(contentHash ? { contentHash } : {}),
+        width: source.width,
+        height: source.height,
+        orientation: source.orientation,
+        ...(source.sampling ? { sampling: source.sampling } : {}),
+      },
+      variant: { kind: 'profile' as const, profile: request.profile },
+    };
   }, [
     contentHash,
-    fit,
     intersecting,
     projectFilePath,
-    requestHeight,
-    requestKind,
-    requestProfile,
-    requestWidth,
+    request.profile,
     source.height,
     source.orientation,
     source.projectRelativePath,
+    source.sampling,
     source.width,
   ]);
 
@@ -124,7 +98,7 @@ export function AssetImageThumbnail({
           alt={label}
           loading="lazy"
           onError={() => setImageLoadFailed(true)}
-          className={`relative h-full w-full ${fit === 'contain' ? 'object-contain' : 'object-cover'}`}
+          className="relative h-full w-full object-cover"
         />
       ) : (
         <ImageIcon className="relative h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />

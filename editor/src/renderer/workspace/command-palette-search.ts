@@ -29,6 +29,7 @@ export interface SelectorPreview {
     width: number;
     height: number;
     orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+    sampling?: 'linear' | 'nearest';
   };
 }
 
@@ -222,6 +223,7 @@ export function buildCommandPaletteItems(
                   width: assetData.imageMetadata.width,
                   height: assetData.imageMetadata.height,
                   orientation: assetData.imageMetadata.orientation,
+                  sampling: assetData.sampling,
                 },
               }
             : undefined,

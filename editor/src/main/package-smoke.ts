@@ -121,7 +121,7 @@ async function characterizeProductionThumbnailProtocol(
         height: 2,
         orientation: 1,
       },
-      variant: { kind: 'profile', profile: 'compact' },
+      variant: { kind: 'profile', profile: 'list' },
     };
     const requestLiteral = JSON.stringify(request);
     const proof = (await window.webContents.executeJavaScript(
@@ -158,7 +158,7 @@ async function characterizeProductionThumbnailProtocol(
     if (
       !proof.first.ok ||
       !proof.second?.ok ||
-      !proof.first.url?.startsWith('noveltea-thumbnail://cache/image-v1/') ||
+      !proof.first.url?.startsWith('noveltea-thumbnail://cache/image-v2/') ||
       proof.first.cacheStatus !== 'generated' ||
       proof.second.cacheStatus !== 'hit' ||
       proof.first.cacheKey !== proof.second.cacheKey ||

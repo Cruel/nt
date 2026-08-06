@@ -1081,7 +1081,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       <AssetImageThumbnail
                         label={selectedBackgroundItem.preview.label}
                         source={selectedBackgroundItem.preview.source}
-                        request={{ kind: 'slot', width: 80, height: 48, fit: 'cover' }}
+                        request={{ profile: 'wide' }}
                         requestMode="eager"
                         className="h-12 w-20"
                       />

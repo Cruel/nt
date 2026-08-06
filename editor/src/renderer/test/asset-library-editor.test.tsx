@@ -51,7 +51,7 @@ beforeEach(() => {
   });
   vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue({
     ok: true,
-    url: 'noveltea-thumbnail://image-v1/aa/card.webp',
+    url: 'noveltea-thumbnail://image-v2/aa/card.webp',
     cacheKey: 'a'.repeat(64),
     sourceRevision: `sha256:${'b'.repeat(64)}`,
     profile: 'card',
@@ -59,7 +59,6 @@ beforeEach(() => {
     height: 256,
     cacheStatus: 'hit',
     sourceLimited: true,
-    tierLimited: false,
     cacheEpoch: 0,
   });
 });
@@ -98,7 +97,7 @@ describe('AssetLibraryEditor', () => {
     );
     expect(screen.getByAltText('Logo')).toHaveAttribute(
       'src',
-      'noveltea-thumbnail://image-v1/aa/card.webp',
+      'noveltea-thumbnail://image-v2/aa/card.webp',
     );
     expect(screen.getByText('Click')).toBeInTheDocument();
     expect(document.querySelector('audio')).toBeTruthy();

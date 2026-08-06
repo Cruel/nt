@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-export const IMAGE_THUMBNAIL_CACHE_DIRECTORY = path.join('thumbnails', 'image-v1');
+export const IMAGE_THUMBNAIL_CACHE_DIRECTORY = path.join('thumbnails', 'image-v2');
 
 export const resolveEditorCacheRoot = (systemCachePath: string): string =>
   path.resolve(systemCachePath, 'noveltea-editor');

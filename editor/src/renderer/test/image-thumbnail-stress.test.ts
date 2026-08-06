@@ -133,7 +133,7 @@ describe.runIf(runStress)('image thumbnail 500-image stress evidence', () => {
     const firstViewportRss = process.memoryUsage().rss;
     await Promise.all(
       sources.map((source) =>
-        service.request({ source, variant: { kind: 'profile', profile: 'compact' } }),
+        service.request({ source, variant: { kind: 'profile', profile: 'list' } }),
       ),
     );
     const prewarmCompletionMs = performance.now() - prewarmStart;

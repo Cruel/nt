@@ -53,7 +53,7 @@ describe('CommandPaletteDialog', () => {
         height: 256,
         orientation: 1,
       },
-      variant: { kind: 'minimum-size', widthPx: 48, heightPx: 36, fit: 'cover' },
+      variant: { kind: 'profile', profile: 'list' },
     });
     expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
     expect(screen.getByAltText('Logo')).toHaveAttribute(

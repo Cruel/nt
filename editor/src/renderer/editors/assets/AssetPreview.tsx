@@ -77,6 +77,7 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
             width: data.imageMetadata.width,
             height: data.imageMetadata.height,
             orientation: data.imageMetadata.orientation,
+            sampling: data.sampling,
           }
         : null;
     return (
@@ -85,7 +86,7 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
           <AssetImageThumbnail
             label={label}
             source={imageSource}
-            request={{ kind: 'profile', profile: 'card', fit: 'cover' }}
+            request={{ profile: 'card' }}
             requestMode="visible"
             className="h-full w-full rounded-none border-0"
           />

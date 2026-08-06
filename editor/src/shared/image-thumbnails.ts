@@ -2,16 +2,16 @@ import { z } from 'zod';
 import { sha256HexUtf8 } from './sha256';
 
 export const IMAGE_THUMBNAIL_PROFILES = {
-  compact: 192,
-  card: 384,
-  large: 1024,
+  list: { width: 96, height: 72, fit: 'cover' },
+  wide: { width: 160, height: 96, fit: 'cover' },
+  card: { width: 320, height: 320, fit: 'cover' },
 } as const;
 
 export const IMAGE_THUMBNAIL_MAX_PREWARM_BATCH_SIZE = 50_000;
 
 export type ImageThumbnailProfile = keyof typeof IMAGE_THUMBNAIL_PROFILES;
-export type ImageThumbnailFit = 'cover' | 'contain';
 export type ImageThumbnailOrientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type ImageThumbnailSampling = 'linear' | 'nearest';
 
 export interface ImageThumbnailSource {
   projectFilePath: string;
@@ -20,11 +20,13 @@ export interface ImageThumbnailSource {
   width: number;
   height: number;
   orientation: ImageThumbnailOrientation;
+  sampling?: ImageThumbnailSampling;
 }
 
-export type ImageThumbnailVariant =
-  | { kind: 'profile'; profile: ImageThumbnailProfile }
-  | { kind: 'minimum-size'; widthPx: number; heightPx: number; fit: ImageThumbnailFit };
+export interface ImageThumbnailVariant {
+  kind: 'profile';
+  profile: ImageThumbnailProfile;
+}
 
 export interface ImageThumbnailRequest {
   source: ImageThumbnailSource;
@@ -56,7 +58,6 @@ export type ImageThumbnailResult =
       height: number;
       cacheStatus: 'hit' | 'generated';
       sourceLimited: boolean;
-      tierLimited: boolean;
       cacheEpoch: number;
     }
   | {
@@ -112,20 +113,13 @@ export const imageThumbnailSourceSchema = z
       z.literal(7),
       z.literal(8),
     ]),
+    sampling: z.enum(['linear', 'nearest']).optional(),
   })
   .strict();
 
-export const imageThumbnailVariantSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('profile'), profile: z.enum(['compact', 'card', 'large']) }).strict(),
-  z
-    .object({
-      kind: z.literal('minimum-size'),
-      widthPx: z.number().int().min(1).max(8192),
-      heightPx: z.number().int().min(1).max(8192),
-      fit: z.enum(['cover', 'contain']),
-    })
-    .strict(),
-]);
+export const imageThumbnailVariantSchema = z
+  .object({ kind: z.literal('profile'), profile: z.enum(['list', 'wide', 'card']) })
+  .strict();
 
 export const imageThumbnailRequestSchema = z
   .object({ source: imageThumbnailSourceSchema, variant: imageThumbnailVariantSchema })
@@ -163,16 +157,6 @@ export const parseImageThumbnailPrewarmSource = (value: unknown): ImageThumbnail
 export const isCanonicalImageThumbnailContentHash = (value: unknown): value is string =>
   canonicalContentHashSchema.safeParse(value).success;
 
-export interface ImageThumbnailTierSelection {
-  profile: ImageThumbnailProfile;
-  tierLongEdge: number;
-  normalizedSourceWidth: number;
-  normalizedSourceHeight: number;
-  requiredLongEdge: number;
-  sourceLimited: boolean;
-  tierLimited: boolean;
-}
-
 export function normalizeImageThumbnailSourceDimensions(source: {
   width: number;
   height: number;
@@ -183,75 +167,42 @@ export function normalizeImageThumbnailSourceDimensions(source: {
     : { width: source.width, height: source.height };
 }
 
-function profileForRequiredLongEdge(requiredLongEdge: number): ImageThumbnailProfile {
-  if (requiredLongEdge <= IMAGE_THUMBNAIL_PROFILES.compact) return 'compact';
-  if (requiredLongEdge <= IMAGE_THUMBNAIL_PROFILES.card) return 'card';
-  return 'large';
+export interface ResolvedImageThumbnailProfile {
+  profile: ImageThumbnailProfile;
+  width: number;
+  height: number;
+  fit: 'cover';
+  sourceLimited: boolean;
 }
 
-export function selectImageThumbnailTier(
+export function resolveImageThumbnailProfile(
   source: Pick<ImageThumbnailSource, 'width' | 'height' | 'orientation'>,
-  variant: ImageThumbnailVariant,
+  profile: ImageThumbnailProfile,
   sourceKind: 'raster' | 'svg',
-): ImageThumbnailTierSelection {
+): ResolvedImageThumbnailProfile {
+  const target = IMAGE_THUMBNAIL_PROFILES[profile];
   const normalized = normalizeImageThumbnailSourceDimensions(source);
-  const sourceLongEdge = Math.max(normalized.width, normalized.height);
-  if (variant.kind === 'profile') {
-    const tierLongEdge = IMAGE_THUMBNAIL_PROFILES[variant.profile];
-    return {
-      profile: variant.profile,
-      tierLongEdge,
-      normalizedSourceWidth: normalized.width,
-      normalizedSourceHeight: normalized.height,
-      requiredLongEdge: tierLongEdge,
-      sourceLimited: sourceKind === 'raster' && sourceLongEdge < tierLongEdge,
-      tierLimited: false,
-    };
-  }
-
-  const scale =
-    variant.fit === 'cover'
-      ? Math.max(variant.widthPx / normalized.width, variant.heightPx / normalized.height)
-      : Math.min(variant.widthPx / normalized.width, variant.heightPx / normalized.height);
-  const requiredLongEdge = Math.ceil(sourceLongEdge * scale);
-  const profile = profileForRequiredLongEdge(requiredLongEdge);
-  const tierLongEdge = IMAGE_THUMBNAIL_PROFILES[profile];
   return {
     profile,
-    tierLongEdge,
-    normalizedSourceWidth: normalized.width,
-    normalizedSourceHeight: normalized.height,
-    requiredLongEdge,
-    sourceLimited: sourceKind === 'raster' && sourceLongEdge < requiredLongEdge,
-    tierLimited: requiredLongEdge > IMAGE_THUMBNAIL_PROFILES.large,
+    ...target,
+    sourceLimited:
+      sourceKind === 'raster' &&
+      (normalized.width < target.width || normalized.height < target.height),
   };
 }
 
 export function imageThumbnailOutputDimensions(
   source: Pick<ImageThumbnailSource, 'width' | 'height' | 'orientation'>,
-  tierLongEdge: number,
+  profile: ImageThumbnailProfile,
   sourceKind: 'raster' | 'svg',
 ): { width: number; height: number } {
+  const target = IMAGE_THUMBNAIL_PROFILES[profile];
+  if (sourceKind === 'svg') return { width: target.width, height: target.height };
   const normalized = normalizeImageThumbnailSourceDimensions(source);
-  const sourceLongEdge = Math.max(normalized.width, normalized.height);
-  if (sourceKind === 'raster' && sourceLongEdge <= tierLongEdge) return normalized;
-  const scale = tierLongEdge / sourceLongEdge;
   return {
-    width: Math.max(1, Math.round(normalized.width * scale)),
-    height: Math.max(1, Math.round(normalized.height * scale)),
+    width: Math.min(normalized.width, target.width),
+    height: Math.min(normalized.height, target.height),
   };
-}
-
-export const clampImageThumbnailDevicePixelRatio = (devicePixelRatio: number): number =>
-  Math.min(4, Math.max(1, Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1));
-
-export function imageThumbnailPhysicalSlot(
-  cssWidth: number,
-  cssHeight: number,
-  devicePixelRatio: number,
-): { widthPx: number; heightPx: number } {
-  const dpr = clampImageThumbnailDevicePixelRatio(devicePixelRatio);
-  return { widthPx: Math.ceil(cssWidth * dpr), heightPx: Math.ceil(cssHeight * dpr) };
 }
 
 export interface ImageThumbnailGeneratorIdentity {
@@ -259,38 +210,52 @@ export interface ImageThumbnailGeneratorIdentity {
   vipsVersion: string;
 }
 
+export function imageThumbnailEncoderPolicy(source: {
+  sampling?: ImageThumbnailSampling;
+}): 'webp-lossless-effort-4-nearest-v1' | 'webp-quality-85-alpha-100-smart-effort-4-v1' {
+  return source.sampling === 'nearest'
+    ? 'webp-lossless-effort-4-nearest-v1'
+    : 'webp-quality-85-alpha-100-smart-effort-4-v1';
+}
+
 export function serializeImageThumbnailDerivativeIdentity(
-  source: Pick<ImageThumbnailSource, 'contentHash' | 'width' | 'height' | 'orientation'> & {
-    contentHash: string;
-  },
-  tierLongEdge: 192 | 384 | 1024,
+  source: Pick<
+    ImageThumbnailSource,
+    'contentHash' | 'width' | 'height' | 'orientation' | 'sampling'
+  > & { contentHash: string },
+  profile: ImageThumbnailProfile,
   versions: ImageThumbnailGeneratorIdentity,
 ): string {
   if (!isCanonicalImageThumbnailContentHash(source.contentHash)) {
     throw new TypeError('Image thumbnail content hash must use canonical SHA-256 spelling.');
   }
+  const target = IMAGE_THUMBNAIL_PROFILES[profile];
   return JSON.stringify([
     'noveltea.editor.image-thumbnail',
-    1,
+    2,
     source.contentHash,
     source.width,
     source.height,
     source.orientation,
-    tierLongEdge,
+    source.sampling ?? 'linear',
+    profile,
+    target.width,
+    target.height,
+    target.fit,
     `sharp:${versions.sharpVersion}`,
     `vips:${versions.vipsVersion}`,
     'srgb-v1',
-    'webp-lossless-effort-4',
+    imageThumbnailEncoderPolicy(source),
     'autorotate-v1',
     'first-frame-v1',
-    'svg-self-contained-density-v1',
+    'svg-self-contained-density-v2',
   ]);
 }
 
 export function createImageThumbnailDerivativeKey(
   source: Parameters<typeof serializeImageThumbnailDerivativeIdentity>[0],
-  tierLongEdge: 192 | 384 | 1024,
+  profile: ImageThumbnailProfile,
   versions: ImageThumbnailGeneratorIdentity,
 ): string {
-  return sha256HexUtf8(serializeImageThumbnailDerivativeIdentity(source, tierLongEdge, versions));
+  return sha256HexUtf8(serializeImageThumbnailDerivativeIdentity(source, profile, versions));
 }
