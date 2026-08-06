@@ -147,6 +147,15 @@ const api: NovelTeaElectronApi = {
       projectFilePath,
       projectRelativePath,
     ),
+  requestImageThumbnail: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL, request),
+  clearEditorCache: () => ipcRenderer.invoke(IPC_CHANNELS.CLEAR_EDITOR_CACHE),
+  onEditorCacheEpoch: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>
+      callback(event as never);
+    ipcRenderer.on(IPC_CHANNELS.EDITOR_CACHE_EPOCH_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.EDITOR_CACHE_EPOCH_EVENT, listener);
+  },
   readProjectTextSources: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES, request),
   checkComfyUiConnection: (config) =>

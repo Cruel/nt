@@ -23,7 +23,13 @@ export type SelectorFieldKind = CommandPaletteFieldKind;
 export interface SelectorPreview {
   kind: 'image';
   label: string;
-  sourcePath: string;
+  source: {
+    projectRelativePath: string;
+    contentHash?: string;
+    width: number;
+    height: number;
+    orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+  };
 }
 
 export interface SelectorItem {
@@ -206,8 +212,18 @@ export function buildCommandPaletteItems(
         entityId,
         assetKind: assetData?.kind,
         preview:
-          assetData?.kind === 'image'
-            ? { kind: 'image', label: title, sourcePath: assetData.source.path }
+          assetData?.kind === 'image' && assetData.imageMetadata
+            ? {
+                kind: 'image',
+                label: title,
+                source: {
+                  projectRelativePath: assetData.source.path,
+                  contentHash: assetData.contentHash,
+                  width: assetData.imageMetadata.width,
+                  height: assetData.imageMetadata.height,
+                  orientation: assetData.imageMetadata.orientation,
+                },
+              }
             : undefined,
         tags: recordEditorMetadata(project, collection, entityId).tags,
         collectionTerms: [metadata.label, metadata.singularLabel],

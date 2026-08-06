@@ -247,6 +247,28 @@ Object.defineProperty(window, 'noveltea', {
       url: 'data:image/png;base64,bW9jaw==',
       absolutePath: '/mock/project/assets/images/logo.png',
     }),
+    requestImageThumbnail: vi.fn().mockResolvedValue({
+      ok: true,
+      url: 'noveltea-thumbnail://image-v1/aa/'.concat('a'.repeat(64), '.webp'),
+      cacheKey: 'a'.repeat(64),
+      sourceRevision: `sha256:${'b'.repeat(64)}`,
+      profile: 'compact',
+      width: 192,
+      height: 108,
+      cacheStatus: 'hit',
+      sourceLimited: false,
+      tierLimited: false,
+      cacheEpoch: 0,
+    }),
+    clearEditorCache: vi.fn().mockResolvedValue({ ok: true, cacheEpoch: 1 }),
+    onEditorCacheEpoch: vi.fn().mockImplementation((callback) => {
+      (
+        window as typeof window & {
+          __novelteaEditorCacheEpochListener?: typeof callback;
+        }
+      ).__novelteaEditorCacheEpochListener = callback;
+      return () => {};
+    }),
     checkComfyUiConnection: vi.fn().mockResolvedValue({
       state: 'ready',
       serverUrl: 'http://127.0.0.1:8000',

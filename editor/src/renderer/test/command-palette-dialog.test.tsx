@@ -43,10 +43,8 @@ describe('CommandPaletteDialog', () => {
 
     expect(screen.getByText('Logo')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByAltText('Logo')).toBeInTheDocument());
-    expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
-      '/mock/project.json',
-      'assets/images/logo.png',
-    );
+    expect(window.noveltea.requestImageThumbnail).toHaveBeenCalled();
+    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
   });
 
   it('opens settings as a workbench tab', async () => {

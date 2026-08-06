@@ -99,7 +99,7 @@ describe('SearchSelectorDialog', () => {
     expect(screen.getByText('Item 30')).toBeInTheDocument();
   });
 
-  it('renders image results through the current full-source URL path', async () => {
+  it('renders image results through the thumbnail request path', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: { project: { schema: 'noveltea.authoring.project', version: 2 } },
       projectPath: '/mock/project',
@@ -116,7 +116,13 @@ describe('SearchSelectorDialog', () => {
         preview: {
           kind: 'image',
           label: 'Logo',
-          sourcePath: 'assets/images/logo.png',
+          source: {
+            projectRelativePath: 'assets/images/logo.png',
+            contentHash: `sha256:${'b'.repeat(64)}`,
+            width: 1920,
+            height: 1080,
+            orientation: 1,
+          },
         },
       },
     ];
@@ -133,15 +139,22 @@ describe('SearchSelectorDialog', () => {
       />,
     );
 
-    await waitFor(() =>
-      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
-        '/mock/project/project.json',
-        'assets/images/logo.png',
-      ),
-    );
+    await waitFor(() => expect(window.noveltea.requestImageThumbnail).toHaveBeenCalled());
+    expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
+      source: {
+        projectFilePath: '/mock/project/project.json',
+        projectRelativePath: 'assets/images/logo.png',
+        contentHash: `sha256:${'b'.repeat(64)}`,
+        width: 1920,
+        height: 1080,
+        orientation: 1,
+      },
+      variant: { kind: 'profile', profile: 'compact' },
+    });
+    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
     expect(await screen.findByAltText('Logo')).toHaveAttribute(
       'src',
-      'data:image/png;base64,bW9jaw==',
+      `noveltea-thumbnail://image-v1/aa/${'a'.repeat(64)}.webp`,
     );
   });
 });

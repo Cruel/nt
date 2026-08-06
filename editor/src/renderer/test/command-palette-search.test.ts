@@ -117,7 +117,13 @@ describe('command palette search', () => {
     expect(items[0]?.preview).toEqual({
       kind: 'image',
       label: 'Sarah Portrait',
-      sourcePath: 'assets/sarah.png',
+      source: {
+        projectRelativePath: 'assets/sarah.png',
+        contentHash: undefined,
+        width: 640,
+        height: 960,
+        orientation: 1,
+      },
     });
   });
 

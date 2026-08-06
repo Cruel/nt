@@ -171,6 +171,13 @@ const enginePreviewServer = new EnginePreviewServer();
 const imageThumbnailService = new ImageThumbnailService(
   resolveEditorCacheRoot(resolveSystemCachePath(app.getPath('home'))),
 );
+imageThumbnailService.cache.onEpochChanged((cacheEpoch) => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(IPC_CHANNELS.EDITOR_CACHE_EPOCH_EVENT, { cacheEpoch });
+    }
+  }
+});
 
 const DEV_SERVER_URL = process.env.NOVELTEA_EDITOR_DEV_SERVER_URL?.trim() || undefined;
 const isDev = !!DEV_SERVER_URL;
@@ -924,6 +931,12 @@ void app.whenReady().then(() => {
     (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
       resolveProjectAssetUrl(projectFilePath, projectRelativePath),
   );
+
+  ipcMain.handle(IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL, (_event, request: unknown) =>
+    imageThumbnailService.request(request, 'interactive'),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.CLEAR_EDITOR_CACHE, () => imageThumbnailService.clearEditorCache());
 
   ipcMain.handle(
     IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES,

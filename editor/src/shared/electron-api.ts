@@ -121,7 +121,7 @@ interface NovelTeaElectronApiContract {
     projectFilePath: string,
     projectRelativePath: string,
   ): Promise<ProjectAssetUrlResponse | null>;
-  requestImageThumbnail?(
+  requestImageThumbnail(
     request: import('./image-thumbnails').ImageThumbnailRequest,
   ): Promise<import('./image-thumbnails').ImageThumbnailResult>;
   prewarmImageThumbnails?(
@@ -130,8 +130,8 @@ interface NovelTeaElectronApiContract {
   cancelImageThumbnailPrewarm?(
     request: import('./image-thumbnails').CancelImageThumbnailPrewarmRequest,
   ): Promise<import('./image-thumbnails').CancelImageThumbnailPrewarmResult>;
-  clearEditorCache?(): Promise<import('./image-thumbnails').ClearEditorCacheResult>;
-  onEditorCacheEpoch?(
+  clearEditorCache(): Promise<import('./image-thumbnails').ClearEditorCacheResult>;
+  onEditorCacheEpoch(
     callback: (event: import('./image-thumbnails').EditorCacheEpochEvent) => void,
   ): () => void;
   readProjectTextSources(

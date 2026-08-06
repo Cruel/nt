@@ -83,7 +83,8 @@ function DefaultPreview({ item, className }: { item: SelectorItem; className?: s
     return (
       <AssetImageThumbnail
         label={item.preview.label}
-        sourcePath={item.preview.sourcePath}
+        source={item.preview.source}
+        request={{ kind: 'profile', profile: 'compact', fit: 'cover' }}
         className={className}
       />
     );

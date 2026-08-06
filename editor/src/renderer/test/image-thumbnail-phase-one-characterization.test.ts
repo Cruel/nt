@@ -27,7 +27,6 @@ async function animatedFixture(format: 'gif' | 'webp') {
 describe('image thumbnail Phase 1 characterization', () => {
   it('locks every current project asset URL consumer to an explicit disposition', () => {
     const consumers = new Map([
-      ['src/renderer/workspace/AssetImageThumbnail.tsx', 'migrate'],
       ['src/renderer/editors/assets/AssetPreview.tsx', 'split compact migrate / detail retain'],
       ['src/renderer/editors/comfyui/ImageGenerationEditor.tsx', 'retain'],
       ['src/renderer/components/hotspots/HotspotAuthoringPanel.tsx', 'retain'],
@@ -53,7 +52,6 @@ describe('image thumbnail Phase 1 characterization', () => {
     visit(sourceRoot);
     expect(discovered.sort()).toEqual([...consumers.keys()].sort());
     expect([...consumers.values()]).toEqual([
-      'migrate',
       'split compact migrate / detail retain',
       'retain',
       'retain',

@@ -1080,7 +1080,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     {selectedBackgroundItem?.preview?.kind === 'image' ? (
                       <AssetImageThumbnail
                         label={selectedBackgroundItem.preview.label}
-                        sourcePath={selectedBackgroundItem.preview.sourcePath}
+                        source={selectedBackgroundItem.preview.source}
+                        request={{ kind: 'profile', profile: 'compact', fit: 'cover' }}
                         className="h-12 w-20"
                       />
                     ) : (
