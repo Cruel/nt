@@ -414,6 +414,21 @@ Rect PresentationTransform::reference_to_native_ui_raster(Rect reference_rect) c
     return apply_scale(reference_rect, reference_to_native_ui_raster_scale());
 }
 
+Vec2 PresentationTransform::reference_to_host_framebuffer(Vec2 reference_point) const
+{
+    const Vec2 local = reference_to_native_ui_raster(reference_point);
+    const IntegerRect& viewport = m_presentation.viewport.host_framebuffer_rect;
+    return {static_cast<float>(viewport.x) + local.x, static_cast<float>(viewport.y) + local.y};
+}
+
+Rect PresentationTransform::reference_to_host_framebuffer(Rect reference_rect) const
+{
+    const Rect local = reference_to_native_ui_raster(reference_rect);
+    const IntegerRect& viewport = m_presentation.viewport.host_framebuffer_rect;
+    return {static_cast<float>(viewport.x) + local.x, static_cast<float>(viewport.y) + local.y,
+            local.width, local.height};
+}
+
 Vec2 PresentationTransform::reference_to_context_logical(
     Vec2 reference_point, const ResolvedContextMetrics& context) const
 {

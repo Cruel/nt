@@ -1,6 +1,7 @@
 #include "host/host_input_router.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <SDL3/SDL_mouse.h>
 
 #include <array>
 #include <type_traits>
@@ -121,6 +122,30 @@ TEST_CASE("HostInputRouter RuntimeUI consumption stops gameplay")
     CHECK(result.runtime_ui_result.wants_keyboard);
     CHECK(result.route_diagnostics.block_reason == HostGameplayInputBlockReason::RuntimeUi);
     CHECK(result.runtime_inputs.empty());
+}
+
+TEST_CASE("HostInputRouter offers admitted primary presses to skippable presentation handling")
+{
+    HostInputRouter router;
+    const auto presentation = test_presentation();
+    const NormalizedHostEvent primary_press{.kind = NormalizedHostEventKind::MouseButtonDown,
+                                            .mouse_button = SDL_BUTTON_LEFT,
+                                            .host_position = {500.0f, 500.0f},
+                                            .has_host_position = true};
+
+    const auto admitted =
+        router.route(primary_press, {.presentation = &presentation}, passive_consumers());
+    CHECK(admitted.route_diagnostics.gameplay_admitted);
+    REQUIRE(admitted.tooling_actions.size() == 1);
+    CHECK(std::holds_alternative<FastForwardPresentationToolingAction>(
+        admitted.tooling_actions.front()));
+
+    const auto ui_consumed =
+        router.route(primary_press, {.presentation = &presentation}, {.runtime_ui = [] {
+                         return RuntimeUiInputResult{.consumed = true, .wants_pointer = true};
+                     }});
+    CHECK_FALSE(ui_consumed.route_diagnostics.gameplay_admitted);
+    CHECK(ui_consumed.tooling_actions.empty());
 }
 
 TEST_CASE("HostInputRouter emits captured RuntimeUI inputs after routing")
@@ -265,7 +290,7 @@ TEST_CASE("embedded preview focus changes do not suspend or resume the runtime")
     CHECK(gained.lifecycle_actions.empty());
 }
 
-TEST_CASE("standalone runtime focus changes retain platform suspension semantics")
+TEST_CASE("standalone runtime focus changes do not suspend or resume the host")
 {
     HostInputRouter router;
     const auto presentation = test_presentation();
@@ -273,14 +298,12 @@ TEST_CASE("standalone runtime focus changes retain platform suspension semantics
     const auto lost = router.route({.kind = NormalizedHostEventKind::FocusLost},
                                    {.presentation = &presentation, .mode = HostInputMode::Runtime},
                                    passive_consumers());
-    REQUIRE(lost.lifecycle_actions.size() == 1);
-    CHECK(std::holds_alternative<SuspendHostAction>(lost.lifecycle_actions.front()));
+    CHECK(lost.lifecycle_actions.empty());
 
     const auto gained = router.route(
         {.kind = NormalizedHostEventKind::FocusGained},
         {.presentation = &presentation, .mode = HostInputMode::Runtime}, passive_consumers());
-    REQUIRE(gained.lifecycle_actions.size() == 1);
-    CHECK(std::holds_alternative<ResumeHostAction>(gained.lifecycle_actions.front()));
+    CHECK(gained.lifecycle_actions.empty());
 }
 
 TEST_CASE("HostInputRouter projects mouse coordinates and rejects presentation bars")
@@ -302,7 +325,9 @@ TEST_CASE("HostInputRouter projects mouse coordinates and rejects presentation b
     const Vec2 expected = transform.normalized_game_viewport_to_reference(*normalized);
     CHECK(inside.pointer_update->reference_position.x == expected.x);
     CHECK(inside.pointer_update->reference_position.y == expected.y);
-    CHECK(inside.tooling_actions.empty());
+    REQUIRE(inside.tooling_actions.size() == 1);
+    CHECK(std::holds_alternative<FastForwardPresentationToolingAction>(
+        inside.tooling_actions.front()));
 
     const auto outside = router.route({.kind = NormalizedHostEventKind::MouseMotion,
                                        .host_position = {500.0f, 10.0f},
@@ -377,15 +402,13 @@ TEST_CASE("HostInputRouter invalidates pointer for resize and focus loss")
                                               }});
     REQUIRE(focus_lost.pointer_update);
     CHECK_FALSE(focus_lost.pointer_update->valid);
-    REQUIRE(focus_lost.lifecycle_actions.size() == 1);
-    CHECK(std::holds_alternative<SuspendHostAction>(focus_lost.lifecycle_actions.front()));
+    CHECK(focus_lost.lifecycle_actions.empty());
     CHECK(debug_calls == 1);
     CHECK(runtime_ui_calls == 1);
 
     const auto focus_gained = router.route({.kind = NormalizedHostEventKind::FocusGained},
                                            {.presentation = &presentation}, passive_consumers());
-    REQUIRE(focus_gained.lifecycle_actions.size() == 1);
-    CHECK(std::holds_alternative<ResumeHostAction>(focus_gained.lifecycle_actions.front()));
+    CHECK(focus_gained.lifecycle_actions.empty());
 }
 
 TEST_CASE("HostInputRouter emits deterministic Escape fallback actions")

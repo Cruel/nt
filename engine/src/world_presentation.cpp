@@ -263,7 +263,8 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         if (lease == nullptr) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_texture_lease_missing",
-                "Mandatory world texture is not resident: " + found->second.logical_path,
+                "Mandatory world texture is not resident: " + found->second.logical_path + " (" +
+                    m_assets.describe_texture_lease_lookup_on_owner(request) + ")",
                 context)});
         }
         lease->mark_used_on_owner();

@@ -131,8 +131,11 @@ struct RuntimeShellCommandToolingAction {
     core::RuntimeShellCommand command;
 };
 
-using HostToolingAction = std::variant<RouteSystemEscapeAction, DismissLayoutEscapeAction,
-                                       RequestQuitFallbackAction, RuntimeShellCommandToolingAction>;
+struct FastForwardPresentationToolingAction {};
+
+using HostToolingAction =
+    std::variant<RouteSystemEscapeAction, DismissLayoutEscapeAction, RequestQuitFallbackAction,
+                 RuntimeShellCommandToolingAction, FastForwardPresentationToolingAction>;
 
 struct HostPointerStateUpdate {
     Vec2 reference_position{};

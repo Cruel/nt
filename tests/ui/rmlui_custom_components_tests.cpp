@@ -116,13 +116,29 @@ TEST_CASE("ActiveText typed snapshot remains data-only for direct rendering")
     const auto room_id = RoomId::create("start");
     REQUIRE(room_id);
 
-    TypedRuntimeUIViewState state;
-    state.room = RoomView{.room = room_id.value(),
-                          .description = "[b]Styled[/b] direct text",
-                          .description_markup = TextMarkup::ActiveText};
-    state.can_continue = true;
+    SECTION("active-text Room descriptions use rich-text parsing")
+    {
+        TypedRuntimeUIViewState state;
+        state.room = RoomView{.room = room_id.value(),
+                              .description = "[b]Styled[/b] direct text",
+                              .description_markup = TextMarkup::ActiveText};
+        state.can_continue = true;
 
-    const auto snapshot = make_active_text_snapshot(state);
-    CHECK(snapshot.body == "[b]Styled[/b] direct text");
-    CHECK(snapshot.rich_text.plain_text == "Styled direct text");
+        const auto snapshot = make_active_text_snapshot(state);
+        CHECK(snapshot.body == "[b]Styled[/b] direct text");
+        CHECK(snapshot.rich_text.plain_text == "Styled direct text");
+    }
+
+    SECTION("plain Room descriptions enter the same direct-render path")
+    {
+        TypedRuntimeUIViewState state;
+        state.room = RoomView{.room = room_id.value(),
+                              .description = "Plain direct text",
+                              .description_markup = TextMarkup::Plain};
+        state.can_continue = true;
+
+        const auto snapshot = make_active_text_snapshot(state);
+        CHECK(snapshot.body == "Plain direct text");
+        CHECK(snapshot.rich_text.plain_text == "Plain direct text");
+    }
 }

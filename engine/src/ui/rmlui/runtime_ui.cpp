@@ -699,13 +699,20 @@ void RuntimeUI::cleanup_state()
 
 bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
                            script::ScriptRuntime* scripts,
-                           const ShaderMaterialProject* shader_materials, bool headless_render)
+                           const ShaderMaterialProject* shader_materials,
+                           ui::rmlui::ActiveTextPresenterShaper active_text_shaper,
+                           bool headless_render)
 {
     if (m_initialized)
         return true;
 
     if (!assets) {
         std::fprintf(stderr, "[runtime_ui] no AssetManager for RmlUi\n");
+        return false;
+    }
+    if (!active_text_shaper) {
+        std::fprintf(stderr,
+                     "[runtime_ui] no ActiveText shaper for renderer-owned text pipeline\n");
         return false;
     }
 
@@ -716,7 +723,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     if (!m_state->active_text_presenter) {
         m_state->active_text_presenter =
             std::make_unique<ui::rmlui::ActiveTextPresenter>(m_state->typed_diagnostics);
-        m_state->active_text_presenter->initialize(*assets);
+        m_state->active_text_presenter->initialize(*assets, std::move(active_text_shaper));
     }
     m_state->template_resolver = new ui::rmlui::RuntimeUiTemplateResolver(*assets);
 

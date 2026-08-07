@@ -26,6 +26,17 @@ TEST_CASE("Rich text parser preserves old BBCode style semantics")
     CHECK(doc.runs[9].style.font_size == 18);
 }
 
+TEST_CASE("Rich text single-argument long-form tags close by canonical tag name")
+{
+    const auto doc = parse_rich_text("[font id=body]body[/font] default");
+
+    REQUIRE(doc.runs.size() == 2u);
+    CHECK(doc.runs[0].text == "body");
+    CHECK(doc.runs[0].style.font_alias == "body");
+    CHECK(doc.runs[1].text == " default");
+    CHECK(doc.runs[1].style.font_alias.empty());
+}
+
 TEST_CASE("Rich text parser handles object shorthand page breaks offsets and animation")
 {
     auto doc = parse_rich_text(

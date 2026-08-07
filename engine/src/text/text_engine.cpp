@@ -484,8 +484,10 @@ FontFamilyHandle TextEngine::register_private_font_family(FontFamilyDesc desc,
     family.bold_italic = load_optional(desc.bold_italic, sources.bold_italic);
 
     const uint32_t id = m_impl->next_family_id++;
-    if (!m_impl->families.emplace(id, std::move(family)).second)
+    const auto [stored_it, inserted] = m_impl->families.emplace(id, std::move(family));
+    if (!inserted)
         return {};
+    m_impl->families_by_alias[stored_it->second.alias] = id;
     return FontFamilyHandle{id};
 }
 

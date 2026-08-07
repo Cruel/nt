@@ -107,6 +107,27 @@ can stop the mandatory gate, while direct-next and adjacent speculative diagnost
 without blocking otherwise-valid content. Production runtime publication changes use mandatory asset
 gates and loading progress while speculative entries remain evictable.
 
+Mandatory dependency descriptors are generation-scoped. If the project asset namespace advances to
+a new `AssetSourceGeneration` after a package was indexed, such as during editor-preview asset
+staging or rebinding, the gate rebuilds its structured dependency index before issuing the next
+mandatory publication requests. Request handles, staged leases, and renderer lookups therefore use
+the same current-generation cache keys; a Ready request must not be published under a stale
+descriptor generation and then appear missing to world presentation. The same check applies while a
+mandatory request group is already pending: a mid-flight namespace generation change cancels the
+retired group, rebuilds the dependency index, and restarts the retained presentation snapshot against
+the new generation before any candidate lease can be promoted.
+
+`StructuredAssetLeaseSet` resolves a resident asset by the ready lease's own authoritative
+`AssetCacheKey`, not by the descriptor key captured during dependency collection. Descriptor keys
+remain planning metadata and must not make an actually resident lease invisible after request-time
+generation changes.
+
+Mandatory publication commits retain one bounded predecessor lease set in addition to the current
+published set. Finite world presentation operations can therefore realize their exact source and
+target revisions concurrently even after the target publication has committed. The presentation
+bridge releases that predecessor set once no visual operation remains active; ordinary settled
+publications do not accumulate historical lease sets.
+
 `asset_telemetry.hpp` and `engine/src/core/asset_telemetry.cpp` define the worker-safe recorder and
 the editor-profiler handoff. Events carry execution mode, cache/request/job/prefetch correlation,
 actual compressed and uncompressed source totals for fully-read entries, measured source,

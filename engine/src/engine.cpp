@@ -847,17 +847,20 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
             game.package().shader_materials().value_or(ShaderMaterialProject{});
         const auto& display = project.settings().display;
         prepared.presentation_settings = presentation_settings_from(display);
+        for (const auto& asset : project.assets()) {
+            if (asset.kind != core::compiled::AssetKind::Font)
+                continue;
+            prepared.fonts.families.push_back(assets::FontFamilyAssetDesc{
+                .alias = asset.id.text(),
+                .regular = FontDesc{.asset_path = "project:/" + asset.path},
+                .bold = std::nullopt,
+                .italic = std::nullopt,
+                .bold_italic = std::nullopt,
+                .synthetic_styles = true});
+        }
         if (project.settings().text.default_font) {
-            if (const auto* font = project.find_asset(*project.settings().text.default_font)) {
+            if (const auto* font = project.find_asset(*project.settings().text.default_font))
                 prepared.fonts.default_alias = font->id.text();
-                prepared.fonts.families.push_back(assets::FontFamilyAssetDesc{
-                    .alias = font->id.text(),
-                    .regular = FontDesc{.asset_path = "project:/" + font->path},
-                    .bold = std::nullopt,
-                    .italic = std::nullopt,
-                    .bold_italic = std::nullopt,
-                    .synthetic_styles = true});
-            }
         }
         return prepared;
     };
@@ -1445,8 +1448,12 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     }
 
     m_runtime_ui.resize(m_presentation);
-    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), &m_scripts,
-                                 &m_shader_materials)) {
+    if (!m_runtime_ui.initialize(
+            &m_assets, sdl_platform::native_window(m_platform), &m_scripts, &m_shader_materials,
+            [this](const StyledText& text, float raster_scale) {
+                return m_renderer.layout_text(text, raster_scale);
+            },
+            false)) {
         std::fprintf(stderr, "[engine] runtime UI init failed; continuing without runtime UI\n");
     } else {
         m_game_host.runtime_layouts().bind_document_host(&m_layout_realizer);
@@ -1878,12 +1885,40 @@ void Engine::Impl::handle_events()
             m_pointer_valid = routed.pointer_update->valid;
         }
 
+        bool presentation_pointer_consumed = false;
+        if (std::any_of(
+                routed.tooling_actions.begin(), routed.tooling_actions.end(),
+                [](const auto& action) {
+                    return std::holds_alternative<host::FastForwardPresentationToolingAction>(
+                        action);
+                })) {
+            auto skipped = m_game_host.runtime_presentation().fast_forward_one();
+            if (!skipped.diagnostics.empty())
+                core::append_diagnostics(routed.diagnostics, std::move(skipped.diagnostics));
+            if (skipped.disposition != core::PresentationFastForwardDisposition::Idle) {
+                presentation_pointer_consumed = true;
+                routed.disposition = host::HostInputDisposition::Consumed;
+            }
+            if (skipped.disposition ==
+                core::PresentationFastForwardDisposition::CompletedSkippableOperation) {
+                for (auto& input : skipped.inputs) {
+                    if (!dispatch_runtime_input(std::move(input))) {
+                        routed.diagnostics.push_back(
+                            {.code = "host.input.presentation_skip_rejected",
+                             .message =
+                                 "The runtime rejected completion from a skipped presentation"});
+                    }
+                }
+            }
+        }
+
         const bool focused_preview_active =
             m_preview_widget &&
             m_preview_host.focused_content_owner().kind != host::FocusedContentKind::None;
-        if (focused_preview_active) {
+        if (focused_preview_active || presentation_pointer_consumed) {
             // Focused editor previews are passive even when the same preview host also has a
-            // loaded play-runtime project.
+            // loaded play-runtime project. A presentation-skip click is also terminally consumed so
+            // it cannot activate a hotspot revealed by the same skip.
             m_world_hotspots.cancel();
         } else {
             std::optional<WorldPointerEventKind> world_kind;
@@ -1967,16 +2002,42 @@ void Engine::Impl::handle_events()
                     } else if constexpr (std::is_same_v<T,
                                                         host::RuntimeShellCommandToolingAction>) {
                         (void)m_game_host.submit_runtime_ui_shell_command(value.command);
+                    } else if constexpr (std::is_same_v<
+                                             T, host::FastForwardPresentationToolingAction>) {
+                        // Handled before world hit testing so the same press cannot leak through.
                     }
                 },
                 action);
         }
 
         for (const auto& input : routed.runtime_inputs) {
-            if (!dispatch_runtime_input(input)) {
+            auto dispatched = m_game_host.submit_runtime_input(input);
+            if (!dispatched.accepted()) {
+                const std::string input_name = std::visit(
+                    [](const auto& value) {
+                        using T = std::decay_t<decltype(value)>;
+                        if constexpr (std::is_same_v<T, core::NavigateRoomInput>)
+                            return std::string("NavigateRoomInput(") + value.exit.text() + ")";
+                        else if constexpr (std::is_same_v<T, core::ContinueInput>)
+                            return std::string("ContinueInput");
+                        else
+                            return std::string("RuntimeInput");
+                    },
+                    input);
+
+                std::string detail;
+                for (const auto& diagnostic : dispatched.diagnostics) {
+                    if (!detail.empty())
+                        detail += "; ";
+                    detail += diagnostic.code;
+                    if (!diagnostic.message.empty())
+                        detail += ": " + diagnostic.message;
+                }
                 routed.diagnostics.push_back(
                     {.code = "host.input.runtime_rejected",
-                     .message = "The runtime rejected a typed input emitted by HostInputRouter"});
+                     .message = "The runtime rejected " + input_name +
+                                " emitted by HostInputRouter" +
+                                (detail.empty() ? std::string{} : " (" + detail + ")")});
             }
         }
         if (!routed.diagnostics.empty()) {

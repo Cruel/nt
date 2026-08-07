@@ -1,9 +1,7 @@
 #include "ui/rmlui/active_text_presenter.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
-#include "noveltea/text/text_asset_loader.hpp"
 #include "text/text_breaks.hpp"
-#include "text/text_engine.hpp"
 #include "ui/rmlui/rmlui_custom_components.hpp"
 
 #include <algorithm>
@@ -72,42 +70,83 @@ ActiveTextPresenter::ActiveTextPresenter(core::Diagnostics& diagnostics)
 
 ActiveTextPresenter::~ActiveTextPresenter() = default;
 
-void ActiveTextPresenter::initialize(assets::AssetManager& assets)
+void ActiveTextPresenter::initialize(assets::AssetManager& assets,
+                                     ActiveTextPresenterShaper shape_text)
 {
     m_assets = &assets;
-    m_text_engine = std::make_unique<text::TextEngine>(assets);
-    if (!m_text_engine->valid())
-        return;
-
-    m_font_loader = std::make_unique<text::TextFontAssetLoader>(assets, *m_text_engine);
-    assets.bind_font_loader(m_font_loader.get());
-    ensure_font_request_current();
+    m_shape_text = std::move(shape_text);
+    ensure_font_requests_current({});
 }
 
-void ActiveTextPresenter::ensure_font_request_current()
+void ActiveTextPresenter::ensure_font_requests_current(const core::RichTextDocument& document)
 {
-    if (m_assets == nullptr || m_text_engine == nullptr || !m_text_engine->valid())
+    if (m_assets == nullptr)
         return;
 
-    const auto current_generation = m_assets->source_generation_on_owner();
-    if (m_font_generation == current_generation && (m_font_request || m_font_lease))
-        return;
-
-    m_font_request.reset();
-    m_font_lease.reset();
-    m_font_generation = current_generation;
-    auto requested =
-        m_assets->request_font(assets::FontAssetRequest{.alias = std::string(kSystemFontAlias),
-                                                        .source_path = std::nullopt,
-                                                        .style = TextFontRegular},
-                               assets::AssetRequestReason::Startup);
-    if (requested) {
-        m_font_request = std::move(*requested.value_if());
-        m_reported_missing_font_lease = false;
-    } else {
-        m_diagnostics.push_back(std::move(requested).error());
-        m_reported_missing_font_lease = true;
+    const std::uint64_t current_generation = m_assets->source_generation_on_owner().value;
+    if (m_font_generation.value != current_generation) {
+        m_fonts.clear();
+        m_font_generation.value = current_generation;
     }
+
+    std::vector<std::string> aliases;
+    aliases.push_back(m_assets->default_font_alias());
+    for (const auto& run : document.runs) {
+        if (!run.style.font_alias.empty())
+            aliases.push_back(run.style.font_alias);
+    }
+    std::sort(aliases.begin(), aliases.end());
+    aliases.erase(std::unique(aliases.begin(), aliases.end()), aliases.end());
+
+    for (const auto& alias : aliases) {
+        const auto existing =
+            std::find_if(m_fonts.begin(), m_fonts.end(),
+                         [&](const auto& binding) { return binding.alias == alias; });
+        if (existing != m_fonts.end())
+            continue;
+
+        FontBinding binding;
+        binding.alias = alias;
+        auto requested = m_assets->request_font(
+            assets::FontAssetRequest{
+                .alias = alias, .source_path = std::nullopt, .style = TextFontRegular},
+            assets::AssetRequestReason::Demand);
+        if (requested)
+            binding.request = std::move(*requested.value_if());
+        else {
+            m_diagnostics.push_back(std::move(requested).error());
+            binding.failed = true;
+        }
+        m_fonts.push_back(std::move(binding));
+    }
+}
+
+bool ActiveTextPresenter::poll_font_requests()
+{
+    bool pending = false;
+    for (auto& binding : m_fonts) {
+        if (binding.lease) {
+            binding.lease->mark_used_on_owner();
+            continue;
+        }
+        if (!binding.request)
+            continue;
+        if (binding.request->state() == assets::AssetRequestState::Ready) {
+            binding.lease = std::move(*binding.request).take_ready();
+            binding.request.reset();
+            if (binding.lease)
+                binding.lease->mark_used_on_owner();
+            continue;
+        }
+        if (binding.request->state() == assets::AssetRequestState::Pending) {
+            pending = true;
+            continue;
+        }
+        core::append_diagnostics(m_diagnostics, binding.request->diagnostics());
+        binding.request.reset();
+        binding.failed = true;
+    }
+    return !pending;
 }
 
 void ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float delta_seconds)
@@ -134,20 +173,20 @@ void ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, flo
 void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* view,
                                          const std::optional<ActiveTextPresenterSurface>& surface)
 {
-    ensure_font_request_current();
-
     if (!surface) {
         m_layout = {};
         return;
     }
 
     const auto document = view ? active_text_document(*view) : core::RichTextDocument{};
+    ensure_font_requests_current(document);
     m_page_count = active_text_page_count(document);
     m_page_index = std::min(m_page_index, m_page_count - 1u);
 
     ActiveTextLayoutOptions options;
     options.bounds = surface->bounds;
-    options.default_font_alias = std::string(kSystemFontAlias);
+    options.default_font_alias =
+        m_assets ? m_assets->default_font_alias() : std::string(kSystemFontAlias);
     options.default_text_size = kActiveTextBaseSize * surface->text_scale_factor;
     options.language = surface->language;
     options.default_color = surface->text_color;
@@ -157,32 +196,11 @@ void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* vi
     options.page_index = m_page_index;
     options.time_seconds = m_time_seconds;
 
-    if (m_font_request && m_font_request->state() == assets::AssetRequestState::Ready) {
-        m_font_lease = std::move(*m_font_request).take_ready();
-        m_font_request.reset();
-        if (m_font_lease && m_text_engine)
-            m_text_engine->set_default_font_family(m_font_lease->asset().family);
-        m_reported_missing_font_lease = false;
-    } else if (m_font_request && m_font_request->state() != assets::AssetRequestState::Pending) {
-        core::append_diagnostics(m_diagnostics, m_font_request->diagnostics());
-        m_font_request.reset();
-    }
-
-    if (m_font_lease) {
-        m_font_lease->mark_used_on_owner();
-    } else if (!m_font_request && !m_reported_missing_font_lease) {
-        m_diagnostics.push_back(
-            {.code = "runtime_ui.active_text_font_lease_missing",
-             .message = "ActiveText system font is unavailable from the asynchronous asset "
-                        "request path"});
-        m_reported_missing_font_lease = true;
-    }
-
-    if (m_text_engine && m_font_lease && m_font_lease->asset().face) {
+    if (m_shape_text && poll_font_requests()) {
         m_layout = build_active_text_layout(
             document, options,
-            [this, font_raster_scale = surface->font_raster_scale](const StyledText& text) {
-                return m_text_engine->layout_text(text, font_raster_scale);
+            [this, raster_scale = surface->font_raster_scale](const StyledText& text) {
+                return m_shape_text(text, raster_scale);
             });
     } else {
         m_layout = build_active_text_layout(document, options);
@@ -200,6 +218,17 @@ void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* vi
             options.bounds.y + std::max(options.bounds.height - prompt_size, 0.0f), prompt_size,
             prompt_size};
     }
+}
+
+bool ActiveTextPresenter::has_font_lease() const noexcept
+{
+    if (m_assets == nullptr)
+        return false;
+    const auto& default_alias = m_assets->default_font_alias();
+    const auto found = std::find_if(m_fonts.begin(), m_fonts.end(), [&](const auto& binding) {
+        return binding.alias == default_alias;
+    });
+    return found != m_fonts.end() && found->lease.has_value();
 }
 
 ActiveTextPresenterActivation

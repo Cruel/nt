@@ -138,6 +138,10 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
                                std::make_move_iterator(facts.end()));
     }
     append_dispatch_result(result, drain_backend_facts());
+    if (m_mandatory_asset_gate && !m_pending_mandatory_snapshot &&
+        !m_coordinator.has_active_visual_operation()) {
+        m_mandatory_asset_gate->release_previous_publication_on_owner();
+    }
     return result;
 }
 

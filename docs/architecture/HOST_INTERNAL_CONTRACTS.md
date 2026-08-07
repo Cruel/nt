@@ -109,9 +109,11 @@ The authoritative ordering is:
    deferred host inputs, advances GameHost session and backend generations, and rebinds generation-
    scoped RuntimeUI and shell handlers before later input is admitted. Save does not replace a
    generation. Failed Reset or Load leaves the current generations unchanged.
-4. **Host suspend and resume:** only the first suspend edge freezes host/runtime advancement and only
-   the first resume edge re-enables it; repeated notifications are no-ops. Deferred backend facts
-   remain queued until a resumed running frame can dispatch them.
+4. **Host suspend and resume:** only actual platform lifecycle edges (window minimization or app
+   backgrounding) suspend the host; ordinary keyboard/pointer focus loss does not. Only the first
+   suspend edge freezes host/runtime advancement and only the first matching restore/foreground edge
+   re-enables it; repeated notifications are no-ops. Deferred backend facts remain queued until a
+   resumed running frame can dispatch them.
 5. **Backend reset:** the first begin-reset edge advances the backend generation, discards queued
    facts from the replaced backend, terminates active presentation operations, and blocks runtime
    dispatch and project replacement. Finish-reset reconciles the current publication into the new

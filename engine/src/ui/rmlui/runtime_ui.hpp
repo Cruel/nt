@@ -1,6 +1,7 @@
 #pragma once
 
 #include "host/runtime_ui_host.hpp"
+#include "ui/rmlui/active_text_presenter.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
 
 #include <cstdint>
@@ -46,9 +47,9 @@ public:
     RuntimeUI(const RuntimeUI&) = delete;
     RuntimeUI& operator=(const RuntimeUI&) = delete;
 
-    bool initialize(assets::AssetManager* assets = nullptr, SDL_Window* window = nullptr,
-                    script::ScriptRuntime* scripts = nullptr,
-                    const ShaderMaterialProject* shader_materials = nullptr,
+    bool initialize(assets::AssetManager* assets, SDL_Window* window,
+                    script::ScriptRuntime* scripts, const ShaderMaterialProject* shader_materials,
+                    ui::rmlui::ActiveTextPresenterShaper active_text_shaper,
                     bool headless_render = false);
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);

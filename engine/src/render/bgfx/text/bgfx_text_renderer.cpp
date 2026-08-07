@@ -6,6 +6,7 @@
 #include "render/bgfx/bgfx_renderer_internal.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
+#include "noveltea/text/text_asset_loader.hpp"
 #include "text/text_engine.hpp"
 
 #include <SDL3/SDL_log.h>
@@ -149,17 +150,29 @@ public:
     {
         return m_text.layout_text(text, effective_scale());
     }
+    TextLayout layout_text(const StyledText& text) const
+    {
+        return m_text.layout_text(text, effective_scale());
+    }
+    TextLayout layout_text(const StyledText& text, float raster_scale) const
+    {
+        return m_text.layout_text(text, raster_scale);
+    }
     TextMetrics measure(const Text& text) const
     {
         return m_text.layout_text(text, effective_scale()).metrics;
     }
     TextMetrics measure(FontHandle font, std::string_view value, float size) const;
-    void draw_text(const Text& text) { draw_text(m_text.layout_text(text, effective_scale())); }
-    void draw_text(const TextLayout& layout);
+    void draw_text(const Text& text, bool viewport_local_target)
+    {
+        draw_text(m_text.layout_text(text, effective_scale()), viewport_local_target);
+    }
+    void draw_text(const TextLayout& layout, bool viewport_local_target);
     void draw_active_text(const ActiveTextLayout& layout, FontHandle font,
                           const ShaderMaterialProject* materials,
                           bgfx_backend::BgfxShaderProgramCache* programs,
-                          bgfx_backend::BgfxMaterialBinder* material_binder);
+                          bgfx_backend::BgfxMaterialBinder* material_binder,
+                          bool viewport_local_target);
 
 private:
     CachedGlyph* ensure_glyph(const PositionedGlyph& glyph);
@@ -173,11 +186,16 @@ private:
                 m_presentation.reference.size.height,
         };
     }
-    Rect reference_to_ui_raster(Rect bounds) const
+    Rect reference_to_text_target_raster(Rect bounds, bool viewport_local_target) const
     {
-        const AxisScale scale = reference_to_ui_raster_scale();
-        return {bounds.x * scale.x, bounds.y * scale.y, bounds.width * scale.x,
-                bounds.height * scale.y};
+        const PresentationTransform transform(m_presentation);
+        return viewport_local_target ? transform.reference_to_native_ui_raster(bounds)
+                                     : transform.reference_to_host_framebuffer(bounds);
+    }
+    IntegerSize text_target_raster_size(bool viewport_local_target) const
+    {
+        return viewport_local_target ? m_presentation.ui_raster.size
+                                     : m_presentation.host.framebuffer_size;
     }
     float effective_scale() const
     {
@@ -187,6 +205,7 @@ private:
 
     const assets::AssetManager& m_assets;
     text::TextEngine m_text;
+    std::unique_ptr<text::TextFontAssetLoader> m_font_loader;
     PresentationMetrics m_presentation{};
     ShaderStandardInputs m_standard_inputs{};
     text::ShelfAtlasPacker m_packer;
@@ -209,11 +228,16 @@ bool BgfxTextRenderer::initialize()
         return false;
     }
     m_sampler = bgfx::createUniform("s_textAtlas", bgfx::UniformType::Sampler);
-    return bgfx::isValid(m_sampler);
+    if (!bgfx::isValid(m_sampler))
+        return false;
+    m_font_loader = std::make_unique<text::TextFontAssetLoader>(m_assets, m_text);
+    m_assets.bind_font_loader(m_font_loader.get());
+    return true;
 }
 
 void BgfxTextRenderer::shutdown()
 {
+    m_font_loader.reset();
     for (auto& page : m_pages) {
         if (bgfx::isValid(page.texture)) {
             bgfx::destroy(page.texture);
@@ -305,7 +329,7 @@ CachedGlyph* BgfxTextRenderer::ensure_glyph(const PositionedGlyph& glyph)
     return &inserted.first->second;
 }
 
-void BgfxTextRenderer::draw_text(const TextLayout& layout)
+void BgfxTextRenderer::draw_text(const TextLayout& layout, bool viewport_local_target)
 {
     if (!bgfx::isValid(m_program) || layout.lines.empty()) {
         return;
@@ -374,10 +398,12 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
         .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
         .end();
 
-    const Rect physical_bounds = reference_to_ui_raster(layout.bounds);
+    const Rect physical_bounds =
+        reference_to_text_target_raster(layout.bounds, viewport_local_target);
+    const IntegerSize target_size = text_target_raster_size(viewport_local_target);
     const RasterScissor raster_scissor = RasterizationPolicy::clip_scissor(
-        RasterizationPolicy::contain_transformed_scissor(physical_bounds),
-        m_presentation.ui_raster.size.width, m_presentation.ui_raster.size.height);
+        RasterizationPolicy::contain_transformed_scissor(physical_bounds), target_size.width,
+        target_size.height);
     const uint16_t scissor = (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
                                  ? bgfx::setScissor(static_cast<uint16_t>(raster_scissor.x),
                                                     static_cast<uint16_t>(raster_scissor.y),
@@ -420,7 +446,8 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
 void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHandle font,
                                         const ShaderMaterialProject* materials,
                                         bgfx_backend::BgfxShaderProgramCache* programs,
-                                        bgfx_backend::BgfxMaterialBinder* material_binder)
+                                        bgfx_backend::BgfxMaterialBinder* material_binder,
+                                        bool viewport_local_target)
 {
     if (!bgfx::isValid(m_program) || layout.glyphs.empty()) {
         return;
@@ -518,6 +545,8 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
 
     const auto append_positioned_glyph = [&](const ActiveTextGlyphVisual& visual,
                                              const PositionedGlyph& positioned) {
+        // ActiveText shaping and rasterization use this same TextEngine, so the font handle and
+        // glyph index are guaranteed to refer to the same authoritative face registry.
         CachedGlyph* glyph = ensure_glyph(positioned);
         const float glyph_scale = positioned.logical_pixel_size > 0.0f
                                       ? positioned.raster_pixel_size / positioned.logical_pixel_size
@@ -690,10 +719,12 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
         .end();
 
-    const Rect physical_bounds = reference_to_ui_raster(layout.bounds);
+    const Rect physical_bounds =
+        reference_to_text_target_raster(layout.bounds, viewport_local_target);
+    const IntegerSize target_size = text_target_raster_size(viewport_local_target);
     const RasterScissor raster_scissor = RasterizationPolicy::clip_scissor(
-        RasterizationPolicy::contain_transformed_scissor(physical_bounds),
-        m_presentation.ui_raster.size.width, m_presentation.ui_raster.size.height);
+        RasterizationPolicy::contain_transformed_scissor(physical_bounds), target_size.width,
+        target_size.height);
     const uint16_t scissor = (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
                                  ? bgfx::setScissor(static_cast<uint16_t>(raster_scissor.x),
                                                     static_cast<uint16_t>(raster_scissor.y),
@@ -865,6 +896,18 @@ TextLayout Renderer::layout_text(const Text& value) const
     return text ? text->layout_text(value) : TextLayout{};
 }
 
+TextLayout Renderer::layout_text(const StyledText& value) const
+{
+    auto* text = static_cast<const BgfxTextRenderer*>(m_text_renderer);
+    return text ? text->layout_text(value) : TextLayout{};
+}
+
+TextLayout Renderer::layout_text(const StyledText& value, float raster_scale) const
+{
+    auto* text = static_cast<const BgfxTextRenderer*>(m_text_renderer);
+    return text ? text->layout_text(value, raster_scale) : TextLayout{};
+}
+
 TextMetrics Renderer::measure_text(const Text& value) const
 {
     auto* text = static_cast<const BgfxTextRenderer*>(m_text_renderer);
@@ -875,7 +918,7 @@ void Renderer::draw_text(const Text& value)
 {
     auto* text = static_cast<BgfxTextRenderer*>(m_text_renderer);
     if (text) {
-        text->draw_text(value);
+        text->draw_text(value, m_active_postprocess_scope == PostprocessScope::FullGameViewport);
     }
 }
 
@@ -883,7 +926,7 @@ void Renderer::draw_text(const TextLayout& layout)
 {
     auto* text = static_cast<BgfxTextRenderer*>(m_text_renderer);
     if (text) {
-        text->draw_text(layout);
+        text->draw_text(layout, m_active_postprocess_scope == PostprocessScope::FullGameViewport);
     }
 }
 
@@ -903,7 +946,8 @@ void Renderer::draw_active_text(const ActiveTextLayout& layout)
         inputs.paint_dimensions = {layout.bounds.width, layout.bounds.height};
         text->set_standard_inputs(inputs);
         text->draw_active_text(layout, FontHandle{m_default_text_font}, m_shader_materials,
-                               m_shader_program_cache.get(), m_material_binder.get());
+                               m_shader_program_cache.get(), m_material_binder.get(),
+                               m_active_postprocess_scope == PostprocessScope::FullGameViewport);
     }
 }
 

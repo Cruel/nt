@@ -129,6 +129,8 @@ public:
     void set_bar_color(std::uint32_t bar_color_rgba) { m_bar_color_rgba = bar_color_rgba; }
     FontHandle load_font(const FontDesc& desc);
     TextLayout layout_text(const Text& text) const;
+    TextLayout layout_text(const StyledText& text) const;
+    TextLayout layout_text(const StyledText& text, float raster_scale) const;
     TextMetrics measure_text(const Text& text) const;
     void draw_text(const Text& text);
     void draw_text(const TextLayout& layout);

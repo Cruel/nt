@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
 #include <limits>
+#include <sstream>
 #include <type_traits>
 #include <utility>
 
@@ -66,9 +68,8 @@ const AssetLease<T>* find_lease(const std::vector<StructuredAssetLeaseRecord>& r
                                 const AssetCacheKey& key) noexcept
 {
     for (const auto& record : records) {
-        if (record.descriptor.cache_key != key)
-            continue;
-        if (const auto* lease = std::get_if<AssetLease<T>>(&record.lease))
+        const auto* lease = std::get_if<AssetLease<T>>(&record.lease);
+        if (lease != nullptr && lease->cache_key() == key)
             return lease;
     }
     return nullptr;
@@ -225,6 +226,23 @@ const AssetLease<AudioAsset>*
 StructuredAssetLeaseSet::find_audio(const AssetCacheKey& key) const noexcept
 {
     return find_lease<AudioAsset>(m_records, key);
+}
+
+std::string StructuredAssetLeaseSet::describe_texture_keys() const
+{
+    std::ostringstream output;
+    bool first = true;
+    for (const auto& record : m_records) {
+        const auto* lease = std::get_if<AssetLease<TextureAsset>>(&record.lease);
+        if (lease == nullptr)
+            continue;
+        if (!first)
+            output << ", ";
+        first = false;
+        const auto& key = lease->cache_key();
+        output << key.stable_identity << "@" << key.source_generation.value;
+    }
+    return first ? "<none>" : output.str();
 }
 
 struct MandatoryAssetRequestGroup::Impl {
@@ -482,6 +500,31 @@ MandatoryAssetRequestGroup::take_ready_leases_on_owner() noexcept
 struct MandatoryAssetGate::Impl {
     explicit Impl(AssetManager& manager) noexcept : assets(manager), prefetch(manager) {}
 
+    core::DiagnosticResult<void> rebuild_index_on_owner(AssetSourceGeneration generation)
+    {
+        if (package == nullptr) {
+            return core::DiagnosticResult<void>::failure(
+                {.code = "assets.mandatory_gate_package_unbound",
+                 .message = "Mandatory asset dependency collection requires a bound compiled "
+                            "package"});
+        }
+
+        auto index =
+            StructuredAssetDependencyIndex::build(*package, active_renderer_variant, generation);
+        const auto& requirements = index.texture_preparation_requirements();
+        auto installed =
+            assets.install_texture_preparation_requirements_on_owner(generation, requirements);
+        if (!installed) {
+            collector.reset();
+            return installed;
+        }
+
+        texture_requirement_generation = generation;
+        texture_requirements = requirements;
+        collector.emplace(std::move(index));
+        return core::DiagnosticResult<void>::success();
+    }
+
     StructuredAssetDependencyContext
     context_for(const core::RuntimePresentationSnapshot& snapshot) const
     {
@@ -502,12 +545,14 @@ struct MandatoryAssetGate::Impl {
     AssetManager& assets;
     PrefetchPlanner prefetch;
     const core::LoadedCompiledPackage* package = nullptr;
+    std::string active_renderer_variant;
     std::optional<StructuredAssetDependencyCollector> collector;
     AssetSourceGeneration texture_requirement_generation;
     TexturePreparationRequirementMap texture_requirements;
     std::optional<MandatoryAssetRequestGroup> group;
     StructuredAssetDependencyBuckets dependencies;
     std::optional<core::PresentationSnapshotRevision> snapshot_revision;
+    std::optional<core::RuntimePresentationSnapshot> pending_snapshot;
     bool candidate_active = false;
 };
 
@@ -548,8 +593,9 @@ MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& pac
             sink->record_prefetch_generation_released(*released_generation);
     }
 #endif
+    m_impl->active_renderer_variant = std::string(active_renderer_variant);
     auto index =
-        StructuredAssetDependencyIndex::build(package, active_renderer_variant, generation);
+        StructuredAssetDependencyIndex::build(package, m_impl->active_renderer_variant, generation);
     const auto& requirements = index.texture_preparation_requirements();
     if (m_impl->texture_requirement_generation == generation) {
         if (m_impl->texture_requirements != requirements) {
@@ -591,6 +637,7 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
 #endif
     m_impl->collector.reset();
     m_impl->package = nullptr;
+    m_impl->active_renderer_variant.clear();
     m_impl->assets.clear_published_leases_on_owner();
 }
 
@@ -604,6 +651,30 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
                     "assets.mandatory_gate_package_unbound",
                     "Mandatory asset dependency collection requires a bound compiled package")}};
     }
+
+    const auto current_generation = m_impl->assets.source_generation_on_owner();
+    if (m_impl->texture_requirement_generation != current_generation) {
+        // Dependency descriptors embed the source generation in their cache keys. Editor preview
+        // asset staging can replace the project namespace after the package was indexed, so rebuild
+        // before issuing mandatory requests; otherwise Ready request handles can be stored under a
+        // stale descriptor key and become invisible to renderer lease lookup.
+        rollback_candidate_on_owner();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        const auto released_generation = m_impl->prefetch.active_generation_on_owner();
+#endif
+        m_impl->prefetch.clear_on_owner();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        if (released_generation) {
+            if (auto* sink = m_impl->assets.asset_profiler_sink_on_owner())
+                sink->record_prefetch_generation_released(*released_generation);
+        }
+#endif
+        auto rebuilt = m_impl->rebuild_index_on_owner(current_generation);
+        if (!rebuilt) {
+            return {.disposition = MandatoryAssetGateDisposition::Failed,
+                    .diagnostics = {std::move(rebuilt).error()}};
+        }
+    }
     if (m_impl->group && m_impl->snapshot_revision == snapshot.revision)
         return gate_result(&*m_impl->group);
 
@@ -614,6 +685,7 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
                 .diagnostics = m_impl->dependencies.mandatory_diagnostics};
     }
     m_impl->snapshot_revision = snapshot.revision;
+    m_impl->pending_snapshot = snapshot;
     m_impl->group.emplace(
         m_impl->assets, m_impl->dependencies.current_mandatory,
         MandatoryAssetGroupOptions{.phase = core::LoadingPhase::LoadingRuntimeDemand,
@@ -632,6 +704,37 @@ MandatoryAssetGate::poll_on_owner(MandatoryAssetRequestGroup::Clock::time_point 
 {
     if (!m_impl->group)
         return {};
+    const auto current_generation = m_impl->assets.source_generation_on_owner();
+    if (m_impl->texture_requirement_generation != current_generation) {
+        // A project namespace refresh can happen while a mandatory request group is still loading
+        // (notably when editor focused-preview resources advance). Those request handles belong to
+        // the retired generation and must never be promoted into the next world publication.
+        const auto snapshot = m_impl->pending_snapshot;
+        rollback_candidate_on_owner();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        const auto released_generation = m_impl->prefetch.active_generation_on_owner();
+#endif
+        m_impl->prefetch.clear_on_owner();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        if (released_generation) {
+            if (auto* sink = m_impl->assets.asset_profiler_sink_on_owner())
+                sink->record_prefetch_generation_released(*released_generation);
+        }
+#endif
+        auto rebuilt = m_impl->rebuild_index_on_owner(current_generation);
+        if (!rebuilt) {
+            return {.disposition = MandatoryAssetGateDisposition::Failed,
+                    .diagnostics = {std::move(rebuilt).error()}};
+        }
+        if (!snapshot) {
+            return {.disposition = MandatoryAssetGateDisposition::Failed,
+                    .diagnostics = {group_diagnostic(
+                        "assets.mandatory_snapshot_missing_after_generation_refresh",
+                        "Mandatory asset generation changed without a retained presentation "
+                        "snapshot")}};
+        }
+        return begin_on_owner(*snapshot, now);
+    }
     m_impl->group->poll_on_owner(now);
     return gate_result(&*m_impl->group);
 }
@@ -744,6 +847,12 @@ void MandatoryAssetGate::commit_candidate_on_owner() noexcept
 #endif
     m_impl->group.reset();
     m_impl->snapshot_revision.reset();
+    m_impl->pending_snapshot.reset();
+}
+
+void MandatoryAssetGate::release_previous_publication_on_owner() noexcept
+{
+    m_impl->assets.clear_previous_published_leases_on_owner();
 }
 
 void MandatoryAssetGate::rollback_candidate_on_owner() noexcept
@@ -756,6 +865,7 @@ void MandatoryAssetGate::rollback_candidate_on_owner() noexcept
     m_impl->candidate_active = false;
     m_impl->group.reset();
     m_impl->snapshot_revision.reset();
+    m_impl->pending_snapshot.reset();
 }
 
 bool MandatoryAssetGate::retry_on_owner(MandatoryAssetRequestGroup::Clock::time_point now) noexcept

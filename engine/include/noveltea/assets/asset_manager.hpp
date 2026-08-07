@@ -118,11 +118,14 @@ public:
     prefetch_audio(const AudioAssetRequest& request, PrefetchGenerationId generation) noexcept;
 
     // Mandatory publication candidates are visible to typed consumers only while the owner thread
-    // realizes that candidate. Commit atomically replaces the published lease set; rollback leaves
-    // the previous publication pinned and releases candidate-only leases.
+    // realizes that candidate. Commit rotates the prior published lease set into one bounded
+    // predecessor slot so finite presentation operations can realize exact source and target
+    // revisions concurrently. Rollback leaves the current publication pinned and releases only
+    // candidate leases.
     void stage_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
     void commit_candidate_leases_on_owner() noexcept;
     void rollback_candidate_leases_on_owner() noexcept;
+    void clear_previous_published_leases_on_owner() noexcept;
     void clear_published_leases_on_owner() noexcept;
     // Tooling-only demand assets are layered behind candidate/published runtime leases so
     // diagnostics and acceptance fixtures can exercise the same asynchronous preparation path
@@ -135,6 +138,7 @@ public:
     void clear_focused_published_leases_on_owner() noexcept;
     [[nodiscard]] bool has_candidate_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_published_leases_on_owner() const noexcept;
+    [[nodiscard]] bool has_previous_published_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_supplemental_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_focused_candidate_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_focused_published_leases_on_owner() const noexcept;
@@ -151,6 +155,8 @@ public:
     leased_material_on_owner(const MaterialAssetRequest& request) const noexcept;
     [[nodiscard]] const AssetLease<AudioAsset>*
     leased_audio_on_owner(const AudioAssetRequest& request) const noexcept;
+    [[nodiscard]] std::string
+    describe_texture_lease_lookup_on_owner(const TextureAssetRequest& request) const;
 
     [[nodiscard]] bool exists(std::string_view logical_path) const;
     [[nodiscard]] bool has_namespace(std::string_view namespace_name) const;

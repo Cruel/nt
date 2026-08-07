@@ -673,6 +673,125 @@ TEST_CASE("mandatory package rebinding reuses identical generation-scoped textur
     REQUIRE(gate.bind_package_on_owner(package, "glsl-120", generation));
 }
 
+TEST_CASE("mandatory gate rebuilds generation-scoped dependency keys after project source refresh",
+          "[assets][structured-prefetch][mandatory-assets][source-generation]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto bound_generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", bound_generation));
+
+    fixture.manager.mount("project", std::make_shared<assets::MemoryAssetSource>());
+    const auto refreshed_generation = fixture.manager.source_generation_on_owner();
+    REQUIRE(refreshed_generation != bound_generation);
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(10);
+    snapshot.mode = core::PresentationRuntimeMode::Room;
+    snapshot.current_room = id<core::RoomId>("start");
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-current"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+
+    const auto begun = gate.begin_on_owner(snapshot);
+    REQUIRE(begun.disposition == assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    const auto ready = gate.poll_on_owner();
+    REQUIRE(ready.disposition == assets::MandatoryAssetGateDisposition::Ready);
+    REQUIRE(gate.activate_candidate_on_owner());
+
+    const assets::TextureAssetRequest background{
+        .path = "project:/assets/images/current.png",
+        .sampler = MaterialTextureSampler::ClampLinear,
+    };
+    CHECK(fixture.manager.leased_texture_on_owner(background) != nullptr);
+    gate.commit_candidate_on_owner();
+    CHECK(fixture.manager.leased_texture_on_owner(background) != nullptr);
+    gate.clear_package_on_owner();
+}
+
+TEST_CASE("mandatory gate restarts pending requests after a project source refresh",
+          "[assets][structured-prefetch][mandatory-assets][source-generation]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    auto project_source = std::make_shared<assets::MemoryAssetSource>();
+    fixture.manager.mount("project", project_source);
+    const auto initial_generation = fixture.manager.source_generation_on_owner();
+
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-120", initial_generation));
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(31);
+    snapshot.mode = core::PresentationRuntimeMode::Room;
+    snapshot.current_room = id<core::RoomId>("start");
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-current"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+
+    const auto begun = gate.begin_on_owner(snapshot);
+    REQUIRE(begun.disposition == assets::MandatoryAssetGateDisposition::Pending);
+
+    auto refreshed = fixture.manager.refresh_namespace_on_owner("project");
+    REQUIRE(refreshed);
+    const auto refreshed_generation = *refreshed.value_if();
+    REQUIRE(refreshed_generation != initial_generation);
+
+    const auto restarted = gate.poll_on_owner();
+    REQUIRE(restarted.disposition == assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    const auto ready = gate.poll_on_owner();
+    REQUIRE(ready.disposition == assets::MandatoryAssetGateDisposition::Ready);
+    REQUIRE(gate.activate_candidate_on_owner());
+
+    const assets::TextureAssetRequest request{
+        .path = "project:/assets/images/current.png",
+        .sampler = MaterialTextureSampler::ClampLinear,
+    };
+    REQUIRE(fixture.manager.leased_texture_on_owner(request) != nullptr);
+    gate.commit_candidate_on_owner();
+    REQUIRE(fixture.manager.leased_texture_on_owner(request) != nullptr);
+    gate.clear_package_on_owner();
+}
+
+TEST_CASE(
+    "structured lease lookup uses the ready lease cache key rather than stale descriptor metadata",
+    "[assets][structured-prefetch][mandatory-assets][source-generation]")
+{
+    PlannerFixture fixture;
+    const assets::TextureAssetRequest request{
+        .path = "project:/assets/images/current.png",
+        .sampler = MaterialTextureSampler::ClampLinear,
+    };
+    const auto descriptor_generation = fixture.manager.source_generation_on_owner();
+    const auto stale_descriptor = descriptor(request, descriptor_generation);
+
+    fixture.manager.mount("project", std::make_shared<assets::MemoryAssetSource>());
+    const auto request_generation = fixture.manager.source_generation_on_owner();
+    REQUIRE(request_generation != descriptor_generation);
+
+    assets::MandatoryAssetRequestGroup group(
+        fixture.manager, {stale_descriptor},
+        {.reason = assets::AssetRequestReason::Demand, .show_overlay_immediately = true});
+    fixture.run_until_idle();
+    group.poll_on_owner();
+    REQUIRE(group.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
+    auto leases = group.take_ready_leases_on_owner();
+    REQUIRE(leases);
+
+    const auto current_key = assets::make_texture_cache_key(request, request_generation);
+    REQUIRE(leases->find_texture(current_key) != nullptr);
+    CHECK(leases->find_texture(stale_descriptor.cache_key) == nullptr);
+
+    fixture.manager.stage_candidate_leases_on_owner(std::move(*leases));
+    CHECK(fixture.manager.leased_texture_on_owner(request) != nullptr);
+    fixture.manager.rollback_candidate_leases_on_owner();
+}
+
 TEST_CASE("direct-next hotspot mask prefetch is ready for the mandatory publication gate",
           "[assets][structured-prefetch][hotspot-mask]")
 {

@@ -398,6 +398,8 @@ TextFontAssetLoader::finalize_font_source_on_owner(assets::FontAssetRequest requ
             "assets.font_source_preparation.resolve_failed",
             "prepared font family could not resolve the requested style");
     }
+    if (request.alias == m_assets.default_font_alias())
+        m_text_engine.set_default_font_family(family);
 
     auto residency_state = m_residency_state;
     return core::Result<assets::PreparedAsset<assets::FontAsset>, core::Diagnostics>::success(

@@ -5,6 +5,8 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/jobs/inline_job_executor.hpp"
 #include "noveltea/script/script_runtime.hpp"
+#include "noveltea/text/text_asset_loader.hpp"
+#include "text/text_engine.hpp"
 #include "ui/rmlui/runtime_ui.hpp"
 
 #include <filesystem>
@@ -22,7 +24,8 @@ public:
     RuntimeUiLifecycleFixture() : RuntimeUiLifecycleFixture(Config{}) {}
 
     explicit RuntimeUiLifecycleFixture(Config config)
-        : m_project_assets(std::make_shared<assets::MemoryAssetSource>())
+        : m_project_assets(std::make_shared<assets::MemoryAssetSource>()), m_text_engine(m_assets),
+          m_font_loader(m_assets, m_text_engine)
     {
         m_assets.mount("project", m_project_assets);
         if (config.mount_system_assets)
@@ -51,7 +54,13 @@ public:
         }
         if (!m_scripts.is_initialized() && !m_scripts.initialize({&m_assets}))
             return false;
-        if (!m_runtime_ui.initialize(&m_assets, nullptr, &m_scripts, nullptr, true))
+        m_assets.bind_font_loader(&m_font_loader);
+        if (!m_runtime_ui.initialize(
+                &m_assets, nullptr, &m_scripts, nullptr,
+                [this](const StyledText& text, float raster_scale) {
+                    return m_text_engine.layout_text(text, raster_scale);
+                },
+                true))
             return false;
         return m_executor.run_until_idle(64);
     }
@@ -86,6 +95,8 @@ private:
     jobs::InlineJobExecutor m_executor;
     std::shared_ptr<assets::AssetResidencyManager> m_residency;
     assets::AssetManager m_assets;
+    text::TextEngine m_text_engine;
+    text::TextFontAssetLoader m_font_loader;
     script::ScriptRuntime m_scripts;
     RuntimeUI m_runtime_ui;
     bool m_system_assets_mounted = false;

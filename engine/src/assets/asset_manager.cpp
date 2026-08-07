@@ -364,6 +364,7 @@ struct AssetManager::AsyncState {
 struct AssetManager::LeaseState {
     std::optional<StructuredAssetLeaseSet> candidate;
     std::optional<StructuredAssetLeaseSet> published;
+    std::optional<StructuredAssetLeaseSet> previous_published;
     std::optional<StructuredAssetLeaseSet> supplemental;
     std::optional<StructuredAssetLeaseSet> focused_candidate;
     std::optional<StructuredAssetLeaseSet> focused_published;
@@ -1631,6 +1632,7 @@ void AssetManager::commit_candidate_leases_on_owner() noexcept
 {
     if (m_leases == nullptr || !m_leases->candidate)
         return;
+    m_leases->previous_published = std::move(m_leases->published);
     m_leases->published = std::move(m_leases->candidate);
     m_leases->candidate.reset();
 }
@@ -1641,12 +1643,19 @@ void AssetManager::rollback_candidate_leases_on_owner() noexcept
         m_leases->candidate.reset();
 }
 
+void AssetManager::clear_previous_published_leases_on_owner() noexcept
+{
+    if (m_leases != nullptr)
+        m_leases->previous_published.reset();
+}
+
 void AssetManager::clear_published_leases_on_owner() noexcept
 {
     if (m_leases == nullptr)
         return;
     m_leases->candidate.reset();
     m_leases->published.reset();
+    m_leases->previous_published.reset();
 }
 
 void AssetManager::set_supplemental_leases_on_owner(StructuredAssetLeaseSet leases) noexcept
@@ -1701,6 +1710,11 @@ bool AssetManager::has_published_leases_on_owner() const noexcept
     return m_leases != nullptr && m_leases->published.has_value();
 }
 
+bool AssetManager::has_previous_published_leases_on_owner() const noexcept
+{
+    return m_leases != nullptr && m_leases->previous_published.has_value();
+}
+
 bool AssetManager::has_supplemental_leases_on_owner() const noexcept
 {
     return m_leases != nullptr && m_leases->supplemental.has_value();
@@ -1721,6 +1735,7 @@ namespace {
 template<class Lease, class Lookup>
 const Lease* find_leased_asset(const std::optional<StructuredAssetLeaseSet>& candidate,
                                const std::optional<StructuredAssetLeaseSet>& published,
+                               const std::optional<StructuredAssetLeaseSet>& previous_published,
                                const std::optional<StructuredAssetLeaseSet>& supplemental,
                                const std::optional<StructuredAssetLeaseSet>& focused_candidate,
                                const std::optional<StructuredAssetLeaseSet>& focused_published,
@@ -1742,6 +1757,10 @@ const Lease* find_leased_asset(const std::optional<StructuredAssetLeaseSet>& can
         if (const auto* lease = lookup(*published))
             return lease;
     }
+    if (previous_published) {
+        if (const auto* lease = lookup(*previous_published))
+            return lease;
+    }
     return supplemental ? lookup(*supplemental) : nullptr;
 }
 
@@ -1755,8 +1774,8 @@ AssetManager::leased_font_on_owner(const FontAssetRequest& request) const noexce
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<FontAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->supplemental,
-        m_leases->focused_candidate, m_leases->focused_published,
+        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_font(key); });
 }
 
@@ -1767,8 +1786,8 @@ AssetManager::leased_texture_on_owner(const TextureAssetRequest& request) const 
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<TextureAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->supplemental,
-        m_leases->focused_candidate, m_leases->focused_published,
+        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_texture(key); });
 }
 
@@ -1779,8 +1798,8 @@ AssetManager::leased_hotspot_mask_on_owner(const HotspotMaskAssetRequest& reques
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<HotspotMaskAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->supplemental,
-        m_leases->focused_candidate, m_leases->focused_published,
+        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_hotspot_mask(key); });
 }
 
@@ -1791,8 +1810,8 @@ const AssetLease<ShaderProgramAsset>* AssetManager::leased_shader_program_on_own
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<ShaderProgramAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->supplemental,
-        m_leases->focused_candidate, m_leases->focused_published,
+        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_shader_program(key); });
 }
 
@@ -1803,8 +1822,8 @@ AssetManager::leased_material_on_owner(const MaterialAssetRequest& request) cons
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<MaterialAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->supplemental,
-        m_leases->focused_candidate, m_leases->focused_published,
+        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_material(key); });
 }
 
@@ -1815,9 +1834,32 @@ AssetManager::leased_audio_on_owner(const AudioAssetRequest& request) const noex
     if (m_leases == nullptr)
         return nullptr;
     return find_leased_asset<AssetLease<AudioAsset>>(
-        m_leases->candidate, m_leases->published, m_leases->supplemental,
-        m_leases->focused_candidate, m_leases->focused_published,
+        m_leases->candidate, m_leases->published, m_leases->previous_published,
+        m_leases->supplemental, m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_audio(key); });
+}
+
+std::string
+AssetManager::describe_texture_lease_lookup_on_owner(const TextureAssetRequest& request) const
+{
+    const auto key = make_texture_cache_key(request, m_source_generation);
+    std::string result =
+        "lookup=" + key.stable_identity + "@" + std::to_string(key.source_generation.value);
+    if (m_leases == nullptr) {
+        return result + " candidate=<none> published=<none> focused-candidate=<none> "
+                        "focused-published=<none> supplemental=<none>";
+    }
+
+    const auto describe = [](const std::optional<StructuredAssetLeaseSet>& leases) {
+        return leases ? leases->describe_texture_keys() : std::string{"<absent>"};
+    };
+    result += " candidate=[" + describe(m_leases->candidate) + "]";
+    result += " published=[" + describe(m_leases->published) + "]";
+    result += " previous-published=[" + describe(m_leases->previous_published) + "]";
+    result += " focused-candidate=[" + describe(m_leases->focused_candidate) + "]";
+    result += " focused-published=[" + describe(m_leases->focused_published) + "]";
+    result += " supplemental=[" + describe(m_leases->supplemental) + "]";
+    return result;
 }
 
 bool AssetManager::exists(std::string_view logical_path) const

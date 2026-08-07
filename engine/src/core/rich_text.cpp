@@ -168,7 +168,7 @@ std::optional<std::string> parse_tag_at(std::string_view text, std::size_t start
 void parse_single_arg(StyleTag& tag, std::string_view full, std::string key)
 {
     auto parts = split(full, '=');
-    tag.name = parts.empty() ? std::string{} : parts[0];
+    tag.name = parts.empty() ? std::string{} : split(parts[0], ' ')[0];
     if (parts.size() > 1)
         tag.params[std::move(key)] = parts[1];
 }

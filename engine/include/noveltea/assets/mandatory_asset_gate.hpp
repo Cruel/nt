@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -45,6 +46,7 @@ public:
     [[nodiscard]] const AssetLease<MaterialAsset>*
     find_material(const AssetCacheKey& key) const noexcept;
     [[nodiscard]] const AssetLease<AudioAsset>* find_audio(const AssetCacheKey& key) const noexcept;
+    [[nodiscard]] std::string describe_texture_keys() const;
 
 private:
     std::vector<StructuredAssetLeaseRecord> m_records;
@@ -141,6 +143,7 @@ public:
                                          MandatoryAssetRequestGroup::Clock::now()) noexcept;
     [[nodiscard]] bool activate_candidate_on_owner() noexcept;
     void commit_candidate_on_owner() noexcept;
+    void release_previous_publication_on_owner() noexcept;
     void rollback_candidate_on_owner() noexcept;
     [[nodiscard]] bool retry_on_owner(MandatoryAssetRequestGroup::Clock::time_point now =
                                           MandatoryAssetRequestGroup::Clock::now()) noexcept;

@@ -71,6 +71,18 @@ The first implementation is render-thread-owned. FreeType faces and HarfBuzz fon
 
 Rich text style metadata for bold, italic, underline, strike, font alias, and font size is preserved through `ActiveTextFrame` and `ActiveTextLayout`. The first renderer-backed ActiveText styling checkpoint uses renderer-side synthetic styling: bold is approximated with an offset glyph pass, italic is approximated with a glyph-quad shear, and underline/strike are approximated with decoration glyphs. This makes direct ActiveText visually distinguish common styles while keeping the API path open for real font-family resolution and FreeType-backed synthetic rasterization.
 
+ActiveText shaping and glyph rasterization use the same renderer-owned `TextEngine`. RuntimeUI owns
+playback/layout metadata and retains asynchronous typed leases for the project default font plus each
+explicit rich-text font alias used by the current document, but delegates styled shaping to the
+renderer. All compiled project font assets are registered as typed font-family configurations by
+their asset ids, and async private-family finalization publishes the resolved alias into the
+renderer-owned registry. Empty rich-text aliases use the project-configured default alias; `sys`
+remains the engine fallback. `PositionedGlyph.font` and `PositionedGlyph.glyph_id` therefore come from
+the exact FreeType/HarfBuzz face registry that later rasterizes them; renderer code must not remap a
+foreign font handle while reusing its glyph ID, because glyph IDs are face-specific. RuntimeUI
+initialization requires this renderer-owned styled shaper and does not silently initialize a direct
+ActiveText path without it.
+
 The longer-term plan is tracked in [`docs/rendering/plans/TEXT_FONT_STYLE_PLAN.md`](plans/TEXT_FONT_STYLE_PLAN.md). It separates concrete `FontHandle` values from logical font families, prefers registered real bold/italic faces when available, and falls back to synthetic style when only a regular TTF is provided.
 
 ## Deferred

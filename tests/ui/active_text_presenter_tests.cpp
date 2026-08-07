@@ -2,6 +2,8 @@
 #include <catch2/catch_approx.hpp>
 
 #include "noveltea/jobs/inline_job_executor.hpp"
+#include "noveltea/text/text_asset_loader.hpp"
+#include "text/text_engine.hpp"
 #include "ui/rmlui/active_text_presenter.hpp"
 
 #include <cmath>
@@ -160,29 +162,70 @@ TEST_CASE("ActiveTextPresenter reacquires its font after project font generation
     noveltea::jobs::InlineJobExecutor executor;
     auto residency = std::make_shared<noveltea::assets::AssetResidencyManager>(font_test_budget());
     noveltea::assets::AssetManager assets;
-    assets.mount_directory("project", NOVELTEA_SOURCE_DIR "/apps/sandbox/assets");
+    assets.mount_directory("project", NOVELTEA_SOURCE_DIR "/engine/assets/system");
     assets.mount_directory("system", NOVELTEA_SOURCE_DIR "/engine/assets/system");
     REQUIRE(assets.configure_async_requests(executor, residency));
 
     noveltea::core::Diagnostics diagnostics;
+    noveltea::text::TextEngine text_engine(assets);
+    REQUIRE(text_engine.valid());
+    noveltea::text::TextFontAssetLoader font_loader(assets, text_engine);
+    assets.bind_font_loader(&font_loader);
     noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
-    presenter.initialize(assets);
-    assets.configure_fonts({});
+    presenter.initialize(assets,
+                         [&text_engine](const noveltea::StyledText& text, float raster_scale) {
+                             return text_engine.layout_text(text, raster_scale);
+                         });
+    noveltea::assets::FontAssetConfig font_config;
+    font_config.default_alias = "body";
+    font_config.families.push_back({.alias = "body",
+                                    .regular = {.asset_path = "project:/fonts/LiberationSans.ttf"},
+                                    .synthetic_styles = true});
+    assets.configure_fonts(std::move(font_config));
 
-    auto view = make_room_view("Generation-aware ActiveText");
+    const std::string rich_text = "[font id=sys]System[/font] project default";
+    const auto parsed = noveltea::core::parse_rich_text(rich_text);
+    REQUIRE(parsed.runs.size() >= 2u);
+    CHECK(parsed.runs.front().style.font_alias == "sys");
+    CHECK(parsed.runs.back().style.font_alias.empty());
+    auto view = make_room_view(rich_text);
     bool ready = false;
     for (std::size_t iteration = 0; iteration < 1024 && !ready; ++iteration) {
         (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
         presenter.refresh_layout(&view, surface());
-        ready = presenter.has_font_lease();
+        ready = presenter.has_font_lease() && presenter.render_snapshot().used_shaped_layout;
         if (!ready)
             (void)executor.advance_one_step();
     }
     REQUIRE(ready);
-    CHECK_FALSE(presenter.render_snapshot().glyphs.empty());
-    CHECK(std::none_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
-        return diagnostic.code == "runtime_ui.active_text_font_lease_missing";
-    }));
+    const auto& layout = presenter.render_snapshot();
+    REQUIRE(layout.glyphs.size() > 6u);
+    REQUIRE(layout.glyphs.front().has_shaped_glyph);
+    REQUIRE(layout.glyphs.back().has_shaped_glyph);
+    const auto renderer_system_font =
+        text_engine.resolve_font("sys", noveltea::TextFontRegular).face;
+    const auto renderer_body_font =
+        text_engine.resolve_font("body", noveltea::TextFontRegular).face;
+    REQUIRE(renderer_system_font);
+    REQUIRE(renderer_body_font);
+    CHECK(renderer_system_font != renderer_body_font);
+    CHECK(layout.glyphs.front().shaped_glyph.font == renderer_system_font);
+    CHECK(layout.glyphs.back().font_alias.empty());
+    CHECK(layout.glyphs.back().shaped_glyph.font.id == renderer_body_font.id);
+
+    // A source-generation change discards the old typed leases and reacquires the configured
+    // default/inline families into the same authoritative shaping registry.
+    assets.configure_fonts(assets.font_config());
+    ready = false;
+    for (std::size_t iteration = 0; iteration < 1024 && !ready; ++iteration) {
+        (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+        presenter.refresh_layout(&view, surface());
+        ready = presenter.has_font_lease() && presenter.render_snapshot().used_shaped_layout;
+        if (!ready)
+            (void)executor.advance_one_step();
+    }
+    REQUIRE(ready);
+    CHECK(text_engine.resolve_font("body", noveltea::TextFontRegular).face);
 
     executor.begin_shutdown();
     (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());

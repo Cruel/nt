@@ -192,6 +192,16 @@ TEST_CASE("Production viewport fitting preserves deterministic odd-pixel bar own
     CHECK(native_viewport.y == Catch::Approx(0.0f));
     CHECK(native_viewport.width == Catch::Approx(1500.0f));
     CHECK(native_viewport.height == Catch::Approx(843.0f));
+
+    const Vec2 host_framebuffer_origin = transform.reference_to_host_framebuffer(Vec2{0.0f, 0.0f});
+    CHECK(host_framebuffer_origin.x == Catch::Approx(0.0f));
+    CHECK(host_framebuffer_origin.y == Catch::Approx(179.0f));
+    const Rect host_framebuffer_reference =
+        transform.reference_to_host_framebuffer({0.0f, 0.0f, 1280.0f, 720.0f});
+    CHECK(host_framebuffer_reference.x == Catch::Approx(0.0f));
+    CHECK(host_framebuffer_reference.y == Catch::Approx(179.0f));
+    CHECK(host_framebuffer_reference.width == Catch::Approx(1500.0f));
+    CHECK(host_framebuffer_reference.height == Catch::Approx(843.0f));
 }
 
 TEST_CASE("Presentation transform rejects bars and preserves fractional host projection")

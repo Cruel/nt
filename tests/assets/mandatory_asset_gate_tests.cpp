@@ -640,6 +640,65 @@ TEST_CASE("candidate rollback preserves the last valid published lease set",
     shutdown(executor);
 }
 
+TEST_CASE("publication commit retains exactly one predecessor lease set until explicit release",
+          "[assets][mandatory-assets][transition][residency]")
+{
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    MatrixState state;
+    MatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+
+    const auto generation = manager.source_generation_on_owner();
+    const assets::TextureAssetRequest source_request{.path = "project:/textures/source.png"};
+    const assets::TextureAssetRequest target_request{.path = "project:/textures/target.png"};
+    const auto source_descriptor = matrix_descriptor(source_request, generation);
+    const auto target_descriptor = matrix_descriptor(target_request, generation);
+
+    assets::MandatoryAssetRequestGroup source_group(manager, {source_descriptor});
+    REQUIRE(drive_until(executor, [&] {
+        source_group.poll_on_owner();
+        return source_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    auto source_leases = source_group.take_ready_leases_on_owner();
+    REQUIRE(source_leases);
+    manager.stage_candidate_leases_on_owner(std::move(*source_leases));
+    manager.commit_candidate_leases_on_owner();
+    REQUIRE(manager.leased_texture_on_owner(source_request));
+    CHECK_FALSE(manager.has_previous_published_leases_on_owner());
+
+    assets::MandatoryAssetRequestGroup target_group(manager, {target_descriptor});
+    REQUIRE(drive_until(executor, [&] {
+        target_group.poll_on_owner();
+        return target_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    auto target_leases = target_group.take_ready_leases_on_owner();
+    REQUIRE(target_leases);
+    manager.stage_candidate_leases_on_owner(std::move(*target_leases));
+    manager.commit_candidate_leases_on_owner();
+
+    CHECK(manager.has_published_leases_on_owner());
+    CHECK(manager.has_previous_published_leases_on_owner());
+    REQUIRE(manager.leased_texture_on_owner(source_request));
+    REQUIRE(manager.leased_texture_on_owner(target_request));
+    CHECK(residency->classification_on_owner(source_descriptor.cache_key) ==
+          assets::ResidencyClass::Pinned);
+    CHECK(residency->classification_on_owner(target_descriptor.cache_key) ==
+          assets::ResidencyClass::Pinned);
+
+    manager.clear_previous_published_leases_on_owner();
+    CHECK_FALSE(manager.has_previous_published_leases_on_owner());
+    CHECK_FALSE(manager.leased_texture_on_owner(source_request));
+    REQUIRE(manager.leased_texture_on_owner(target_request));
+    CHECK(residency->classification_on_owner(source_descriptor.cache_key) ==
+          assets::ResidencyClass::Cold);
+
+    manager.clear_published_leases_on_owner();
+    shutdown(executor);
+}
+
 TEST_CASE("prefetch outcome matrix passes in cooperative execution",
           "[assets][mandatory-assets][cooperative][prefetch]")
 {

@@ -11,13 +11,11 @@
 #include <memory>
 #include <optional>
 #include <string>
-
-namespace noveltea::text {
-class TextEngine;
-class TextFontAssetLoader;
-} // namespace noveltea::text
+#include <vector>
 
 namespace noveltea::ui::rmlui {
+
+using ActiveTextPresenterShaper = std::function<TextLayout(const StyledText&, float)>;
 
 struct ActiveTextPresenterSurface {
     Rect bounds{};
@@ -41,7 +39,7 @@ public:
     ActiveTextPresenter(const ActiveTextPresenter&) = delete;
     ActiveTextPresenter& operator=(const ActiveTextPresenter&) = delete;
 
-    void initialize(assets::AssetManager& assets);
+    void initialize(assets::AssetManager& assets, ActiveTextPresenterShaper shape_text);
     void advance(const core::TypedRuntimeUIViewState* view, float delta_seconds);
     void refresh_layout(const core::TypedRuntimeUIViewState* view,
                         const std::optional<ActiveTextPresenterSurface>& surface);
@@ -51,11 +49,19 @@ public:
 
     [[nodiscard]] const ActiveTextLayout& render_snapshot() const noexcept { return m_layout; }
     [[nodiscard]] bool direct_render_enabled() const noexcept { return m_direct_render_enabled; }
-    [[nodiscard]] bool has_font_lease() const noexcept { return m_font_lease.has_value(); }
+    [[nodiscard]] bool has_font_lease() const noexcept;
     [[nodiscard]] core::ActiveTextPresentationPhase presentation_phase() const noexcept;
 
 private:
-    void ensure_font_request_current();
+    struct FontBinding {
+        std::string alias;
+        std::optional<assets::AssetRequestHandle<assets::FontAsset>> request;
+        std::optional<assets::AssetLease<assets::FontAsset>> lease;
+        bool failed = false;
+    };
+
+    void ensure_font_requests_current(const core::RichTextDocument& document);
+    [[nodiscard]] bool poll_font_requests();
 
     core::Diagnostics& m_diagnostics;
     assets::AssetManager* m_assets = nullptr;
@@ -63,16 +69,13 @@ private:
     ActiveTextPlaybackConfig m_playback_config{};
     std::size_t m_page_index = 0;
     std::size_t m_page_count = 1;
-    std::unique_ptr<text::TextEngine> m_text_engine;
-    std::unique_ptr<text::TextFontAssetLoader> m_font_loader;
-    std::optional<assets::AssetRequestHandle<assets::FontAsset>> m_font_request;
-    std::optional<assets::AssetLease<assets::FontAsset>> m_font_lease;
+    ActiveTextPresenterShaper m_shape_text;
+    std::vector<FontBinding> m_fonts;
     assets::AssetSourceGeneration m_font_generation;
     ActiveTextLayout m_layout;
     std::string m_content_key;
     double m_time_seconds = 0.0;
     bool m_direct_render_enabled = true;
-    bool m_reported_missing_font_lease = false;
 };
 
 } // namespace noveltea::ui::rmlui

@@ -158,6 +158,12 @@ surface. Presentation bars occupy all host output outside it.
 
 The viewport framebuffer size is the native game-output size for the frame.
 
+Reference-to-host-framebuffer projection is distinct from reference-to-native-UI-raster projection.
+The latter is viewport-local and begins at `(0, 0)`; the former adds the fitted framebuffer viewport
+origin. Backbuffer scissors for runtime UI therefore must include the fitted viewport origin, while
+scissors for viewport-local intermediate render targets must not. This distinction is observable when
+letterboxing introduces non-zero top/bottom or left/right presentation bars.
+
 ### Reference projection
 
 Reference-space composition is independent from output size. A host resize changes presentation and

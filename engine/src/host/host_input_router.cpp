@@ -180,18 +180,17 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
         result.lifecycle_actions.emplace_back(SuspendHostAction{});
         break;
     case NormalizedHostEventKind::FocusLost:
-        // Moving focus from an embedded preview canvas to editor-owned controls is not a platform
-        // suspension. Preview activity and visibility are governed explicitly by the editor bridge.
-        if (context.mode != HostInputMode::Preview)
-            result.lifecycle_actions.emplace_back(SuspendHostAction{});
+        // Ordinary focus changes are input-focus changes, not host lifecycle suspension. Native
+        // desktops can emit focus churn during alt-tab, compositor transitions, dialogs, or window
+        // manager operations; stopping/restarting the audio device on those edges is both
+        // unnecessary and can leave the host suspended if a matching focus edge is not delivered.
+        // Minimize/background events remain the authoritative suspension boundary.
         break;
     case NormalizedHostEventKind::WindowRestored:
     case NormalizedHostEventKind::EnteredForeground:
         result.lifecycle_actions.emplace_back(ResumeHostAction{});
         break;
     case NormalizedHostEventKind::FocusGained:
-        if (context.mode != HostInputMode::Preview)
-            result.lifecycle_actions.emplace_back(ResumeHostAction{});
         break;
     case NormalizedHostEventKind::WindowResized:
         result.lifecycle_actions.emplace_back(RefreshHostSurfaceAction{});
@@ -276,6 +275,12 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
         } else if (event.proposed_runtime_input) {
             result.runtime_inputs.push_back(*event.proposed_runtime_input);
             result.disposition = HostInputDisposition::Consumed;
+        } else if ((event.kind == NormalizedHostEventKind::MouseButtonDown &&
+                    event.mouse_button == SDL_BUTTON_LEFT) ||
+                   event.kind == NormalizedHostEventKind::TouchDown) {
+            // A primary gameplay press first gets a chance to complete the current skippable
+            // presentation. The engine only consumes it when an operation is actually active.
+            result.tooling_actions.emplace_back(FastForwardPresentationToolingAction{});
         }
     }
 

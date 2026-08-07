@@ -147,6 +147,11 @@ public:
     [[nodiscard]] Vec2 reference_to_native_ui_raster(Vec2 reference_point) const;
     [[nodiscard]] Rect reference_to_native_ui_raster(Rect reference_rect) const;
 
+    // Maps reference geometry into absolute host-framebuffer coordinates inside the fitted game
+    // viewport. Unlike native-UI-raster coordinates, this includes the presentation-bar origin.
+    [[nodiscard]] Vec2 reference_to_host_framebuffer(Vec2 reference_point) const;
+    [[nodiscard]] Rect reference_to_host_framebuffer(Rect reference_rect) const;
+
     // Preserves fractions and uses the context's realized per-axis scale. It does not divide by the
     // requested UI scale, snap, clamp, or reject out-of-range coordinates.
     [[nodiscard]] Vec2 reference_to_context_logical(Vec2 reference_point,
