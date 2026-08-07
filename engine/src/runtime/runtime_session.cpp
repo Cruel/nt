@@ -204,6 +204,10 @@ core::Diagnostics RuntimeSession::settle_transaction()
         m_skip_next_checkpoint_settlement = false;
         return {};
     }
+    // The execution fault is already reported. Re-projecting the same unsaveable state every frame
+    // only repeats save.execution_fault and cannot produce a usable checkpoint.
+    if (m_kernel->state().execution_fault())
+        return {};
     RuntimeCheckpointFacts facts{
         .input_queue_settled = true,
         .output_queue_settled = true,
@@ -951,12 +955,22 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                 m_room_description_visit = visit;
                 m_room_description_visible = !gameplay_ui.room->description.empty();
             }
-            if (!m_room_description_visible)
+            const bool room_transition_active = !m_kernel->state().flow_stack().empty() &&
+                                                std::holds_alternative<core::RoomTransitionFrame>(
+                                                    m_kernel->state().flow_stack().front());
+            // Keep the newly committed Room description pending while its lifecycle/visual
+            // transition is still active. Suppressing the published copy must not consume the
+            // per-visit description before the settled Room publication can display it.
+            if (!m_room_description_visible || room_transition_active)
                 gameplay_ui.room->description.clear();
         }
         const bool has_choice = (gameplay_ui.scene && gameplay_ui.scene->choice) ||
                                 (gameplay_ui.dialogue && gameplay_ui.dialogue->choice);
-        const bool room_description_pending = gameplay_ui.room && m_room_description_visible;
+        const bool room_transition_active = !m_kernel->state().flow_stack().empty() &&
+                                            std::holds_alternative<core::RoomTransitionFrame>(
+                                                m_kernel->state().flow_stack().front());
+        const bool room_description_pending =
+            gameplay_ui.room && m_room_description_visible && !room_transition_active;
         gameplay_ui.can_continue =
             (active_blocker<core::InputFlowBlocker>(*m_kernel) != nullptr && !has_choice) ||
             room_description_pending;
@@ -1125,6 +1139,9 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                 PendingPresentationCompletion{operation_id, completion->owner, completion->blocker,
                                               pending_is_room_navigation(*pending)};
         }
+        // The host may have rebound or reset its realization backend since this source revision was
+        // published. Re-prime the exact predecessor before every finite operation.
+        result.presentation_predecessor = *source_snapshot;
         m_kernel->commit_pending_presentation();
     }
 

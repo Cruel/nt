@@ -37,7 +37,8 @@ control edit is dispatched immediately through an undoable command and becomes p
 authoritative working document. This includes semantically invalid but representable values such as
 empty required strings, malformed colors, zero or negative numeric values, and unresolved record
 references. Validation reports those values without reverting, normalizing, or unloading the
-project.
+project. Mode-switching controls may atomically replace fields that are inactive under the selected
+mode so the command never creates a transiently invalid combination.
 
 Numeric text that is not yet representable by the project type, such as an empty required number,
 `-`, or `1.`, is stored as one field-level pending input keyed by the `project:settings` save unit and
@@ -134,6 +135,13 @@ lossy input coercion. Enabled ranges must include `1.0`.
 
 Invalid present values remain authoritative in the Project Settings editing view. Missing fields use
 schema defaults, while malformed but structurally recoverable values remain visible for correction.
+
+Room navigation transition controls are conditional. `Cut` hides duration and fade color, while
+`Fade` and `Dissolve` expose duration and only `Fade` exposes the shared color picker. Inactive
+duration and fade-color values remain stored so authors can cycle between kinds without re-entering
+them. Compilation canonicalizes the active runtime transition: Cut uses zero duration, and non-Fade
+kinds ignore the stored color. Selecting an animated kind supplies a valid default only when no
+positive duration has been authored yet.
 
 ## Built-In Fallbacks
 

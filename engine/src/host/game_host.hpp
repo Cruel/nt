@@ -79,9 +79,11 @@ struct GameHostLoadHooks {
                                                         const assets::AssetManager&)>
         prepare_candidate;
     std::function<void()> detach_current_resources;
-    std::function<void(const runtime::RunningGame&, const runtime::RuntimePublication&)>
+    std::function<core::Result<void, core::Diagnostics>(const runtime::RunningGame&,
+                                                        const runtime::RuntimePublication&)>
         commit_candidate_resources;
-    std::function<void(const runtime::RunningGame&)> restore_previous_resources;
+    std::function<core::Result<void, core::Diagnostics>(const runtime::RunningGame&)>
+        restore_previous_resources;
 };
 
 class GameHost final : public RuntimeInputSink {

@@ -433,12 +433,11 @@ RuntimeExecutor::start_transient(const core::DialogueId& dialogue)
 core::Result<core::RoomView, RuntimeExecutionError>
 RuntimeExecutor::room_view(std::string_view runtime_locale)
 {
-    const auto* mode = std::get_if<core::RoomMode>(&m_state.mode());
     const auto* visit = m_state.room_visit() ? &*m_state.room_visit() : nullptr;
-    if (mode == nullptr || visit == nullptr || visit->room != mode->room ||
-        !m_state.flow_stack().empty())
-        return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
-            "execution.room_view_unavailable", "Room view requires an active completed Room mode"));
+    if (visit == nullptr || !has_current_room_context())
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(
+            execution_error("execution.room_view_unavailable",
+                            "Room view requires an active committed Room visit"));
     auto refreshed = refresh_room_presentation(runtime_locale);
     if (!refreshed)
         return core::Result<core::RoomView, RuntimeExecutionError>::failure(refreshed.error());
@@ -452,6 +451,24 @@ RuntimeExecutor::room_view(std::string_view runtime_locale)
         return core::Result<core::RoomView, RuntimeExecutionError>::failure(inventory.error());
     view.controls = inventory_value->controls;
     return core::Result<core::RoomView, RuntimeExecutionError>::success(std::move(view));
+}
+
+bool RuntimeExecutor::has_current_room_context() const noexcept
+{
+    const auto* visit = m_state.room_visit() ? &*m_state.room_visit() : nullptr;
+    if (visit == nullptr)
+        return false;
+    if (const auto* mode = std::get_if<core::RoomMode>(&m_state.mode()))
+        return m_state.flow_stack().empty() && visit->room == mode->room;
+    if (m_state.flow_stack().empty())
+        return false;
+    const auto* transition = std::get_if<core::RoomTransitionFrame>(&m_state.flow_stack().front());
+    if (transition == nullptr)
+        return false;
+    if (visit->room == transition->target_room)
+        return transition->position.stage >= core::RoomTransitionStage::CommitRoomSwitch;
+    return transition->source_room && visit->room == *transition->source_room &&
+           transition->position.stage <= core::RoomTransitionStage::CommitRoomSwitch;
 }
 
 core::Result<void, RuntimeExecutionError>

@@ -100,6 +100,11 @@ function project() {
   return next;
 }
 
+function currentRoomNavigationTransition() {
+  return (useProjectStore.getState().document as ReturnType<typeof project> | null)?.settings
+    .presentation.roomNavigationTransition;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   useCommandStore.getState().resetCommandHistory();
@@ -154,6 +159,70 @@ describe('ProjectSettingsEditor', () => {
       'page',
     );
     expect(screen.getByLabelText('Display name')).toBeInTheDocument();
+  });
+
+  it('preserves inactive room transition fields while showing only active controls', async () => {
+    const nextProject = project();
+    nextProject.settings.presentation.roomNavigationTransition = {
+      kind: 'cut',
+      durationMs: 750,
+      color: '#112233',
+      skippable: true,
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: nextProject,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Transitions');
+
+    const kind = screen.getByLabelText('Kind');
+    expect(screen.queryByLabelText('Duration (ms)')).not.toBeInTheDocument();
+    expect(screen.queryByText('Fade color')).not.toBeInTheDocument();
+
+    fireEvent.change(kind, { target: { value: 'fade' } });
+    await waitFor(() =>
+      expect(currentRoomNavigationTransition()).toMatchObject({
+        kind: 'fade',
+        durationMs: 750,
+        color: '#112233',
+      }),
+    );
+    expect(screen.getByLabelText('Duration (ms)')).toBeInTheDocument();
+    expect(screen.getByText('Fade color')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose fade color' })).toBeInTheDocument();
+
+    fireEvent.change(kind, { target: { value: 'dissolve' } });
+    await waitFor(() =>
+      expect(currentRoomNavigationTransition()).toMatchObject({
+        kind: 'dissolve',
+        durationMs: 750,
+        color: '#112233',
+      }),
+    );
+    expect(screen.getByLabelText('Duration (ms)')).toBeInTheDocument();
+    expect(screen.queryByText('Fade color')).not.toBeInTheDocument();
+
+    fireEvent.change(kind, { target: { value: 'cut' } });
+    await waitFor(() =>
+      expect(currentRoomNavigationTransition()).toMatchObject({
+        kind: 'cut',
+        durationMs: 750,
+        color: '#112233',
+      }),
+    );
+    expect(screen.queryByLabelText('Duration (ms)')).not.toBeInTheDocument();
+
+    fireEvent.change(kind, { target: { value: 'fade' } });
+    await waitFor(() =>
+      expect(currentRoomNavigationTransition()).toMatchObject({
+        kind: 'fade',
+        durationMs: 750,
+        color: '#112233',
+      }),
+    );
+    expect(screen.getByRole('button', { name: 'Choose fade color' })).toHaveTextContent('#112233');
   });
 
   it('writes metadata, entrypoint, and startup script directly through focused commands', async () => {

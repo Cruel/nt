@@ -147,9 +147,9 @@ public:
         return core::Result<void, core::Diagnostics>::success();
     }
 
-    [[nodiscard]] bool dispatch_shell_runtime_input(core::RuntimeInputMessage) override
+    [[nodiscard]] bool dispatch_shell_runtime_input(core::RuntimeInputMessage input) override
     {
-        return true;
+        return dispatch_runtime_input ? dispatch_runtime_input(std::move(input)) : true;
     }
 
     [[nodiscard]] core::Result<void, core::Diagnostics> set_runtime_ui_scale(double) override
@@ -179,6 +179,7 @@ public:
     void request_shell_quit() override {}
 
     bool fail_next_mount = false;
+    std::function<bool(core::RuntimeInputMessage)> dispatch_runtime_input;
 };
 
 class FakeRuntimeUiHost final : public RuntimeUiHost {
@@ -268,6 +269,21 @@ std::string navigable_compiled_project_fixture()
           {"target", {{"kind", "room"}, {"id", "hall"}}},
           {"transition", nullptr}}});
     rooms.push_back(std::move(hall));
+    return project.dump();
+}
+
+std::string lua_counter_compiled_project_fixture()
+{
+    auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    auto& hooks = project["definitions"]["rooms"][0]["lifecycle"]["hooks"];
+    REQUIRE(hooks.is_array());
+    const auto before_enter = std::find_if(hooks.begin(), hooks.end(), [](const auto& hook) {
+        return hook.value("hook", "") == "before-enter";
+    });
+    REQUIRE(before_enter != hooks.end());
+    (*before_enter)["effects"].push_back(
+        {{"kind", "run-lua-effect"}, {"source", "counter = (counter or 0) + 1"}});
     return project.dump();
 }
 
@@ -466,7 +482,10 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     };
     hooks.detach_current_resources = [&]() { ++detach_calls; };
     hooks.commit_candidate_resources = [&](const runtime::RunningGame&,
-                                           const runtime::RuntimePublication&) { ++commit_calls; };
+                                           const runtime::RuntimePublication&) {
+        ++commit_calls;
+        return core::Result<void, core::Diagnostics>::success();
+    };
 
     auto loaded = host.load_compiled_project({.logical_path = "project:/minimal.json",
                                               .runtime_locale = "en",
@@ -497,7 +516,9 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     };
     replacement_hooks.detach_current_resources = [&]() { old_bindings_detached = true; };
     replacement_hooks.commit_candidate_resources = [](const runtime::RunningGame&,
-                                                      const runtime::RuntimePublication&) {};
+                                                      const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
 
     auto replaced = host.load_compiled_project({.logical_path = "project:/minimal.json",
                                                 .runtime_locale = "en",
@@ -515,6 +536,58 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     REQUIRE_FALSE(stale.accepted());
     CHECK(stale.diagnostics.front().code == "host.stale_runtime_input_generation");
     scripts.on_invalidate = {};
+}
+
+TEST_CASE("GameHost validates stopped loads in an isolated Lua VM")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = lua_counter_compiled_project_fixture();
+    project_assets->add("lua-counter.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-lua-isolation-test");
+    assets.mount("project", project_assets);
+
+    script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    FakeRuntimeUiHost runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = scripts,
+                   .diagnostic_sink = {}});
+
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/lua-counter.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = true},
+                                       {}));
+    auto untouched = scripts.evaluate_bool("counter == nil", "stopped-load-validation-isolation");
+    REQUIRE(untouched);
+    CHECK(*untouched.value_if());
+
+    auto started = host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.accepted());
+    auto executed_once = scripts.evaluate_bool("counter == 1", "stopped-load-live-start");
+    REQUIRE(executed_once);
+    CHECK(*executed_once.value_if());
 }
 
 TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
@@ -608,6 +681,9 @@ TEST_CASE("PreviewHost exact-exit navigation transitions the active Room")
                    .world_transitions = nullptr,
                    .script_certifier = scripts,
                    .diagnostic_sink = {}});
+    system_layout_host.dispatch_runtime_input = [&host](core::RuntimeInputMessage input) {
+        return host.submit_runtime_input(std::move(input)).accepted();
+    };
     Renderer renderer;
     ShaderMaterialProject shader_materials;
     LayoutRealizer preview_layout_realizer(assets, runtime_ui);
@@ -1003,6 +1079,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
         profiler.rotate_session_on_owner();
 #endif
+        return core::Result<void, core::Diagnostics>::success();
     };
 
     auto rejected = host.load_compiled_project({.logical_path = "project:/minimal.json",
@@ -1053,6 +1130,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
         profiler.rotate_session_on_owner();
         candidate_profiler_session = profiler.session_id_on_owner();
 #endif
+        return core::Result<void, core::Diagnostics>::success();
     };
     rollback_hooks.restore_previous_resources = [&](const runtime::RunningGame&) {
         ++restore_calls;
@@ -1060,6 +1138,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
         profiler.rotate_session_on_owner();
         restored_profiler_session = profiler.session_id_on_owner();
 #endif
+        return core::Result<void, core::Diagnostics>::success();
     };
     system_layout_host.fail_next_mount = true;
 
@@ -1087,6 +1166,130 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     CHECK(*restored_profiler_session != *candidate_profiler_session);
     CHECK(profiler.session_id_on_owner() == *restored_profiler_session);
 #endif
+}
+
+TEST_CASE("GameHost rolls back when initial predecessor realization fails")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    project["settings"]["roomNavigationTransition"] = {
+        {"kind", "fade"}, {"durationMs", 250}, {"color", "#000000"}, {"skippable", true}};
+    const auto fixture = project.dump();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-predecessor-rollback-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    FakeRuntimeUiHost runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = {}});
+
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = true},
+                                       {}));
+    auto* const previous_game = host.running_game();
+    const auto previous_session_generation = host.session_generation();
+    const auto previous_backend_generation = host.backend_generation();
+
+    const auto failing_backend = [](const core::RuntimePresentationSnapshot&) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "host.test_predecessor_realization_failed",
+              .message = "Exact predecessor realization failed for test"}});
+    };
+
+    SECTION("prime failure is transactional")
+    {
+        REQUIRE(host.runtime_presentation().bind_snapshot_backend(failing_backend));
+        std::size_t commit_calls = 0;
+        std::size_t restore_calls = 0;
+        GameHostLoadHooks hooks;
+        hooks.commit_candidate_resources = [&](const runtime::RunningGame&,
+                                               const runtime::RuntimePublication&) {
+            ++commit_calls;
+            return core::Result<void, core::Diagnostics>::success();
+        };
+        hooks.restore_previous_resources = [&](const runtime::RunningGame&) {
+            ++restore_calls;
+            return host.runtime_presentation().bind_snapshot_backend({});
+        };
+
+        auto loaded = host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                                  .runtime_locale = "en",
+                                                  .load_title_screen = false,
+                                                  .stop_runtime_after_load = false},
+                                                 hooks);
+
+        REQUIRE_FALSE(loaded);
+        REQUIRE_FALSE(loaded.error().empty());
+        CHECK(loaded.error().front().code == "host.test_predecessor_realization_failed");
+        CHECK(commit_calls == 0);
+        CHECK(restore_calls == 1);
+    }
+
+    SECTION("backend bind failure is transactional")
+    {
+        std::size_t commit_calls = 0;
+        std::size_t restore_calls = 0;
+        GameHostLoadHooks hooks;
+        hooks.detach_current_resources = [&]() {
+            auto detached = host.runtime_presentation().bind_snapshot_backend({});
+            REQUIRE(detached);
+        };
+        hooks.commit_candidate_resources = [&](const runtime::RunningGame&,
+                                               const runtime::RuntimePublication&) {
+            ++commit_calls;
+            return host.runtime_presentation().bind_snapshot_backend(failing_backend);
+        };
+        hooks.restore_previous_resources = [&](const runtime::RunningGame&) {
+            ++restore_calls;
+            return host.runtime_presentation().bind_snapshot_backend({});
+        };
+
+        auto loaded = host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                                  .runtime_locale = "en",
+                                                  .load_title_screen = false,
+                                                  .stop_runtime_after_load = false},
+                                                 hooks);
+
+        REQUIRE_FALSE(loaded);
+        REQUIRE_FALSE(loaded.error().empty());
+        CHECK(loaded.error().front().code == "host.test_predecessor_realization_failed");
+        CHECK(commit_calls == 1);
+        CHECK(restore_calls == 1);
+    }
+
+    CHECK(host.running_game() == previous_game);
+    CHECK(host.session_generation() == previous_session_generation);
+    CHECK(host.backend_generation() == previous_backend_generation);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+    CHECK(host.compiled_project_path() == "project:/minimal.json");
 }
 
 TEST_CASE("Rejected runtime package validation does not advance the live asset generation")
@@ -1176,8 +1379,11 @@ TEST_CASE("Rejected runtime package validation does not advance the live asset g
               .message = "Runtime package candidate was rejected for test"}});
     };
     rejected_hooks.detach_current_resources = [&]() { ++detach_calls; };
-    rejected_hooks.commit_candidate_resources =
-        [&](const runtime::RunningGame&, const runtime::RuntimePublication&) { ++commit_calls; };
+    rejected_hooks.commit_candidate_resources = [&](const runtime::RunningGame&,
+                                                    const runtime::RuntimePublication&) {
+        ++commit_calls;
+        return core::Result<void, core::Diagnostics>::success();
+    };
 
     auto rejected = host.load_compiled_project(
         {.logical_path = "project:/candidate.ntpkg",
@@ -1193,10 +1399,9 @@ TEST_CASE("Rejected runtime package validation does not advance the live asset g
     CHECK(host.running_game() == previous_game);
     CHECK(detach_calls == 0);
     CHECK(commit_calls == 0);
-    REQUIRE(scripts.requests.size() >= 2);
-    CHECK_FALSE(scripts.requests.front().asset_path.has_value());
-    CHECK(scripts.requests.front().chunk_name == "@scripts/candidate-compose.lua");
-    CHECK(scripts.requests.front().source.find("room =") != std::string::npos);
+    // Stopped candidate validation owns a disposable ScriptRuntime, so candidate Lua never reaches
+    // the live invocation port or mutates its VM before the load commits.
+    CHECK(scripts.requests.empty());
     auto current = assets.read_text("project:/current-session.txt");
     REQUIRE(current);
     CHECK(*current.value == "current");

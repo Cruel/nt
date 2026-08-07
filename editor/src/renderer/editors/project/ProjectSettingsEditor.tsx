@@ -8,6 +8,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ColorField } from '@/components/ui/color-field';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import {
@@ -680,6 +681,15 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         'Update room navigation transition',
       ),
     );
+  }
+
+  function setRoomNavigationTransitionKind(kind: 'cut' | 'fade' | 'dissolve') {
+    if (!settings) return false;
+    const current = settings.presentation.roomNavigationTransition;
+    return setRoomNavigationTransition({
+      kind,
+      ...(kind !== 'cut' && current.durationMs === 0 ? { durationMs: 500 } : {}),
+    });
   }
 
   function openWorkflowManager() {
@@ -1418,8 +1428,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
             <div className="space-y-1">
-              <Label>Kind</Label>
+              <Label htmlFor="transition-kind">Kind</Label>
               <select
+                id="transition-kind"
                 className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                 aria-invalid={fieldInvalid('/settings/presentation/roomNavigationTransition/kind')}
                 data-workbench-anchor={
@@ -1429,10 +1440,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 }
                 value={settings.presentation.roomNavigationTransition.kind}
                 onChange={(event) =>
-                  setRoomNavigationTransition({
-                    kind: event.currentTarget
+                  setRoomNavigationTransitionKind(
+                    event.currentTarget
                       .value as typeof settings.presentation.roomNavigationTransition.kind,
-                  })
+                  )
                 }
               >
                 <option value="cut">cut</option>
@@ -1440,34 +1451,39 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <option value="dissolve">dissolve</option>
               </select>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="transition-duration">Duration (ms)</Label>
-              <PendingNumberInput
-                id="transition-duration"
-                path="/settings/presentation/roomNavigationTransition/durationMs"
-                value={settings.presentation.roomNavigationTransition.durationMs}
-                invalid={fieldInvalid('/settings/presentation/roomNavigationTransition/durationMs')}
-                onCommit={(durationMs) =>
-                  durationMs !== undefined && setRoomNavigationTransition({ durationMs })
-                }
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="transition-color">Fade color</Label>
-              <Input
-                id="transition-color"
-                aria-invalid={fieldInvalid('/settings/presentation/roomNavigationTransition/color')}
+            {settings.presentation.roomNavigationTransition.kind !== 'cut' ? (
+              <div className="space-y-1">
+                <Label htmlFor="transition-duration">Duration (ms)</Label>
+                <PendingNumberInput
+                  id="transition-duration"
+                  path="/settings/presentation/roomNavigationTransition/durationMs"
+                  value={settings.presentation.roomNavigationTransition.durationMs}
+                  invalid={fieldInvalid(
+                    '/settings/presentation/roomNavigationTransition/durationMs',
+                  )}
+                  onCommit={(durationMs) =>
+                    durationMs !== undefined && setRoomNavigationTransition({ durationMs })
+                  }
+                />
+              </div>
+            ) : null}
+            {settings.presentation.roomNavigationTransition.kind === 'fade' ? (
+              <div
+                className="space-y-1"
                 data-workbench-anchor={
                   PROJECT_SETTINGS_FIELD_ANCHORS[
                     '/settings/presentation/roomNavigationTransition/color'
                   ]
                 }
-                value={settings.presentation.roomNavigationTransition.color ?? ''}
-                onChange={(event) =>
-                  setRoomNavigationTransition({ color: event.currentTarget.value || null })
-                }
-              />
-            </div>
+              >
+                <Label>Fade color</Label>
+                <ColorField
+                  ariaLabel="Fade color"
+                  value={settings.presentation.roomNavigationTransition.color}
+                  onValueChange={(color) => setRoomNavigationTransition({ color })}
+                />
+              </div>
+            ) : null}
             <label className="flex items-center gap-2">
               <Switch
                 checked={settings.presentation.roomNavigationTransition.skippable}

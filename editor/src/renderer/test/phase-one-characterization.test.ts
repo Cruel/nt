@@ -63,6 +63,17 @@ describe('Phase 1 current-behavior characterization', () => {
     expect(widget).toContain("Module.ccall('noveltea_preview_apply_editor_document'");
   });
 
+  it('pushes semantic runtime debugger changes without preview interaction', () => {
+    const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+    expect(widget).toContain('function publishRuntimeDebugSnapshotIfChanged()');
+    expect(widget).toContain('window.setInterval(publishRuntimeDebugSnapshotIfChanged, 100)');
+    expect(widget).toContain(
+      "send({ version: protocolVersion, type: 'runtime-debug-snapshot', snapshot })",
+    );
+    expect(widget).toContain('currentRoomId: snapshot.currentRoomId');
+    expect(widget).not.toContain('publication: snapshot.publication');
+  });
+
   it('pins every current authoritative document replacement and patch route', () => {
     const projectStore = fs.readFileSync(
       path.resolve('src/renderer/project/project-store.ts'),

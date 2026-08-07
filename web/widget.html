@@ -35,6 +35,7 @@
     let drainingCommands = false;
     let previewActivityActive = true;
     let previewActivityVisible = true;
+    let lastRuntimeDebugFingerprint = '';
     let previewWheelPolicy = params.get('wheelPolicy') === 'editor-scroll' ? 'editor-scroll' : 'preview-input';
     let previewWheelRouteId = '';
     let transportGeneration = 0;
@@ -1142,8 +1143,44 @@ thead, tbody, tfoot {
     function emitRuntimeDebugSnapshot(message, options = {}) {
       const snapshot = readRuntimeDebugSnapshot(message, options.failOnError === true);
       if (!snapshot) return false;
-      send({ version: protocolVersion, type: 'runtime-debug-snapshot', requestId: message.requestId, snapshot });
+      lastRuntimeDebugFingerprint = runtimeDebugFingerprint(snapshot);
+      send({
+        version: protocolVersion,
+        type: 'runtime-debug-snapshot',
+        requestId: message && typeof message.requestId === 'string' ? message.requestId : undefined,
+        snapshot,
+      });
       return true;
+    }
+
+    function runtimeDebugFingerprint(snapshot) {
+      return JSON.stringify({
+        loaded: snapshot.loaded,
+        running: snapshot.running,
+        shellMode: snapshot.shellMode,
+        runtimeMode: snapshot.runtimeMode,
+        gameplayPaused: snapshot.gameplayPaused,
+        currentRoomId: snapshot.currentRoomId,
+        currentDialogueId: snapshot.currentDialogueId,
+        currentEntity: snapshot.currentEntity,
+        waiting: snapshot.waiting,
+        availableInputs: snapshot.availableInputs,
+        variables: snapshot.variables,
+        inventory: snapshot.inventory,
+        selectedSubjects: snapshot.selectedSubjects,
+        diagnostics: snapshot.diagnostics,
+      });
+    }
+
+    function publishRuntimeDebugSnapshotIfChanged() {
+      if (!port || !engineReady || !runtimeReady || !previewActivityActive || !previewActivityVisible)
+        return;
+      const snapshot = readRuntimeDebugSnapshot(null, false);
+      if (!snapshot) return;
+      const fingerprint = runtimeDebugFingerprint(snapshot);
+      if (fingerprint === lastRuntimeDebugFingerprint) return;
+      lastRuntimeDebugFingerprint = fingerprint;
+      send({ version: protocolVersion, type: 'runtime-debug-snapshot', snapshot });
     }
 
     function canonicalUnsignedDecimal(value) {
@@ -1436,6 +1473,7 @@ thead, tbody, tfoot {
         if (port) port.close();
         port = nextPort;
         transportGeneration += 1;
+        lastRuntimeDebugFingerprint = '';
         port.onmessage = function(event) {
           if (applyPreviewActivity(event.data) || applyPreviewWheelRouting(event.data)) return;
           enqueueCommand(event.data);
@@ -1534,6 +1572,7 @@ thead, tbody, tfoot {
       if (port) window.clearInterval(helloInterval);
       else sendHello();
     }, 250);
+    window.setInterval(publishRuntimeDebugSnapshotIfChanged, 100);
 
     // BEGIN preview-surface-metrics
     function resolvePreviewSurfaceMetrics(cssWidth, cssHeight, devicePixelRatio, maxDpr) {

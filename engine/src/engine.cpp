@@ -861,9 +861,9 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         }
         return prepared;
     };
-    const auto apply_resources = [this](const runtime::RunningGame& game,
-                                        PreparedResources prepared,
-                                        host::HostGeneration generation) {
+    const auto apply_resources =
+        [this](const runtime::RunningGame& game, PreparedResources prepared,
+               host::HostGeneration generation) -> core::Result<void, core::Diagnostics> {
         const auto& project = game.package().project();
         m_authored_preview_baseline.reset();
         m_authored_preview_environment.reset();
@@ -875,9 +875,10 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         auto presentation =
             make_presentation_metrics(m_platform.surface(), m_presentation_settings);
         if (!presentation) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[presentation] %s",
-                         presentation.error().c_str());
-            return;
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "host.game_load_presentation_metrics_invalid",
+                  .message = presentation.error(),
+                  .source_path = "project.settings.display.reference_resolution"}});
         }
         m_presentation = std::move(*presentation.value_if());
         m_renderer.resize(m_presentation);
@@ -907,20 +908,13 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
             game.package(), m_renderer.active_shader_variant(),
             m_assets.source_generation_on_owner());
         if (!gate_bound) {
-            const auto& diagnostic = gate_bound.error();
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[mandatory-assets] %s: %s",
-                         diagnostic.code.c_str(), diagnostic.message.c_str());
-            return;
+            return core::Result<void, core::Diagnostics>::failure({gate_bound.error()});
         }
         auto bound = m_layout_realizer.bind_session(project, generation);
-        if (!bound) {
-            for (const auto& diagnostic : bound.error())
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[layout-realizer] %s: %s",
-                             diagnostic.code.c_str(), diagnostic.message.c_str());
-        } else {
-            m_presentation_layouts.bind_project(project);
-        }
-        m_game_host.runtime_presentation().bind_snapshot_backend(
+        if (!bound)
+            return core::Result<void, core::Diagnostics>::failure(std::move(bound).error());
+        m_presentation_layouts.bind_project(project);
+        auto snapshot_backend = m_game_host.runtime_presentation().bind_snapshot_backend(
             [this](const core::RuntimePresentationSnapshot& snapshot) {
                 const auto previous_revision = m_presentation_layouts.current_revision();
                 auto world = m_world_presentation.reconcile(
@@ -944,6 +938,10 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                 m_world_hotspots.presentation_changed();
                 return layouts;
             });
+        if (!snapshot_backend)
+            return core::Result<void, core::Diagnostics>::failure(
+                std::move(snapshot_backend).error());
+        return core::Result<void, core::Diagnostics>::success();
     };
 
     std::optional<PreparedResources> prepared_resources;
@@ -989,7 +987,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         return core::Result<void, core::Diagnostics>::success();
     };
     const auto detach_resources = [this]() {
-        m_game_host.runtime_presentation().bind_snapshot_backend({});
+        (void)m_game_host.runtime_presentation().bind_snapshot_backend({});
         m_game_host.runtime_presentation().bind_presentation_id_allocator({});
         m_mandatory_assets.clear_package_on_owner();
         m_world_presentation.reset();
@@ -999,19 +997,26 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_layout_realizer.clear_session();
     };
     hooks.detach_current_resources = detach_resources;
-    hooks.commit_candidate_resources = [this, &apply_resources,
-                                        &prepared_resources](const runtime::RunningGame& candidate,
-                                                             const runtime::RuntimePublication&) {
+    hooks.commit_candidate_resources =
+        [this, &apply_resources, &prepared_resources](
+            const runtime::RunningGame& candidate,
+            const runtime::RuntimePublication&) -> core::Result<void, core::Diagnostics> {
         if (!prepared_resources)
-            return;
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "host.game_load_candidate_resources_missing",
+                  .message = "Prepared candidate resources are unavailable during commit"}});
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
         if (m_editor_asset_profiler)
             m_editor_asset_profiler->rotate_session_on_owner();
 #endif
         const auto generation =
             m_game_host.session_generation().next().value_or(m_game_host.session_generation());
-        apply_resources(candidate, std::move(*prepared_resources), host_generation(generation));
+        auto applied =
+            apply_resources(candidate, std::move(*prepared_resources), host_generation(generation));
+        if (!applied)
+            return applied;
         m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
+        return core::Result<void, core::Diagnostics>::success();
     };
     hooks.restore_previous_resources = [this, &apply_resources, &detach_resources,
                                         &previous_resources
@@ -1019,7 +1024,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                                         ,
                                         &profiler_rotated_for_restore
 #endif
-    ](const runtime::RunningGame& previous) {
+    ](const runtime::RunningGame& previous) -> core::Result<void, core::Diagnostics> {
         detach_resources();
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
         if (m_editor_asset_profiler) {
@@ -1028,10 +1033,13 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         }
 #endif
         if (previous_resources) {
-            apply_resources(previous, std::move(*previous_resources),
-                            host_generation(m_game_host.session_generation()));
+            auto applied = apply_resources(previous, std::move(*previous_resources),
+                                           host_generation(m_game_host.session_generation()));
+            if (!applied)
+                return applied;
             m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
         }
+        return core::Result<void, core::Diagnostics>::success();
     };
 
     host::GameHostLoadRequest load_request{.logical_path = logical_path,
@@ -2024,8 +2032,14 @@ void Engine::Impl::update_presentation_audio_backends(bool runtime_input_admitte
     // semantic pause policy remain presentation/runtime concerns above the backend.
     m_preview_host.update_audio_requests();
     m_audio.update(static_cast<float>(seconds(clocks.unscaled_presentation_delta)));
-    if (runtime_input_admitted && m_game_host.running_game())
+    if (runtime_input_admitted && m_game_host.running_game()) {
         m_game_host.poll_runtime_presentation();
+        // Terminal presentation acknowledgements are produced after the frame's normal runtime
+        // dispatch stage. Settle them now so throttled previews do not wait for pointer input to
+        // publish post-transition Room/UI state. Any new presentation work remains staged until the
+        // next frame because this runs after the backend flush above.
+        (void)m_game_host.dispatch_pending_runtime_inputs();
+    }
 }
 
 void Engine::Impl::realize_layouts_and_bind_ui()

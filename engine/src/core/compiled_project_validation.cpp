@@ -632,8 +632,7 @@ private:
                           exit_path + "/id");
                 if (!exit_directions.insert(linked_exit.direction).second)
                     error("compiled_project.duplicate_room_exit_direction",
-                          "Each Room exit direction may be used once.",
-                          exit_path + "/direction");
+                          "Each Room exit direction may be used once.", exit_path + "/direction");
                 require(m_rooms, linked_exit.target, "room", exit_path + "/target");
                 validate_condition(linked_exit.condition, exit_path + "/condition");
                 validate_text(linked_exit.label, exit_path + "/label");

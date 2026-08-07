@@ -83,4 +83,12 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(rcss.find(".nav-slot-northwest") != std::string::npos);
     CHECK(rcss.find(".nav-slot-southeast") != std::string::npos);
     CHECK(rcss.find(".nav-slot-south { left: 80px; bottom: 0; }") != std::string::npos);
+    const std::vector<std::string> compass_directions{"northwest", "north",  "northeast",
+                                                      "west",      "custom", "east",
+                                                      "southwest", "south",  "southeast"};
+    for (const auto& direction : compass_directions) {
+        INFO(direction);
+        CHECK(rml.find("class=\"nav nav-slot nav-" + direction + " nav-slot-" + direction + "\"") !=
+              std::string::npos);
+    }
 }

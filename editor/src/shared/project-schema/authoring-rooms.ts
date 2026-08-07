@@ -319,14 +319,20 @@ export function validateRoomNavigationTransition(
   path: string,
   diagnostics: RoomSchemaDiagnostic[],
 ) {
-  if (value.kind === 'cut' && value.durationMs !== 0)
-    diagnostics.push(diagnostic(`${path}/durationMs`, 'Cut transitions require zero duration.'));
   if (value.kind !== 'cut' && value.durationMs === 0)
     diagnostics.push(
       diagnostic(`${path}/durationMs`, 'Animated transitions require a positive duration.'),
     );
-  if (value.kind !== 'fade' && value.color !== null)
-    diagnostics.push(diagnostic(`${path}/color`, 'Only Fade transitions may specify a color.'));
+}
+
+export function compileRoomNavigationTransition(
+  value: z.infer<typeof roomNavigationTransitionSchema>,
+) {
+  return {
+    ...value,
+    durationMs: value.kind === 'cut' ? 0 : value.durationMs,
+    color: value.kind === 'fade' ? value.color : null,
+  };
 }
 export function validateRoomData(
   project: AuthoringProject,

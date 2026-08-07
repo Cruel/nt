@@ -34,15 +34,15 @@
         </div>
 
         <div id="rt_navigation">
-            <button id="rt_nav_northwest" class="nav nav-northwest nav-slot-northwest" data-direction="northwest"><span class="nav-glyph">NW</span><span class="nav-label"></span></button>
-            <button id="rt_nav_north" class="nav nav-north nav-slot-north" data-direction="north"><span class="nav-glyph">N</span><span class="nav-label"></span></button>
-            <button id="rt_nav_northeast" class="nav nav-northeast nav-slot-northeast" data-direction="northeast"><span class="nav-glyph">NE</span><span class="nav-label"></span></button>
-            <button id="rt_nav_west" class="nav nav-west nav-slot-west" data-direction="west"><span class="nav-glyph">W</span><span class="nav-label"></span></button>
-            <button id="rt_nav_custom" class="nav nav-custom nav-slot-custom" data-direction="custom"><span class="nav-glyph">GO</span><span class="nav-label"></span></button>
-            <button id="rt_nav_east" class="nav nav-east nav-slot-east" data-direction="east"><span class="nav-glyph">E</span><span class="nav-label"></span></button>
-            <button id="rt_nav_southwest" class="nav nav-southwest nav-slot-southwest" data-direction="southwest"><span class="nav-glyph">SW</span><span class="nav-label"></span></button>
-            <button id="rt_nav_south" class="nav nav-south nav-slot-south" data-direction="south"><span class="nav-glyph">S</span><span class="nav-label"></span></button>
-            <button id="rt_nav_southeast" class="nav nav-southeast nav-slot-southeast" data-direction="southeast"><span class="nav-glyph">SE</span><span class="nav-label"></span></button>
+            <button id="rt_nav_northwest" class="nav nav-slot nav-northwest nav-slot-northwest" data-direction="northwest"><span class="nav-glyph">NW</span><span class="nav-label"></span></button>
+            <button id="rt_nav_north" class="nav nav-slot nav-north nav-slot-north" data-direction="north"><span class="nav-glyph">N</span><span class="nav-label"></span></button>
+            <button id="rt_nav_northeast" class="nav nav-slot nav-northeast nav-slot-northeast" data-direction="northeast"><span class="nav-glyph">NE</span><span class="nav-label"></span></button>
+            <button id="rt_nav_west" class="nav nav-slot nav-west nav-slot-west" data-direction="west"><span class="nav-glyph">W</span><span class="nav-label"></span></button>
+            <button id="rt_nav_custom" class="nav nav-slot nav-custom nav-slot-custom" data-direction="custom"><span class="nav-glyph">GO</span><span class="nav-label"></span></button>
+            <button id="rt_nav_east" class="nav nav-slot nav-east nav-slot-east" data-direction="east"><span class="nav-glyph">E</span><span class="nav-label"></span></button>
+            <button id="rt_nav_southwest" class="nav nav-slot nav-southwest nav-slot-southwest" data-direction="southwest"><span class="nav-glyph">SW</span><span class="nav-label"></span></button>
+            <button id="rt_nav_south" class="nav nav-slot nav-south nav-slot-south" data-direction="south"><span class="nav-glyph">S</span><span class="nav-label"></span></button>
+            <button id="rt_nav_southeast" class="nav nav-slot nav-southeast nav-slot-southeast" data-direction="southeast"><span class="nav-glyph">SE</span><span class="nav-label"></span></button>
         </div>
     </div>
 </body>

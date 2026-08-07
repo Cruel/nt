@@ -650,9 +650,15 @@ TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
     const auto room = noveltea::core::RoomId::create("start");
     const auto target = noveltea::core::RoomId::create("hall");
     const auto exit = noveltea::core::RoomExitId::create("north-exit");
+    const auto northwest_exit = noveltea::core::RoomExitId::create("northwest-exit");
+    const auto north_exit = noveltea::core::RoomExitId::create("north-compass-exit");
+    const auto northeast_exit = noveltea::core::RoomExitId::create("northeast-exit");
     REQUIRE(room);
     REQUIRE(target);
     REQUIRE(exit);
+    REQUIRE(northwest_exit);
+    REQUIRE(north_exit);
+    REQUIRE(northeast_exit);
 
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 1;
@@ -661,8 +667,16 @@ TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
     values.view.room = noveltea::core::RoomView{
         .room = *room.value_if(),
         .description = "Start room.",
-        .exits = {{*exit.value_if(), *target.value_if(),
-                   noveltea::core::compiled::RoomExitDirection::Southwest, "Southwest", true}}};
+        .exits = {
+            {*northwest_exit.value_if(), *target.value_if(),
+             noveltea::core::compiled::RoomExitDirection::Northwest, "Northwest", true},
+            {*north_exit.value_if(), *target.value_if(),
+             noveltea::core::compiled::RoomExitDirection::North, "North", true},
+            {*northeast_exit.value_if(), *target.value_if(),
+             noveltea::core::compiled::RoomExitDirection::Northeast, "Northeast", true},
+            {*exit.value_if(), *target.value_if(),
+             noveltea::core::compiled::RoomExitDirection::Southwest, "Southwest", true},
+        }};
     REQUIRE(ui.apply_gameplay_ui_values(values));
     ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
 
@@ -670,6 +684,20 @@ TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
     REQUIRE(driver);
     auto* document = driver->document("runtime_game");
     REQUIRE(document);
+    auto* northwest_button = document->GetElementById("rt_nav_northwest");
+    auto* north_button = document->GetElementById("rt_nav_north");
+    auto* northeast_button = document->GetElementById("rt_nav_northeast");
+    REQUIRE(northwest_button);
+    REQUIRE(north_button);
+    REQUIRE(northeast_button);
+    const auto northwest_offset = northwest_button->GetAbsoluteOffset(Rml::BoxArea::Content);
+    const auto north_offset = north_button->GetAbsoluteOffset(Rml::BoxArea::Content);
+    const auto northeast_offset = northeast_button->GetAbsoluteOffset(Rml::BoxArea::Content);
+    CHECK(northwest_offset.x < north_offset.x);
+    CHECK(north_offset.x < northeast_offset.x);
+    CHECK(northwest_offset.y == north_offset.y);
+    CHECK(north_offset.y == northeast_offset.y);
+
     Rml::ElementList navigation_buttons;
     document->GetElementsByClassName(navigation_buttons, "nav-southwest");
     REQUIRE(navigation_buttons.size() == 1);

@@ -19,7 +19,7 @@ import {
 import { parseMapData } from './project-schema/authoring-maps';
 import { parseInteractableData } from './project-schema/authoring-interactables';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
-import { parseRoomData } from './project-schema/authoring-rooms';
+import { compileRoomNavigationTransition, parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
@@ -460,7 +460,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         direction: exit.direction,
         target: roomRef(exit.target.$ref.id),
         condition: compileCondition(exit.condition),
-        transition: exit.transition ? { ...exit.transition } : null,
+        transition: exit.transition ? compileRoomNavigationTransition(exit.transition) : null,
       })),
       lifecycle: {
         canEnter: compileCondition(data.lifecycle.canEnter),
@@ -676,7 +676,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         subtitle: settings.titleScreen.subtitle,
         startLabel: settings.titleScreen.startLabel,
       },
-      roomNavigationTransition: { ...settings.presentation.roomNavigationTransition },
+      roomNavigationTransition: compileRoomNavigationTransition(
+        settings.presentation.roomNavigationTransition,
+      ),
       systemLayouts: systemLayoutRoleValues.map((role) => ({
         role,
         layout: layoutRef(settings.ui.systemLayouts[role]),

@@ -354,20 +354,42 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     };
 
     auto candidate_presentation = std::make_unique<RunningGamePresentationPort>();
-    auto loaded = runtime::load_running_game(
-        std::move(source.input), m_dependencies.script_certifier, *m_script_invocation_router,
-        *candidate_presentation, *m_save_slots);
+    std::optional<script::ScriptRuntime> validation_scripts;
+    runtime::ScriptCertificationPort* candidate_script_certifier = &m_dependencies.script_certifier;
+    runtime::ScriptInvocationPort* candidate_script_invocations = m_script_invocation_router.get();
+    if (request.stop_runtime_after_load) {
+        validation_scripts.emplace();
+        const runtime::ScriptSourcePort* validation_sources =
+            candidate_asset_context
+                ? static_cast<const runtime::ScriptSourcePort*>(&*candidate_asset_context)
+                : static_cast<const runtime::ScriptSourcePort*>(&m_dependencies.content_assets);
+        auto initialized = validation_scripts->initialize({validation_sources});
+        if (!initialized) {
+            restore_project_mounts();
+            return core::Result<void, core::Diagnostics>::failure(
+                one({.code = "host.game_load_validation_script_runtime_failed",
+                     .message = initialized.error().message,
+                     .source_path = initialized.error().chunk}));
+        }
+        candidate_script_certifier = &*validation_scripts;
+        candidate_script_invocations = &*validation_scripts;
+    }
+    auto loaded = runtime::load_running_game(std::move(source.input), *candidate_script_certifier,
+                                             *candidate_script_invocations, *candidate_presentation,
+                                             *m_save_slots);
     if (!loaded) {
         restore_project_mounts();
         return core::Result<void, core::Diagnostics>::failure(std::move(loaded).error());
     }
 
     auto candidate = std::move(*loaded.value_if());
+    std::optional<core::RuntimePresentationSnapshot> candidate_presentation_predecessor;
     std::optional<runtime::RuntimePublication> candidate_publication;
     std::vector<runtime::RuntimeEvent> candidate_events;
     const auto dispatch_candidate =
         [&](core::RuntimeInputMessage input) -> core::Result<void, core::Diagnostics> {
         auto result = candidate->session().dispatch(input);
+        candidate_presentation_predecessor = std::move(result.presentation_predecessor);
         if (result.publication)
             candidate_publication = std::move(result.publication);
         candidate_events.insert(candidate_events.end(),
@@ -454,18 +476,6 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
 
     m_running_game = std::move(candidate);
     m_running_game_presentation_port = std::move(candidate_presentation);
-    m_lifecycle_state = request.stop_runtime_after_load ? LoadedGameLifecycleState::Stopped
-                                                        : LoadedGameLifecycleState::Running;
-    m_compiled_project_path = request.logical_path;
-    m_runtime_publication = *candidate_publication;
-    m_runtime_events = std::move(candidate_events);
-    m_runtime_observations = candidate_publication->observations;
-    m_runtime_ui_asset_service.install(m_running_game->package().project());
-
-    if (hooks.commit_candidate_resources)
-        hooks.commit_candidate_resources(*m_running_game, *candidate_publication);
-    m_runtime_presentation.bind_presentation_id_allocator(
-        [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
 
     const auto rollback_to_previous = [&](core::Diagnostics diagnostics) {
         detach_runtime_bindings();
@@ -495,8 +505,11 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
             return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
 
         m_runtime_ui_asset_service.install(m_running_game->package().project());
-        if (hooks.restore_previous_resources)
-            hooks.restore_previous_resources(*m_running_game);
+        if (hooks.restore_previous_resources) {
+            auto restored_resources = hooks.restore_previous_resources(*m_running_game);
+            if (!restored_resources)
+                core::append_diagnostics(diagnostics, std::move(restored_resources).error());
+        }
         m_runtime_presentation.bind_presentation_id_allocator(
             [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
         if (m_running_game_presentation_port) {
@@ -509,6 +522,51 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
             core::append_diagnostics(diagnostics, std::move(rebound).error());
         return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
     };
+
+    if (request.stop_runtime_after_load) {
+        auto fresh_presentation = std::make_unique<RunningGamePresentationPort>();
+        auto recreated =
+            m_running_game->recreate_session(*m_script_invocation_router, *fresh_presentation);
+        if (!recreated)
+            return rollback_to_previous(std::move(recreated).error());
+        m_running_game_presentation_port = std::move(fresh_presentation);
+
+        auto stopped =
+            m_running_game->session().dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+        if (!stopped.diagnostics.empty())
+            return rollback_to_previous(std::move(stopped.diagnostics));
+        if (stopped.disposition == runtime::RuntimeInputDisposition::Failed ||
+            !stopped.publication) {
+            return rollback_to_previous(one(
+                {.code = "host.game_load_stopped_baseline_failed",
+                 .message = "Fresh title-screen runtime did not publish its stopped baseline"}));
+        }
+        candidate_presentation_predecessor = std::move(stopped.presentation_predecessor);
+        candidate_publication = std::move(stopped.publication);
+        candidate_events = std::move(stopped.events);
+    }
+
+    m_lifecycle_state = request.stop_runtime_after_load ? LoadedGameLifecycleState::Stopped
+                                                        : LoadedGameLifecycleState::Running;
+    m_compiled_project_path = request.logical_path;
+    m_runtime_publication = *candidate_publication;
+    m_runtime_events = std::move(candidate_events);
+    m_runtime_observations = candidate_publication->observations;
+    m_runtime_ui_asset_service.install(m_running_game->package().project());
+
+    if (candidate_presentation_predecessor) {
+        auto primed =
+            m_runtime_presentation.prime_snapshot_backend(*candidate_presentation_predecessor);
+        if (!primed)
+            return rollback_to_previous(std::move(primed).error());
+    }
+    if (hooks.commit_candidate_resources) {
+        auto committed = hooks.commit_candidate_resources(*m_running_game, *candidate_publication);
+        if (!committed)
+            return rollback_to_previous(std::move(committed).error());
+    }
+    m_runtime_presentation.bind_presentation_id_allocator(
+        [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
 
     auto activated = m_running_game_presentation_port->activate(m_runtime_presentation);
     if (!activated)
@@ -666,6 +724,16 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
     core::Diagnostics application_diagnostics;
     bool application_accepted = true;
     bool publication_deferred = false;
+    if (result.presentation_predecessor) {
+        auto predecessor =
+            m_runtime_presentation.prime_snapshot_backend(*result.presentation_predecessor);
+        if (!predecessor) {
+            auto diagnostics = std::move(predecessor).error();
+            retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, diagnostics);
+            core::append_diagnostics(application_diagnostics, std::move(diagnostics));
+            application_accepted = false;
+        }
+    }
     if (result.publication) {
         application_accepted =
             apply_runtime_publication(*result.publication, result.events, application_diagnostics);

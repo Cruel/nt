@@ -222,14 +222,15 @@ RuntimeExecutor::runtime_ui_view(std::string_view runtime_locale)
             inventory.error());
     view.inventory = std::move(*inventory_value);
 
-    if (std::holds_alternative<core::RoomMode>(m_state.mode()) && m_state.flow_stack().empty()) {
+    if (has_current_room_context()) {
         auto room = room_view(runtime_locale);
         auto* value = room.value_if();
         if (value == nullptr)
             return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::failure(
                 room.error());
         view.room = std::move(*value);
-    } else if (!m_state.flow_stack().empty()) {
+    }
+    if (!m_state.flow_stack().empty()) {
         if (std::holds_alternative<core::SceneFrame>(m_state.flow_stack().back())) {
             auto scene = scene_view();
             auto* value = scene.value_if();

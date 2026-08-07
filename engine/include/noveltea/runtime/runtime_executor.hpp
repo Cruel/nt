@@ -224,6 +224,7 @@ private:
     advance_scene_for_presentation(const core::SceneId& scene, const core::SceneStepId& step,
                                    std::optional<core::SceneStepId> next,
                                    const core::PresentationInstructionWait& wait);
+    [[nodiscard]] bool has_current_room_context() const noexcept;
     void stage_pending_presentation(PendingPresentationOperation operation,
                                     core::SessionState source_state,
                                     std::optional<core::RoomPresentationResolution> source_room);

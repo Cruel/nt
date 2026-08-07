@@ -229,13 +229,16 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::drain_backend_facts
             continue;
         const auto lifecycle = *found;
         const bool completed = std::holds_alternative<core::BackendOperationCompleted>(fact.fact);
+        const bool failed = std::holds_alternative<core::BackendOperationFailed>(fact.fact);
         auto acknowledged = m_coordinator.acknowledge(fact);
         if (!acknowledged) {
             core::append_diagnostics(result.diagnostics, std::move(acknowledged).error());
             continue;
         }
-        if (auto input = terminal_input(lifecycle, completed))
-            result.inputs.push_back(std::move(*input));
+        if ((completed || failed)) {
+            if (auto input = terminal_input(lifecycle, completed))
+                result.inputs.push_back(std::move(*input));
+        }
         if (const auto* failed = std::get_if<core::BackendOperationFailed>(&fact.fact))
             result.diagnostics.push_back(failed->diagnostic);
     }
@@ -424,6 +427,22 @@ RuntimePresentationBridge::reconcile_publication(const core::RuntimePresentation
 }
 
 core::Result<void, core::Diagnostics>
+RuntimePresentationBridge::prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot)
+{
+    m_primed_predecessor_snapshot = snapshot;
+    if (!m_snapshot_backend)
+        return core::Result<void, core::Diagnostics>::success();
+    auto primed = m_snapshot_backend(snapshot);
+    if (!primed)
+        return primed;
+    // Runtime dispatch may already have reconciled the target before the host receives the exact
+    // predecessor. Keep the predecessor retained, but restore the published target as current.
+    if (m_published_snapshot && m_published_snapshot->revision != snapshot.revision)
+        return m_snapshot_backend(*m_published_snapshot);
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics>
 RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot& snapshot)
 {
     if (m_published_snapshot && *m_published_snapshot == snapshot)
@@ -541,6 +560,7 @@ void RuntimePresentationBridge::terminate(core::PresentationCancellationReason r
         m_mandatory_asset_gate->rollback_candidate_on_owner();
     m_pending_mandatory_snapshot.reset();
     m_published_snapshot.reset();
+    m_primed_predecessor_snapshot.reset();
     m_active_text_phase = core::ActiveTextPresentationPhase::Stable;
     m_backend_facts.clear();
     m_published_desired_audio.clear();
@@ -559,11 +579,14 @@ void RuntimePresentationBridge::bind_presentation_id_allocator(
     m_allocate_presentation_id = std::move(allocator);
 }
 
-void RuntimePresentationBridge::bind_snapshot_backend(
+core::Result<void, core::Diagnostics> RuntimePresentationBridge::bind_snapshot_backend(
     std::function<core::Result<void, core::Diagnostics>(const core::RuntimePresentationSnapshot&)>
         backend)
 {
     m_snapshot_backend = std::move(backend);
+    if (!m_snapshot_backend || !m_primed_predecessor_snapshot)
+        return core::Result<void, core::Diagnostics>::success();
+    return m_snapshot_backend(*m_primed_predecessor_snapshot);
 }
 
 void RuntimePresentationBridge::bind_world_transition_backend(

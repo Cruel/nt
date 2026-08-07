@@ -311,6 +311,11 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
             std::move(lua_diagnostics));
 
     auto runtime = std::unique_ptr<RunningGame>(new RunningGame(std::move(package)));
+    runtime->m_scripts = &scripts;
+    runtime->m_presentation_model = &presentation_model;
+    runtime->m_saves = &saves;
+    runtime->m_save_codec = &save_codec;
+    runtime->m_runtime_locale = runtime_locale;
     auto session =
         RuntimeSession::create(runtime->m_package.project(), scripts, presentation_model,
                                presentation, saves, save_codec, std::move(runtime_locale));
@@ -320,6 +325,36 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
     runtime->m_session = std::move(*session.value_if());
     return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::success(
         std::move(runtime));
+}
+
+core::Result<void, core::Diagnostics>
+RunningGame::recreate_session(PresentationRuntimePort& presentation)
+{
+    if (m_scripts == nullptr || m_presentation_model == nullptr || m_saves == nullptr ||
+        m_save_codec == nullptr) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.running_game_dependencies_missing",
+              .message = "Running game cannot recreate its runtime session"}});
+    }
+    return recreate_session(*m_scripts, presentation);
+}
+
+core::Result<void, core::Diagnostics>
+RunningGame::recreate_session(ScriptInvocationPort& scripts, PresentationRuntimePort& presentation)
+{
+    if (m_presentation_model == nullptr || m_saves == nullptr || m_save_codec == nullptr) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "runtime.running_game_dependencies_missing",
+              .message = "Running game cannot recreate its runtime session"}});
+    }
+    auto replacement =
+        RuntimeSession::create(m_package.project(), scripts, *m_presentation_model, presentation,
+                               *m_saves, *m_save_codec, m_runtime_locale);
+    if (!replacement)
+        return core::Result<void, core::Diagnostics>::failure(std::move(replacement).error());
+    m_session = std::move(*replacement.value_if());
+    m_scripts = &scripts;
+    return core::Result<void, core::Diagnostics>::success();
 }
 
 } // namespace noveltea::runtime

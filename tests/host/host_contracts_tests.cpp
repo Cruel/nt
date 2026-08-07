@@ -76,6 +76,9 @@ TEST_CASE("host runtime dispatch result preserves one settled runtime dispatch")
 
     runtime::RuntimeDispatchResult runtime_result{
         .disposition = runtime::RuntimeInputDisposition::Handled,
+        .presentation_predecessor =
+            core::RuntimePresentationSnapshot{
+                .revision = core::PresentationSnapshotRevision::from_number(6)},
         .publication =
             runtime::RuntimePublication{
                 .revision = *revision, .gameplay_ui = {}, .presentation = {}, .observations = {}},
@@ -88,6 +91,8 @@ TEST_CASE("host runtime dispatch result preserves one settled runtime dispatch")
 
     auto result = HostRuntimeDispatchResult::from_runtime(std::move(runtime_result));
     CHECK(result.accepted());
+    REQUIRE(result.presentation_predecessor);
+    CHECK(result.presentation_predecessor->revision.number() == 6);
     REQUIRE(result.has_publication());
     CHECK(result.publication->revision == *revision);
     REQUIRE(result.events.size() == 1);

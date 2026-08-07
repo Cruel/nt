@@ -20,6 +20,7 @@ struct HostRuntimeDiagnosticRecord {
 
 struct HostRuntimeDispatchResult {
     runtime::RuntimeInputDisposition disposition = runtime::RuntimeInputDisposition::Unhandled;
+    std::optional<core::RuntimePresentationSnapshot> presentation_predecessor;
     std::optional<runtime::RuntimePublication> publication;
     std::vector<runtime::RuntimeEvent> events;
     core::Diagnostics diagnostics;
@@ -29,6 +30,7 @@ struct HostRuntimeDispatchResult {
     from_runtime(runtime::RuntimeDispatchResult result)
     {
         return {.disposition = result.disposition,
+                .presentation_predecessor = std::move(result.presentation_predecessor),
                 .publication = std::move(result.publication),
                 .events = std::move(result.events),
                 .diagnostics = std::move(result.diagnostics),

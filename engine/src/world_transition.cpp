@@ -288,13 +288,17 @@ WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delive
             return core::Result<void, core::Diagnostics>::success();
         }
         const auto& value = *normalized.value_if();
-        if (!m_world.frame(value.common.revisions.source) ||
-            !m_world.frame(value.common.revisions.target)) {
-            publish_failure(
-                delivery,
-                failure("presentation.world_transition_revision_unavailable",
-                        "World transition source and target must both be realized from their exact "
-                        "published revisions"));
+        const bool source_available = m_world.frame(value.common.revisions.source) != nullptr;
+        const bool target_available = m_world.frame(value.common.revisions.target) != nullptr;
+        if (!source_available || !target_available) {
+            publish_failure(delivery,
+                            failure("presentation.world_transition_revision_unavailable",
+                                    "World transition requires exact source revision " +
+                                        std::to_string(value.common.revisions.source.number()) +
+                                        " (" + (source_available ? "available" : "missing") +
+                                        ") and target revision " +
+                                        std::to_string(value.common.revisions.target.number()) +
+                                        " (" + (target_available ? "available" : "missing") + ")"));
             return core::Result<void, core::Diagnostics>::success();
         }
 

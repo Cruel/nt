@@ -53,13 +53,15 @@ public:
     set_active_text_phase(core::ActiveTextPresentationPhase phase) override;
     [[nodiscard]] core::Diagnostics
     reconcile_publication(const core::RuntimePresentationSnapshot& snapshot) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    prime_snapshot_backend(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();
     [[nodiscard]] RuntimePresentationFastForwardResult fast_forward_one();
     void terminate(core::PresentationCancellationReason reason) override;
     void bind_presentation_id_allocator(std::function<core::PresentationOperationId()> allocator);
-    void bind_snapshot_backend(std::function<core::Result<void, core::Diagnostics>(
-                                   const core::RuntimePresentationSnapshot&)>
-                                   backend);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    bind_snapshot_backend(std::function<core::Result<void, core::Diagnostics>(
+                              const core::RuntimePresentationSnapshot&)> backend);
     void bind_world_transition_backend(WorldTransitionBackend* backend) noexcept;
     void bind_mandatory_asset_gate(assets::MandatoryAssetGate* gate) noexcept;
     [[nodiscard]] bool mandatory_assets_pending() const noexcept;
@@ -99,6 +101,7 @@ private:
         core::ActiveTextPresentationPhase::Stable;
     std::function<core::Result<void, core::Diagnostics>(const core::RuntimePresentationSnapshot&)>
         m_snapshot_backend;
+    std::optional<core::RuntimePresentationSnapshot> m_primed_predecessor_snapshot;
     std::vector<core::PresentationDesiredAudio> m_published_desired_audio;
     WorldTransitionBackend* m_world_transition_backend = nullptr;
     assets::MandatoryAssetGate* m_mandatory_asset_gate = nullptr;

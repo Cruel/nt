@@ -1049,12 +1049,16 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
 
     auto entered = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(entered.diagnostics.empty());
+    REQUIRE(entered.presentation_predecessor);
     REQUIRE(entered.publication);
     REQUIRE(presentation.presentation_operations.size() == 1);
     const auto* initial = std::get_if<core::RoomNavigationTransitionOperation>(
         &presentation.presentation_operations.front());
     REQUIRE(initial != nullptr);
     CHECK_FALSE(initial->target.source_room);
+    CHECK(entered.presentation_predecessor->revision == initial->common.revisions.source);
+    CHECK(entered.publication->presentation.revision == initial->common.revisions.target);
+    CHECK_FALSE(entered.presentation_predecessor->current_room);
     CHECK(initial->target.target_room == make_id<core::RoomIdTag>("start"));
     CHECK(entered.publication->presentation.current_room == make_id<core::RoomIdTag>("start"));
     CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{2}});
@@ -1071,15 +1075,21 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     auto navigated = session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(navigated.diagnostics.empty());
+    REQUIRE(navigated.presentation_predecessor);
     REQUIRE(navigated.publication);
     REQUIRE(presentation.presentation_operations.size() == 2);
     const auto* navigation = std::get_if<core::RoomNavigationTransitionOperation>(
         &presentation.presentation_operations.back());
     REQUIRE(navigation != nullptr);
     REQUIRE(navigation->target.source_room);
+    CHECK(navigated.presentation_predecessor->revision == navigation->common.revisions.source);
+    CHECK(navigated.publication->presentation.revision == navigation->common.revisions.target);
     CHECK(*navigation->target.source_room == make_id<core::RoomIdTag>("start"));
     CHECK(navigation->target.target_room == make_id<core::RoomIdTag>("hall"));
     CHECK(navigated.publication->presentation.current_room == make_id<core::RoomIdTag>("hall"));
+    REQUIRE(navigated.publication->gameplay_ui.room);
+    CHECK(navigated.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("hall"));
+    CHECK(navigated.publication->gameplay_ui.room->description.empty());
     CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{7}});
     CHECK(std::none_of(navigated.publication->presentation.layouts.begin(),
                        navigated.publication->presentation.layouts.end(), [](const auto& layout) {
@@ -1106,6 +1116,8 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     REQUIRE(navigation_completed.publication->gameplay_ui.room);
     CHECK(navigation_completed.publication->gameplay_ui.room->room ==
           make_id<core::RoomIdTag>("hall"));
+    CHECK(navigation_completed.publication->gameplay_ui.room->description == "Hall");
+    CHECK(navigation_completed.publication->gameplay_ui.can_continue);
 }
 
 TEST_CASE("reentrant public runtime dispatch is rejected without disturbing the outer operation")

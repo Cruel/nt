@@ -84,6 +84,14 @@ Flow frames, continuations, blockers, and correlation handles use strong IDs. In
 presentation, audio, child-flow, and script waits are explicit. Presentation and audio completion
 must acknowledge the exact owner/blocker handle before the wait is consumed.
 
+Room execution mode and current-Room identity are intentionally distinct during navigation. The
+Room-transition frame remains Flow-owned until its presentation wait and after-leave/after-enter
+effects finish, so gameplay commands stay blocked. The authoritative Room visit changes at the
+commit boundary, however, and publications expose that committed Room immediately as the persistent
+base Room context. A nested Scene, Dialogue, or Interaction started by an after-enter effect may be
+published beside that Room context; it does not delay or replace current-Room identity. Room
+description continuation remains suppressed while the transition lifecycle is still Flow-owned.
+
 ## Saves
 
 `SaveState` is a typed native snapshot. Its codec is an explicit serialization boundary and
@@ -188,6 +196,29 @@ ordering, lifecycle, and presentation checkpoint barriers. `RuntimeSession` reta
 ID allocation and exact Flow/script completion validation, and consumes the coordinator's immutable
 status only when the outer dispatch transaction settles. Reset and load terminate old operations
 without synthesizing successful completion, then reconcile a fresh projected snapshot.
+
+Finite operations carry their exact predecessor snapshot across the runtime-to-host boundary. A
+running candidate retains that predecessor through ownership replacement and realizes it when the
+snapshot backend is bound, before publishing the target revision. Predecessor realization is a
+fallible candidate-commit gate: failure while priming the already-bound backend or while binding a
+new backend fails the load and restores the previous game/resources rather than activating a target
+whose source revision was never realized.
+
+Title-screen loads instead use the started candidate only for isolated validation. That validation
+session executes against a disposable `ScriptRuntime`/Lua VM with the candidate's script source
+context; authored Lua globals and coroutine state from validation never enter the live scripting VM.
+After the old live runtime is detached, the host recreates a fresh stopped session over the validated
+package, explicitly binds that session to the live script invocation port, and publishes its
+revision-1 baseline. The later user Start therefore owns the complete initial Room transition and is
+the first execution of authored startup/entry Lua in the installed session. Backend `Running`
+acknowledgements update lifecycle state only; they never synthesize completion or cancellation input.
+Only terminal Completed/Failed facts resume or cancel the owning Flow operation.
+
+The engine settles terminal presentation inputs immediately after advancing and flushing the
+presentation backends in the same frame. This publishes post-transition Room, ActiveText, and
+debugger state without depending on a later animation or pointer-driven frame. Presentation work
+created by that settlement remains staged until the following frame, so it cannot consume backend
+time retroactively in the frame that completed its predecessor.
 
 RmlUi is a snapshot backend. Gameplay mounted-Layout desired records, including authored Room overlays
 lowered to Room-owned mounts, reconcile into ephemeral instances from compiled document/fragment

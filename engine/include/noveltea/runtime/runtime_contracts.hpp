@@ -80,6 +80,7 @@ struct RuntimeBudgetOutcome {
 
 struct RuntimeDispatchResult {
     RuntimeInputDisposition disposition = RuntimeInputDisposition::Unhandled;
+    std::optional<core::RuntimePresentationSnapshot> presentation_predecessor;
     std::optional<RuntimePublication> publication;
     std::vector<RuntimeEvent> events;
     core::Diagnostics diagnostics;
