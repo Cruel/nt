@@ -60,6 +60,7 @@ import {
   roomBackgroundFitValues,
   roomEnvironmentClockValues,
   roomEnvironmentPlaneValues,
+  roomExitDirectionValues,
   roomLayoutRef,
   roomMaterialRef,
   roomRoomRef,
@@ -821,6 +822,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     id: exit.target.$ref.id,
     label: rooms.find((room) => room.id === exit.target.$ref.id)?.label ?? exit.target.$ref.id,
   }));
+  const usedExitDirections = new Set(data.exits.map((exit) => exit.direction));
+  const nextExitDirection = roomExitDirectionValues.find(
+    (direction) => !usedExitDirections.has(direction),
+  );
   const assets = Object.entries(project.assets).map(([id, value]) => ({ id, label: value.label }));
   const selectedBackgroundItem = imageAssetItems.find(
     (item) => item.entityId === data.background.asset?.$ref.id,
@@ -1280,7 +1285,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <Button
                 size="sm"
+                disabled={!nextExitDirection}
                 onClick={() =>
+                  nextExitDirection &&
                   commit(
                     {
                       ...data,
@@ -1292,7 +1299,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                             'exit',
                           ),
                           label: 'Exit',
-                          direction: 'custom',
+                          direction: nextExitDirection,
                           target: roomRoomRef(roomId),
                           condition: { kind: 'always' },
                           transition: null,
@@ -1346,6 +1353,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       <div className="shrink-0">
                         <RoomExitDirectionSelector
                           value={exit.direction}
+                          disabledDirections={data.exits
+                            .filter((candidate) => candidate.id !== exit.id)
+                            .map((candidate) => candidate.direction)}
                           onValueChange={(direction) => replaceExit(exit.id, { direction })}
                         />
                       </div>

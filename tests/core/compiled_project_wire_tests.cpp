@@ -783,6 +783,19 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
     }
 
+    SECTION("Room exit directions are unique within their owner")
+    {
+        auto document = fixture("interaction-program");
+        auto* direction =
+            path_member(document, {"definitions", "rooms", "0", "exits", "1", "direction"});
+        REQUIRE(direction != nullptr);
+        *direction = "south";
+        auto result =
+            noveltea::core::decode_compiled_project(document, "room-exit-direction-duplicate.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.duplicate_room_exit_direction"));
+    }
+
     SECTION("Room and Interactable hotspot Verbs enforce owner arity")
     {
         auto room = fixture("interaction-program");

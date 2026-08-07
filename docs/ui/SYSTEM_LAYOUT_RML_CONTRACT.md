@@ -116,7 +116,7 @@ The engine-generated children expose these current styling and metadata hooks:
 | `rt_prompt` | `button.continue` |
 | `rt_options` | `button.option`; disabled choices also receive class `disabled` and the `disabled` attribute |
 | `rt_actors` | `div.actor` with `data-character-id`, `data-slot-id`, `data-pose-id`, `data-expression-id`, and `data-presentation-complete` |
-| `rt_navigation` | Permanent `button.nav.nav-{direction}` controls with `data-direction` and binder-managed `data-exit-id`; each contains `span.nav-glyph` and `span.nav-label`. Direction tokens are `northwest`, `north`, `northeast`, `west`, `custom`, `east`, `southwest`, `south`, and `southeast`. Buttons without an enabled exit are hidden. |
+| `rt_navigation` | Permanent `button.nav.nav-{direction}` controls with `data-direction` and binder-managed `data-exit-id`; each contains `span.nav-glyph` and `span.nav-label`. Direction tokens are `northwest`, `north`, `northeast`, `west`, `custom`, `east`, `southwest`, `south`, and `southeast`. Room validation permits at most one exit per direction. Buttons without an enabled exit are hidden. |
 | `rt_objects` | `button.object`, with optional `selected` and `disabled` classes |
 | `rt_inventory` | `button.object`, with optional `selected` and `disabled` classes |
 | `rt_actions` | `button.clear-selection` and `button.action`; unavailable actions receive class `disabled` and the `disabled` attribute |

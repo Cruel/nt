@@ -623,12 +623,17 @@ private:
             if (value.compose)
                 require(m_scripts, value.compose->script, "script", path + "/compose/script");
             std::unordered_set<RoomExitId> exit_ids;
+            std::unordered_set<RoomExitDirection> exit_directions;
             for (std::size_t exit_index = 0; exit_index < value.exits.size(); ++exit_index) {
                 const auto& linked_exit = value.exits[exit_index];
                 const auto exit_path = path + "/exits/" + std::to_string(exit_index);
                 if (!exit_ids.insert(linked_exit.id).second)
                     error("compiled_project.duplicate_nested_id", "Duplicate Room exit ID.",
                           exit_path + "/id");
+                if (!exit_directions.insert(linked_exit.direction).second)
+                    error("compiled_project.duplicate_room_exit_direction",
+                          "Each Room exit direction may be used once.",
+                          exit_path + "/direction");
                 require(m_rooms, linked_exit.target, "room", exit_path + "/target");
                 validate_condition(linked_exit.condition, exit_path + "/condition");
                 validate_text(linked_exit.label, exit_path + "/label");

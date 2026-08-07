@@ -46,7 +46,7 @@ describe('authoring rooms schema', () => {
       {
         id: 'exit',
         label: 'Duplicate',
-        direction: 'south',
+        direction: 'north',
         target: roomRoomRef('missing-room'),
         condition: { kind: 'always' },
       },
@@ -72,6 +72,10 @@ describe('authoring rooms schema', () => {
           severity: 'error',
         }),
         expect.objectContaining({ path: '/rooms/foyer/data/exits/1/id', severity: 'error' }),
+        expect.objectContaining({
+          path: '/rooms/foyer/data/exits/1/direction',
+          severity: 'error',
+        }),
         expect.objectContaining({
           path: '/rooms/foyer/data/exits/0/target/$ref',
           severity: 'error',

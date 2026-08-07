@@ -198,7 +198,7 @@ button.disabled {
 .nav-slot-custom { left: 80px; top: 80px; }
 .nav-slot-east { right: 0; top: 80px; }
 .nav-slot-southwest { left: 0; bottom: 0; }
-.nav-slot-south { left: 132px; bottom: 0; }
+.nav-slot-south { left: 80px; bottom: 0; }
 .nav-slot-southeast { right: 0; bottom: 0; }
 
 button.nav {

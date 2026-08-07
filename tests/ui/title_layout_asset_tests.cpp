@@ -82,4 +82,5 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(rcss.find("pointer-events: none") != std::string::npos);
     CHECK(rcss.find(".nav-slot-northwest") != std::string::npos);
     CHECK(rcss.find(".nav-slot-southeast") != std::string::npos);
+    CHECK(rcss.find(".nav-slot-south { left: 80px; bottom: 0; }") != std::string::npos);
 }

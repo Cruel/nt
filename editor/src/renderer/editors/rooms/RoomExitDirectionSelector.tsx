@@ -34,9 +34,11 @@ const directionOptions: Array<{
 
 export function RoomExitDirectionSelector({
   value,
+  disabledDirections = [],
   onValueChange,
 }: {
   value: RoomExitDirection;
+  disabledDirections?: readonly RoomExitDirection[];
   onValueChange: (value: RoomExitDirection) => void;
 }) {
   return (
@@ -48,6 +50,7 @@ export function RoomExitDirectionSelector({
       {directionOptions.map((option) => {
         const Icon = option.icon;
         const selected = value === option.direction;
+        const disabled = !selected && disabledDirections.includes(option.direction);
         return (
           <Button
             key={option.direction}
@@ -56,7 +59,8 @@ export function RoomExitDirectionSelector({
             variant={selected ? 'secondary' : 'ghost'}
             aria-label={option.label}
             aria-pressed={selected}
-            title={option.label}
+            disabled={disabled}
+            title={disabled ? `${option.label} is already used` : option.label}
             className={cn(
               'size-5 rounded-sm',
               selected && 'border border-primary/30 bg-primary/15 text-primary shadow-sm',

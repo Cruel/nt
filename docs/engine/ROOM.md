@@ -21,8 +21,11 @@ view publication occur at the defined commit point. Failed pre-commit work resum
 post-commit fault handling preserves the target. Yielding effects retain their exact lifecycle stage
 and effect index.
 
-Every exit has a stable ID and a typed target Room. Lua, Map, player, editor playback, and tests all
-lower navigation into the same typed input and lifecycle transaction.
+Every exit has a stable ID, a typed target Room, and a direction that is unique within its owning
+Room, including `custom`. The built-in HUD presents one fixed control per direction; alternative
+choices must therefore use distinct directions or another authored interaction surface. Lua, Map,
+player, editor playback, and tests all lower navigation into the same typed input and lifecycle
+transaction.
 
 Room hotspots have stable IDs within their Room, normalized rectangular image bounds, a condition,
 signed input priority, highlight policy, and either a zero-arity Verb or one of the Room's exits.

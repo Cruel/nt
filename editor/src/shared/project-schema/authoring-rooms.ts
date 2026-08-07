@@ -373,6 +373,17 @@ export function validateRoomData(
     );
   uniqueIds(data.overlays, `${base}/overlays`, 'overlay', diagnostics);
   uniqueIds(data.exits, `${base}/exits`, 'exit', diagnostics);
+  const exitDirections = new Set<RoomExitData['direction']>();
+  data.exits.forEach((exit, index) => {
+    if (exitDirections.has(exit.direction))
+      diagnostics.push(
+        diagnostic(
+          `${base}/exits/${index}/direction`,
+          `Duplicate exit direction '${exit.direction}'. Each Room direction may be used once.`,
+        ),
+      );
+    exitDirections.add(exit.direction);
+  });
   uniqueIds(data.placements, `${base}/placements`, 'placement', diagnostics);
   uniqueIds(data.cast, `${base}/cast`, 'cast', diagnostics);
   uniqueIds(data.props, `${base}/props`, 'prop', diagnostics);
