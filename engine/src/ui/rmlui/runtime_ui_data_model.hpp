@@ -14,11 +14,11 @@ class Context;
 
 namespace noveltea::ui::rmlui {
 
-class RuntimeUiBinder;
+class RuntimeUiActionGateway;
 
 class RuntimeUiDataModel final {
 public:
-    explicit RuntimeUiDataModel(RuntimeUiBinder& action_gateway);
+    explicit RuntimeUiDataModel(RuntimeUiActionGateway& action_gateway);
     ~RuntimeUiDataModel();
 
     RuntimeUiDataModel(const RuntimeUiDataModel&) = delete;

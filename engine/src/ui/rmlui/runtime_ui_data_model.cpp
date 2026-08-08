@@ -1,6 +1,6 @@
 #include "ui/rmlui/runtime_ui_data_model.hpp"
 
-#include "ui/rmlui/runtime_ui_binder.hpp"
+#include "ui/rmlui/runtime_ui_action_gateway.hpp"
 #include "ui/rmlui/rmlui_custom_components.hpp"
 
 #include <noveltea/active_text.hpp>
@@ -615,11 +615,11 @@ struct RuntimeUiDataModel::Impl {
         Rml::DataModelHandle handle;
     };
 
-    RuntimeUiBinder& gateway;
+    RuntimeUiActionGateway& gateway;
     Projection projection;
     std::vector<HandleRecord> handles;
 
-    explicit Impl(RuntimeUiBinder& action_gateway) : gateway(action_gateway) {}
+    explicit Impl(RuntimeUiActionGateway& action_gateway) : gateway(action_gateway) {}
 
     void dirty_all()
     {
@@ -834,7 +834,7 @@ struct RuntimeUiDataModel::Impl {
     }
 };
 
-RuntimeUiDataModel::RuntimeUiDataModel(RuntimeUiBinder& action_gateway)
+RuntimeUiDataModel::RuntimeUiDataModel(RuntimeUiActionGateway& action_gateway)
     : m_impl(std::make_unique<Impl>(action_gateway))
 {
 }

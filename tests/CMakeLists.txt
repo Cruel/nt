@@ -463,9 +463,8 @@ add_executable(noveltea_ui_tests
     ui/active_text_playback_tests.cpp
     ui/active_text_tests.cpp
     ui/rmlui_advanced_gallery_asset_tests.cpp
-    ui/rmlui_document_binder_tests.cpp
     ui/rmlui_event_disposition_tests.cpp
-    ui/runtime_ui_binder_tests.cpp
+    ui/runtime_ui_action_gateway_tests.cpp
     ui/rmlui_template_resolver_tests.cpp
     ui/title_layout_asset_tests.cpp
 )

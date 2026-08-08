@@ -1,7 +1,6 @@
 #pragma once
 
 #include "noveltea/runtime_ui_contracts.hpp"
-#include "ui/rmlui/rmlui_document_binder.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -11,19 +10,15 @@
 
 struct lua_State;
 
-namespace Rml {
-class ElementDocument;
-}
-
 namespace noveltea::ui::rmlui {
 
-class RuntimeUiBinder {
+class RuntimeUiActionGateway {
 public:
-    explicit RuntimeUiBinder(core::Diagnostics& diagnostics);
-    ~RuntimeUiBinder();
+    explicit RuntimeUiActionGateway(core::Diagnostics& diagnostics);
+    ~RuntimeUiActionGateway();
 
-    RuntimeUiBinder(const RuntimeUiBinder&) = delete;
-    RuntimeUiBinder& operator=(const RuntimeUiBinder&) = delete;
+    RuntimeUiActionGateway(const RuntimeUiActionGateway&) = delete;
+    RuntimeUiActionGateway& operator=(const RuntimeUiActionGateway&) = delete;
 
     void set_lua_state(lua_State* state) noexcept;
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept;
@@ -37,8 +32,6 @@ public:
     [[nodiscard]] const core::TypedRuntimeUIViewState* view() const noexcept;
     [[nodiscard]] std::uint64_t revision() const noexcept;
     [[nodiscard]] bool has_input_sink() const noexcept { return m_input_sink != nullptr; }
-
-    void bind_document(Rml::ElementDocument& document, std::string_view notification = {});
 
     [[nodiscard]] bool dispatch_input(const core::RuntimeInputMessage& input);
     [[nodiscard]] bool dispatch_layout_input(const core::RuntimeInputMessage& input);
@@ -65,7 +58,6 @@ private:
     [[nodiscard]] bool require_view();
 
     core::Diagnostics& m_diagnostics;
-    RuntimeUiDocumentBinder m_document_binder;
     lua_State* m_lua_state = nullptr;
     RuntimeUiInputSink* m_input_sink = nullptr;
     std::function<bool()> m_layout_gameplay_admission;

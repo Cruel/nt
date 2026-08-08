@@ -1,4 +1,4 @@
-#include "ui/rmlui/runtime_ui_binder.hpp"
+#include "ui/rmlui/runtime_ui_action_gateway.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -9,11 +9,14 @@
 
 namespace noveltea::ui::rmlui {
 
-RuntimeUiBinder::RuntimeUiBinder(core::Diagnostics& diagnostics) : m_diagnostics(diagnostics) {}
+RuntimeUiActionGateway::RuntimeUiActionGateway(core::Diagnostics& diagnostics)
+    : m_diagnostics(diagnostics)
+{
+}
 
-RuntimeUiBinder::~RuntimeUiBinder() { remove_lua_api(); }
+RuntimeUiActionGateway::~RuntimeUiActionGateway() { remove_lua_api(); }
 
-void RuntimeUiBinder::set_lua_state(lua_State* state) noexcept
+void RuntimeUiActionGateway::set_lua_state(lua_State* state) noexcept
 {
     if (m_lua_state == state)
         return;
@@ -23,7 +26,7 @@ void RuntimeUiBinder::set_lua_state(lua_State* state) noexcept
         install_lua_api();
 }
 
-void RuntimeUiBinder::bind_input_sink(RuntimeUiInputSink* sink) noexcept
+void RuntimeUiActionGateway::bind_input_sink(RuntimeUiInputSink* sink) noexcept
 {
     m_input_sink = sink;
     if (!sink) {
@@ -37,12 +40,12 @@ void RuntimeUiBinder::bind_input_sink(RuntimeUiInputSink* sink) noexcept
         remove_lua_api();
 }
 
-void RuntimeUiBinder::bind_layout_gameplay_admission(std::function<bool()> admission)
+void RuntimeUiActionGateway::bind_layout_gameplay_admission(std::function<bool()> admission)
 {
     m_layout_gameplay_admission = std::move(admission);
 }
 
-bool RuntimeUiBinder::apply(const RuntimeUiGameplayValues& values)
+bool RuntimeUiActionGateway::apply(const RuntimeUiGameplayValues& values)
 {
     if (!can_apply(values)) {
         m_diagnostics.push_back(core::Diagnostic{
@@ -55,35 +58,29 @@ bool RuntimeUiBinder::apply(const RuntimeUiGameplayValues& values)
     return true;
 }
 
-bool RuntimeUiBinder::can_apply(const RuntimeUiGameplayValues& values) const noexcept
+bool RuntimeUiActionGateway::can_apply(const RuntimeUiGameplayValues& values) const noexcept
 {
     return values.revision != 0 && revision() <= values.revision;
 }
 
-void RuntimeUiBinder::commit(RuntimeUiGameplayValues values) noexcept
+void RuntimeUiActionGateway::commit(RuntimeUiGameplayValues values) noexcept
 {
     m_values = std::move(values);
 }
 
-void RuntimeUiBinder::clear_gameplay_values() { m_values.reset(); }
+void RuntimeUiActionGateway::clear_gameplay_values() { m_values.reset(); }
 
-const core::TypedRuntimeUIViewState* RuntimeUiBinder::view() const noexcept
+const core::TypedRuntimeUIViewState* RuntimeUiActionGateway::view() const noexcept
 {
     return m_values ? &m_values->view : nullptr;
 }
 
-std::uint64_t RuntimeUiBinder::revision() const noexcept
+std::uint64_t RuntimeUiActionGateway::revision() const noexcept
 {
     return m_values ? m_values->revision : 0;
 }
 
-void RuntimeUiBinder::bind_document(Rml::ElementDocument& document, std::string_view notification)
-{
-    if (const auto* current = view())
-        m_document_binder.bind(document, *current, notification);
-}
-
-bool RuntimeUiBinder::dispatch_input(const core::RuntimeInputMessage& input)
+bool RuntimeUiActionGateway::dispatch_input(const core::RuntimeInputMessage& input)
 {
     if (!m_input_sink) {
         m_diagnostics.push_back(
@@ -98,7 +95,7 @@ bool RuntimeUiBinder::dispatch_input(const core::RuntimeInputMessage& input)
     return m_input_sink->submit_gameplay_input(input);
 }
 
-bool RuntimeUiBinder::dispatch_layout_input(const core::RuntimeInputMessage& input)
+bool RuntimeUiActionGateway::dispatch_layout_input(const core::RuntimeInputMessage& input)
 {
     if (m_layout_gameplay_admission && !m_layout_gameplay_admission())
         return invalid("runtime_ui.layout_input_blocked",
@@ -106,7 +103,7 @@ bool RuntimeUiBinder::dispatch_layout_input(const core::RuntimeInputMessage& inp
     return dispatch_input(input);
 }
 
-bool RuntimeUiBinder::dispatch_shell_command(const core::RuntimeShellCommand& command)
+bool RuntimeUiActionGateway::dispatch_shell_command(const core::RuntimeShellCommand& command)
 {
     if (!m_input_sink) {
         m_diagnostics.push_back(
@@ -121,21 +118,21 @@ bool RuntimeUiBinder::dispatch_shell_command(const core::RuntimeShellCommand& co
     return m_input_sink->submit_shell_command(command);
 }
 
-bool RuntimeUiBinder::dispatch_layout_event(core::MountedLayoutOwner owner,
-                                            const std::function<bool()>& dispatch)
+bool RuntimeUiActionGateway::dispatch_layout_event(core::MountedLayoutOwner owner,
+                                                   const std::function<bool()>& dispatch)
 {
     return m_input_sink ? m_input_sink->dispatch_layout_event(owner, dispatch)
                         : dispatch && dispatch();
 }
 
-void RuntimeUiBinder::begin_event_capture() noexcept
+void RuntimeUiActionGateway::begin_event_capture() noexcept
 {
     m_event_capture_active = true;
     m_captured_runtime_inputs.clear();
     m_captured_shell_commands.clear();
 }
 
-RuntimeUiEventResult RuntimeUiBinder::finish_event_capture() noexcept
+RuntimeUiEventResult RuntimeUiActionGateway::finish_event_capture() noexcept
 {
     RuntimeUiEventResult result;
     result.runtime_inputs = std::move(m_captured_runtime_inputs);
@@ -146,20 +143,20 @@ RuntimeUiEventResult RuntimeUiBinder::finish_event_capture() noexcept
     return result;
 }
 
-bool RuntimeUiBinder::invalid(std::string code, std::string message)
+bool RuntimeUiActionGateway::invalid(std::string code, std::string message)
 {
     m_diagnostics.push_back(
         core::Diagnostic{.code = std::move(code), .message = std::move(message)});
     return false;
 }
 
-bool RuntimeUiBinder::require_view()
+bool RuntimeUiActionGateway::require_view()
 {
     return view() != nullptr ||
            invalid("runtime_ui.view_unavailable", "Typed runtime view is unavailable");
 }
 
-bool RuntimeUiBinder::action_continue()
+bool RuntimeUiActionGateway::action_continue()
 {
     if (!require_view())
         return false;
@@ -168,7 +165,7 @@ bool RuntimeUiBinder::action_continue()
     return dispatch_layout_input(core::RuntimeInputMessage{core::ContinueInput{}});
 }
 
-bool RuntimeUiBinder::action_choose(std::string kind, std::string text)
+bool RuntimeUiActionGateway::action_choose(std::string kind, std::string text)
 {
     if (!require_view())
         return false;
@@ -213,7 +210,7 @@ bool RuntimeUiBinder::action_choose(std::string kind, std::string text)
     return invalid("runtime_ui.invalid_choice_kind", "Choice kind must be scene or dialogue");
 }
 
-bool RuntimeUiBinder::action_navigate_room(std::string text)
+bool RuntimeUiActionGateway::action_navigate_room(std::string text)
 {
     if (!require_view())
         return false;
@@ -233,7 +230,7 @@ bool RuntimeUiBinder::action_navigate_room(std::string text)
         core::RuntimeInputMessage{core::NavigateRoomInput{*id.value_if()}});
 }
 
-bool RuntimeUiBinder::action_toggle_subject(std::string kind, std::string text)
+bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string text)
 {
     if (!require_view())
         return false;
@@ -300,13 +297,13 @@ bool RuntimeUiBinder::action_toggle_subject(std::string kind, std::string text)
         core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{std::move(selection)}});
 }
 
-bool RuntimeUiBinder::action_clear_selection()
+bool RuntimeUiActionGateway::action_clear_selection()
 {
     return dispatch_layout_input(
         core::RuntimeInputMessage{core::ClearInteractionSubjectSelectionInput{}});
 }
 
-bool RuntimeUiBinder::action_invoke_interaction(std::string text)
+bool RuntimeUiActionGateway::action_invoke_interaction(std::string text)
 {
     if (!require_view())
         return false;
@@ -326,7 +323,7 @@ bool RuntimeUiBinder::action_invoke_interaction(std::string text)
         core::RuntimeInputMessage{core::InvokeInteractionInput{*id.value_if(), {}}});
 }
 
-bool RuntimeUiBinder::action_save_slot(std::uint64_t number)
+bool RuntimeUiActionGateway::action_save_slot(std::uint64_t number)
 {
     if (number > std::numeric_limits<std::uint32_t>::max())
         return invalid("runtime_ui.invalid_save_slot",
@@ -335,7 +332,7 @@ bool RuntimeUiBinder::action_save_slot(std::uint64_t number)
         core::TypedSaveSlotId::manual(static_cast<std::uint32_t>(number))}});
 }
 
-bool RuntimeUiBinder::action_load_slot(std::string kind, std::uint64_t number)
+bool RuntimeUiActionGateway::action_load_slot(std::string kind, std::uint64_t number)
 {
     if (kind == "autosave") {
         if (number != 0)
@@ -354,7 +351,7 @@ bool RuntimeUiBinder::action_load_slot(std::string kind, std::uint64_t number)
                    "Load slot kind must be autosave or manual");
 }
 
-void RuntimeUiBinder::install_lua_api()
+void RuntimeUiActionGateway::install_lua_api()
 {
     if (!m_lua_state || !m_input_sink)
         return;
@@ -449,7 +446,7 @@ void RuntimeUiBinder::install_lua_api()
     game["ui"] = std::move(ui);
 }
 
-void RuntimeUiBinder::remove_lua_api() noexcept
+void RuntimeUiActionGateway::remove_lua_api() noexcept
 {
     if (!m_lua_state)
         return;

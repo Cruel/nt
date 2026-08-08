@@ -2,7 +2,7 @@
 
 #include <noveltea/runtime_ui_contracts.hpp>
 
-#include "ui/rmlui/runtime_ui_binder.hpp"
+#include "ui/rmlui/runtime_ui_action_gateway.hpp"
 
 #include <cstddef>
 #include <functional>
@@ -49,10 +49,10 @@ public:
 
 } // namespace
 
-TEST_CASE("RuntimeUiBinder owns one revisioned gameplay UI subview")
+TEST_CASE("RuntimeUiActionGateway owns one revisioned gameplay UI subview")
 {
     noveltea::core::Diagnostics diagnostics;
-    noveltea::ui::rmlui::RuntimeUiBinder binder(diagnostics);
+    noveltea::ui::rmlui::RuntimeUiActionGateway binder(diagnostics);
 
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 2;
@@ -76,10 +76,10 @@ TEST_CASE("RuntimeUiBinder owns one revisioned gameplay UI subview")
     CHECK(binder.revision() == 0);
 }
 
-TEST_CASE("RuntimeUiBinder emits typed inputs and capabilities through the host seam")
+TEST_CASE("RuntimeUiActionGateway emits typed inputs and capabilities through the host seam")
 {
     noveltea::core::Diagnostics diagnostics;
-    noveltea::ui::rmlui::RuntimeUiBinder binder(diagnostics);
+    noveltea::ui::rmlui::RuntimeUiActionGateway binder(diagnostics);
 
     CHECK_FALSE(binder.dispatch_input(
         noveltea::core::RuntimeInputMessage{noveltea::core::ContinueInput{}}));
@@ -120,10 +120,11 @@ TEST_CASE("RuntimeUiBinder emits typed inputs and capabilities through the host 
     CHECK(sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Shell);
 }
 
-TEST_CASE("RuntimeUiBinder captures event outputs without recursively invoking the host sink")
+TEST_CASE(
+    "RuntimeUiActionGateway captures event outputs without recursively invoking the host sink")
 {
     noveltea::core::Diagnostics diagnostics;
-    noveltea::ui::rmlui::RuntimeUiBinder binder(diagnostics);
+    noveltea::ui::rmlui::RuntimeUiActionGateway binder(diagnostics);
     RecordingRuntimeUiInputSink sink;
     binder.bind_input_sink(&sink);
 
@@ -147,10 +148,10 @@ TEST_CASE("RuntimeUiBinder captures event outputs without recursively invoking t
     CHECK(sink.gameplay_inputs == 1);
 }
 
-TEST_CASE("RuntimeUiBinder Lua API dispatches exact hotspot activation")
+TEST_CASE("RuntimeUiActionGateway Lua API dispatches exact hotspot activation")
 {
     noveltea::core::Diagnostics diagnostics;
-    noveltea::ui::rmlui::RuntimeUiBinder binder(diagnostics);
+    noveltea::ui::rmlui::RuntimeUiActionGateway binder(diagnostics);
     RecordingRuntimeUiInputSink sink;
     binder.bind_input_sink(&sink);
     binder.bind_layout_gameplay_admission([]() { return true; });
@@ -180,11 +181,12 @@ TEST_CASE("RuntimeUiBinder Lua API dispatches exact hotspot activation")
     lua_close(state);
 }
 
-TEST_CASE("RuntimeUiBinder rejects stale hidden and disabled typed gameplay actions independent of "
+TEST_CASE("RuntimeUiActionGateway rejects stale hidden and disabled typed gameplay actions "
+          "independent of "
           "DOM markup")
 {
     noveltea::core::Diagnostics diagnostics;
-    noveltea::ui::rmlui::RuntimeUiBinder binder(diagnostics);
+    noveltea::ui::rmlui::RuntimeUiActionGateway binder(diagnostics);
     RecordingRuntimeUiInputSink sink;
     binder.bind_input_sink(&sink);
     binder.bind_layout_gameplay_admission([]() { return true; });

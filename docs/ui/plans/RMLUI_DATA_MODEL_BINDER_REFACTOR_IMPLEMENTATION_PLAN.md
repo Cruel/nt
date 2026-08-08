@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Status
 
-Active implementation plan. Phases 0-6 are complete; Phases 7-8 are not started.
+Active implementation plan. Phases 0-7 are complete; Phase 8 is not started.
 
 Phase 0-2 review completed 2026-08-08. The review found one Phase 1 callback-adapter defect:
 malformed Save/Load slot-number arguments could be coerced by RmlUi to numeric zero before reaching
@@ -1078,44 +1078,44 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ### Work
 
-- [ ] Delete `RuntimeUiDocumentBinder` after all ordinary DOM population and custom-component snapshot
+- [x] Delete `RuntimeUiDocumentBinder` after all ordinary DOM population and custom-component snapshot
       delivery have moved to their new owners.
-- [ ] Remove `bind_document()` and the document-binder member from the current `RuntimeUiBinder`.
-- [ ] Remove obsolete RML generation helpers used only by deleted binder paths.
-- [ ] Retain/rehome revision gating, latest-view ownership, typed action validation, Layout gameplay
+- [x] Remove `bind_document()` and the document-binder member from the current `RuntimeUiBinder`.
+- [x] Remove obsolete RML generation helpers used only by deleted binder paths.
+- [x] Retain/rehome revision gating, latest-view ownership, typed action validation, Layout gameplay
       admission, typed input dispatch, event capture, and `Game.ui.*` installation.
-- [ ] Preserve the named native action methods introduced in Phase 1 as the shared implementation
+- [x] Preserve the named native action methods introduced in Phase 1 as the shared implementation
       used by Lua and RmlUi model callbacks; rehome them with the surviving action-gateway
       responsibilities rather than recreating or duplicating stale/enabled validation during the
       binder deletion/rename.
-- [ ] Rename the surviving `RuntimeUiBinder` to `RuntimeUiActionGateway` and rename its source files to
+- [x] Rename the surviving `RuntimeUiBinder` to `RuntimeUiActionGateway` and rename its source files to
       `runtime_ui_action_gateway.{hpp,cpp}`. Keep its current cohesive responsibilities together:
       revisioned latest gameplay view, typed validation/dispatch, Layout gameplay admission, event
       capture, and `Game.ui.*` installation. Do not split those into trivial one-method owners as part
       of this refactor.
-- [ ] Update `cmake/NovelTeaModuleFileClassification.cmake` atomically with deletion of
+- [x] Update `cmake/NovelTeaModuleFileClassification.cmake` atomically with deletion of
       `rmlui_document_binder.*` and the `runtime_ui_binder.*` -> `runtime_ui_action_gateway.*` rename;
       no stale classified path may remain.
-- [ ] Remove semantic reliance on the old `rt_*`, `nt-title-*`, `nt-settings-*`, `nt-save-slots`, and
+- [x] Remove semantic reliance on the old `rt_*`, `nt-title-*`, `nt-settings-*`, `nt-save-slots`, and
       related population IDs. Built-in RML may retain useful IDs/classes strictly as authored styling
       hooks.
-- [ ] Remove generated-navigation `data-exit-id` native click routing if no remaining component uses
+- [x] Remove generated-navigation `data-exit-id` native click routing if no remaining component uses
       it.
-- [ ] Verify reload/context recreation reuses current projection state and reattaches `noveltea`
+- [x] Verify reload/context recreation reuses current projection state and reattaches `noveltea`
       before the recreated documents bind.
-- [ ] Remove now-dead title/shell refresh functions whose only purpose was ordinary DOM mutation.
+- [x] Remove now-dead title/shell refresh functions whose only purpose was ordinary DOM mutation.
       Retain narrowly named refresh helpers only for ActiveText, provisional Map, and native virtual
       resource preparation.
 
 ### Exit gate
 
-- [ ] No production code searches ordinary authored documents by magic population ID in order to
+- [x] No production code searches ordinary authored documents by magic population ID in order to
       inject gameplay/project/shell state.
-- [ ] No production code generates whole choice/navigation/object/inventory/action/save/load/text-log
+- [x] No production code generates whole choice/navigation/object/inventory/action/save/load/text-log
       UI subtrees with `SetInnerRML()`.
-- [ ] Remaining `SetInnerRML()` use is limited to explicitly justified specialized/provisional
+- [x] Remaining `SetInnerRML()` use is limited to explicitly justified specialized/provisional
       component behavior or unrelated RmlUi infrastructure.
-- [ ] No type or function remaining in production uses `Binder` terminology for ordinary RML state
+- [x] No type or function remaining in production uses `Binder` terminology for ordinary RML state
       population; the deleted `RuntimeUiDocumentBinder` has no compatibility wrapper or alias.
 
 ## Phase 8 - Documentation, validation, and archival
@@ -1145,7 +1145,7 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 - [ ] Add `tests/ui/runtime_ui_data_model_tests.cpp` to `noveltea_ui_tests` or
       `noveltea_ui_backend_tests` according to whether each test needs direct RmlUi API access; do not
       hide data-model coverage inside an unrelated test file.
-- [ ] By Phase 7, delete `tests/ui/rmlui_document_binder_tests.cpp` after its retained behavioral
+- [x] By Phase 7, delete `tests/ui/rmlui_document_binder_tests.cpp` after its retained behavioral
       assertions have moved to data-model/integration tests, and rename
       `tests/ui/runtime_ui_binder_tests.cpp` to `tests/ui/runtime_ui_action_gateway_tests.cpp` with the
       production class rename. Update `tests/CMakeLists.txt` in the same phase.
@@ -1349,5 +1349,5 @@ This refactor is complete only when all of the following are true:
 | 4. Text Log data-model cutover | Complete | `gameplay.text_log.entries` now supplies ordered sequence/kind/speaker/text plus sanitized `body_rml`; the built-in Text Log authors its list, metadata, rich body, and empty state with `data-for`/`data-if`/`data-rml`; `nt-text-log`, its registry/snapshot/RML helpers, and the Phase 3 direct snapshot-delivery branch are removed while the reduced binder scaffolding for Phase 6 is retained. Focused Text Log integration passes 30 assertions/1 case; `noveltea_ui_tests` passes 636 assertions/61 cases and `noveltea_ui_backend_tests` passes 1068 assertions/48 cases; `format-check`, Linux build, Linux `cxx-policy`, Web configure/build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 818/826; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). The Phase 3-5 review on 2026-08-08 reconfirmed this exit gate and commit boundary. |
 | 5. Save/Load list data-model cutover | Complete | Built-in Save/Load now author checkpoint summary, one shared `shell.save_slots` loop, thumbnail/missing-thumbnail state, Save autosave omission, empty-slot Load omission, and typed Save/Load callbacks declaratively. RuntimeUI retains only content-fingerprinted thumbnail virtual-file preparation and publishes the resulting logical URL; native slot subtree generation is removed. Focused integration proves final autosave/manual visibility, empty Load-action visibility, metadata, and a changed fingerprinted URL after thumbnail bytes change. `noveltea_ui_tests` passes 644 assertions/61 cases and `noveltea_ui_backend_tests` passes 1079 assertions/48 cases; `format-check`, full Linux build, Linux `cxx-policy`, Web configure/build, Web `cxx-policy`, and focused callback validation pass. Full Linux CTest initially passes 817/826 because `noveltea_mandatory_asset_matrix` transiently misses one threaded finalization in addition to the same eight X11-unavailable graphics capture/dependent verifier failures; the mandatory asset matrix passes immediately when rerun in isolation, leaving only the known eight environment-limited graphics tests (2026-08-08). The Phase 3-5 review on 2026-08-08 reconfirmed this exit gate and commit boundary; its full Linux CTest passes 818/826 with the mandatory asset matrix green and only the same eight X11-limited graphics tests failing. |
 | 6. Isolate custom-component path | Complete | `RuntimeUiDocumentBinder` no longer delivers custom-component snapshots. RuntimeUI now owns focused tag-based delivery: ActiveText updates only the first `nt-active-text` in the active Game HUD and refreshes `ActiveTextPresenter`, while provisional Map updates only the first `nt-map-view` in Game HUD and Text Log system documents and only while a gameplay view exists. Focused lifecycle coverage proves arbitrary mounted component tags are untouched and Map is not reset after gameplay clear. `noveltea_ui_tests` passes 644 assertions/61 cases and `noveltea_ui_backend_tests` passes 1101 assertions/49 cases; `format-check`, full Linux build, Linux `cxx-policy`, full Web build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 819/827; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). |
-| 7. Remove document binder/reconcile ownership | Not started | - |
+| 7. Remove document binder/reconcile ownership | Complete | `RuntimeUiDocumentBinder` and its tests are deleted; the surviving revision/action/input/Lua owner is renamed atomically to `RuntimeUiActionGateway`, including RuntimeUI/data-model ownership, source classification, and focused test naming. RuntimeUI's remaining refresh helpers are narrowed to Game HUD Map and Text Log Map delivery, with ActiveText and thumbnail preparation already independently named. Repository scans find no production `RuntimeUiBinder`, document-binder, `bind_document()`, or ordinary magic-ID population lookup; the only `SetInnerRML()` calls left are the Phase 6-approved provisional `nt-map-view` implementation. `noveltea_ui_tests` passes 634 assertions/59 cases and `noveltea_ui_backend_tests` passes 1101 assertions/49 cases; `format-check`, full Linux build, Linux `cxx-policy`, full Web build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 817/825; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). No Phase 8 implementation or scope change was required. |
 | 8. Documentation, validation, archival | Not started | - |

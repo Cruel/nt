@@ -331,8 +331,6 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/ui/rmlui/rmlui_bgfx_noveltea_adapter.cpp
     engine/src/ui/rmlui/rmlui_custom_components.cpp
     engine/src/ui/rmlui/rmlui_custom_components.hpp
-    engine/src/ui/rmlui/rmlui_document_binder.cpp
-    engine/src/ui/rmlui/rmlui_document_binder.hpp
     engine/src/ui/rmlui/rmlui_document_registry.cpp
     engine/src/ui/rmlui/rmlui_document_registry.hpp
     engine/src/ui/rmlui/rmlui_event_disposition.hpp
@@ -351,8 +349,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/ui/rmlui/rmlui_system_interface_sdl3.hpp
     engine/src/ui/rmlui/rmlui_template_resolver.cpp
     engine/src/ui/rmlui/rmlui_template_resolver.hpp
-    engine/src/ui/rmlui/runtime_ui_binder.cpp
-    engine/src/ui/rmlui/runtime_ui_binder.hpp
+    engine/src/ui/rmlui/runtime_ui_action_gateway.cpp
+    engine/src/ui/rmlui/runtime_ui_action_gateway.hpp
     engine/src/ui/rmlui/runtime_ui_data_model.cpp
     engine/src/ui/rmlui/runtime_ui_data_model.hpp
     engine/src/ui/rmlui/runtime_ui_facade_access.hpp
