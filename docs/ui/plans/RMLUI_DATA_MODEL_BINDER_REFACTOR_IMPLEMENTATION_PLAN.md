@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Status
 
-Active implementation plan. Phases 0-4 are complete; Phases 5-8 are not started.
+Active implementation plan. Phases 0-5 are complete; Phases 6-8 are not started.
 
 Phase 0-2 review completed 2026-08-08. The review found one Phase 1 callback-adapter defect:
 malformed Save/Load slot-number arguments could be coerced by RmlUi to numeric zero before reaching
@@ -539,8 +539,11 @@ Each `shell.save_slots` item has exactly `kind` (string `"autosave"` or `"manual
 `project_version` (string, empty when absent), `detail` (string preserving current `Empty`, `Occupied`,
 or `Play time N ms · version V` presentation), `thumbnail_available` (bool), and `thumbnail_url`
 (string, empty when absent). For an available thumbnail, native virtual-file registration uses the
-existing `project:/generated/shell/<fingerprinted-name>.png` key while `thumbnail_url` exposes the RML
-source form `project|/generated/shell/<fingerprinted-name>.png`. The model always contains autosave;
+existing `project:/generated/shell/<fingerprinted-name>.png` key and `thumbnail_url` exposes that same
+logical `project:/generated/shell/<fingerprinted-name>.png` URL. Unlike an authored RML attribute,
+`data-attr-src` assigns the model string after XML parsing, so the source-only `project|/` encoding is
+not decoded there and would be treated as document-relative by RmlUi's texture path join. The model
+always contains autosave;
 the Save document filters it with
 `data-if`, while the Load document renders it.
 
@@ -967,33 +970,42 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ## Phase 5 - Move Save/Load list presentation to the data model
 
+### Implementation findings
+
+- RmlUi's `data-attr-src` applies the evaluated model string directly to the image element after XML
+  parsing. The `project|/` namespace spelling is an authored-source escape and is not decoded on this
+  dynamic path; RmlUi consequently joined it relative to the owning document. Phase 5 therefore
+  publishes the already-logical `project:/generated/shell/...` URL in `thumbnail_url`, while native
+  virtual-file registration continues to use the identical `project:/...` key. This is a correction
+  to the pre-implementation contract, not a new resource ownership path.
+
 ### Work
 
-- [ ] Project the exact `shell.checkpoint.*` and `shell.save_slots[]` fields defined above; do not
+- [x] Project the exact `shell.checkpoint.*` and `shell.save_slots[]` fields defined above; do not
       invent a second slot shape for Save versus Load.
-- [ ] Keep thumbnail bytes and virtual-file publication native. Convert each available thumbnail into
+- [x] Keep thumbnail bytes and virtual-file publication native. Convert each available thumbnail into
       a stable model `thumbnail_url`; never expose raw bytes through the data model.
-- [ ] Keep that byte-to-virtual-file preparation in RuntimeUI/document-registry resource code, not
+- [x] Keep that byte-to-virtual-file preparation in RuntimeUI/document-registry resource code, not
       inside `RuntimeUiDataModel`. The model owner receives only the already-materialized URL plus
       ordinary slot metadata; it must not gain `RmlUiDocumentRegistry` or asset-byte ownership.
-- [ ] Preserve the current content-fingerprinted generated filename semantics under
+- [x] Preserve the current content-fingerprinted generated filename semantics under
       `project:/generated/shell/`. Materialize/register the virtual file before publishing the slot's
       nonempty `thumbnail_url`, so RmlUi cannot observe a URL before its bytes are available.
-- [ ] Convert built-in Save and Load documents to `data-for` slot markup.
-- [ ] Author Save-menu autosave omission through `data-if` rather than native filtering.
-- [ ] In Load, render slot metadata/thumbnail for every projected slot but author the Load button
+- [x] Convert built-in Save and Load documents to `data-for` slot markup.
+- [x] Author Save-menu autosave omission through `data-if` rather than native filtering.
+- [x] In Load, render slot metadata/thumbnail for every projected slot but author the Load button
       only under `data-if="slot.occupied"`; do not render a disabled Load button for empty slots,
       because the current native binder omits the action entirely.
-- [ ] Route Save/Load activation through `shell_save_slot(number)` and
+- [x] Route Save/Load activation through `shell_save_slot(number)` and
       `shell_load_slot(kind, number)` using the same typed shell command paths as `Game.shell.*`.
-- [ ] Delete native C++ generation of `section.nt-save-slot`, thumbnail `<img>`, and Save/Load buttons.
+- [x] Delete native C++ generation of `section.nt-save-slot`, thumbnail `<img>`, and Save/Load buttons.
 
 ### Exit gate
 
-- [ ] Save and Load menus contain no C++-generated RML.
-- [ ] Thumbnail refresh still changes the resource URL when bytes change, and no thumbnail bytes are
+- [x] Save and Load menus contain no C++-generated RML.
+- [x] Thumbnail refresh still changes the resource URL when bytes change, and no thumbnail bytes are
       stored in ordinary RML/model string values.
-- [ ] Autosave/manual slot behavior and typed shell validation remain correct.
+- [x] Autosave/manual slot behavior and typed shell validation remain correct.
 
 ## Phase 6 - Isolate the custom-component path
 
@@ -1323,7 +1335,7 @@ This refactor is complete only when all of the following are true:
 | 2. Simple project and shell cutover | Complete | Title/Pause/Settings/Save/Load/Text Log/Modal built-ins opt into `noveltea` for Phase 2 scalar state and static shell callbacks; native title/settings/modal/status population is removed while Phase 4 Text Log and Phase 5 Save/Load generation remain scoped to their owning phases. Authored system replacement coverage proves model opt-in works without magic-ID injection. `noveltea_ui_tests` passes 627 assertions/61 cases and `noveltea_ui_backend_tests` passes 814 assertions/48 cases; Linux build passes; full Linux CTest has only the existing X11-unavailable capture/dependent-verifier environment failures; `format-check`, Web build, Web `cxx-policy`, and `git diff --check` pass (2026-08-08). |
 | 3. Game HUD ordinary RML cutover | Complete | Built-in Game HUD title/notification, choices, compass exits, Room objects, inventory, interaction controls, group/dock visibility, pointer admission, and shell pause wiring are declarative `noveltea` bindings; the native `data-exit-id` traversal is removed and `RuntimeUiDocumentBinder` is reduced to ActiveText/Map snapshot delivery only. A focused ordinary non-system Layout renders the same gameplay collections, and built-in SDL navigation plus ActiveText integration remain green. Validation passes `noveltea_ui_tests` (633 assertions/61 cases), `noveltea_ui_backend_tests` (1055 assertions/49 cases), `format-check`, full Linux build, Web `cxx-policy`, full Web build, and `git diff --check` (2026-08-08). |
 | 4. Text Log data-model cutover | Complete | `gameplay.text_log.entries` now supplies ordered sequence/kind/speaker/text plus sanitized `body_rml`; the built-in Text Log authors its list, metadata, rich body, and empty state with `data-for`/`data-if`/`data-rml`; `nt-text-log`, its registry/snapshot/RML helpers, and the Phase 3 direct snapshot-delivery branch are removed while the reduced binder scaffolding for Phase 6 is retained. Focused Text Log integration passes 30 assertions/1 case; `noveltea_ui_tests` passes 636 assertions/61 cases and `noveltea_ui_backend_tests` passes 1068 assertions/48 cases; `format-check`, Linux build, Linux `cxx-policy`, Web configure/build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 818/826; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). |
-| 5. Save/Load data-model cutover | Not started | - |
+| 5. Save/Load list data-model cutover | Complete | Built-in Save/Load now author checkpoint summary, one shared `shell.save_slots` loop, thumbnail/missing-thumbnail state, Save autosave omission, empty-slot Load omission, and typed Save/Load callbacks declaratively. RuntimeUI retains only content-fingerprinted thumbnail virtual-file preparation and publishes the resulting logical URL; native slot subtree generation is removed. Focused integration proves final autosave/manual visibility, empty Load-action visibility, metadata, and a changed fingerprinted URL after thumbnail bytes change. `noveltea_ui_tests` passes 644 assertions/61 cases and `noveltea_ui_backend_tests` passes 1079 assertions/48 cases; `format-check`, full Linux build, Linux `cxx-policy`, Web configure/build, Web `cxx-policy`, and focused callback validation pass. Full Linux CTest initially passes 817/826 because `noveltea_mandatory_asset_matrix` transiently misses one threaded finalization in addition to the same eight X11-unavailable graphics capture/dependent verifier failures; the mandatory asset matrix passes immediately when rerun in isolation, leaving only the known eight environment-limited graphics tests (2026-08-08). |
 | 6. Isolate custom-component path | Not started | - |
 | 7. Remove document binder/reconcile ownership | Not started | - |
 | 8. Documentation, validation, archival | Not started | - |

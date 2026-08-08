@@ -173,27 +173,41 @@ constexpr const char* kAuthoredSettingsDocument = R"(
 </rml>
 )";
 
-constexpr const char* kAuthoredSaveDocument = R"(
+constexpr const char* kAuthoredSaveDocument = R"RML(
 <rml>
   <head></head>
-  <body>
-    <span id="nt-shell-status"></span>
-    <span id="nt-checkpoint-summary"></span>
-    <div id="nt-save-slots"></div>
+  <body data-model="noveltea">
+    <span id="nt-shell-status">{{ shell.status }}</span>
+    <span id="nt-checkpoint-summary">{{ shell.checkpoint.summary }}</span>
+    <div id="nt-save-slots">
+      <section class="nt-save-slot" data-for="slot : shell.save_slots" data-if="slot.kind != 'autosave'">
+        <h2>{{ slot.label }}</h2><p>{{ slot.detail }}</p>
+        <img class="nt-save-thumbnail" data-if="slot.thumbnail_available" data-attr-src="slot.thumbnail_url"/>
+        <p class="nt-save-thumbnail-missing" data-if="!slot.thumbnail_available">No thumbnail</p>
+        <button data-event-click="shell_save_slot(slot.number)">Save</button>
+      </section>
+    </div>
   </body>
 </rml>
-)";
+)RML";
 
-constexpr const char* kAuthoredLoadDocument = R"(
+constexpr const char* kAuthoredLoadDocument = R"RML(
 <rml>
   <head></head>
-  <body>
-    <span id="nt-shell-status"></span>
-    <span id="nt-checkpoint-summary"></span>
-    <div id="nt-save-slots"></div>
+  <body data-model="noveltea">
+    <span id="nt-shell-status">{{ shell.status }}</span>
+    <span id="nt-checkpoint-summary">{{ shell.checkpoint.summary }}</span>
+    <div id="nt-save-slots">
+      <section class="nt-save-slot" data-for="slot : shell.save_slots">
+        <h2>{{ slot.label }}</h2><p>{{ slot.detail }}</p>
+        <img class="nt-save-thumbnail" data-if="slot.thumbnail_available" data-attr-src="slot.thumbnail_url"/>
+        <p class="nt-save-thumbnail-missing" data-if="!slot.thumbnail_available">No thumbnail</p>
+        <button data-if="slot.occupied" data-event-click="shell_load_slot(slot.kind, slot.number)">Load</button>
+      </section>
+    </div>
   </body>
 </rml>
-)";
+)RML";
 
 constexpr const char* kAuthoredModalDocument = R"(
 <rml>
@@ -1478,9 +1492,13 @@ TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-s
         .generations = {}};
     const auto thumbnail = noveltea::core::SaveCheckpointThumbnail{
         .encoding = noveltea::core::SaveCheckpointThumbnailEncoding::Png,
-        .width = 2,
-        .height = 2,
-        .bytes = "\x89PNG\r\n\x1a\ncharacterization"};
+        .width = 1,
+        .height = 1,
+        .bytes = "\x89\x50\x4e\x47\x0d\x0a\x1a\x0a\x00\x00\x00\x0d\x49\x48\x44\x52"
+                 "\x00\x00\x00\x01\x00\x00\x00\x01\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02"
+                 "\x00\x00\x00\x0b\x49\x44\x41\x54\x78\xda\x63\x64\xf8\x0f\x00\x01\x05"
+                 "\x01\x01\x27\x18\xe3\x66\x00\x00\x00\x00\x49\x45\x4e\x44\xae\x42\x60"
+                 "\x82"};
     view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::autosave(),
                           .occupied = true,
                           .metadata = metadata,
@@ -1495,7 +1513,7 @@ TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-s
         .slot = std::nullopt,
         .prompt = "Quit the authored project?"};
     view.status = "authored-shell-ready";
-    ui.apply_runtime_shell_view(std::move(view));
+    ui.apply_runtime_shell_view(view);
     ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
@@ -1515,21 +1533,68 @@ TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-s
     CHECK(checkpoint_summary == "Ready to capture · retained 3 · replay distance 2 structural / 1 "
                                 "time / 350 ms · thumbnail available");
     const auto save_slots = driver->element("authored-save", "nt-save-slots")->GetInnerRML();
-    CHECK(save_slots.find("Autosave") == std::string::npos);
     CHECK(save_slots.find("Slot 2") != std::string::npos);
     CHECK(save_slots.find("Play time 3210 ms · version 9C") != std::string::npos);
     CHECK(save_slots.find("nt-save-thumbnail") != std::string::npos);
-    CHECK(save_slots.find("project|/generated/shell/slot-2-thumbnail-") != std::string::npos);
-    CHECK(save_slots.find("Game.shell.save(2)") != std::string::npos);
+    CHECK(save_slots.find("project:/generated/shell/slot-2-thumbnail-") != std::string::npos);
+    CHECK(save_slots.find("shell_save_slot(slot.number)") != std::string::npos);
     CHECK(save_slots.find("Slot 3") != std::string::npos);
     CHECK(save_slots.find("No thumbnail") != std::string::npos);
+    Rml::ElementList save_slot_sections;
+    driver->document("authored-save")->GetElementsByClassName(save_slot_sections, "nt-save-slot");
+    const auto find_slot_section = [](const Rml::ElementList& sections, std::string_view label) {
+        const auto found = std::find_if(sections.begin(), sections.end(), [&](const auto* section) {
+            return section->GetInnerRML().find(label) != std::string::npos;
+        });
+        return found == sections.end() ? nullptr : *found;
+    };
+    auto* save_autosave = find_slot_section(save_slot_sections, "Autosave");
+    auto* save_manual = find_slot_section(save_slot_sections, "Slot 2");
+    REQUIRE(save_autosave);
+    REQUIRE(save_manual);
+    CHECK_FALSE(save_autosave->IsVisible());
+    CHECK(save_manual->IsVisible());
     const auto load_slots = driver->element("authored-load", "nt-save-slots")->GetInnerRML();
     CHECK(load_slots.find("Autosave") != std::string::npos);
-    CHECK(load_slots.find("Game.shell.load_autosave()") != std::string::npos);
-    CHECK(load_slots.find("Game.shell.load(2)") != std::string::npos);
+    CHECK(load_slots.find("shell_load_slot(slot.kind, slot.number)") != std::string::npos);
     const auto empty_slot = load_slots.find("Slot 3");
     REQUIRE(empty_slot != std::string::npos);
-    CHECK(load_slots.find("Game.shell.load(3)", empty_slot) == std::string::npos);
+    CHECK(load_slots.find("data-if=\"slot.occupied\"", empty_slot) != std::string::npos);
+    Rml::ElementList load_slot_sections;
+    driver->document("authored-load")->GetElementsByClassName(load_slot_sections, "nt-save-slot");
+    auto* load_empty = find_slot_section(load_slot_sections, "Slot 3");
+    REQUIRE(load_empty);
+    Rml::ElementList empty_load_buttons;
+    load_empty->GetElementsByTagName(empty_load_buttons, "button");
+    REQUIRE(empty_load_buttons.size() == 1);
+    CHECK_FALSE(empty_load_buttons.front()->IsVisible());
+
+    const auto find_slot_thumbnail = [](const Rml::ElementList& images) {
+        const auto found =
+            std::find_if(images.begin(), images.end(), [](const Rml::Element* image) {
+                const auto source = image->GetAttribute<Rml::String>("src", "");
+                return source.find("project:/generated/shell/slot-2-thumbnail-") == 0;
+            });
+        return found == images.end() ? nullptr : *found;
+    };
+    Rml::ElementList save_thumbnails;
+    driver->document("authored-save")->GetElementsByClassName(save_thumbnails, "nt-save-thumbnail");
+    auto* visible_thumbnail = find_slot_thumbnail(save_thumbnails);
+    REQUIRE(visible_thumbnail);
+    const auto first_thumbnail_url = visible_thumbnail->GetAttribute<Rml::String>("src", "");
+    CHECK(first_thumbnail_url.find("project:/generated/shell/slot-2-thumbnail-") == 0);
+
+    REQUIRE(view.slots[1].thumbnail);
+    view.slots[1].thumbnail->bytes += "-refreshed";
+    ui.apply_runtime_shell_view(view);
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
+    save_thumbnails.clear();
+    driver->document("authored-save")->GetElementsByClassName(save_thumbnails, "nt-save-thumbnail");
+    auto* refreshed_thumbnail = find_slot_thumbnail(save_thumbnails);
+    REQUIRE(refreshed_thumbnail);
+    const auto refreshed_thumbnail_url = refreshed_thumbnail->GetAttribute<Rml::String>("src", "");
+    CHECK(refreshed_thumbnail_url.find("project:/generated/shell/slot-2-thumbnail-") == 0);
+    CHECK(refreshed_thumbnail_url != first_thumbnail_url);
     CHECK(driver->element("authored-modal", "nt-modal-prompt")->GetInnerRML().empty());
     CHECK(driver->element("authored-modal", "nt-shell-status")->GetInnerRML().empty());
 }

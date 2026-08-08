@@ -72,11 +72,6 @@ const char* runtime_shell_screen_name(core::RuntimeShellScreen screen)
     return "none";
 }
 
-std::string runtime_shell_slot_label(core::TypedSaveSlotId slot)
-{
-    return slot.is_autosave() ? "Autosave" : "Slot " + std::to_string(slot.number());
-}
-
 std::uint64_t runtime_shell_thumbnail_fingerprint(std::string_view bytes) noexcept
 {
     std::uint64_t fingerprint = 14695981039346656037ull;
@@ -92,12 +87,6 @@ template<class T> T* first_component_as(Rml::ElementDocument& document, const ch
     Rml::ElementList elements;
     document.GetElementsByTagName(elements, tag);
     return elements.empty() ? nullptr : rmlui_dynamic_cast<T*>(elements.front());
-}
-
-void set_shell_element_rml(Rml::ElementDocument& document, const char* id, std::string_view value)
-{
-    if (auto* element = document.GetElementById(id))
-        element->SetInnerRML(ui::rmlui::escape_rml(value));
 }
 
 Rml::Element* find_first_tag(Rml::ElementDocument& doc, const char* tag)
@@ -252,7 +241,7 @@ void RuntimeUI::State::refresh_data_model_shell()
         const std::string path = "project:/generated/shell/" + filename;
         if (document_registry)
             document_registry->set_virtual_file(path, slot.thumbnail->bytes);
-        thumbnail_urls.push_back("project|/generated/shell/" + filename);
+        thumbnail_urls.push_back("project:/generated/shell/" + filename);
     }
     data_model->set_shell(*runtime_shell_view, thumbnail_urls);
 }
@@ -502,76 +491,6 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
 {
     if (!runtime_shell_view || !document_registry)
         return;
-
-    const auto checkpoint_summary = [&]() {
-        if (!runtime_shell_view->checkpoint)
-            return std::string("Checkpoint status unavailable.");
-        const auto& checkpoint = *runtime_shell_view->checkpoint;
-        std::ostringstream text;
-        text << (checkpoint.readiness.can_capture() ? "Ready to capture" : "Capture blocked")
-             << " · retained "
-             << (checkpoint.retained_revision
-                     ? std::to_string(checkpoint.retained_revision->number())
-                     : std::string("none"))
-             << " · replay distance " << checkpoint.replay_distance.structural_generations
-             << " structural / " << checkpoint.replay_distance.time_generations << " time / "
-             << checkpoint.replay_distance.play_time.count() << " ms" << " · thumbnail "
-             << (checkpoint.thumbnail_capture_pending
-                     ? "pending"
-                     : (checkpoint.thumbnail_available ? "available" : "unavailable"));
-        return text.str();
-    }();
-
-    const auto bind_slots = [&](core::compiled::SystemLayoutRole role, bool save_mode) {
-        auto* owner = system_document(role);
-        if (!owner)
-            return;
-        set_shell_element_rml(*owner, "nt-checkpoint-summary", checkpoint_summary);
-        auto* list = owner->GetElementById("nt-save-slots");
-        if (!list)
-            return;
-        std::ostringstream rml;
-        for (const auto& slot : runtime_shell_view->slots) {
-            if (save_mode && slot.slot.is_autosave())
-                continue;
-            const std::string label = runtime_shell_slot_label(slot.slot);
-            std::string detail = slot.occupied ? "Occupied" : "Empty";
-            if (slot.metadata) {
-                detail = "Play time " + std::to_string(slot.metadata->play_time.count()) +
-                         " ms · version " + slot.metadata->project_version;
-            }
-            rml << "<section class=\"nt-save-slot\"><h2>" << ui::rmlui::escape_rml(label)
-                << "</h2><p>" << ui::rmlui::escape_rml(detail) << "</p>";
-            if (slot.thumbnail) {
-                const std::string suffix =
-                    slot.slot.is_autosave() ? "autosave" : std::to_string(slot.slot.number());
-                const std::string filename =
-                    "slot-" + suffix + "-thumbnail-" +
-                    std::to_string(runtime_shell_thumbnail_fingerprint(slot.thumbnail->bytes)) +
-                    ".png";
-                const std::string path = "project:/generated/shell/" + filename;
-                document_registry->set_virtual_file(path, slot.thumbnail->bytes);
-                rml << "<img class=\"nt-save-thumbnail\" src=\"project|/generated/shell/"
-                    << filename << "\"/>";
-            } else {
-                rml << "<p class=\"nt-save-thumbnail-missing\">No thumbnail</p>";
-            }
-            if (save_mode) {
-                rml << "<button onclick=\"Game.shell.save(" << slot.slot.number()
-                    << ")\">Save</button>";
-            } else if (slot.occupied) {
-                if (slot.slot.is_autosave())
-                    rml << "<button onclick=\"Game.shell.load_autosave()\">Load</button>";
-                else
-                    rml << "<button onclick=\"Game.shell.load(" << slot.slot.number()
-                        << ")\">Load</button>";
-            }
-            rml << "</section>";
-        }
-        list->SetInnerRML(rml.str());
-    };
-    bind_slots(core::compiled::SystemLayoutRole::SaveMenu, true);
-    bind_slots(core::compiled::SystemLayoutRole::LoadMenu, false);
 
     if (auto* owner = system_document(core::compiled::SystemLayoutRole::TextLog); owner && binder)
         binder->bind_document(*owner, runtime_shell_view->status);

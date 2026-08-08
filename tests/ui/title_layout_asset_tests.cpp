@@ -58,8 +58,18 @@ TEST_CASE("built-in system menu assets use NovelTea data-model callbacks")
     }
 
     const auto save = read_source_file(menu_root / "save-menu.rml");
-    CHECK(save.find("id=\"nt-checkpoint-summary\"") != std::string::npos);
-    CHECK(save.find("id=\"nt-save-slots\"") != std::string::npos);
+    CHECK(save.find("{{ shell.checkpoint.summary }}") != std::string::npos);
+    CHECK(save.find("data-for=\"slot : shell.save_slots\"") != std::string::npos);
+    CHECK(save.find("data-if=\"slot.kind != 'autosave'\"") != std::string::npos);
+    CHECK(save.find("data-attr-src=\"slot.thumbnail_url\"") != std::string::npos);
+    CHECK(save.find("data-event-click=\"shell_save_slot(slot.number)\"") != std::string::npos);
+    const auto load = read_source_file(menu_root / "load-menu.rml");
+    CHECK(load.find("{{ shell.checkpoint.summary }}") != std::string::npos);
+    CHECK(load.find("data-for=\"slot : shell.save_slots\"") != std::string::npos);
+    CHECK(load.find("data-if=\"slot.occupied\"") != std::string::npos);
+    CHECK(load.find("data-attr-src=\"slot.thumbnail_url\"") != std::string::npos);
+    CHECK(load.find("data-event-click=\"shell_load_slot(slot.kind, slot.number)\"") !=
+          std::string::npos);
     const auto text_log = read_source_file(menu_root / "text-log.rml");
     CHECK(text_log.find("<nt-text-log") == std::string::npos);
     CHECK(text_log.find("data-for=\"entry : gameplay.text_log.entries\"") != std::string::npos);

@@ -8,8 +8,16 @@
         <section class="nt-shell-panel nt-shell-panel-wide">
             <p class="nt-shell-kicker">Game Menu</p>
             <h1>Load</h1>
-            <p id="nt-checkpoint-summary" class="nt-shell-summary"></p>
-            <div id="nt-save-slots" class="nt-save-slots"></div>
+            <p id="nt-checkpoint-summary" class="nt-shell-summary">{{ shell.checkpoint.summary }}</p>
+            <div id="nt-save-slots" class="nt-save-slots">
+                <section class="nt-save-slot" data-for="slot : shell.save_slots">
+                    <h2>{{ slot.label }}</h2>
+                    <p>{{ slot.detail }}</p>
+                    <img class="nt-save-thumbnail" data-if="slot.thumbnail_available" data-attr-src="slot.thumbnail_url"/>
+                    <p class="nt-save-thumbnail-missing" data-if="!slot.thumbnail_available">No thumbnail</p>
+                    <button data-if="slot.occupied" data-event-click="shell_load_slot(slot.kind, slot.number)">Load</button>
+                </section>
+            </div>
             <button data-event-click="shell_close()">Back</button>
             <p id="nt-shell-status">{{ shell.status }}</p>
         </section>
