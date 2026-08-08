@@ -64,37 +64,71 @@ constexpr const char* kShellBindingDocument = R"(
 constexpr const char* kAuthoredGameHudDocument = R"(
 <rml>
   <head></head>
-  <body>
-    <span id="rt_mode"></span>
-    <span id="rt_notification"></span>
+  <body data-model="noveltea">
+    <span id="rt_mode">{{ gameplay.mode }}</span>
+    <span id="rt_notification">{{ gameplay.notification }}</span>
     <div id="rt_background_image"><span>sentinel</span></div>
   </body>
 </rml>
 )";
 
-constexpr const char* kBinderCharacterizationDocument = R"(
+constexpr const char* kBinderCharacterizationDocument = R"RML(
 <rml>
   <head></head>
-  <body>
-    <span id="rt_mode"></span>
-    <span id="rt_title"></span>
-    <span id="rt_notification"></span>
-    <div id="rt_prompt"></div>
-    <div id="rt_options"></div>
-    <div id="rt_text_panel"></div>
-    <div id="rt_actors"></div>
-    <div id="rt_navigation">
-      <button id="rt_nav_north"></button>
-      <button id="rt_nav_south"></button>
+  <body data-model="noveltea">
+    <span id="rt_mode">{{ gameplay.mode }}</span>
+    <span id="rt_title" data-if="gameplay.title != ''">{{ gameplay.title }}</span>
+    <span id="rt_notification" data-if="gameplay.notification != ''">{{ gameplay.notification }}</span>
+    <div id="rt_prompt">
+      <button class="continue" data-if="gameplay.can_continue" data-event-click="ui_continue()">Continue</button>
     </div>
-    <div id="rt_interaction_dock">
-      <div id="rt_objects_group"><div id="rt_objects"></div></div>
-      <div id="rt_inventory_group"><div id="rt_inventory"></div></div>
-      <div id="rt_actions_group"><div id="rt_actions"></div></div>
+    <div id="rt_options">
+      <button class="model-option" data-for="choice : gameplay.choices"
+              data-class-disabled="!choice.enabled" data-attrif-disabled="!choice.enabled"
+              data-event-click="ui_choose(choice.kind, choice.id)">{{ choice.label }}</button>
+    </div>
+    <div id="rt_text_panel"
+         data-if="gameplay.active_text_available || gameplay.choices.size > 0"
+         data-style-pointer-events="gameplay.can_continue || gameplay.choices.size > 0 ? 'auto' : 'none'"></div>
+    <div id="rt_actors">
+      <div class="model-actor" data-for="actor : gameplay.actors"
+           data-attr-data-character-id="actor.character_id"
+           data-attr-data-slot-id="actor.instance_id"
+           data-attr-data-pose-id="actor.pose_id"
+           data-attr-data-expression-id="actor.expression_id"
+           data-attr-data-presentation-complete="actor.presentation_complete"></div>
+    </div>
+    <div id="rt_navigation" data-if="gameplay.room.has_enabled_exits">
+      <button class="model-exit" data-for="exit : gameplay.room.exits" data-if="exit.enabled"
+              data-attr-data-exit-id="exit.id" data-attr-data-direction="exit.direction"
+              data-event-click="ui_navigate_room(exit.id)">{{ exit.glyph }} {{ exit.label }}</button>
+    </div>
+    <div id="rt_interaction_dock"
+         data-if="gameplay.room.objects.size > 0 || gameplay.inventory.items.size > 0 || gameplay.interaction.has_selection || gameplay.interaction.actions.size > 0">
+      <div id="rt_objects_group" data-if="gameplay.room.objects.size > 0"><div id="rt_objects">
+        <button class="model-object" data-for="object : gameplay.room.objects"
+                data-class-disabled="!object.enabled" data-class-selected="object.selected"
+                data-attrif-disabled="!object.enabled"
+                data-event-click="ui_toggle_subject(object.subject_kind, object.subject_id)">{{ object.label }}</button>
+      </div></div>
+      <div id="rt_inventory_group" data-if="gameplay.inventory.items.size > 0"><div id="rt_inventory">
+        <button class="model-inventory" data-for="item : gameplay.inventory.items"
+                data-class-disabled="!item.enabled" data-class-selected="item.selected"
+                data-attrif-disabled="!item.enabled"
+                data-event-click="ui_toggle_subject('interactable', item.id)">{{ item.display_name }}</button>
+      </div></div>
+      <div id="rt_actions_group"
+           data-if="gameplay.interaction.has_selection || gameplay.interaction.actions.size > 0"><div id="rt_actions">
+        <button class="clear-selection" data-if="gameplay.interaction.has_selection"
+                data-event-click="ui_clear_selection()">Clear selection</button>
+        <button class="model-action" data-for="action : gameplay.interaction.actions"
+                data-class-disabled="!action.enabled" data-attrif-disabled="!action.enabled"
+                data-event-click="ui_invoke_interaction(action.verb_id)">{{ action.label }}</button>
+      </div></div>
     </div>
   </body>
 </rml>
-)";
+)RML";
 
 constexpr const char* kAuthoredTitleDocument = R"(
 <rml>
@@ -1030,6 +1064,9 @@ TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD docum
     REQUIRE(mode);
     REQUIRE(notification);
     REQUIRE(background);
+    REQUIRE(driver->document("authored-game-hud"));
+    REQUIRE(driver->document("authored-game-hud")->GetContext());
+    driver->document("authored-game-hud")->GetContext()->Update();
     CHECK(mode->GetInnerRML() == "authored-room");
     CHECK(notification->GetInnerRML() == "authored-notification");
     CHECK(background->GetInnerRML().find("sentinel") != std::string::npos);
@@ -1040,6 +1077,8 @@ TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD docum
     notification = driver->element("authored-game-hud", "rt_notification");
     REQUIRE(mode);
     REQUIRE(notification);
+    REQUIRE(driver->document("authored-game-hud")->GetContext());
+    driver->document("authored-game-hud")->GetContext()->Update();
     CHECK(mode->GetInnerRML() == "authored-room");
     CHECK(notification->GetInnerRML() == "authored-notification");
     background = driver->element("authored-game-hud", "rt_background_image");
@@ -1047,7 +1086,7 @@ TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD docum
     CHECK(background->GetInnerRML().find("sentinel") != std::string::npos);
 }
 
-TEST_CASE("RuntimeUI characterizes binder-produced gameplay presentation before data-model cutover")
+TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-system Layout")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     REQUIRE(fixture.initialize());
@@ -1055,8 +1094,6 @@ TEST_CASE("RuntimeUI characterizes binder-produced gameplay presentation before 
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
         ui, "binder-characterization", kBinderCharacterizationDocument,
         "preview://binder-characterization.rml", true));
-    ui.set_system_layout_documents({{.role = noveltea::core::compiled::SystemLayoutRole::GameHud,
-                                     .document_id = "binder-characterization"}});
 
     const auto scene = noveltea::core::SceneId::create("scene");
     const auto scene_step = noveltea::core::SceneStepId::create("step");
@@ -1167,52 +1204,86 @@ TEST_CASE("RuntimeUI characterizes binder-produced gameplay presentation before 
           "Map &lt;Title&gt;");
     CHECK(driver->element("binder-characterization", "rt_notification")->GetInnerRML() ==
           "Interaction fallback");
-    CHECK(driver->element("binder-characterization", "rt_prompt")->GetInnerRML().find("Continue") !=
-          std::string::npos);
-    const auto options = driver->element("binder-characterization", "rt_options")->GetInnerRML();
-    CHECK(options.find("Open &lt;door&gt;") != std::string::npos);
-    CHECK(options.find("scene-enabled") != std::string::npos);
-    CHECK(options.find("scene-disabled") != std::string::npos);
-    CHECK(options.find("disabled") != std::string::npos);
+    Rml::ElementList continue_buttons;
+    document->GetElementsByClassName(continue_buttons, "continue");
+    REQUIRE(continue_buttons.size() == 1);
+    CHECK(continue_buttons.front()->IsVisible());
+    Rml::ElementList options;
+    document->GetElementsByClassName(options, "model-option");
+    REQUIRE(options.size() == 3);
+    const auto find_inner = [](const Rml::ElementList& elements, std::string_view inner) {
+        const auto found = std::find_if(elements.begin(), elements.end(), [&](const auto* element) {
+            return element->GetInnerRML() == inner;
+        });
+        return found == elements.end() ? nullptr : *found;
+    };
+    auto* enabled_option = find_inner(options, "Open &lt;door&gt;");
+    auto* disabled_option = find_inner(options, "Locked");
+    REQUIRE(enabled_option);
+    REQUIRE(disabled_option);
+    CHECK(enabled_option->IsVisible());
+    CHECK_FALSE(enabled_option->HasAttribute("disabled"));
+    CHECK(disabled_option->HasAttribute("disabled"));
+    CHECK(disabled_option->IsClassSet("disabled"));
     CHECK(driver->element("binder-characterization", "rt_text_panel")
               ->GetComputedValues()
               .pointer_events() == Rml::Style::PointerEvents::Auto);
-    const auto actors = driver->element("binder-characterization", "rt_actors")->GetInnerRML();
-    CHECK(actors.find("data-character-id=\"alice\"") != std::string::npos);
-    CHECK(actors.find("data-slot-id=\"alice\"") != std::string::npos);
-    CHECK(actors.find("data-presentation-complete=\"true\"") != std::string::npos);
+    Rml::ElementList actors;
+    document->GetElementsByClassName(actors, "model-actor");
+    REQUIRE(actors.size() == 2);
+    const auto actor = std::find_if(actors.begin(), actors.end(), [](const Rml::Element* element) {
+        return element->GetAttribute<Rml::String>("data-character-id", "") == "alice";
+    });
+    REQUIRE(actor != actors.end());
+    CHECK((*actor)->GetAttribute<Rml::String>("data-slot-id", "") == "alice");
+    CHECK((*actor)->GetAttribute<Rml::String>("data-presentation-complete", "") == "1");
 
-    auto* north_button = driver->element("binder-characterization", "rt_nav_north");
-    auto* south_button = driver->element("binder-characterization", "rt_nav_south");
+    Rml::ElementList exits;
+    document->GetElementsByClassName(exits, "model-exit");
+    REQUIRE(exits.size() == 3);
+    const auto find_exit = [&](std::string_view id) {
+        const auto found =
+            std::find_if(exits.begin(), exits.end(), [&](const Rml::Element* element) {
+                return element->GetAttribute<Rml::String>("data-exit-id", "") == id;
+            });
+        return found == exits.end() ? nullptr : *found;
+    };
+    auto* north_button = find_exit("north");
+    auto* south_button = find_exit("south-disabled");
     REQUIRE(north_button);
     REQUIRE(south_button);
     CHECK(north_button->IsVisible());
-    CHECK(north_button->GetAttribute<Rml::String>("data-exit-id", "") == "north");
-    CHECK(north_button->GetInnerRML().find("North Hall") != std::string::npos);
+    CHECK(north_button->GetInnerRML() == "N North Hall");
     CHECK_FALSE(south_button->IsVisible());
-    CHECK_FALSE(south_button->HasAttribute("data-exit-id"));
     CHECK(driver->element("binder-characterization", "rt_navigation")->IsVisible());
 
-    const auto objects = driver->element("binder-characterization", "rt_objects")->GetInnerRML();
-    CHECK(objects.find("Brass &lt;Key&gt;") != std::string::npos);
-    CHECK(objects.find("hidden-key") == std::string::npos);
-    CHECK(objects.find("selected") != std::string::npos);
-    const auto inventory =
-        driver->element("binder-characterization", "rt_inventory")->GetInnerRML();
-    CHECK(inventory.find("Inventory Key") != std::string::npos);
-    CHECK(inventory.find("Hidden") == std::string::npos);
-    CHECK(inventory.find("selected") != std::string::npos);
-    const auto actions = driver->element("binder-characterization", "rt_actions")->GetInnerRML();
-    CHECK(actions.find("Clear selection") != std::string::npos);
-    CHECK(actions.find("Inspect") != std::string::npos);
-    CHECK(actions.find("Use") != std::string::npos);
-    CHECK(actions.find("disabled") != std::string::npos);
+    Rml::ElementList objects;
+    document->GetElementsByClassName(objects, "model-object");
+    REQUIRE(objects.size() == 2);
+    auto* room_object = find_inner(objects, "Brass &lt;Key&gt;");
+    REQUIRE(room_object);
+    CHECK(room_object->IsClassSet("selected"));
+    Rml::ElementList inventory;
+    document->GetElementsByClassName(inventory, "model-inventory");
+    REQUIRE(inventory.size() == 2);
+    auto* inventory_item = find_inner(inventory, "Inventory Key");
+    REQUIRE(inventory_item);
+    CHECK(inventory_item->IsClassSet("selected"));
+    Rml::ElementList actions;
+    document->GetElementsByClassName(actions, "model-action");
+    REQUIRE(actions.size() == 3);
+    auto* inspect_action = find_inner(actions, "Inspect");
+    auto* use_action = find_inner(actions, "Use");
+    REQUIRE(inspect_action);
+    REQUIRE(use_action);
+    CHECK(use_action->HasAttribute("disabled"));
     CHECK(driver->element("binder-characterization", "rt_objects_group")->IsVisible());
     CHECK(driver->element("binder-characterization", "rt_inventory_group")->IsVisible());
     CHECK(driver->element("binder-characterization", "rt_actions_group")->IsVisible());
     CHECK(driver->element("binder-characterization", "rt_interaction_dock")->IsVisible());
 
     ui.set_runtime_notification("Output notification");
+    document->GetContext()->Update();
     CHECK(driver->element("binder-characterization", "rt_notification")->GetInnerRML() ==
           "Output notification");
 
@@ -1234,11 +1305,11 @@ TEST_CASE("RuntimeUI characterizes binder-produced gameplay presentation before 
     values.view.room->description.clear();
     REQUIRE(ui.apply_gameplay_ui_values(values));
     document->GetContext()->Update();
-    const auto dialogue_options =
-        driver->element("binder-characterization", "rt_options")->GetInnerRML();
-    CHECK(dialogue_options.find("Dialogue choice") != std::string::npos);
-    CHECK(dialogue_options.find("choose_dialogue") != std::string::npos);
-    CHECK(driver->element("binder-characterization", "rt_prompt")->GetInnerRML().empty());
+    options.clear();
+    document->GetElementsByClassName(options, "model-option");
+    REQUIRE(options.size() == 2);
+    REQUIRE(find_inner(options, "Dialogue choice"));
+    CHECK_FALSE(continue_buttons.front()->IsVisible());
 }
 
 TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-specific injection")
@@ -1444,9 +1515,14 @@ TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
     REQUIRE(driver);
     auto* document = driver->document("runtime_game");
     REQUIRE(document);
-    auto* northwest_button = document->GetElementById("rt_nav_northwest");
-    auto* north_button = document->GetElementById("rt_nav_north");
-    auto* northeast_button = document->GetElementById("rt_nav_northeast");
+    const auto find_navigation_button = [&](std::string_view direction) -> Rml::Element* {
+        Rml::ElementList buttons;
+        document->GetElementsByClassName(buttons, "nav-slot-" + std::string(direction));
+        return buttons.empty() ? nullptr : buttons.front();
+    };
+    auto* northwest_button = find_navigation_button("northwest");
+    auto* north_button = find_navigation_button("north");
+    auto* northeast_button = find_navigation_button("northeast");
     REQUIRE(northwest_button);
     REQUIRE(north_button);
     REQUIRE(northeast_button);
@@ -1459,7 +1535,7 @@ TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
     CHECK(north_offset.y == northeast_offset.y);
 
     Rml::ElementList navigation_buttons;
-    document->GetElementsByClassName(navigation_buttons, "nav-southwest");
+    document->GetElementsByClassName(navigation_buttons, "nav-slot-southwest");
     REQUIRE(navigation_buttons.size() == 1);
     auto* navigation_button = navigation_buttons.front();
     const auto offset = navigation_button->GetAbsoluteOffset(Rml::BoxArea::Content);

@@ -846,62 +846,82 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ## Phase 3 - Cut over Game HUD ordinary RML
 
+### Implementation findings
+
+- The Phase 3 exit gate requires `RuntimeUiDocumentBinder` to retain only ActiveText and provisional
+  Map snapshot delivery. The pre-Phase-3 binder also delivered the still-Phase-4-owned
+  `nt-text-log` snapshot as a side effect when the Text Log system document was refreshed. Phase 3
+  therefore preserves that existing Text Log behavior with a temporary focused delivery branch in
+  `RuntimeUI::State::refresh_runtime_shell_documents()` rather than leaving Text Log ownership in
+  the general binder. Phase 4 must delete that temporary branch when it removes `nt-text-log`.
+- RmlUi `data-if` owns conditional hiding by applying/removing its own display override; when the
+  condition becomes true, the element falls back to its authored stylesheet display value. The old
+  Game HUD stylesheet hard-coded `display: none` on title/notification, interaction dock, text panel,
+  and navigation because the native binder later forced those elements visible. Those hard-hide
+  baselines must be removed when the model becomes the visibility owner or a true `data-if` remains
+  visually hidden.
+- The focused Scene-to-Dialogue transition test confirms that shrinking multiple `data-for` arrays in
+  one coherent publication converges to the correct DOM, but the current RmlUi implementation can
+  emit transient `Data array index out of bounds` warnings while stale loop rows are being retired.
+  Phase 4/5 repeated-list validation should continue to assert final add/remove/reorder convergence;
+  this warning is not a reason to split coherent NovelTea publication or add native repair mutation.
+
 ### Work
 
-- [ ] Convert the built-in title and notification to model interpolation/conditions. Do not add a
+- [x] Convert the built-in title and notification to model interpolation/conditions. Do not add a
       visible runtime-mode label to the built-in; exercise `gameplay.mode` in model tests/fixtures.
-- [ ] Keep `<nt-active-text>` as the authored ActiveText host; remove the `rt_body` ordinary-text
+- [x] Keep `<nt-active-text>` as the authored ActiveText host; remove the `rt_body` ordinary-text
       fallback from the current contract.
-- [ ] Expose `gameplay.can_continue` and `ui_continue()` for authored Layouts, and migrate any focused
+- [x] Expose `gameplay.can_continue` and `ui_continue()` for authored Layouts, and migrate any focused
       `rt_prompt` fixture to declarative RML. Do **not** add a standalone Continue button to
       `runtime_game.rml`; the current built-in uses ActiveText click/continue behavior instead.
-- [ ] Flatten Scene/Dialogue choices into one RmlUi-facing collection with enough type/id information
+- [x] Flatten Scene/Dialogue choices into one RmlUi-facing collection with enough type/id information
       for one validated callback to select the correct typed action.
-- [ ] Author choices with `data-for`, disabled state, classes, labels, and model callbacks.
-- [ ] Project visible Scene actor metadata into `gameplay.actors` and migrate any focused `rt_actors`
+- [x] Author choices with `data-for`, disabled state, classes, labels, and model callbacks.
+- [x] Project visible Scene actor metadata into `gameplay.actors` and migrate any focused `rt_actors`
       fixture to `data-for`. Do **not** add an actor metadata list to the current built-in Game HUD.
-- [ ] Project Room exits as a model array with stable exit ID, target ID, direction token, label, and
+- [x] Project Room exits as a model array with stable exit ID, target ID, direction token, label, and
       enabled state.
-- [ ] Rebuild the built-in compass/navigation using `data-for` and authored classes/data attributes;
+- [x] Rebuild the built-in compass/navigation using `data-for` and authored classes/data attributes;
       do not depend on `rt_nav_*` magic IDs or native `data-exit-id` mutation.
-- [ ] Preserve the current compass visual order/placement by using the projected direction token and
+- [x] Preserve the current compass visual order/placement by using the projected direction token and
       the existing `nav-slot-{direction}` positioning classes. The built-in renders only exits with
       `enabled=true`, and the navigation
       container is hidden when `gameplay.room.has_enabled_exits=false`, matching current behavior.
-- [ ] Route navigation activation through the same validated native action path as
+- [x] Route navigation activation through the same validated native action path as
       `Game.ui.navigate_room()`.
-- [ ] Flatten visible Room placement occupants into an RmlUi-facing object list with subject kind,
+- [x] Flatten visible Room placement occupants into an RmlUi-facing object list with subject kind,
       ID, label, enabled state, and selected state.
-- [ ] Project visible inventory items with ID, display name, enabled state, and selected state.
-- [ ] Project current interaction controls with verb ID, label, arity/quick-action metadata where
+- [x] Project visible inventory items with ID, display name, enabled state, and selected state.
+- [x] Project current interaction controls with verb ID, label, arity/quick-action metadata where
       useful, and enabled state.
-- [ ] Author Room objects, inventory, clear-selection, and actions with `data-for`, `data-if`,
+- [x] Author Room objects, inventory, clear-selection, and actions with `data-for`, `data-if`,
       `data-class-*`, and data-model callbacks.
-- [ ] Preserve current object/inventory/action ordering and visibility semantics exactly as specified
+- [x] Preserve current object/inventory/action ordering and visibility semantics exactly as specified
       by the projection contract; do not sort or deduplicate, and keep disabled action controls
       rendered with disabled state as the current binder does.
-- [ ] Replace `rt_text_panel`, group, and dock native visibility/pointer mutations with authored data
+- [x] Replace `rt_text_panel`, group, and dock native visibility/pointer mutations with authored data
       expressions/classes/styles.
-- [ ] `rt_text_panel` equivalent visibility is
+- [x] `rt_text_panel` equivalent visibility is
       `gameplay.active_text_available || gameplay.choices.size > 0`; its pointer admission is
       `gameplay.can_continue || gameplay.choices.size > 0`. Objects and inventory groups are visible
       when their arrays are nonempty. The actions group is visible when
       `gameplay.interaction.has_selection || gameplay.interaction.actions.size > 0`; the interaction
       dock is visible when any of those three groups is visible.
-- [ ] Remove the RuntimeUI native listener's special traversal of `data-exit-id` once navigation is
+- [x] Remove the RuntimeUI native listener's special traversal of `data-exit-id` once navigation is
       model-callback-driven. Retain only native event handling that is still required for specialized
       components such as ActiveText.
 
 ### Exit gate
 
-- [ ] `RuntimeUiDocumentBinder` no longer generates or mutates ordinary Game HUD controls.
-- [ ] A temporarily reduced `RuntimeUiDocumentBinder` may still exist after this phase solely to
+- [x] `RuntimeUiDocumentBinder` no longer generates or mutates ordinary Game HUD controls.
+- [x] A temporarily reduced `RuntimeUiDocumentBinder` may still exist after this phase solely to
       deliver `nt-active-text` and provisional `nt-map-view` snapshots. It must contain no ordinary
       ID-based state injection; Phase 6 removes those remaining component deliveries.
-- [ ] Built-in Game HUD behavior remains equivalent for current gameplay flows.
-- [ ] The same gameplay collections can be rendered from an ordinary non-system Layout using
+- [x] Built-in Game HUD behavior remains equivalent for current gameplay flows.
+- [x] The same gameplay collections can be rendered from an ordinary non-system Layout using
       `data-model="noveltea"`.
-- [ ] Invalid/stale/hidden/disabled actions are still rejected by native typed validation.
+- [x] Invalid/stale/hidden/disabled actions are still rejected by native typed validation.
 
 ## Phase 4 - Move Text Log to the data model
 
@@ -920,6 +940,9 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 - [ ] Provide authored empty-state markup with `data-if` rather than `NtTextLogElement::SetInnerRML`.
 - [ ] Remove `nt-text-log` registration, snapshot types/helpers that exist only for that component,
       and the `rt_log` legacy fallback.
+- [ ] Remove the temporary `RuntimeUI::State::refresh_runtime_shell_documents()` direct
+      `NtTextLogElement` snapshot-delivery branch introduced by Phase 3 once the Text Log document is
+      fully data-driven.
 - [ ] Update focused preview/tests so Text Log markup is treated as ordinary data-driven RML.
 
 ### Exit gate
@@ -1285,7 +1308,7 @@ This refactor is complete only when all of the following are true:
 | 0. Characterize current contract | Complete | Focused gameplay/shell binder characterization, independent typed-action rejection, ActiveText click/direct-render, provisional Map, Text Log, and shipped built-in feature-inventory coverage are green in `noveltea_ui_tests` and `noveltea_ui_backend_tests` (2026-08-08). |
 | 1. Shared RmlUi data-model foundation | Complete | Private `noveltea` projection/model ownership, per-context fail-closed initialization, stable context-local handles, read-only state, shared validated callbacks, seeded-state/update propagation, and two-context headless binding coverage are implemented. The 2026-08-08 review corrected malformed Save/Load slot arguments being coercible to slot `0` and added exact model-callback/Lua-helper parity coverage for every Phase 1 callback plus no-dispatch malformed-slot regressions. Review validation passes `noveltea_ui_tests` (627 assertions/61 cases), `noveltea_ui_backend_tests` (1048 assertions/49 cases), full Linux build, Linux/Web `cxx-policy`, `format-check`, Web build, and sanitizer build/CTest (810/810); full Linux CTest passes 819/827 with the same eight X11-unavailable capture/dependent readback failures. |
 | 2. Simple project and shell cutover | Complete | Title/Pause/Settings/Save/Load/Text Log/Modal built-ins opt into `noveltea` for Phase 2 scalar state and static shell callbacks; native title/settings/modal/status population is removed while Phase 4 Text Log and Phase 5 Save/Load generation remain scoped to their owning phases. Authored system replacement coverage proves model opt-in works without magic-ID injection. `noveltea_ui_tests` passes 627 assertions/61 cases and `noveltea_ui_backend_tests` passes 814 assertions/48 cases; Linux build passes; full Linux CTest has only the existing X11-unavailable capture/dependent-verifier environment failures; `format-check`, Web build, Web `cxx-policy`, and `git diff --check` pass (2026-08-08). |
-| 3. Game HUD ordinary RML cutover | Not started | - |
+| 3. Game HUD ordinary RML cutover | Complete | Built-in Game HUD title/notification, choices, compass exits, Room objects, inventory, interaction controls, group/dock visibility, pointer admission, and shell pause wiring are declarative `noveltea` bindings; the native `data-exit-id` traversal is removed and `RuntimeUiDocumentBinder` is reduced to ActiveText/Map snapshot delivery only. A focused ordinary non-system Layout renders the same gameplay collections, and built-in SDL navigation plus ActiveText integration remain green. Validation passes `noveltea_ui_tests` (633 assertions/61 cases), `noveltea_ui_backend_tests` (1055 assertions/49 cases), `format-check`, full Linux build, Web `cxx-policy`, full Web build, and `git diff --check` (2026-08-08). |
 | 4. Text Log data-model cutover | Not started | - |
 | 5. Save/Load data-model cutover | Not started | - |
 | 6. Isolate custom-component path | Not started | - |

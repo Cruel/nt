@@ -87,6 +87,13 @@ std::uint64_t runtime_shell_thumbnail_fingerprint(std::string_view bytes) noexce
     return fingerprint;
 }
 
+template<class T> T* first_component_as(Rml::ElementDocument& document, const char* tag)
+{
+    Rml::ElementList elements;
+    document.GetElementsByTagName(elements, tag);
+    return elements.empty() ? nullptr : rmlui_dynamic_cast<T*>(elements.front());
+}
+
 void set_shell_element_rml(Rml::ElementDocument& document, const char* id, std::string_view value)
 {
     if (auto* element = document.GetElementById(id))
@@ -566,8 +573,14 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
     bind_slots(core::compiled::SystemLayoutRole::SaveMenu, true);
     bind_slots(core::compiled::SystemLayoutRole::LoadMenu, false);
 
-    if (auto* owner = system_document(core::compiled::SystemLayoutRole::TextLog); owner && binder)
+    if (auto* owner = system_document(core::compiled::SystemLayoutRole::TextLog); owner && binder) {
+        if (const auto* view = binder->view()) {
+            if (auto* text_log =
+                    first_component_as<ui::rmlui::NtTextLogElement>(*owner, "nt-text-log"))
+                text_log->set_snapshot(ui::rmlui::make_text_log_snapshot(*view));
+        }
         binder->bind_document(*owner, runtime_shell_view->status);
+    }
 }
 
 void RuntimeUI::State::refresh_runtime_document()
@@ -593,20 +606,6 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
     Rml::Element* target = event.GetTargetElement();
     if (!target)
         return;
-
-    for (auto* current = target; current; current = current->GetParentNode()) {
-        const auto exit_text = current->GetAttribute<Rml::String>("data-exit-id", "");
-        if (exit_text.empty())
-            continue;
-        auto exit = core::RoomExitId::create(exit_text);
-        if (!exit) {
-            core::append_diagnostics(owner.typed_diagnostics, std::move(exit).error());
-            return;
-        }
-        (void)owner.dispatch_layout_typed_input(
-            core::RuntimeInputMessage{core::NavigateRoomInput{*exit.value_if()}});
-        return;
-    }
 
     if (owner.binder && owner.binder->has_input_sink() && owner.active_text_presenter &&
         find_ancestor_tag(target, "nt-active-text")) {

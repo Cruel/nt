@@ -98,15 +98,21 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     REQUIRE_FALSE(rml.empty());
     REQUIRE_FALSE(rcss.empty());
     CHECK(rml.find("system|/ui/runtime/runtime_game.rcss") != std::string::npos);
+    CHECK(rml.find("<body data-model=\"noveltea\">") != std::string::npos);
     CHECK(rml.find("<nt-active-text id=\"rt_body\"") != std::string::npos);
-    CHECK(rml.find("id=\"rt_title\"") != std::string::npos);
-    CHECK(rml.find("id=\"rt_notification\"") != std::string::npos);
-    CHECK(rml.find("id=\"rt_options\"") != std::string::npos);
-    CHECK(rml.find("id=\"rt_objects\"") != std::string::npos);
-    CHECK(rml.find("id=\"rt_inventory\"") != std::string::npos);
-    CHECK(rml.find("id=\"rt_actions\"") != std::string::npos);
-    CHECK(rml.find("id=\"rt_navigation\"") != std::string::npos);
-    CHECK(rml.find("id=\"rt_menu\" onclick=\"Game.shell.pause()\"") != std::string::npos);
+    CHECK(rml.find("{{ gameplay.title }}") != std::string::npos);
+    CHECK(rml.find("{{ gameplay.notification }}") != std::string::npos);
+    CHECK(rml.find("data-for=\"choice : gameplay.choices\"") != std::string::npos);
+    CHECK(rml.find("data-event-click=\"ui_choose(choice.kind, choice.id)\"") != std::string::npos);
+    CHECK(rml.find("data-for=\"object : gameplay.room.objects\"") != std::string::npos);
+    CHECK(rml.find("data-for=\"item : gameplay.inventory.items\"") != std::string::npos);
+    CHECK(rml.find("data-for=\"action : gameplay.interaction.actions\"") != std::string::npos);
+    CHECK(rml.find("data-event-click=\"ui_clear_selection()\"") != std::string::npos);
+    CHECK(rml.find("data-for=\"exit : gameplay.room.exits\"") != std::string::npos);
+    CHECK(rml.find("data-event-click=\"ui_navigate_room(exit.id)\"") != std::string::npos);
+    CHECK(rml.find("id=\"rt_menu\" data-event-click=\"shell_pause()\"") != std::string::npos);
+    CHECK(rml.find("data-exit-id") == std::string::npos);
+    CHECK(rml.find("onclick=\"Game.") == std::string::npos);
     CHECK(rml.find("id=\"rt_mode\"") == std::string::npos);
     CHECK(rml.find("id=\"rt_prompt\"") == std::string::npos);
     CHECK(rml.find("id=\"rt_actors\"") == std::string::npos);
@@ -123,7 +129,7 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
                                                       "southwest", "south",  "southeast"};
     for (const auto& direction : compass_directions) {
         INFO(direction);
-        CHECK(rml.find("class=\"nav nav-slot nav-" + direction + " nav-slot-" + direction + "\"") !=
-              std::string::npos);
+        CHECK(rml.find("data-class-nav-slot-" + direction + "=\"exit.direction == '" + direction +
+                       "'\"") != std::string::npos);
     }
 }

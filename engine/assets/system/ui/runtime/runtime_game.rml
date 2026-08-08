@@ -3,46 +3,94 @@
     <title>NovelTea Game HUD</title>
     <link type="text/rcss" href="system|/ui/runtime/runtime_game.rcss"/>
 </head>
-<body>
+<body data-model="noveltea">
     <div id="rt_root">
         <div id="rt_hud_header">
             <div id="rt_header_copy">
-                <h1 id="rt_title"></h1>
-                <p id="rt_notification"></p>
+                <h1 id="rt_title" data-if="gameplay.title != ''">{{ gameplay.title }}</h1>
+                <p id="rt_notification" data-if="gameplay.notification != ''">{{ gameplay.notification }}</p>
             </div>
-            <button id="rt_menu" onclick="Game.shell.pause()">Menu</button>
+            <button id="rt_menu" data-event-click="shell_pause()">Menu</button>
         </div>
 
-        <div id="rt_interaction_dock">
-            <div id="rt_objects_group" class="rt-control-group">
+        <div id="rt_interaction_dock"
+             data-if="gameplay.room.objects.size > 0 || gameplay.inventory.items.size > 0 || gameplay.interaction.has_selection || gameplay.interaction.actions.size > 0">
+            <div id="rt_objects_group" class="rt-control-group" data-if="gameplay.room.objects.size > 0">
                 <p class="rt-control-heading">Nearby</p>
-                <div id="rt_objects"></div>
+                <div id="rt_objects">
+                    <button data-for="object : gameplay.room.objects"
+                            class="object"
+                            data-class-disabled="!object.enabled"
+                            data-class-selected="object.selected"
+                            data-attrif-disabled="!object.enabled"
+                            data-event-click="ui_toggle_subject(object.subject_kind, object.subject_id)">
+                        {{ object.label }}
+                    </button>
+                </div>
             </div>
-            <div id="rt_inventory_group" class="rt-control-group">
+            <div id="rt_inventory_group" class="rt-control-group" data-if="gameplay.inventory.items.size > 0">
                 <p class="rt-control-heading">Inventory</p>
-                <div id="rt_inventory"></div>
+                <div id="rt_inventory">
+                    <button data-for="item : gameplay.inventory.items"
+                            class="object"
+                            data-class-disabled="!item.enabled"
+                            data-class-selected="item.selected"
+                            data-attrif-disabled="!item.enabled"
+                            data-event-click="ui_toggle_subject('interactable', item.id)">
+                        {{ item.display_name }}
+                    </button>
+                </div>
             </div>
-            <div id="rt_actions_group" class="rt-control-group">
+            <div id="rt_actions_group" class="rt-control-group"
+                 data-if="gameplay.interaction.has_selection || gameplay.interaction.actions.size > 0">
                 <p class="rt-control-heading">Actions</p>
-                <div id="rt_actions"></div>
+                <div id="rt_actions">
+                    <button class="clear-selection"
+                            data-if="gameplay.interaction.has_selection"
+                            data-event-click="ui_clear_selection()">Clear selection</button>
+                    <button data-for="action : gameplay.interaction.actions"
+                            class="action"
+                            data-class-disabled="!action.enabled"
+                            data-attrif-disabled="!action.enabled"
+                            data-event-click="ui_invoke_interaction(action.verb_id)">
+                        {{ action.label }}
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div id="rt_text_panel">
+        <div id="rt_text_panel"
+             data-if="gameplay.active_text_available || gameplay.choices.size > 0"
+             data-style-pointer-events="gameplay.can_continue || gameplay.choices.size > 0 ? 'auto' : 'none'">
             <nt-active-text id="rt_body"></nt-active-text>
-            <div id="rt_options"></div>
+            <div id="rt_options">
+                <button data-for="choice : gameplay.choices"
+                        class="option"
+                        data-class-disabled="!choice.enabled"
+                        data-attrif-disabled="!choice.enabled"
+                        data-event-click="ui_choose(choice.kind, choice.id)">
+                    {{ choice.label }}
+                </button>
+            </div>
         </div>
 
-        <div id="rt_navigation">
-            <button id="rt_nav_northwest" class="nav nav-slot nav-northwest nav-slot-northwest" data-direction="northwest"><span class="nav-glyph">NW</span><span class="nav-label"></span></button>
-            <button id="rt_nav_north" class="nav nav-slot nav-north nav-slot-north" data-direction="north"><span class="nav-glyph">N</span><span class="nav-label"></span></button>
-            <button id="rt_nav_northeast" class="nav nav-slot nav-northeast nav-slot-northeast" data-direction="northeast"><span class="nav-glyph">NE</span><span class="nav-label"></span></button>
-            <button id="rt_nav_west" class="nav nav-slot nav-west nav-slot-west" data-direction="west"><span class="nav-glyph">W</span><span class="nav-label"></span></button>
-            <button id="rt_nav_custom" class="nav nav-slot nav-custom nav-slot-custom" data-direction="custom"><span class="nav-glyph">GO</span><span class="nav-label"></span></button>
-            <button id="rt_nav_east" class="nav nav-slot nav-east nav-slot-east" data-direction="east"><span class="nav-glyph">E</span><span class="nav-label"></span></button>
-            <button id="rt_nav_southwest" class="nav nav-slot nav-southwest nav-slot-southwest" data-direction="southwest"><span class="nav-glyph">SW</span><span class="nav-label"></span></button>
-            <button id="rt_nav_south" class="nav nav-slot nav-south nav-slot-south" data-direction="south"><span class="nav-glyph">S</span><span class="nav-label"></span></button>
-            <button id="rt_nav_southeast" class="nav nav-slot nav-southeast nav-slot-southeast" data-direction="southeast"><span class="nav-glyph">SE</span><span class="nav-label"></span></button>
+        <div id="rt_navigation" data-if="gameplay.room.has_enabled_exits">
+            <button data-for="exit : gameplay.room.exits"
+                    data-if="exit.enabled"
+                    class="nav nav-slot"
+                    data-class-nav-slot-northwest="exit.direction == 'northwest'"
+                    data-class-nav-slot-north="exit.direction == 'north'"
+                    data-class-nav-slot-northeast="exit.direction == 'northeast'"
+                    data-class-nav-slot-west="exit.direction == 'west'"
+                    data-class-nav-slot-custom="exit.direction == 'custom'"
+                    data-class-nav-slot-east="exit.direction == 'east'"
+                    data-class-nav-slot-southwest="exit.direction == 'southwest'"
+                    data-class-nav-slot-south="exit.direction == 'south'"
+                    data-class-nav-slot-southeast="exit.direction == 'southeast'"
+                    data-event-click="ui_navigate_room(exit.id)">
+                <span class="nav-glyph">{{ exit.glyph }}</span>
+                <span class="nav-label">{{ exit.label }}</span>
+            </button>
         </div>
     </div>
 </body>

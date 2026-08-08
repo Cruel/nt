@@ -35,7 +35,6 @@ body {
 
 #rt_title,
 #rt_notification {
-    display: none;
     margin: 0 0 6px 0;
     padding: 7px 11px;
     color: #f7f4ed;
@@ -61,7 +60,6 @@ body {
 }
 
 #rt_interaction_dock {
-    display: none;
     position: absolute;
     left: 24px;
     bottom: 24px;
@@ -91,7 +89,6 @@ body {
 }
 
 #rt_text_panel {
-    display: none;
     position: absolute;
     left: 280px;
     right: 276px;
@@ -172,7 +169,6 @@ button.disabled {
 }
 
 #rt_navigation {
-    display: none;
     position: absolute;
     right: 24px;
     bottom: 24px;
