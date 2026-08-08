@@ -2,8 +2,9 @@
 
 ## Role
 
-RmlUi is the general runtime UI layer. `RuntimeUI` is an engine-private host adapter for document
-commands, typed binding, and custom elements; applications use the public `Engine` facade instead.
+RmlUi is the general runtime UI layer. `RuntimeUI` is an engine-private publication adapter and
+action gateway host for the shared `noveltea` data model, typed Layout events, and specialized custom
+elements; applications use the public `Engine` facade instead.
 Its private `RmlUiHost` owns RmlUi initialization and shutdown, system/file/render interfaces,
 lifecycle-keyed contexts, clocks, SDL input translation, resize, and render submission. `RuntimeUI`
 remains a presentation adapter only and is declared under `engine/src/ui/rmlui/` rather than the
@@ -24,33 +25,38 @@ Borrowed RmlUi document, element, and data-model pointers are not part of any ap
 Backend-native inspection is limited to the private playback/test adapter; production engine callers
 use stable document IDs and typed adapter operations.
 
-## Typed Views and Inputs
+## Data Model, Typed Views, and Inputs
 
-The private `RuntimeUiBinder` consumes exactly one revisioned `RuntimeUiGameplayValues` subview. It
-owns stale-revision rejection, gameplay document/custom-component binding, asset-backed values,
-`Game.ui.*` installation and validation, mounted-Layout admission, and typed gameplay input/layout-
-event dispatch through the host-provided `RuntimeUiInputSink`. It does not query `SessionState`,
-`Flow`, Room resolution, runtime publications, or presentation services.
+`RuntimeUiDataModel` owns stable RmlUi-private projection storage for `project.*`, `gameplay.*`, and
+`shell.*`. Every RuntimeUI-created RmlUi context attaches a context-local model named `noveltea`
+before any document in that context is loaded. Full documents and Fragments opt in explicitly with
+`data-model="noveltea"`; system role is not required and does not inject hidden model attributes.
 
-The binder presents typed Scene/Dialogue text and choices, Room exits/placements/controls,
-inventory, Map locations/connections, text log entries, selection, and continue state. Click targets
-carry stable IDs and call approved `Game.ui.*` helpers backed by the same typed host seam.
+The private `RuntimeUiActionGateway` consumes exactly one revisioned `RuntimeUiGameplayValues`
+subview. It owns stale-revision rejection, current gameplay-view retention, `Game.ui.*` installation,
+typed action validation, mounted-Layout gameplay admission, ordered event capture, and typed gameplay
+input/shell-command dispatch through the host-provided seam. RmlUi model callbacks and equivalent Lua
+helpers converge on these same named native action methods rather than duplicating validation.
 
-There is no selector/index compatibility protocol or generic controller-command adaptation. Missing
-optional document slots are tolerated and logged once; invalid IDs/messages fail at the typed
-boundary.
+RuntimeUI projects Scene/Dialogue choices, Room exits/placements/controls, inventory, Text Log,
+selection, Continue state, title metadata, settings/checkpoint/save-slot shell state, and other
+ordinary UI values through the data model. RML authors its own loops, visibility, labels, classes,
+attributes, styles, and callback bindings. There is no selector/index compatibility protocol or
+generic controller-command adaptation; invalid or stale IDs/messages fail at the typed boundary.
+
+The exact field and callback schema is defined in `docs/ui/RMLUI_DATA_MODEL_CONTRACT.md`.
 
 ## Custom Components
 
-C++-backed custom elements include ActiveText, MapView, and TextLog. Their snapshots are derived only
-from `TypedRuntimeUIViewState`:
+C++-backed custom elements are limited to the cases where ordinary data binding is insufficient:
 
 - ActiveText keeps parsed rich text/data for the direct text renderer;
-- MapView preserves strong Map/Room/Location/Connection/Exit IDs;
-- TextLog escapes user text and emits typed entry metadata.
+- MapView preserves strong Map/Room/Location/Connection/Exit IDs through an explicitly provisional
+  focused adapter.
 
-Complex runtime widgets should continue to use C++-backed RmlUi components where generic RML is
-insufficient.
+Text Log is ordinary data-driven RML over `gameplay.text_log.entries`; there is no current
+`nt-text-log` component. Complex runtime widgets should use C++-backed RmlUi components only when
+generic RML/data binding is insufficient.
 
 ## Rendering and Assets
 
@@ -111,19 +117,17 @@ expose encoded save bytes, checkpoint ownership, a mutable JSON document, or a r
 pointer. Built-in menu documents hide a scale control when its project policy disables it.
 Project-authored system Layouts are resolved and mounted through the same policy path.
 
-The system role, rather than a built-in document ID, owns the binding contract. `LayoutRealizer`
-publishes the active realized document ID for each mounted system role, and `RuntimeUI` applies that
-role's normal title, gameplay HUD, shell status, settings, save/load, text-log, or modal bindings to
-that active document. Built-in and project-authored replacements also receive the same native runtime
-input listener. Copying a built-in RML/RCSS document into a project Layout and assigning the matching
-system role therefore preserves its default behavior; projects may then change structure and styling
-while retaining any supported slot IDs they keep.
+System role owns lifecycle, mounting, input/pause policy, and shell routing, not a separate DOM
+population contract. Built-in and project-authored documents in any RuntimeUI context can read the
+same `noveltea` projection when they explicitly opt in. Copying a built-in RML/RCSS document into a
+project Layout therefore preserves its declarative behavior as long as the copied model bindings and
+typed callback expressions are retained; changing or removing an authored ID has no native
+population consequence.
 
-System slot IDs are optional. Missing slots are tolerated silently, while retained IDs receive the
-same typed values regardless of whether the document came from the engine fallback or a project
-Layout. The game-HUD binder does not project Room or Scene background assets into RmlUi; the world
-renderer is the sole owner of those backgrounds. Document reload and lifecycle-context recreation
-reapply the authoritative role bindings and preserve the same mounted system identity.
+The world renderer remains the sole owner of Room and Scene backgrounds. Ordinary runtime UI state
+does not use native `GetElementById()` population or generated choice/navigation/object/inventory/
+save/load/text-log subtrees. Document reload and lifecycle-context recreation attach `noveltea`
+before document load and reuse the latest projection state.
 
 RmlUi source URLs use the mounted logical asset namespaces. Engine-owned fallback resources use
 `system|/path`, which the file interface resolves to `system:/path`. Project Layout resources use
@@ -132,9 +136,8 @@ declared in the Layout's image dependencies so focused preview and package assem
 dependency declaration closes the resource graph; it does not rewrite an Asset ID into a URL inside
 the RML source.
 
-`docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` is the authoritative inventory of every currently supported
-system-role slot ID and custom runtime tag, including exact population behavior, generated markup
-hooks, fallback precedence, and the companion `Game.shell` and `Game.ui` handlers.
+`docs/ui/RMLUI_DATA_MODEL_CONTRACT.md` is the authoritative inventory of the exact `noveltea` field
+schema, model callbacks, projection semantics, and current custom-element exceptions.
 
 Changing effective runtime scale values updates existing RmlUi contexts in place. The host applies
 layout dimensions, media dimensions, DP ratio, text factor, and font raster scale before the next
@@ -176,9 +179,9 @@ the RML document whenever that document is mounted.
 Policy replacement recreates realization in the target context while retaining NovelTea identity,
 visibility, callback listeners, and focus by element ID.
 Document/style reload recreates every built-in, custom, fragment, and memory-backed document in its
-recorded lifecycle context, restores ordering and visibility, rebinds listeners, and then rebinds the
-authoritative runtime view. Borrowed RmlUi pointers remain private backend state rather than facade
-contracts.
+recorded lifecycle context, restores ordering and visibility, rebinds listeners, and renders from the
+already-current `noveltea` projection. Borrowed RmlUi pointers remain private backend state rather
+than facade contracts.
 ## Presentation boundary
 
 `RuntimeUI` is not the presentation/audio operation broker. It remains the RmlUi publication/event

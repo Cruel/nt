@@ -488,6 +488,7 @@ add_executable(noveltea_ui_backend_tests
     ui/rmlui_custom_components_tests.cpp
     ui/rmlui_file_interface_tests.cpp
     ui/rmlui_lifecycle_tests.cpp
+    ui/runtime_ui_data_model_tests.cpp
     ui/runtime_ui_lifecycle_integration_tests.cpp
 )
 target_include_directories(noveltea_ui_backend_tests PRIVATE

@@ -4,7 +4,8 @@ Date: 2026-08-08
 
 ## Status
 
-Active implementation plan. Phases 0-7 are complete; Phase 8 is not started.
+Complete 2026-08-08. Phases 0-8 are complete; permanent documentation is reconciled and this plan
+is archived under `docs/archive/plans/`.
 
 Phase 0-2 review completed 2026-08-08. The review found one Phase 1 callback-adapter defect:
 malformed Save/Load slot-number arguments could be coerced by RmlUi to numeric zero before reaching
@@ -1122,47 +1123,47 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ### Permanent documentation
 
-- [ ] Replace `docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` with
+- [x] Replace `docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` with
       `docs/ui/RMLUI_DATA_MODEL_CONTRACT.md`. The new file is the authoritative contract for the
       exact `noveltea` fields/callbacks in this plan and applies to any opted-in Layout, not only
       system roles. Do not leave a duplicate active contract under the old filename.
-- [ ] Update `docs/ui/RMLUI_RUNTIME_UI.md` so RuntimeUI is described as a data-model publication
+- [x] Update `docs/ui/RMLUI_RUNTIME_UI.md` so RuntimeUI is described as a data-model publication
       adapter/action gateway rather than a document-slot binder.
-- [ ] Update `docs/ui/RMLUI_CUSTOM_COMPONENTS.md` to retain ActiveText, mark Map provisional, remove
+- [x] Update `docs/ui/RMLUI_CUSTOM_COMPONENTS.md` to retain ActiveText, mark Map provisional, remove
       Text Log as a current custom component, and state the rule that ordinary RmlUi data binding is
       preferred whenever sufficient.
-- [ ] Update `docs/ui/OVERVIEW.md` routing after archival so permanent docs, not this plan, are the
+- [x] Update `docs/ui/OVERVIEW.md` routing after archival so permanent docs, not this plan, are the
       authority.
-- [ ] Update `docs/engine/LAYOUT.md` with `data-model="noveltea"` availability for document and
+- [x] Update `docs/engine/LAYOUT.md` with `data-model="noveltea"` availability for document and
       Fragment Layouts, including the fact that model availability is context-wide and independent of
       system role.
-- [ ] Update any built-in Layout audit/docs that still describe binder-owned generated controls.
-- [ ] Update all active links/references to `SYSTEM_LAYOUT_RML_CONTRACT.md` to the new data-model
+- [x] Update any built-in Layout audit/docs that still describe binder-owned generated controls.
+- [x] Update all active links/references to `SYSTEM_LAYOUT_RML_CONTRACT.md` to the new data-model
       contract filename; historical archive documents may retain historical references.
 
 ### Validation
 
-- [ ] Add `tests/ui/runtime_ui_data_model_tests.cpp` to `noveltea_ui_tests` or
+- [x] Add `tests/ui/runtime_ui_data_model_tests.cpp` to `noveltea_ui_tests` or
       `noveltea_ui_backend_tests` according to whether each test needs direct RmlUi API access; do not
       hide data-model coverage inside an unrelated test file.
 - [x] By Phase 7, delete `tests/ui/rmlui_document_binder_tests.cpp` after its retained behavioral
       assertions have moved to data-model/integration tests, and rename
       `tests/ui/runtime_ui_binder_tests.cpp` to `tests/ui/runtime_ui_action_gateway_tests.cpp` with the
       production class rename. Update `tests/CMakeLists.txt` in the same phase.
-- [ ] Run focused RmlUi data-model/unit tests.
-- [ ] Run RuntimeUI lifecycle/integration tests.
-- [ ] Run system Layout asset/contract tests.
-- [ ] Run input-policy and typed-action regression tests.
-- [ ] Run ActiveText custom-component/presenter/render tests.
-- [ ] Run provisional Map tests.
-- [ ] Run save/load shell tests including thumbnail refresh.
-- [ ] Run Linux engine build and full CTest suite.
-- [ ] Run Web build and `cxx-policy`.
-- [ ] Run the Linux sandbox/runtime UI smoke for title, gameplay HUD, pause/settings, save/load,
+- [x] Run focused RmlUi data-model/unit tests.
+- [x] Run RuntimeUI lifecycle/integration tests.
+- [x] Run system Layout asset/contract tests.
+- [x] Run input-policy and typed-action regression tests.
+- [x] Run ActiveText custom-component/presenter/render tests.
+- [x] Run provisional Map tests.
+- [x] Run save/load shell tests including thumbnail refresh.
+- [x] Run Linux engine build and full CTest suite.
+- [x] Run Web build and `cxx-policy`.
+- [x] Run the Linux sandbox/runtime UI smoke for title, gameplay HUD, pause/settings, save/load,
       Text Log, and modal flows where the environment permits.
-- [ ] Run focused Web/editor player smoke if current runtime UI behavior is exercised through the
+- [x] Run focused Web/editor player smoke if current runtime UI behavior is exercised through the
       editor preview harness.
-- [ ] Run `format-check` and `git diff --check`.
+- [x] Run `format-check` and `git diff --check`.
 
 The minimum command-level final evidence is, sequentially and without overriding
 `CMAKE_BUILD_PARALLEL_LEVEL`:
@@ -1186,18 +1187,40 @@ must still produce the full evidence above.
 
 ### Archival
 
-- [ ] Confirm permanent docs describe implemented behavior rather than future intent.
-- [ ] Confirm no active documentation treats system-role binder slots as the current authoring
+- [x] Confirm permanent docs describe implemented behavior rather than future intent.
+- [x] Confirm no active documentation treats system-role binder slots as the current authoring
       contract.
-- [ ] Move this completed plan to `docs/archive/plans/` and remove the active-plan link from
+- [x] Move this completed plan to `docs/archive/plans/` and remove the active-plan link from
       `docs/ui/OVERVIEW.md`.
 
 ### Exit gate
 
-- [ ] All validation required by the touched engine/UI surface passes or exact environment-limited
+- [x] All validation required by the touched engine/UI surface passes or exact environment-limited
       commands are recorded.
-- [ ] The active UI documentation has one coherent data-model/component architecture with no stale
+- [x] The active UI documentation has one coherent data-model/component architecture with no stale
       binder authority.
+
+### Phase 8 implementation findings
+
+- The active `docs/engine/MAP.md` still named the deleted `RuntimeUiDocumentBinder` even though it
+  was not enumerated in the Phase 8 permanent-document bullet list. The final active-document scan
+  exposed that stale authority, so Phase 8 updates that document to the Phase 6 focused provisional
+  Map path. This is documentation reconciliation only; no runtime architecture changed.
+- Data-model behavior already had substantial lifecycle/integration coverage, but the repository had
+  no dedicated `tests/ui/runtime_ui_data_model_tests.cpp` despite this phase's explicit validation
+  requirement. Phase 8 adds one backend-target test that directly exercises opt-in boundaries,
+  read-only assignment rejection, seeded/current projection state, `data-for`, clearing, and two
+  distinct lifecycle contexts. Existing integration coverage remains in place.
+- The Linux host has no usable X11 display. The full Linux CTest run therefore passes 818/826; the
+  eight failures are the same graphics capture/dependent verifier set recorded by earlier phases.
+  Direct sandbox startup fails at `SDL_Init` with `x11 not available`, so interactive title/HUD/menu
+  flow smoke is environment-limited rather than replaced by a runtime workaround.
+- The Web debug build and Web `cxx-policy` pass, and `pnpm run web:player-package:smoke` passes. An
+  additional `pnpm run web:smoke:debug` run reaches and validates the RmlUi/performance portion but
+  then fails its separate compiled-world background pixel check with `[32,36,44,255]` instead of the
+  expected approximately `[32,64,96,255]`. Phase 8 changes no runtime, renderer, Web application, or
+  smoke-script source, so that unrelated world-presentation readback is recorded but does not expand
+  this documentation/validation phase into a rendering fix.
 
 ## Testing requirements by behavior
 
@@ -1316,26 +1339,26 @@ narrow tag-based Map updater specified there and no broader Map architecture.
 
 This refactor is complete only when all of the following are true:
 
-- [ ] Every live RuntimeUI RmlUi context exposes the `noveltea` model before model-bound documents
+- [x] Every live RuntimeUI RmlUi context exposes the `noveltea` model before model-bound documents
       load.
-- [ ] The data model remains private implementation state; no new application-facing RmlUi pointer,
+- [x] The data model remains private implementation state; no new application-facing RmlUi pointer,
       model constructor, or model handle API exists.
-- [ ] Ordinary authored Layouts, including non-system Lua-mounted Layouts, can opt into the model.
-- [ ] Built-in Title/Game HUD/Pause/Settings/Save/Load/Text Log/Modal documents use declarative RmlUi
+- [x] Ordinary authored Layouts, including non-system Lua-mounted Layouts, can opt into the model.
+- [x] Built-in Title/Game HUD/Pause/Settings/Save/Load/Text Log/Modal documents use declarative RmlUi
       data binding for their ordinary dynamic content.
-- [ ] Choices, navigation, actors, Room objects, inventory, interaction actions, settings, save/load,
+- [x] Choices, navigation, actors, Room objects, inventory, interaction actions, settings, save/load,
       and Text Log are not generated/populated by native document binders.
-- [ ] Text Log no longer depends on `nt-text-log`.
-- [ ] ActiveText remains a specialized custom element with its existing renderer/input lifecycle.
-- [ ] Map remains functional through an explicitly provisional focused custom-component path.
-- [ ] `RuntimeUiDocumentBinder` is deleted.
-- [ ] Remaining gameplay/shell action validation is shared between RmlUi data-model callbacks and Lua
+- [x] Text Log no longer depends on `nt-text-log`.
+- [x] ActiveText remains a specialized custom element with its existing renderer/input lifecycle.
+- [x] Map remains functional through an explicitly provisional focused custom-component path.
+- [x] `RuntimeUiDocumentBinder` is deleted.
+- [x] Remaining gameplay/shell action validation is shared between RmlUi data-model callbacks and Lua
       helpers.
-- [ ] Old population IDs/tags are not retained as parallel compatibility contracts.
-- [ ] Reload/context recreation/project replacement keep model state coherent and pointer-safe.
-- [ ] Permanent UI/Layout docs describe the data-model architecture and current custom-component
+- [x] Old population IDs/tags are not retained as parallel compatibility contracts.
+- [x] Reload/context recreation/project replacement keep model state coherent and pointer-safe.
+- [x] Permanent UI/Layout docs describe the data-model architecture and current custom-component
       exceptions.
-- [ ] Relevant Linux/Web/unit/integration/smoke/format validation is green or precisely recorded as
+- [x] Relevant Linux/Web/unit/integration/smoke/format validation is green or precisely recorded as
       environment-limited.
 
 ## Completion ledger
@@ -1350,4 +1373,4 @@ This refactor is complete only when all of the following are true:
 | 5. Save/Load list data-model cutover | Complete | Built-in Save/Load now author checkpoint summary, one shared `shell.save_slots` loop, thumbnail/missing-thumbnail state, Save autosave omission, empty-slot Load omission, and typed Save/Load callbacks declaratively. RuntimeUI retains only content-fingerprinted thumbnail virtual-file preparation and publishes the resulting logical URL; native slot subtree generation is removed. Focused integration proves final autosave/manual visibility, empty Load-action visibility, metadata, and a changed fingerprinted URL after thumbnail bytes change. `noveltea_ui_tests` passes 644 assertions/61 cases and `noveltea_ui_backend_tests` passes 1079 assertions/48 cases; `format-check`, full Linux build, Linux `cxx-policy`, Web configure/build, Web `cxx-policy`, and focused callback validation pass. Full Linux CTest initially passes 817/826 because `noveltea_mandatory_asset_matrix` transiently misses one threaded finalization in addition to the same eight X11-unavailable graphics capture/dependent verifier failures; the mandatory asset matrix passes immediately when rerun in isolation, leaving only the known eight environment-limited graphics tests (2026-08-08). The Phase 3-5 review on 2026-08-08 reconfirmed this exit gate and commit boundary; its full Linux CTest passes 818/826 with the mandatory asset matrix green and only the same eight X11-limited graphics tests failing. |
 | 6. Isolate custom-component path | Complete | `RuntimeUiDocumentBinder` no longer delivers custom-component snapshots. RuntimeUI now owns focused tag-based delivery: ActiveText updates only the first `nt-active-text` in the active Game HUD and refreshes `ActiveTextPresenter`, while provisional Map updates only the first `nt-map-view` in Game HUD and Text Log system documents and only while a gameplay view exists. Focused lifecycle coverage proves arbitrary mounted component tags are untouched and Map is not reset after gameplay clear. `noveltea_ui_tests` passes 644 assertions/61 cases and `noveltea_ui_backend_tests` passes 1101 assertions/49 cases; `format-check`, full Linux build, Linux `cxx-policy`, full Web build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 819/827; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). |
 | 7. Remove document binder/reconcile ownership | Complete | `RuntimeUiDocumentBinder` and its tests are deleted; the surviving revision/action/input/Lua owner is renamed atomically to `RuntimeUiActionGateway`, including RuntimeUI/data-model ownership, source classification, and focused test naming. RuntimeUI's remaining refresh helpers are narrowed to Game HUD Map and Text Log Map delivery, with ActiveText and thumbnail preparation already independently named. Repository scans find no production `RuntimeUiBinder`, document-binder, `bind_document()`, or ordinary magic-ID population lookup; the only `SetInnerRML()` calls left are the Phase 6-approved provisional `nt-map-view` implementation. `noveltea_ui_tests` passes 634 assertions/59 cases and `noveltea_ui_backend_tests` passes 1101 assertions/49 cases; `format-check`, full Linux build, Linux `cxx-policy`, full Web build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 817/825; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). No Phase 8 implementation or scope change was required. |
-| 8. Documentation, validation, archival | Not started | - |
+| 8. Documentation, validation, archival | Complete | Replaced the role/slot contract with the authoritative `RMLUI_DATA_MODEL_CONTRACT.md`; reconciled RuntimeUI, custom-component, Layout, Map, built-in audit, and overview docs to the shared role-independent `noveltea` model plus ActiveText/provisional-Map exceptions; added dedicated backend data-model coverage; and archived the completed plan. `noveltea_ui_tests` passes 634 assertions/59 cases and `noveltea_ui_backend_tests` passes 1135 assertions/50 cases. Full Linux build, Linux `cxx-policy`, `format-check`, full Web build, Web `cxx-policy`, Web player-package smoke, and `git diff --check` pass. Full Linux CTest passes 818/826 with the same eight X11-unavailable graphics capture/dependent verifier failures, and direct sandbox startup is limited by the same unavailable X11 environment. An additional broad Web RmlUi smoke reaches its UI/performance checks but fails the separate compiled-world pixel readback `[32,36,44,255]`; Phase 8 has no runtime/render/Web-source changes, so that unrelated observation is recorded without expanding scope (2026-08-08). |

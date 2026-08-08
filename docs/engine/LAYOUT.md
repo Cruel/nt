@@ -303,17 +303,19 @@ Authored and built-in system Layouts both mount through `RuntimeLayoutManager` w
 | debug overlay | `Debug` | unscaled | normal | continue |
 
 A project-assigned system Layout is a behavioral replacement, not only a visual or policy
-replacement. The active realized document for the role receives the same typed slot population and
-native input handling as the built-in fallback. Therefore copying a built-in RML/RCSS document into
-a project Layout and assigning the corresponding role should function identically before the user
-starts customizing it. Supported slot IDs are optional: omitted slots are ignored, while retained
-slots continue to receive their normal title, gameplay HUD, shell status, settings, save/load,
-text-log, modal, or asset values. The same bindings are reapplied after document reload or
-lifecycle-context recreation.
+replacement. Every RuntimeUI-owned RmlUi context exposes the same read-only `noveltea` data model
+before documents load. A full document or Fragment can opt any subtree into it explicitly with
+`data-model="noveltea"`; model availability is context-wide and independent of system role. System
+role continues to determine lifecycle, mounting, input/pause policy, and shell routing, but it does
+not trigger native population of element IDs.
 
-See `docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` for the complete role-by-role slot and custom-element
-contract. That reference distinguishes native-populated IDs from structural IDs that exist only in
-the built-in templates and documents the generated markup available for project RCSS styling.
+Copying a built-in RML/RCSS document into a project Layout preserves its declarative behavior when
+the copied `data-model`, `data-*` bindings, and typed callbacks are retained. IDs may be changed or
+omitted unless the authored stylesheet, focus logic, or project code itself depends on them. Current
+projection state is reused after document reload or lifecycle-context recreation.
+
+See `docs/ui/RMLUI_DATA_MODEL_CONTRACT.md` for the exact `project.*`, `gameplay.*`, and `shell.*`
+field schema, callbacks, projection semantics, and custom-element exceptions.
 
 The shell owns the nested menu stack and resets it on return-to-title, project reload, and shutdown.
 Pause is derived from visible mounted policy; it is not written into save state.
@@ -371,10 +373,12 @@ Native runtime UI support is implemented through RmlUi integration. Relevant run
 
 - `RuntimeUI` for RmlUi lifecycle and document loading;
 - `TypedRuntimeUIViewState` for runtime UI state exposed to documents;
+- `RuntimeUiDataModel` for the context-local `noveltea` read model;
+- `RuntimeUiActionGateway` for revision gating, typed action validation, Layout admission, and Lua/
+  model-callback dispatch;
 - bgfx RmlUi render interface;
 - SDL3 input and system interfaces;
 - file interface for asset-backed loading;
-- RmlUi document binder;
 - custom component support;
 - template resolver.
 
@@ -403,9 +407,10 @@ not a provisional runtime-project manifest.
 
 ## Scripting Status
 
-Layouts can carry Lua source as inline text or an asset reference. Runtime interaction uses ordinary
-RmlUi events such as `onclick`. Gameplay document handlers use the typed `Game.ui.*` input surface,
-shell documents use `Game.shell.*`, and authored gameplay presentation uses the typed
+Layouts can carry Lua source as inline text or an asset reference. Runtime interaction can use
+`noveltea` model callbacks through `data-event-*` or ordinary Lua-backed RmlUi events. Gameplay Lua
+handlers use the typed `Game.ui.*` input surface, shell documents use `Game.shell.*`, and authored
+gameplay presentation uses the typed
 `noveltea.layouts.*` and `noveltea.presentation.*` modules backed by `RuntimeScriptApi` and
 engine-selected capability profiles.
 
@@ -450,11 +455,11 @@ engine/include/noveltea/core/runtime_presentation_contracts.hpp
 engine/src/host/layout_realizer.hpp
 engine/src/host/presentation_layout_reconciler.hpp
 engine/src/ui/rmlui/runtime_ui.cpp
-engine/src/ui/rmlui/runtime_ui_binder.cpp
+engine/src/ui/rmlui/runtime_ui_data_model.cpp
+engine/src/ui/rmlui/runtime_ui_action_gateway.cpp
 engine/src/ui/rmlui/rmlui_document_registry.cpp
 engine/src/ui/rmlui/rmlui_bgfx_noveltea_adapter.cpp
 engine/src/ui/rmlui/rmlui_custom_components.cpp
-engine/src/ui/rmlui/rmlui_document_binder.cpp
 engine/src/ui/rmlui/rmlui_file_interface.cpp
 engine/src/ui/rmlui/rmlui_input_sdl3.cpp
 engine/src/ui/rmlui/rmlui_render_interface_bgfx.hpp

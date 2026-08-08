@@ -31,7 +31,10 @@ connection selectability. Location selection changes focus only. Connection acti
 normal typed Room navigation operation, so can-leave, exit condition, can-enter, lifecycle hooks, the
 room-switch commit, visits, and fault recovery cannot be bypassed.
 
-`RuntimeUiDocumentBinder` and `nt-map-view` accept the typed Map record directly and emit strong-ID
-`nt-map-location` and `nt-map-connection` targets. External inputs lower through the same typed
-session API as Lua and player interactions. Legacy numeric map topology and visibility scripts are
-not retained in the typed model.
+RuntimeUI keeps `nt-map-view` on an explicitly provisional focused custom-component path. The first
+Map tag in the active Game HUD and active Text Log system documents receives the current typed Map
+snapshot while gameplay state exists and emits strong-ID `nt-map-location` and
+`nt-map-connection` targets. External inputs lower through the same typed session API as Lua and
+player interactions. Ordinary runtime UI uses the shared `noveltea` data model; Map is the current
+documented exception rather than a reason to retain a general document binder. Legacy numeric map
+topology and visibility scripts are not retained in the typed model.
