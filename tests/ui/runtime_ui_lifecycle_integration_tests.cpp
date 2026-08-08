@@ -130,6 +130,22 @@ constexpr const char* kBinderCharacterizationDocument = R"RML(
 </rml>
 )RML";
 
+constexpr const char* kTextLogDataModelDocument = R"RML(
+<rml>
+  <head></head>
+  <body data-model="noveltea">
+    <div id="text-log">
+      <div id="text-log-empty" data-if="gameplay.text_log.entries.size == 0">No log entries</div>
+      <div class="text-log-entry" data-for="entry : gameplay.text_log.entries"
+           data-attr-data-sequence="entry.sequence" data-attr-data-kind="entry.kind">
+        <span class="text-log-speaker" data-if="entry.has_speaker">{{ entry.speaker_id }}</span>
+        <div class="text-log-body" data-rml="entry.body_rml"></div>
+      </div>
+    </div>
+  </body>
+</rml>
+)RML";
+
 constexpr const char* kAuthoredTitleDocument = R"(
 <rml>
   <head></head>
@@ -1310,6 +1326,98 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
     REQUIRE(options.size() == 2);
     REQUIRE(find_inner(options, "Dialogue choice"));
     CHECK_FALSE(continue_buttons.front()->IsVisible());
+}
+
+TEST_CASE("RuntimeUI renders Text Log entries declaratively from the NovelTea data model")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "text-log-model", kTextLogDataModelDocument, "preview://text-log-model.rml", true));
+
+    const auto speaker = noveltea::core::CharacterId::create("alice");
+    REQUIRE(speaker);
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.text_log.entries = {
+        noveltea::core::TextLogEntry{.kind = noveltea::core::TextLogEntryKind::Line,
+                                     .origin = noveltea::core::SystemTextLogOrigin{},
+                                     .speaker = speaker.value(),
+                                     .text = "[b]First <unsafe>[/b]",
+                                     .markup = noveltea::core::TextMarkup::ActiveText},
+        noveltea::core::TextLogEntry{.kind = noveltea::core::TextLogEntryKind::Choice,
+                                     .origin = noveltea::core::SystemTextLogOrigin{},
+                                     .text = "Second",
+                                     .markup = noveltea::core::TextMarkup::Plain},
+        noveltea::core::TextLogEntry{.kind = noveltea::core::TextLogEntryKind::Notification,
+                                     .origin = noveltea::core::SystemTextLogOrigin{},
+                                     .text = "Third",
+                                     .markup = noveltea::core::TextMarkup::Plain}};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("text-log-model");
+    REQUIRE(document);
+    REQUIRE(document->GetContext());
+    document->GetContext()->Update();
+
+    auto* empty = driver->element("text-log-model", "text-log-empty");
+    REQUIRE(empty);
+    CHECK_FALSE(empty->IsVisible());
+
+    Rml::ElementList entries;
+    document->GetElementsByClassName(entries, "text-log-entry");
+    const auto find_entry = [&](std::string_view sequence) {
+        const auto found = std::find_if(entries.begin(), entries.end(), [&](Rml::Element* element) {
+            return element->GetAttribute<Rml::String>("data-sequence", "") == sequence;
+        });
+        return found == entries.end() ? nullptr : *found;
+    };
+    auto* first = find_entry("0");
+    auto* second = find_entry("1");
+    auto* third = find_entry("2");
+    REQUIRE(first);
+    REQUIRE(second);
+    REQUIRE(third);
+    CHECK(first->GetAttribute<Rml::String>("data-kind", "") == "line");
+    CHECK(second->GetAttribute<Rml::String>("data-kind", "") == "choice");
+    CHECK(third->GetAttribute<Rml::String>("data-kind", "") == "notification");
+    CHECK(first->GetParentNode() == second->GetParentNode());
+    CHECK(second->GetParentNode() == third->GetParentNode());
+    CHECK(first->GetNextSibling() == second);
+    CHECK(second->GetNextSibling() == third);
+
+    Rml::ElementList speakers;
+    first->GetElementsByClassName(speakers, "text-log-speaker");
+    REQUIRE(speakers.size() == 1);
+    CHECK(speakers.front()->IsVisible());
+    CHECK(speakers.front()->GetInnerRML() == "alice");
+    speakers.clear();
+    second->GetElementsByClassName(speakers, "text-log-speaker");
+    REQUIRE(speakers.size() == 1);
+    CHECK_FALSE(speakers.front()->IsVisible());
+
+    Rml::ElementList bodies;
+    first->GetElementsByClassName(bodies, "text-log-body");
+    REQUIRE(bodies.size() == 1);
+    const auto first_body = bodies.front()->GetInnerRML();
+    CHECK(first_body.find("nt-active-text__run--bold") != std::string::npos);
+    Rml::ElementList unsafe_elements;
+    bodies.front()->GetElementsByTagName(unsafe_elements, "unsafe");
+    CHECK(unsafe_elements.empty());
+
+    values.revision = 2;
+    values.view.text_log.entries.clear();
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    document->GetContext()->Update();
+    CHECK(empty->IsVisible());
+    entries.clear();
+    document->GetElementsByClassName(entries, "text-log-entry");
+    CHECK(std::none_of(entries.begin(), entries.end(), [](Rml::Element* element) {
+        return element->HasAttribute("data-sequence");
+    }));
 }
 
 TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-specific injection")

@@ -61,7 +61,10 @@ TEST_CASE("built-in system menu assets use NovelTea data-model callbacks")
     CHECK(save.find("id=\"nt-checkpoint-summary\"") != std::string::npos);
     CHECK(save.find("id=\"nt-save-slots\"") != std::string::npos);
     const auto text_log = read_source_file(menu_root / "text-log.rml");
-    CHECK(text_log.find("<nt-text-log") != std::string::npos);
+    CHECK(text_log.find("<nt-text-log") == std::string::npos);
+    CHECK(text_log.find("data-for=\"entry : gameplay.text_log.entries\"") != std::string::npos);
+    CHECK(text_log.find("data-if=\"gameplay.text_log.entries.size == 0\"") != std::string::npos);
+    CHECK(text_log.find("data-rml=\"entry.body_rml\"") != std::string::npos);
 
     const auto settings = read_source_file(menu_root / "settings-menu.rml");
     CHECK(settings.find("id=\"nt-settings-ui-scale-control\"") != std::string::npos);

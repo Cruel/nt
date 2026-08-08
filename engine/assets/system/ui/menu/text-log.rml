@@ -8,7 +8,14 @@
         <section class="nt-shell-panel nt-shell-panel-wide">
             <p class="nt-shell-kicker">History</p>
             <h1>Text Log</h1>
-            <nt-text-log id="rt_log"></nt-text-log>
+            <div id="rt_log">
+                <div class="nt-text-log__empty" data-if="gameplay.text_log.entries.size == 0">No log entries</div>
+                <div class="nt-text-log__entry" data-for="entry : gameplay.text_log.entries"
+                     data-attr-data-sequence="entry.sequence" data-attr-data-kind="entry.kind">
+                    <span class="nt-text-log__speaker" data-if="entry.has_speaker">{{ entry.speaker_id }}</span>
+                    <div class="nt-text-log__body" data-rml="entry.body_rml"></div>
+                </div>
+            </div>
             <button data-event-click="shell_close()">Back</button>
             <p id="nt-shell-status">{{ shell.status }}</p>
         </section>

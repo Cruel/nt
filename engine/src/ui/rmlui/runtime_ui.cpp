@@ -573,14 +573,8 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
     bind_slots(core::compiled::SystemLayoutRole::SaveMenu, true);
     bind_slots(core::compiled::SystemLayoutRole::LoadMenu, false);
 
-    if (auto* owner = system_document(core::compiled::SystemLayoutRole::TextLog); owner && binder) {
-        if (const auto* view = binder->view()) {
-            if (auto* text_log =
-                    first_component_as<ui::rmlui::NtTextLogElement>(*owner, "nt-text-log"))
-                text_log->set_snapshot(ui::rmlui::make_text_log_snapshot(*view));
-        }
+    if (auto* owner = system_document(core::compiled::SystemLayoutRole::TextLog); owner && binder)
         binder->bind_document(*owner, runtime_shell_view->status);
-    }
 }
 
 void RuntimeUI::State::refresh_runtime_document()

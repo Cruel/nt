@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Status
 
-Active implementation plan. Phases 0-2 are complete; Phases 3-8 are not started.
+Active implementation plan. Phases 0-4 are complete; Phases 5-8 are not started.
 
 Phase 0-2 review completed 2026-08-08. The review found one Phase 1 callback-adapter defect:
 malformed Save/Load slot-number arguments could be coerced by RmlUi to numeric zero before reaching
@@ -925,31 +925,44 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ## Phase 4 - Move Text Log to the data model
 
+### Implementation findings
+
+- The existing Text Log rich-text serializer used the ActiveText frame/glyph projection utilities
+  for its sanitized presentation output. Phase 4 moves the Text Log-only paragraph/glyph/style-to-RML
+  serialization into `runtime_ui_data_model.cpp` while retaining the shared `escape_rml()` helper in
+  `rmlui_custom_components.*`, where the provisional Map and existing native Save/Load generation
+  still use it. Phase 6 must not treat this data-model rich-text projection dependency as custom-
+  element snapshot delivery to remove.
+- Removing the temporary direct `NtTextLogElement` update does not yet permit removing the Text Log
+  role's reduced `RuntimeUiBinder::bind_document()` call: until Phase 6, that retained binder remains
+  the planned ActiveText/provisional-Map snapshot delivery path for system documents. Phase 4 removes
+  only the Text Log-specific branch and leaves that later-phase scaffolding intact.
+
 ### Work
 
-- [ ] Expose Text Log entries as an ordered model collection with sequence, kind, optional speaker,
+- [x] Expose Text Log entries as an ordered model collection with sequence, kind, optional speaker,
       and body presentation data.
-- [ ] Preserve current rich-text rendering with the required `body_rml` field specified above and
+- [x] Preserve current rich-text rendering with the required `body_rml` field specified above and
       use RmlUi `data-rml`; do not generate the entire Text Log document/list in C++.
-- [ ] Build `body_rml` only from the existing parsed `core::RichTextDocument` path and existing
+- [x] Build `body_rml` only from the existing parsed `core::RichTextDocument` path and existing
       escaping/style serialization. It must never contain raw unescaped `TextLogEntry::text` or
       arbitrary user-authored RML. Move the Text Log-only rich-text-to-RML serialization into
       `runtime_ui_data_model.cpp`; do not keep Text Log snapshot/RML helpers in
       `rmlui_custom_components.*` after the custom element is removed.
-- [ ] Convert the built-in Text Log Layout to ordinary RML with `data-for`.
-- [ ] Provide authored empty-state markup with `data-if` rather than `NtTextLogElement::SetInnerRML`.
-- [ ] Remove `nt-text-log` registration, snapshot types/helpers that exist only for that component,
+- [x] Convert the built-in Text Log Layout to ordinary RML with `data-for`.
+- [x] Provide authored empty-state markup with `data-if` rather than `NtTextLogElement::SetInnerRML`.
+- [x] Remove `nt-text-log` registration, snapshot types/helpers that exist only for that component,
       and the `rt_log` legacy fallback.
-- [ ] Remove the temporary `RuntimeUI::State::refresh_runtime_shell_documents()` direct
+- [x] Remove the temporary `RuntimeUI::State::refresh_runtime_shell_documents()` direct
       `NtTextLogElement` snapshot-delivery branch introduced by Phase 3 once the Text Log document is
       fully data-driven.
-- [ ] Update focused preview/tests so Text Log markup is treated as ordinary data-driven RML.
+- [x] Update focused preview/tests so Text Log markup is treated as ordinary data-driven RML.
 
 ### Exit gate
 
-- [ ] Text Log no longer requires a C++ custom element or document binder.
-- [ ] Entry order, speaker, kind/sequence metadata, rich text, and empty state remain correct.
-- [ ] The built-in Text Log uses `gameplay.text_log.entries`; do not introduce a duplicate
+- [x] Text Log no longer requires a C++ custom element or document binder.
+- [x] Entry order, speaker, kind/sequence metadata, rich text, and empty state remain correct.
+- [x] The built-in Text Log uses `gameplay.text_log.entries`; do not introduce a duplicate
       `shell.text_log` alias solely because `RuntimeShellViewState` also carries a copy of the log.
 
 ## Phase 5 - Move Save/Load list presentation to the data model
@@ -1309,7 +1322,7 @@ This refactor is complete only when all of the following are true:
 | 1. Shared RmlUi data-model foundation | Complete | Private `noveltea` projection/model ownership, per-context fail-closed initialization, stable context-local handles, read-only state, shared validated callbacks, seeded-state/update propagation, and two-context headless binding coverage are implemented. The 2026-08-08 review corrected malformed Save/Load slot arguments being coercible to slot `0` and added exact model-callback/Lua-helper parity coverage for every Phase 1 callback plus no-dispatch malformed-slot regressions. Review validation passes `noveltea_ui_tests` (627 assertions/61 cases), `noveltea_ui_backend_tests` (1048 assertions/49 cases), full Linux build, Linux/Web `cxx-policy`, `format-check`, Web build, and sanitizer build/CTest (810/810); full Linux CTest passes 819/827 with the same eight X11-unavailable capture/dependent readback failures. |
 | 2. Simple project and shell cutover | Complete | Title/Pause/Settings/Save/Load/Text Log/Modal built-ins opt into `noveltea` for Phase 2 scalar state and static shell callbacks; native title/settings/modal/status population is removed while Phase 4 Text Log and Phase 5 Save/Load generation remain scoped to their owning phases. Authored system replacement coverage proves model opt-in works without magic-ID injection. `noveltea_ui_tests` passes 627 assertions/61 cases and `noveltea_ui_backend_tests` passes 814 assertions/48 cases; Linux build passes; full Linux CTest has only the existing X11-unavailable capture/dependent-verifier environment failures; `format-check`, Web build, Web `cxx-policy`, and `git diff --check` pass (2026-08-08). |
 | 3. Game HUD ordinary RML cutover | Complete | Built-in Game HUD title/notification, choices, compass exits, Room objects, inventory, interaction controls, group/dock visibility, pointer admission, and shell pause wiring are declarative `noveltea` bindings; the native `data-exit-id` traversal is removed and `RuntimeUiDocumentBinder` is reduced to ActiveText/Map snapshot delivery only. A focused ordinary non-system Layout renders the same gameplay collections, and built-in SDL navigation plus ActiveText integration remain green. Validation passes `noveltea_ui_tests` (633 assertions/61 cases), `noveltea_ui_backend_tests` (1055 assertions/49 cases), `format-check`, full Linux build, Web `cxx-policy`, full Web build, and `git diff --check` (2026-08-08). |
-| 4. Text Log data-model cutover | Not started | - |
+| 4. Text Log data-model cutover | Complete | `gameplay.text_log.entries` now supplies ordered sequence/kind/speaker/text plus sanitized `body_rml`; the built-in Text Log authors its list, metadata, rich body, and empty state with `data-for`/`data-if`/`data-rml`; `nt-text-log`, its registry/snapshot/RML helpers, and the Phase 3 direct snapshot-delivery branch are removed while the reduced binder scaffolding for Phase 6 is retained. Focused Text Log integration passes 30 assertions/1 case; `noveltea_ui_tests` passes 636 assertions/61 cases and `noveltea_ui_backend_tests` passes 1068 assertions/48 cases; `format-check`, Linux build, Linux `cxx-policy`, Web configure/build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 818/826; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). |
 | 5. Save/Load data-model cutover | Not started | - |
 | 6. Isolate custom-component path | Not started | - |
 | 7. Remove document binder/reconcile ownership | Not started | - |
