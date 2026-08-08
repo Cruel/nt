@@ -171,6 +171,12 @@ active_text_surface(Rml::ElementDocument& document, const ui::rmlui::RmlUiHost& 
         .text_scale_factor = context_metrics->text_scale_factor,
         .font_raster_scale = context_metrics->font_raster_scale};
 }
+
+template<class T> T* find_first_component(Rml::ElementDocument& document, const char* tag)
+{
+    auto* element = find_first_tag(document, tag);
+    return element ? rmlui_dynamic_cast<T*>(element) : nullptr;
+}
 } // namespace
 
 struct RuntimeUI::State {
@@ -489,19 +495,23 @@ void RuntimeUI::State::remove_shell_lua_api() noexcept
 
 void RuntimeUI::State::refresh_runtime_shell_documents()
 {
-    if (!runtime_shell_view || !document_registry)
+    if (!binder || !binder->view())
         return;
-
-    if (auto* owner = system_document(core::compiled::SystemLayoutRole::TextLog); owner && binder)
-        binder->bind_document(*owner, runtime_shell_view->status);
+    auto* document = system_document(core::compiled::SystemLayoutRole::TextLog);
+    if (!document)
+        return;
+    if (auto* map_view =
+            find_first_component<ui::rmlui::NtMapViewElement>(*document, "nt-map-view"))
+        map_view->set_snapshot(ui::rmlui::make_map_view_snapshot(*binder->view()));
 }
 
 void RuntimeUI::State::refresh_runtime_document()
 {
     auto* doc = system_document(core::compiled::SystemLayoutRole::GameHud);
-    if (!doc || !binder)
+    if (!doc || !binder || !binder->view())
         return;
-    binder->bind_document(*doc, typed_notification);
+    if (auto* map_view = find_first_component<ui::rmlui::NtMapViewElement>(*doc, "nt-map-view"))
+        map_view->set_snapshot(ui::rmlui::make_map_view_snapshot(*binder->view()));
 }
 
 void RuntimeUI::State::refresh_active_text_layout()
@@ -509,9 +519,19 @@ void RuntimeUI::State::refresh_active_text_layout()
     if (!active_text_presenter)
         return;
     auto* doc = system_document(core::compiled::SystemLayoutRole::GameHud);
-    active_text_presenter->refresh_layout(binder ? binder->view() : nullptr,
-                                          doc && host ? active_text_surface(*doc, *host)
-                                                      : std::nullopt);
+    const auto* view = binder ? binder->view() : nullptr;
+    if (!view) {
+        active_text_presenter->refresh_layout(nullptr, std::nullopt);
+        return;
+    }
+    if (doc) {
+        if (auto* active_text =
+                find_first_component<ui::rmlui::NtActiveTextElement>(*doc, "nt-active-text")) {
+            active_text->set_snapshot(ui::rmlui::make_active_text_snapshot(*view));
+        }
+    }
+    active_text_presenter->refresh_layout(view, doc && host ? active_text_surface(*doc, *host)
+                                                            : std::nullopt);
 }
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)

@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Status
 
-Active implementation plan. Phases 0-5 are complete; Phases 6-8 are not started.
+Active implementation plan. Phases 0-6 are complete; Phases 7-8 are not started.
 
 Phase 0-2 review completed 2026-08-08. The review found one Phase 1 callback-adapter defect:
 malformed Save/Load slot-number arguments could be coerced by RmlUi to numeric zero before reaching
@@ -1023,56 +1023,56 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ### ActiveText
 
-- [ ] Remove ActiveText snapshot delivery from the general document binder.
-- [ ] Keep `nt-active-text` and `ActiveTextPresenter` as the specialized integration path.
-- [ ] Preserve the existing supported host scope: the first `<nt-active-text>` in the active
+- [x] Remove ActiveText snapshot delivery from the general document binder.
+- [x] Keep `nt-active-text` and `ActiveTextPresenter` as the specialized integration path.
+- [x] Preserve the existing supported host scope: the first `<nt-active-text>` in the active
       `game-hud` system Layout is the direct-render/input surface. Do not make arbitrary mounted
       Layouts or multiple simultaneous ActiveText elements independently rendered in this refactor.
-- [ ] Give RuntimeUI one focused ActiveText refresh path that updates that element's current snapshot
+- [x] Give RuntimeUI one focused ActiveText refresh path that updates that element's current snapshot
       by calling the existing `NtActiveTextElement::set_snapshot(make_active_text_snapshot(...))`
       semantics for the first Game HUD tag and refreshes `ActiveTextPresenter`. The focused path
       searches by the `nt-active-text` custom tag; it must not search ordinary population IDs or resurrect the
       general binder.
-- [ ] When no gameplay view is retained, do not synthesize a fake ActiveText gameplay snapshot merely
+- [x] When no gameplay view is retained, do not synthesize a fake ActiveText gameplay snapshot merely
       to update the element. Preserve the current presenter behavior by refreshing
       `ActiveTextPresenter` with `nullptr`, which clears the direct-render layout. Host-element
       diagnostic attributes are non-authoritative and must not become a replacement state source.
-- [ ] Preserve the existing RmlUi-derived surface contract: content bounds, computed color,
+- [x] Preserve the existing RmlUi-derived surface contract: content bounds, computed color,
       `rmlui-language`, text scale, and font raster scale.
-- [ ] Preserve engine-owned shaping, font leases, reveal/page/fade state, direct rendering, object hit
+- [x] Preserve engine-owned shaping, font leases, reveal/page/fade state, direct rendering, object hit
       testing, and typed Continue/selection input.
-- [ ] Keep ActiveText's native event handling explicit and separate from ordinary model callbacks.
-- [ ] Do not broaden ActiveText to arbitrary simultaneous multi-document instances in this refactor.
+- [x] Keep ActiveText's native event handling explicit and separate from ordinary model callbacks.
+- [x] Do not broaden ActiveText to arbitrary simultaneous multi-document instances in this refactor.
       If that capability is desired later, record it as a separate component-lifecycle follow-up.
 
 ### Provisional Map
 
-- [ ] Retain `nt-map-view` during this refactor.
-- [ ] Replace its dependence on the general document binder with one focused tag-based snapshot
+- [x] Retain `nt-map-view` during this refactor.
+- [x] Replace its dependence on the general document binder with one focused tag-based snapshot
       updater. Preserve the current binding scope exactly: update the first `<nt-map-view>` in the
       active `game-hud` document and, because the current Text Log role is passed through the gameplay
       binder, the first one in the active `text-log` system document if present. Do not make Map state
       automatically populate arbitrary non-system Layouts in this plan.
-- [ ] Invoke that Map updater only when a current gameplay view exists, matching the current
+- [x] Invoke that Map updater only when a current gameplay view exists, matching the current
       `RuntimeUiBinder::bind_document()` behavior. Do not invent a new empty/unavailable Map reset
       contract as part of this provisional isolation work.
-- [ ] Keep the current `NtMapViewElement::set_snapshot()` / `map_view_rml()` style of provisional
+- [x] Keep the current `NtMapViewElement::set_snapshot()` / `map_view_rml()` style of provisional
       inner-RML generation in `rmlui_custom_components.*`. Removing Text Log helpers must not be used
       as a reason to redesign or relocate Map internals. This phase is isolation, not Map redesign.
-- [ ] Do not redesign Map markup, pan/zoom, graph rendering, connection geometry, or final component
+- [x] Do not redesign Map markup, pan/zoom, graph rendering, connection geometry, or final component
       authoring contract here.
-- [ ] Do not add a parallel full Map data-model contract solely to make this refactor look uniform.
-- [ ] Keep map navigation actions on the existing validated typed path.
-- [ ] Mark the current `nt-map-view` inner-RML generation as provisional in permanent docs after the
+- [x] Do not add a parallel full Map data-model contract solely to make this refactor look uniform.
+- [x] Keep map navigation actions on the existing validated typed path.
+- [x] Mark the current `nt-map-view` inner-RML generation as provisional in permanent docs after the
       refactor.
 
 ### Exit gate
 
-- [ ] The only custom runtime element required by current mature functionality is `nt-active-text`;
+- [x] The only custom runtime element required by current mature functionality is `nt-active-text`;
       `nt-map-view` remains an explicitly provisional exception.
-- [ ] No ordinary data-driven widget is routed through a custom component merely to preserve the old
+- [x] No ordinary data-driven widget is routed through a custom component merely to preserve the old
       binder architecture.
-- [ ] `RuntimeUiComponentRegistry` contains ActiveText and Map only; Text Log is no longer registered.
+- [x] `RuntimeUiComponentRegistry` contains ActiveText and Map only; Text Log is no longer registered.
 
 ## Phase 7 - Remove the document binder and reconcile RuntimeUI ownership
 
@@ -1348,6 +1348,6 @@ This refactor is complete only when all of the following are true:
 | 3. Game HUD ordinary RML cutover | Complete | Built-in Game HUD title/notification, choices, compass exits, Room objects, inventory, interaction controls, group/dock visibility, pointer admission, and shell pause wiring are declarative `noveltea` bindings; the native `data-exit-id` traversal is removed and `RuntimeUiDocumentBinder` is reduced to ActiveText/Map snapshot delivery only. A focused ordinary non-system Layout renders the same gameplay collections, and built-in SDL navigation plus ActiveText integration remain green. Validation passes `noveltea_ui_tests` (633 assertions/61 cases), `noveltea_ui_backend_tests` (1055 assertions/49 cases), `format-check`, full Linux build, Web `cxx-policy`, full Web build, and `git diff --check` (2026-08-08). The Phase 3-5 review on 2026-08-08 reconfirmed this exit gate and commit boundary. |
 | 4. Text Log data-model cutover | Complete | `gameplay.text_log.entries` now supplies ordered sequence/kind/speaker/text plus sanitized `body_rml`; the built-in Text Log authors its list, metadata, rich body, and empty state with `data-for`/`data-if`/`data-rml`; `nt-text-log`, its registry/snapshot/RML helpers, and the Phase 3 direct snapshot-delivery branch are removed while the reduced binder scaffolding for Phase 6 is retained. Focused Text Log integration passes 30 assertions/1 case; `noveltea_ui_tests` passes 636 assertions/61 cases and `noveltea_ui_backend_tests` passes 1068 assertions/48 cases; `format-check`, Linux build, Linux `cxx-policy`, Web configure/build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 818/826; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). The Phase 3-5 review on 2026-08-08 reconfirmed this exit gate and commit boundary. |
 | 5. Save/Load list data-model cutover | Complete | Built-in Save/Load now author checkpoint summary, one shared `shell.save_slots` loop, thumbnail/missing-thumbnail state, Save autosave omission, empty-slot Load omission, and typed Save/Load callbacks declaratively. RuntimeUI retains only content-fingerprinted thumbnail virtual-file preparation and publishes the resulting logical URL; native slot subtree generation is removed. Focused integration proves final autosave/manual visibility, empty Load-action visibility, metadata, and a changed fingerprinted URL after thumbnail bytes change. `noveltea_ui_tests` passes 644 assertions/61 cases and `noveltea_ui_backend_tests` passes 1079 assertions/48 cases; `format-check`, full Linux build, Linux `cxx-policy`, Web configure/build, Web `cxx-policy`, and focused callback validation pass. Full Linux CTest initially passes 817/826 because `noveltea_mandatory_asset_matrix` transiently misses one threaded finalization in addition to the same eight X11-unavailable graphics capture/dependent verifier failures; the mandatory asset matrix passes immediately when rerun in isolation, leaving only the known eight environment-limited graphics tests (2026-08-08). The Phase 3-5 review on 2026-08-08 reconfirmed this exit gate and commit boundary; its full Linux CTest passes 818/826 with the mandatory asset matrix green and only the same eight X11-limited graphics tests failing. |
-| 6. Isolate custom-component path | Not started | - |
+| 6. Isolate custom-component path | Complete | `RuntimeUiDocumentBinder` no longer delivers custom-component snapshots. RuntimeUI now owns focused tag-based delivery: ActiveText updates only the first `nt-active-text` in the active Game HUD and refreshes `ActiveTextPresenter`, while provisional Map updates only the first `nt-map-view` in Game HUD and Text Log system documents and only while a gameplay view exists. Focused lifecycle coverage proves arbitrary mounted component tags are untouched and Map is not reset after gameplay clear. `noveltea_ui_tests` passes 644 assertions/61 cases and `noveltea_ui_backend_tests` passes 1101 assertions/49 cases; `format-check`, full Linux build, Linux `cxx-policy`, full Web build, Web `cxx-policy`, and `git diff --check` pass. Full Linux CTest passes 819/827; the same eight X11-unavailable graphics capture/dependent verifier tests remain environment-limited (2026-08-08). |
 | 7. Remove document binder/reconcile ownership | Not started | - |
 | 8. Documentation, validation, archival | Not started | - |

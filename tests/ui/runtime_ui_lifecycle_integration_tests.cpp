@@ -72,6 +72,16 @@ constexpr const char* kAuthoredGameHudDocument = R"(
 </rml>
 )";
 
+constexpr const char* kCustomComponentScopeDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <nt-active-text id="active"></nt-active-text>
+    <nt-map-view id="map"></nt-map-view>
+  </body>
+</rml>
+)";
+
 constexpr const char* kBinderCharacterizationDocument = R"RML(
 <rml>
   <head></head>
@@ -1432,6 +1442,67 @@ TEST_CASE("RuntimeUI renders Text Log entries declaratively from the NovelTea da
     CHECK(std::none_of(entries.begin(), entries.end(), [](Rml::Element* element) {
         return element->HasAttribute("data-sequence");
     }));
+}
+
+TEST_CASE("RuntimeUI isolates ActiveText and provisional Map updates to supported system roles")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "component-game-hud", kCustomComponentScopeDocument,
+        "project://generated/layouts/component-game-hud.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "component-text-log", kCustomComponentScopeDocument,
+        "project://generated/layouts/component-text-log.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "component-arbitrary", kCustomComponentScopeDocument,
+        "project://generated/layouts/component-arbitrary.rml", true));
+    ui.set_system_layout_documents({{.role = noveltea::core::compiled::SystemLayoutRole::GameHud,
+                                     .document_id = "component-game-hud"},
+                                    {.role = noveltea::core::compiled::SystemLayoutRole::TextLog,
+                                     .document_id = "component-text-log"}});
+
+    const auto map_id = noveltea::core::MapId::create("phase-six-map");
+    const auto room_id = noveltea::core::RoomId::create("room");
+    REQUIRE(map_id);
+    REQUIRE(room_id);
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.can_continue = true;
+    values.view.map =
+        noveltea::core::MapView{.map = map_id.value(),
+                                .mode = noveltea::core::compiled::InitialMapMode::Minimap,
+                                .visible = true,
+                                .current_room = room_id.value(),
+                                .title = "Scoped map"};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* game_active = driver->element("component-game-hud", "active");
+    auto* text_log_active = driver->element("component-text-log", "active");
+    auto* arbitrary_active = driver->element("component-arbitrary", "active");
+    auto* game_map = driver->element("component-game-hud", "map");
+    auto* text_log_map = driver->element("component-text-log", "map");
+    auto* arbitrary_map = driver->element("component-arbitrary", "map");
+    REQUIRE(game_active);
+    REQUIRE(text_log_active);
+    REQUIRE(arbitrary_active);
+    REQUIRE(game_map);
+    REQUIRE(text_log_map);
+    REQUIRE(arbitrary_map);
+
+    CHECK(game_active->HasAttribute("data-awaiting-continue"));
+    CHECK_FALSE(text_log_active->HasAttribute("data-awaiting-continue"));
+    CHECK_FALSE(arbitrary_active->HasAttribute("data-awaiting-continue"));
+    CHECK(game_map->GetInnerRML().find("Scoped map") != std::string::npos);
+    CHECK(text_log_map->GetInnerRML().find("Scoped map") != std::string::npos);
+    CHECK(arbitrary_map->GetInnerRML().empty());
+
+    ui.clear_gameplay_ui_values();
+    CHECK(game_map->GetInnerRML().find("Scoped map") != std::string::npos);
+    CHECK(text_log_map->GetInnerRML().find("Scoped map") != std::string::npos);
 }
 
 TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-specific injection")
