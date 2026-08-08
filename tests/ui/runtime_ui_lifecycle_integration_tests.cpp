@@ -28,6 +28,7 @@
 #include <iterator>
 #include <memory>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -53,8 +54,8 @@ constexpr const char* kDocument = R"(
 constexpr const char* kShellBindingDocument = R"(
 <rml>
   <head></head>
-  <body>
-    <span id="nt-shell-status"></span>
+  <body data-model="noveltea">
+    <span id="nt-shell-status">{{ shell.status }}</span>
   </body>
 </rml>
 )";
@@ -97,11 +98,11 @@ constexpr const char* kBinderCharacterizationDocument = R"(
 constexpr const char* kAuthoredTitleDocument = R"(
 <rml>
   <head></head>
-  <body>
-    <span id="nt-title-project"></span>
-    <span id="nt-title-subtitle"></span>
-    <span id="nt-title-start"></span>
-    <span id="nt-shell-status"></span>
+  <body data-model="noveltea">
+    <span id="project-title">{{ project.title }}</span>
+    <span id="project-subtitle">{{ project.subtitle }}</span>
+    <span id="project-start">{{ project.start_label }}</span>
+    <span id="shell-status">{{ shell.status }}</span>
   </body>
 </rml>
 )";
@@ -224,9 +225,10 @@ public:
         return true;
     }
 
-    [[nodiscard]] bool submit_shell_command(noveltea::core::RuntimeShellCommand) override
+    [[nodiscard]] bool submit_shell_command(noveltea::core::RuntimeShellCommand command) override
     {
         ++shell_commands;
+        last_shell_command = std::move(command);
         return true;
     }
 
@@ -242,6 +244,7 @@ public:
     std::size_t shell_commands = 0;
     std::size_t layout_events = 0;
     std::optional<noveltea::core::RuntimeInputMessage> last_gameplay_input;
+    std::optional<noveltea::core::RuntimeShellCommand> last_shell_command;
     noveltea::core::MountedLayoutOwner last_layout_owner =
         noveltea::core::MountedLayoutOwner::Gameplay;
 };
@@ -701,20 +704,21 @@ TEST_CASE("RuntimeUI input sink rebinding preserves gameplay revision and shell 
     ui.bind_input_sink(&input_sink);
     ui.bind_input_sink(nullptr);
     ui.bind_input_sink(&input_sink);
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
 
     auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(playback_driver);
     auto* shell_status = playback_driver->element("runtime_title", "nt-shell-status");
     REQUIRE(shell_status);
-    shell_status->SetInnerRML("tampered");
+    CHECK(shell_status->GetInnerRML() == "shell-ready");
 
     ui.set_runtime_notification("after-rebind");
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
 
     auto* notification = playback_driver->element("runtime_game", "rt_notification");
     REQUIRE(notification);
     CHECK(playback_driver->element("runtime_game", "rt_mode") == nullptr);
     CHECK(notification->GetInnerRML() == "after-rebind");
-    CHECK(shell_status->GetInnerRML() == "shell-ready");
 
     values.revision = 2;
     values.view.mode = "current";
@@ -741,6 +745,7 @@ TEST_CASE("RuntimeUI built-in settings controls follow loaded project accessibil
         .ui_scale = {.enabled = false, .minimum = 0.8, .maximum = 1.5},
         .text_scale = {.enabled = true, .minimum = 1.1, .maximum = 1.8},
     };
+    view.status = "settings-ready";
     ui.apply_runtime_shell_view(view);
     ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
 
@@ -755,16 +760,64 @@ TEST_CASE("RuntimeUI built-in settings controls follow loaded project accessibil
     auto* text_maximum =
         playback_driver->element("runtime_settings_menu", "nt-settings-text-scale-maximum");
     auto* text_value = playback_driver->element("runtime_settings_menu", "nt-settings-text-scale");
+    auto* shell_status = playback_driver->element("runtime_settings_menu", "nt-shell-status");
     REQUIRE(ui_control);
     REQUIRE(text_control);
     REQUIRE(text_minimum);
     REQUIRE(text_maximum);
     REQUIRE(text_value);
+    REQUIRE(shell_status);
     CHECK_FALSE(ui_control->IsVisible());
     CHECK(text_control->IsVisible());
     CHECK(text_minimum->GetInnerRML() == "1.1");
     CHECK(text_maximum->GetInnerRML() == "1.8");
     CHECK(text_value->GetInnerRML() == "1.4");
+    CHECK(shell_status->GetInnerRML() == "settings-ready");
+}
+
+TEST_CASE("RuntimeUI built-in title and modal render and dispatch through the data model")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_title_document(ui));
+    REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(ui, "runtime_modal",
+                                                                "system:/ui/menu/modal.rml"));
+
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+    ui.bind_title_document("Project <One>", "Subtitle & more", "Begin");
+    noveltea::core::RuntimeShellViewState view;
+    view.status = "shell <ready>";
+    view.confirmation = noveltea::core::RuntimeShellConfirmation{
+        .kind = noveltea::core::RuntimeShellConfirmationKind::Quit,
+        .slot = std::nullopt,
+        .prompt = "Quit <now>?"};
+    ui.apply_runtime_shell_view(std::move(view));
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* project = driver->element("runtime_title", "nt-title-project");
+    auto* subtitle = driver->element("runtime_title", "nt-title-subtitle");
+    auto* start = driver->element("runtime_title", "nt-title-start");
+    auto* title_status = driver->element("runtime_title", "nt-shell-status");
+    auto* prompt = driver->element("runtime_modal", "nt-modal-prompt");
+    REQUIRE(project);
+    REQUIRE(subtitle);
+    REQUIRE(start);
+    REQUIRE(title_status);
+    REQUIRE(prompt);
+    CHECK(project->GetInnerRML() == "Project &lt;One&gt;");
+    CHECK(subtitle->GetInnerRML() == "Subtitle &amp; more");
+    CHECK(start->GetInnerRML() == "Begin");
+    CHECK(title_status->GetInnerRML() == "shell &lt;ready&gt;");
+    CHECK(prompt->GetInnerRML() == "Quit &lt;now&gt;?");
+
+    REQUIRE(start->DispatchEvent("click", Rml::Dictionary{}));
+    REQUIRE(input_sink.last_shell_command);
+    CHECK(std::holds_alternative<noveltea::core::StartGameShellCommand>(
+        *input_sink.last_shell_command));
 }
 
 TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD document")
@@ -1003,7 +1056,7 @@ TEST_CASE("RuntimeUI characterizes binder-produced gameplay presentation before 
     CHECK(driver->element("binder-characterization", "rt_prompt")->GetInnerRML().empty());
 }
 
-TEST_CASE("RuntimeUI binds shell values to active authored system Layout documents")
+TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-specific injection")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     REQUIRE(fixture.initialize());
@@ -1079,19 +1132,20 @@ TEST_CASE("RuntimeUI binds shell values to active authored system Layout documen
         .prompt = "Quit the authored project?"};
     view.status = "authored-shell-ready";
     ui.apply_runtime_shell_view(std::move(view));
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(driver);
-    REQUIRE(driver->element("authored-title", "nt-title-project"));
-    CHECK(driver->element("authored-title", "nt-title-project")->GetInnerRML() ==
-          "Authored Project");
-    CHECK(driver->element("authored-title", "nt-title-subtitle")->GetInnerRML() ==
+    REQUIRE(driver->element("authored-title", "project-title"));
+    CHECK(driver->element("authored-title", "project-title")->GetInnerRML() == "Authored Project");
+    CHECK(driver->element("authored-title", "project-subtitle")->GetInnerRML() ==
           "Authored subtitle");
-    CHECK(driver->element("authored-title", "nt-title-start")->GetInnerRML() == "Begin");
-    CHECK(driver->element("authored-title", "nt-shell-status")->GetInnerRML() ==
+    CHECK(driver->element("authored-title", "project-start")->GetInnerRML() == "Begin");
+    CHECK(driver->element("authored-title", "shell-status")->GetInnerRML() ==
           "authored-shell-ready");
-    CHECK(driver->element("authored-settings", "nt-settings-ui-scale")->GetInnerRML() == "1.25");
-    CHECK(driver->element("authored-settings", "nt-settings-text-scale")->GetInnerRML() == "1.5");
+    CHECK(driver->element("authored-settings", "nt-settings-ui-scale")->GetInnerRML().empty());
+    CHECK(driver->element("authored-settings", "nt-settings-text-scale")->GetInnerRML().empty());
+    CHECK(driver->element("authored-settings", "nt-shell-status")->GetInnerRML().empty());
     const auto checkpoint_summary =
         driver->element("authored-save", "nt-checkpoint-summary")->GetInnerRML();
     CHECK(checkpoint_summary == "Ready to capture · retained 3 · replay distance 2 structural / 1 "
@@ -1112,8 +1166,8 @@ TEST_CASE("RuntimeUI binds shell values to active authored system Layout documen
     const auto empty_slot = load_slots.find("Slot 3");
     REQUIRE(empty_slot != std::string::npos);
     CHECK(load_slots.find("Game.shell.load(3)", empty_slot) == std::string::npos);
-    CHECK(driver->element("authored-modal", "nt-modal-prompt")->GetInnerRML() ==
-          "Quit the authored project?");
+    CHECK(driver->element("authored-modal", "nt-modal-prompt")->GetInnerRML().empty());
+    CHECK(driver->element("authored-modal", "nt-shell-status")->GetInnerRML().empty());
 }
 
 TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter")

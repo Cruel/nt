@@ -3,31 +3,31 @@
     <title>NovelTea Settings</title>
     <link type="text/rcss" href="system|/ui/menu/system-menu.rcss"/>
 </head>
-<body>
+<body data-model="noveltea">
     <main class="nt-shell-root">
         <section class="nt-shell-panel">
             <p class="nt-shell-kicker">Game Menu</p>
             <h1>Settings</h1>
-            <section id="nt-settings-ui-scale-control">
-                <p>UI scale: <span id="nt-settings-ui-scale">1</span></p>
+            <section id="nt-settings-ui-scale-control" data-if="shell.settings.ui_scale.enabled">
+                <p>UI scale: <span id="nt-settings-ui-scale">{{ shell.settings.ui_scale.value }}</span></p>
                 <div class="nt-shell-actions">
-                    <button onclick="Game.shell.set_ui_scale_minimum()">Minimum (<span id="nt-settings-ui-scale-minimum">1</span>)</button>
-                    <button onclick="Game.shell.set_ui_scale_default()">100%</button>
-                    <button onclick="Game.shell.set_ui_scale_maximum()">Maximum (<span id="nt-settings-ui-scale-maximum">1</span>)</button>
+                    <button data-event-click="shell_set_ui_scale(shell.settings.ui_scale.minimum)">Minimum (<span id="nt-settings-ui-scale-minimum">{{ shell.settings.ui_scale.minimum }}</span>)</button>
+                    <button data-event-click="shell_set_ui_scale(shell.settings.ui_scale.default_value)">100%</button>
+                    <button data-event-click="shell_set_ui_scale(shell.settings.ui_scale.maximum)">Maximum (<span id="nt-settings-ui-scale-maximum">{{ shell.settings.ui_scale.maximum }}</span>)</button>
                 </div>
             </section>
-            <section id="nt-settings-text-scale-control">
-                <p>Text scale: <span id="nt-settings-text-scale">1</span></p>
+            <section id="nt-settings-text-scale-control" data-if="shell.settings.text_scale.enabled">
+                <p>Text scale: <span id="nt-settings-text-scale">{{ shell.settings.text_scale.value }}</span></p>
                 <div class="nt-shell-actions">
-                    <button onclick="Game.shell.set_text_scale_minimum()">Minimum (<span id="nt-settings-text-scale-minimum">1</span>)</button>
-                    <button onclick="Game.shell.set_text_scale_default()">100%</button>
-                    <button onclick="Game.shell.set_text_scale_maximum()">Maximum (<span id="nt-settings-text-scale-maximum">1</span>)</button>
+                    <button data-event-click="shell_set_text_scale(shell.settings.text_scale.minimum)">Minimum (<span id="nt-settings-text-scale-minimum">{{ shell.settings.text_scale.minimum }}</span>)</button>
+                    <button data-event-click="shell_set_text_scale(shell.settings.text_scale.default_value)">100%</button>
+                    <button data-event-click="shell_set_text_scale(shell.settings.text_scale.maximum)">Maximum (<span id="nt-settings-text-scale-maximum">{{ shell.settings.text_scale.maximum }}</span>)</button>
                 </div>
             </section>
             <div class="nt-shell-actions">
-                <button onclick="Game.shell.close()">Back</button>
+                <button data-event-click="shell_close()">Back</button>
             </div>
-            <p id="nt-shell-status"></p>
+            <p id="nt-shell-status">{{ shell.status }}</p>
         </section>
     </main>
 </body>

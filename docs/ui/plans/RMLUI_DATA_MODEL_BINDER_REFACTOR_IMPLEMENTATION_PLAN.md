@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Status
 
-Active implementation plan. Phases 0-1 are complete; Phases 2-8 are not started.
+Active implementation plan. Phases 0-2 are complete; Phases 3-8 are not started.
 
 Standalone execution review completed 2026-08-08. The model name, field schema, callback names,
 built-in migration boundaries, custom-component exceptions, lifecycle ordering, phase ownership, and
@@ -788,31 +788,46 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ## Phase 2 - Cut over simple project and shell state
 
+### Implementation findings
+
+- RmlUi data binding is publication-driven rather than an authoritative repair loop for arbitrary
+  direct DOM mutation. During Phase 2 validation, manually replacing a rendered `shell.status`
+  node and then dirtying the model because an unrelated gameplay value changed did not restore the
+  unchanged shell value. The old native binder incidentally did so because it repopulated IDs on
+  each refresh. That side effect is not part of the declarative target contract. Cutover tests must
+  validate source publication -> `Context::Update()` -> rendered value transitions rather than
+  require recovery from unsupported external DOM mutation.
+- Save/Load checkpoint/list generation and Text Log content binding still share
+  `refresh_runtime_shell_documents()` after this phase because those are the explicit Phase 5 and
+  Phase 4 migration owners respectively. Phase 2 removed only title/settings/modal/status scalar
+  mutation and static authored shell event wiring; deleting or renaming the remaining refresh helper
+  now would cross later-phase ownership boundaries.
+
 ### Work
 
-- [ ] Convert built-in Title RML to `data-model="noveltea"` and declarative project title, subtitle,
+- [x] Convert built-in Title RML to `data-model="noveltea"` and declarative project title, subtitle,
       Start label, and shell status values.
-- [ ] Convert Pause shell status to the model.
-- [ ] Convert Settings current/minimum/maximum UI/text scales and enabled visibility to model
+- [x] Convert Pause shell status to the model.
+- [x] Convert Settings current/minimum/maximum UI/text scales and enabled visibility to model
       expressions.
-- [ ] Convert Modal confirmation prompt and shell status to the model.
-- [ ] Convert shared shell status in Save, Load, and Text Log documents to the model.
-- [ ] Replace all ordinary built-in Title/Pause/Settings/Save/Load/Text Log/Modal
+- [x] Convert Modal confirmation prompt and shell status to the model.
+- [x] Convert shared shell status in Save, Load, and Text Log documents to the model.
+- [x] Replace all ordinary built-in Title/Pause/Settings/Save/Load/Text Log/Modal
       `onclick="Game.*"` handlers with the exact `data-event-*` callbacks defined above. Do not
       remove or rename the Lua APIs.
-- [ ] Settings minimum/default/maximum buttons call `shell_set_ui_scale(...)` or
+- [x] Settings minimum/default/maximum buttons call `shell_set_ui_scale(...)` or
       `shell_set_text_scale(...)` with the corresponding projected `minimum`, `default_value`, or
       `maximum`; do not add separate model callbacks for the three presets.
-- [ ] Remove native title/settings/modal/status DOM mutation once all built-in documents use the
+- [x] Remove native title/settings/modal/status DOM mutation once all built-in documents use the
       model.
 
 ### Exit gate
 
-- [ ] Title, Pause, Settings, Modal, Save, Load, and Text Log built-ins display their scalar shell
+- [x] Title, Pause, Settings, Modal, Save, Load, and Text Log built-ins display their scalar shell
       state without native element lookup/population.
-- [ ] Project-authored system replacements can use the same `noveltea` model but receive no hidden
+- [x] Project-authored system replacements can use the same `noveltea` model but receive no hidden
       role-specific DOM injection.
-- [ ] No ordinary shell built-in requires a native `GetElementById()` call for dynamic text,
+- [x] No ordinary shell built-in requires a native `GetElementById()` call for dynamic text,
       visibility, or event wiring after this phase. Save/load list generation remains the explicit
       Phase 5 exception.
 
@@ -1256,7 +1271,7 @@ This refactor is complete only when all of the following are true:
 | --- | --- | --- |
 | 0. Characterize current contract | Complete | Focused gameplay/shell binder characterization, independent typed-action rejection, ActiveText click/direct-render, provisional Map, Text Log, and shipped built-in feature-inventory coverage are green in `noveltea_ui_tests` and `noveltea_ui_backend_tests` (2026-08-08). |
 | 1. Shared RmlUi data-model foundation | Complete | Private `noveltea` projection/model ownership, per-context fail-closed initialization, stable context-local handles, read-only state, shared validated callbacks, seeded-state/update propagation, and two-context headless binding coverage are implemented. `noveltea_ui_tests` (603 assertions/61 cases) and `noveltea_ui_backend_tests` (793 assertions/47 cases) pass; full Linux build passes; full Linux CTest passes 817/825 with the eight remaining failures limited to X11-unavailable graphics capture/dependent readback verification; Web build and Web `cxx-policy` pass (2026-08-08). |
-| 2. Simple project and shell cutover | Not started | - |
+| 2. Simple project and shell cutover | Complete | Title/Pause/Settings/Save/Load/Text Log/Modal built-ins opt into `noveltea` for Phase 2 scalar state and static shell callbacks; native title/settings/modal/status population is removed while Phase 4 Text Log and Phase 5 Save/Load generation remain scoped to their owning phases. Authored system replacement coverage proves model opt-in works without magic-ID injection. `noveltea_ui_tests` passes 627 assertions/61 cases and `noveltea_ui_backend_tests` passes 814 assertions/48 cases; Linux build passes; full Linux CTest has only the existing X11-unavailable capture/dependent-verifier environment failures; `format-check`, Web build, Web `cxx-policy`, and `git diff --check` pass (2026-08-08). |
 | 3. Game HUD ordinary RML cutover | Not started | - |
 | 4. Text Log data-model cutover | Not started | - |
 | 5. Save/Load data-model cutover | Not started | - |

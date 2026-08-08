@@ -3,17 +3,17 @@
     <title>NovelTea Confirmation</title>
     <link type="text/rcss" href="system|/ui/menu/system-menu.rcss"/>
 </head>
-<body>
+<body data-model="noveltea">
     <main class="nt-shell-root">
         <section class="nt-shell-panel">
             <p class="nt-shell-kicker">Confirm</p>
             <h1>Are you sure?</h1>
-            <p id="nt-modal-prompt"></p>
+            <p id="nt-modal-prompt">{{ shell.confirmation.prompt }}</p>
             <div class="nt-shell-actions">
-                <button onclick="Game.shell.confirm()">Confirm</button>
-                <button onclick="Game.shell.cancel()">Cancel</button>
+                <button data-event-click="shell_confirm()">Confirm</button>
+                <button data-event-click="shell_cancel()">Cancel</button>
             </div>
-            <p id="nt-shell-status"></p>
+            <p id="nt-shell-status">{{ shell.status }}</p>
         </section>
     </main>
 </body>

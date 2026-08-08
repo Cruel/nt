@@ -3,21 +3,21 @@
     <title>NovelTea Pause Menu</title>
     <link type="text/rcss" href="system|/ui/menu/pause-menu.rcss"/>
 </head>
-<body>
+<body data-model="noveltea">
     <main id="nt-pause-root">
         <section id="nt-pause-panel">
             <p id="nt-pause-kicker">Paused</p>
             <h1 id="nt-pause-title">Game Menu</h1>
             <nav id="nt-pause-actions">
-                <button id="nt-pause-resume" onclick="Game.shell.resume()">Resume</button>
-                <button id="nt-pause-save" onclick="Game.shell.open_save()">Save</button>
-                <button id="nt-pause-load" onclick="Game.shell.open_load()">Load</button>
-                <button id="nt-pause-text-log" onclick="Game.shell.open_text_log()">Text Log</button>
-                <button id="nt-pause-settings" onclick="Game.shell.open_settings()">Settings</button>
-                <button id="nt-pause-title-screen" onclick="Game.shell.return_to_title()">Title</button>
-                <button id="nt-pause-quit" onclick="Game.shell.quit()">Quit</button>
+                <button id="nt-pause-resume" data-event-click="shell_resume()">Resume</button>
+                <button id="nt-pause-save" data-event-click="shell_open_save()">Save</button>
+                <button id="nt-pause-load" data-event-click="shell_open_load()">Load</button>
+                <button id="nt-pause-text-log" data-event-click="shell_open_text_log()">Text Log</button>
+                <button id="nt-pause-settings" data-event-click="shell_open_settings()">Settings</button>
+                <button id="nt-pause-title-screen" data-event-click="shell_return_to_title()">Title</button>
+                <button id="nt-pause-quit" data-event-click="shell_quit()">Quit</button>
             </nav>
-            <p id="nt-shell-status"></p>
+            <p id="nt-shell-status">{{ shell.status }}</p>
         </section>
     </main>
 </body>

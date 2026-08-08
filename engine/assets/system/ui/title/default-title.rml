@@ -3,19 +3,19 @@
     <title>NovelTea Title</title>
     <link type="text/rcss" href="system|/ui/title/default-title.rcss"/>
 </head>
-<body>
+<body data-model="noveltea">
     <main id="nt-title-root">
         <section id="nt-title-panel">
             <p id="nt-title-kicker">NovelTea</p>
-            <h1 id="nt-title-project">NovelTea</h1>
-            <p id="nt-title-subtitle"></p>
+            <h1 id="nt-title-project">{{ project.title }}</h1>
+            <p id="nt-title-subtitle">{{ project.subtitle }}</p>
             <nav id="nt-title-actions">
-                <button id="nt-title-start" onclick="Game.start()">Start</button>
-                <button id="nt-title-load" onclick="Game.shell.open_load()">Load</button>
-                <button id="nt-title-settings" onclick="Game.shell.open_settings()">Settings</button>
+                <button id="nt-title-start" data-event-click="shell_start()">{{ project.start_label }}</button>
+                <button id="nt-title-load" data-event-click="shell_open_load()">Load</button>
+                <button id="nt-title-settings" data-event-click="shell_open_settings()">Settings</button>
             </nav>
             <p id="nt-title-diagnostic"></p>
-            <p id="nt-shell-status"></p>
+            <p id="nt-shell-status">{{ shell.status }}</p>
         </section>
     </main>
 </body>

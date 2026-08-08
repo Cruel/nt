@@ -93,12 +93,6 @@ void set_shell_element_rml(Rml::ElementDocument& document, const char* id, std::
         element->SetInnerRML(ui::rmlui::escape_rml(value));
 }
 
-void set_shell_control_visible(Rml::ElementDocument& document, const char* id, bool visible)
-{
-    if (auto* element = document.GetElementById(id))
-        element->SetProperty("display", visible ? "block" : "none");
-}
-
 Rml::Element* find_first_tag(Rml::ElementDocument& doc, const char* tag)
 {
     Rml::ElementList elements;
@@ -114,11 +108,6 @@ Rml::Element* find_ancestor_tag(Rml::Element* element, const char* tag)
         }
     }
     return nullptr;
-}
-
-std::string stable_label(std::string value, std::string fallback)
-{
-    return value.empty() ? std::move(fallback) : std::move(value);
 }
 
 std::string_view builtin_document_id(core::compiled::SystemLayoutRole role) noexcept
@@ -192,7 +181,6 @@ struct RuntimeUI::State {
     using ContextKey = ui::rmlui::LifecycleContextKey;
     void refresh_runtime_document();
     void refresh_active_text_layout();
-    void refresh_title_document();
     void load_runtime_document();
     void show_game_document();
     bool dispatch_shell_command(const core::RuntimeShellCommand& command);
@@ -508,43 +496,6 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
     if (!runtime_shell_view || !document_registry)
         return;
 
-    const auto bind_status = [&](core::compiled::SystemLayoutRole role) {
-        if (auto* owner = system_document(role))
-            set_shell_element_rml(*owner, "nt-shell-status", runtime_shell_view->status);
-    };
-    bind_status(core::compiled::SystemLayoutRole::Title);
-    bind_status(core::compiled::SystemLayoutRole::PauseMenu);
-    bind_status(core::compiled::SystemLayoutRole::SaveMenu);
-    bind_status(core::compiled::SystemLayoutRole::LoadMenu);
-    bind_status(core::compiled::SystemLayoutRole::SettingsMenu);
-    bind_status(core::compiled::SystemLayoutRole::TextLog);
-    bind_status(core::compiled::SystemLayoutRole::Modal);
-
-    if (auto* owner = system_document(core::compiled::SystemLayoutRole::SettingsMenu)) {
-        const auto bind_scale = [&](const char* control_id, const char* value_id,
-                                    const char* minimum_id, const char* maximum_id, double value,
-                                    const core::compiled::AccessibilityScalePolicy& policy) {
-            set_shell_control_visible(*owner, control_id, policy.enabled);
-            std::ostringstream current;
-            current << value;
-            set_shell_element_rml(*owner, value_id, current.str());
-            std::ostringstream minimum;
-            minimum << policy.minimum;
-            set_shell_element_rml(*owner, minimum_id, minimum.str());
-            std::ostringstream maximum;
-            maximum << policy.maximum;
-            set_shell_element_rml(*owner, maximum_id, maximum.str());
-        };
-        bind_scale("nt-settings-ui-scale-control", "nt-settings-ui-scale",
-                   "nt-settings-ui-scale-minimum", "nt-settings-ui-scale-maximum",
-                   runtime_shell_view->settings.ui_scale(),
-                   runtime_shell_view->accessibility.ui_scale);
-        bind_scale("nt-settings-text-scale-control", "nt-settings-text-scale",
-                   "nt-settings-text-scale-minimum", "nt-settings-text-scale-maximum",
-                   runtime_shell_view->settings.text_scale(),
-                   runtime_shell_view->accessibility.text_scale);
-    }
-
     const auto checkpoint_summary = [&]() {
         if (!runtime_shell_view->checkpoint)
             return std::string("Checkpoint status unavailable.");
@@ -617,12 +568,6 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
 
     if (auto* owner = system_document(core::compiled::SystemLayoutRole::TextLog); owner && binder)
         binder->bind_document(*owner, runtime_shell_view->status);
-    if (auto* owner = system_document(core::compiled::SystemLayoutRole::Modal)) {
-        set_shell_element_rml(*owner, "nt-modal-prompt",
-                              runtime_shell_view->confirmation
-                                  ? runtime_shell_view->confirmation->prompt
-                                  : std::string_view{});
-    }
 }
 
 void RuntimeUI::State::refresh_runtime_document()
@@ -641,21 +586,6 @@ void RuntimeUI::State::refresh_active_text_layout()
     active_text_presenter->refresh_layout(binder ? binder->view() : nullptr,
                                           doc && host ? active_text_surface(*doc, *host)
                                                       : std::nullopt);
-}
-
-void RuntimeUI::State::refresh_title_document()
-{
-    auto* doc = system_document(core::compiled::SystemLayoutRole::Title);
-    if (!doc)
-        return;
-    if (auto* title = doc->GetElementById("nt-title-project")) {
-        title->SetInnerRML(ui::rmlui::escape_rml(stable_label(title_project, "NovelTea")));
-    }
-    if (auto* subtitle = doc->GetElementById("nt-title-subtitle"))
-        subtitle->SetInnerRML(ui::rmlui::escape_rml(title_subtitle));
-    if (auto* start = doc->GetElementById("nt-title-start")) {
-        start->SetInnerRML(ui::rmlui::escape_rml(stable_label(title_start_label, "Start")));
-    }
 }
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
@@ -1024,7 +954,6 @@ void RuntimeUI::set_system_layout_documents(
         for (const auto& [_, document_id] : m_state->system_layout_documents)
             (void)m_state->document_registry->set_runtime_input(document_id, true);
     }
-    m_state->refresh_title_document();
     m_state->refresh_runtime_document();
     m_state->refresh_runtime_shell_documents();
     m_state->refresh_active_text_layout();
@@ -1048,7 +977,6 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
         policy, composition_group, owner, scale_policy, compatibility_group);
     const bool applied = m_state->document_registry->recreate_in_context(document_id, desired);
     if (applied) {
-        m_state->refresh_title_document();
         m_state->refresh_runtime_document();
         m_state->refresh_runtime_shell_documents();
         m_state->refresh_active_text_layout();
@@ -1126,7 +1054,6 @@ void RuntimeUI::bind_title_document(const std::string& project_title, const std:
     m_state->title_start_label = start_label;
     if (m_state->data_model)
         m_state->data_model->set_project(project_title, subtitle, start_label);
-    m_state->refresh_title_document();
 }
 
 bool ui::rmlui::RuntimeUiFacadeAccess::load_runtime_document(RuntimeUI& runtime_ui)
@@ -1181,7 +1108,6 @@ bool RuntimeUI::reload_documents_and_styles()
     if (!m_state || !m_state->document_registry)
         return false;
     const bool ok = m_state->document_registry->reload_all();
-    m_state->refresh_title_document();
     m_state->refresh_runtime_document();
     m_state->refresh_runtime_shell_documents();
     m_state->refresh_active_text_layout();

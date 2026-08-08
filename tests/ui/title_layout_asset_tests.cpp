@@ -16,23 +16,30 @@ std::string read_source_file(const std::filesystem::path& path)
 
 } // namespace
 
-TEST_CASE("built-in title layout exposes stable Lua activation calls")
+TEST_CASE("built-in title layout uses the NovelTea data model")
 {
     const auto root = std::filesystem::path(NOVELTEA_SOURCE_DIR);
     const auto rml = read_source_file(root / "engine/assets/system/ui/title/default-title.rml");
 
     REQUIRE_FALSE(rml.empty());
     CHECK(rml.find("system|/ui/title/default-title.rcss") != std::string::npos);
-    CHECK(rml.find("id=\"nt-title-project\"") != std::string::npos);
+    CHECK(rml.find("<body data-model=\"noveltea\">") != std::string::npos);
+    CHECK(rml.find("id=\"nt-title-project\">{{ project.title }}") != std::string::npos);
+    CHECK(rml.find("id=\"nt-title-subtitle\">{{ project.subtitle }}") != std::string::npos);
     CHECK(rml.find("id=\"nt-title-diagnostic\"") != std::string::npos);
-    CHECK(rml.find("id=\"nt-title-start\" onclick=\"Game.start()\"") != std::string::npos);
-    CHECK(rml.find("id=\"nt-title-load\" onclick=\"Game.shell.open_load()\"") != std::string::npos);
-    CHECK(rml.find("id=\"nt-title-settings\" onclick=\"Game.shell.open_settings()\"") !=
+    CHECK(rml.find("id=\"nt-title-start\" data-event-click=\"shell_start()\"") !=
           std::string::npos);
+    CHECK(rml.find("{{ project.start_label }}") != std::string::npos);
+    CHECK(rml.find("id=\"nt-title-load\" data-event-click=\"shell_open_load()\"") !=
+          std::string::npos);
+    CHECK(rml.find("id=\"nt-title-settings\" data-event-click=\"shell_open_settings()\"") !=
+          std::string::npos);
+    CHECK(rml.find("id=\"nt-shell-status\">{{ shell.status }}") != std::string::npos);
+    CHECK(rml.find("onclick=\"Game.") == std::string::npos);
     CHECK(rml.find("nt-command") == std::string::npos);
 }
 
-TEST_CASE("built-in system menu assets use typed shell capabilities")
+TEST_CASE("built-in system menu assets use NovelTea data-model callbacks")
 {
     const auto root = std::filesystem::path(NOVELTEA_SOURCE_DIR);
     const auto menu_root = root / "engine/assets/system/ui/menu";
@@ -43,9 +50,11 @@ TEST_CASE("built-in system menu assets use typed shell capabilities")
         const auto rml = read_source_file(menu_root / document);
         INFO(document);
         REQUIRE_FALSE(rml.empty());
+        CHECK(rml.find("<body data-model=\"noveltea\">") != std::string::npos);
         CHECK(rml.find("Game.command") == std::string::npos);
         CHECK(rml.find("nt-command") == std::string::npos);
-        CHECK(rml.find("Game.shell.") != std::string::npos);
+        CHECK(rml.find("onclick=\"Game.shell.") == std::string::npos);
+        CHECK(rml.find("id=\"nt-shell-status\">{{ shell.status }}") != std::string::npos);
     }
 
     const auto save = read_source_file(menu_root / "save-menu.rml");
@@ -57,11 +66,26 @@ TEST_CASE("built-in system menu assets use typed shell capabilities")
     const auto settings = read_source_file(menu_root / "settings-menu.rml");
     CHECK(settings.find("id=\"nt-settings-ui-scale-control\"") != std::string::npos);
     CHECK(settings.find("id=\"nt-settings-text-scale-control\"") != std::string::npos);
-    CHECK(settings.find("Game.shell.set_ui_scale_minimum()") != std::string::npos);
-    CHECK(settings.find("Game.shell.set_ui_scale_maximum()") != std::string::npos);
-    CHECK(settings.find("Game.shell.set_text_scale_minimum()") != std::string::npos);
-    CHECK(settings.find("Game.shell.set_text_scale_maximum()") != std::string::npos);
+    CHECK(settings.find("data-if=\"shell.settings.ui_scale.enabled\"") != std::string::npos);
+    CHECK(settings.find("data-if=\"shell.settings.text_scale.enabled\"") != std::string::npos);
+    CHECK(settings.find("shell_set_ui_scale(shell.settings.ui_scale.minimum)") !=
+          std::string::npos);
+    CHECK(settings.find("shell_set_ui_scale(shell.settings.ui_scale.default_value)") !=
+          std::string::npos);
+    CHECK(settings.find("shell_set_ui_scale(shell.settings.ui_scale.maximum)") !=
+          std::string::npos);
+    CHECK(settings.find("shell_set_text_scale(shell.settings.text_scale.minimum)") !=
+          std::string::npos);
+    CHECK(settings.find("shell_set_text_scale(shell.settings.text_scale.default_value)") !=
+          std::string::npos);
+    CHECK(settings.find("shell_set_text_scale(shell.settings.text_scale.maximum)") !=
+          std::string::npos);
     CHECK(settings.find("set_text_scale(0.9)") == std::string::npos);
+
+    const auto modal = read_source_file(menu_root / "modal.rml");
+    CHECK(modal.find("{{ shell.confirmation.prompt }}") != std::string::npos);
+    CHECK(modal.find("data-event-click=\"shell_confirm()\"") != std::string::npos);
+    CHECK(modal.find("data-event-click=\"shell_cancel()\"") != std::string::npos);
 }
 
 TEST_CASE("built-in game HUD is a transparent functional overlay")
