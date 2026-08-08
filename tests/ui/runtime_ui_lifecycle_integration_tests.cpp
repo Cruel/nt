@@ -69,6 +69,30 @@ constexpr const char* kAuthoredGameHudDocument = R"(
 </rml>
 )";
 
+constexpr const char* kBinderCharacterizationDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <span id="rt_mode"></span>
+    <span id="rt_title"></span>
+    <span id="rt_notification"></span>
+    <div id="rt_prompt"></div>
+    <div id="rt_options"></div>
+    <div id="rt_text_panel"></div>
+    <div id="rt_actors"></div>
+    <div id="rt_navigation">
+      <button id="rt_nav_north"></button>
+      <button id="rt_nav_south"></button>
+    </div>
+    <div id="rt_interaction_dock">
+      <div id="rt_objects_group"><div id="rt_objects"></div></div>
+      <div id="rt_inventory_group"><div id="rt_inventory"></div></div>
+      <div id="rt_actions_group"><div id="rt_actions"></div></div>
+    </div>
+  </body>
+</rml>
+)";
+
 constexpr const char* kAuthoredTitleDocument = R"(
 <rml>
   <head></head>
@@ -97,6 +121,17 @@ constexpr const char* kAuthoredSettingsDocument = R"(
 )";
 
 constexpr const char* kAuthoredSaveDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <span id="nt-shell-status"></span>
+    <span id="nt-checkpoint-summary"></span>
+    <div id="nt-save-slots"></div>
+  </body>
+</rml>
+)";
+
+constexpr const char* kAuthoredLoadDocument = R"(
 <rml>
   <head></head>
   <body>
@@ -542,6 +577,200 @@ TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD docum
     CHECK(background->GetInnerRML().find("sentinel") != std::string::npos);
 }
 
+TEST_CASE("RuntimeUI characterizes binder-produced gameplay presentation before data-model cutover")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "binder-characterization", kBinderCharacterizationDocument,
+        "preview://binder-characterization.rml", true));
+    ui.set_system_layout_documents({{.role = noveltea::core::compiled::SystemLayoutRole::GameHud,
+                                     .document_id = "binder-characterization"}});
+
+    const auto scene = noveltea::core::SceneId::create("scene");
+    const auto scene_step = noveltea::core::SceneStepId::create("step");
+    const auto scene_choice = noveltea::core::SceneChoiceOptionId::create("scene-enabled");
+    const auto scene_choice_disabled =
+        noveltea::core::SceneChoiceOptionId::create("scene-disabled");
+    const auto character = noveltea::core::CharacterId::create("alice");
+    const auto pose = noveltea::core::CharacterPoseId::create("idle");
+    const auto expression = noveltea::core::CharacterExpressionId::create("smile");
+    const auto room = noveltea::core::RoomId::create("room");
+    const auto target = noveltea::core::RoomId::create("target");
+    const auto north = noveltea::core::RoomExitId::create("north");
+    const auto south = noveltea::core::RoomExitId::create("south-disabled");
+    const auto placement = noveltea::core::RoomPlacementId::create("placement");
+    const auto interactable = noveltea::core::InteractableId::create("key");
+    const auto hidden_interactable = noveltea::core::InteractableId::create("hidden-key");
+    const auto verb = noveltea::core::VerbId::create("inspect");
+    const auto disabled_verb = noveltea::core::VerbId::create("use");
+    const auto map = noveltea::core::MapId::create("map");
+    REQUIRE(scene);
+    REQUIRE(scene_step);
+    REQUIRE(scene_choice);
+    REQUIRE(scene_choice_disabled);
+    REQUIRE(character);
+    REQUIRE(pose);
+    REQUIRE(expression);
+    REQUIRE(room);
+    REQUIRE(target);
+    REQUIRE(north);
+    REQUIRE(south);
+    REQUIRE(placement);
+    REQUIRE(interactable);
+    REQUIRE(hidden_interactable);
+    REQUIRE(verb);
+    REQUIRE(disabled_verb);
+    REQUIRE(map);
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "scene";
+    values.view.can_continue = true;
+    values.view.scene = noveltea::core::SceneView{
+        .scene = scene.value(),
+        .actors = {{.key = noveltea::core::CharacterActorKey{character.value()},
+                    .character = character.value(),
+                    .pose = pose.value(),
+                    .expression = expression.value(),
+                    .visible = true,
+                    .presentation_complete = true}},
+        .choice = noveltea::core::SceneChoiceState{
+            .scene = scene.value(),
+            .step = scene_step.value(),
+            .options = {
+                {.option = scene_choice.value(), .label = "Open <door>", .enabled = true},
+                {.option = scene_choice_disabled.value(), .label = "Locked", .enabled = false}}}};
+    values.view.room = noveltea::core::RoomView{
+        .room = room.value(),
+        .description = "Room body",
+        .description_markup = noveltea::core::TextMarkup::Plain,
+        .placements = {{.placement = placement.value(),
+                        .label = "Brass <Key>",
+                        .occupants = {{.subject =
+                                           noveltea::core::compiled::InteractableInteractionSubject{
+                                               interactable.value()},
+                                       .enabled = true,
+                                       .visible = true},
+                                      {.subject =
+                                           noveltea::core::compiled::InteractableInteractionSubject{
+                                               hidden_interactable.value()},
+                                       .enabled = true,
+                                       .visible = false}}}},
+        .exits = {{north.value(), target.value(),
+                   noveltea::core::compiled::RoomExitDirection::North, "North Hall", true},
+                  {south.value(), target.value(),
+                   noveltea::core::compiled::RoomExitDirection::South, "Blocked South", false}},
+        .controls = {{verb.value(), "Inspect", 1, false, true},
+                     {disabled_verb.value(), "Use", 1, false, false}}};
+    values.view.inventory.items = {
+        {.interactable = interactable.value(),
+         .display_name = "Inventory Key",
+         .presentation = {.hotspots = noveltea::core::compiled::CustomInteractableHotspots{}},
+         .enabled = true,
+         .visible = true},
+        {.interactable = hidden_interactable.value(),
+         .display_name = "Hidden",
+         .presentation = {.hotspots = noveltea::core::compiled::CustomInteractableHotspots{}},
+         .enabled = true,
+         .visible = false}};
+    values.view.selected_subjects = {
+        noveltea::core::compiled::InteractableInteractionSubject{interactable.value()}};
+    values.view.interaction = noveltea::core::InteractionView{
+        .verb = verb.value(), .notification = "Interaction fallback"};
+    values.view.map =
+        noveltea::core::MapView{.map = map.value(),
+                                .mode = noveltea::core::compiled::InitialMapMode::Minimap,
+                                .visible = true,
+                                .title = "Map <Title>"};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("binder-characterization");
+    REQUIRE(document);
+    REQUIRE(document->GetContext());
+    document->GetContext()->Update();
+    CHECK(driver->element("binder-characterization", "rt_mode")->GetInnerRML() == "scene");
+    CHECK(driver->element("binder-characterization", "rt_title")->GetInnerRML() ==
+          "Map &lt;Title&gt;");
+    CHECK(driver->element("binder-characterization", "rt_notification")->GetInnerRML() ==
+          "Interaction fallback");
+    CHECK(driver->element("binder-characterization", "rt_prompt")->GetInnerRML().find("Continue") !=
+          std::string::npos);
+    const auto options = driver->element("binder-characterization", "rt_options")->GetInnerRML();
+    CHECK(options.find("Open &lt;door&gt;") != std::string::npos);
+    CHECK(options.find("scene-enabled") != std::string::npos);
+    CHECK(options.find("scene-disabled") != std::string::npos);
+    CHECK(options.find("disabled") != std::string::npos);
+    CHECK(driver->element("binder-characterization", "rt_text_panel")
+              ->GetComputedValues()
+              .pointer_events() == Rml::Style::PointerEvents::Auto);
+    const auto actors = driver->element("binder-characterization", "rt_actors")->GetInnerRML();
+    CHECK(actors.find("data-character-id=\"alice\"") != std::string::npos);
+    CHECK(actors.find("data-slot-id=\"alice\"") != std::string::npos);
+    CHECK(actors.find("data-presentation-complete=\"true\"") != std::string::npos);
+
+    auto* north_button = driver->element("binder-characterization", "rt_nav_north");
+    auto* south_button = driver->element("binder-characterization", "rt_nav_south");
+    REQUIRE(north_button);
+    REQUIRE(south_button);
+    CHECK(north_button->IsVisible());
+    CHECK(north_button->GetAttribute<Rml::String>("data-exit-id", "") == "north");
+    CHECK(north_button->GetInnerRML().find("North Hall") != std::string::npos);
+    CHECK_FALSE(south_button->IsVisible());
+    CHECK_FALSE(south_button->HasAttribute("data-exit-id"));
+    CHECK(driver->element("binder-characterization", "rt_navigation")->IsVisible());
+
+    const auto objects = driver->element("binder-characterization", "rt_objects")->GetInnerRML();
+    CHECK(objects.find("Brass &lt;Key&gt;") != std::string::npos);
+    CHECK(objects.find("hidden-key") == std::string::npos);
+    CHECK(objects.find("selected") != std::string::npos);
+    const auto inventory =
+        driver->element("binder-characterization", "rt_inventory")->GetInnerRML();
+    CHECK(inventory.find("Inventory Key") != std::string::npos);
+    CHECK(inventory.find("Hidden") == std::string::npos);
+    CHECK(inventory.find("selected") != std::string::npos);
+    const auto actions = driver->element("binder-characterization", "rt_actions")->GetInnerRML();
+    CHECK(actions.find("Clear selection") != std::string::npos);
+    CHECK(actions.find("Inspect") != std::string::npos);
+    CHECK(actions.find("Use") != std::string::npos);
+    CHECK(actions.find("disabled") != std::string::npos);
+    CHECK(driver->element("binder-characterization", "rt_objects_group")->IsVisible());
+    CHECK(driver->element("binder-characterization", "rt_inventory_group")->IsVisible());
+    CHECK(driver->element("binder-characterization", "rt_actions_group")->IsVisible());
+    CHECK(driver->element("binder-characterization", "rt_interaction_dock")->IsVisible());
+
+    ui.set_runtime_notification("Output notification");
+    CHECK(driver->element("binder-characterization", "rt_notification")->GetInnerRML() ==
+          "Output notification");
+
+    values.revision = 2;
+    values.view.scene.reset();
+    const auto dialogue = noveltea::core::DialogueId::create("dialogue");
+    const auto block = noveltea::core::DialogueBlockId::create("block");
+    const auto edge = noveltea::core::DialogueEdgeId::create("edge");
+    REQUIRE(dialogue);
+    REQUIRE(block);
+    REQUIRE(edge);
+    values.view.dialogue = noveltea::core::DialogueView{
+        .dialogue = dialogue.value(),
+        .choice = noveltea::core::DialogueChoiceState{
+            .dialogue = dialogue.value(),
+            .block = block.value(),
+            .options = {{.edge = edge.value(), .label = "Dialogue choice", .enabled = true}}}};
+    values.view.can_continue = false;
+    values.view.room->description.clear();
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    document->GetContext()->Update();
+    const auto dialogue_options =
+        driver->element("binder-characterization", "rt_options")->GetInnerRML();
+    CHECK(dialogue_options.find("Dialogue choice") != std::string::npos);
+    CHECK(dialogue_options.find("choose_dialogue") != std::string::npos);
+    CHECK(driver->element("binder-characterization", "rt_prompt")->GetInnerRML().empty());
+}
+
 TEST_CASE("RuntimeUI binds shell values to active authored system Layout documents")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
@@ -557,6 +786,9 @@ TEST_CASE("RuntimeUI binds shell values to active authored system Layout documen
         ui, "authored-save", kAuthoredSaveDocument, "project://generated/layouts/authored-save.rml",
         true));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "authored-load", kAuthoredLoadDocument, "project://generated/layouts/authored-load.rml",
+        true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
         ui, "authored-modal", kAuthoredModalDocument,
         "project://generated/layouts/authored-modal.rml", true));
     ui.set_system_layout_documents(
@@ -566,6 +798,8 @@ TEST_CASE("RuntimeUI binds shell values to active authored system Layout documen
           .document_id = "authored-settings"},
          {.role = noveltea::core::compiled::SystemLayoutRole::SaveMenu,
           .document_id = "authored-save"},
+         {.role = noveltea::core::compiled::SystemLayoutRole::LoadMenu,
+          .document_id = "authored-load"},
          {.role = noveltea::core::compiled::SystemLayoutRole::Modal,
           .document_id = "authored-modal"}});
 
@@ -578,7 +812,35 @@ TEST_CASE("RuntimeUI binds shell values to active authored system Layout documen
         .ui_scale = {.enabled = true, .minimum = 0.75, .maximum = 1.5},
         .text_scale = {.enabled = true, .minimum = 1.0, .maximum = 2.0},
     };
-    view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::manual(2), .occupied = true});
+    view.checkpoint = noveltea::core::CheckpointRuntimeObservation{
+        .readiness = {noveltea::core::CheckpointReadinessRevision::from_number(8), {}},
+        .presentation = {noveltea::core::CheckpointStatusRevision::from_number(4),
+                         {},
+                         std::nullopt},
+        .retained_revision = noveltea::core::SaveCheckpointRevision::from_number(3),
+        .replay_distance = {2, 1, std::chrono::milliseconds{350}},
+        .thumbnail_available = true,
+        .thumbnail_capture_pending = false};
+    const auto metadata = noveltea::core::SaveCheckpointMetadata{
+        .save_format_version = 7,
+        .project = noveltea::core::ProjectId::create("project").value(),
+        .project_version = "9C",
+        .play_time = std::chrono::milliseconds{3210},
+        .generations = {}};
+    const auto thumbnail = noveltea::core::SaveCheckpointThumbnail{
+        .encoding = noveltea::core::SaveCheckpointThumbnailEncoding::Png,
+        .width = 2,
+        .height = 2,
+        .bytes = "\x89PNG\r\n\x1a\ncharacterization"};
+    view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::autosave(),
+                          .occupied = true,
+                          .metadata = metadata,
+                          .thumbnail = thumbnail});
+    view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::manual(2),
+                          .occupied = true,
+                          .metadata = metadata,
+                          .thumbnail = thumbnail});
+    view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::manual(3), .occupied = false});
     view.confirmation = noveltea::core::RuntimeShellConfirmation{
         .kind = noveltea::core::RuntimeShellConfirmationKind::Quit,
         .slot = std::nullopt,
@@ -598,8 +860,26 @@ TEST_CASE("RuntimeUI binds shell values to active authored system Layout documen
           "authored-shell-ready");
     CHECK(driver->element("authored-settings", "nt-settings-ui-scale")->GetInnerRML() == "1.25");
     CHECK(driver->element("authored-settings", "nt-settings-text-scale")->GetInnerRML() == "1.5");
-    CHECK(driver->element("authored-save", "nt-save-slots")->GetInnerRML().find("Slot 2") !=
-          std::string::npos);
+    const auto checkpoint_summary =
+        driver->element("authored-save", "nt-checkpoint-summary")->GetInnerRML();
+    CHECK(checkpoint_summary == "Ready to capture · retained 3 · replay distance 2 structural / 1 "
+                                "time / 350 ms · thumbnail available");
+    const auto save_slots = driver->element("authored-save", "nt-save-slots")->GetInnerRML();
+    CHECK(save_slots.find("Autosave") == std::string::npos);
+    CHECK(save_slots.find("Slot 2") != std::string::npos);
+    CHECK(save_slots.find("Play time 3210 ms · version 9C") != std::string::npos);
+    CHECK(save_slots.find("nt-save-thumbnail") != std::string::npos);
+    CHECK(save_slots.find("project|/generated/shell/slot-2-thumbnail-") != std::string::npos);
+    CHECK(save_slots.find("Game.shell.save(2)") != std::string::npos);
+    CHECK(save_slots.find("Slot 3") != std::string::npos);
+    CHECK(save_slots.find("No thumbnail") != std::string::npos);
+    const auto load_slots = driver->element("authored-load", "nt-save-slots")->GetInnerRML();
+    CHECK(load_slots.find("Autosave") != std::string::npos);
+    CHECK(load_slots.find("Game.shell.load_autosave()") != std::string::npos);
+    CHECK(load_slots.find("Game.shell.load(2)") != std::string::npos);
+    const auto empty_slot = load_slots.find("Slot 3");
+    REQUIRE(empty_slot != std::string::npos);
+    CHECK(load_slots.find("Game.shell.load(3)", empty_slot) == std::string::npos);
     CHECK(driver->element("authored-modal", "nt-modal-prompt")->GetInnerRML() ==
           "Quit the authored project?");
 }
@@ -610,12 +890,15 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
     REQUIRE(fixture.initialize());
     auto& ui = fixture.runtime_ui();
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
 
     const auto room = noveltea::core::RoomId::create("room");
     REQUIRE(room);
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 1;
     values.view.mode = "room";
+    values.view.can_continue = true;
     values.view.room =
         noveltea::core::RoomView{.room = *room.value_if(),
                                  .description = "Presenter-owned ActiveText",
@@ -628,6 +911,12 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
     CHECK(ui.active_text_render_snapshot().visible_text == "Presenter-owned ActiveText");
     CHECK(ui.active_text_presentation_phase() ==
           noveltea::core::ActiveTextPresentationPhase::Stable);
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    const auto click = driver->click({.document_id = "runtime_game", .selector = "#rt_body"});
+    CHECK(click.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    CHECK(click.dispatched);
 
     values.revision = 2;
     values.view = {};

@@ -179,3 +179,143 @@ TEST_CASE("RuntimeUiBinder Lua API dispatches exact hotspot activation")
     binder.set_lua_state(nullptr);
     lua_close(state);
 }
+
+TEST_CASE("RuntimeUiBinder rejects stale hidden and disabled typed gameplay actions independent of "
+          "DOM markup")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::RuntimeUiBinder binder(diagnostics);
+    RecordingRuntimeUiInputSink sink;
+    binder.bind_input_sink(&sink);
+    binder.bind_layout_gameplay_admission([]() { return true; });
+
+    const auto scene = noveltea::core::SceneId::create("scene");
+    const auto step = noveltea::core::SceneStepId::create("step");
+    const auto scene_enabled = noveltea::core::SceneChoiceOptionId::create("scene-enabled");
+    const auto scene_disabled = noveltea::core::SceneChoiceOptionId::create("scene-disabled");
+    const auto dialogue = noveltea::core::DialogueId::create("dialogue");
+    const auto block = noveltea::core::DialogueBlockId::create("block");
+    const auto dialogue_enabled = noveltea::core::DialogueEdgeId::create("dialogue-enabled");
+    const auto dialogue_disabled = noveltea::core::DialogueEdgeId::create("dialogue-disabled");
+    const auto room = noveltea::core::RoomId::create("room");
+    const auto target = noveltea::core::RoomId::create("target");
+    const auto exit_enabled = noveltea::core::RoomExitId::create("exit-enabled");
+    const auto exit_disabled = noveltea::core::RoomExitId::create("exit-disabled");
+    const auto placement = noveltea::core::RoomPlacementId::create("placement");
+    const auto interactable = noveltea::core::InteractableId::create("key");
+    const auto hidden_interactable = noveltea::core::InteractableId::create("hidden-key");
+    const auto character = noveltea::core::CharacterId::create("alice");
+    const auto disabled_character = noveltea::core::CharacterId::create("bob");
+    const auto verb_enabled = noveltea::core::VerbId::create("inspect");
+    const auto verb_disabled = noveltea::core::VerbId::create("use");
+    REQUIRE(scene);
+    REQUIRE(step);
+    REQUIRE(scene_enabled);
+    REQUIRE(scene_disabled);
+    REQUIRE(dialogue);
+    REQUIRE(block);
+    REQUIRE(dialogue_enabled);
+    REQUIRE(dialogue_disabled);
+    REQUIRE(room);
+    REQUIRE(target);
+    REQUIRE(exit_enabled);
+    REQUIRE(exit_disabled);
+    REQUIRE(placement);
+    REQUIRE(interactable);
+    REQUIRE(hidden_interactable);
+    REQUIRE(character);
+    REQUIRE(disabled_character);
+    REQUIRE(verb_enabled);
+    REQUIRE(verb_disabled);
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.scene =
+        noveltea::core::SceneView{.scene = scene.value(),
+                                  .choice = noveltea::core::SceneChoiceState{
+                                      .scene = scene.value(),
+                                      .step = step.value(),
+                                      .options = {{scene_enabled.value(), "Enabled", true},
+                                                  {scene_disabled.value(), "Disabled", false}}}};
+    values.view.dialogue = noveltea::core::DialogueView{
+        .dialogue = dialogue.value(),
+        .choice = noveltea::core::DialogueChoiceState{
+            .dialogue = dialogue.value(),
+            .block = block.value(),
+            .options = {{dialogue_enabled.value(), "Enabled", true},
+                        {dialogue_disabled.value(), "Disabled", false}}}};
+    values.view.room = noveltea::core::RoomView{
+        .room = room.value(),
+        .placements = {{.placement = placement.value(),
+                        .occupants = {{.subject =
+                                           noveltea::core::compiled::InteractableInteractionSubject{
+                                               interactable.value()},
+                                       .enabled = true,
+                                       .visible = true},
+                                      {.subject =
+                                           noveltea::core::compiled::InteractableInteractionSubject{
+                                               hidden_interactable.value()},
+                                       .enabled = true,
+                                       .visible = false},
+                                      {.subject =
+                                           noveltea::core::compiled::CharacterInteractionSubject{
+                                               character.value()},
+                                       .enabled = true,
+                                       .visible = true},
+                                      {.subject =
+                                           noveltea::core::compiled::CharacterInteractionSubject{
+                                               disabled_character.value()},
+                                       .enabled = false,
+                                       .visible = true}}}},
+        .exits = {{exit_enabled.value(), target.value(),
+                   noveltea::core::compiled::RoomExitDirection::North, "Enabled", true},
+                  {exit_disabled.value(), target.value(),
+                   noveltea::core::compiled::RoomExitDirection::South, "Disabled", false}},
+        .controls = {{verb_enabled.value(), "Inspect", 1, false, true},
+                     {verb_disabled.value(), "Use", 1, false, false}}};
+    REQUIRE(binder.apply(values));
+
+    lua_State* state = luaL_newstate();
+    REQUIRE(state != nullptr);
+    luaL_openlibs(state);
+    binder.set_lua_state(state);
+
+    const auto expect_rejected = [&](const char* script, std::string_view code) {
+        const auto before = sink.gameplay_inputs;
+        REQUIRE(luaL_dostring(state, script) == LUA_OK);
+        CHECK(sink.gameplay_inputs == before);
+        REQUIRE_FALSE(diagnostics.empty());
+        CHECK(diagnostics.back().code == code);
+    };
+
+    expect_rejected("assert(not Game.ui.choose_scene('scene-disabled'))",
+                    "runtime_ui.invalid_scene_choice");
+    expect_rejected("assert(not Game.ui.choose_scene('scene-stale'))",
+                    "runtime_ui.invalid_scene_choice");
+    expect_rejected("assert(not Game.ui.choose_dialogue('dialogue-disabled'))",
+                    "runtime_ui.invalid_dialogue_choice");
+    expect_rejected("assert(not Game.ui.navigate_room('exit-disabled'))",
+                    "runtime_ui.invalid_room_exit");
+    expect_rejected("assert(not Game.ui.toggle_interactable('hidden-key'))",
+                    "runtime_ui.invalid_interactable");
+    expect_rejected("assert(not Game.ui.toggle_character('bob'))", "runtime_ui.invalid_character");
+    expect_rejected("assert(not Game.ui.invoke_interaction('use'))",
+                    "runtime_ui.invalid_interaction");
+
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.choose_scene('scene-enabled'))") == LUA_OK);
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.choose_dialogue('dialogue-enabled'))") == LUA_OK);
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.navigate_room('exit-enabled'))") == LUA_OK);
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.toggle_interactable('key'))") == LUA_OK);
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.toggle_character('alice'))") == LUA_OK);
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.invoke_interaction('inspect'))") == LUA_OK);
+    CHECK(sink.gameplay_inputs == 6);
+
+    values.revision = 2;
+    values.view.scene->choice.reset();
+    REQUIRE(binder.apply(values));
+    expect_rejected("assert(not Game.ui.choose_scene('scene-enabled'))",
+                    "runtime_ui.invalid_scene_choice");
+
+    binder.set_lua_state(nullptr);
+    lua_close(state);
+}

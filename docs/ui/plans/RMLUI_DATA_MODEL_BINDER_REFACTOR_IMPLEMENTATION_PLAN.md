@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Status
 
-Active implementation plan. No implementation phases are complete yet.
+Active implementation plan. Phase 0 is complete; Phases 1-8 are not started.
 
 Standalone execution review completed 2026-08-08. The model name, field schema, callback names,
 built-in migration boundaries, custom-component exceptions, lifecycle ordering, phase ownership, and
@@ -678,32 +678,32 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ### Work
 
-- [ ] Add focused tests that capture current user-visible behavior for every binder-produced value
+- [x] Add focused tests that capture current user-visible behavior for every binder-produced value
       or control that will be cut over.
-- [ ] Cover Game HUD title/notification, Scene choices, Dialogue choices, Room exits, Room objects,
+- [x] Cover Game HUD title/notification, Scene choices, Dialogue choices, Room exits, Room objects,
       inventory, actions, selection, and group visibility using the current built-in where those
       controls exist.
-- [ ] Cover binder-supported but not currently built-in slots (`rt_mode`, `rt_prompt`, `rt_actors`)
+- [x] Cover binder-supported but not currently built-in slots (`rt_mode`, `rt_prompt`, `rt_actors`)
       in focused binder fixtures only. These tests characterize the state semantics being moved into
       the model; they must not cause those controls to be added to the built-in Game HUD later.
-- [ ] Cover title project/subtitle/start labels.
-- [ ] Cover shell status, settings scale values/visibility, checkpoint state, save/load slots,
+- [x] Cover title project/subtitle/start labels.
+- [x] Cover shell status, settings scale values/visibility, checkpoint state, save/load slots,
       thumbnail presence, and modal prompt.
-- [ ] Cover typed stale/disabled action rejection independently from generated binder markup so later
+- [x] Cover typed stale/disabled action rejection independently from generated binder markup so later
       RML changes cannot accidentally weaken validation.
-- [ ] Characterize `nt-active-text` direct-render surface and native click behavior separately from
+- [x] Characterize `nt-active-text` direct-render surface and native click behavior separately from
       ordinary document binding.
-- [ ] Characterize current `nt-map-view` behavior separately and mark it provisional.
-- [ ] Characterize Text Log entry ordering, speaker text, kind/sequence metadata, rich-text output,
+- [x] Characterize current `nt-map-view` behavior separately and mark it provisional.
+- [x] Characterize Text Log entry ordering, speaker text, kind/sequence metadata, rich-text output,
       and empty state before replacing `nt-text-log`.
 
 ### Exit gate
 
-- [ ] Every behavior removed from native DOM mutation has a pre-cutover regression assertion or an
+- [x] Every behavior removed from native DOM mutation has a pre-cutover regression assertion or an
       explicitly documented intentional contract change.
-- [ ] Tests do not require preserving obsolete magic IDs after the cutover; they assert behavior,
+- [x] Tests do not require preserving obsolete magic IDs after the cutover; they assert behavior,
       typed action admission, or current built-in presentation.
-- [ ] The characterization records which controls are actually present in the shipped built-ins so a
+- [x] The characterization records which controls are actually present in the shipped built-ins so a
       later phase cannot accidentally add a visible feature while translating a binder capability.
 
 ## Phase 1 - Add the shared RmlUi data-model foundation
@@ -1223,7 +1223,7 @@ This refactor is complete only when all of the following are true:
 
 | Phase | Status | Completion evidence |
 | --- | --- | --- |
-| 0. Characterize current contract | Not started | - |
+| 0. Characterize current contract | Complete | Focused gameplay/shell binder characterization, independent typed-action rejection, ActiveText click/direct-render, provisional Map, Text Log, and shipped built-in feature-inventory coverage are green in `noveltea_ui_tests` and `noveltea_ui_backend_tests` (2026-08-08). |
 | 1. Shared RmlUi data-model foundation | Not started | - |
 | 2. Simple project and shell cutover | Not started | - |
 | 3. Game HUD ordinary RML cutover | Not started | - |

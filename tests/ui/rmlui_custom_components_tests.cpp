@@ -97,6 +97,28 @@ TEST_CASE("RmlUi typed Map snapshot preserves strong IDs and typed selection tar
     CHECK(rml.find("nt-map-view__room--focused") != std::string::npos);
 }
 
+TEST_CASE("RmlUi provisional Map component preserves current placeholder and generated navigation "
+          "contract")
+{
+    TypedRuntimeUIViewState empty;
+    CHECK(map_view_rml(make_map_view_snapshot(empty)) ==
+          "<p class=\"nt-map-view__placeholder\">Map unavailable</p>");
+
+    const auto map_id = MapId::create("map");
+    const auto room = RoomId::create("room");
+    REQUIRE(map_id);
+    REQUIRE(room);
+    TypedRuntimeUIViewState state;
+    state.map = MapView{.map = map_id.value(),
+                        .mode = compiled::InitialMapMode::Minimap,
+                        .visible = false,
+                        .current_room = room.value(),
+                        .title = "Provisional map"};
+    const auto rml = map_view_rml(make_map_view_snapshot(state));
+    CHECK(rml.find("nt-map-view__root--hidden") != std::string::npos);
+    CHECK(rml.find("Provisional map") != std::string::npos);
+}
+
 TEST_CASE("RmlUi typed text log escapes metadata and rich text")
 {
     TypedRuntimeUIViewState state;
@@ -109,6 +131,46 @@ TEST_CASE("RmlUi typed text log escapes metadata and rich text")
     CHECK(rml.find("data-sequence=\"0\"") != std::string::npos);
     CHECK(rml.find("&lt;") != std::string::npos);
     CHECK(rml.find("nt-active-text__run--bold") != std::string::npos);
+}
+
+TEST_CASE("RmlUi Text Log characterization preserves order speaker kind sequence rich text and "
+          "empty state")
+{
+    const auto speaker = CharacterId::create("alice");
+    REQUIRE(speaker);
+    TypedRuntimeUIViewState state;
+    state.text_log.entries = {TextLogEntry{.kind = TextLogEntryKind::Line,
+                                           .origin = SystemTextLogOrigin{},
+                                           .speaker = speaker.value(),
+                                           .text = "[b]First[/b]",
+                                           .markup = TextMarkup::ActiveText},
+                              TextLogEntry{.kind = TextLogEntryKind::Choice,
+                                           .origin = SystemTextLogOrigin{},
+                                           .text = "Second",
+                                           .markup = TextMarkup::Plain},
+                              TextLogEntry{.kind = TextLogEntryKind::Notification,
+                                           .origin = SystemTextLogOrigin{},
+                                           .text = "Third",
+                                           .markup = TextMarkup::Plain}};
+
+    const auto snapshot = make_text_log_snapshot(state);
+    const auto rml = text_log_rml(snapshot);
+    const auto first = rml.find("data-sequence=\"0\"");
+    const auto second = rml.find("data-sequence=\"1\"");
+    const auto third = rml.find("data-sequence=\"2\"");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(second != std::string::npos);
+    REQUIRE(third != std::string::npos);
+    CHECK(first < second);
+    CHECK(second < third);
+    CHECK(rml.find("data-kind=\"0\"") != std::string::npos);
+    CHECK(rml.find("data-kind=\"1\"") != std::string::npos);
+    CHECK(rml.find("data-kind=\"2\"") != std::string::npos);
+    CHECK(rml.find("nt-text-log__speaker\">alice") != std::string::npos);
+    CHECK(rml.find("nt-active-text__run--bold") != std::string::npos);
+    state.text_log.entries.clear();
+    CHECK(text_log_rml(make_text_log_snapshot(state)) ==
+          "<p class=\"nt-text-log__empty\">No log entries</p>");
 }
 
 TEST_CASE("ActiveText typed snapshot remains data-only for direct rendering")
