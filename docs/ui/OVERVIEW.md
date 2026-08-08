@@ -6,6 +6,10 @@ Use this entrypoint before changing RmlUi runtime UI behavior, authored layouts,
 
 ## Current Documents
 
+- `docs/ui/plans/RMLUI_DATA_MODEL_BINDER_REFACTOR_IMPLEMENTATION_PLAN.md` is the active plan to
+  replace role-scoped/native DOM population with a shared RmlUi `noveltea` data model, retain
+  ActiveText as a specialized custom element, keep Map on a minimal provisional component path, and
+  move Text Log and ordinary runtime controls to authored data-driven RML.
 - `docs/ui/BUILT_IN_LAYOUT_AUDIT.md` records the built-in system Layout audit, the completed game-HUD
   replacement, asset URL rules, and the remaining menu redesign units.
 - `docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` is the authoritative role-by-role reference for system
