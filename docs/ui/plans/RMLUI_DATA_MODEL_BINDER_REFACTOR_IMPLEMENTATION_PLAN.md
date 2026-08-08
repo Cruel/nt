@@ -6,6 +6,19 @@ Date: 2026-08-08
 
 Active implementation plan. Phases 0-2 are complete; Phases 3-8 are not started.
 
+Phase 0-2 review completed 2026-08-08. The review found one Phase 1 callback-adapter defect:
+malformed Save/Load slot-number arguments could be coerced by RmlUi to numeric zero before reaching
+the typed gateway. Slot arguments now require an explicit numeric, finite, non-negative integral
+value in the current manual-slot range, and focused integration coverage compares every model
+callback with its equivalent retained Lua helper while proving malformed slot arguments dispatch no
+typed shell command. No Phase 3-or-later work was pulled forward.
+
+Review validation passes the focused UI suites (`noveltea_ui_tests`: 627 assertions/61 cases;
+`noveltea_ui_backend_tests`: 1048 assertions/49 cases), full Linux build, Linux `cxx-policy`,
+`format-check`, Web build, Web `cxx-policy`, and the prescribed sanitizer build plus sanitizer CTest
+matrix (810/810). Full Linux CTest passes 819/827; the same eight graphics capture/dependent verifier
+tests remain environment-limited by unavailable X11. Final `git diff --check` also passes.
+
 Standalone execution review completed 2026-08-08. The model name, field schema, callback names,
 built-in migration boundaries, custom-component exceptions, lifecycle ordering, phase ownership, and
 exit gates below are intentionally explicit so implementation agents do not need the originating
@@ -1270,7 +1283,7 @@ This refactor is complete only when all of the following are true:
 | Phase | Status | Completion evidence |
 | --- | --- | --- |
 | 0. Characterize current contract | Complete | Focused gameplay/shell binder characterization, independent typed-action rejection, ActiveText click/direct-render, provisional Map, Text Log, and shipped built-in feature-inventory coverage are green in `noveltea_ui_tests` and `noveltea_ui_backend_tests` (2026-08-08). |
-| 1. Shared RmlUi data-model foundation | Complete | Private `noveltea` projection/model ownership, per-context fail-closed initialization, stable context-local handles, read-only state, shared validated callbacks, seeded-state/update propagation, and two-context headless binding coverage are implemented. `noveltea_ui_tests` (603 assertions/61 cases) and `noveltea_ui_backend_tests` (793 assertions/47 cases) pass; full Linux build passes; full Linux CTest passes 817/825 with the eight remaining failures limited to X11-unavailable graphics capture/dependent readback verification; Web build and Web `cxx-policy` pass (2026-08-08). |
+| 1. Shared RmlUi data-model foundation | Complete | Private `noveltea` projection/model ownership, per-context fail-closed initialization, stable context-local handles, read-only state, shared validated callbacks, seeded-state/update propagation, and two-context headless binding coverage are implemented. The 2026-08-08 review corrected malformed Save/Load slot arguments being coercible to slot `0` and added exact model-callback/Lua-helper parity coverage for every Phase 1 callback plus no-dispatch malformed-slot regressions. Review validation passes `noveltea_ui_tests` (627 assertions/61 cases), `noveltea_ui_backend_tests` (1048 assertions/49 cases), full Linux build, Linux/Web `cxx-policy`, `format-check`, Web build, and sanitizer build/CTest (810/810); full Linux CTest passes 819/827 with the same eight X11-unavailable capture/dependent readback failures. |
 | 2. Simple project and shell cutover | Complete | Title/Pause/Settings/Save/Load/Text Log/Modal built-ins opt into `noveltea` for Phase 2 scalar state and static shell callbacks; native title/settings/modal/status population is removed while Phase 4 Text Log and Phase 5 Save/Load generation remain scoped to their owning phases. Authored system replacement coverage proves model opt-in works without magic-ID injection. `noveltea_ui_tests` passes 627 assertions/61 cases and `noveltea_ui_backend_tests` passes 814 assertions/48 cases; Linux build passes; full Linux CTest has only the existing X11-unavailable capture/dependent-verifier environment failures; `format-check`, Web build, Web `cxx-policy`, and `git diff --check` pass (2026-08-08). |
 | 3. Game HUD ordinary RML cutover | Not started | - |
 | 4. Text Log data-model cutover | Not started | - |

@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
+#include <limits>
 #include <sstream>
 #include <string_view>
 #include <type_traits>
@@ -116,6 +118,35 @@ bool id_matches_selected(const std::vector<core::compiled::InteractionSubject>& 
 template<class T> T event_arg(const Rml::VariantList& arguments, std::size_t index, T fallback = {})
 {
     return index < arguments.size() ? arguments[index].Get<T>() : std::move(fallback);
+}
+
+std::uint64_t event_slot_number_arg(const Rml::VariantList& arguments, std::size_t index)
+{
+    constexpr auto invalid = std::numeric_limits<std::uint64_t>::max();
+    if (index >= arguments.size())
+        return invalid;
+
+    const auto type = arguments[index].GetType();
+    switch (type) {
+    case Rml::Variant::BYTE:
+    case Rml::Variant::CHAR:
+    case Rml::Variant::FLOAT:
+    case Rml::Variant::DOUBLE:
+    case Rml::Variant::INT:
+    case Rml::Variant::INT64:
+    case Rml::Variant::UINT:
+    case Rml::Variant::UINT64:
+        break;
+    default:
+        return invalid;
+    }
+
+    double value = 0.0;
+    if (!arguments[index].GetInto(value) || !std::isfinite(value) || value < 0.0 ||
+        std::trunc(value) != value ||
+        value > static_cast<double>(std::numeric_limits<std::uint32_t>::max()))
+        return invalid;
+    return static_cast<std::uint64_t>(value);
 }
 
 struct ChoiceProjection {
@@ -582,15 +613,15 @@ struct RuntimeUiDataModel::Impl {
                                     return gateway.dispatch_shell_command(
                                         core::RuntimeShellCommand{core::RequestQuitShellCommand{}});
                                 }));
-        ok &= c.BindEventCallback("shell_save_slot", callback([this](const auto& args) {
-                                      return gateway.action_save_slot(
-                                          event_arg<std::uint64_t>(args, 0));
-                                  }));
-        ok &= c.BindEventCallback("shell_load_slot", callback([this](const auto& args) {
-                                      return gateway.action_load_slot(
-                                          event_arg<std::string>(args, 0),
-                                          event_arg<std::uint64_t>(args, 1));
-                                  }));
+        ok &=
+            c.BindEventCallback("shell_save_slot", callback([this](const auto& args) {
+                                    return gateway.action_save_slot(event_slot_number_arg(args, 0));
+                                }));
+        ok &=
+            c.BindEventCallback("shell_load_slot", callback([this](const auto& args) {
+                                    return gateway.action_load_slot(event_arg<std::string>(args, 0),
+                                                                    event_slot_number_arg(args, 1));
+                                }));
         ok &= c.BindEventCallback(
             "shell_set_ui_scale", callback([this](const auto& args) {
                 return gateway.dispatch_shell_command(core::RuntimeShellCommand{

@@ -18,6 +18,7 @@
 #include <SDL3/SDL_mouse.h>
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <lua.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -212,6 +213,46 @@ constexpr const char* kDataModelDocument = R"RML(
       <button id="choose" data-event-click="ui_choose('scene', 'choice-enabled')">Choose</button>
       <button id="assign" data-event-click="project.title = 'Mutated'">Assign</button>
     </section>
+  </body>
+</rml>
+)RML";
+
+constexpr const char* kDataModelCallbackDocument = R"RML(
+<rml>
+  <head></head>
+  <body data-model="noveltea">
+    <button id="ui-continue" data-event-click="ui_continue()">Continue</button>
+    <button id="ui-choose-scene" data-event-click="ui_choose('scene', 'scene-enabled')">Scene</button>
+    <button id="ui-choose-dialogue" data-event-click="ui_choose('dialogue', 'dialogue-enabled')">Dialogue</button>
+    <button id="ui-navigate-room" data-event-click="ui_navigate_room('exit-enabled')">Navigate</button>
+    <button id="ui-toggle-interactable" data-event-click="ui_toggle_subject('interactable', 'key')">Interactable</button>
+    <button id="ui-toggle-character" data-event-click="ui_toggle_subject('character', 'alice')">Character</button>
+    <button id="ui-clear-selection" data-event-click="ui_clear_selection()">Clear</button>
+    <button id="ui-invoke-interaction" data-event-click="ui_invoke_interaction('inspect')">Invoke</button>
+
+    <button id="shell-start" data-event-click="shell_start()">Start</button>
+    <button id="shell-pause" data-event-click="shell_pause()">Pause</button>
+    <button id="shell-resume" data-event-click="shell_resume()">Resume</button>
+    <button id="shell-open-settings" data-event-click="shell_open_settings()">Settings</button>
+    <button id="shell-open-save" data-event-click="shell_open_save()">Save menu</button>
+    <button id="shell-open-load" data-event-click="shell_open_load()">Load menu</button>
+    <button id="shell-open-text-log" data-event-click="shell_open_text_log()">Text log</button>
+    <button id="shell-open-debug" data-event-click="shell_open_debug()">Debug</button>
+    <button id="shell-close" data-event-click="shell_close()">Close</button>
+    <button id="shell-return-to-title" data-event-click="shell_return_to_title()">Title</button>
+    <button id="shell-quit" data-event-click="shell_quit()">Quit</button>
+    <button id="shell-save-slot" data-event-click="shell_save_slot(7)">Save slot</button>
+    <button id="shell-load-manual" data-event-click="shell_load_slot('manual', 8)">Load slot</button>
+    <button id="shell-load-autosave" data-event-click="shell_load_slot('autosave', 0)">Autosave</button>
+    <button id="shell-set-ui-scale" data-event-click="shell_set_ui_scale(1.25)">UI scale</button>
+    <button id="shell-set-text-scale" data-event-click="shell_set_text_scale(1.5)">Text scale</button>
+    <button id="shell-confirm" data-event-click="shell_confirm()">Confirm</button>
+    <button id="shell-cancel" data-event-click="shell_cancel()">Cancel</button>
+
+    <button id="shell-save-missing" data-event-click="shell_save_slot()">Bad save</button>
+    <button id="shell-save-invalid-type" data-event-click="shell_save_slot('bad')">Bad save type</button>
+    <button id="shell-load-missing-number" data-event-click="shell_load_slot('autosave')">Bad load</button>
+    <button id="shell-load-invalid-kind" data-event-click="shell_load_slot('unknown', 0)">Bad load kind</button>
   </body>
 </rml>
 )RML";
@@ -509,6 +550,150 @@ TEST_CASE("RuntimeUI noveltea data model binds seeded state across authored life
     REQUIRE(driver->element("model-secondary", "binding-probe"));
     CHECK_FALSE(driver->element("model-primary", "binding-probe")->IsVisible());
     CHECK_FALSE(driver->element("model-secondary", "binding-probe")->IsVisible());
+}
+
+TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and reject malformed "
+          "slot arguments")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    auto& ui = fixture.runtime_ui();
+    RecordingRuntimeUiInputSink input_sink;
+    REQUIRE(fixture.initialize());
+    ui.bind_input_sink(&input_sink);
+
+    const auto scene = noveltea::core::SceneId::create("scene");
+    const auto step = noveltea::core::SceneStepId::create("step");
+    const auto scene_choice = noveltea::core::SceneChoiceOptionId::create("scene-enabled");
+    const auto dialogue = noveltea::core::DialogueId::create("dialogue");
+    const auto block = noveltea::core::DialogueBlockId::create("block");
+    const auto dialogue_choice = noveltea::core::DialogueEdgeId::create("dialogue-enabled");
+    const auto room = noveltea::core::RoomId::create("room");
+    const auto target = noveltea::core::RoomId::create("target");
+    const auto exit = noveltea::core::RoomExitId::create("exit-enabled");
+    const auto placement = noveltea::core::RoomPlacementId::create("placement");
+    const auto interactable = noveltea::core::InteractableId::create("key");
+    const auto character = noveltea::core::CharacterId::create("alice");
+    const auto verb = noveltea::core::VerbId::create("inspect");
+    REQUIRE(scene);
+    REQUIRE(step);
+    REQUIRE(scene_choice);
+    REQUIRE(dialogue);
+    REQUIRE(block);
+    REQUIRE(dialogue_choice);
+    REQUIRE(room);
+    REQUIRE(target);
+    REQUIRE(exit);
+    REQUIRE(placement);
+    REQUIRE(interactable);
+    REQUIRE(character);
+    REQUIRE(verb);
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.can_continue = true;
+    values.view.scene =
+        noveltea::core::SceneView{.scene = scene.value(),
+                                  .choice = noveltea::core::SceneChoiceState{
+                                      .scene = scene.value(),
+                                      .step = step.value(),
+                                      .options = {{scene_choice.value(), "Scene", true}}}};
+    values.view.dialogue =
+        noveltea::core::DialogueView{.dialogue = dialogue.value(),
+                                     .choice = noveltea::core::DialogueChoiceState{
+                                         .dialogue = dialogue.value(),
+                                         .block = block.value(),
+                                         .options = {{dialogue_choice.value(), "Dialogue", true}}}};
+    values.view.room = noveltea::core::RoomView{
+        .room = room.value(),
+        .placements = {{.placement = placement.value(),
+                        .occupants = {{.subject =
+                                           noveltea::core::compiled::InteractableInteractionSubject{
+                                               interactable.value()},
+                                       .enabled = true,
+                                       .visible = true},
+                                      {.subject =
+                                           noveltea::core::compiled::CharacterInteractionSubject{
+                                               character.value()},
+                                       .enabled = true,
+                                       .visible = true}}}},
+        .exits = {{exit.value(), target.value(), noveltea::core::compiled::RoomExitDirection::North,
+                   "North", true}},
+        .controls = {{verb.value(), "Inspect", 1, false, true}}};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "model-callbacks", kDataModelCallbackDocument, "preview://model-callbacks.rml", true));
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    const auto dispatch = [&](const char* id) {
+        auto* button = driver->element("model-callbacks", id);
+        REQUIRE(button);
+        REQUIRE(button->DispatchEvent("click", Rml::Dictionary{}));
+    };
+    const auto expect_gameplay_parity = [&](const char* id, const char* lua_script) {
+        const auto before = input_sink.gameplay_inputs;
+        input_sink.last_gameplay_input.reset();
+        dispatch(id);
+        CHECK(input_sink.gameplay_inputs == before + 1);
+        REQUIRE(input_sink.last_gameplay_input);
+        const auto model_input = *input_sink.last_gameplay_input;
+        input_sink.last_gameplay_input.reset();
+        REQUIRE(luaL_dostring(fixture.lua_state(), lua_script) == LUA_OK);
+        CHECK(input_sink.gameplay_inputs == before + 2);
+        REQUIRE(input_sink.last_gameplay_input);
+        CHECK(*input_sink.last_gameplay_input == model_input);
+    };
+    const auto expect_shell_parity = [&](const char* id, const char* lua_script) {
+        const auto before = input_sink.shell_commands;
+        input_sink.last_shell_command.reset();
+        dispatch(id);
+        CHECK(input_sink.shell_commands == before + 1);
+        REQUIRE(input_sink.last_shell_command);
+        const auto model_command = *input_sink.last_shell_command;
+        input_sink.last_shell_command.reset();
+        REQUIRE(luaL_dostring(fixture.lua_state(), lua_script) == LUA_OK);
+        CHECK(input_sink.shell_commands == before + 2);
+        REQUIRE(input_sink.last_shell_command);
+        CHECK(*input_sink.last_shell_command == model_command);
+    };
+
+    expect_gameplay_parity("ui-continue", "assert(Game.ui.continue())");
+    expect_gameplay_parity("ui-choose-scene", "assert(Game.ui.choose_scene('scene-enabled'))");
+    expect_gameplay_parity("ui-choose-dialogue",
+                           "assert(Game.ui.choose_dialogue('dialogue-enabled'))");
+    expect_gameplay_parity("ui-navigate-room", "assert(Game.ui.navigate_room('exit-enabled'))");
+    expect_gameplay_parity("ui-toggle-interactable", "assert(Game.ui.toggle_interactable('key'))");
+    expect_gameplay_parity("ui-toggle-character", "assert(Game.ui.toggle_character('alice'))");
+    expect_gameplay_parity("ui-clear-selection", "assert(Game.ui.clear_selection())");
+    expect_gameplay_parity("ui-invoke-interaction",
+                           "assert(Game.ui.invoke_interaction('inspect'))");
+
+    expect_shell_parity("shell-start", "assert(Game.start())");
+    expect_shell_parity("shell-pause", "assert(Game.shell.pause())");
+    expect_shell_parity("shell-resume", "assert(Game.shell.resume())");
+    expect_shell_parity("shell-open-settings", "assert(Game.shell.open_settings())");
+    expect_shell_parity("shell-open-save", "assert(Game.shell.open_save())");
+    expect_shell_parity("shell-open-load", "assert(Game.shell.open_load())");
+    expect_shell_parity("shell-open-text-log", "assert(Game.shell.open_text_log())");
+    expect_shell_parity("shell-open-debug", "assert(Game.shell.open_debug())");
+    expect_shell_parity("shell-close", "assert(Game.shell.close())");
+    expect_shell_parity("shell-return-to-title", "assert(Game.shell.return_to_title())");
+    expect_shell_parity("shell-quit", "assert(Game.shell.quit())");
+    expect_shell_parity("shell-save-slot", "assert(Game.shell.save(7))");
+    expect_shell_parity("shell-load-manual", "assert(Game.shell.load(8))");
+    expect_shell_parity("shell-load-autosave", "assert(Game.shell.load_autosave())");
+    expect_shell_parity("shell-set-ui-scale", "assert(Game.shell.set_ui_scale(1.25))");
+    expect_shell_parity("shell-set-text-scale", "assert(Game.shell.set_text_scale(1.5))");
+    expect_shell_parity("shell-confirm", "assert(Game.shell.confirm())");
+    expect_shell_parity("shell-cancel", "assert(Game.shell.cancel())");
+
+    const auto shell_commands_before_invalid = input_sink.shell_commands;
+    dispatch("shell-save-missing");
+    dispatch("shell-save-invalid-type");
+    dispatch("shell-load-missing-number");
+    dispatch("shell-load-invalid-kind");
+    CHECK(input_sink.shell_commands == shell_commands_before_invalid);
 }
 
 TEST_CASE("RmlUiHost fails primary context creation when required context initialization fails")
