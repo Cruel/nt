@@ -1,6 +1,7 @@
 #include "ui/rmlui/runtime_ui_binder.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -152,37 +153,26 @@ bool RuntimeUiBinder::invalid(std::string code, std::string message)
     return false;
 }
 
-void RuntimeUiBinder::install_lua_api()
+bool RuntimeUiBinder::require_view()
 {
-    if (!m_lua_state || !m_input_sink)
-        return;
+    return view() != nullptr ||
+           invalid("runtime_ui.view_unavailable", "Typed runtime view is unavailable");
+}
 
-    sol::state_view lua(m_lua_state);
-    sol::table game;
-    const sol::object existing = lua["Game"];
-    if (existing.valid() && existing.get_type() == sol::type::table)
-        game = existing.as<sol::table>();
-    else {
-        game = lua.create_table();
-        lua["Game"] = game;
-    }
-    sol::table ui = lua.create_table();
+bool RuntimeUiBinder::action_continue()
+{
+    if (!require_view())
+        return false;
+    if (!view()->can_continue)
+        return invalid("runtime_ui.continue_unavailable", "Continue is not currently enabled");
+    return dispatch_layout_input(core::RuntimeInputMessage{core::ContinueInput{}});
+}
 
-    auto require_view = [this]() {
-        return view() != nullptr ||
-               invalid("runtime_ui.view_unavailable", "Typed runtime view is unavailable");
-    };
-
-    ui.set_function("continue", [this, require_view]() {
-        if (!require_view())
-            return false;
-        if (!view()->can_continue)
-            return invalid("runtime_ui.continue_unavailable", "Continue is not currently enabled");
-        return dispatch_layout_input(core::RuntimeInputMessage{core::ContinueInput{}});
-    });
-    ui.set_function("choose_scene", [this, require_view](std::string text) {
-        if (!require_view())
-            return false;
+bool RuntimeUiBinder::action_choose(std::string kind, std::string text)
+{
+    if (!require_view())
+        return false;
+    if (kind == "scene") {
         auto id = core::SceneChoiceOptionId::create(std::move(text));
         if (!id) {
             core::append_diagnostics(m_diagnostics, id.error());
@@ -200,10 +190,8 @@ void RuntimeUiBinder::install_lua_api()
                            "Scene choice is stale, unknown, or disabled");
         return dispatch_layout_input(
             core::RuntimeInputMessage{core::SelectSceneChoiceInput{*id.value_if()}});
-    });
-    ui.set_function("choose_dialogue", [this, require_view](std::string text) {
-        if (!require_view())
-            return false;
+    }
+    if (kind == "dialogue") {
         auto id = core::DialogueEdgeId::create(std::move(text));
         if (!id) {
             core::append_diagnostics(m_diagnostics, id.error());
@@ -221,26 +209,177 @@ void RuntimeUiBinder::install_lua_api()
                            "Dialogue choice is stale, unknown, or disabled");
         return dispatch_layout_input(
             core::RuntimeInputMessage{core::SelectDialogueChoiceInput{*id.value_if()}});
-    });
-    ui.set_function("navigate_room", [this, require_view](std::string text) {
-        if (!require_view())
-            return false;
-        auto id = core::RoomExitId::create(std::move(text));
+    }
+    return invalid("runtime_ui.invalid_choice_kind", "Choice kind must be scene or dialogue");
+}
+
+bool RuntimeUiBinder::action_navigate_room(std::string text)
+{
+    if (!require_view())
+        return false;
+    auto id = core::RoomExitId::create(std::move(text));
+    if (!id) {
+        core::append_diagnostics(m_diagnostics, id.error());
+        return false;
+    }
+    const auto* room = view()->room ? &*view()->room : nullptr;
+    const bool enabled =
+        room && std::any_of(room->exits.begin(), room->exits.end(), [&](const auto& exit) {
+            return exit.exit == *id.value_if() && exit.enabled;
+        });
+    if (!enabled)
+        return invalid("runtime_ui.invalid_room_exit", "Room exit is stale, unknown, or disabled");
+    return dispatch_layout_input(
+        core::RuntimeInputMessage{core::NavigateRoomInput{*id.value_if()}});
+}
+
+bool RuntimeUiBinder::action_toggle_subject(std::string kind, std::string text)
+{
+    if (!require_view())
+        return false;
+    std::optional<core::compiled::InteractionSubject> subject;
+    bool available = false;
+    if (kind == "interactable") {
+        auto id = core::InteractableId::create(std::move(text));
         if (!id) {
             core::append_diagnostics(m_diagnostics, id.error());
             return false;
         }
-        const auto* room = view()->room ? &*view()->room : nullptr;
-        const bool enabled =
-            room && std::any_of(room->exits.begin(), room->exits.end(), [&](const auto& exit) {
-                return exit.exit == *id.value_if() && exit.enabled;
+        subject = core::compiled::InteractableInteractionSubject{*id.value_if()};
+        const auto available_in_room =
+            view()->room &&
+            std::any_of(view()->room->placements.begin(), view()->room->placements.end(),
+                        [&](const auto& placement) {
+                            return std::any_of(placement.occupants.begin(),
+                                               placement.occupants.end(),
+                                               [&](const auto& occupant) {
+                                                   return occupant.subject == *subject &&
+                                                          occupant.visible && occupant.enabled;
+                                               });
+                        });
+        const auto available_in_inventory = std::any_of(
+            view()->inventory.items.begin(), view()->inventory.items.end(), [&](const auto& item) {
+                return item.interactable == *id.value_if() && item.visible && item.enabled;
             });
-        if (!enabled)
-            return invalid("runtime_ui.invalid_room_exit",
-                           "Room exit is stale, unknown, or disabled");
-        return dispatch_layout_input(
-            core::RuntimeInputMessage{core::NavigateRoomInput{*id.value_if()}});
+        available = available_in_room || available_in_inventory;
+        if (!available)
+            return invalid("runtime_ui.invalid_interactable",
+                           "Interactable is stale, unknown, hidden, or disabled");
+    } else if (kind == "character") {
+        auto id = core::CharacterId::create(std::move(text));
+        if (!id) {
+            core::append_diagnostics(m_diagnostics, id.error());
+            return false;
+        }
+        subject = core::compiled::CharacterInteractionSubject{*id.value_if()};
+        available = view()->room &&
+                    std::any_of(view()->room->placements.begin(), view()->room->placements.end(),
+                                [&](const auto& placement) {
+                                    return std::any_of(placement.occupants.begin(),
+                                                       placement.occupants.end(),
+                                                       [&](const auto& occupant) {
+                                                           return occupant.subject == *subject &&
+                                                                  occupant.visible &&
+                                                                  occupant.enabled;
+                                                       });
+                                });
+        if (!available)
+            return invalid("runtime_ui.invalid_character",
+                           "Character is stale, unknown, hidden, or disabled");
+    } else {
+        return invalid("runtime_ui.invalid_subject_kind",
+                       "Interaction subject kind must be character or interactable");
+    }
+    auto selection = view()->selected_subjects;
+    const auto selected = std::find(selection.begin(), selection.end(), *subject);
+    if (selected == selection.end())
+        selection.push_back(*subject);
+    else
+        selection.erase(selected);
+    return dispatch_layout_input(
+        core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{std::move(selection)}});
+}
+
+bool RuntimeUiBinder::action_clear_selection()
+{
+    return dispatch_layout_input(
+        core::RuntimeInputMessage{core::ClearInteractionSubjectSelectionInput{}});
+}
+
+bool RuntimeUiBinder::action_invoke_interaction(std::string text)
+{
+    if (!require_view())
+        return false;
+    auto id = core::VerbId::create(std::move(text));
+    if (!id) {
+        core::append_diagnostics(m_diagnostics, id.error());
+        return false;
+    }
+    const auto* controls = view()->room ? &view()->room->controls : &view()->inventory.controls;
+    const auto found = std::find_if(controls->begin(), controls->end(), [&](const auto& control) {
+        return control.verb == *id.value_if();
     });
+    if (found == controls->end() || !found->enabled)
+        return invalid("runtime_ui.invalid_interaction",
+                       "Interaction verb is stale, unknown, or disabled");
+    return dispatch_layout_input(
+        core::RuntimeInputMessage{core::InvokeInteractionInput{*id.value_if(), {}}});
+}
+
+bool RuntimeUiBinder::action_save_slot(std::uint64_t number)
+{
+    if (number > std::numeric_limits<std::uint32_t>::max())
+        return invalid("runtime_ui.invalid_save_slot",
+                       "Save slot number must be a valid manual slot");
+    return dispatch_shell_command(core::RuntimeShellCommand{core::SaveShellSlotCommand{
+        core::TypedSaveSlotId::manual(static_cast<std::uint32_t>(number))}});
+}
+
+bool RuntimeUiBinder::action_load_slot(std::string kind, std::uint64_t number)
+{
+    if (kind == "autosave") {
+        if (number != 0)
+            return invalid("runtime_ui.invalid_load_slot", "Autosave slot number must be zero");
+        return dispatch_shell_command(core::RuntimeShellCommand{
+            core::RequestLoadShellSlotCommand{core::TypedSaveSlotId::autosave()}});
+    }
+    if (kind == "manual") {
+        if (number > std::numeric_limits<std::uint32_t>::max())
+            return invalid("runtime_ui.invalid_load_slot",
+                           "Load slot number must be a valid manual slot");
+        return dispatch_shell_command(core::RuntimeShellCommand{core::RequestLoadShellSlotCommand{
+            core::TypedSaveSlotId::manual(static_cast<std::uint32_t>(number))}});
+    }
+    return invalid("runtime_ui.invalid_load_slot_kind",
+                   "Load slot kind must be autosave or manual");
+}
+
+void RuntimeUiBinder::install_lua_api()
+{
+    if (!m_lua_state || !m_input_sink)
+        return;
+
+    sol::state_view lua(m_lua_state);
+    sol::table game;
+    const sol::object existing = lua["Game"];
+    if (existing.valid() && existing.get_type() == sol::type::table)
+        game = existing.as<sol::table>();
+    else {
+        game = lua.create_table();
+        lua["Game"] = game;
+    }
+    sol::table ui = lua.create_table();
+
+    ui.set_function("continue", [this]() { return action_continue(); });
+    ui.set_function("choose_scene",
+                    [this](std::string text) { return action_choose("scene", std::move(text)); });
+    ui.set_function("choose_dialogue", [this](std::string text) {
+        return action_choose("dialogue", std::move(text));
+    });
+    ui.set_function("navigate_room",
+                    [this](std::string text) { return action_navigate_room(std::move(text)); });
+
+    auto require_view = [this]() { return this->require_view(); };
     ui.set_function("navigate_map_connection", [this, require_view](std::string text) {
         if (!require_view())
             return false;
@@ -264,101 +403,15 @@ void RuntimeUiBinder::install_lua_api()
         return dispatch_layout_input(
             core::RuntimeInputMessage{core::NavigateRoomInput{found->exit.exit_id}});
     });
-    ui.set_function("toggle_interactable", [this, require_view](std::string text) {
-        if (!require_view())
-            return false;
-        auto id = core::InteractableId::create(std::move(text));
-        if (!id) {
-            core::append_diagnostics(m_diagnostics, id.error());
-            return false;
-        }
-        const auto available_in_room =
-            view()->room &&
-            std::any_of(view()->room->placements.begin(), view()->room->placements.end(),
-                        [&](const auto& placement) {
-                            return std::any_of(
-                                placement.occupants.begin(), placement.occupants.end(),
-                                [&](const auto& occupant) {
-                                    const auto* subject =
-                                        std::get_if<core::compiled::InteractableInteractionSubject>(
-                                            &occupant.subject);
-                                    return subject != nullptr &&
-                                           subject->interactable == *id.value_if() &&
-                                           occupant.visible && occupant.enabled;
-                                });
-                        });
-        const auto available_in_inventory = std::any_of(
-            view()->inventory.items.begin(), view()->inventory.items.end(), [&](const auto& item) {
-                return item.interactable == *id.value_if() && item.visible && item.enabled;
-            });
-        if (!available_in_room && !available_in_inventory)
-            return invalid("runtime_ui.invalid_interactable",
-                           "Interactable is stale, unknown, hidden, or disabled");
-        auto selection = view()->selected_subjects;
-        const core::compiled::InteractionSubject subject =
-            core::compiled::InteractableInteractionSubject{*id.value_if()};
-        const auto selected = std::find(selection.begin(), selection.end(), subject);
-        if (selected == selection.end())
-            selection.push_back(subject);
-        else
-            selection.erase(selected);
-        return dispatch_layout_input(
-            core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{std::move(selection)}});
+    ui.set_function("toggle_interactable", [this](std::string text) {
+        return action_toggle_subject("interactable", std::move(text));
     });
-    ui.set_function("toggle_character", [this, require_view](std::string text) {
-        if (!require_view())
-            return false;
-        auto id = core::CharacterId::create(std::move(text));
-        if (!id) {
-            core::append_diagnostics(m_diagnostics, id.error());
-            return false;
-        }
-        const core::compiled::InteractionSubject subject =
-            core::compiled::CharacterInteractionSubject{*id.value_if()};
-        const bool available =
-            view()->room &&
-            std::any_of(view()->room->placements.begin(), view()->room->placements.end(),
-                        [&](const auto& placement) {
-                            return std::any_of(placement.occupants.begin(),
-                                               placement.occupants.end(),
-                                               [&](const auto& occupant) {
-                                                   return occupant.subject == subject &&
-                                                          occupant.visible && occupant.enabled;
-                                               });
-                        });
-        if (!available)
-            return invalid("runtime_ui.invalid_character",
-                           "Character is stale, unknown, hidden, or disabled");
-        auto selection = view()->selected_subjects;
-        const auto selected = std::find(selection.begin(), selection.end(), subject);
-        if (selected == selection.end())
-            selection.push_back(subject);
-        else
-            selection.erase(selected);
-        return dispatch_layout_input(
-            core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{std::move(selection)}});
+    ui.set_function("toggle_character", [this](std::string text) {
+        return action_toggle_subject("character", std::move(text));
     });
-    ui.set_function("clear_selection", [this]() {
-        return dispatch_layout_input(
-            core::RuntimeInputMessage{core::ClearInteractionSubjectSelectionInput{}});
-    });
-    ui.set_function("invoke_interaction", [this, require_view](std::string text) {
-        if (!require_view())
-            return false;
-        auto id = core::VerbId::create(std::move(text));
-        if (!id) {
-            core::append_diagnostics(m_diagnostics, id.error());
-            return false;
-        }
-        const auto* controls = view()->room ? &view()->room->controls : &view()->inventory.controls;
-        const auto found =
-            std::find_if(controls->begin(), controls->end(),
-                         [&](const auto& control) { return control.verb == *id.value_if(); });
-        if (found == controls->end() || !found->enabled)
-            return invalid("runtime_ui.invalid_interaction",
-                           "Interaction verb is stale, unknown, or disabled");
-        return dispatch_layout_input(
-            core::RuntimeInputMessage{core::InvokeInteractionInput{*id.value_if(), {}}});
+    ui.set_function("clear_selection", [this]() { return action_clear_selection(); });
+    ui.set_function("invoke_interaction", [this](std::string text) {
+        return action_invoke_interaction(std::move(text));
     });
     ui.set_function("activate_hotspot", [this, require_view](std::string kind,
                                                              std::string owner_text,

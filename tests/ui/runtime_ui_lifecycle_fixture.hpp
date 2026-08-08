@@ -5,6 +5,7 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/jobs/inline_job_executor.hpp"
 #include "noveltea/script/script_runtime.hpp"
+#include "script/lua/script_runtime_internal.hpp"
 #include "noveltea/text/text_asset_loader.hpp"
 #include "text/text_engine.hpp"
 #include "ui/rmlui/runtime_ui.hpp"
@@ -65,6 +66,13 @@ public:
         return m_executor.run_until_idle(64);
     }
 
+    [[nodiscard]] bool initialize_scripts_only()
+    {
+        if (!m_scripts.is_initialized() && !m_scripts.initialize({&m_assets}))
+            return false;
+        return true;
+    }
+
     void shutdown()
     {
         m_runtime_ui.shutdown();
@@ -88,6 +96,10 @@ public:
     [[nodiscard]] assets::MemoryAssetSource& project_assets() noexcept { return *m_project_assets; }
     [[nodiscard]] assets::AssetManager& assets() noexcept { return m_assets; }
     [[nodiscard]] script::ScriptRuntime& scripts() noexcept { return m_scripts; }
+    [[nodiscard]] lua_State* lua_state() noexcept
+    {
+        return script::detail::ScriptRuntimeAccess::state(m_scripts);
+    }
     [[nodiscard]] RuntimeUI& runtime_ui() noexcept { return m_runtime_ui; }
 
 private:

@@ -46,6 +46,15 @@ public:
     [[nodiscard]] bool dispatch_layout_event(core::MountedLayoutOwner owner,
                                              const std::function<bool()>& dispatch);
 
+    [[nodiscard]] bool action_continue();
+    [[nodiscard]] bool action_choose(std::string kind, std::string id);
+    [[nodiscard]] bool action_navigate_room(std::string id);
+    [[nodiscard]] bool action_toggle_subject(std::string kind, std::string id);
+    [[nodiscard]] bool action_clear_selection();
+    [[nodiscard]] bool action_invoke_interaction(std::string id);
+    [[nodiscard]] bool action_save_slot(std::uint64_t number);
+    [[nodiscard]] bool action_load_slot(std::string kind, std::uint64_t number);
+
     void begin_event_capture() noexcept;
     [[nodiscard]] RuntimeUiEventResult finish_event_capture() noexcept;
 
@@ -53,6 +62,7 @@ private:
     void install_lua_api();
     void remove_lua_api() noexcept;
     [[nodiscard]] bool invalid(std::string code, std::string message);
+    [[nodiscard]] bool require_view();
 
     core::Diagnostics& m_diagnostics;
     RuntimeUiDocumentBinder m_document_binder;

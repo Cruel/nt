@@ -207,6 +207,10 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
     if (!created)
         return nullptr;
     apply_context_environment(*created, *resolved_metrics);
+    if (m_context_initializer && !m_context_initializer(*created)) {
+        Rml::RemoveContext(name);
+        return nullptr;
+    }
     m_contexts.push_back({key, name, created, std::move(*resolved_metrics)});
     sort_contexts();
     return created;
@@ -306,6 +310,11 @@ void RmlUiHost::set_raster_snapping(bool geometry_enabled, bool text_enabled)
 void RmlUiHost::set_context_render_observer(ContextRenderObserver observer)
 {
     m_context_render_observer = std::move(observer);
+}
+
+void RmlUiHost::set_context_initializer(ContextInitializer initializer)
+{
+    m_context_initializer = std::move(initializer);
 }
 
 void RmlUiHost::set_context_clock(ContextKey key)

@@ -3,6 +3,7 @@
 #include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/surface.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
+#include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
 #include "ui/runtime_ui_lifecycle_fixture.hpp"
 
@@ -185,6 +186,35 @@ constexpr const char* kMediaQueryDocument = R"(
 </rml>
 )";
 
+constexpr const char* kDataModelDocument = R"RML(
+<rml>
+  <head>
+    <style>
+      body { width: 640px; height: 360px; }
+      #binding-probe { display: block; }
+      button { display: block; width: 160px; height: 32px; }
+    </style>
+  </head>
+  <body>
+    <span id="outside">{{ 10 }}</span>
+    <section id="model-root" data-model="noveltea">
+      <span id="inside">{{ 10 }}</span>
+      <span id="project-title">{{ project.title }}</span>
+      <span id="gameplay-mode">{{ gameplay.mode }}</span>
+      <span id="shell-status">{{ shell.status }}</span>
+      <div id="binding-probe"
+           data-if="gameplay.available"
+           data-class-available="gameplay.available"
+           data-attr-data-mode="gameplay.mode"
+           data-style-width="'37px'">probe</div>
+      <div id="choices"><span class="model-choice" data-for="choice : gameplay.choices">{{ choice.label }}</span></div>
+      <button id="choose" data-event-click="ui_choose('scene', 'choice-enabled')">Choose</button>
+      <button id="assign" data-event-click="project.title = 'Mutated'">Assign</button>
+    </section>
+  </body>
+</rml>
+)RML";
+
 class RecordingRuntimeUiInputSink final : public noveltea::RuntimeUiInputSink {
 public:
     [[nodiscard]] bool submit_gameplay_input(noveltea::core::RuntimeInputMessage input) override
@@ -334,6 +364,208 @@ TEST_CASE("private RuntimeUI is a view and input adapter without runtime authori
 
     noveltea::test::RuntimeUiLifecycleFixture fixture;
     REQUIRE(fixture.initialize());
+}
+
+TEST_CASE("RuntimeUI noveltea data model binds seeded state across authored lifecycle contexts")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    auto& ui = fixture.runtime_ui();
+
+    const auto scene = noveltea::core::SceneId::create("scene");
+    const auto step = noveltea::core::SceneStepId::create("step");
+    const auto choice = noveltea::core::SceneChoiceOptionId::create("choice-enabled");
+    REQUIRE(scene);
+    REQUIRE(step);
+    REQUIRE(choice);
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "seeded-mode";
+    values.view.scene = noveltea::core::SceneView{
+        .scene = scene.value(),
+        .choice = noveltea::core::SceneChoiceState{
+            .scene = scene.value(),
+            .step = step.value(),
+            .options = {{.option = choice.value(), .label = "Enabled choice", .enabled = true}}}};
+    auto prepared = ui.prepare_gameplay_ui_values(values);
+    REQUIRE(prepared);
+    ui.commit_gameplay_ui_values(std::move(*prepared.value_if()));
+    ui.bind_title_document("Seeded Project", "Seeded subtitle", "Begin");
+    noveltea::core::RuntimeShellViewState shell;
+    shell.status = "Seeded shell";
+    ui.apply_runtime_shell_view(shell);
+
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+    REQUIRE(fixture.initialize());
+
+    const noveltea::core::MountedLayoutPolicy primary_policy{
+        .plane = noveltea::core::PresentationPlane::GameUi,
+        .clock = noveltea::core::LayoutClockDomain::Gameplay,
+        .input = noveltea::core::LayoutInputMode::Normal,
+        .gameplay_pause = noveltea::core::GameplayPausePolicy::Continue,
+        .visibility = noveltea::core::LayoutVisibility::Visible,
+        .escape_dismissal = noveltea::core::EscapeDismissalPolicy::Ignore,
+    };
+    const noveltea::core::MountedLayoutPolicy secondary_policy{
+        .plane = noveltea::core::PresentationPlane::MenuOverlay,
+        .clock = noveltea::core::LayoutClockDomain::UnscaledPresentation,
+        .input = noveltea::core::LayoutInputMode::BlockGameplay,
+        .gameplay_pause = noveltea::core::GameplayPausePolicy::Continue,
+        .visibility = noveltea::core::LayoutVisibility::Visible,
+        .escape_dismissal = noveltea::core::EscapeDismissalPolicy::Ignore,
+    };
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "model-primary", kDataModelDocument, "preview://model-primary.rml", true, primary_policy,
+        17, noveltea::core::MountedLayoutOwner::Gameplay));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "model-secondary", kDataModelDocument, "preview://model-secondary.rml", true,
+        secondary_policy, 18, noveltea::core::MountedLayoutOwner::Gameplay));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* primary = driver->document("model-primary");
+    auto* secondary = driver->document("model-secondary");
+    REQUIRE(primary);
+    REQUIRE(secondary);
+    REQUIRE(primary->GetContext());
+    REQUIRE(secondary->GetContext());
+    CHECK(primary->GetContext() != secondary->GetContext());
+    primary->GetContext()->Update();
+    secondary->GetContext()->Update();
+
+    const auto check_model_document = [&](const char* id) {
+        auto* outside = driver->element(id, "outside");
+        auto* inside = driver->element(id, "inside");
+        auto* title = driver->element(id, "project-title");
+        auto* mode = driver->element(id, "gameplay-mode");
+        auto* status = driver->element(id, "shell-status");
+        auto* probe = driver->element(id, "binding-probe");
+        REQUIRE(outside);
+        REQUIRE(inside);
+        REQUIRE(title);
+        REQUIRE(mode);
+        REQUIRE(status);
+        REQUIRE(probe);
+        CHECK(outside->GetInnerRML().find("{{ 10 }}") != std::string::npos);
+        CHECK(inside->GetInnerRML() == "10");
+        CHECK(title->GetInnerRML() == "Seeded Project");
+        CHECK(mode->GetInnerRML() == "seeded-mode");
+        CHECK(status->GetInnerRML() == "Seeded shell");
+        CHECK(probe->IsClassSet("available"));
+        CHECK(probe->GetAttribute<Rml::String>("data-mode", "") == "seeded-mode");
+        CHECK(probe->GetClientWidth() == Catch::Approx(37.0f));
+        Rml::ElementList choices;
+        driver->document(id)->GetElementsByClassName(choices, "model-choice");
+        CHECK(std::count_if(choices.begin(), choices.end(), [](const Rml::Element* element) {
+                  return element && element->GetInnerRML() == "Enabled choice";
+              }) == 1);
+    };
+    check_model_document("model-primary");
+    check_model_document("model-secondary");
+
+    auto* choose_button = driver->element("model-primary", "choose");
+    REQUIRE(choose_button);
+    REQUIRE(choose_button->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(input_sink.gameplay_inputs == 1);
+    REQUIRE(input_sink.last_gameplay_input);
+    REQUIRE(std::holds_alternative<noveltea::core::SelectSceneChoiceInput>(
+        *input_sink.last_gameplay_input));
+    CHECK(
+        std::get<noveltea::core::SelectSceneChoiceInput>(*input_sink.last_gameplay_input).option ==
+        choice.value());
+
+    values.revision = 2;
+    values.view.scene->choice->options.front().enabled = false;
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    primary->GetContext()->Update();
+    secondary->GetContext()->Update();
+    REQUIRE(choose_button->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(input_sink.gameplay_inputs == 1);
+
+    auto* assign_button = driver->element("model-primary", "assign");
+    REQUIRE(assign_button);
+    REQUIRE(assign_button->DispatchEvent("click", Rml::Dictionary{}));
+    primary->GetContext()->Update();
+    CHECK(driver->element("model-primary", "project-title")->GetInnerRML() == "Seeded Project");
+
+    ui.bind_title_document("Updated Project", "Updated subtitle", "Continue");
+    shell.status = "Updated shell";
+    ui.apply_runtime_shell_view(shell);
+    primary->GetContext()->Update();
+    secondary->GetContext()->Update();
+    CHECK(driver->element("model-primary", "project-title")->GetInnerRML() == "Updated Project");
+    CHECK(driver->element("model-secondary", "project-title")->GetInnerRML() == "Updated Project");
+    CHECK(driver->element("model-primary", "shell-status")->GetInnerRML() == "Updated shell");
+    CHECK(driver->element("model-secondary", "shell-status")->GetInnerRML() == "Updated shell");
+
+    ui.clear_gameplay_ui_values();
+    primary->GetContext()->Update();
+    secondary->GetContext()->Update();
+    REQUIRE(driver->element("model-primary", "binding-probe"));
+    REQUIRE(driver->element("model-secondary", "binding-probe"));
+    CHECK_FALSE(driver->element("model-primary", "binding-probe")->IsVisible());
+    CHECK_FALSE(driver->element("model-secondary", "binding-probe")->IsVisible());
+}
+
+TEST_CASE("RmlUiHost fails primary context creation when required context initialization fails")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize_scripts_only());
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+
+    noveltea::ui::rmlui::RmlUiHost host;
+    std::size_t initializer_calls = 0;
+    host.set_context_initializer([&](Rml::Context&) {
+        ++initializer_calls;
+        return false;
+    });
+    CHECK_FALSE(host.initialize({.assets = &fixture.assets(),
+                                 .lua_state = fixture.lua_state(),
+                                 .presentation = presentation.value(),
+                                 .headless_render = true}));
+    CHECK(initializer_calls == 1);
+    CHECK(host.primary_context() == nullptr);
+    CHECK(host.contexts().empty());
+}
+
+TEST_CASE("RmlUiHost rejects a secondary context when required context initialization fails")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize_scripts_only());
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+
+    noveltea::ui::rmlui::RmlUiHost host;
+    std::size_t initializer_calls = 0;
+    host.set_context_initializer([&](Rml::Context&) {
+        ++initializer_calls;
+        return initializer_calls == 1;
+    });
+    REQUIRE(host.initialize({.assets = &fixture.assets(),
+                             .lua_state = fixture.lua_state(),
+                             .presentation = presentation.value(),
+                             .headless_render = true}));
+    REQUIRE(host.primary_context());
+    REQUIRE(host.contexts().size() == 1);
+
+    const noveltea::ui::rmlui::RmlUiHost::ContextKey secondary{
+        .plane = noveltea::core::PresentationPlane::MenuOverlay,
+        .composition_group = 1,
+        .clock = noveltea::core::LayoutClockDomain::UnscaledPresentation,
+        .input = noveltea::core::LayoutInputMode::BlockGameplay,
+        .owner = noveltea::core::MountedLayoutOwner::Shell,
+    };
+    CHECK(host.context_for(secondary) == nullptr);
+    CHECK(initializer_calls == 2);
+    CHECK(host.contexts().size() == 1);
+    CHECK(host.primary_context() != nullptr);
+    host.shutdown();
 }
 
 TEST_CASE("RuntimeUI selector playback and native inspection use the internal playback driver")

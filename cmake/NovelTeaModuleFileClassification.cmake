@@ -353,6 +353,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/ui/rmlui/rmlui_template_resolver.hpp
     engine/src/ui/rmlui/runtime_ui_binder.cpp
     engine/src/ui/rmlui/runtime_ui_binder.hpp
+    engine/src/ui/rmlui/runtime_ui_data_model.cpp
+    engine/src/ui/rmlui/runtime_ui_data_model.hpp
     engine/src/ui/rmlui/runtime_ui_facade_access.hpp
     engine/src/ui/rmlui/runtime_ui_playback_driver.cpp
     engine/src/ui/rmlui/runtime_ui_playback_driver.hpp

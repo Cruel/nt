@@ -4,7 +4,7 @@ Date: 2026-08-08
 
 ## Status
 
-Active implementation plan. Phase 0 is complete; Phases 1-8 are not started.
+Active implementation plan. Phases 0-1 are complete; Phases 2-8 are not started.
 
 Standalone execution review completed 2026-08-08. The model name, field schema, callback names,
 built-in migration boundaries, custom-component exceptions, lifecycle ordering, phase ownership, and
@@ -292,8 +292,11 @@ gameplay/project/shell domain state. The required ordering is exact:
 3. `RmlUiHost::context_for()` calls that initializer immediately after `Rml::CreateContext()` and
    context environment setup, but before the new context is returned to any document-loading code.
 4. The initializer creates and fully registers `noveltea` in that context.
-5. Create the model with normal strict variable resolution (`allow_missing_variables=false`); do not
-   make model typos silently valid as part of this refactor.
+5. Create the model with normal strict variable resolution; do not make model typos silently valid
+   as part of this refactor. The production RmlUi 6.2 API actually built by NovelTea exposes only
+   `Context::CreateDataModel(name, data_type_register)` and does not expose the reference-snapshot
+   `allow_missing_variables` parameter, so use the production API's normal strict behavior rather
+   than adding a compatibility patch solely for this refactor.
 6. If model creation/registration fails, context creation removes the just-created RmlUi context and
    fails; do not return a context in which
    `data-model="noveltea"` documents can be parsed without the required contract.
@@ -708,51 +711,77 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 
 ## Phase 1 - Add the shared RmlUi data-model foundation
 
+### Implementation findings
+
+- Production RmlUi 6.2 in `build/linux-debug/_deps/rmlui-src` has the two-argument
+  `Context::CreateDataModel(name, data_type_register)` API, not the three-argument reference-snapshot
+  API. Phase 1 therefore uses the production API's existing strict variable-resolution behavior;
+  no RmlUi patch is required or justified by this refactor.
+- RmlUi's getter-only struct registration is not read-only when a scalar getter returns a mutable
+  reference: `MemberGetFuncDefinition` exposes that referenced scalar to assignment. Phase 1 must
+  expose scalar/string leaf getters by value while retaining reference getters only for nested
+  struct/array traversal. The authored-assignment regression is required to preserve this invariant.
+- RmlUi `data-for` retains its template element alongside instantiated rows, and `data-if=false`
+  retains the authored node but hides it. Later migration tests must validate instantiated row
+  content/cardinality and effective visibility rather than assuming class queries contain only
+  generated rows or that a false `data-if` removes the element from the DOM.
+- The current `RuntimeUiPlaybackDriver::click()` interaction preflight recognizes legacy `onclick`
+  and registered native click listeners, but not RmlUi `data-event-click` bindings. Phase 1 therefore
+  validates model callbacks with RmlUi `DispatchEvent()` directly. Later declarative-event playback
+  validation must either use that same RmlUi event path or deliberately extend playback-driver
+  interaction detection; a `TargetNotInteractive` result from the current driver is not evidence
+  that a model callback failed to register.
+- Data-model callbacks cannot reuse validation hidden inside the existing Lua closure bodies.
+  Phase 1 therefore extracts the existing gameplay validation/dispatch into named native
+  `RuntimeUiBinder` action methods and rewires the equivalent `Game.ui.*` Lua helpers to those same
+  methods. This is required now to avoid introducing a second validation implementation; Phase 7
+  retains these shared methods and only rehomes/renames the surviving action gateway.
+
 ### Work
 
-- [ ] Add `runtime_ui_data_model.{hpp,cpp}` with RmlUi-private projection structs implementing the
+- [x] Add `runtime_ui_data_model.{hpp,cpp}` with RmlUi-private projection structs implementing the
       exact field contract above.
-- [ ] Add the new files to `cmake/NovelTeaModuleFileClassification.cmake` in the same UI/runtime
+- [x] Add the new files to `cmake/NovelTeaModuleFileClassification.cmake` in the same UI/runtime
       classification as the surrounding RmlUi RuntimeUI private sources.
-- [ ] Flatten backend-neutral typed IDs/variants/optionals into RmlUi-friendly presentation fields.
-- [ ] Add one RuntimeUI-owned projection instance with stable addresses for the entire RuntimeUI
+- [x] Flatten backend-neutral typed IDs/variants/optionals into RmlUi-friendly presentation fields.
+- [x] Add one RuntimeUI-owned projection instance with stable addresses for the entire RuntimeUI
       lifetime.
-- [ ] Construct the data-model owner and install the host context initializer before
+- [x] Construct the data-model owner and install the host context initializer before
       `RmlUiHost::initialize()` creates the primary context; use the same initializer for every later
       `context_for()` creation.
-- [ ] Seed the projection from any RuntimeUI state already retained before initialization, then prove
+- [x] Seed the projection from any RuntimeUI state already retained before initialization, then prove
       with a focused lifecycle test that the first loaded model-bound document sees those values
       without requiring the source state to be republished.
-- [ ] Register required scalar/struct/array types in each context.
-- [ ] Bind the same stable projection storage into each context-local model.
-- [ ] Retain one model handle per live context and drop it with that context.
-- [ ] Do not key model handles by `RmlUiHost::contexts()` vector index because that vector is sorted.
+- [x] Register required scalar/struct/array types in each context.
+- [x] Bind the same stable projection storage into each context-local model.
+- [x] Retain one model handle per live context and drop it with that context.
+- [x] Do not key model handles by `RmlUiHost::contexts()` vector index because that vector is sorted.
       Retain an explicit context pointer/name/key with each handle so sorting cannot associate a
       handle with the wrong context.
-- [ ] Implement every projection update trigger listed above and call `DirtyAllVariables()` only
+- [x] Implement every projection update trigger listed above and call `DirtyAllVariables()` only
       after the coherent backing mutation completes.
-- [ ] Register projected state as read-only and register the exact callback names above.
-- [ ] Add headless tests proving `{{ ... }}`, `data-if`, `data-for`, attribute/class/style binding,
+- [x] Register projected state as read-only and register the exact callback names above.
+- [x] Add headless tests proving `{{ ... }}`, `data-if`, `data-for`, attribute/class/style binding,
       and model callbacks work in NovelTea-loaded documents.
-- [ ] Add a headless regression proving `{{ 10 }}` remains literal outside an active `data-model`
+- [x] Add a headless regression proving `{{ 10 }}` remains literal outside an active `data-model`
       subtree and evaluates inside `data-model="noveltea"`; this captures the RmlUi opt-in rule that
       motivated the host initialization ordering.
-- [ ] Add a regression proving authored assignment cannot mutate a projected read-only value.
-- [ ] Prove the model works in at least two distinct lifecycle contexts, not only the primary GameUi
+- [x] Add a regression proving authored assignment cannot mutate a projected read-only value.
+- [x] Prove the model works in at least two distinct lifecycle contexts, not only the primary GameUi
       context.
-- [ ] Prove an ordinary Lua-mounted/custom Layout can use `data-model="noveltea"` without a system
+- [x] Prove an ordinary Lua-mounted/custom Layout can use `data-model="noveltea"` without a system
       role.
 
 ### Exit gate
 
-- [ ] A test Layout can render project/gameplay/shell scalar values and a repeated collection through
+- [x] A test Layout can render project/gameplay/shell scalar values and a repeated collection through
       RmlUi's native data binding with no `GetElementById()`/`SetInnerRML()` population.
-- [ ] A data-model event callback reaches the existing typed action gateway and preserves stale/
+- [x] A data-model event callback reaches the existing typed action gateway and preserves stale/
       disabled validation.
-- [ ] Primary and secondary contexts both fail closed if `noveltea` model initialization fails; no
+- [x] Primary and secondary contexts both fail closed if `noveltea` model initialization fails; no
       model-bound document is parsed in a partially initialized context.
-- [ ] No backend-neutral core header gains RmlUi types.
-- [ ] The existing negative public-API contract remains true: `RuntimeUI` does not expose generic
+- [x] No backend-neutral core header gains RmlUi types.
+- [x] The existing negative public-API contract remains true: `RuntimeUI` does not expose generic
       borrowed RmlUi document/element/data-model handles or public `create_data_model` / `data_model`
       methods. The `noveltea` model is an authored-RML contract implemented entirely behind the
       private RuntimeUI adapter.
@@ -967,8 +996,10 @@ manual slots. Load offers its action only when `slot.occupied`, exactly matching
 - [ ] Remove obsolete RML generation helpers used only by deleted binder paths.
 - [ ] Retain/rehome revision gating, latest-view ownership, typed action validation, Layout gameplay
       admission, typed input dispatch, event capture, and `Game.ui.*` installation.
-- [ ] Refactor Lua lambdas and RmlUi model callbacks to share named native action methods rather than
-      duplicate stale/enabled validation.
+- [ ] Preserve the named native action methods introduced in Phase 1 as the shared implementation
+      used by Lua and RmlUi model callbacks; rehome them with the surviving action-gateway
+      responsibilities rather than recreating or duplicating stale/enabled validation during the
+      binder deletion/rename.
 - [ ] Rename the surviving `RuntimeUiBinder` to `RuntimeUiActionGateway` and rename its source files to
       `runtime_ui_action_gateway.{hpp,cpp}`. Keep its current cohesive responsibilities together:
       revisioned latest gameplay view, typed validation/dispatch, Layout gameplay admission, event
@@ -1224,7 +1255,7 @@ This refactor is complete only when all of the following are true:
 | Phase | Status | Completion evidence |
 | --- | --- | --- |
 | 0. Characterize current contract | Complete | Focused gameplay/shell binder characterization, independent typed-action rejection, ActiveText click/direct-render, provisional Map, Text Log, and shipped built-in feature-inventory coverage are green in `noveltea_ui_tests` and `noveltea_ui_backend_tests` (2026-08-08). |
-| 1. Shared RmlUi data-model foundation | Not started | - |
+| 1. Shared RmlUi data-model foundation | Complete | Private `noveltea` projection/model ownership, per-context fail-closed initialization, stable context-local handles, read-only state, shared validated callbacks, seeded-state/update propagation, and two-context headless binding coverage are implemented. `noveltea_ui_tests` (603 assertions/61 cases) and `noveltea_ui_backend_tests` (793 assertions/47 cases) pass; full Linux build passes; full Linux CTest passes 817/825 with the eight remaining failures limited to X11-unavailable graphics capture/dependent readback verification; Web build and Web `cxx-policy` pass (2026-08-08). |
 | 2. Simple project and shell cutover | Not started | - |
 | 3. Game HUD ordinary RML cutover | Not started | - |
 | 4. Text Log data-model cutover | Not started | - |

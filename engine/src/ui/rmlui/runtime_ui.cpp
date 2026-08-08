@@ -28,6 +28,7 @@
 #include "ui/rmlui/rmlui_custom_components.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_binder.hpp"
+#include "ui/rmlui/runtime_ui_data_model.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
 #include "ui/rmlui/rmlui_template_resolver.hpp"
@@ -199,6 +200,7 @@ struct RuntimeUI::State {
     void install_shell_lua_api();
     void remove_shell_lua_api() noexcept;
     void refresh_runtime_shell_documents();
+    void refresh_data_model_shell();
     [[nodiscard]] std::optional<std::string>
     system_document_id(core::compiled::SystemLayoutRole role) const;
     [[nodiscard]] Rml::ElementDocument*
@@ -213,6 +215,7 @@ struct RuntimeUI::State {
     std::unique_ptr<ui::rmlui::RmlUiHost> host;
     std::unique_ptr<ui::rmlui::RmlUiDocumentRegistry> document_registry;
     std::unique_ptr<ui::rmlui::RuntimeUiBinder> binder;
+    std::unique_ptr<ui::rmlui::RuntimeUiDataModel> data_model;
     std::unique_ptr<ui::rmlui::ActiveTextPresenter> active_text_presenter;
     std::unique_ptr<ui::rmlui::RuntimeUiPlaybackDriver> playback_driver;
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
@@ -230,6 +233,34 @@ struct RuntimeUI::State {
     script::ScriptRuntime* scripts = nullptr;
     std::string typed_notification;
 };
+
+void RuntimeUI::State::refresh_data_model_shell()
+{
+    if (!data_model)
+        return;
+    if (!runtime_shell_view) {
+        data_model->clear_shell();
+        return;
+    }
+    std::vector<std::string> thumbnail_urls;
+    thumbnail_urls.reserve(runtime_shell_view->slots.size());
+    for (const auto& slot : runtime_shell_view->slots) {
+        if (!slot.thumbnail) {
+            thumbnail_urls.emplace_back();
+            continue;
+        }
+        const std::string suffix =
+            slot.slot.is_autosave() ? "autosave" : std::to_string(slot.slot.number());
+        const std::string filename =
+            "slot-" + suffix + "-thumbnail-" +
+            std::to_string(runtime_shell_thumbnail_fingerprint(slot.thumbnail->bytes)) + ".png";
+        const std::string path = "project:/generated/shell/" + filename;
+        if (document_registry)
+            document_registry->set_virtual_file(path, slot.thumbnail->bytes);
+        thumbnail_urls.push_back("project|/generated/shell/" + filename);
+    }
+    data_model->set_shell(*runtime_shell_view, thumbnail_urls);
+}
 
 Rml::Context* RuntimeUI::State::context_for(ContextKey key)
 {
@@ -678,15 +709,20 @@ void RuntimeUI::cleanup_state()
         m_state->lua_state = nullptr;
     }
     m_state->playback_driver.reset();
-    m_state->binder.reset();
     m_state->active_text_presenter.reset();
     m_state->scripts = nullptr;
     if (m_state->document_registry) {
         m_state->document_registry->clear();
         m_state->document_registry.reset();
     }
+    if (m_state->data_model)
+        m_state->data_model->detach_all();
+    if (m_state->host)
+        m_state->host->set_context_initializer({});
+    m_state->data_model.reset();
     if (m_state->host)
         m_state->host->shutdown();
+    m_state->binder.reset();
     m_state->runtime_input_listener.reset();
     delete m_state->template_resolver;
     m_state->template_resolver = nullptr;
@@ -738,6 +774,23 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     if (!m_state->binder)
         m_state->binder = std::make_unique<ui::rmlui::RuntimeUiBinder>(m_state->typed_diagnostics);
     m_state->binder->set_lua_state(m_state->lua_state);
+    if (!m_state->data_model) {
+        m_state->data_model = std::make_unique<ui::rmlui::RuntimeUiDataModel>(*m_state->binder);
+        m_state->data_model->set_project(m_state->title_project, m_state->title_subtitle,
+                                         m_state->title_start_label);
+        if (const auto* view = m_state->binder->view()) {
+            m_state->data_model->set_gameplay(
+                RuntimeUiGameplayValues{m_state->binder->revision(), *view},
+                m_state->typed_notification);
+        } else {
+            m_state->data_model->clear_gameplay();
+        }
+        m_state->refresh_data_model_shell();
+    }
+    m_state->host->set_context_initializer(
+        [model = m_state->data_model.get()](Rml::Context& context) {
+            return model && model->attach_context(context);
+        });
     if (m_state->binder->has_input_sink())
         m_state->install_shell_lua_api();
     const auto& pending_presentation = m_state->host->presentation();
@@ -756,6 +809,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
     m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);
     m_state->document_registry->set_runtime_input_listener(m_state->runtime_input_listener.get());
+    m_state->refresh_data_model_shell();
     m_state->playback_driver = std::make_unique<ui::rmlui::RuntimeUiPlaybackDriver>(
         *m_state->host, *m_state->document_registry,
         [state = m_state](core::MountedLayoutOwner owner, const std::function<bool()>& dispatch) {
@@ -1070,6 +1124,8 @@ void RuntimeUI::bind_title_document(const std::string& project_title, const std:
     m_state->title_project = project_title;
     m_state->title_subtitle = subtitle;
     m_state->title_start_label = start_label;
+    if (m_state->data_model)
+        m_state->data_model->set_project(project_title, subtitle, start_label);
     m_state->refresh_title_document();
 }
 
@@ -1180,6 +1236,8 @@ bool RuntimeUI::apply_gameplay_ui_values(const RuntimeUiGameplayValues& values)
     }
     if (!m_state->binder->apply(values))
         return false;
+    if (m_state->data_model)
+        m_state->data_model->set_gameplay(values, m_state->typed_notification);
     m_state->refresh_runtime_document();
     m_state->refresh_runtime_shell_documents();
     m_state->refresh_active_text_layout();
@@ -1212,7 +1270,9 @@ void RuntimeUI::commit_gameplay_ui_values(RuntimeUiGameplayValues values) noexce
         m_state->binder = std::make_unique<ui::rmlui::RuntimeUiBinder>(m_state->typed_diagnostics);
         m_state->binder->set_lua_state(m_state->lua_state);
     }
-    m_state->binder->commit(std::move(values));
+    m_state->binder->commit(values);
+    if (m_state->data_model)
+        m_state->data_model->set_gameplay(values, m_state->typed_notification);
     m_state->refresh_runtime_document();
     m_state->refresh_runtime_shell_documents();
     m_state->refresh_active_text_layout();
@@ -1224,6 +1284,8 @@ void RuntimeUI::clear_gameplay_ui_values()
         return;
     if (m_state->binder)
         m_state->binder->clear_gameplay_values();
+    if (m_state->data_model)
+        m_state->data_model->clear_gameplay();
     m_state->refresh_runtime_document();
     m_state->refresh_active_text_layout();
 }
@@ -1272,6 +1334,7 @@ void RuntimeUI::apply_runtime_shell_view(core::RuntimeShellViewState view)
     if (!m_state)
         return;
     m_state->runtime_shell_view = std::move(view);
+    m_state->refresh_data_model_shell();
     m_state->refresh_runtime_shell_documents();
 }
 
@@ -1280,6 +1343,7 @@ void RuntimeUI::clear_runtime_shell_view()
     if (!m_state)
         return;
     m_state->runtime_shell_view.reset();
+    m_state->refresh_data_model_shell();
     m_state->refresh_runtime_shell_documents();
 }
 
@@ -1288,6 +1352,9 @@ void RuntimeUI::set_runtime_notification(std::string notification)
     if (!m_state)
         return;
     m_state->typed_notification = std::move(notification);
+    if (m_state->data_model)
+        m_state->data_model->set_gameplay_notification(
+            m_state->typed_notification, m_state->binder ? m_state->binder->view() : nullptr);
     m_state->refresh_runtime_document();
     m_state->refresh_runtime_shell_documents();
 }

@@ -71,6 +71,7 @@ public:
         std::function<bool(core::MountedLayoutOwner, const std::function<bool()>&)>;
     using ContextRenderObserver =
         std::function<void(const ContextKey&, const ResolvedContextMetrics&)>;
+    using ContextInitializer = std::function<bool(Rml::Context&)>;
 
     RmlUiHost();
     ~RmlUiHost();
@@ -121,6 +122,7 @@ public:
     void set_base_direct_compatibility(bool enabled);
     void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_context_render_observer(ContextRenderObserver observer);
+    void set_context_initializer(ContextInitializer initializer);
     void set_context_clock(ContextKey key);
 
     [[nodiscard]] bool wants_pointer_input() const;
@@ -169,6 +171,7 @@ private:
     std::vector<PlaneRenderer> m_plane_renderers;
     std::unordered_set<Rml::Context*> m_rendered_contexts;
     ContextRenderObserver m_context_render_observer;
+    ContextInitializer m_context_initializer;
     std::unordered_set<std::uint64_t> m_active_touches;
     Rml::Context* m_primary_context = nullptr;
     bool m_pointer_inside = false;
