@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { validateProjectComfyUiWorkflows } from './comfyui-service';
 import type {
@@ -9,22 +9,19 @@ import type {
   ToolDiagnostic,
 } from '../../shared/editor-tooling';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
+import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
+import {
+  createProjectWorkspaceSnapshot,
+  ProjectWorkspaceService,
+  publishProjectWorkspaceSnapshot,
+} from '../../shared/project-workspace/project-workspace-service';
 import { AUTHORING_PROJECT_SCHEMA_VERSION } from '../../shared/project-schema/authoring-collections';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
-import {
-  parseEditorProjectStateWithDiagnostics,
-  stripEditorProjectState,
-} from '../../shared/project-schema/editor-project-state';
 import { parseTestData } from '../../shared/project-schema/authoring-tests';
 import {
   classifyProjectValidationDiagnostics,
-  collectProjectValidationDiagnostics,
-  createProjectValidationDiagnostic,
   projectValidationBoundariesForCompilerDiagnostic,
 } from '../../shared/project-schema/project-validation';
-import { projectContentFingerprint } from './project-content-fingerprint';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -145,102 +142,39 @@ export function invokeEditorTool(command: string, payload: unknown): Promise<unk
   });
 }
 
-function findProjectFile(projectPath: string) {
-  const absolute = path.resolve(projectPath);
-  if (existsSync(absolute) && !absolute.endsWith(path.sep)) {
-    try {
-      const stat = statSync(absolute);
-      if (stat.isFile()) return absolute;
-    } catch {
-      // Fall through to directory candidates.
-    }
-  }
-
-  const candidates = ['game.json', 'project.json', 'game'];
-  for (const candidate of candidates) {
-    const filePath = path.join(absolute, candidate);
-    if (existsSync(filePath)) return filePath;
-  }
-  return path.join(absolute, 'game.json');
-}
-
-async function openAuthoringProjectFromSource(
-  source: string,
-  projectFilePath: string,
-): Promise<Record<string, unknown> | null> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(source) as unknown;
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
-  const savedContentProject = stripEditorProjectState(parsed);
-  const contentFingerprint = projectContentFingerprint(savedContentProject);
-  const parsedEditor = parseEditorProjectStateWithDiagnostics(
-    (parsed as Record<string, unknown>).editor,
-    contentFingerprint,
-  );
-  const decoded = decodeAuthoringProject(savedContentProject);
-  if (!decoded.project || decoded.structuralDiagnostics.length > 0) {
+export async function openProject(projectPath: string) {
+  const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+  const opened = await workspace.open(projectPath);
+  if (!opened.ok)
     return {
       ok: true,
       success: false,
-      diagnostics: collectProjectValidationDiagnostics(
-        decoded.structuralDiagnostics,
-        parsedEditor.diagnostics,
-      ),
-      projectPath: path.dirname(projectFilePath),
-      projectFilePath,
+      diagnostics: opened.diagnostics,
+      projectPath: opened.projectRoot,
+      projectFilePath: opened.manifestPath,
     };
-  }
-  const comfyUiDiagnostics = await validateProjectComfyUiWorkflows(projectFilePath);
-  const semanticDiagnostics = validateAuthoringProject(decoded.project);
+  const comfyUiDiagnostics = await validateProjectComfyUiWorkflows(opened.snapshot.manifestPath);
   return {
     ok: true,
     success: true,
-    diagnostics: collectProjectValidationDiagnostics(
-      decoded.semanticDiagnostics,
-      semanticDiagnostics,
-      parsedEditor.diagnostics,
-      classifyProjectValidationDiagnostics(comfyUiDiagnostics, { producer: 'authoring' }),
-    ),
-    contentProject: stripEditorProjectState(decoded.project),
-    savedContentProject,
-    editorState: parsedEditor.state,
-    repairs: decoded.repairs,
-    contentFingerprint,
-    projectPath: path.dirname(projectFilePath),
-    projectFilePath,
-  };
-}
-
-export async function openProject(projectPath: string) {
-  const projectFilePath = findProjectFile(projectPath);
-  const source = readFileSync(projectFilePath, 'utf8');
-  const authoringProject = await openAuthoringProjectFromSource(source, projectFilePath);
-  if (authoringProject) return authoringProject;
-  return {
-    ok: true,
-    success: false,
     diagnostics: [
-      createProjectValidationDiagnostic({
-        code: 'authoring.schema.unsupported',
-        severity: 'error',
-        category: 'authoring.unsupported_schema',
-        path: '/schema',
-        message: `Project must use noveltea.authoring.project version ${AUTHORING_PROJECT_SCHEMA_VERSION}.`,
-        boundaries: ['authoring', 'runtime-package'],
-        ownerPaths: ['/schema'],
-      }),
+      ...opened.diagnostics,
+      ...classifyProjectValidationDiagnostics(comfyUiDiagnostics, { producer: 'authoring' }),
     ],
-    projectPath: path.dirname(projectFilePath),
-    projectFilePath,
+    contentProject: opened.contentProject,
+    savedContentProject: opened.savedContentProject,
+    editorState: opened.editorState,
+    repairs: opened.repairs,
+    contentFingerprint: opened.contentFingerprint,
+    projectPath: opened.snapshot.projectRoot,
+    projectFilePath: opened.snapshot.manifestPath,
   };
 }
 
 export function validateProject(project: unknown) {
-  const compiled = publishCompiledArtifact(project);
+  const compiled = isAuthoringProject(project)
+    ? publishProjectWorkspaceSnapshot(createProjectWorkspaceSnapshot(project))
+    : publishCompiledArtifact(project);
   const diagnostics = classifyProjectValidationDiagnostics(
     compiled.diagnostics.map((item) => ({
       code: item.code,

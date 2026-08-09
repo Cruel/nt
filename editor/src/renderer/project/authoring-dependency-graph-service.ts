@@ -19,12 +19,15 @@ import { classifyAuthoringGraphMutation } from '../../shared/authoring-graph-inp
 import { classifyAssetReverseDependencies } from '../../shared/authoring-graph-input-classifier';
 import {
   analyzeAuthoringSourceContent,
-  analyzeAuthoringSources,
-  collectAuthoringLuaSources,
   collectAuthoringSourceRequirements,
   createAuthoringSourceAnalysisCache,
   type AuthoringSourceAnalysisCache,
 } from '../../shared/authoring-source-analysis';
+import {
+  analyzeProjectWorkspaceSources,
+  collectProjectWorkspaceLuaSources,
+  createProjectWorkspaceSnapshot,
+} from '../../shared/project-workspace/project-workspace-service';
 import { buildJsonPointer, parseJsonPointer, type JsonPointer } from '../../shared/json-pointer';
 import {
   authoringCollectionKeys,
@@ -409,6 +412,7 @@ export class AuthoringDependencyGraphService {
     instance: string,
     revision: number,
   ) {
+    const workspace = createProjectWorkspaceSnapshot(project);
     this.metrics.fullBuilds += 1;
     const ownerKeys = new Set(enumerateAuthoringDependencyContributionKeys(project));
     const snapshot = await this.resolveSources(token, project, instance, revision, ownerKeys);
@@ -417,8 +421,8 @@ export class AuthoringDependencyGraphService {
       ...(this.stateValue as Extract<AuthoringDependencyGraphServiceState, { kind: 'updating' }>),
       phase: 'deriving',
     };
-    const analyses = analyzeAuthoringSources(
-      project,
+    const analyses = analyzeProjectWorkspaceSources(
+      workspace,
       snapshot,
       undefined,
       ownerKeys,
@@ -451,13 +455,14 @@ export class AuthoringDependencyGraphService {
     revision: number,
     impact: Extract<ReturnType<typeof classifyAuthoringGraphMutation>, { kind: 'incremental' }>,
   ) {
+    const workspace = createProjectWorkspaceSnapshot(project);
     const sourceOwners = new Set(impact.sourceAnalysisOwnerKeys);
     let sourceSnapshot: LuaSourceSnapshot<AuthoringDependencyGraphDiagnostic> | null = null;
     if (sourceOwners.size > 0) {
       sourceSnapshot = await this.resolveSources(token, project, instance, revision, sourceOwners);
       if (!sourceSnapshot) return null;
-      const next = analyzeAuthoringSources(
-        project,
+      const next = analyzeProjectWorkspaceSources(
+        workspace,
         sourceSnapshot,
         undefined,
         sourceOwners,
@@ -511,6 +516,7 @@ export class AuthoringDependencyGraphService {
     revision: number,
     owners: ReadonlySet<string>,
   ): Promise<LuaSourceSnapshot<AuthoringDependencyGraphDiagnostic> | null> {
+    const workspace = createProjectWorkspaceSnapshot(project);
     this.stateValue = {
       ...(this.stateValue as Extract<AuthoringDependencyGraphServiceState, { kind: 'updating' }>),
       phase: 'resolving-sources',
@@ -526,7 +532,7 @@ export class AuthoringDependencyGraphService {
     let admittedBytes = 0;
     let admittedOccurrences = 0;
     const admittedPhysical = new Set<string>();
-    for (const descriptor of collectAuthoringLuaSources(project, owners)) {
+    for (const descriptor of collectProjectWorkspaceLuaSources(workspace, owners)) {
       let text = descriptor.inlineText;
       let contentHash = text === undefined ? undefined : sha256PrefixedUtf8(text);
       let physicalKey =

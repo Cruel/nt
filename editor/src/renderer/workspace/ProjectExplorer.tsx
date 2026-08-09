@@ -70,9 +70,8 @@ import {
   normalizeTagKey,
   recordEditorMetadata,
 } from '../../shared/project-schema/authoring-tags';
-import { buildProjectSearchIndex } from '../../shared/project-search/project-search-index';
-import { searchProjectIndex } from '../../shared/project-search/project-search';
-import { searchReferences } from '../../shared/project-search/project-search-helpers';
+import { searchProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-search';
+import { createProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import {
   buildAssetsEditorTab,
@@ -910,7 +909,12 @@ function ExplorerContextMenu({
       collection === 'assets' && record ? parseAssetData(record.data)?.aliases : undefined;
     setSearchResults(
       target,
-      searchReferences(activeProject, { referencesTo: [target], aliases }).results,
+      searchProjectWorkspaceSnapshot(createProjectWorkspaceSnapshot(activeProject), {
+        referencesTo: [target],
+        aliases,
+        tokenMode: 'all',
+        sort: { kind: 'label' },
+      }).results,
     );
     setActiveBottomPanel('references');
   }
@@ -1376,15 +1380,18 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       showTagFilter,
     ],
   );
-  const searchIndex = useMemo(() => (project ? buildProjectSearchIndex(project) : null), [project]);
+  const workspaceSnapshot = useMemo(
+    () => (project ? createProjectWorkspaceSnapshot(project) : null),
+    [project],
+  );
   const activeFilterTags = useMemo(
     () => (showTagFilter ? filterTags : []),
     [filterTags, showTagFilter],
   );
   const isFiltering = Boolean(searchQuery.trim()) || activeFilterTags.length > 0;
   const searchResponse = useMemo(() => {
-    if (!searchIndex || !isFiltering) return null;
-    return searchProjectIndex(searchIndex, {
+    if (!workspaceSnapshot || !isFiltering) return null;
+    return searchProjectWorkspaceSnapshot(workspaceSnapshot, {
       text: searchQuery,
       tags: activeFilterTags,
       tagMode: 'all',
@@ -1392,7 +1399,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       threshold: exactMatch ? 0 : undefined,
       sort: { kind: 'label' },
     });
-  }, [activeFilterTags, exactMatch, isFiltering, searchIndex, searchQuery]);
+  }, [activeFilterTags, exactMatch, isFiltering, searchQuery, workspaceSnapshot]);
   const visibleRecordKeys = useMemo(() => {
     if (!searchResponse) return null;
     return new Set(

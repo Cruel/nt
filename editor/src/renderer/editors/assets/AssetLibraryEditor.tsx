@@ -14,8 +14,8 @@ import {
   type AuthoringRecordBase,
 } from '../../../shared/project-schema/authoring-project';
 import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
-import { buildProjectSearchIndex } from '../../../shared/project-search/project-search-index';
-import { searchProjectIndex } from '../../../shared/project-search/project-search';
+import { searchProjectWorkspaceSnapshot } from '../../../shared/project-workspace/project-workspace-search';
+import { createProjectWorkspaceSnapshot } from '../../../shared/project-workspace/project-workspace-service';
 import { AssetPreview } from './AssetPreview';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -168,10 +168,13 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
         (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
       );
   }, [project]);
-  const searchIndex = useMemo(() => (project ? buildProjectSearchIndex(project) : null), [project]);
+  const workspaceSnapshot = useMemo(
+    () => (project ? createProjectWorkspaceSnapshot(project) : null),
+    [project],
+  );
   const assets = useMemo(() => {
-    if (!project || !searchIndex) return [];
-    const response = searchProjectIndex(searchIndex, {
+    if (!project || !workspaceSnapshot) return [];
+    const response = searchProjectWorkspaceSnapshot(workspaceSnapshot, {
       text: query,
       collections: ['assets'],
       assetTypes: kind === 'all' ? undefined : [kind],
@@ -187,7 +190,7 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
       if (!record) return [];
       return [{ id, record, data: parseAssetData(record.data), label: record.label || id }];
     });
-  }, [kind, project, query, searchIndex, selectedTags]);
+  }, [kind, project, query, selectedTags, workspaceSnapshot]);
   const kinds = useMemo(
     () =>
       [...new Set(allAssets.map((asset) => asset.data?.kind).filter(Boolean))].sort((left, right) =>

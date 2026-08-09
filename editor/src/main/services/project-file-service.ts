@@ -24,6 +24,7 @@ import {
 } from '../../shared/project-schema/editor-project-state';
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { projectContentFingerprint } from './project-content-fingerprint';
+import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
 
 export { projectContentFingerprint } from './project-content-fingerprint';
 
@@ -32,15 +33,7 @@ function jsonText(project: unknown): string {
 }
 
 async function writeProjectAtomic(project: unknown, projectFilePath: string): Promise<void> {
-  const absolute = path.resolve(projectFilePath);
-  const directory = path.dirname(absolute);
-  const temporary = path.join(
-    directory,
-    `.${path.basename(absolute)}.${process.pid}.${Date.now()}.tmp`,
-  );
-  await fs.mkdir(directory, { recursive: true });
-  await fs.writeFile(temporary, jsonText(project), 'utf8');
-  await fs.rename(temporary, absolute);
+  await createNodeProjectWorkspaceFileSystem().writeTextAtomic(projectFilePath, jsonText(project));
 }
 
 function projectWithCurrentEditorFingerprint(project: unknown): {
