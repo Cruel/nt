@@ -120,6 +120,21 @@ describe('NovelTea Phase 6 headless CLI', () => {
     const misplaced = await runNovelTeaCli(['validate', '--json'], { cwd: '/missing' });
     expect(misplaced.exitCode).toBe(2);
     expect(misplaced.stderr).toContain('validate does not accept arguments');
+
+    const unknownCollection = await runNovelTeaCli(['usages', 'not-a-collection', 'anything'], {
+      cwd: '/missing',
+    });
+    expect(unknownCollection.exitCode).toBe(2);
+    expect(unknownCollection.stderr).toContain("Unknown collection 'not-a-collection'");
+
+    const unsupportedAssetCreate = await runNovelTeaCli(
+      ['entity', 'create', 'assets', 'new-asset'],
+      {
+        cwd: '/missing',
+      },
+    );
+    expect(unsupportedAssetCreate.exitCode).toBe(2);
+    expect(unsupportedAssetCreate.stderr).toContain('Generic Asset creation is not supported');
   });
 
   it('discovers project.json upward, accepts explicit roots, and ignores retired filenames', async () => {
@@ -180,11 +195,15 @@ describe('NovelTea Phase 6 headless CLI', () => {
       ['--json', 'entity', 'create', 'assets', 'new-asset'],
       options(value),
     );
-    expect(result.exitCode).toBe(4);
+    expect(result.exitCode).toBe(2);
     expect(result.stderr).toBe('');
     expect(result.stdout.endsWith('\n')).toBe(true);
     expect(result.stdout.slice(0, -1)).not.toContain('\n');
-    expect(JSON.parse(result.stdout)).toMatchObject({ success: false, exitCode: 4 });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      success: false,
+      exitCode: 2,
+      diagnostics: expect.arrayContaining([expect.objectContaining({ code: 'CLI_USAGE' })]),
+    });
   });
 
   it('uses the shared authoring pipeline and exact shader variants through the native service abstraction', async () => {
@@ -379,13 +398,49 @@ describe('NovelTea Phase 6 headless CLI', () => {
       ['--json', 'entity', 'create', 'rooms', 'hallway', '--dry-run'],
       options(value),
     );
-    expect(result.exitCode).toBe(3);
+    expect(result.exitCode).toBe(5);
     expect(JSON.parse(result.stdout).diagnostics[0].code).toBe(
       'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
     );
     expect(
       await value.fileSystem.inspect(`${root}/.noveltea/transactions/pending/manifest.json`),
     ).toBe('file');
+  });
+
+  it('uses the transaction/conflict exit family when workspace open is blocked by a writer', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(
+      `${root}/.noveltea/transactions/.writer-lock/owner.json`,
+      `${JSON.stringify({
+        ownerToken: 'other-owner',
+        pid: 999,
+        operationLabel: 'other writer',
+        transactionId: null,
+      })}\n`,
+    );
+
+    const result = await runNovelTeaCli(['--json', 'validate'], options(value));
+
+    expect(result.exitCode).toBe(5);
+    expect(JSON.parse(result.stdout).diagnostics[0].code).toBe('WORKSPACE_BUSY');
+  });
+
+  it('classifies unexpected mutation implementation failures as internal errors', async () => {
+    const value = fixture();
+    value.workspace.write = async () => {
+      throw new Error('unexpected writer bug');
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'create', 'rooms', 'hallway'],
+      options(value),
+    );
+
+    expect(result.exitCode).toBe(70);
+    expect(JSON.parse(result.stdout).diagnostics[0]).toMatchObject({
+      code: 'CLI_INTERNAL',
+      message: 'unexpected writer bug',
+    });
   });
 
   it('exposes one reusable Node-reference runner covering every Phase 6 command path', async () => {

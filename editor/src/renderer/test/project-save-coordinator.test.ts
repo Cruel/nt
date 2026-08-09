@@ -227,6 +227,65 @@ describe('project save coordinator', () => {
     });
   });
 
+  it('keeps the unit conflicted when Keep Mine loses its expected-revision race', async () => {
+    const saved = projectWithRooms();
+    saved.rooms.foyer!.label = 'Disk Foyer';
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Local Foyer';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Local Foyer' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+        externalConflict: {
+          baseValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Foyer' },
+          },
+          localValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Local Foyer' },
+          },
+          externalValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
+          },
+          conflictingPaths: ['/rooms/foyer/label'],
+          externalWorkspaceRevision: workspaceRevision,
+          externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
+        },
+      },
+    });
+    loadProject(saved, working, editorState);
+    vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      error: 'Project source changed on disk before this save could commit.',
+      diagnostics: [
+        {
+          code: 'WORKSPACE_REVISION_CONFLICT',
+          severity: 'error',
+          path: '/records/rooms/foyer.json',
+          message: 'Project source changed on disk before this save could commit.',
+        },
+      ],
+    });
+
+    const result = await saveConflictingSaveUnitKeepMine('record:rooms:foyer');
+
+    expect(result).toMatchObject({ success: false, status: 'failed' });
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { label: 'Local Foyer' } },
+    });
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { foyer: { label: 'Disk Foyer' } },
+    });
+    expect(
+      useProjectStore.getState().document &&
+        (useProjectStore.getState().document as { editor?: EditorProjectState }).editor?.recovery
+          .saveUnitsById['record:rooms:foyer']?.externalConflict,
+    ).toBeDefined();
+  });
+
   it('Use Disk discards only the conflicted save unit and keeps the external baseline', () => {
     const saved = projectWithRooms();
     saved.rooms.foyer!.label = 'Disk Foyer';

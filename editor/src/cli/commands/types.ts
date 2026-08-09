@@ -1,5 +1,9 @@
 import type { NovelTeaCliNativeToolService } from '../native-tool-service';
 import type { CliSemanticResult } from '../semantic-project';
+import {
+  isAuthoringCollectionKey,
+  type AuthoringCollectionKey,
+} from '../../shared/project-schema/authoring-collections';
 import type {
   LoadedProjectWorkspaceSnapshot,
   ProjectWorkspaceService,
@@ -27,6 +31,12 @@ export interface CliCommandInvocation {
 export interface CliCommandDefinition {
   readonly path: readonly string[];
   parse(arguments_: readonly string[]): CliCommandInvocation;
+}
+
+export function requireAuthoringCollection(value: string): AuthoringCollectionKey {
+  if (!isAuthoringCollectionKey(value))
+    throw new CliCommandUsageError(`Unknown collection '${value}'.`);
+  return value;
 }
 
 export function parseCommandFlags(

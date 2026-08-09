@@ -1,6 +1,6 @@
 import { usagesForEntity } from '../semantic-project';
 import type { CliCommandDefinition } from './types';
-import { CliCommandUsageError, parseCommandFlags } from './types';
+import { CliCommandUsageError, parseCommandFlags, requireAuthoringCollection } from './types';
 
 export const usagesCommand: CliCommandDefinition = {
   path: ['usages'],
@@ -8,7 +8,8 @@ export const usagesCommand: CliCommandDefinition = {
     const parsed = parseCommandFlags(arguments_, []);
     if (parsed.positionals.length !== 2)
       throw new CliCommandUsageError('Usage: noveltea usages <collection> <id>');
-    const [collection, id] = parsed.positionals;
+    const [collectionValue, id] = parsed.positionals;
+    const collection = requireAuthoringCollection(collectionValue!);
     return {
       dryRun: false,
       mutation: false,

@@ -1,6 +1,6 @@
 import { renameEntity } from '../semantic-project';
 import type { CliCommandDefinition } from './types';
-import { CliCommandUsageError, parseCommandFlags } from './types';
+import { CliCommandUsageError, parseCommandFlags, requireAuthoringCollection } from './types';
 
 export const entityRenameCommand: CliCommandDefinition = {
   path: ['entity', 'rename'],
@@ -13,7 +13,8 @@ export const entityRenameCommand: CliCommandDefinition = {
       throw new CliCommandUsageError(
         'Usage: noveltea entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]',
       );
-    const [collection, fromId, toId] = parsed.positionals;
+    const [collectionValue, fromId, toId] = parsed.positionals;
+    const collection = requireAuthoringCollection(collectionValue!);
     const dryRun = parsed.flags.has('--dry-run');
     const allowPossibleSourceReferences = parsed.flags.has('--allow-possible-source-references');
     return {

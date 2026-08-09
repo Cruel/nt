@@ -1,6 +1,6 @@
 import { deleteEntity } from '../semantic-project';
 import type { CliCommandDefinition } from './types';
-import { CliCommandUsageError, parseCommandFlags } from './types';
+import { CliCommandUsageError, parseCommandFlags, requireAuthoringCollection } from './types';
 
 export const entityDeleteCommand: CliCommandDefinition = {
   path: ['entity', 'delete'],
@@ -14,7 +14,8 @@ export const entityDeleteCommand: CliCommandDefinition = {
       throw new CliCommandUsageError(
         'Usage: noveltea entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]',
       );
-    const [collection, id] = parsed.positionals;
+    const [collectionValue, id] = parsed.positionals;
+    const collection = requireAuthoringCollection(collectionValue!);
     const dryRun = parsed.flags.has('--dry-run');
     const force = parsed.flags.has('--force');
     const allowPossibleSourceReferences = parsed.flags.has('--allow-possible-source-references');

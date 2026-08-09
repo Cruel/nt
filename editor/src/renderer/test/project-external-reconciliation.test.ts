@@ -25,14 +25,15 @@ function reconcile(
   localDocument: JsonValue,
   externalDocument: JsonValue,
   recoveryState: EditorRecoveryState,
+  externalRevision: `sha256:${string}` = REVISION,
 ) {
   return reconcileExternalProjectChange({
     baseDocument,
     localDocument,
     externalDocument,
     recovery: recoveryState,
-    externalWorkspaceRevision: REVISION,
-    externalFileRevisions: { 'records/rooms/hall.json': REVISION },
+    externalWorkspaceRevision: externalRevision,
+    externalFileRevisions: { 'records/rooms/hall.json': externalRevision },
   });
 }
 
@@ -86,5 +87,91 @@ describe('external project reconciliation', () => {
       value: 'Disk',
     });
     expect(conflict?.externalWorkspaceRevision).toBe(REVISION);
+  });
+
+  it('applies an external change to another dirty record without creating a conflict', () => {
+    const base = {
+      rooms: {
+        hall: { description: 'Old' },
+        kitchen: { description: 'Kitchen' },
+      },
+    };
+    const local = {
+      rooms: {
+        hall: { description: 'Local' },
+        kitchen: { description: 'Kitchen' },
+      },
+    };
+    const external = {
+      rooms: {
+        hall: { description: 'Old' },
+        kitchen: { description: 'External kitchen' },
+      },
+    };
+    const result = reconcile(base, local, external, recovery('/rooms/hall/description'));
+
+    expect(result.workingDocument).toEqual({
+      rooms: {
+        hall: { description: 'Local' },
+        kitchen: { description: 'External kitchen' },
+      },
+    });
+    expect(result.conflictingSaveUnitIds).toEqual([]);
+  });
+
+  it('treats external deletion of a dirty record as a conflict', () => {
+    const base = { rooms: { hall: { description: 'Old' } } };
+    const local = { rooms: { hall: { description: 'Local' } } };
+    const external = { rooms: {} };
+    const result = reconcile(base, local, external, recovery('/rooms/hall/description'));
+
+    expect(result.workingDocument).toEqual(local);
+    expect(result.savedDocument).toEqual(external);
+    expect(result.conflictingSaveUnitIds).toEqual(['record:rooms:hall']);
+    expect(result.conflictingPaths).toEqual(['/rooms/hall/description']);
+  });
+
+  it('treats competing array edits as a conservative conflict', () => {
+    const base = { rooms: { hall: { tags: ['a', 'b'] } } };
+    const local = { rooms: { hall: { tags: ['local', 'b'] } } };
+    const external = { rooms: { hall: { tags: ['b', 'a'] } } };
+    const result = reconcile(base, local, external, recovery('/rooms/hall/tags'));
+
+    expect(result.workingDocument).toEqual(local);
+    expect(result.conflictingSaveUnitIds).toEqual(['record:rooms:hall']);
+    expect(result.conflictingPaths).toEqual(['/rooms/hall/tags']);
+  });
+
+  it('re-conflicts against a newer external value while preserving the original common base', () => {
+    const newerRevision = `sha256:${'b'.repeat(64)}` as const;
+    const base = { rooms: { hall: { description: 'Old' } } };
+    const local = { rooms: { hall: { description: 'Local' } } };
+    const firstExternal = { rooms: { hall: { description: 'Disk 1' } } };
+    const first = reconcile(base, local, firstExternal, recovery('/rooms/hall/description'));
+    const secondExternal = { rooms: { hall: { description: 'Disk 2' } } };
+    const second = reconcile(
+      first.savedDocument,
+      first.workingDocument,
+      secondExternal,
+      first.recovery,
+      newerRevision,
+    );
+    const conflict = second.recovery.saveUnitsById['record:rooms:hall']?.externalConflict;
+
+    expect(second.workingDocument).toEqual(local);
+    expect(second.savedDocument).toEqual(secondExternal);
+    expect(conflict?.baseValueByPath['/rooms/hall/description']).toEqual({
+      exists: true,
+      value: 'Old',
+    });
+    expect(conflict?.localValueByPath['/rooms/hall/description']).toEqual({
+      exists: true,
+      value: 'Local',
+    });
+    expect(conflict?.externalValueByPath['/rooms/hall/description']).toEqual({
+      exists: true,
+      value: 'Disk 2',
+    });
+    expect(conflict?.externalWorkspaceRevision).toBe(newerRevision);
   });
 });

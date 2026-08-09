@@ -114,9 +114,21 @@ function failure(
 }
 
 function semanticExitCode(diagnostics: readonly NovelTeaCliDiagnostic[]): NovelTeaCliExitCode {
+  if (diagnostics.some((item) => item.code === 'CLI_USAGE')) return NOVELTEA_CLI_EXIT_CODES.usage;
   return diagnostics.some((item) => item.code.startsWith('native.'))
     ? NOVELTEA_CLI_EXIT_CODES.native
     : NOVELTEA_CLI_EXIT_CODES.semantic;
+}
+
+function workspaceOpenExitCode(diagnostics: readonly NovelTeaCliDiagnostic[]): NovelTeaCliExitCode {
+  return diagnostics.some(
+    (item) =>
+      item.code === 'WORKSPACE_REVISION_CONFLICT' ||
+      item.code === 'WORKSPACE_BUSY' ||
+      item.code === 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
+  )
+    ? NOVELTEA_CLI_EXIT_CODES.mutation
+    : NOVELTEA_CLI_EXIT_CODES.workspace;
 }
 
 async function resolvedProjectRoot(
@@ -201,7 +213,7 @@ export async function runNovelTeaCli(
     readOnly: command.dryRun,
   });
   if (!opened.ok)
-    return failure(NOVELTEA_CLI_EXIT_CODES.workspace, opened.diagnostics, globals.json, {
+    return failure(workspaceOpenExitCode(opened.diagnostics), opened.diagnostics, globals.json, {
       projectRoot: discovery.projectRoot,
     });
 
@@ -243,14 +255,8 @@ export async function runNovelTeaCli(
     }
     const message = error instanceof Error ? error.message : String(error);
     return failure(
-      command.mutation ? NOVELTEA_CLI_EXIT_CODES.mutation : NOVELTEA_CLI_EXIT_CODES.internal,
-      [
-        cliDiagnostic(
-          command.mutation ? 'WORKSPACE_REVISION_CONFLICT' : 'CLI_INTERNAL',
-          '/',
-          message,
-        ),
-      ],
+      NOVELTEA_CLI_EXIT_CODES.internal,
+      [cliDiagnostic('CLI_INTERNAL', '/', message)],
       globals.json,
       { projectRoot: discovery.projectRoot },
     );
