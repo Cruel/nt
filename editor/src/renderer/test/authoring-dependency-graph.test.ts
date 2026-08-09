@@ -191,6 +191,7 @@ describe('authoring dependency graph contribution assembly', () => {
     const base = contribution('room', [node('rooms', 'foyer')]);
     const occurrence = {
       sourcePath: '/rooms/foyer/data/composeLua',
+      sourceUrl: 'authoring:/rooms/foyer/data/composeLua',
       sourceContentHash: `sha256:${'0'.repeat(64)}` as const,
       regionOrdinal: 0,
       regionStartUtf16: 0,

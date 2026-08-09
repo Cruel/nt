@@ -35,6 +35,7 @@ import { defaultShaderData } from '../../shared/project-schema/authoring-shaders
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { sha256HexUtf8 } from '../../shared/sha256';
+import type { AuthoringSourceReferenceRecognizer } from '../../shared/authoring-source-references';
 
 const hash = (digit: string) => `sha256:${digit.repeat(64)}` as const;
 
@@ -122,6 +123,22 @@ describe('RML Lua extraction', () => {
       'room-main',
       '<tag>&quot;',
     ]);
+  });
+
+  it('reports event-attribute source evidence at physical file coordinates', () => {
+    const artifact = analyzeAuthoringSourceContent({
+      sourceUrl: 'project:/ui/layout.rml',
+      kind: 'rml',
+      text: `<rml>\n  <button onclick="open('room-main')">Go</button>\n</rml>`,
+    });
+    expect(artifact.literalOccurrences).toContainEqual(
+      expect.objectContaining({
+        sourceUrl: 'project:/ui/layout.rml',
+        decodedValue: 'room-main',
+        line: 2,
+        column: 25,
+      }),
+    );
   });
 
   it('recognizes direct listener/load strings with parent provenance', () => {
@@ -479,6 +496,69 @@ describe('typed source registry and graph evidence', () => {
         (edge) =>
           edge.evidence?.[0]?.kind === 'lua-occurrence' &&
           edge.evidence[0].occurrence.candidateTargets.length === 2,
+      ),
+    ).toBe(true);
+  });
+
+  it('allows a future recognizer to promote one occurrence without changing graph algorithms', () => {
+    const project = fixture();
+    project.startupHook = { source: `local target = 'shared'` };
+    const sources: LuaSourceSnapshot = {
+      entriesByAssetId: new Map([
+        [
+          'script-file',
+          {
+            status: 'ready',
+            assetId: 'script-file',
+            projectRelativePath: 'scripts/main.lua',
+            contentHash: hash('1'),
+            text: `local unrelated = 'shared'`,
+            hadUtf8Bom: false,
+          },
+        ],
+      ]),
+    };
+    const recognizer: AuthoringSourceReferenceRecognizer = {
+      id: 'test.future-reference',
+      recognize: ({ occurrence }) =>
+        occurrence.decodedValue === 'shared' && occurrence.sourceUrl === 'authoring:inline-lua'
+          ? {
+              classification: 'exact-rewriteable',
+              target: { kind: 'record', collection: 'rooms', id: 'shared' },
+              rewriteRange: {
+                startUtf16: occurrence.regionStartUtf16 + 1,
+                endUtf16: occurrence.regionEndUtf16 - 1,
+                expectedText: 'shared',
+              },
+            }
+          : null,
+    };
+    const lexical = buildAuthoringDependencyGraph(project, { mode: 'enabled', sources });
+    const recognized = buildAuthoringDependencyGraph(project, { mode: 'enabled', sources }, [
+      recognizer,
+    ]);
+    expect(
+      [...lexical.edgesById.values()].some(
+        (edge) =>
+          edge.target.kind === 'record' &&
+          edge.target.collection === 'rooms' &&
+          edge.target.id === 'shared' &&
+          edge.role === 'lua-possible-reference',
+      ),
+    ).toBe(true);
+    expect(
+      [...recognized.edgesById.values()].some(
+        (edge) =>
+          edge.target.kind === 'record' &&
+          edge.target.collection === 'rooms' &&
+          edge.target.id === 'shared' &&
+          edge.role === 'lua-recognized-reference' &&
+          edge.evidence?.some(
+            (evidence) =>
+              evidence.kind === 'lua-occurrence' &&
+              evidence.classification === 'exact-rewriteable' &&
+              evidence.recognizedBy === 'test.future-reference',
+          ),
       ),
     ).toBe(true);
   });

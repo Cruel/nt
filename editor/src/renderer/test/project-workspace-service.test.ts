@@ -6,6 +6,7 @@ import {
   InMemoryProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
   compareProjectWorkspaceUnicodeCodePoints,
+  createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 
@@ -189,6 +190,58 @@ describe('ProjectWorkspaceService', () => {
       });
   });
 
+  it('indexes file-backed Script Module and Layout source through Project Search', async () => {
+    const project = createAuthoringProject();
+    project.scripts.bootstrap = {
+      id: 'bootstrap',
+      label: 'Bootstrap',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'inline-lua', source: `local marker = 'script-search-marker'\n` },
+      },
+    };
+    const layout = defaultLayoutData('HUD');
+    layout.rml.sourceText = '<rml><body>layout-search-marker</body></rml>';
+    layout.rcss.sourceText = '.hud { content: "rcss-search-marker"; }';
+    layout.lua.sourceText = `local marker = 'layout-lua-search-marker'`;
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const projected = projectWorkspaceFiles(project, project.editor);
+    const service = new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(
+        Object.fromEntries(
+          Object.entries(projected).map(([file, text]) => [`/project/${file}`, text]),
+        ),
+      ),
+    );
+    const opened = await service.open('/project');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const documents = service.buildSearchIndex(opened.snapshot).documents;
+    expect(documents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'source:project:/scripts/bootstrap.lua',
+          sourcePath: 'project:/scripts/bootstrap.lua',
+          fields: expect.arrayContaining([
+            expect.objectContaining({ value: expect.stringContaining('script-search-marker') }),
+          ]),
+        }),
+        expect.objectContaining({
+          id: 'source:project:/records/layouts/hud/layout.rml',
+          sourcePath: 'project:/records/layouts/hud/layout.rml',
+        }),
+        expect.objectContaining({
+          id: 'source:project:/records/layouts/hud/layout.rcss',
+          sourcePath: 'project:/records/layouts/hud/layout.rcss',
+        }),
+        expect.objectContaining({
+          id: 'source:project:/records/layouts/hud/layout.lua',
+          sourcePath: 'project:/records/layouts/hud/layout.lua',
+        }),
+      ]),
+    );
+  });
+
   it('publishes the compiler input from an assembled workspace snapshot', async () => {
     const service = new ProjectWorkspaceService(new InMemoryProjectWorkspaceFileSystem(filesFor()));
     const opened = await service.open('/projects/headless');
@@ -235,6 +288,65 @@ describe('ProjectWorkspaceService', () => {
     const reloaded = await workspace.open('/project');
     expect(reloaded.ok && reloaded.snapshot.scriptSourcePaths.bootstrap).toBe(
       'scripts/custom/bootstrap-entry.lua',
+    );
+  });
+
+  it('does not replace asset-backed source identities with workspace companion paths', () => {
+    const project = createAuthoringProject();
+    project.assets.script = {
+      id: 'script',
+      label: 'Script',
+      data: {
+        kind: 'script',
+        source: { type: 'project-file', path: 'assets/lua/shared.lua' },
+        aliases: [],
+        extension: '.lua',
+        imageMetadata: null,
+      },
+    } as never;
+    project.assets.rml = {
+      id: 'rml',
+      label: 'RML',
+      data: {
+        kind: 'text',
+        source: { type: 'project-file', path: 'assets/ui/shared.rml' },
+        aliases: [],
+        extension: '.rml',
+        imageMetadata: null,
+      },
+    } as never;
+    project.scripts.bootstrap = {
+      id: 'bootstrap',
+      label: 'Bootstrap',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'script' } } },
+      },
+    } as never;
+    const layout = defaultLayoutData('HUD');
+    layout.rml = {
+      sourceMode: 'asset',
+      sourceText: '',
+      sourceAsset: { $ref: { collection: 'assets', id: 'rml' } },
+    };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout } as never;
+
+    const snapshot = createProjectWorkspaceSnapshot(project, {
+      bootstrap: 'scripts/custom/bootstrap.lua',
+    });
+    expect(snapshot.externalSourceDescriptors).toContainEqual(
+      expect.objectContaining({
+        semanticOwner: { kind: 'record', collection: 'scripts', id: 'bootstrap' },
+        sourceAssetId: 'script',
+        sourceUrl: 'project:/assets/lua/shared.lua',
+      }),
+    );
+    expect(snapshot.externalSourceDescriptors).toContainEqual(
+      expect.objectContaining({
+        semanticOwner: { kind: 'record', collection: 'layouts', id: 'hud' },
+        sourceAssetId: 'rml',
+        sourceUrl: 'project:/assets/ui/shared.rml',
+      }),
     );
   });
 

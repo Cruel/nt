@@ -46,6 +46,11 @@ import {
   collectAuthoringLuaSources,
   type AuthoringLuaSourceDescriptor,
 } from './authoring-source-analysis';
+import {
+  AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
+  classifyRecognizedAuthoringSourceReference,
+  type AuthoringSourceReferenceRecognizer,
+} from './authoring-source-references';
 
 export interface AuthoringStructuralAdapterDeclaration {
   collection: AuthoringCollectionKey;
@@ -2008,12 +2013,34 @@ export function projectAuthoringLiteralEvidence(
   return candidates ? { ...occurrence, confidence: 'lexical', candidateTargets: candidates } : null;
 }
 
+export function classifyAuthoringLiteralEvidence(
+  project: AuthoringProject,
+  occurrence: import('./project-schema/authoring-lua-analysis').AuthoringLiteralOccurrence,
+  region: import('./project-schema/authoring-lua-analysis').EmbeddedLuaSourceRegion,
+  recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
+  symbolProjection: ReadonlyMap<
+    string,
+    readonly AuthoringDependencyNodeKey[]
+  > = buildLuaSymbolProjection(project),
+) {
+  const recognized = classifyRecognizedAuthoringSourceReference(
+    { project, occurrence, region },
+    recognizers,
+  );
+  if (recognized) return recognized;
+  const lexical = projectAuthoringLiteralEvidence(project, occurrence, symbolProjection);
+  return lexical
+    ? { classification: 'possible-lexical' as const, occurrence: lexical }
+    : { classification: 'unrelated' as const, occurrence };
+}
+
 function addLuaEvidenceToContribution(
   project: AuthoringProject,
   base: AuthoringDependencyGraphContribution,
   descriptors: readonly AuthoringLuaSourceDescriptor[],
   analyses: readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[],
   lexicalEnabled: boolean,
+  recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
 ): AuthoringDependencyGraphContribution {
   const edges = [...base.edges];
   const diagnostics = [...base.diagnostics];
@@ -2161,14 +2188,34 @@ function addLuaEvidenceToContribution(
       diagnostics.push(...analysis.diagnostics);
       literals.push(...analysis.literalOccurrences);
       for (const occurrence of analysis.literalOccurrences) {
-        const projected = projectAuthoringLiteralEvidence(project, occurrence, symbolProjection);
-        if (!projected) continue;
+        const region = analysis.regions.find(
+          (candidate) =>
+            candidate.regionOrdinal === occurrence.regionOrdinal &&
+            candidate.sourcePath === occurrence.sourcePath &&
+            candidate.sourceUrl === occurrence.sourceUrl,
+        );
+        if (!region) continue;
+        const classified = classifyAuthoringLiteralEvidence(
+          project,
+          occurrence,
+          region,
+          recognizers,
+          symbolProjection,
+        );
+        if (classified.classification === 'unrelated') continue;
+        const projected =
+          classified.occurrence as LuaReferenceOccurrence<AuthoringDependencyNodeKey>;
         const descriptor =
           descriptors.find((item) => item.sourcePath === occurrence.sourcePath) ??
           descriptors.find((item) => item.sourceKind === 'rml' && item.layoutId !== undefined);
         if (!descriptor) continue;
         for (const target of projected.candidateTargets) {
-          const facets = luaFacets(descriptor, target, ['validation']);
+          const exact = classified.classification !== 'possible-lexical';
+          const facets = luaFacets(
+            descriptor,
+            target,
+            exact ? ['tooling-reference', 'validation'] : ['validation'],
+          );
           edges.push(
             structuralEdge(
               descriptor.semanticOwner,
@@ -2176,14 +2223,33 @@ function addLuaEvidenceToContribution(
               occurrence.sourcePath,
               luaTargetPath(target),
               {
-                role: 'lua-possible-reference',
+                role: exact ? 'lua-recognized-reference' : 'lua-possible-reference',
                 facets,
                 targetImpactPaths:
                   facets.includes('preview-visual') || facets.includes('preview-ui')
                     ? focusedQueryTargetImpactPaths(target)
                     : [],
-                repair: { kind: 'warning-only', reason: 'Lexical Lua candidate.' },
-                evidence: [{ kind: 'lua-occurrence', occurrence: projected }],
+                repair:
+                  classified.classification === 'exact-manual'
+                    ? {
+                        kind: 'blocked',
+                        reason: 'Recognized source reference must be updated manually.',
+                      }
+                    : classified.classification === 'exact-rewriteable'
+                      ? {
+                          kind: 'warning-only',
+                          reason: 'Recognized source reference is safely rewriteable.',
+                        }
+                      : { kind: 'warning-only', reason: 'Lexical Lua candidate.' },
+                evidence: [
+                  {
+                    kind: 'lua-occurrence',
+                    occurrence: projected,
+                    classification: classified.classification,
+                    ...(classified.recognizedBy ? { recognizedBy: classified.recognizedBy } : {}),
+                    ...(classified.rewriteRange ? { rewriteRange: classified.rewriteRange } : {}),
+                  },
+                ],
               },
             ),
           );
@@ -2213,10 +2279,18 @@ function deriveAuthoringDependencyContributionFromPrepared(
   descriptors: readonly AuthoringLuaSourceDescriptor[],
   analyses: readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[],
   lexicalEnabled: boolean,
+  recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
 ): AuthoringDependencyGraphContribution | null {
   const base = deriveStructuralContributionByKey(project, contributionKey);
   return base
-    ? addLuaEvidenceToContribution(project, base, descriptors, analyses, lexicalEnabled)
+    ? addLuaEvidenceToContribution(
+        project,
+        base,
+        descriptors,
+        analyses,
+        lexicalEnabled,
+        recognizers,
+      )
     : null;
 }
 
@@ -2224,6 +2298,7 @@ export function reprojectAuthoringDependencyContributionFromCachedSources(
   project: AuthoringProject,
   contributionKey: string,
   analyses: readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[],
+  recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
 ): AuthoringDependencyGraphContribution | null {
   return deriveAuthoringDependencyContributionFromPrepared(
     project,
@@ -2231,12 +2306,14 @@ export function reprojectAuthoringDependencyContributionFromCachedSources(
     collectAuthoringLuaSources(project, new Set([contributionKey])),
     analyses,
     true,
+    recognizers,
   );
 }
 
 export function buildAuthoringDependencyGraphContributionSet(
   project: AuthoringProject,
   luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
+  recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
 ): AuthoringDependencyGraphContributionSet {
   const descriptorsByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
   for (const descriptor of collectAuthoringLuaSources(project)) {
@@ -2259,6 +2336,7 @@ export function buildAuthoringDependencyGraphContributionSet(
         descriptorsByKey.get(contributionKey) ?? [],
         analyses.get(contributionKey) ?? [],
         luaAnalysis.mode === 'enabled',
+        recognizers,
       );
       if (!contribution)
         throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);
@@ -2270,9 +2348,10 @@ export function buildAuthoringDependencyGraphContributionSet(
 export function buildAuthoringDependencyGraph(
   project: AuthoringProject,
   luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
+  recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
 ): AuthoringDependencyGraph {
   return assembleAuthoringDependencyGraph(
-    buildAuthoringDependencyGraphContributionSet(project, luaAnalysis),
+    buildAuthoringDependencyGraphContributionSet(project, luaAnalysis, recognizers),
   );
 }
 

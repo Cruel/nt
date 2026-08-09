@@ -119,6 +119,7 @@ function roomClosure(
       if (
         edge.role === 'room-exit-target' ||
         edge.role === 'lua-possible-reference' ||
+        edge.role === 'lua-recognized-reference' ||
         edge.role === 'lua-explicit-reference'
       )
         continue;
@@ -389,7 +390,12 @@ function admissionTargets(
   >();
   for (const edgeId of closure.edgeIds) {
     const edge = snapshot.graph.edgesById.get(edgeId);
-    if (!edge || !['lua-possible-reference', 'lua-explicit-reference'].includes(edge.role))
+    if (
+      !edge ||
+      !['lua-possible-reference', 'lua-recognized-reference', 'lua-explicit-reference'].includes(
+        edge.role,
+      )
+    )
       continue;
     if (!edge.facets.includes('preview-visual') && !edge.facets.includes('preview-ui')) continue;
     const propertyId = edge.detail?.propertyId;
@@ -453,7 +459,12 @@ function compositionDraftTargets(
   );
   const targets: AdmissionTarget[] = [];
   for (const edge of snapshot.graph.edgesById.values()) {
-    if (!['lua-possible-reference', 'lua-explicit-reference'].includes(edge.role)) continue;
+    if (
+      !['lua-possible-reference', 'lua-recognized-reference', 'lua-explicit-reference'].includes(
+        edge.role,
+      )
+    )
+      continue;
     const fromComposition =
       compositionSourcePaths.has(edge.sourcePath) ||
       edge.evidence?.some(

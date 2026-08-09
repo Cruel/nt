@@ -13,6 +13,10 @@ inputs. `editor/src/shared/project-schema/authoring-lua-source-registry.ts` owns
 Lua execution-surface and explicit-fallback-owner registry.
 `editor/src/shared/authoring-source-analysis.ts` owns source enumeration over that registry,
 content artifacts, owner projection, external-source closure, and literal indexing.
+`editor/src/shared/authoring-source-references.ts` owns the semantic source-reference recognizer
+extension boundary. Its production registry is intentionally empty until a concrete Lua/RML API is
+designed; adding an API-specific recognizer must not require changes to graph assembly or mutation
+algorithms.
 `buildAuthoringStructuralDependencyGraph(project)` is exactly the assembly of
 `buildAuthoringStructuralDependencyGraphContributionSet(project)`.
 
@@ -54,6 +58,21 @@ condition/text/effect variants, Scene and Dialogue `run-lua`, Verbs, Interaction
 other schemas that embed those shared variants. Shader and ordinary Asset source text are not Lua
 owners. Content analysis is owner-neutral and cached by exact content plus URI base; semantic-owner
 binding supplies authoring paths and ownership without relexing.
+
+File-backed Layout and Script Module occurrences retain a canonical
+`project:/<project-relative-path>` source URL through content analysis, owner binding, graph evidence,
+diagnostics, Find Usages, and Project Search. Host absolute paths are never graph/search identities.
+Asset-backed Layout/Script sources retain the canonical `project:/` URL of the referenced Asset
+source and are never relabeled as owning-record companion files.
+Source diagnostics retain their source URL and exact line/column when the analyzer has a concrete
+source location.
+
+Every source occurrence admitted as reference evidence is classified as exactly one of
+`exact-rewriteable`, `exact-manual`, `possible-lexical`, or `unrelated`. Recognizers run before the
+generic lexical symbol projection. An ID-shaped string match alone remains `possible-lexical`; only
+an explicitly registered semantic recognizer may promote it to an exact typed edge. An
+`exact-rewriteable` recognizer must supply an exact UTF-16 source range plus expected text so rename
+can fail closed if the analyzed source no longer matches.
 
 The same registry classifies the limited authoring locations that support
 `additionalDependencies`. Validation, explicit graph-edge derivation, and focused-preview facets do
@@ -158,6 +177,11 @@ references from that snapshot rather than rebuilding a graph during render. Sema
 also expose role labels, precise nested-target labels, Lua source locations, and stable grouping for
 ambiguous lexical occurrences.
 
+Workspace-backed Project Search adds materialized Layout RML/RCSS/Lua and Script Module Lua files as
+ordinary source subdocuments using the same canonical `project:/` identities. This keeps editor
+search and future headless consumers on one search implementation instead of introducing a second
+grep/index path.
+
 Rename, ordinary delete, Force Delete, Room-placement deletion, and delete-and-repair are
 revision-gated at command dispatch. A missing, updating, stale, or wrong-project snapshot fails
 closed. Possible Lua references produce warnings without blocking. Explicit Lua fallback references
@@ -181,3 +205,9 @@ Lua fallbacks remain blocked rather than being rewritten. Replacement patches ar
 role-specific repair descriptor whose path and value encoding are known. A generic reference role
 without an explicit safe encoding is `blocked`; it must never guess a `$ref`, string, flow-target, or
 other authoring value shape.
+
+Recognized exact source references participate in the same revision-gated preflight. Rename rewrites
+only `exact-rewriteable` source ranges and structured references; it verifies the expected source text
+again before emitting patches. `exact-manual` source references require explicit
+rename-without-rewrite confirmation and ordinary-delete protection. `possible-lexical` references are
+surfaced with canonical file/line evidence but are never rewritten or treated as exact ownership.

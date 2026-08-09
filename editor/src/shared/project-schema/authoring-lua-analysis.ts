@@ -96,6 +96,7 @@ export interface EmbeddedLuaSourceRegion<TOwner = unknown> {
   semanticOwner: TOwner;
   sourceKind: EmbeddedLuaSourceKind;
   sourcePath: string;
+  sourceUrl: string;
   sourceAssetId?: string;
   containerContentHash: `sha256:${string}`;
   regionOrdinal: number;
@@ -106,6 +107,7 @@ export interface EmbeddedLuaSourceRegion<TOwner = unknown> {
 }
 export interface AuthoringLiteralOccurrence {
   sourcePath: string;
+  sourceUrl: string;
   sourceAssetId?: string;
   sourceContentHash: `sha256:${string}`;
   regionOrdinal: number;
@@ -122,18 +124,14 @@ export interface LuaReferenceOccurrence<TTarget = unknown> extends AuthoringLite
   confidence: 'lexical' | 'api-context';
   candidateTargets: readonly TTarget[];
 }
-export interface OwnerNeutralEmbeddedLuaSourceRegion extends Omit<
+export type OwnerNeutralEmbeddedLuaSourceRegion = Omit<
   EmbeddedLuaSourceRegion,
   'semanticOwner' | 'sourcePath' | 'sourceAssetId'
-> {
-  sourceUrl: string;
-}
-export interface OwnerNeutralLiteralOccurrence extends Omit<
+>;
+export type OwnerNeutralLiteralOccurrence = Omit<
   AuthoringLiteralOccurrence,
   'sourcePath' | 'sourceAssetId'
-> {
-  sourceUrl: string;
-}
+>;
 export interface OwnerNeutralSourceDiagnostic {
   code: string;
   severity: 'warning' | 'error';

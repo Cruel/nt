@@ -20,6 +20,18 @@ export interface ProjectSearchIndex {
   assetAliasIndex: AssetAliasIndex;
 }
 
+export interface ProjectSearchExternalSource {
+  sourceUrl: string;
+  text: string;
+  sourceKind: 'lua' | 'rml' | 'rcss';
+  collection: AuthoringCollectionKey;
+  entityId: string;
+}
+
+export interface BuildProjectSearchIndexOptions {
+  externalSources?: readonly ProjectSearchExternalSource[];
+}
+
 function escapePathSegment(segment: string): string {
   return segment.replaceAll('~', '~0').replaceAll('/', '~1');
 }
@@ -180,7 +192,10 @@ function fieldsForProjectSettings(project: AuthoringProject): ProjectSearchField
   return fields;
 }
 
-export function buildProjectSearchIndex(project: AuthoringProject): ProjectSearchIndex {
+export function buildProjectSearchIndex(
+  project: AuthoringProject,
+  options: BuildProjectSearchIndexOptions = {},
+): ProjectSearchIndex {
   const referenceIndex = buildReferenceIndexFromGraph(
     project,
     buildAuthoringStructuralDependencyGraph(project),
@@ -234,6 +249,31 @@ export function buildProjectSearchIndex(project: AuthoringProject): ProjectSearc
         assetAliasUsages: assetAliasesBySource.get(key) ?? [],
       });
     }
+  }
+  for (const source of options.externalSources ?? []) {
+    documents.push({
+      id: `source:${source.sourceUrl}`,
+      kind: 'subdocument',
+      collection: source.collection,
+      entityId: source.entityId,
+      label: source.sourceUrl.startsWith('project:/')
+        ? source.sourceUrl.slice('project:/'.length)
+        : source.sourceUrl,
+      sourcePath: source.sourceUrl,
+      fields: [
+        {
+          kind: source.sourceKind === 'lua' ? 'script' : 'content',
+          label: source.sourceKind.toUpperCase(),
+          value: source.text,
+          path: source.sourceUrl,
+          weight: 1,
+          defaultSearchable: true,
+        },
+      ],
+      facets: { collection: source.collection, tags: [] },
+      references: [],
+      assetAliasUsages: [],
+    });
   }
   return { documents, referenceIndex, assetAliasIndex };
 }

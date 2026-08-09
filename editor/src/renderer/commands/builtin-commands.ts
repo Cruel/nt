@@ -618,6 +618,66 @@ function preflightWarningsResult(
   };
 }
 
+function exactSourceRewritePatches(
+  document: unknown,
+  preflight: Extract<ReturnType<typeof preflightGraphCommand>, { kind: 'ready' }>,
+  replacementId: string,
+): CommandHandlerResult {
+  const json = toJsonValue(document);
+  const byPath = new Map<
+    string,
+    Array<{ startUtf16: number; endUtf16: number; expectedText: string }>
+  >();
+  for (const usage of preflight.usages) {
+    if (usage.sourceReferenceClassification !== 'exact-rewriteable') continue;
+    const ranges = byPath.get(usage.edge.sourcePath) ?? [];
+    for (const evidence of usage.edge.evidence ?? []) {
+      if (
+        evidence.kind !== 'lua-occurrence' ||
+        evidence.classification !== 'exact-rewriteable' ||
+        !evidence.rewriteRange
+      )
+        continue;
+      ranges.push(evidence.rewriteRange);
+    }
+    byPath.set(usage.edge.sourcePath, ranges);
+  }
+  const patches: JsonPatchOperation[] = [];
+  for (const [path, ranges] of byPath) {
+    const value = getJsonAtPointer(json, path);
+    if (typeof value !== 'string') {
+      return {
+        patches: [],
+        diagnostics: [error('Recognized source rewrite target is not text.', path)],
+      };
+    }
+    let rewritten = value;
+    const ordered = [...ranges].sort((a, b) => b.startUtf16 - a.startUtf16);
+    let previousStart = rewritten.length + 1;
+    for (const range of ordered) {
+      if (
+        range.startUtf16 < 0 ||
+        range.endUtf16 < range.startUtf16 ||
+        range.endUtf16 > rewritten.length ||
+        range.endUtf16 > previousStart ||
+        rewritten.slice(range.startUtf16, range.endUtf16) !== range.expectedText
+      ) {
+        return {
+          patches: [],
+          diagnostics: [
+            error('Recognized source rewrite range no longer matches the analyzed source.', path),
+          ],
+        };
+      }
+      rewritten =
+        rewritten.slice(0, range.startUtf16) + replacementId + rewritten.slice(range.endUtf16);
+      previousStart = range.startUtf16;
+    }
+    if (rewritten !== value) patches.push({ op: 'replace', path, value: rewritten });
+  }
+  return { patches, affectedPaths: patches.map((patch) => patch.path) };
+}
+
 function parseEntityCommand<T>(
   schema: z.ZodType<T>,
   payload: unknown,
@@ -981,12 +1041,23 @@ export const entityRenameIdCommand: CommandHandler = ({
       if (preflight.kind === 'blocked') {
         return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
       }
+      const sourceRewrites = exactSourceRewritePatches(document, preflight, parsed.toId);
+      if (sourceRewrites.diagnostics?.some((diagnostic) => diagnostic.severity === 'error'))
+        return sourceRewrites;
+      const renamed = renameEntityIdPatches(
+        applyJsonPatch(toJsonValue(document), sourceRewrites.patches).document,
+        parsed as never,
+        commandReferenceIndex(document, graphSnapshot ?? null),
+      );
       return preflightWarningsResult(
-        renameEntityIdPatches(
-          document,
-          parsed as never,
-          commandReferenceIndex(document, graphSnapshot ?? null),
-        ),
+        {
+          ...renamed,
+          patches: [...sourceRewrites.patches, ...renamed.patches],
+          affectedPaths: [
+            ...(sourceRewrites.affectedPaths ?? []),
+            ...(renamed.affectedPaths ?? []),
+          ],
+        },
         preflight,
       );
     })(),

@@ -657,6 +657,25 @@ function extractRmlRegions(
   const diagnostics: AuthoringDependencyGraphDiagnostic[] = [];
   const parsedScripts: { inline: boolean }[] = [];
   const parser = new SaxesParser({ xmlns: false, position: true });
+  parser.on('attribute', (attribute) => {
+    const name = attribute.name.toLowerCase();
+    if (!/^on[\p{L}_:][\p{L}\p{N}_.:-]*$/u.test(name)) return;
+    const closingQuoteOffset = parser.position - 1;
+    const quote = text[closingQuoteOffset];
+    const openingQuoteOffset =
+      quote === '"' || quote === "'" ? text.lastIndexOf(quote, closingQuoteOffset - 1) : -1;
+    const location = locationAt(
+      text,
+      openingQuoteOffset >= 0 ? openingQuoteOffset + 1 : Math.max(0, parser.position),
+    );
+    regions.push({
+      kind: 'rml-event-attribute',
+      text: attribute.value,
+      ...location,
+      sourceUrl,
+      embeddedDepth: 0,
+    });
+  });
   parser.on('opentag', (tag: SaxesTag) => {
     const normalizedAttributes = Object.fromEntries(
       Object.entries(tag.attributes).map(([name, value]) => [
@@ -669,22 +688,6 @@ function extractRmlRegions(
       !(tag as SaxesTag & { isSelfClosing?: boolean }).isSelfClosing
     )
       parsedScripts.push({ inline: !Object.hasOwn(normalizedAttributes, 'src') });
-    for (const [attributeName, attributeValue] of Object.entries(tag.attributes)) {
-      const attribute =
-        typeof attributeValue === 'string'
-          ? { name: attributeName, value: attributeValue }
-          : attributeValue;
-      const name = attribute.name.toLowerCase();
-      if (/^on[\p{L}_:][\p{L}\p{N}_.:-]*$/u.test(name))
-        regions.push({
-          kind: 'rml-event-attribute',
-          text: attribute.value,
-          line: parser.line + 1,
-          column: parser.column + 1,
-          sourceUrl,
-          embeddedDepth: 0,
-        });
-    }
   });
   parser.on('error', (error) =>
     diagnostics.push({
@@ -692,6 +695,9 @@ function extractRmlRegions(
       code: 'authoring.lua.rml_parse',
       path: '',
       message: error.message,
+      sourceUrl,
+      line: parser.line,
+      column: parser.column + 1,
     }),
   );
   try {
@@ -836,11 +842,13 @@ function nestedStringRegions(region: RawRegion, parentOrdinal: number): RawRegio
     const argument = args?.[callee.value === 'AddEventListener' ? 1 : 0];
     if (argument?.length !== 1 || argument[0].kind !== 'string') continue;
     const literal = argument[0].literal;
+    const line = region.line + literal.line - 1;
+    const column = literal.line === 1 ? region.column + literal.column - 1 : literal.column;
     result.push({
       kind: callee.value === 'AddEventListener' ? 'lua-listener-string' : 'lua-load-string',
       text: literal.decodedValue,
-      line: literal.line,
-      column: literal.column,
+      line,
+      column,
       sourceUrl: region.sourceUrl,
       parentRegionOrdinal: parentOrdinal,
       embeddedDepth: region.embeddedDepth + 1,
@@ -936,6 +944,8 @@ export function analyzeAuthoringSourceContent(input: {
     for (const literal of lexed.literals)
       literals.push({
         ...literal,
+        line: region.line + literal.line - 1,
+        column: literal.line === 1 ? region.column + literal.column - 1 : literal.column,
         sourceUrl: region.sourceUrl,
         sourceContentHash: contentHash,
         regionOrdinal,
@@ -981,6 +991,9 @@ export function bindAuthoringSourceOwner(
         code: diagnostic.code,
         path: descriptor.sourcePath,
         message: diagnostic.message,
+        sourceUrl: diagnostic.sourceUrl,
+        ...(diagnostic.line === undefined ? {} : { line: diagnostic.line }),
+        ...(diagnostic.column === undefined ? {} : { column: diagnostic.column }),
       })),
     );
   }

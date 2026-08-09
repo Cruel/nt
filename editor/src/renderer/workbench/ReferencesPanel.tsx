@@ -37,6 +37,8 @@ export function ReferencesPanel() {
   if (!result) {
     return <p className="p-3 text-xs text-muted-foreground">No Find Usages result yet.</p>;
   }
+  const sourceReferenceRows = result.usageRows.filter((row) => row.kind === 'source-reference');
+  const structuredRows = result.usageRows.filter((row) => row.kind !== 'source-reference');
 
   return (
     <div className="space-y-3 p-3 text-xs">
@@ -95,13 +97,13 @@ export function ReferencesPanel() {
             </div>
           ))}
         </div>
-      ) : result.usageRows.length === 0 ? (
+      ) : structuredRows.length === 0 && sourceReferenceRows.length === 0 ? (
         <p className="rounded border p-3 text-muted-foreground">
           No references point to this record.
         </p>
-      ) : (
+      ) : structuredRows.length > 0 ? (
         <div className="space-y-2">
-          {result.usageRows.map((row, index) => {
+          {structuredRows.map((row, index) => {
             const usage = row.usage;
             const sourceCollection = usage.sourceCollection;
             const sourceId = usage.sourceId;
@@ -137,7 +139,43 @@ export function ReferencesPanel() {
             );
           })}
         </div>
-      )}
+      ) : null}
+      {sourceReferenceRows.length > 0 ? (
+        <div className="space-y-2">
+          {sourceReferenceRows.map((row, index) => {
+            const usage = row.usage;
+            const source = usage.edge.source;
+            return (
+              <div key={`${usage.edgeId}-${index}`} className="rounded border p-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{usage.sourceReferenceClassification}</Badge>
+                  <span className="font-mono text-muted-foreground">{usage.sourcePath}</span>
+                  {source.kind === 'record' ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto h-6 px-2 text-[11px]"
+                      onClick={() => {
+                        const tab = buildDefaultRecordTab(
+                          nodeForUsage(source.collection, source.id),
+                        );
+                        if (tab) openTab(tab);
+                      }}
+                    >
+                      Open owner
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                  {usage.sourceLocation
+                    ? `${usage.sourcePath}:${usage.sourceLocation.line}:${usage.sourceLocation.column}`
+                    : usage.sourcePath}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }

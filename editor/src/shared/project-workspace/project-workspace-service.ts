@@ -12,6 +12,7 @@ import {
 } from '../compiled-artifact-publication';
 import {
   buildProjectSearchIndex,
+  type ProjectSearchExternalSource,
   type ProjectSearchIndex,
 } from '../project-search/project-search-index';
 import {
@@ -409,7 +410,8 @@ function externalDescriptors(
 ): readonly AuthoringLuaSourceDescriptor[] {
   return collectAuthoringLuaSources(project).map((descriptor) => {
     const match = descriptor.sourcePath.match(/^\/(scripts|layouts)\/([^/]+)/);
-    if (!match) return descriptor;
+    if (!match || descriptor.sourceAssetId || descriptor.inlineText === undefined)
+      return descriptor;
     const [, collection, id] = match;
     if (collection === 'scripts')
       return {
@@ -436,6 +438,45 @@ function externalDescriptors(
         }
       : descriptor;
   });
+}
+
+function externalSearchSources(
+  project: AuthoringProject,
+  descriptors: readonly AuthoringLuaSourceDescriptor[],
+): readonly ProjectSearchExternalSource[] {
+  const sources = new Map<string, ProjectSearchExternalSource>();
+  for (const descriptor of descriptors) {
+    if (
+      !descriptor.sourceUrl.startsWith('project:/') ||
+      descriptor.inlineText === undefined ||
+      descriptor.semanticOwner.kind !== 'record' ||
+      (descriptor.semanticOwner.collection !== 'layouts' &&
+        descriptor.semanticOwner.collection !== 'scripts')
+    )
+      continue;
+    sources.set(descriptor.sourceUrl, {
+      sourceUrl: descriptor.sourceUrl,
+      text: descriptor.inlineText,
+      sourceKind: descriptor.sourceKind,
+      collection: descriptor.semanticOwner.collection,
+      entityId: descriptor.semanticOwner.id,
+    });
+  }
+  for (const [id, record] of Object.entries(project.layouts)) {
+    const rcss = record.data.rcss;
+    if (rcss.sourceMode !== 'inline') continue;
+    const sourceUrl = `project:/${layoutFile(id, 'rcss')}`;
+    sources.set(sourceUrl, {
+      sourceUrl,
+      text: rcss.sourceText,
+      sourceKind: 'rcss',
+      collection: 'layouts',
+      entityId: id,
+    });
+  }
+  return Object.freeze(
+    [...sources.values()].sort((a, b) => a.sourceUrl.localeCompare(b.sourceUrl)),
+  );
 }
 
 /** Projection is the only writer for tracked workspace files. */
@@ -1040,7 +1081,9 @@ export class ProjectWorkspaceService {
     );
   }
   buildSearchIndex(snapshot: ProjectWorkspaceSnapshot): ProjectSearchIndex {
-    return buildProjectSearchIndex(snapshot.project);
+    return buildProjectSearchIndex(snapshot.project, {
+      externalSources: externalSearchSources(snapshot.project, snapshot.externalSourceDescriptors),
+    });
   }
 }
 export const publishProjectWorkspaceSnapshot = (snapshot: ProjectWorkspaceSnapshot) =>
@@ -1070,4 +1113,6 @@ export const collectProjectWorkspaceLuaSources = (
       )
     : snapshot.externalSourceDescriptors;
 export const buildProjectWorkspaceSearchIndex = (snapshot: ProjectWorkspaceSnapshot) =>
-  buildProjectSearchIndex(snapshot.project);
+  buildProjectSearchIndex(snapshot.project, {
+    externalSources: externalSearchSources(snapshot.project, snapshot.externalSourceDescriptors),
+  });

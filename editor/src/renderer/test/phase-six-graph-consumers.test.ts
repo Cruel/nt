@@ -8,7 +8,11 @@ import {
   preflightRoomPlacementDeletion,
   semanticUsagesForTarget,
 } from '../project/authoring-graph-consumers';
-import { assetDeleteAssetCommand, projectRemoveAtPathCommand } from '../commands/builtin-commands';
+import {
+  assetDeleteAssetCommand,
+  entityRenameIdCommand,
+  projectRemoveAtPathCommand,
+} from '../commands/builtin-commands';
 import { useCommandStore } from '../commands/command-store';
 import { useProjectStore } from '../project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -65,8 +69,10 @@ function edge(
         ? [
             {
               kind: 'lua-occurrence',
+              classification: 'possible-lexical',
               occurrence: {
                 sourcePath: '/scripts/startup/data/source',
+                sourceUrl: 'project:/scripts/startup.lua',
                 sourceContentHash: `sha256:${'0'.repeat(64)}`,
                 regionOrdinal: 0,
                 regionStartUtf16: 0,
@@ -138,7 +144,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     expect(usages[0]).toMatchObject({
       label: 'Lua Possible Reference',
       sourceLocation: { line: 4, column: 12, endLine: 4, endColumn: 18 },
-      ambiguousGroup: '/scripts/startup/data/source:/rooms/hall',
+      ambiguousGroup: 'project:/scripts/startup.lua:/rooms/hall',
     });
     expect(
       preflightGraphCommand({
@@ -174,6 +180,186 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     });
     expect(preflightGraphCommand({ ...base, operation: 'delete', force: true })).toMatchObject({
       kind: 'ready',
+    });
+  });
+
+  it('rewrites only exact recognized source ranges during entity rename', () => {
+    const project = createAuthoringProject();
+    project.rooms.shared = {
+      id: 'shared',
+      label: 'Shared',
+      data: defaultRoomData('Shared'),
+    };
+    project.startupHook = { source: `future_ref('shared'); local note = 'shared'` };
+    const target = { kind: 'record', collection: 'rooms', id: 'shared' } as const;
+    const exact: AuthoringDependencyEdge = {
+      ...edge('exact:1', 'lua-recognized-reference', target),
+      source: { kind: 'project-field', path: '/startupHook' },
+      sourcePath: '/startupHook/source',
+      repair: {
+        kind: 'warning-only',
+        reason: 'Recognized source reference is safely rewriteable.',
+      },
+      evidence: [
+        {
+          kind: 'lua-occurrence',
+          classification: 'exact-rewriteable',
+          recognizedBy: 'test.future-reference',
+          rewriteRange: { startUtf16: 12, endUtf16: 18, expectedText: 'shared' },
+          occurrence: {
+            sourcePath: '/startupHook/source',
+            sourceUrl: 'project:/project.json',
+            sourceContentHash: `sha256:${'1'.repeat(64)}`,
+            regionOrdinal: 0,
+            regionStartUtf16: 11,
+            regionEndUtf16: 19,
+            line: 1,
+            column: 12,
+            rawLiteral: "'shared'",
+            decodedValue: 'shared',
+            literalKind: 'single-quoted',
+            sourceKind: 'lua-field',
+            confidence: 'api-context',
+            candidateTargets: [target],
+          },
+        },
+      ],
+    };
+    const possible: AuthoringDependencyEdge = {
+      ...edge('possible:2', 'lua-possible-reference', target),
+      source: { kind: 'project-field', path: '/startupHook' },
+      sourcePath: '/startupHook/source',
+      evidence: [
+        {
+          kind: 'lua-occurrence',
+          classification: 'possible-lexical',
+          occurrence: {
+            sourcePath: '/startupHook/source',
+            sourceUrl: 'project:/project.json',
+            sourceContentHash: `sha256:${'1'.repeat(64)}`,
+            regionOrdinal: 0,
+            regionStartUtf16: 34,
+            regionEndUtf16: 42,
+            line: 1,
+            column: 35,
+            rawLiteral: "'shared'",
+            decodedValue: 'shared',
+            literalKind: 'single-quoted',
+            sourceKind: 'lua-field',
+            confidence: 'lexical',
+            candidateTargets: [target],
+          },
+        },
+      ],
+    };
+    const result = entityRenameIdCommand({
+      document: toJsonValue(project),
+      savedDocument: null,
+      payload: { collection: 'rooms', fromId: 'shared', toId: 'renamed' },
+      request: {} as never,
+      graphSnapshot: snapshot([exact, possible]),
+      projectInstanceId: 'project:phase-six',
+      projectRevision: 7,
+    });
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        message: expect.stringContaining('possible Lua'),
+      }),
+    ]);
+    expect(result.patches).toContainEqual({
+      op: 'replace',
+      path: '/startupHook/source',
+      value: `future_ref('renamed'); local note = 'shared'`,
+    });
+    expect(
+      preflightGraphCommand({
+        snapshot: snapshot([exact]),
+        projectInstanceId: 'project:phase-six',
+        projectRevision: 7,
+        target,
+        operation: 'delete',
+      }),
+    ).toMatchObject({ kind: 'blocked' });
+  });
+
+  it('rewrites every exact occurrence collapsed into one graph edge', () => {
+    const project = createAuthoringProject();
+    project.rooms.shared = {
+      id: 'shared',
+      label: 'Shared',
+      data: defaultRoomData('Shared'),
+    };
+    project.startupHook = { source: `future_ref('shared'); future_ref('shared')` };
+    const target = { kind: 'record', collection: 'rooms', id: 'shared' } as const;
+    const exact: AuthoringDependencyEdge = {
+      ...edge('exact:collapsed', 'lua-recognized-reference', target),
+      source: { kind: 'project-field', path: '/startupHook' },
+      sourcePath: '/startupHook/source',
+      repair: {
+        kind: 'warning-only',
+        reason: 'Recognized source reference is safely rewriteable.',
+      },
+      evidence: [
+        {
+          kind: 'lua-occurrence',
+          classification: 'exact-rewriteable',
+          recognizedBy: 'test.future-reference',
+          rewriteRange: { startUtf16: 12, endUtf16: 18, expectedText: 'shared' },
+          occurrence: {
+            sourcePath: '/startupHook/source',
+            sourceUrl: 'project:/project.json',
+            sourceContentHash: `sha256:${'1'.repeat(64)}`,
+            regionOrdinal: 0,
+            regionStartUtf16: 11,
+            regionEndUtf16: 19,
+            line: 1,
+            column: 12,
+            rawLiteral: "'shared'",
+            decodedValue: 'shared',
+            literalKind: 'single-quoted',
+            sourceKind: 'lua-field',
+            confidence: 'api-context',
+            candidateTargets: [target],
+          },
+        },
+        {
+          kind: 'lua-occurrence',
+          classification: 'exact-rewriteable',
+          recognizedBy: 'test.future-reference',
+          rewriteRange: { startUtf16: 34, endUtf16: 40, expectedText: 'shared' },
+          occurrence: {
+            sourcePath: '/startupHook/source',
+            sourceUrl: 'project:/project.json',
+            sourceContentHash: `sha256:${'1'.repeat(64)}`,
+            regionOrdinal: 0,
+            regionStartUtf16: 33,
+            regionEndUtf16: 41,
+            line: 1,
+            column: 34,
+            rawLiteral: "'shared'",
+            decodedValue: 'shared',
+            literalKind: 'single-quoted',
+            sourceKind: 'lua-field',
+            confidence: 'api-context',
+            candidateTargets: [target],
+          },
+        },
+      ],
+    };
+    const result = entityRenameIdCommand({
+      document: toJsonValue(project),
+      savedDocument: null,
+      payload: { collection: 'rooms', fromId: 'shared', toId: 'renamed' },
+      request: {} as never,
+      graphSnapshot: snapshot([exact]),
+      projectInstanceId: 'project:phase-six',
+      projectRevision: 7,
+    });
+    expect(result.patches).toContainEqual({
+      op: 'replace',
+      path: '/startupHook/source',
+      value: `future_ref('renamed'); future_ref('renamed')`,
     });
   });
 

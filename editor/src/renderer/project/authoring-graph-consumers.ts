@@ -18,6 +18,8 @@ export interface SemanticGraphUsage {
   sourceLabel: string;
   targetLabel: string;
   sourcePath: string;
+  sourceUrl?: string;
+  sourceReferenceClassification?: 'exact-rewriteable' | 'exact-manual' | 'possible-lexical';
   sourceLocation?: { line: number; column: number; endLine: number; endColumn: number };
   ambiguousGroup?: string;
   edge: AuthoringDependencyEdge;
@@ -70,6 +72,11 @@ function occurrenceLocation(edge: AuthoringDependencyEdge) {
   };
 }
 
+function occurrenceEvidence(edge: AuthoringDependencyEdge) {
+  const evidence = edge.evidence?.find((item) => item.kind === 'lua-occurrence');
+  return evidence?.kind === 'lua-occurrence' ? evidence : undefined;
+}
+
 export function semanticUsagesForTarget(
   snapshot: AuthoringDependencyGraphSnapshot,
   target: ReferenceTarget | AuthoringDependencyNodeKey,
@@ -79,16 +86,21 @@ export function semanticUsagesForTarget(
     .filter((edge) => keyEquals(edge.target, key))
     .map((edge) => {
       const sourceLocation = occurrenceLocation(edge);
+      const occurrence = occurrenceEvidence(edge);
       return {
         edgeId: edge.id,
         role: edge.role,
         label: roleLabel(edge.role),
         sourceLabel: nodeLabel(snapshot, edge.source),
         targetLabel: nodeLabel(snapshot, edge.target),
-        sourcePath: edge.sourcePath,
+        sourcePath: occurrence?.occurrence.sourceUrl ?? edge.sourcePath,
+        ...(occurrence ? { sourceUrl: occurrence.occurrence.sourceUrl } : {}),
+        ...(occurrence ? { sourceReferenceClassification: occurrence.classification } : {}),
         ...(sourceLocation ? { sourceLocation } : {}),
         ...(edge.role === 'lua-possible-reference'
-          ? { ambiguousGroup: `${edge.sourcePath}:${edge.targetPath}` }
+          ? {
+              ambiguousGroup: `${occurrence?.occurrence.sourceUrl ?? edge.sourcePath}:${edge.targetPath}`,
+            }
           : {}),
         edge,
       } satisfies SemanticGraphUsage;
@@ -138,18 +150,26 @@ export function preflightGraphCommand(input: {
   }
   const usages = semanticUsagesForTarget(input.snapshot, input.target);
   const explicit = usages.filter((usage) => usage.role === 'lua-explicit-reference');
+  const exactSource = usages.filter(
+    (usage) =>
+      usage.sourceReferenceClassification === 'exact-rewriteable' ||
+      usage.sourceReferenceClassification === 'exact-manual',
+  );
+  const exactManual = usages.filter(
+    (usage) => usage.sourceReferenceClassification === 'exact-manual',
+  );
   const possible = usages.filter((usage) => usage.role === 'lua-possible-reference');
-  if (input.operation === 'delete' && !input.force && explicit.length > 0) {
+  if (input.operation === 'delete' && !input.force && explicit.length + exactSource.length > 0) {
     return {
       kind: 'blocked',
       reason:
-        'Deletion is blocked by explicit Lua fallback references. Use Force Delete to continue.',
+        'Deletion is blocked by exact source references that require manual repair. Use Force Delete to continue.',
       usages,
     };
   }
   if (
     input.operation === 'rename' &&
-    explicit.length > 0 &&
+    explicit.length + exactManual.length > 0 &&
     !input.confirmRenameWithoutLuaRewrite
   ) {
     return {

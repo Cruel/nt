@@ -48,6 +48,7 @@ import {
 import { referenceTargetFromEntity } from '@/project/entity-operations';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { semanticUsagesForTarget } from '@/project/authoring-graph-consumers';
 import {
   authoringRepairEdgesForTarget,
   generateAuthoringRepairPlan,
@@ -788,7 +789,10 @@ function ExplorerContextMenu({
   showAlert: (alert: ExplorerAlert) => void;
 }) {
   const openTab = useWorkbenchStore((store) => store.openTab);
-  const setSearchResults = useEntityUsagesStore((store) => store.setSearchResults);
+  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
+  const setSearchAndSourceResults = useEntityUsagesStore(
+    (store) => store.setSearchAndSourceResults,
+  );
   const setActiveBottomPanel = useBottomPanelStore((store) => store.setActivePanelId);
   const setStatusMessage = useWorkspaceStore((store) => store.setStatusMessage);
   const setActiveNodeId = useProjectExplorerStore((store) => store.setActiveNodeId);
@@ -907,18 +911,21 @@ function ExplorerContextMenu({
     const record = activeProject[collection][node.entityId];
     const aliases =
       collection === 'assets' && record ? parseAssetData(record.data)?.aliases : undefined;
-    setSearchResults(
-      target,
-      searchProjectWorkspaceSnapshot(
-        createProjectWorkspaceSnapshot(activeProject, useProjectStore.getState().scriptSourcePaths),
-        {
-          referencesTo: [target],
-          aliases,
-          tokenMode: 'all',
-          sort: { kind: 'label' },
-        },
-      ).results,
-    );
+    const searchResults = searchProjectWorkspaceSnapshot(
+      createProjectWorkspaceSnapshot(activeProject, useProjectStore.getState().scriptSourcePaths),
+      {
+        referencesTo: [target],
+        aliases,
+        tokenMode: 'all',
+        sort: { kind: 'label' },
+      },
+    ).results;
+    const sourceUsages = graphSnapshot
+      ? semanticUsagesForTarget(graphSnapshot, target).filter(
+          (usage) => usage.sourceReferenceClassification !== undefined,
+        )
+      : [];
+    setSearchAndSourceResults(target, searchResults, sourceUsages);
     setActiveBottomPanel('references');
   }
 

@@ -3,6 +3,10 @@ import type {
   AuthoringLiteralOccurrence,
   LuaReferenceOccurrence,
 } from './project-schema/authoring-lua-analysis';
+import type {
+  AuthoringSourceReferenceClassification,
+  AuthoringSourceReferenceRewriteRange,
+} from './authoring-source-references';
 import type { JsonPointer } from './json-pointer';
 
 export type AuthoringDependencyNodeKey =
@@ -73,6 +77,7 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'hotspot-source-image',
   'hotspot-context',
   'lua-possible-reference',
+  'lua-recognized-reference',
   'lua-explicit-reference',
   'system-layout',
   'default-font',
@@ -88,7 +93,13 @@ export type AuthoringReferenceRepairPolicy =
   | { kind: 'warning-only'; reason: string }
   | { kind: 'blocked'; reason: string };
 export type AuthoringDependencyEvidence =
-  | { kind: 'lua-occurrence'; occurrence: LuaReferenceOccurrence<AuthoringDependencyNodeKey> }
+  | {
+      kind: 'lua-occurrence';
+      occurrence: LuaReferenceOccurrence<AuthoringDependencyNodeKey>;
+      classification: Exclude<AuthoringSourceReferenceClassification, 'unrelated'>;
+      recognizedBy?: string;
+      rewriteRange?: AuthoringSourceReferenceRewriteRange;
+    }
   | { kind: 'explicit-lua-fallback'; declarationPath: JsonPointer };
 export interface AuthoringDependencyEdge {
   id: string;
@@ -114,6 +125,9 @@ export interface AuthoringDependencyGraphDiagnostic {
   code: string;
   path: JsonPointer;
   message: string;
+  sourceUrl?: string;
+  line?: number;
+  column?: number;
 }
 export type AuthoringDependencyContributionKey = string;
 export type AuthoringDependencyDerivationKey = string;
