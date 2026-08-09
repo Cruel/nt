@@ -70,6 +70,17 @@ void RuntimeUiActionGateway::commit(RuntimeUiGameplayValues values) noexcept
 
 void RuntimeUiActionGateway::clear_gameplay_values() { m_values.reset(); }
 
+void RuntimeUiActionGateway::set_shell_slots(
+    const std::vector<core::RuntimeShellSaveSlotView>& slots)
+{
+    m_shell_slots.clear();
+    m_shell_slots.reserve(slots.size());
+    for (const auto& slot : slots)
+        m_shell_slots.push_back({slot.slot, slot.occupied});
+}
+
+void RuntimeUiActionGateway::clear_shell_slots() noexcept { m_shell_slots.clear(); }
+
 const core::TypedRuntimeUIViewState* RuntimeUiActionGateway::view() const noexcept
 {
     return m_values ? &m_values->view : nullptr;
@@ -154,6 +165,15 @@ bool RuntimeUiActionGateway::require_view()
 {
     return view() != nullptr ||
            invalid("runtime_ui.view_unavailable", "Typed runtime view is unavailable");
+}
+
+const RuntimeUiActionGateway::ShellSlotState*
+RuntimeUiActionGateway::shell_slot(core::TypedSaveSlotId slot) const noexcept
+{
+    const auto found =
+        std::find_if(m_shell_slots.begin(), m_shell_slots.end(),
+                     [slot](const ShellSlotState& state) { return state.slot == slot; });
+    return found == m_shell_slots.end() ? nullptr : &*found;
 }
 
 bool RuntimeUiActionGateway::action_continue()
@@ -328,27 +348,37 @@ bool RuntimeUiActionGateway::action_save_slot(std::uint64_t number)
     if (number > std::numeric_limits<std::uint32_t>::max())
         return invalid("runtime_ui.invalid_save_slot",
                        "Save slot number must be a valid manual slot");
-    return dispatch_shell_command(core::RuntimeShellCommand{core::SaveShellSlotCommand{
-        core::TypedSaveSlotId::manual(static_cast<std::uint32_t>(number))}});
+    const auto slot = core::TypedSaveSlotId::manual(static_cast<std::uint32_t>(number));
+    if (!shell_slot(slot))
+        return invalid("runtime_ui.invalid_save_slot",
+                       "Save slot is not exposed by the current shell state");
+    return dispatch_shell_command(core::RuntimeShellCommand{core::SaveShellSlotCommand{slot}});
 }
 
 bool RuntimeUiActionGateway::action_load_slot(std::string kind, std::uint64_t number)
 {
+    core::TypedSaveSlotId slot = core::TypedSaveSlotId::autosave();
     if (kind == "autosave") {
         if (number != 0)
             return invalid("runtime_ui.invalid_load_slot", "Autosave slot number must be zero");
-        return dispatch_shell_command(core::RuntimeShellCommand{
-            core::RequestLoadShellSlotCommand{core::TypedSaveSlotId::autosave()}});
-    }
-    if (kind == "manual") {
+    } else if (kind == "manual") {
         if (number > std::numeric_limits<std::uint32_t>::max())
             return invalid("runtime_ui.invalid_load_slot",
                            "Load slot number must be a valid manual slot");
-        return dispatch_shell_command(core::RuntimeShellCommand{core::RequestLoadShellSlotCommand{
-            core::TypedSaveSlotId::manual(static_cast<std::uint32_t>(number))}});
+        slot = core::TypedSaveSlotId::manual(static_cast<std::uint32_t>(number));
+    } else {
+        return invalid("runtime_ui.invalid_load_slot_kind",
+                       "Load slot kind must be autosave or manual");
     }
-    return invalid("runtime_ui.invalid_load_slot_kind",
-                   "Load slot kind must be autosave or manual");
+
+    const auto* state = shell_slot(slot);
+    if (!state)
+        return invalid("runtime_ui.invalid_load_slot",
+                       "Load slot is not exposed by the current shell state");
+    if (!state->occupied)
+        return invalid("runtime_ui.invalid_load_slot", "Load slot is not occupied");
+    return dispatch_shell_command(
+        core::RuntimeShellCommand{core::RequestLoadShellSlotCommand{slot}});
 }
 
 void RuntimeUiActionGateway::install_lua_api()

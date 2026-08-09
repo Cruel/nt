@@ -171,8 +171,9 @@ shell_cancel()
 ```
 
 `ui_choose` accepts only `scene` or `dialogue`. `ui_toggle_subject` accepts only `character` or
-`interactable`. `shell_load_slot` accepts `autosave` only with number zero or `manual` with a valid
-manual slot number. `shell_save_slot` accepts only a valid manual slot number. Invalid kinds,
+`interactable`. `shell_save_slot` accepts only manual slots exposed by the current shell slot state.
+`shell_load_slot` accepts `autosave` only with number zero or `manual` with an exposed manual slot,
+and the selected slot must currently be occupied. Invalid kinds, hidden/unexposed or empty slots,
 numbers, stale IDs, hidden/disabled targets, disallowed Layout contexts, and malformed arguments do
 not dispatch typed commands.
 

@@ -148,6 +148,50 @@ TEST_CASE(
     CHECK(sink.gameplay_inputs == 1);
 }
 
+TEST_CASE("RuntimeUiActionGateway validates save and load actions against current shell slots")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::RuntimeUiActionGateway gateway(diagnostics);
+    RecordingRuntimeUiInputSink sink;
+    gateway.bind_input_sink(&sink);
+
+    const std::vector<noveltea::core::RuntimeShellSaveSlotView> slots{
+        {.slot = noveltea::core::TypedSaveSlotId::autosave(), .occupied = true},
+        {.slot = noveltea::core::TypedSaveSlotId::manual(1), .occupied = false},
+        {.slot = noveltea::core::TypedSaveSlotId::manual(2), .occupied = true},
+    };
+    gateway.set_shell_slots(slots);
+
+    CHECK(gateway.action_save_slot(1));
+    CHECK(sink.shell_commands == 1);
+    REQUIRE(sink.last_shell_command);
+    CHECK(*sink.last_shell_command ==
+          noveltea::core::RuntimeShellCommand{
+              noveltea::core::SaveShellSlotCommand{noveltea::core::TypedSaveSlotId::manual(1)}});
+
+    CHECK_FALSE(gateway.action_save_slot(0));
+    CHECK_FALSE(gateway.action_save_slot(9));
+    CHECK(sink.shell_commands == 1);
+    REQUIRE_FALSE(diagnostics.empty());
+    CHECK(diagnostics.back().code == "runtime_ui.invalid_save_slot");
+
+    CHECK(gateway.action_load_slot("autosave", 0));
+    CHECK(gateway.action_load_slot("manual", 2));
+    CHECK(sink.shell_commands == 3);
+
+    CHECK_FALSE(gateway.action_load_slot("manual", 1));
+    CHECK_FALSE(gateway.action_load_slot("manual", 9));
+    CHECK_FALSE(gateway.action_load_slot("autosave", 1));
+    CHECK(sink.shell_commands == 3);
+    REQUIRE_FALSE(diagnostics.empty());
+    CHECK(diagnostics.back().code == "runtime_ui.invalid_load_slot");
+
+    gateway.clear_shell_slots();
+    CHECK_FALSE(gateway.action_save_slot(1));
+    CHECK_FALSE(gateway.action_load_slot("manual", 2));
+    CHECK(sink.shell_commands == 3);
+}
+
 TEST_CASE("RuntimeUiActionGateway Lua API dispatches exact hotspot activation")
 {
     noveltea::core::Diagnostics diagnostics;

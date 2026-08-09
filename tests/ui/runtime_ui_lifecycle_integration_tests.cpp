@@ -325,8 +325,11 @@ constexpr const char* kDataModelCallbackDocument = R"RML(
 
     <button id="shell-save-missing" data-event-click="shell_save_slot()">Bad save</button>
     <button id="shell-save-invalid-type" data-event-click="shell_save_slot('bad')">Bad save type</button>
+    <button id="shell-save-hidden" data-event-click="shell_save_slot(9)">Hidden save</button>
     <button id="shell-load-missing-number" data-event-click="shell_load_slot('autosave')">Bad load</button>
     <button id="shell-load-invalid-kind" data-event-click="shell_load_slot('unknown', 0)">Bad load kind</button>
+    <button id="shell-load-hidden" data-event-click="shell_load_slot('manual', 9)">Hidden load</button>
+    <button id="shell-load-empty" data-event-click="shell_load_slot('manual', 7)">Empty load</button>
   </body>
 </rml>
 )RML";
@@ -635,6 +638,14 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     REQUIRE(fixture.initialize());
     ui.bind_input_sink(&input_sink);
 
+    noveltea::core::RuntimeShellViewState shell_view;
+    shell_view.slots = {
+        {.slot = noveltea::core::TypedSaveSlotId::autosave(), .occupied = true},
+        {.slot = noveltea::core::TypedSaveSlotId::manual(7), .occupied = false},
+        {.slot = noveltea::core::TypedSaveSlotId::manual(8), .occupied = true},
+    };
+    ui.apply_runtime_shell_view(shell_view);
+
     const auto scene = noveltea::core::SceneId::create("scene");
     const auto step = noveltea::core::SceneStepId::create("step");
     const auto scene_choice = noveltea::core::SceneChoiceOptionId::create("scene-enabled");
@@ -765,8 +776,14 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     const auto shell_commands_before_invalid = input_sink.shell_commands;
     dispatch("shell-save-missing");
     dispatch("shell-save-invalid-type");
+    dispatch("shell-save-hidden");
     dispatch("shell-load-missing-number");
     dispatch("shell-load-invalid-kind");
+    dispatch("shell-load-hidden");
+    dispatch("shell-load-empty");
+    REQUIRE(luaL_dostring(fixture.lua_state(), "assert(not Game.shell.save(9))") == LUA_OK);
+    REQUIRE(luaL_dostring(fixture.lua_state(), "assert(not Game.shell.load(9))") == LUA_OK);
+    REQUIRE(luaL_dostring(fixture.lua_state(), "assert(not Game.shell.load(7))") == LUA_OK);
     CHECK(input_sink.shell_commands == shell_commands_before_invalid);
 }
 

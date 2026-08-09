@@ -191,6 +191,7 @@ struct RuntimeUI::State {
     void remove_shell_lua_api() noexcept;
     void refresh_text_log_map();
     void refresh_data_model_shell();
+    void refresh_action_gateway_shell_slots();
     [[nodiscard]] std::optional<std::string>
     system_document_id(core::compiled::SystemLayoutRole role) const;
     [[nodiscard]] Rml::ElementDocument*
@@ -250,6 +251,16 @@ void RuntimeUI::State::refresh_data_model_shell()
         thumbnail_urls.push_back("project:/generated/shell/" + filename);
     }
     data_model->set_shell(*runtime_shell_view, thumbnail_urls);
+}
+
+void RuntimeUI::State::refresh_action_gateway_shell_slots()
+{
+    if (!action_gateway)
+        return;
+    if (runtime_shell_view)
+        action_gateway->set_shell_slots(runtime_shell_view->slots);
+    else
+        action_gateway->clear_shell_slots();
 }
 
 Rml::Context* RuntimeUI::State::context_for(ContextKey key)
@@ -372,16 +383,13 @@ void RuntimeUI::State::install_shell_lua_api()
         return dispatch_shell_command(core::RuntimeShellCommand{core::RequestQuitShellCommand{}});
     });
     shell.set_function("save", [this](std::uint32_t slot) {
-        return dispatch_shell_command(core::RuntimeShellCommand{
-            core::SaveShellSlotCommand{core::TypedSaveSlotId::manual(slot)}});
+        return action_gateway && action_gateway->action_save_slot(slot);
     });
     shell.set_function("load", [this](std::uint32_t slot) {
-        return dispatch_shell_command(core::RuntimeShellCommand{
-            core::RequestLoadShellSlotCommand{core::TypedSaveSlotId::manual(slot)}});
+        return action_gateway && action_gateway->action_load_slot("manual", slot);
     });
     shell.set_function("load_autosave", [this]() {
-        return dispatch_shell_command(core::RuntimeShellCommand{
-            core::RequestLoadShellSlotCommand{core::TypedSaveSlotId::autosave()}});
+        return action_gateway && action_gateway->action_load_slot("autosave", 0);
     });
     shell.set_function("set_ui_scale", [this](double scale) {
         return dispatch_shell_command(
@@ -637,6 +645,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
         m_state->action_gateway =
             std::make_unique<ui::rmlui::RuntimeUiActionGateway>(m_state->typed_diagnostics);
     m_state->action_gateway->set_lua_state(m_state->lua_state);
+    m_state->refresh_action_gateway_shell_slots();
     if (!m_state->data_model) {
         m_state->data_model =
             std::make_unique<ui::rmlui::RuntimeUiDataModel>(*m_state->action_gateway);
@@ -1082,6 +1091,7 @@ void RuntimeUI::bind_input_sink(RuntimeUiInputSink* sink) noexcept
             std::make_unique<ui::rmlui::RuntimeUiActionGateway>(m_state->typed_diagnostics);
         m_state->action_gateway->set_lua_state(m_state->lua_state);
     }
+    m_state->refresh_action_gateway_shell_slots();
     m_state->action_gateway->bind_input_sink(sink);
     if (sink) {
         m_state->install_shell_lua_api();
@@ -1098,6 +1108,7 @@ bool RuntimeUI::apply_gameplay_ui_values(const RuntimeUiGameplayValues& values)
             std::make_unique<ui::rmlui::RuntimeUiActionGateway>(m_state->typed_diagnostics);
         m_state->action_gateway->set_lua_state(m_state->lua_state);
     }
+    m_state->refresh_action_gateway_shell_slots();
     if (!m_state->action_gateway->apply(values))
         return false;
     if (m_state->data_model)
@@ -1118,6 +1129,7 @@ RuntimeUI::prepare_gameplay_ui_values(RuntimeUiGameplayValues values)
             std::make_unique<ui::rmlui::RuntimeUiActionGateway>(m_state->typed_diagnostics);
         m_state->action_gateway->set_lua_state(m_state->lua_state);
     }
+    m_state->refresh_action_gateway_shell_slots();
     if (!m_state->action_gateway->can_apply(values)) {
         return core::Result<RuntimeUiGameplayValues, core::Diagnostics>::failure({{
             .code = "runtime_ui.stale_gameplay_values",
@@ -1136,6 +1148,7 @@ void RuntimeUI::commit_gameplay_ui_values(RuntimeUiGameplayValues values) noexce
             std::make_unique<ui::rmlui::RuntimeUiActionGateway>(m_state->typed_diagnostics);
         m_state->action_gateway->set_lua_state(m_state->lua_state);
     }
+    m_state->refresh_action_gateway_shell_slots();
     m_state->action_gateway->commit(values);
     if (m_state->data_model)
         m_state->data_model->set_gameplay(values, m_state->typed_notification);
@@ -1200,6 +1213,7 @@ void RuntimeUI::apply_runtime_shell_view(core::RuntimeShellViewState view)
     if (!m_state)
         return;
     m_state->runtime_shell_view = std::move(view);
+    m_state->refresh_action_gateway_shell_slots();
     m_state->refresh_data_model_shell();
     m_state->refresh_text_log_map();
 }
@@ -1209,6 +1223,7 @@ void RuntimeUI::clear_runtime_shell_view()
     if (!m_state)
         return;
     m_state->runtime_shell_view.reset();
+    m_state->refresh_action_gateway_shell_slots();
     m_state->refresh_data_model_shell();
     m_state->refresh_text_log_map();
 }
@@ -1254,6 +1269,7 @@ void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)
             std::make_unique<ui::rmlui::RuntimeUiActionGateway>(m_state->typed_diagnostics);
         m_state->action_gateway->set_lua_state(m_state->lua_state);
     }
+    m_state->refresh_action_gateway_shell_slots();
     m_state->action_gateway->bind_layout_gameplay_admission(std::move(admission));
 }
 

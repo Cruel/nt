@@ -33,10 +33,12 @@ before any document in that context is loaded. Full documents and Fragments opt 
 `data-model="noveltea"`; system role is not required and does not inject hidden model attributes.
 
 The private `RuntimeUiActionGateway` consumes exactly one revisioned `RuntimeUiGameplayValues`
-subview. It owns stale-revision rejection, current gameplay-view retention, `Game.ui.*` installation,
-typed action validation, mounted-Layout gameplay admission, ordered event capture, and typed gameplay
-input/shell-command dispatch through the host-provided seam. RmlUi model callbacks and equivalent Lua
-helpers converge on these same named native action methods rather than duplicating validation.
+subview plus the current published shell-slot availability summary. It owns stale-revision rejection,
+current gameplay-view retention, `Game.ui.*` installation, typed action validation (including exposed
+save-slot membership and occupied load targets), mounted-Layout gameplay admission, ordered event
+capture, and typed gameplay input/shell-command dispatch through the host-provided seam. RmlUi model
+callbacks and equivalent Lua helpers converge on these same named native action methods rather than
+duplicating validation.
 
 RuntimeUI projects Scene/Dialogue choices, Room exits/placements/controls, inventory, Text Log,
 selection, Continue state, title metadata, settings/checkpoint/save-slot shell state, and other
