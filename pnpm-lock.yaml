@@ -109,6 +109,9 @@ importers:
       '@lezer/highlight':
         specifier: 1.2.3
         version: 1.2.3
+      '@perryts/perry':
+        specifier: 0.5.1220
+        version: 0.5.1220
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(@voidzero-dev/vite-plus-core@0.2.5(@types/node@26.1.1)(jiti@2.7.0)(typescript@7.0.2))
@@ -1286,6 +1289,50 @@ packages:
   '@peculiar/webcrypto@1.7.1':
     resolution: {integrity: sha512-ODOov0sGMJMf3jPonOkgGqPknTsu+DdQ7kD++gz8aI+aFMOMHFbWAA2taqXXVTdP+OTOQR/znGvSpmkeI0WTYQ==}
     engines: {node: '>=14.18.0'}
+
+  '@perryts/perry-darwin-arm64@0.5.1220':
+    resolution: {integrity: sha512-5FLa1ciHZwLZVtoecQqhiJ6K7pGjzcBay9y5DiDuSX4+7R4EJDmx9oXKXDXKz1xv5q00seMcLAZkIMQj/hyquw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@perryts/perry-darwin-x64@0.5.1220':
+    resolution: {integrity: sha512-ZVJPZT+NKLf5dWejqOVYoElJGOap0Ic9FEjy4qiTC2IMnZ+5xtxkRMinpEVv61TdAf1pRWAFYw5CzHI88WFvzQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@perryts/perry-linux-arm64-musl@0.5.1220':
+    resolution: {integrity: sha512-rizM9uW3wyBQc1VS7rJaWO0XYeH1dSGI0NC9FBxv3/CT31nniyYQEShGhHKTd6gaisxJNSC/rwqhEqy5NQi3iw==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@perryts/perry-linux-arm64@0.5.1220':
+    resolution: {integrity: sha512-qJeup8XTMstoXWDrREZCmhQjqnwJlML3zmBZLhKp3nNRTzn3cEhQFUempEtL3++M2MQjP3CLmzgMh+ZHGZUO7Q==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@perryts/perry-linux-x64-musl@0.5.1220':
+    resolution: {integrity: sha512-OFJLceB+qNlzYTTHl5rK1PaDReNrwxtYJB+xDMf0RKq+MofecKpNjdICHQzKdtO47Guok2bTnTghOTdsHpdR7w==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@perryts/perry-linux-x64@0.5.1220':
+    resolution: {integrity: sha512-N8QG2AboPzw3cBdv1pQdFGc75xTpAwUcWIgik4O6WlU3zMIrOHxIaqj8UWZ1XN8nAxCueBjvGGu8CPi856SvPQ==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@perryts/perry-win32-x64@0.5.1220':
+    resolution: {integrity: sha512-p33zkG/s3fMfYgAgtfHTWfjTlmlxxaTYZ/Yhw6HzFtyPeBXxz4DtKdbmwNu95ZgFYVAIknF/Fd2Loym56FeXXg==}
+    cpu: [x64]
+    os: [win32]
+
+  '@perryts/perry@0.5.1220':
+    resolution: {integrity: sha512-hgeFCUE8usn/9vObDwlHkE+gRkZm3kjppz6KIefU/+dJ1523bYLI4hAsKk6lnZnaUc6iaiuK8yBF8wklqqVDwQ==}
+    engines: {node: '>=16'}
+    hasBin: true
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -4632,6 +4679,37 @@ snapshots:
       '@peculiar/utils': 2.0.3
       tslib: 2.8.1
       webcrypto-core: 1.9.2
+
+  '@perryts/perry-darwin-arm64@0.5.1220':
+    optional: true
+
+  '@perryts/perry-darwin-x64@0.5.1220':
+    optional: true
+
+  '@perryts/perry-linux-arm64-musl@0.5.1220':
+    optional: true
+
+  '@perryts/perry-linux-arm64@0.5.1220':
+    optional: true
+
+  '@perryts/perry-linux-x64-musl@0.5.1220':
+    optional: true
+
+  '@perryts/perry-linux-x64@0.5.1220':
+    optional: true
+
+  '@perryts/perry-win32-x64@0.5.1220':
+    optional: true
+
+  '@perryts/perry@0.5.1220':
+    optionalDependencies:
+      '@perryts/perry-darwin-arm64': 0.5.1220
+      '@perryts/perry-darwin-x64': 0.5.1220
+      '@perryts/perry-linux-arm64': 0.5.1220
+      '@perryts/perry-linux-arm64-musl': 0.5.1220
+      '@perryts/perry-linux-x64': 0.5.1220
+      '@perryts/perry-linux-x64-musl': 0.5.1220
+      '@perryts/perry-win32-x64': 0.5.1220
 
   '@polka/url@1.0.0-next.29': {}
 

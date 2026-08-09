@@ -774,7 +774,7 @@ const scriptResourceSchema = strict({
 
 const localizationCatalogSchema = strict({
   entries: z.array(strict({ key: z.string().min(1), value: z.string() })),
-  locale: z.string().trim().min(1),
+  locale: z.string().check(z.trim(), z.minLength(1)),
 });
 const runtimeSettingsSchema = strict({
   display: strict({
@@ -847,8 +847,8 @@ export const compiledProjectWireV3Schema = strict({
   entrypoint: compiledEntrypointSchema,
   localization: strict({
     catalogs: z.array(localizationCatalogSchema),
-    defaultLocale: z.string().trim().min(1),
-    fallbackLocale: z.string().trim().min(1).nullable(),
+    defaultLocale: z.string().check(z.trim(), z.minLength(1)),
+    fallbackLocale: z.string().check(z.trim(), z.minLength(1)).nullable(),
   }),
   project: strict({
     author: z.string(),
@@ -955,12 +955,73 @@ type CanonicalJson =
 
 function canonicalizeJson(value: CanonicalJson): CanonicalJson {
   if (typeof value === 'number') return Object.is(value, -0) ? 0 : value;
-  if (Array.isArray(value)) return value.map(canonicalizeJson);
   if (value === null || typeof value !== 'object') return value;
-  const canonical: { [key: string]: CanonicalJson } = {};
-  for (const key of Object.keys(value).sort(compareUnicodeCodePoints))
-    canonical[key] = canonicalizeJson(value[key]!);
-  return canonical;
+
+  type PendingContainer =
+    | { source: CanonicalJson[]; target: CanonicalJson[] }
+    | {
+        source: { [key: string]: CanonicalJson };
+        target: { [key: string]: CanonicalJson };
+      };
+
+  const root: CanonicalJson = Array.isArray(value)
+    ? Array.from<CanonicalJson>({ length: value.length })
+    : {};
+  const pending: PendingContainer[] = [
+    Array.isArray(value)
+      ? { source: value, target: root as CanonicalJson[] }
+      : {
+          source: value,
+          target: root as { [key: string]: CanonicalJson },
+        },
+  ];
+
+  // Keep this iterative: Perry 0.5.1220 miscompiles the equivalent recursive traversal.
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) continue;
+
+    if (Array.isArray(current.source)) {
+      const target = current.target as CanonicalJson[];
+      for (let index = 0; index < current.source.length; index += 1) {
+        const child = current.source[index]!;
+        if (typeof child === 'number') {
+          target[index] = Object.is(child, -0) ? 0 : child;
+        } else if (Array.isArray(child)) {
+          const childTarget = Array.from<CanonicalJson>({ length: child.length });
+          target[index] = childTarget;
+          pending.push({ source: child, target: childTarget });
+        } else if (child !== null && typeof child === 'object') {
+          const childTarget: { [key: string]: CanonicalJson } = {};
+          target[index] = childTarget;
+          pending.push({ source: child, target: childTarget });
+        } else {
+          target[index] = child;
+        }
+      }
+      continue;
+    }
+
+    const target = current.target as { [key: string]: CanonicalJson };
+    for (const key of Object.keys(current.source).sort(compareUnicodeCodePoints)) {
+      const child = current.source[key]!;
+      if (typeof child === 'number') {
+        target[key] = Object.is(child, -0) ? 0 : child;
+      } else if (Array.isArray(child)) {
+        const childTarget = Array.from<CanonicalJson>({ length: child.length });
+        target[key] = childTarget;
+        pending.push({ source: child, target: childTarget });
+      } else if (child !== null && typeof child === 'object') {
+        const childTarget: { [key: string]: CanonicalJson } = {};
+        target[key] = childTarget;
+        pending.push({ source: child, target: childTarget });
+      } else {
+        target[key] = child;
+      }
+    }
+  }
+
+  return root;
 }
 
 /**

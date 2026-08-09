@@ -19,6 +19,8 @@ export const TEMPLATE_REGISTRY_FORMAT_VERSION = 1 as const;
 export const TEMPLATE_REGISTRY_INDEX_FORMAT = 'noveltea.template-registry-index' as const;
 export const TEMPLATE_REGISTRY_INDEX_FORMAT_VERSION = 1 as const;
 
+const trimmedNonEmptyStringSchema = z.string().check(z.trim(), z.minLength(1));
+
 export const exportCapabilityValues = [
   'network.client',
   'external-url',
@@ -238,7 +240,7 @@ const androidPackageAccessSchema = z.enum(['android-asset', 'android-private-cop
 const androidTemplateDescriptorSchema = z
   .object({
     gradleProjectRoot: relativeArtifactPathSchema,
-    applicationModule: z.string().trim().min(1),
+    applicationModule: trimmedNonEmptyStringSchema,
     gradleWrapperPath: relativeArtifactPathSchema,
     bundletoolPath: relativeArtifactPathSchema,
     insertionRoots: z
@@ -248,9 +250,9 @@ const androidTemplateDescriptorSchema = z
         assets: relativeArtifactPathSchema,
       })
       .strict(),
-    namespace: z.string().trim().min(1),
-    activityClass: z.string().trim().min(1),
-    nativeLibraryName: z.string().trim().min(1),
+    namespace: trimmedNonEmptyStringSchema,
+    activityClass: trimmedNonEmptyStringSchema,
+    nativeLibraryName: trimmedNonEmptyStringSchema,
     supportedAbis: z.array(androidAbiSchema).min(1),
     artifactKinds: z.array(z.enum(['apk', 'aab'])).min(1),
     packageAccessModes: z.array(androidPackageAccessSchema).min(1),
@@ -287,11 +289,11 @@ export const playerBootstrapConfigSchema = z
   .object({
     format: z.literal(PLAYER_CONFIG_FORMAT),
     formatVersion: z.literal(PLAYER_CONFIG_FORMAT_VERSION),
-    displayName: z.string().trim().min(1),
-    applicationId: z.string().trim().min(1),
-    saveNamespace: z.string().trim().min(1),
-    versionName: z.string().trim().min(1),
-    defaultLocale: z.string().trim().min(1).optional(),
+    displayName: trimmedNonEmptyStringSchema,
+    applicationId: trimmedNonEmptyStringSchema,
+    saveNamespace: trimmedNonEmptyStringSchema,
+    versionName: trimmedNonEmptyStringSchema,
+    defaultLocale: trimmedNonEmptyStringSchema.optional(),
     package: z
       .object({
         path: relativeArtifactPathSchema,
@@ -322,13 +324,13 @@ export const templateDescriptorSchema = z
   .object({
     format: z.literal(TEMPLATE_DESCRIPTOR_FORMAT),
     formatVersion: z.literal(TEMPLATE_DESCRIPTOR_FORMAT_VERSION),
-    templateId: z.string().trim().min(1),
-    buildId: z.string().trim().min(1),
-    engineVersion: z.string().trim().min(1),
+    templateId: trimmedNonEmptyStringSchema,
+    buildId: trimmedNonEmptyStringSchema,
+    engineVersion: trimmedNonEmptyStringSchema,
     platform: z.enum(exportPlatformValues),
     architecture: z.enum(exportArchitectureValues),
-    abi: z.string().trim().min(1).optional(),
-    minimumPlatformVersion: z.string().trim().min(1),
+    abi: trimmedNonEmptyStringSchema.optional(),
+    minimumPlatformVersion: trimmedNonEmptyStringSchema,
     graphicsBackends: z
       .array(z.enum(['direct3d11', 'metal', 'opengl', 'opengles', 'webgl2', 'vulkan']))
       .min(1),
@@ -336,7 +338,7 @@ export const templateDescriptorSchema = z
     runtimePackageApi: runtimePackageApiRangeSchema,
     playerConfigApi: runtimePackageApiRangeSchema,
     compiledFeatures: z
-      .array(z.string().trim().min(1))
+      .array(trimmedNonEmptyStringSchema)
       .transform((values) => [...new Set(values)].sort()),
     capabilities: capabilityArraySchema,
     buildFlavor: z.enum(exportBuildFlavorValues),
@@ -372,34 +374,28 @@ export const templateDescriptorSchema = z
         .strict(),
     ),
     windowsImports: z
-      .array(
-        z
-          .string()
-          .trim()
-          .toLowerCase()
-          .regex(/^[a-z0-9_.-]+\.dll$/),
-      )
+      .array(z.string().check(z.trim(), z.toLowerCase(), z.regex(/^[a-z0-9_.-]+\.dll$/)))
       .optional(),
-    linuxNeeded: z.array(z.string().trim().min(1)).optional(),
-    linuxRpaths: z.array(z.string().trim().min(1)).optional(),
-    macosDependencies: z.array(z.string().trim().min(1)).optional(),
-    macosRpaths: z.array(z.string().trim().min(1)).optional(),
+    linuxNeeded: z.array(trimmedNonEmptyStringSchema).optional(),
+    linuxRpaths: z.array(trimmedNonEmptyStringSchema).optional(),
+    macosDependencies: z.array(trimmedNonEmptyStringSchema).optional(),
+    macosRpaths: z.array(trimmedNonEmptyStringSchema).optional(),
     macosMachO: z
       .array(
         z
           .object({
             path: relativeArtifactPathSchema,
-            dependencies: z.array(z.string().trim().min(1)),
-            rpaths: z.array(z.string().trim().min(1)),
-            uuid: z.string().trim().min(1).optional(),
+            dependencies: z.array(trimmedNonEmptyStringSchema),
+            rpaths: z.array(trimmedNonEmptyStringSchema),
+            uuid: trimmedNonEmptyStringSchema.optional(),
           })
           .strict(),
       )
       .optional(),
     artifacts: z
       .object({
-        archive: z.string().trim().min(1),
-        symbols: z.string().trim().min(1),
+        archive: trimmedNonEmptyStringSchema,
+        symbols: trimmedNonEmptyStringSchema,
         sbom: relativeArtifactPathSchema,
         notices: relativeArtifactPathSchema,
       })
@@ -411,14 +407,14 @@ export const templateDescriptorSchema = z
           .string()
           .regex(/^[0-9a-f]{64}$/)
           .optional(),
-        source: z.string().trim().min(1),
+        source: trimmedNonEmptyStringSchema,
       })
       .strict(),
     host: z
       .object({
         assembly: z.enum(['any', 'windows', 'linux', 'macos']),
         requiresToolchain: z.boolean(),
-        tools: z.array(z.string().trim().min(1)).default([]),
+        tools: z.array(trimmedNonEmptyStringSchema).default([]),
       })
       .strict(),
     android: androidTemplateDescriptorSchema.optional(),
@@ -442,14 +438,14 @@ export const templateDescriptorSchema = z
 const platformProfileBase = z.object({
   format: z.literal(PLATFORM_EXPORT_PROFILE_FORMAT),
   formatVersion: z.literal(PLATFORM_EXPORT_PROFILE_FORMAT_VERSION),
-  id: z.string().trim().min(1),
-  label: z.string().trim().min(1),
+  id: trimmedNonEmptyStringSchema,
+  label: trimmedNonEmptyStringSchema,
   buildFlavor: z.enum(exportBuildFlavorValues),
   compression: z.enum(['default', 'store', 'maximum']).default('default'),
   includeDebugSymbols: z.boolean().default(false),
   capabilityOverrides: capabilityArraySchema.default([]),
   assetMemory: assetMemoryProfileSchema.default({ preset: 'balanced' }),
-  signingProfileId: z.string().trim().min(1).nullable().optional(),
+  signingProfileId: trimmedNonEmptyStringSchema.nullable().optional(),
 });
 
 const desktopProfileSchema = platformProfileBase
@@ -460,7 +456,7 @@ const desktopProfileSchema = platformProfileBase
     desktop: z
       .object({
         artifact: z.enum(['zip', 'tar', 'appimage', 'app-bundle']),
-        executableName: z.string().trim().min(1),
+        executableName: trimmedNonEmptyStringSchema,
       })
       .strict(),
   })
@@ -679,7 +675,7 @@ export const templateCompatibilityRequirementsSchema = z
       .array(z.enum(['direct3d11', 'metal', 'opengl', 'opengles', 'webgl2', 'vulkan']))
       .default([]),
     capabilities: capabilityArraySchema.default([]),
-    requiredFeatures: z.array(z.string().trim().min(1)).default([]),
+    requiredFeatures: z.array(trimmedNonEmptyStringSchema).default([]),
     host: z
       .object({
         platform: z.enum(['windows', 'linux', 'macos']),

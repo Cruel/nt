@@ -10,24 +10,25 @@ export const PLATFORM_CERTIFICATION_FORMAT_VERSION = 1 as const;
 export const PLATFORM_CERTIFICATION_FIXTURE_ID = 'platform-export-acceptance' as const;
 
 const checkStatusSchema = z.enum(['passed', 'failed', 'skipped']);
+const trimmedNonEmptyStringSchema = z.string().check(z.trim(), z.minLength(1));
 const evidenceSchema = z
   .object({
-    check: z.string().trim().min(1),
+    check: trimmedNonEmptyStringSchema,
     status: checkStatusSchema,
-    detail: z.string().trim().min(1),
-    test: z.string().trim().min(1),
+    detail: trimmedNonEmptyStringSchema,
+    test: trimmedNonEmptyStringSchema,
     target: z.enum(exportPlatformValues),
-    artifact: z.string().trim().min(1),
+    artifact: trimmedNonEmptyStringSchema,
     artifactSha256: z.string().regex(/^[0-9a-f]{64}$/),
-    producer: z.string().trim().min(1),
-    command: z.string().trim().min(1),
+    producer: trimmedNonEmptyStringSchema,
+    command: trimmedNonEmptyStringSchema,
     environment: z
       .object({
-        workflow: z.string().trim().min(1),
-        runId: z.string().trim().min(1),
-        job: z.string().trim().min(1),
-        runnerOs: z.string().trim().min(1),
-        runnerArch: z.string().trim().min(1),
+        workflow: trimmedNonEmptyStringSchema,
+        runId: trimmedNonEmptyStringSchema,
+        job: trimmedNonEmptyStringSchema,
+        runnerOs: trimmedNonEmptyStringSchema,
+        runnerArch: trimmedNonEmptyStringSchema,
         target: z.enum(exportPlatformValues),
       })
       .strict(),
@@ -62,11 +63,11 @@ export const platformCertificationReportSchema = z
       .strict(),
     environment: z
       .object({
-        workflow: z.string().trim().min(1),
-        runId: z.string().trim().min(1),
-        job: z.string().trim().min(1),
-        runnerOs: z.string().trim().min(1),
-        runnerArch: z.string().trim().min(1),
+        workflow: trimmedNonEmptyStringSchema,
+        runId: trimmedNonEmptyStringSchema,
+        job: trimmedNonEmptyStringSchema,
+        runnerOs: trimmedNonEmptyStringSchema,
+        runnerArch: trimmedNonEmptyStringSchema,
         target: z.enum(exportPlatformValues),
       })
       .strict(),

@@ -81,14 +81,14 @@ export const layoutDependencyDataSchema = z
 export const layoutScriptDataSchema = z
   .object({
     enabled: z.boolean().default(true),
-    namespace: z.string().trim().optional(),
+    namespace: z.string().check(z.trim()).optional(),
     additionalDependencies: defaultedLuaExplicitDependenciesSchema,
   })
   .strict();
 
 export const layoutMountDataSchema = z
   .object({
-    defaultParent: z.string().trim().optional(),
+    defaultParent: z.string().check(z.trim()).optional(),
     scopedStyles: z.boolean().default(true),
   })
   .strict();

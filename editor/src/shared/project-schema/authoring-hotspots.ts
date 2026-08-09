@@ -32,7 +32,7 @@ export const hotspotHighlightSchema = z.discriminatedUnion('kind', [
 
 export const hotspotCommonShape = {
   id: entityIdSchema,
-  label: z.string().trim().min(1),
+  label: z.string().check(z.trim(), z.minLength(1)),
   condition: conditionSchema,
   inputOrder: z.number().int().min(-2147483648).max(2147483647),
   highlight: hotspotHighlightSchema,

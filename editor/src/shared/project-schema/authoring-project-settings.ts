@@ -42,7 +42,7 @@ export const projectTitleScreenSettingsSchema = z
   })
   .strict();
 
-const optionalTrimmedString = z.string().trim().min(1).optional();
+const optionalTrimmedString = z.string().check(z.trim(), z.minLength(1)).optional();
 const positiveBuildNumber = z.number().int().positive();
 const identityColorSchema = z
   .string()
@@ -58,15 +58,17 @@ const localizedAppIdentitySchema = z
 export const applicationIdPattern = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+$/;
 export const applicationIdSchema = z
   .string()
-  .trim()
-  .regex(
-    applicationIdPattern,
-    'Application ID must be a reverse-DNS identifier such as com.example.game.',
+  .check(
+    z.trim(),
+    z.regex(
+      applicationIdPattern,
+      'Application ID must be a reverse-DNS identifier such as com.example.game.',
+    ),
   );
 
 export const projectAppSettingsSchema = z
   .object({
-    displayName: z.string().trim().min(1, 'Display name is required.'),
+    displayName: z.string().check(z.trim(), z.minLength(1, 'Display name is required.')),
     shortName: optionalTrimmedString,
     publisher: optionalTrimmedString,
     copyright: optionalTrimmedString,
@@ -74,8 +76,8 @@ export const projectAppSettingsSchema = z
     defaultLocale: optionalTrimmedString,
     localized: z.record(z.string(), localizedAppIdentitySchema).default({}),
     applicationId: applicationIdSchema,
-    saveNamespace: z.string().trim().min(1, 'Save namespace is required.'),
-    versionName: z.string().trim().min(1, 'Version name is required.'),
+    saveNamespace: z.string().check(z.trim(), z.minLength(1, 'Save namespace is required.')),
+    versionName: z.string().check(z.trim(), z.minLength(1, 'Version name is required.')),
     buildNumber: positiveBuildNumber.optional(),
     icon: imageAssetRefSchema.default(null),
     iconBackgroundColor: identityColorSchema.optional(),

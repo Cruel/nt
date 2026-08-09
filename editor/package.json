@@ -52,6 +52,20 @@
     "email": "machin3@gmail.com"
   },
   "license": "MIT",
+  "perry": {
+    "compilePackages": [
+      "saxes",
+      "xmlchars",
+      "zod"
+    ],
+    "allow": {
+      "compilePackages": [
+        "saxes",
+        "xmlchars",
+        "zod"
+      ]
+    }
+  },
   "dependencies": {
     "culori": "^4.0.2",
     "sharp": "catalog:"
@@ -77,6 +91,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fsegurai/codemirror-theme-bundle": "^6.4.2",
     "@lezer/highlight": "1.2.3",
+    "@perryts/perry": "0.5.1220",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.18",

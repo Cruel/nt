@@ -34,64 +34,85 @@ function schemaDefinition(schema: unknown): ZodDefinition | undefined {
   return (schema as { _zod?: { def?: ZodDefinition } })._zod?.def;
 }
 
-function collectSchemaLeafPaths(
-  schema: unknown,
-  path: readonly string[],
-  output: Set<JsonPointer>,
-  ancestors: ReadonlySet<unknown> = new Set(),
-): void {
-  if (ancestors.has(schema)) {
-    output.add(`/${path.join('/')}`);
-    return;
-  }
-  const nextAncestors = new Set(ancestors);
-  nextAncestors.add(schema);
-  const definition = schemaDefinition(schema);
-  if (!definition) {
-    output.add(`/${path.join('/')}`);
-    return;
-  }
-  if (definition.type === 'object' && definition.shape) {
-    for (const [key, child] of Object.entries(definition.shape)) {
-      if (path.length === 0 && key === 'editor') continue;
-      collectSchemaLeafPaths(child, [...path, key], output, nextAncestors);
+function collectSchemaLeafPaths(schema: unknown, output: Set<JsonPointer>): void {
+  // Keep this iterative: Perry 0.5.1220 miscompiles the equivalent recursive Zod-schema walk.
+  const pending: Array<{
+    schema: unknown;
+    path: readonly string[];
+    ancestors: ReadonlySet<unknown>;
+  }> = [{ schema, path: [], ancestors: new Set() }];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current) continue;
+
+    if (current.ancestors.has(current.schema)) {
+      output.add(`/${current.path.join('/')}`);
+      continue;
     }
-    return;
+
+    const nextAncestors = new Set(current.ancestors);
+    nextAncestors.add(current.schema);
+    const definition = schemaDefinition(current.schema);
+    if (!definition) {
+      output.add(`/${current.path.join('/')}`);
+      continue;
+    }
+
+    if (definition.type === 'object' && definition.shape) {
+      for (const key of Object.keys(definition.shape)) {
+        if (current.path.length === 0 && key === 'editor') continue;
+        pending.push({
+          schema: definition.shape[key],
+          path: [...current.path, key],
+          ancestors: nextAncestors,
+        });
+      }
+      continue;
+    }
+    if (definition.type === 'array' && definition.element) {
+      pending.push({
+        schema: definition.element,
+        path: [...current.path, '*'],
+        ancestors: nextAncestors,
+      });
+      continue;
+    }
+    if (definition.type === 'record' && definition.valueType) {
+      pending.push({
+        schema: definition.valueType,
+        path: [...current.path, '*'],
+        ancestors: nextAncestors,
+      });
+      continue;
+    }
+    if (definition.type === 'union' && definition.options) {
+      for (const option of definition.options) {
+        pending.push({ schema: option, path: current.path, ancestors: nextAncestors });
+      }
+      continue;
+    }
+    if (definition.type === 'tuple' && definition.items) {
+      for (const item of definition.items) {
+        pending.push({ schema: item, path: [...current.path, '*'], ancestors: nextAncestors });
+      }
+      continue;
+    }
+    if (definition.type === 'intersection' && definition.left && definition.right) {
+      pending.push({ schema: definition.left, path: current.path, ancestors: nextAncestors });
+      pending.push({ schema: definition.right, path: current.path, ancestors: nextAncestors });
+      continue;
+    }
+    if (definition.innerType) {
+      pending.push({ schema: definition.innerType, path: current.path, ancestors: nextAncestors });
+      continue;
+    }
+    if (definition.getter) {
+      pending.push({ schema: definition.getter(), path: current.path, ancestors: nextAncestors });
+      continue;
+    }
+    output.add(`/${current.path.join('/')}`);
   }
-  if (definition.type === 'array' && definition.element) {
-    collectSchemaLeafPaths(definition.element, [...path, '*'], output, nextAncestors);
-    return;
-  }
-  if (definition.type === 'record' && definition.valueType) {
-    collectSchemaLeafPaths(definition.valueType, [...path, '*'], output, nextAncestors);
-    return;
-  }
-  if (definition.type === 'union' && definition.options) {
-    definition.options.forEach((option) =>
-      collectSchemaLeafPaths(option, path, output, nextAncestors),
-    );
-    return;
-  }
-  if (definition.type === 'tuple' && definition.items) {
-    definition.items.forEach((item) =>
-      collectSchemaLeafPaths(item, [...path, '*'], output, nextAncestors),
-    );
-    return;
-  }
-  if (definition.type === 'intersection' && definition.left && definition.right) {
-    collectSchemaLeafPaths(definition.left, path, output, nextAncestors);
-    collectSchemaLeafPaths(definition.right, path, output, nextAncestors);
-    return;
-  }
-  if (definition.innerType) {
-    collectSchemaLeafPaths(definition.innerType, path, output, nextAncestors);
-    return;
-  }
-  if (definition.getter) {
-    collectSchemaLeafPaths(definition.getter(), path, output, nextAncestors);
-    return;
-  }
-  output.add(`/${path.join('/')}`);
 }
 
 function schemaRootForPath(path: JsonPointer): string {
@@ -171,7 +192,7 @@ function fnv1a(value: string): string {
 }
 
 const schemaLeafPaths = new Set<JsonPointer>();
-collectSchemaLeafPaths(authoringProjectSchema, [], schemaLeafPaths);
+collectSchemaLeafPaths(authoringProjectSchema, schemaLeafPaths);
 const sortedSchemaLeafPaths = [...schemaLeafPaths].sort();
 const explicitLeafCount = sortedSchemaLeafPaths.filter((path) => explicitFieldEffect(path)).length;
 if (

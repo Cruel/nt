@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const localeIdSchema = z.string().trim().min(1, 'Locale is required.');
+export const localeIdSchema = z.string().check(z.trim(), z.minLength(1, 'Locale is required.'));
 export const localizationKeySchema = z.string().min(1, 'Localization key is required.');
 export const localizationCatalogSchema = z.record(localizationKeySchema, z.string());
 

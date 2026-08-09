@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { promises as nodeFileSystem } from 'node:fs';
+import * as nodeFileSystem from 'node:fs/promises';
 import path from 'node:path';
 import type { CompilerStageReport } from '../shared/authoring-compiler';
 import { publishCompiledArtifact } from '../shared/compiled-artifact-publication';
