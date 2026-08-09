@@ -1,0 +1,118 @@
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
+const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
+
+function electronRuntimeState(): { packaged: boolean; resourcesPath?: string } {
+  const runtime = process as NodeJS.Process & {
+    defaultApp?: boolean;
+    resourcesPath?: string;
+  };
+  const electron = typeof process.versions.electron === 'string';
+  return {
+    packaged: electron && runtime.defaultApp !== true && !!runtime.resourcesPath,
+    resourcesPath: runtime.resourcesPath,
+  };
+}
+
+function toolName() {
+  return process.platform === 'win32' ? 'noveltea-editor-tool.exe' : 'noveltea-editor-tool';
+}
+
+function repoRootCandidates() {
+  const cwd = process.cwd();
+  const runtime = electronRuntimeState();
+  return [
+    path.resolve(cwd, '..'),
+    path.resolve(cwd),
+    ...(runtime.resourcesPath
+      ? [path.resolve(runtime.resourcesPath, '..'), path.resolve(runtime.resourcesPath, '..', '..')]
+      : []),
+  ];
+}
+
+export function resolveEditorToolPath(): string {
+  if (process.env.NOVELTEA_EDITOR_TOOL) return process.env.NOVELTEA_EDITOR_TOOL;
+
+  const runtime = electronRuntimeState();
+  if (runtime.packaged && runtime.resourcesPath) {
+    return path.join(runtime.resourcesPath, 'bin', toolName());
+  }
+
+  const relativeCandidates = [
+    path.join('build', 'linux-debug', 'tools', 'editor_tool', toolName()),
+    path.join('build', 'linux-release', 'tools', 'editor_tool', toolName()),
+    path.join('build', 'web-debug', 'tools', 'editor_tool', toolName()),
+  ];
+  for (const root of repoRootCandidates()) {
+    for (const relative of relativeCandidates) {
+      const candidate = path.resolve(root, relative);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+
+  return path.resolve(
+    process.cwd(),
+    '..',
+    'build',
+    'linux-debug',
+    'tools',
+    'editor_tool',
+    toolName(),
+  );
+}
+
+export function invokeEditorTool(command: string, payload: unknown): Promise<unknown> {
+  const input = JSON.stringify(payload ?? {});
+  if (Buffer.byteLength(input, 'utf8') > MAX_TOOL_INPUT_BYTES) {
+    return Promise.reject(new Error('Editor tool payload is too large.'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(resolveEditorToolPath(), [command], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('Editor tool timed out.'));
+    }, 30_000);
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      if (Buffer.byteLength(stdout, 'utf8') > 16 * 1024 * 1024) child.kill();
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      let parsed: unknown = null;
+      try {
+        parsed = stdout ? JSON.parse(stdout) : null;
+      } catch (parseError) {
+        reject(
+          new Error(
+            `Editor tool returned invalid JSON.${stderr ? ` stderr: ${stderr}` : ''} ${String(parseError)}`,
+          ),
+        );
+        return;
+      }
+
+      if (code !== 0 && !parsed) {
+        reject(new Error(stderr || `Editor tool failed with exit code ${code ?? 'unknown'}.`));
+        return;
+      }
+      resolve(parsed);
+    });
+    child.stdin.end(input);
+  });
+}

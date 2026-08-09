@@ -44,7 +44,7 @@ closed with `WORKSPACE_BUSY`; a proven-dead owner is recovered before its lock i
 ## Local state
 
 `.noveltea/` is ignored via the root-scoped `/.noveltea/` `.gitignore` rule. Optional
-`.noveltea/editor/state.json` uses `noveltea.editor.local-state` version `1`; it stores recovery,
+`.noveltea/editor/state.json` uses `noveltea.editor.local-state` version `2`; it stores recovery,
 export identity, workbench, explorer, bottom panel, tab state, and drafts. It never duplicates
 tracked organization fields. Missing, corrupt, or unsupported local state is discarded; it cannot
 repair tracked source. Its `workspaceRevision` is a baseline marker for recovery/session payloads,
@@ -55,3 +55,38 @@ New projects create `records/`, `scripts/`, and `assets/` but do not add placeho
 targets a project root and writes `project.json`; it carries tracked baseline, local editor state,
 dirty-only asset bytes, and separately-owned workflows, while excluding generated agent/build/cache,
 transactions, and trash state.
+
+## Headless CLI editing boundary
+
+The TypeScript Node reference CLI uses `noveltea [--project <project-directory>] [--json]
+<command> ...`. Without `--project`, it walks upward from the current directory and selects the
+first `project.json`. Finding a malformed NovelTea manifest, the wrong workspace schema identity,
+or an unsupported workspace version stops discovery at that directory; discovery never falls
+through to a parent project and never considers retired manifest names. `--project` is an explicit
+project-root override and is validated by the same workspace-v1 rules.
+
+Ordinary agent edits are direct edits to tracked JSON, Lua, RML, and RCSS source files followed by
+`noveltea validate`. Semantic commands are reserved for operations that need project-wide graph or
+transaction semantics: `entity create`, `entity rename`, `entity delete`, and `usages`. `entity
+create` uses the same authoring record defaults as the editor and does not provide a generic Asset
+creator. Rename/delete source-reference policy comes from the shared dependency graph: recognized
+rewriteable references are rewritten on rename, exact manual references block rename, possible
+lexical references require `--allow-possible-source-references`, and delete still requires `--force`
+for exact blockers independently of the possible-reference acknowledgement.
+
+`--dry-run` performs discovery, assembly, graph/source preflight, and file projection without writing
+tracked or ignored project files. If a pending transaction would require recovery, a dry run fails
+closed instead of changing journal state. Non-dry-run semantic mutations persist through the same
+workspace transaction service used by editor structural writes.
+
+`noveltea validate` uses the shared authoring compiler/validation and dependency/source-analysis
+pipeline. Projects with authored Shaders or Materials also run shader readiness for `glsl-120`,
+`essl-100`, and `essl-300` through the existing native editor-tool subprocess boundary. Phase 6 does
+not add another native transport.
+
+In `--json` mode, expected successes and failures emit exactly one compact JSON object plus one LF on
+stdout and keep stderr empty. The envelope always includes `success`, `exitCode`, and `diagnostics`;
+diagnostics are deterministically ordered and carry stable code/path/message fields plus source
+location when available. Exit codes are `0` success, `2` CLI usage, `3` workspace/discovery, `4`
+semantic/preflight, `5` mutation/concurrency, `6` native shader-tool failure, and `70` unexpected
+internal failure.

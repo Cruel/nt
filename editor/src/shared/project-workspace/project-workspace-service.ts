@@ -5,6 +5,12 @@ import {
 } from '../authoring-source-analysis';
 import { z } from 'zod';
 import { buildAuthoringDependencyGraph } from '../authoring-dependency-graph';
+import {
+  assembleAuthoringDependencyGraph,
+  createAuthoringDependencyGraphContributionSet,
+  deriveAuthoringDependencyContributionFromPrepared,
+  enumerateAuthoringDependencyContributionKeys,
+} from '../authoring-dependency-graph';
 import type { AuthoringDependencyGraph } from '../authoring-dependency-contracts';
 import {
   publishCompiledArtifact,
@@ -142,6 +148,10 @@ export type ProjectWorkspaceOpenResult =
       readonly manifestPath: string;
       readonly diagnostics: readonly ProjectValidationDiagnostic[];
     };
+
+export interface ProjectWorkspaceOpenOptions {
+  readonly recoverTransactions?: boolean;
+}
 
 export function compareProjectWorkspaceUnicodeCodePoints(left: string, right: string): number {
   const leftPoints = Array.from(left, (character) => character.codePointAt(0)!);
@@ -613,22 +623,43 @@ export class ProjectWorkspaceService {
     const root = this.fileSystem.resolvePath(projectRoot);
     return { projectRoot: root, manifestPath: this.fileSystem.joinPath(root, 'project.json') };
   }
-  async open(projectRoot: string): Promise<ProjectWorkspaceOpenResult> {
+  async open(
+    projectRoot: string,
+    options: ProjectWorkspaceOpenOptions = {},
+  ): Promise<ProjectWorkspaceOpenResult> {
     const discovered = await this.discover(projectRoot);
     const fail = (message: string, path?: string) =>
       workspaceError(discovered.projectRoot, discovered.manifestPath, message, path);
-    try {
-      await this.transactions.recover(discovered.projectRoot);
-    } catch (error) {
-      if (error instanceof ProjectWorkspaceMutationError)
+    if (options.recoverTransactions === false) {
+      const transactionRoot = this.fileSystem.joinPath(
+        discovered.projectRoot,
+        '.noveltea/transactions',
+      );
+      const pending = (await this.fileSystem.listDirectory(transactionRoot)).filter(
+        (entry) => entry !== '.writer-lock',
+      );
+      if (pending.length > 0)
         return workspaceError(
           discovered.projectRoot,
           discovered.manifestPath,
-          error.message,
+          'The workspace has a pending transaction that requires recovery before a read-only dry run.',
           '/.noveltea/transactions',
-          error.code,
+          'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
         );
-      throw error;
+    } else {
+      try {
+        await this.transactions.recover(discovered.projectRoot);
+      } catch (error) {
+        if (error instanceof ProjectWorkspaceMutationError)
+          return workspaceError(
+            discovered.projectRoot,
+            discovered.manifestPath,
+            error.message,
+            '/.noveltea/transactions',
+            error.code,
+          );
+        throw error;
+      }
     }
     let manifest: Record<string, unknown>;
     try {
@@ -1063,6 +1094,32 @@ export class ProjectWorkspaceService {
   }
   buildDependencyGraph(snapshot: ProjectWorkspaceSnapshot): AuthoringDependencyGraph {
     return buildAuthoringDependencyGraph(snapshot.project);
+  }
+  buildDependencyGraphWithSources(snapshot: ProjectWorkspaceSnapshot): AuthoringDependencyGraph {
+    const sources: LuaSourceSnapshot = { entriesByAssetId: new Map() };
+    const analyses = this.analyzeSources(snapshot, sources);
+    const descriptorsByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
+    for (const descriptor of snapshot.externalSourceDescriptors) {
+      const values = descriptorsByKey.get(descriptor.contributionKey) ?? [];
+      values.push(descriptor);
+      descriptorsByKey.set(descriptor.contributionKey, values);
+    }
+    return assembleAuthoringDependencyGraph(
+      createAuthoringDependencyGraphContributionSet(
+        enumerateAuthoringDependencyContributionKeys(snapshot.project).map((contributionKey) => {
+          const contribution = deriveAuthoringDependencyContributionFromPrepared(
+            snapshot.project,
+            contributionKey,
+            descriptorsByKey.get(contributionKey) ?? [],
+            analyses.get(contributionKey) ?? [],
+            true,
+          );
+          if (!contribution)
+            throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);
+          return contribution;
+        }),
+      ),
+    );
   }
   analyzeSources(
     snapshot: ProjectWorkspaceSnapshot,

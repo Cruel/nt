@@ -21,6 +21,12 @@ export {
 } from './project-workspace-transaction';
 export { InMemoryProjectWorkspaceFileSystem } from './testing';
 export { createNodeProjectWorkspaceService } from './node-project-workspace-service';
+export {
+  discoverProjectRoot,
+  validateExplicitProjectRoot,
+  type ProjectWorkspaceDiscoveryCode,
+  type ProjectWorkspaceDiscoveryResult,
+} from './project-workspace-discovery';
 export { searchProjectWorkspaceSnapshot } from './project-workspace-search';
 export {
   analyzeProjectWorkspaceSources,
@@ -39,6 +45,7 @@ export {
   type ProjectWorkspaceFileRevision,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceOpenResult,
+  type ProjectWorkspaceOpenOptions,
   type ProjectWorkspaceSaveUnitFileOwnership,
   type ProjectWorkspaceSnapshot,
   type ProjectWorkspaceWriteOptions,

@@ -298,6 +298,7 @@ export default defineConfig({
         onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars'],
       },
       entry: {
+        noveltea: 'scripts/noveltea.ts',
         'project-compile': 'scripts/compile-project.ts',
         'project-export': 'scripts/export-project.ts',
         'stage-android-project': 'scripts/stage-android-project.ts',

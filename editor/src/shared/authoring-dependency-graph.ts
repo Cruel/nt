@@ -2273,7 +2273,7 @@ function addLuaEvidenceToContribution(
   };
 }
 
-function deriveAuthoringDependencyContributionFromPrepared(
+export function deriveAuthoringDependencyContributionFromPrepared(
   project: AuthoringProject,
   contributionKey: string,
   descriptors: readonly AuthoringLuaSourceDescriptor[],
