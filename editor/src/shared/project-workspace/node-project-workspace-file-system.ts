@@ -33,6 +33,19 @@ export class NodeProjectWorkspaceFileSystem implements ProjectWorkspaceFileSyste
     return fs.readFile(value, 'utf8');
   }
 
+  async readBytes(value: string): Promise<Uint8Array> {
+    return new Uint8Array(await fs.readFile(value));
+  }
+
+  async listDirectory(value: string): Promise<readonly string[]> {
+    try {
+      return await fs.readdir(value);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
   async writeTextAtomic(value: string, text: string): Promise<void> {
     const absolute = path.resolve(value);
     const directory = path.dirname(absolute);
@@ -43,6 +56,14 @@ export class NodeProjectWorkspaceFileSystem implements ProjectWorkspaceFileSyste
     await fs.mkdir(directory, { recursive: true });
     await fs.writeFile(temporary, text, 'utf8');
     await fs.rename(temporary, absolute);
+  }
+
+  async removeFile(value: string): Promise<void> {
+    try {
+      await fs.unlink(value);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
 
   realpath(value: string): Promise<string> {

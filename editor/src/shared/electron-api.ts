@@ -80,13 +80,14 @@ interface NovelTeaElectronApiContract {
   ): Promise<ShaderCompileResponse>;
   saveProjectContent(
     projectFilePath: string,
-    expectedContentFingerprint: string,
+    expectedWorkspaceRevision: string,
     contentProject: unknown,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
+    scriptSourcePaths?: Record<string, string>,
   ): Promise<SaveProjectResponse>;
   saveProjectEditorMetadata(
     projectFilePath: string,
-    expectedContentFingerprint: string,
+    expectedWorkspaceRevision: string,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
   ): Promise<SaveProjectEditorMetadataResponse>;
   saveProjectCopyAs(
@@ -94,6 +95,7 @@ interface NovelTeaElectronApiContract {
     defaultPath?: string | null,
     currentProjectFilePath?: string | null,
     workingProjectAssetPaths?: string[],
+    scriptSourcePaths?: Record<string, string>,
   ): Promise<SaveProjectResponse>;
   importAssets(projectFilePath: string, options?: AssetImportOptions): Promise<AssetImportResponse>;
   reimportAsset(

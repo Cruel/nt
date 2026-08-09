@@ -348,6 +348,8 @@ export function WorkspacePage() {
     projectPathValue: string | null,
     projectFilePathValue: string | null,
     projectReadSessionId: string | null,
+    workspaceRevision: string | null | undefined,
+    scriptSourcePaths: Record<string, string> | undefined,
     diagnostics: ToolDiagnostic[],
   ) {
     setProjectPath(projectPathValue);
@@ -359,6 +361,8 @@ export function WorkspacePage() {
       projectPath: projectPathValue,
       projectFilePath: projectFilePathValue,
       projectReadSessionId,
+      workspaceRevision,
+      scriptSourcePaths,
     });
     resetCommandHistory();
     setPlaybackTests([]);
@@ -370,14 +374,13 @@ export function WorkspacePage() {
   function refreshRecentProjectEntry(
     document: unknown,
     projectPathValue?: string | null,
-    projectFilePathValue?: string | null,
+    _projectFilePathValue?: string | null,
   ) {
-    if (!projectPathValue && !projectFilePathValue) return;
+    if (!projectPathValue) return;
     const entryPath = projectPathValue ?? projectPath ?? null;
     if (!entryPath) return;
     addRecentProject({
       projectPath: entryPath,
-      projectFilePath: projectFilePathValue ?? null,
       projectName:
         typeof document === 'object' &&
         document !== null &&
@@ -450,7 +453,7 @@ export function WorkspacePage() {
         return;
       }
       setNewProjectOpen(false);
-      await openProject(result.projectFilePath);
+      await openProject(result.projectPath ?? undefined);
       setStatusMessage(`Created project ${name}`);
       addTimelineEntry({ source: 'command', message: `Created project ${name}`, detail: result });
     } catch (error) {
@@ -466,12 +469,13 @@ export function WorkspacePage() {
     await flushStructuralCommandPersistence();
     const latestProject = useProjectStore.getState().document;
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+    const workspaceRevision = useProjectStore.getState().workspaceRevision;
     saveLocalEditorSessionSnapshot(latestProjectFilePath ?? null);
-    if (!latestProject || !latestProjectFilePath) return true;
+    if (!latestProject || !latestProjectFilePath || !workspaceRevision) return true;
     const editorState = buildEditorProjectStateSnapshot();
     const result = await window.noveltea.saveProjectEditorMetadata(
       latestProjectFilePath,
-      editorState.contentFingerprint,
+      workspaceRevision,
       editorState,
     );
     if (!result.success) {
@@ -493,6 +497,7 @@ export function WorkspacePage() {
       contentFingerprint: result.contentFingerprint ?? editorState.contentFingerprint,
     };
     setLoadedEditorProjectState(persistedEditorState);
+    useProjectStore.getState().markSaved({ workspaceRevision: result.workspaceRevision });
     markEditorMetadataPersisted(persistedEditorState);
     if (reason !== 'debounce') {
       const message =
@@ -647,6 +652,8 @@ export function WorkspacePage() {
         loaded.projectPath,
         loaded.projectFilePath,
         loaded.projectReadSessionId ?? null,
+        loaded.workspaceRevision,
+        loaded.scriptSourcePaths,
         diagnostics,
       );
       refreshRecentProjectEntry(
@@ -654,7 +661,7 @@ export function WorkspacePage() {
         loaded.projectPath,
         loaded.projectFilePath,
       );
-      setLastProjectPath(loaded.projectFilePath ?? loaded.projectPath);
+      setLastProjectPath(loaded.projectPath);
       setStatusMessage(
         diagnostics.some((diagnostic) => diagnostic.severity === 'error')
           ? 'Project loaded with diagnostics'

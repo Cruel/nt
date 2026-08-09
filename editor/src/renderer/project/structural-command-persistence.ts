@@ -573,7 +573,12 @@ export async function persistAutoCommitPlan(
   direction: 'forward' | 'undo' | 'redo',
 ): Promise<StructuralPersistenceResult> {
   const projectState = useProjectStore.getState();
-  if (!projectState.document || !projectState.savedDocument || !projectState.projectFilePath) {
+  if (
+    !projectState.document ||
+    !projectState.savedDocument ||
+    !projectState.projectFilePath ||
+    !projectState.workspaceRevision
+  ) {
     return {
       status:
         direction === 'forward' && plan.unsafeRebasePolicy === 'convert-to-manual-save'
@@ -608,7 +613,7 @@ export async function persistAutoCommitPlan(
     const editorState: EditorProjectState = { ...snapshot, recovery: remappedRecovery };
     const response = await window.noveltea.saveProjectEditorMetadata(
       projectState.projectFilePath,
-      editorState.contentFingerprint,
+      projectState.workspaceRevision,
       editorState,
     );
     if (!response.success) {
@@ -625,6 +630,7 @@ export async function persistAutoCommitPlan(
       contentFingerprint: response.contentFingerprint ?? editorState.contentFingerprint,
     };
     setLoadedEditorProjectState(persisted);
+    useProjectStore.getState().markSaved({ workspaceRevision: response.workspaceRevision });
     useProjectStore.getState().markEditorMetadataPersisted(persisted);
     return { status: 'persisted', diagnostics: [] };
   }
@@ -679,11 +685,20 @@ export async function persistAutoCommitPlan(
     new Set([plan.originSaveUnitId]),
   );
   const editorState: EditorProjectState = { ...snapshot, recovery: rebasedRecovery };
+  const scriptSourcePaths = { ...projectState.scriptSourcePaths };
+  for (const remap of plan.identityRemap) {
+    const match = remap.fromPath.match(/^\/scripts\/([^/]+)$/);
+    const target = remap.toPath.match(/^\/scripts\/([^/]+)$/);
+    if (!match || !target || !scriptSourcePaths[match[1]]) continue;
+    scriptSourcePaths[target[1]] = scriptSourcePaths[match[1]]!;
+    delete scriptSourcePaths[match[1]];
+  }
   const response = await window.noveltea.saveProjectContent(
     projectState.projectFilePath,
-    snapshot.contentFingerprint,
+    projectState.workspaceRevision,
     candidateContent,
     editorState,
+    scriptSourcePaths,
   );
   if (!response.success) {
     await rollbackFilesystemTransition(commandId, projectState.projectFilePath, plan, direction);
@@ -704,6 +719,8 @@ export async function persistAutoCommitPlan(
     document: mergeEditorProjectState(candidateContent, persistedEditorState),
     projectPath: response.projectPath,
     projectFilePath: response.projectFilePath,
+    workspaceRevision: response.workspaceRevision,
+    scriptSourcePaths,
   });
   setLoadedEditorProjectState(persistedEditorState);
   useProjectStore.getState().markEditorMetadataPersisted(persistedEditorState);

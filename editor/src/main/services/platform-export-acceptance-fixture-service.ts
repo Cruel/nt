@@ -8,6 +8,7 @@ import {
   type PlatformExportProfile,
 } from '../../shared/project-schema/platform-export-contracts';
 import { parseRoomData } from '../../shared/project-schema/authoring-rooms';
+import { projectWorkspaceFiles } from '../../shared/project-workspace/project-workspace-service';
 import {
   createPlatformExportAcceptanceFixture,
   PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION,
@@ -189,15 +190,21 @@ export async function materializePlatformExportAcceptanceFixture(
   await writeFile(path.join(projectRoot, 'assets/audio/theme.wav'), wavSilence());
   await writeFile(path.join(projectRoot, 'assets/scripts/startup.lua'), 'fixture_started = true\n');
 
-  const projectData = `${JSON.stringify(project, null, 2)}\n`;
+  const workspaceFiles = projectWorkspaceFiles(project, project.editor);
+  await Promise.all(
+    Object.entries(workspaceFiles).map(async ([relativePath, text]) => {
+      const destination = path.join(projectRoot, relativePath);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(destination, text);
+    }),
+  );
   const projectPath = path.join(projectRoot, 'project.json');
-  await writeFile(projectPath, projectData);
   return {
     projectPath,
     projectRoot,
     profile,
     fixtureRevision: `${PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION}.${contentRevision}`,
-    projectSha256: sha256(projectData),
+    projectSha256: sha256(workspaceFiles['project.json']!),
     profileSha256: sha256(JSON.stringify(profile)),
   };
 }

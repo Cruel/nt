@@ -95,6 +95,30 @@ describe('Phase 5 incremental authoring graph service', () => {
     expect(service.currentSourceAnalysis('instance', 2)).toEqual([]);
   });
 
+  it('uses retained Script Module paths for full graph source analysis', async () => {
+    const project = createAuthoringProject() as StructurallyAdmittedAuthoringProject;
+    project.scripts.bootstrap = {
+      id: 'bootstrap',
+      label: 'Bootstrap',
+      data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return "custom"' } },
+    };
+    const service = new AuthoringDependencyGraphService({
+      getProjectReadSessionId: () => null,
+      getScriptSourcePaths: () => ({ bootstrap: 'scripts/custom/bootstrap.lua' }),
+      readProjectTextSources: async () => ({ entries: [] }),
+    });
+
+    await service.publish(publication(null, project, 1, 'load', ['/']));
+
+    expect(
+      service.currentSourceAnalysis('instance', 1, scriptKey('bootstrap'))?.[0]?.regions,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceUrl: 'project:/scripts/custom/bootstrap.lua' }),
+      ]),
+    );
+  });
+
   it('fans one physical source read to multiple owners and reuses persistent analysis caches', async () => {
     const text = 'return "foyer"';
     const hash = `sha256:${createHash('sha256').update(text).digest('hex')}` as const;

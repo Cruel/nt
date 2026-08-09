@@ -59,7 +59,7 @@ export function RecentProjectsList({
                       {entry.label}
                     </div>
                     <div className="truncate font-mono text-[10px] text-muted-foreground">
-                      {entry.projectFilePath ?? entry.projectPath}
+                      {entry.projectPath}
                     </div>
                   </button>
                   <Button

@@ -829,17 +829,19 @@ void app.whenReady().then(async () => {
     async (
       _event: Electron.IpcMainInvokeEvent,
       projectFilePath: string,
-      expectedContentFingerprint: string,
+      expectedWorkspaceRevision: string,
       contentProject: unknown,
       editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
+      scriptSourcePaths: Record<string, string>,
     ) =>
       rememberProjectReadSession(
         rememberPreviewProjectRoot(
           await saveProjectContent(
             projectFilePath,
-            expectedContentFingerprint,
+            expectedWorkspaceRevision,
             contentProject,
             editorState,
+            scriptSourcePaths,
           ),
         ),
       ),
@@ -850,9 +852,9 @@ void app.whenReady().then(async () => {
     (
       _event: Electron.IpcMainInvokeEvent,
       projectFilePath: string,
-      expectedContentFingerprint: string,
+      expectedWorkspaceRevision: string,
       editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
-    ) => saveProjectEditorMetadata(projectFilePath, expectedContentFingerprint, editorState),
+    ) => saveProjectEditorMetadata(projectFilePath, expectedWorkspaceRevision, editorState),
   );
 
   ipcMain.handle(
@@ -863,6 +865,7 @@ void app.whenReady().then(async () => {
       defaultPath: string | null,
       currentProjectFilePath: string | null,
       workingProjectAssetPaths: string[],
+      scriptSourcePaths: Record<string, string>,
     ) =>
       saveProjectCopyAs(
         mainWindow,
@@ -870,6 +873,7 @@ void app.whenReady().then(async () => {
         defaultPath,
         currentProjectFilePath,
         workingProjectAssetPaths,
+        scriptSourcePaths,
       ),
   );
 

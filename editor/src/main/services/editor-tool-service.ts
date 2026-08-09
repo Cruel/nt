@@ -166,6 +166,8 @@ export async function openProject(projectPath: string) {
     editorState: opened.editorState,
     repairs: opened.repairs,
     contentFingerprint: opened.contentFingerprint,
+    workspaceRevision: opened.snapshot.workspaceRevision,
+    scriptSourcePaths: { ...opened.snapshot.scriptSourcePaths },
     projectPath: opened.snapshot.projectRoot,
     projectFilePath: opened.snapshot.manifestPath,
   };

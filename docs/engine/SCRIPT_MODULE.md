@@ -14,7 +14,7 @@ Lua VM and coroutine state are never serialized. Saving is rejected while suspen
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific Script Module record with inline or Asset source and editor-facing label/notes.
+- **Authoring V2:** collection-specific Script Module record with inline or Asset source and editor-facing label/notes. In workspace-v1 persistence, inline Lua is projected as an explicit safe project-relative `scripts/*.lua` file source; assembly restores the unchanged internal inline representation. File presence never changes explicit execution/autorun rules.
 - **Compiled/package:** validated `ScriptId`, source/resource reference, and explicit call sites. Native package loading validates Lua syntax before use.
 - **Mutable:** engine-owned invocation/correlation state only; serializable logical waits may enter `SaveState`, never VM state.
 - **Tooling only:** categories, tags, colors, sort keys, source-editor selection, diagnostics display, and preview state.

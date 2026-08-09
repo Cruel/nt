@@ -46,14 +46,33 @@ export class InMemoryProjectWorkspaceFileSystem implements ProjectWorkspaceFileS
       : 'missing';
   }
 
+  async listDirectory(value: string): Promise<readonly string[]> {
+    const directory = normalize(value).replace(/\/$/, '');
+    const names = new Set<string>();
+    for (const file of this.files.keys()) {
+      if (!file.startsWith(`${directory}/`)) continue;
+      const name = file.slice(directory.length + 1).split('/')[0];
+      if (name) names.add(name);
+    }
+    return [...names].sort();
+  }
+
   async readText(value: string): Promise<string> {
     const text = this.files.get(normalize(value));
     if (text === undefined) throw new Error(`ENOENT: ${value}`);
     return text;
   }
 
+  async readBytes(value: string): Promise<Uint8Array> {
+    return new TextEncoder().encode(await this.readText(value));
+  }
+
   async writeTextAtomic(value: string, text: string): Promise<void> {
     this.files.set(normalize(value), text);
+  }
+
+  async removeFile(value: string): Promise<void> {
+    this.files.delete(normalize(value));
   }
 
   async realpath(value: string): Promise<string> {

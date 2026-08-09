@@ -14,6 +14,7 @@ import {
 import {
   createAuthoringProject,
   isAuthoringProject,
+  authoringProjectSchema,
 } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
@@ -25,15 +26,60 @@ import {
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { projectContentFingerprint } from './project-content-fingerprint';
 import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
+import { assertProjectWorkspacePathContained } from '../../shared/project-workspace/project-workspace-file-system';
+import {
+  ProjectWorkspaceService,
+  projectWorkspaceFiles,
+  projectWorkspaceLocalStateFile,
+} from '../../shared/project-workspace/project-workspace-service';
 
 export { projectContentFingerprint } from './project-content-fingerprint';
 
-function jsonText(project: unknown): string {
-  return `${JSON.stringify(project, null, 2)}\n`;
+function workspaceService() {
+  return new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
 }
 
-async function writeProjectAtomic(project: unknown, projectFilePath: string): Promise<void> {
-  await createNodeProjectWorkspaceFileSystem().writeTextAtomic(projectFilePath, jsonText(project));
+async function writeWorkspaceProject(
+  projectRoot: string,
+  project: unknown,
+  editorState: EditorProjectState,
+  expectedWorkspaceRevision: string,
+  scriptSourcePaths: Readonly<Record<string, string>> = {},
+): Promise<{ contentFingerprint: string; workspaceRevision: string }> {
+  const workspace = workspaceService();
+  const opened = await workspace.open(projectRoot);
+  if (!opened.ok)
+    throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
+  if (opened.snapshot.workspaceRevision !== expectedWorkspaceRevision)
+    throw new Error('Project content changed outside the editor.');
+  const content = stripEditorProjectState(project);
+  if (!isRecord(content)) throw new Error('Project content root must be an object.');
+  const candidate = authoringProjectSchema.safeParse({ ...content, editor: editorState });
+  if (!candidate.success) throw new Error('Project content is invalid.');
+  const written = await workspace.write(
+    projectRoot,
+    expectedWorkspaceRevision,
+    candidate.data,
+    editorState,
+    scriptSourcePaths,
+  );
+  return {
+    contentFingerprint: projectContentFingerprint(content),
+    workspaceRevision: written.workspaceRevision,
+  };
+}
+
+async function assertContained(root: string, candidate: string): Promise<void> {
+  await assertProjectWorkspacePathContained(
+    createNodeProjectWorkspaceFileSystem(),
+    root,
+    candidate,
+  );
+}
+
+async function writeContainedText(root: string, file: string, text: string): Promise<void> {
+  await assertContained(root, file);
+  await createNodeProjectWorkspaceFileSystem().writeTextAtomic(file, text);
 }
 
 function projectWithCurrentEditorFingerprint(project: unknown): {
@@ -87,14 +133,6 @@ async function directoryEntries(directory: string): Promise<string[]> {
   }
 }
 
-function defaultProjectFileName(project: unknown): string {
-  if (isRecord(project) && isRecord(project.project)) {
-    const stem = safeFileStem(project.project.id) ?? safeFileStem(project.project.name);
-    if (stem) return `${stem}.json`;
-  }
-  return 'new-project.json';
-}
-
 function validationErrors(project: unknown): ToolDiagnostic[] {
   if (!isAuthoringProject(project)) return [];
   return validateAuthoringProject(project).filter((diagnostic) => diagnostic.severity === 'error');
@@ -142,20 +180,9 @@ async function copyProjectAssets(
     }
     const source = path.resolve(oldRoot, assetPath);
     const destination = path.resolve(newRoot, assetPath);
-    const sourceRelative = path.relative(oldRoot, source);
-    const destinationRelative = path.relative(newRoot, destination);
-    if (
-      sourceRelative.startsWith('..') ||
-      path.isAbsolute(sourceRelative) ||
-      destinationRelative.startsWith('..') ||
-      path.isAbsolute(destinationRelative)
-    ) {
-      diagnostics.push(
-        assetCopyDiagnostic(`/assets/${assetPath}`, `Skipped unsafe asset path '${assetPath}'.`),
-      );
-      continue;
-    }
     try {
+      await assertContained(oldRoot, source);
+      await assertContained(newRoot, destination);
       const sourceStat = await fs.stat(source);
       if (!sourceStat.isFile()) {
         diagnostics.push(
@@ -180,9 +207,12 @@ async function copyProjectAssets(
       } catch {
         // Destination does not exist yet.
       }
+      await assertContained(newRoot, path.dirname(destination));
       await fs.mkdir(path.dirname(destination), { recursive: true });
+      await assertContained(newRoot, destination);
       await fs.copyFile(source, destination);
     } catch (error) {
+      if (error instanceof Error && error.message.includes('escapes the project root')) throw error;
       diagnostics.push(
         assetCopyDiagnostic(
           `/assets/${assetPath}`,
@@ -194,27 +224,52 @@ async function copyProjectAssets(
   return diagnostics;
 }
 
-async function existingDirectoryEntries(
-  directory: string,
-  projectFilePath: string,
-): Promise<string[]> {
+async function copyProjectWorkflows(oldProjectFilePath: string, newProjectFilePath: string) {
+  const sourceRoot = projectPathFromFile(oldProjectFilePath);
+  const destinationRoot = projectPathFromFile(newProjectFilePath);
+  const copyDirectory = async (source: string, destination: string): Promise<void> => {
+    await assertContained(sourceRoot, source);
+    await assertContained(destinationRoot, destination);
+    for (const entry of await fs.readdir(source, { withFileTypes: true })) {
+      const childSource = path.join(source, entry.name);
+      const childDestination = path.join(destination, entry.name);
+      await assertContained(sourceRoot, childSource);
+      await assertContained(destinationRoot, childDestination);
+      if (entry.isDirectory()) {
+        await fs.mkdir(childDestination, { recursive: true });
+        await copyDirectory(childSource, childDestination);
+      } else if (entry.isFile()) {
+        await fs.mkdir(path.dirname(childDestination), { recursive: true });
+        await assertContained(destinationRoot, childDestination);
+        await fs
+          .copyFile(childSource, childDestination, fs.constants.COPYFILE_EXCL)
+          .catch((error) => {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          });
+      } else {
+        throw new Error(`Workflow '${entry.name}' is not a regular file or directory.`);
+      }
+    }
+  };
+  const source = path.join(sourceRoot, 'workflows');
+  const destination = path.join(destinationRoot, 'workflows');
   try {
-    const entries = await fs.readdir(directory);
-    const projectBasename = path.basename(projectFilePath);
-    return entries.filter(
-      (entry) => entry !== projectBasename && !entry.startsWith(`.${projectBasename}.`),
-    );
-  } catch {
-    return [];
+    await assertContained(sourceRoot, source);
+    await assertContained(destinationRoot, destination);
+    const stat = await fs.stat(source);
+    if (stat.isDirectory() && path.resolve(source) !== path.resolve(destination))
+      await copyDirectory(source, destination);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
 }
 
 async function confirmNonEmptyDestination(
   owner: BrowserWindow,
-  projectFilePath: string,
+  projectRoot: string,
 ): Promise<boolean> {
-  const directory = path.dirname(projectFilePath);
-  const entries = await existingDirectoryEntries(directory, projectFilePath);
+  const directory = path.resolve(projectRoot);
+  const entries = await directoryEntries(directory);
   if (entries.length === 0) return true;
   const sample = entries.slice(0, 6).join(', ');
   const suffix = entries.length > 6 ? `, and ${entries.length - 6} more` : '';
@@ -225,7 +280,7 @@ async function confirmNonEmptyDestination(
     cancelId: 0,
     title: 'Save project in non-empty folder?',
     message: 'The selected folder is not empty.',
-    detail: `NovelTea projects currently store project-owned files next to the project file, such as assets/images and assets/audio. Saving here may create or reuse project folders in:\n\n${directory}\n\nExisting entries include: ${sample}${suffix}`,
+    detail: `NovelTea projects store their source tree in the selected folder. Saving here may create or reuse project files in:\n\n${directory}\n\nExisting entries include: ${sample}${suffix}`,
   });
   return result.response === 1;
 }
@@ -248,7 +303,17 @@ export async function saveProject(
     };
   }
   try {
-    await writeProjectAtomic(normalized.project, projectFilePath);
+    const root = projectPathFromFile(projectFilePath);
+    const editor = parseEditorProjectState((normalized.project as Record<string, unknown>).editor);
+    const opened = await workspaceService().open(root);
+    if (!opened.ok)
+      throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
+    await writeWorkspaceProject(
+      root,
+      normalized.project,
+      editor,
+      opened.snapshot.workspaceRevision,
+    );
     const absolute = path.resolve(projectFilePath);
     return {
       ok: true,
@@ -269,7 +334,7 @@ export async function saveProject(
 
 export async function saveProjectEditorMetadata(
   projectFilePath: string,
-  expectedContentFingerprint: string,
+  expectedWorkspaceRevision: string,
   editorState: EditorProjectState,
 ): Promise<SaveProjectEditorMetadataResponse> {
   if (!projectFilePath || typeof projectFilePath !== 'string') {
@@ -281,12 +346,13 @@ export async function saveProjectEditorMetadata(
     };
   }
   try {
-    const source = await fs.readFile(path.resolve(projectFilePath), 'utf8');
-    const parsed = JSON.parse(source) as unknown;
-    if (!isRecord(parsed)) throw new Error('Project root must be an object.');
-    const content = stripEditorProjectState(parsed);
-    const actualContentFingerprint = projectContentFingerprint(content);
-    if (actualContentFingerprint !== expectedContentFingerprint) {
+    const root = projectPathFromFile(projectFilePath);
+    const opened = await workspaceService().open(root);
+    if (!opened.ok)
+      throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
+    const content = opened.contentProject;
+    const actualContentFingerprint = opened.contentFingerprint;
+    if (opened.snapshot.workspaceRevision !== expectedWorkspaceRevision) {
       const diagnostic = createProjectValidationDiagnostic({
         code: 'editor.metadata.content-conflict',
         severity: 'error',
@@ -326,12 +392,18 @@ export async function saveProjectEditorMetadata(
         error: diagnostic.message,
       };
     }
-    await writeProjectAtomic({ ...content, editor: normalizedEditor.data }, projectFilePath);
+    const written = await writeWorkspaceProject(
+      root,
+      content,
+      normalizedEditor.data,
+      expectedWorkspaceRevision,
+    );
     return {
       ok: true,
       success: true,
       diagnostics: [],
-      contentFingerprint: actualContentFingerprint,
+      contentFingerprint: written.contentFingerprint,
+      workspaceRevision: written.workspaceRevision,
     };
   } catch (error) {
     return {
@@ -345,9 +417,10 @@ export async function saveProjectEditorMetadata(
 
 export async function saveProjectContent(
   projectFilePath: string,
-  expectedContentFingerprint: string,
+  expectedWorkspaceRevision: string,
   contentProject: unknown,
   editorState: EditorProjectState,
+  scriptSourcePaths: Readonly<Record<string, string>> = {},
 ): Promise<SaveProjectResponse> {
   if (!projectFilePath || typeof projectFilePath !== 'string') {
     return {
@@ -358,12 +431,12 @@ export async function saveProjectContent(
   }
   try {
     const absolute = path.resolve(projectFilePath);
-    const source = await fs.readFile(absolute, 'utf8');
-    const parsed = JSON.parse(source) as unknown;
-    if (!isRecord(parsed)) throw new Error('Project root must be an object.');
-    const diskContent = stripEditorProjectState(parsed);
-    const actualContentFingerprint = projectContentFingerprint(diskContent);
-    if (actualContentFingerprint !== expectedContentFingerprint) {
+    const root = projectPathFromFile(absolute);
+    const opened = await workspaceService().open(root);
+    if (!opened.ok)
+      throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
+    const actualContentFingerprint = opened.contentFingerprint;
+    if (opened.snapshot.workspaceRevision !== expectedWorkspaceRevision) {
       const diagnostic = createProjectValidationDiagnostic({
         code: 'editor.content-save.content-conflict',
         severity: 'error',
@@ -408,13 +481,20 @@ export async function saveProjectContent(
       };
     }
 
-    await writeProjectAtomic({ ...content, editor: normalizedEditor.data }, absolute);
+    const written = await writeWorkspaceProject(
+      root,
+      content,
+      normalizedEditor.data,
+      expectedWorkspaceRevision,
+      scriptSourcePaths,
+    );
     return {
       ok: true,
       success: true,
       projectPath: projectPathFromFile(absolute),
       projectFilePath: absolute,
-      contentFingerprint,
+      contentFingerprint: written.contentFingerprint,
+      workspaceRevision: written.workspaceRevision,
       diagnostics: [],
     };
   } catch (error) {
@@ -432,35 +512,70 @@ export async function saveProjectCopyAs(
   defaultPath: string | null = null,
   currentProjectFilePath: string | null = null,
   workingProjectAssetPaths: readonly string[] = [],
+  scriptSourcePaths: Readonly<Record<string, string>> = {},
 ): Promise<SaveProjectResponse> {
   if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
-  const result = await dialog.showSaveDialog(owner, {
+  const result = await dialog.showOpenDialog(owner, {
     title: 'Save NovelTea Project Copy',
-    defaultPath: defaultPath ?? defaultProjectFileName(project),
-    filters: [
-      { name: 'NovelTea Project', extensions: ['json', 'game'] },
-      { name: 'All Files', extensions: ['*'] },
-    ],
+    defaultPath: defaultPath ? projectPathFromFile(defaultPath) : undefined,
+    properties: ['openDirectory', 'createDirectory'],
   });
-  if (result.canceled || !result.filePath) {
+  const selectedRoot = result.filePaths[0];
+  if (result.canceled || !selectedRoot) {
     return { ok: false, success: false, error: 'Save canceled.' };
   }
-  const absolute = path.resolve(result.filePath);
-  if (!(await confirmNonEmptyDestination(owner, absolute))) {
+  const root = path.resolve(selectedRoot);
+  if (!(await confirmNonEmptyDestination(owner, root))) {
     return { ok: false, success: false, error: 'Save canceled.' };
   }
-  const diagnostics = currentProjectFilePath
-    ? await copyProjectAssets(project, currentProjectFilePath, absolute, workingProjectAssetPaths)
-    : [];
+  let diagnostics: ToolDiagnostic[] = [];
   try {
+    diagnostics = currentProjectFilePath
+      ? await copyProjectAssets(
+          project,
+          currentProjectFilePath,
+          path.join(root, 'project.json'),
+          workingProjectAssetPaths,
+        )
+      : [];
+    const manifestPath = path.join(root, 'project.json');
+    if (currentProjectFilePath) await copyProjectWorkflows(currentProjectFilePath, manifestPath);
     const normalized = projectWithCurrentEditorFingerprint(project);
-    await writeProjectAtomic(normalized.project, absolute);
+    const editor = parseEditorProjectState((normalized.project as Record<string, unknown>).editor);
+    const sourcePaths = currentProjectFilePath
+      ? await workspaceService().open(projectPathFromFile(currentProjectFilePath))
+      : null;
+    for (const [relativePath, text] of Object.entries(
+      projectWorkspaceFiles(
+        normalized.project as Parameters<typeof projectWorkspaceFiles>[0],
+        editor,
+        sourcePaths?.ok
+          ? { ...sourcePaths.snapshot.scriptSourcePaths, ...scriptSourcePaths }
+          : scriptSourcePaths,
+      ),
+    ))
+      await writeContainedText(root, path.join(root, relativePath), text);
+    const openedCopy = await workspaceService().open(root);
+    if (!openedCopy.ok)
+      throw new Error(openedCopy.diagnostics[0]?.message ?? 'Saved project copy is invalid.');
+    await writeContainedText(
+      root,
+      path.join(root, '.noveltea/editor/state.json'),
+      projectWorkspaceLocalStateFile(editor, openedCopy.snapshot.workspaceRevision),
+    );
+    await writeContainedText(root, path.join(root, '.gitignore'), '/.noveltea/\n');
+    for (const directory of ['records', 'scripts', 'assets']) {
+      const target = path.join(root, directory);
+      await assertContained(root, target);
+      await fs.mkdir(target, { recursive: true });
+    }
     return {
       ok: true,
       success: true,
-      projectPath: projectPathFromFile(absolute),
-      projectFilePath: absolute,
+      projectPath: root,
+      projectFilePath: manifestPath,
       contentFingerprint: normalized.contentFingerprint,
+      workspaceRevision: openedCopy.snapshot.workspaceRevision,
       diagnostics,
     };
   } catch (error) {
@@ -503,7 +618,22 @@ export async function createProject(request: CreateProjectRequest): Promise<Save
       };
     }
     const project = createAuthoringProject({ id: projectId, name: projectName });
-    return await saveProject(project, projectFilePath);
+    const fsPort = createNodeProjectWorkspaceFileSystem();
+    const editor = parseEditorProjectState(project.editor);
+    for (const [relativePath, text] of Object.entries(projectWorkspaceFiles(project, editor)))
+      await fsPort.writeTextAtomic(path.join(absoluteDirectory, relativePath), text);
+    await fs.mkdir(path.join(absoluteDirectory, 'records'), { recursive: true });
+    await fs.mkdir(path.join(absoluteDirectory, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(absoluteDirectory, 'assets'), { recursive: true });
+    await fsPort.writeTextAtomic(path.join(absoluteDirectory, '.gitignore'), '/.noveltea/\n');
+    return {
+      ok: true,
+      success: true,
+      projectPath: absoluteDirectory,
+      projectFilePath,
+      contentFingerprint: projectContentFingerprint(project),
+      diagnostics: [],
+    };
   } catch (error) {
     return {
       ok: false,

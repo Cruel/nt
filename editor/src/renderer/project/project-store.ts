@@ -23,6 +23,8 @@ interface ProjectStoreState {
   projectPath: string | null;
   projectFilePath: string | null;
   projectReadSessionId: string | null;
+  workspaceRevision: string | null;
+  scriptSourcePaths: Readonly<Record<string, string>>;
   historyCursor: number;
   isSaving: boolean;
   lastSaveError: string | null;
@@ -55,6 +57,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   projectPath: null,
   projectFilePath: null,
   projectReadSessionId: null,
+  workspaceRevision: null,
+  scriptSourcePaths: {},
   historyCursor: -1,
   isSaving: false,
   lastSaveError: null,
@@ -64,6 +68,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     projectPath,
     projectFilePath,
     projectReadSessionId = null,
+    workspaceRevision = `sha256:${'0'.repeat(64)}`,
+    scriptSourcePaths = {},
   }) => {
     const admitted = admitProjectCandidate(document);
     if (!admitted) return false;
@@ -86,6 +92,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath,
       projectFilePath,
       projectReadSessionId,
+      workspaceRevision,
+      scriptSourcePaths,
       historyCursor: -1,
       isSaving: false,
       lastSaveError: null,
@@ -114,6 +122,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath: null,
       projectFilePath: null,
       projectReadSessionId: null,
+      workspaceRevision: null,
+      scriptSourcePaths: {},
       historyCursor: 0,
       isSaving: false,
       lastSaveError: null,
@@ -131,6 +141,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath: null,
       projectFilePath: null,
       projectReadSessionId: null,
+      workspaceRevision: null,
+      scriptSourcePaths: {},
       historyCursor: -1,
       isSaving: false,
       lastSaveError: null,
@@ -180,6 +192,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       savedDocument,
       projectPath: metadata?.projectPath ?? state.projectPath,
       projectFilePath: metadata?.projectFilePath ?? state.projectFilePath,
+      workspaceRevision: metadata?.workspaceRevision ?? state.workspaceRevision,
+      scriptSourcePaths: metadata?.scriptSourcePaths ?? state.scriptSourcePaths,
       isSaving: false,
       lastSaveError: null,
     });

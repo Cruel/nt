@@ -91,7 +91,7 @@ async function recordSuccessfulExportIdentity(
 ) {
   const projectState = useProjectStore.getState();
   const liveProject = projectState.document as AuthoringProject | null;
-  if (!liveProject || !projectState.projectFilePath) {
+  if (!liveProject || !projectState.projectFilePath || !projectState.workspaceRevision) {
     return createPlatformExportValidationDiagnostic({
       code: 'platform-export.identity-history.project-file-required',
       severity: 'error',
@@ -122,7 +122,7 @@ async function recordSuccessfulExportIdentity(
   );
   const result = await window.noveltea.saveProjectEditorMetadata(
     projectState.projectFilePath,
-    editorState.contentFingerprint,
+    projectState.workspaceRevision,
     editorState,
   );
   if (!result.success) {
@@ -140,6 +140,7 @@ async function recordSuccessfulExportIdentity(
     contentFingerprint: result.contentFingerprint ?? editorState.contentFingerprint,
   };
   setLoadedEditorProjectState(persisted);
+  useProjectStore.getState().markSaved({ workspaceRevision: result.workspaceRevision });
   useProjectStore.getState().markEditorMetadataPersisted(persisted);
   return null;
 }

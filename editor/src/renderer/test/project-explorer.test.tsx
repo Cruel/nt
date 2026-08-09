@@ -99,7 +99,7 @@ describe('ProjectExplorer', () => {
     if (!(event instanceof CustomEvent)) throw new Error('Expected a workspace toolbar event.');
     expect((event as CustomEvent<WorkspaceToolbarCommandDetail>).detail).toEqual({
       command: 'open-project',
-      projectPath: '/projects/demo/game.json',
+      projectPath: '/projects/demo',
     });
     window.removeEventListener(WORKSPACE_TOOLBAR_COMMAND_EVENT, listener);
   });

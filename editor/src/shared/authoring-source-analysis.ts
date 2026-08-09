@@ -1036,6 +1036,7 @@ export function analyzeAuthoringSources(
   } = LUA_REFERENCE_ANALYSIS_LIMITS,
   contributionKeys?: ReadonlySet<AuthoringDependencyContributionKey>,
   persistentCache?: AuthoringSourceAnalysisCache,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
 ): ReadonlyMap<
   string,
   readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
@@ -1053,7 +1054,7 @@ export function analyzeAuthoringSources(
   const countedPhysicalSources = new Set<string>();
   const blockedOwners = new Set<string>();
   const ownerOccurrenceCounts = new Map<string, number>();
-  const descriptors = collectAuthoringLuaSources(project, contributionKeys);
+  const descriptors = sourceDescriptors ?? collectAuthoringLuaSources(project, contributionKeys);
 
   const diagnosticContentArtifact = (
     descriptor: AuthoringLuaSourceDescriptor,

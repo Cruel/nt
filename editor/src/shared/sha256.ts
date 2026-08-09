@@ -15,8 +15,7 @@ const INITIAL_STATE = new Uint32Array([
 
 const rotateRight = (value: number, shift: number) => (value >>> shift) | (value << (32 - shift));
 
-export function sha256HexUtf8(value: string): string {
-  const input = new TextEncoder().encode(value);
+export function sha256HexBytes(input: Uint8Array): string {
   const paddedLength = Math.ceil((input.length + 9) / 64) * 64;
   const padded = new Uint8Array(paddedLength);
   padded.set(input);
@@ -80,6 +79,14 @@ export function sha256HexUtf8(value: string): string {
   return [...state].map((word) => word.toString(16).padStart(8, '0')).join('');
 }
 
+export function sha256HexUtf8(value: string): string {
+  return sha256HexBytes(new TextEncoder().encode(value));
+}
+
 export function sha256PrefixedUtf8(value: string): `sha256:${string}` {
   return `sha256:${sha256HexUtf8(value)}`;
+}
+
+export function sha256PrefixedBytes(value: Uint8Array): `sha256:${string}` {
+  return `sha256:${sha256HexBytes(value)}`;
 }

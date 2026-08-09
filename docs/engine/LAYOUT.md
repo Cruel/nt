@@ -77,7 +77,11 @@ Each layout owns three source channels:
 - `rcss` for RmlUi styles;
 - `lua` for layout-local event script code.
 
-Each source channel can be inline or asset-backed. Dependency lists declare additional assets/materials needed by the layout.
+In workspace-v1 projects, file-backed channels are ordinary companion files beside the Layout record:
+`layout.rml`, `layout.rcss`, and `layout.lua`. Layout JSON stores a strict `file`, `asset`, or (Lua
+only) `none` selector and never duplicates file text. Assembly adapts those files to the existing
+internal inline representation used by compiler and preview code. Dependency lists declare additional
+assets/materials needed by the layout.
 
 ## Data Model
 

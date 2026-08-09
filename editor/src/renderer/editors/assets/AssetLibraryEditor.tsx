@@ -119,6 +119,7 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const scriptSourcePaths = useProjectStore((state) => state.scriptSourcePaths);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -169,8 +170,8 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
       );
   }, [project]);
   const workspaceSnapshot = useMemo(
-    () => (project ? createProjectWorkspaceSnapshot(project) : null),
-    [project],
+    () => (project ? createProjectWorkspaceSnapshot(project, scriptSourcePaths) : null),
+    [project, scriptSourcePaths],
   );
   const assets = useMemo(() => {
     if (!project || !workspaceSnapshot) return [];

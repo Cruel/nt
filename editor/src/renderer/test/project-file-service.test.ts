@@ -2,374 +2,246 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+const dialogs = vi.hoisted(() => ({ destination: '' }));
+vi.mock('electron', () => ({
+  dialog: {
+    showOpenDialog: async () => ({ canceled: false, filePaths: [dialogs.destination] }),
+    showMessageBox: async () => ({ response: 1 }),
+  },
+}));
 import {
   createProject,
   projectContentFingerprint,
-  saveProject,
   saveProjectContent,
-  saveProjectCopyAs,
   saveProjectEditorMetadata,
+  saveProjectCopyAs,
 } from '../../main/services/project-file-service';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import {
-  emptyEditorProjectState,
-  stripEditorProjectState,
-} from '../../shared/project-schema/editor-project-state';
+import { ProjectWorkspaceService } from '../../shared/project-workspace';
+import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
+import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 
 const roots: string[] = [];
-
 function tempRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-save-project-'));
   roots.push(root);
   return root;
 }
-
-function projectWithImage() {
-  const project = createAuthoringProject();
-  project.assets.logo = {
-    id: 'logo',
-    label: 'Logo',
-    data: {
-      kind: 'image',
-      source: { type: 'project-file', path: 'assets/images/logo.png' },
-      aliases: [],
-      extension: '.png',
-      imageMetadata: { width: 256, height: 256, hasAlpha: true, orientation: 1 },
-    },
-  };
-  return project;
-}
-
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('project-file-service', () => {
-  it('creates a new project in an empty directory', async () => {
+describe('project-file-service workspace-v1', () => {
+  it('creates the canonical segmented project root and ignored local namespace', async () => {
     const root = tempRoot();
     const projectDirectory = path.join(root, 'my-project');
-
     const result = await createProject({ projectName: 'My Project', projectDirectory });
-
     expect(result.success).toBe(true);
-    expect(result.projectFilePath).toBe(path.join(projectDirectory, 'project.json'));
-    const project = JSON.parse(
-      fs.readFileSync(path.join(projectDirectory, 'project.json'), 'utf8'),
+    expect(fs.existsSync(path.join(projectDirectory, 'project.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'properties.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'localization.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'editor.json'))).toBe(true);
+    expect(fs.readFileSync(path.join(projectDirectory, '.gitignore'), 'utf8')).toContain(
+      '/.noveltea/',
     );
-    expect(project.project).toMatchObject({ id: 'my-project', name: 'My Project' });
+    expect(fs.existsSync(path.join(projectDirectory, 'records'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'scripts'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'assets'))).toBe(true);
   });
 
-  it('rejects creating a project in a path with spaces', async () => {
+  it('does not discover retired game.json projects', async () => {
     const root = tempRoot();
-    const projectDirectory = path.join(root, 'my project');
-
-    const result = await createProject({ projectName: 'My Project', projectDirectory });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBe('Project paths must not contain spaces.');
-    expect(fs.existsSync(path.join(projectDirectory, 'project.json'))).toBe(false);
-  });
-
-  it('rejects creating a project in a non-empty directory', async () => {
-    const root = tempRoot();
-    const projectDirectory = path.join(root, 'my-project');
-    fs.mkdirSync(projectDirectory);
-    fs.writeFileSync(path.join(projectDirectory, 'notes.txt'), 'existing');
-
-    const result = await createProject({ projectName: 'My Project', projectDirectory });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBe('Project directory already exists and is not empty.');
-    expect(fs.existsSync(path.join(projectDirectory, 'project.json'))).toBe(false);
-  });
-
-  it('saves project JSON atomically', async () => {
-    const root = tempRoot();
-    const projectFilePath = path.join(root, 'game.json');
-    const result = await saveProject(projectWithImage(), projectFilePath);
-    expect(result.success).toBe(true);
-    expect(fs.existsSync(projectFilePath)).toBe(true);
-  });
-
-  it('blocks saving invalid authoring projects', async () => {
-    const root = tempRoot();
-    const project = projectWithImage();
-    project.project.name = '';
-
-    const result = await saveProject(project, path.join(root, 'game.json'));
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBe('Project title is required.');
-    expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ severity: 'error', path: '/project/name' }),
+    fs.writeFileSync(path.join(root, 'game.json'), '{}');
+    const opened = await new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem()).open(
+      root,
     );
-    expect(fs.existsSync(path.join(root, 'game.json'))).toBe(false);
+    expect(opened.ok).toBe(false);
   });
 
-  it('fingerprints canonical content while excluding editor metadata', () => {
-    const project = createAuthoringProject({ id: 'fingerprint', name: 'Fingerprint' });
-    const first = projectContentFingerprint(project);
-    const reordered = Object.fromEntries(Object.entries(project).reverse());
-    expect(projectContentFingerprint(reordered)).toBe(first);
-    expect(
-      projectContentFingerprint({
-        ...project,
-        editor: {
-          ...project.editor,
-          bottomPanel: { ...project.editor.bottomPanel, visible: false },
-        },
-      }),
-    ).toBe(first);
-  });
-
-  it('writes only editor metadata when the content fingerprint still matches', async () => {
+  it('writes project content as segmented files and only changes affected files', async () => {
     const root = tempRoot();
-    const projectFilePath = path.join(root, 'project.json');
-    const project = createAuthoringProject({ id: 'metadata', name: 'Metadata' });
-    fs.writeFileSync(projectFilePath, `${JSON.stringify(project, null, 2)}\n`);
-    const fingerprint = projectContentFingerprint(project);
-    const editorState = {
-      ...emptyEditorProjectState(fingerprint),
-      bottomPanel: { visible: false, activePanelId: 'problems' as const, sizePercent: 24 },
-      recovery: {
-        sequence: 1,
-        saveUnitsById: {
-          'project:settings': {
-            sequence: 1,
-            patches: [{ op: 'replace' as const, path: '/project/name', value: 'Recovered' }],
-            affectedPaths: ['/project/name'],
-            pendingRawInputByPath: {},
-            atomicTransactionGroupIds: ['atomic:1'],
-          },
-        },
-      },
-    };
-
-    const result = await saveProjectEditorMetadata(projectFilePath, fingerprint, editorState);
-    const persisted = JSON.parse(fs.readFileSync(projectFilePath, 'utf8'));
-
-    expect(result.success).toBe(true);
-    expect(stripEditorProjectState(persisted)).toEqual(stripEditorProjectState(project));
-    expect(persisted.editor).toEqual(editorState);
-  });
-
-  it('leaves the file untouched when editor metadata detects external content changes', async () => {
-    const root = tempRoot();
-    const projectFilePath = path.join(root, 'project.json');
-    const project = createAuthoringProject({ id: 'conflict', name: 'Before' });
-    const expectedFingerprint = projectContentFingerprint(project);
-    const externallyChanged = { ...project, project: { ...project.project, name: 'External' } };
-    const externalText = `${JSON.stringify(externallyChanged, null, 2)}\n`;
-    fs.writeFileSync(projectFilePath, externalText);
-
-    const result = await saveProjectEditorMetadata(
-      projectFilePath,
-      expectedFingerprint,
-      emptyEditorProjectState(expectedFingerprint),
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'editor.metadata.content-conflict', severity: 'error' }),
-    );
-    expect(fs.readFileSync(projectFilePath, 'utf8')).toBe(externalText);
-  });
-
-  it('writes a scoped content candidate with rebased editor recovery in one atomic update', async () => {
-    const root = tempRoot();
-    const projectFilePath = path.join(root, 'project.json');
-    const saved = createAuthoringProject({ id: 'scoped-save', name: 'Before' });
-    const savedText = `${JSON.stringify(saved, null, 2)}\n`;
-    fs.writeFileSync(projectFilePath, savedText);
-    const expectedFingerprint = projectContentFingerprint(saved);
+    await createProject({ projectName: 'Save', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const beforeEditor = fs.readFileSync(path.join(root, 'editor.json'), 'utf8');
     const candidate = {
-      ...saved,
-      project: { ...saved.project, name: 'After' },
-      settings: { ...saved.settings, app: { ...saved.settings.app, version: '' } },
+      ...opened.snapshot.project,
+      project: { ...opened.snapshot.project.project, name: 'After' },
     };
-    const editorState = {
-      ...emptyEditorProjectState(expectedFingerprint),
-      recovery: {
-        sequence: 1,
-        saveUnitsById: {
-          'record:rooms:blocked': {
-            sequence: 1,
-            patches: [
-              {
-                op: 'add' as const,
-                path: '/rooms/blocked',
-                value: { id: 'blocked', label: 'Blocked', data: {} },
-              },
-            ],
-            affectedPaths: ['/rooms/blocked'],
-            pendingRawInputByPath: {},
-            atomicTransactionGroupIds: [],
-          },
-        },
-      },
-    };
-
     const result = await saveProjectContent(
-      projectFilePath,
-      expectedFingerprint,
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
       candidate,
-      editorState,
+      opened.editorState,
     );
-    const persisted = JSON.parse(fs.readFileSync(projectFilePath, 'utf8'));
-
     expect(result.success).toBe(true);
-    expect(persisted.project.name).toBe('After');
-    expect(persisted.settings.app.version).toBe('');
-    expect(persisted.editor.recovery.saveUnitsById).toHaveProperty('record:rooms:blocked');
-    expect(persisted.editor.contentFingerprint).toBe(
-      projectContentFingerprint(stripEditorProjectState(candidate)),
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name).toBe(
+      'After',
     );
+    expect(fs.readFileSync(path.join(root, 'editor.json'), 'utf8')).toBe(beforeEditor);
   });
 
-  it('leaves the file untouched when scoped content save detects external changes', async () => {
+  it('persists only local editor state outside tracked editor.json', async () => {
     const root = tempRoot();
-    const projectFilePath = path.join(root, 'project.json');
-    const saved = createAuthoringProject({ id: 'content-conflict', name: 'Before' });
-    const expectedFingerprint = projectContentFingerprint(saved);
-    const external = { ...saved, project: { ...saved.project, name: 'External' } };
-    const externalText = `${JSON.stringify(external, null, 2)}\n`;
-    fs.writeFileSync(projectFilePath, externalText);
-
-    const result = await saveProjectContent(
-      projectFilePath,
-      expectedFingerprint,
-      { ...saved, project: { ...saved.project, name: 'Candidate' } },
-      emptyEditorProjectState(expectedFingerprint),
+    await createProject({ projectName: 'Metadata', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const state = {
+      ...emptyEditorProjectState(opened.contentFingerprint),
+      bottomPanel: { visible: false, activePanelId: 'problems' as const, sizePercent: 24 },
+    };
+    const result = await saveProjectEditorMetadata(
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
+      state,
     );
-
-    expect(result.success).toBe(false);
-    expect(result.diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'editor.content-save.content-conflict' }),
-    );
-    expect(fs.readFileSync(projectFilePath, 'utf8')).toBe(externalText);
-  });
-
-  it('copies project-owned asset files when Save As changes project root', async () => {
-    const oldRoot = tempRoot();
-    const newRoot = tempRoot();
-    const oldProjectFilePath = path.join(oldRoot, 'game.json');
-    const newProjectFilePath = path.join(newRoot, 'game.json');
-    fs.mkdirSync(path.join(oldRoot, 'assets', 'images'), { recursive: true });
-    fs.writeFileSync(path.join(oldRoot, 'assets', 'images', 'logo.png'), 'image');
-    fs.writeFileSync(oldProjectFilePath, '{}');
-    const owner = {
-      __mockSavePath: newProjectFilePath,
-      __mockMessageResponse: 1,
-    } as never;
-
-    const result = await saveProjectCopyAs(
-      owner,
-      projectWithImage(),
-      oldProjectFilePath,
-      oldProjectFilePath,
-    );
-
     expect(result.success).toBe(true);
-    expect(fs.readFileSync(path.join(newRoot, 'assets', 'images', 'logo.png'), 'utf8')).toBe(
-      'image',
-    );
-    expect(result.diagnostics ?? []).toEqual([]);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8'))).toEqual({
+      chapters: { assignments: {}, records: {} },
+      recordMetadata: {},
+      tags: { records: {} },
+    });
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8')),
+    ).toMatchObject({
+      schema: 'noveltea.editor.local-state',
+      schemaVersion: 1,
+      workspaceRevision: result.workspaceRevision,
+      bottomPanel: { visible: false },
+    });
   });
 
-  it('Save As copy writes the saved baseline and complete recovery without validating dirty work', async () => {
-    const oldRoot = tempRoot();
-    const newRoot = tempRoot();
-    const oldProjectFilePath = path.join(oldRoot, 'game.json');
-    const newProjectFilePath = path.join(newRoot, 'game.json');
-    const baseline = createAuthoringProject({ id: 'copy', name: 'Copy' });
-    baseline.project.name = '';
-    const fingerprint = projectContentFingerprint(baseline);
-    const editorState = {
-      ...emptyEditorProjectState(fingerprint),
-      recovery: {
-        sequence: 1,
-        saveUnitsById: {
-          'project:settings': {
-            sequence: 1,
-            patches: [{ op: 'replace' as const, path: '/project/name', value: 'Recovered' }],
-            affectedPaths: ['/project/name'],
-            pendingRawInputByPath: {},
-            atomicTransactionGroupIds: [],
-          },
-        },
+  it('rejects saves after the coarse workspace baseline changes', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Conflict', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    fs.writeFileSync(
+      path.join(root, 'project.json'),
+      fs.readFileSync(path.join(root, 'project.json'), 'utf8').replace('Conflict', 'External'),
+    );
+    const result = await saveProjectEditorMetadata(
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
+      emptyEditorProjectState(projectContentFingerprint(opened.snapshot.project)),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it('preserves a loaded Script Module source owner through production content save', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Script source', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await workspace.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const project = structuredClone(initial.snapshot.project);
+    project.scripts.before = {
+      id: 'before',
+      label: 'Before',
+      data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return 1\n' } },
+    };
+    await workspace.write(root, initial.snapshot.workspaceRevision, project, initial.editorState, {
+      before: 'scripts/custom/entry.lua',
+    });
+    const loaded = await workspace.open(root);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    const renamed = structuredClone(loaded.snapshot.project);
+    renamed.scripts.after = { ...renamed.scripts.before!, id: 'after', label: 'After' };
+    delete renamed.scripts.before;
+    const result = await saveProjectContent(
+      path.join(root, 'project.json'),
+      loaded.snapshot.workspaceRevision,
+      renamed,
+      loaded.editorState,
+      { after: 'scripts/custom/entry.lua' },
+    );
+    expect(result.success).toBe(true);
+    expect(fs.readFileSync(path.join(root, 'records/scripts/after.json'), 'utf8')).toContain(
+      'scripts/custom/entry.lua',
+    );
+    expect(fs.readFileSync(path.join(root, 'scripts/custom/entry.lua'), 'utf8')).toBe('return 1\n');
+  });
+
+  it('rejects a local-state symlink escape instead of writing through it', async () => {
+    const root = tempRoot();
+    const outside = tempRoot();
+    await createProject({ projectName: 'Contained', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    fs.mkdirSync(path.join(root, '.noveltea', 'editor'), { recursive: true });
+    fs.symlinkSync(outside, path.join(root, '.noveltea', 'editor', 'escape'));
+    const state = emptyEditorProjectState(opened.contentFingerprint);
+    const result = await saveProjectEditorMetadata(
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
+      state,
+    );
+    expect(result.success).toBe(true);
+    fs.rmSync(path.join(root, '.noveltea', 'editor'), { recursive: true, force: true });
+    fs.symlinkSync(outside, path.join(root, '.noveltea', 'editor'));
+    const rejected = await saveProjectEditorMetadata(
+      path.join(root, 'project.json'),
+      result.workspaceRevision!,
+      state,
+    );
+    expect(rejected.success).toBe(false);
+    expect(fs.existsSync(path.join(outside, 'state.json'))).toBe(false);
+  });
+
+  it.each([
+    ['projected records', 'records'],
+    ['local state', '.noveltea'],
+    ['copied assets', 'assets'],
+    ['copied workflows', 'workflows'],
+  ])('rejects Save As %s symlink escapes', async (_label, escapedDirectory) => {
+    const source = tempRoot();
+    const destination = tempRoot();
+    const outside = tempRoot();
+    await createProject({ projectName: 'Source', projectDirectory: source });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(source);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const project = structuredClone(opened.snapshot.project);
+    project.scripts.script = {
+      id: 'script',
+      label: 'Script',
+      data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return 1\n' } },
+    };
+    project.assets.image = {
+      id: 'image',
+      label: 'Image',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/image.png' },
+        aliases: [],
+        imageMetadata: null,
       },
     };
-    const copy = { ...baseline, editor: editorState };
-    fs.writeFileSync(oldProjectFilePath, `${JSON.stringify(copy, null, 2)}\n`);
-    const owner = {
-      __mockSavePath: newProjectFilePath,
-      __mockMessageResponse: 1,
-    } as never;
-
-    const result = await saveProjectCopyAs(owner, copy, oldProjectFilePath, oldProjectFilePath);
-    const persisted = JSON.parse(fs.readFileSync(newProjectFilePath, 'utf8'));
-
-    expect(result.success).toBe(true);
-    expect(persisted.project.name).toBe('');
-    expect(persisted.editor.recovery.saveUnitsById).toHaveProperty('project:settings');
-    expect(persisted.editor.contentFingerprint).toBe(fingerprint);
-  });
-
-  it('Save As copy includes asset files referenced only by dirty recovery', async () => {
-    const oldRoot = tempRoot();
-    const newRoot = tempRoot();
-    const oldProjectFilePath = path.join(oldRoot, 'game.json');
-    const newProjectFilePath = path.join(newRoot, 'game.json');
-    const dirtyAssetPath = 'assets/images/dirty-cover.png';
-    fs.mkdirSync(path.join(oldRoot, 'assets', 'images'), { recursive: true });
-    fs.writeFileSync(path.join(oldRoot, dirtyAssetPath), 'dirty-image');
-    fs.writeFileSync(oldProjectFilePath, '{}');
-    const project = createAuthoringProject({ id: 'copy-assets', name: 'Copy Assets' });
-    const owner = {
-      __mockSavePath: newProjectFilePath,
-      __mockMessageResponse: 1,
-    } as never;
-
-    const result = await saveProjectCopyAs(owner, project, oldProjectFilePath, oldProjectFilePath, [
-      dirtyAssetPath,
-    ]);
-
-    expect(result.success).toBe(true);
-    expect(fs.readFileSync(path.join(newRoot, dirtyAssetPath), 'utf8')).toBe('dirty-image');
-  });
-
-  it('cancels Save As when the destination directory is non-empty and the user rejects it', async () => {
-    const oldRoot = tempRoot();
-    const newRoot = tempRoot();
-    const oldProjectFilePath = path.join(oldRoot, 'game.json');
-    const newProjectFilePath = path.join(newRoot, 'game.json');
-    fs.writeFileSync(path.join(newRoot, 'unrelated.txt'), 'do not mix');
-    const owner = {
-      __mockSavePath: newProjectFilePath,
-      __mockMessageResponse: 0,
-    } as never;
-
+    fs.mkdirSync(path.join(source, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'assets/image.png'), 'image');
+    await workspace.write(source, opened.snapshot.workspaceRevision, project, opened.editorState);
+    fs.mkdirSync(path.join(source, 'workflows'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'workflows', 'sample.json'), '{}');
+    fs.symlinkSync(outside, path.join(destination, escapedDirectory));
+    dialogs.destination = destination;
     const result = await saveProjectCopyAs(
-      owner,
-      projectWithImage(),
-      oldProjectFilePath,
-      oldProjectFilePath,
+      {} as never,
+      project,
+      null,
+      path.join(source, 'project.json'),
+      [],
     );
-
     expect(result.success).toBe(false);
-    expect(result.error).toBe('Save canceled.');
-    expect(fs.existsSync(newProjectFilePath)).toBe(false);
+    expect(fs.readdirSync(outside)).toEqual([]);
   });
 });
-
-vi.mock('electron', () => ({
-  dialog: {
-    showSaveDialog: vi.fn(async (_owner: never) => ({
-      canceled: false,
-      filePath: (_owner as { __mockSavePath: string }).__mockSavePath,
-    })),
-    showMessageBox: vi.fn(async (_owner: never) => ({
-      response: (_owner as { __mockMessageResponse?: number }).__mockMessageResponse ?? 1,
-    })),
-  },
-}));

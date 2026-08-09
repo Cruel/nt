@@ -3,6 +3,7 @@ import {
   collectAuthoringLuaSources,
   type AuthoringLuaSourceDescriptor,
 } from '../authoring-source-analysis';
+import { z } from 'zod';
 import { buildAuthoringDependencyGraph } from '../authoring-dependency-graph';
 import type { AuthoringDependencyGraph } from '../authoring-dependency-contracts';
 import {
@@ -13,38 +14,89 @@ import {
   buildProjectSearchIndex,
   type ProjectSearchIndex,
 } from '../project-search/project-search-index';
-import type { AuthoringProject } from '../project-schema/authoring-project';
-import type { LuaAnalysisInput } from '../project-schema/authoring-lua-analysis';
-import type { LuaSourceSnapshot } from '../project-schema/authoring-lua-analysis';
+import {
+  AUTHORING_PROJECT_SCHEMA,
+  AUTHORING_PROJECT_SCHEMA_VERSION,
+  authoringCollectionKeys,
+  type AuthoringCollectionKey,
+} from '../project-schema/authoring-collections';
+import { entityIdSchema } from '../project-schema/authoring-common';
+import { authoringProjectSchema, type AuthoringProject } from '../project-schema/authoring-project';
+import { authoringLocalizationSchema } from '../project-schema/authoring-localization';
+import { propertyDefinitionSchema } from '../project-schema/authoring-properties';
+import { authoringRecordSchemas } from '../project-schema/authoring-records';
 import { validateAuthoringProject } from '../project-schema/authoring-validation';
 import {
-  decodeAuthoringProject,
-  type AuthoringEnumRepair,
-} from '../project-schema/decode-authoring-project';
-import {
-  canonicalProjectContentJson,
-  parseEditorProjectStateWithDiagnostics,
-  stripEditorProjectState,
+  editorChaptersStateSchema,
+  emptyEditorProjectState,
+  editorRecordMetadataStateSchema,
+  editorProjectStateSchema,
+  editorTagsStateSchema,
   type EditorProjectState,
 } from '../project-schema/editor-project-state';
 import {
-  collectProjectValidationDiagnostics,
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
 } from '../project-schema/project-validation';
-import { sha256HexUtf8, sha256PrefixedUtf8 } from '../sha256';
-import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
+import { parseAssetData } from '../project-schema/authoring-assets';
+import type { LuaSourceSnapshot } from '../project-schema/authoring-lua-analysis';
+import { sha256HexUtf8, sha256PrefixedBytes, sha256PrefixedUtf8 } from '../sha256';
+import {
+  assertProjectWorkspacePathContained,
+  type ProjectWorkspaceFileSystem,
+} from './project-workspace-file-system';
+
+export const PROJECT_WORKSPACE_SCHEMA = 'noveltea.project.workspace' as const;
+export const PROJECT_WORKSPACE_SCHEMA_VERSION = 1 as const;
+export const EDITOR_LOCAL_STATE_SCHEMA = 'noveltea.editor.local-state' as const;
+export const EDITOR_LOCAL_STATE_SCHEMA_VERSION = 1 as const;
+
+/* This is deliberately a distinct persistence codec.  The assembled editor state
+ * remains the old in-memory shape, but no workspace file is read as that retired
+ * embedded contract. */
+const editorLocalStateSchema = editorProjectStateSchema
+  .omit({
+    schema: true,
+    schemaVersion: true,
+    contentFingerprint: true,
+    chapters: true,
+    tags: true,
+    recordMetadata: true,
+  })
+  .extend({
+    schema: z.literal(EDITOR_LOCAL_STATE_SCHEMA),
+    schemaVersion: z.literal(EDITOR_LOCAL_STATE_SCHEMA_VERSION),
+    workspaceRevision: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  })
+  .strict();
+
+const workspaceManifestSchema = z
+  .object({
+    schema: z.literal(PROJECT_WORKSPACE_SCHEMA),
+    schemaVersion: z.literal(PROJECT_WORKSPACE_SCHEMA_VERSION),
+    project: authoringProjectSchema.shape.project,
+    settings: authoringProjectSchema.shape.settings,
+    startupHook: authoringProjectSchema.shape.startupHook,
+    entrypoint: authoringProjectSchema.shape.entrypoint,
+  })
+  .strict();
+
+const trackedEditorOrganizationSchema = z
+  .object({
+    chapters: editorChaptersStateSchema,
+    tags: editorTagsStateSchema,
+    recordMetadata: editorRecordMetadataStateSchema,
+  })
+  .strict();
 
 export interface ProjectWorkspaceFileRevision {
   readonly contentHash: `sha256:${string}`;
   readonly byteSize: number;
 }
-
 export interface ProjectWorkspaceSaveUnitFileOwnership {
   readonly file: string | null;
   readonly paths: readonly string[];
 }
-
 export interface ProjectWorkspaceSnapshot {
   readonly snapshotKind: 'loaded' | 'working-copy';
   readonly projectRoot: string | null;
@@ -56,21 +108,21 @@ export interface ProjectWorkspaceSnapshot {
   readonly fileRevisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>;
   readonly saveUnitFileOwnership: Readonly<Record<string, ProjectWorkspaceSaveUnitFileOwnership>>;
   readonly externalSourceDescriptors: readonly AuthoringLuaSourceDescriptor[];
+  /** Persisted workspace-v1 file owners; deliberately outside AuthoringProject. */
+  readonly scriptSourcePaths: Readonly<Record<string, string>>;
 }
-
 export interface LoadedProjectWorkspaceSnapshot extends ProjectWorkspaceSnapshot {
   readonly snapshotKind: 'loaded';
   readonly projectRoot: string;
   readonly manifestPath: string;
 }
-
 export type ProjectWorkspaceOpenResult =
   | {
       readonly ok: true;
       readonly snapshot: LoadedProjectWorkspaceSnapshot;
       readonly diagnostics: readonly ProjectValidationDiagnostic[];
       readonly editorState: EditorProjectState;
-      readonly repairs: readonly AuthoringEnumRepair[];
+      readonly repairs: readonly never[];
       readonly contentFingerprint: string;
       readonly contentProject: unknown;
       readonly savedContentProject: unknown;
@@ -82,257 +134,854 @@ export type ProjectWorkspaceOpenResult =
       readonly diagnostics: readonly ProjectValidationDiagnostic[];
     };
 
-const MONOLITHIC_MANIFEST_CANDIDATES = ['game.json', 'project.json', 'game'] as const;
-
 export function compareProjectWorkspaceUnicodeCodePoints(left: string, right: string): number {
-  const leftPoints = Array.from(left);
-  const rightPoints = Array.from(right);
-  const length = Math.min(leftPoints.length, rightPoints.length);
-  for (let index = 0; index < length; index += 1) {
-    const difference = leftPoints[index]!.codePointAt(0)! - rightPoints[index]!.codePointAt(0)!;
+  const leftPoints = Array.from(left, (character) => character.codePointAt(0)!);
+  const rightPoints = Array.from(right, (character) => character.codePointAt(0)!);
+  for (let index = 0; index < Math.min(leftPoints.length, rightPoints.length); index += 1) {
+    const difference = leftPoints[index]! - rightPoints[index]!;
     if (difference !== 0) return difference;
   }
   return leftPoints.length - rightPoints.length;
 }
+const sortKeys = <T>(value: Record<string, T>) =>
+  Object.fromEntries(
+    Object.entries(value).sort(([a], [b]) => compareProjectWorkspaceUnicodeCodePoints(a, b)),
+  ) as Record<string, T>;
+type CanonicalSchema = {
+  readonly _zod?: { readonly def?: unknown };
+  safeParse?(value: unknown): { readonly success: boolean };
+};
 
-function freezeRecord<T>(value: Record<string, T>): Readonly<Record<string, T>> {
-  return Object.freeze(
-    Object.fromEntries(
-      Object.entries(value).sort(([left], [right]) =>
-        compareProjectWorkspaceUnicodeCodePoints(left, right),
-      ),
-    ),
+function schemaDefinition(
+  schema: CanonicalSchema | undefined,
+): Record<string, unknown> | undefined {
+  const definition = schema?._zod?.def;
+  return definition && typeof definition === 'object'
+    ? (definition as Record<string, unknown>)
+    : undefined;
+}
+
+function objectShape(schema: CanonicalSchema): Record<string, CanonicalSchema> | undefined {
+  const definition = schemaDefinition(schema);
+  return definition?.type === 'object'
+    ? (definition.shape as Record<string, CanonicalSchema>)
+    : undefined;
+}
+
+function literalValues(schema: CanonicalSchema | undefined): readonly unknown[] | undefined {
+  const definition = schemaDefinition(schema);
+  if (definition?.type === 'literal') return definition.values as readonly unknown[];
+  if (
+    definition?.type === 'optional' ||
+    definition?.type === 'nullable' ||
+    definition?.type === 'default' ||
+    definition?.type === 'catch' ||
+    definition?.type === 'readonly' ||
+    definition?.type === 'nonoptional'
+  )
+    return literalValues(definition.innerType as CanonicalSchema);
+  return undefined;
+}
+
+function matchingUnionSchema(
+  value: unknown,
+  options: readonly CanonicalSchema[],
+  discriminator?: unknown,
+): CanonicalSchema | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const object = value as Record<string, unknown>;
+  if (typeof discriminator === 'string') {
+    const matched = options.find((option) =>
+      literalValues(objectShape(option)?.[discriminator])?.includes(object[discriminator]),
+    );
+    if (matched) return matched;
+  }
+  const parsed = options.filter((option) => option.safeParse?.(value).success);
+  if (parsed.length > 0) return parsed[0];
+  const structurallyMatched = options.filter((option) => {
+    const shape = objectShape(option);
+    return shape !== undefined && Object.keys(object).every((key) => key in shape);
+  });
+  return structurallyMatched.length === 1 ? structurallyMatched[0] : undefined;
+}
+
+/**
+ * A schema object is an ordered product; a Zod record (and an untyped JSON value)
+ * is a dictionary.  Keeping that distinction at the codec boundary avoids a
+ * parent-key convention that inevitably misses newly added maps.
+ */
+function canonicalize(value: unknown, schema?: CanonicalSchema): unknown {
+  const definition = schemaDefinition(schema);
+  const type = definition?.type;
+  if (type === 'optional' || type === 'nullable' || type === 'default' || type === 'catch')
+    return canonicalize(value, definition?.innerType as CanonicalSchema);
+  if (type === 'readonly' || type === 'nonoptional')
+    return canonicalize(value, definition?.innerType as CanonicalSchema);
+  if (type === 'pipe') return canonicalize(value, definition?.out as CanonicalSchema);
+  if (type === 'lazy') {
+    const getter = definition?.getter;
+    return typeof getter === 'function'
+      ? canonicalize(value, (getter as () => CanonicalSchema)())
+      : canonicalize(value);
+  }
+  if (type === 'array') {
+    const element = definition?.element as CanonicalSchema;
+    return Array.isArray(value) ? value.map((item) => canonicalize(item, element)) : value;
+  }
+  if (type === 'record') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    const item = definition?.valueType as CanonicalSchema;
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
+        .map(([key, nested]) => [key, canonicalize(nested, item)]),
+    );
+  }
+  if (type === 'union' || type === 'discriminatedUnion') {
+    const options = (definition?.options ?? []) as readonly CanonicalSchema[];
+    return canonicalize(value, matchingUnionSchema(value, options, definition?.discriminator));
+  }
+  if (type === 'object') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+    const shape = definition?.shape as Record<string, CanonicalSchema>;
+    const object = value as Record<string, unknown>;
+    const known = Object.keys(shape)
+      .filter((key) => object[key] !== undefined)
+      .map((key) => [key, canonicalize(object[key], shape[key])] as const);
+    const unknown = Object.keys(object)
+      .filter((key) => !(key in shape) && object[key] !== undefined)
+      .sort(compareProjectWorkspaceUnicodeCodePoints)
+      .map((key) => [key, canonicalize(object[key])] as const);
+    return Object.fromEntries([...known, ...unknown]);
+  }
+  if (Array.isArray(value)) return value.map((item) => canonicalize(item));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
+      .map(([key, nested]) => [key, canonicalize(nested)]),
   );
+}
+
+const canonicalJson = (value: unknown, schema?: CanonicalSchema): string =>
+  `${JSON.stringify(canonicalize(value, schema), null, 2)}\n`;
+const relative = (value: string) => value.replaceAll('\\', '/');
+const knownCollections = new Set<string>(authoringCollectionKeys);
+const workspaceError = (
+  root: string,
+  manifest: string,
+  message: string,
+  path = '/',
+): ProjectWorkspaceOpenResult => ({
+  ok: false,
+  projectRoot: root,
+  manifestPath: manifest,
+  diagnostics: [
+    createProjectValidationDiagnostic({
+      code: 'authoring.workspace.invalid',
+      severity: 'error',
+      category: 'Project workspace',
+      path,
+      message,
+      boundaries: ['authoring'],
+      ownerPaths: [path],
+    }),
+  ],
+});
+const isSafeRelativePath = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  !value.includes('\\') &&
+  !value.startsWith('/') &&
+  !/^[A-Za-z]:/.test(value) &&
+  value.split('/').every((part) => part && part !== '.' && part !== '..');
+const hasExactKeys = (value: unknown, keys: readonly string[]) =>
+  !!value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.keys(value as Record<string, unknown>)
+    .sort(compareProjectWorkspaceUnicodeCodePoints)
+    .join('\0') === [...keys].sort(compareProjectWorkspaceUnicodeCodePoints).join('\0');
+const layoutFile = (id: string, channel: 'rml' | 'rcss' | 'lua') =>
+  `records/layouts/${id}/layout.${channel}`;
+const recordFile = (collection: AuthoringCollectionKey, id: string) =>
+  collection === 'layouts'
+    ? `records/layouts/${id}/layout.json`
+    : `records/${collection}/${id}.json`;
+
+function assetSourcePaths(project: AuthoringProject): string[] {
+  const paths = new Set<string>();
+  for (const record of Object.values(project.assets)) {
+    const asset = parseAssetData(record.data);
+    if (!asset || !isSafeRelativePath(asset.source.path))
+      throw new Error('Asset source path is not a safe project-relative path.');
+    paths.add(asset.source.path);
+  }
+  return [...paths].sort(compareProjectWorkspaceUnicodeCodePoints);
+}
+
+function aggregateRevision(revisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>) {
+  const pairs = Object.keys(revisions)
+    .sort(compareProjectWorkspaceUnicodeCodePoints)
+    .map((file) => [file, revisions[file]!.contentHash]);
+  return sha256PrefixedUtf8(JSON.stringify(pairs));
 }
 
 function ownershipFor(
   project: AuthoringProject,
-  manifestFile: string | null,
 ): Readonly<Record<string, ProjectWorkspaceSaveUnitFileOwnership>> {
-  const ownership: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
+  const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
-      file: manifestFile,
+      file: 'project.json',
       paths: ['/project', '/settings', '/startupHook', '/entrypoint'],
     },
-    'project:properties': { file: manifestFile, paths: ['/properties'] },
-    'project:localization': { file: manifestFile, paths: ['/localization'] },
-    'editor:state': { file: manifestFile, paths: ['/editor'] },
+    'project:properties': { file: 'properties.json', paths: ['/properties'] },
+    'project:localization': { file: 'localization.json', paths: ['/localization'] },
+    'editor:organization': {
+      file: 'editor.json',
+      paths: ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'],
+    },
+    'editor:state': {
+      file: '.noveltea/editor/state.json',
+      paths: [
+        '/editor/recovery',
+        '/editor/workbench',
+        '/editor/explorer',
+        '/editor/bottomPanel',
+        '/editor/tabStatesById',
+        '/editor/draftsByKey',
+      ],
+    },
   };
-  for (const [collection, records] of Object.entries(project)) {
-    if (!records || typeof records !== 'object' || Array.isArray(records)) continue;
-    if (
-      ![
-        'assets',
-        'characters',
-        'dialogues',
-        'interactables',
-        'interactions',
-        'layouts',
-        'maps',
-        'materials',
-        'rooms',
-        'scenes',
-        'scripts',
-        'shaders',
-        'tests',
-        'variables',
-        'verbs',
-      ].includes(collection)
-    )
-      continue;
-    for (const id of Object.keys(records).sort(compareProjectWorkspaceUnicodeCodePoints))
-      ownership[`record:${collection}:${id}`] = {
-        file: manifestFile,
+  for (const collection of authoringCollectionKeys)
+    for (const id of Object.keys(project[collection]).sort(
+      compareProjectWorkspaceUnicodeCodePoints,
+    ))
+      result[`record:${collection}:${id}`] = {
+        file: recordFile(collection, id),
         paths: [`/${collection}/${id}`],
       };
-  }
-  return freezeRecord(
-    Object.fromEntries(
-      Object.entries(ownership).map(([key, value]) => [
-        key,
-        Object.freeze({ ...value, paths: Object.freeze([...value.paths]) }),
-      ]),
-    ),
+  return Object.freeze(sortKeys(result));
+}
+
+function externalDescriptors(
+  project: AuthoringProject,
+  scriptSourcePaths: Readonly<Record<string, string>> = {},
+): readonly AuthoringLuaSourceDescriptor[] {
+  return collectAuthoringLuaSources(project).map((descriptor) => {
+    const match = descriptor.sourcePath.match(/^\/(scripts|layouts)\/([^/]+)/);
+    if (!match) return descriptor;
+    const [, collection, id] = match;
+    if (collection === 'scripts')
+      return {
+        ...descriptor,
+        sourceUrl: `project:/${scriptSourcePaths[id] ?? `scripts/${id}.lua`}`,
+        inlineText:
+          project.scripts[id]?.data &&
+          (project.scripts[id].data as { source?: { source?: string } }).source?.source,
+      };
+    const channel = descriptor.sourcePath.includes('/rml/')
+      ? 'rml'
+      : descriptor.sourcePath.includes('/lua/')
+        ? 'lua'
+        : null;
+    const layoutData = project.layouts[id]?.data as unknown as Record<
+      string,
+      { sourceText?: string }
+    >;
+    return channel
+      ? {
+          ...descriptor,
+          sourceUrl: `project:/${layoutFile(id, channel)}`,
+          inlineText: layoutData[channel]?.sourceText,
+        }
+      : descriptor;
+  });
+}
+
+/** Projection is the only writer for tracked workspace files. */
+export function projectWorkspaceFiles(
+  project: AuthoringProject,
+  editorState: EditorProjectState,
+  scriptSourcePaths: Readonly<Record<string, string>> = {},
+): Readonly<Record<string, string>> {
+  const files: Record<string, string> = {};
+  files['project.json'] = canonicalJson(
+    {
+      schema: PROJECT_WORKSPACE_SCHEMA,
+      schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
+      project: project.project,
+      settings: project.settings,
+      startupHook: project.startupHook,
+      entrypoint: project.entrypoint,
+    },
+    workspaceManifestSchema,
+  );
+  files['properties.json'] = canonicalJson(
+    project.properties,
+    z.record(entityIdSchema, propertyDefinitionSchema),
+  );
+  files['localization.json'] = canonicalJson(project.localization, authoringLocalizationSchema);
+  files['editor.json'] = canonicalJson(
+    {
+      chapters: editorState.chapters,
+      tags: editorState.tags,
+      recordMetadata: editorState.recordMetadata,
+    },
+    trackedEditorOrganizationSchema,
+  );
+  for (const collection of authoringCollectionKeys)
+    for (const [id, original] of Object.entries(project[collection]).sort(([a], [b]) =>
+      compareProjectWorkspaceUnicodeCodePoints(a, b),
+    )) {
+      const record = structuredClone(original) as Record<string, unknown>;
+      if (collection === 'layouts') {
+        const data = record.data as Record<string, Record<string, unknown>>;
+        for (const channel of ['rml', 'rcss', 'lua'] as const) {
+          const source = data[channel]!;
+          if (source.sourceMode === 'inline') {
+            files[layoutFile(id, channel)] =
+              typeof source.sourceText === 'string' ? source.sourceText : '';
+            data[channel] = { sourceMode: 'file' };
+          } else if (source.sourceMode === 'asset')
+            data[channel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
+          else data[channel] = { sourceMode: 'none' };
+        }
+      }
+      if (collection === 'scripts') {
+        const data = record.data as {
+          source: { kind: string; source?: string; path?: string };
+        };
+        if (data.source.kind === 'inline-lua') {
+          const file = scriptSourcePaths[id] ?? `scripts/${id}.lua`;
+          files[file] = data.source.source ?? '';
+          data.source = { kind: 'file', path: file };
+        }
+      }
+      files[recordFile(collection, id)] = canonicalJson(record, authoringRecordSchemas[collection]);
+    }
+  return sortKeys(files);
+}
+
+export function projectWorkspaceLocalStateFile(
+  editorState: EditorProjectState,
+  workspaceRevision: string,
+): string {
+  const {
+    chapters: _chapters,
+    tags: _tags,
+    recordMetadata: _recordMetadata,
+    schema: _schema,
+    schemaVersion: _schemaVersion,
+    contentFingerprint: _contentFingerprint,
+    ...local
+  } = editorState;
+  return canonicalJson(
+    {
+      schema: EDITOR_LOCAL_STATE_SCHEMA,
+      schemaVersion: EDITOR_LOCAL_STATE_SCHEMA_VERSION,
+      workspaceRevision,
+      ...local,
+    },
+    editorLocalStateSchema,
   );
 }
 
-/**
- * Adapts an already assembled working project to the same deterministic
- * snapshot contract. Renderer state remains the owner of that working value.
- */
 export function createProjectWorkspaceSnapshot(
   project: AuthoringProject,
+  scriptSourcePaths: Readonly<Record<string, string>> = {},
 ): ProjectWorkspaceSnapshot {
-  const source = canonicalProjectContentJson(project);
-  const sourceHash = sha256PrefixedUtf8(source);
+  const hash = sha256PrefixedUtf8(canonicalJson(project, authoringProjectSchema));
   return Object.freeze({
     snapshotKind: 'working-copy',
     projectRoot: null,
     manifestPath: null,
     project,
-    workspaceRevision: sourceHash,
-    sourceRevision: sourceHash,
+    workspaceRevision: hash,
+    sourceRevision: hash,
     canonicalSourceFiles: Object.freeze([]),
-    fileRevisions: freezeRecord<ProjectWorkspaceFileRevision>({}),
-    saveUnitFileOwnership: ownershipFor(project, null),
-    externalSourceDescriptors: collectAuthoringLuaSources(project),
+    fileRevisions: Object.freeze({}),
+    saveUnitFileOwnership: ownershipFor(project),
+    externalSourceDescriptors: externalDescriptors(project, scriptSourcePaths),
+    scriptSourcePaths: Object.freeze(sortKeys({ ...scriptSourcePaths })),
   });
-}
-
-export function publishProjectWorkspaceSnapshot(
-  snapshot: ProjectWorkspaceSnapshot,
-): CompiledArtifactPublicationResult {
-  return publishCompiledArtifact(snapshot.project);
-}
-
-export function analyzeProjectWorkspaceSources(
-  snapshot: ProjectWorkspaceSnapshot,
-  ...args: Parameters<typeof analyzeAuthoringSources> extends [AuthoringProject, ...infer T]
-    ? T
-    : never
-) {
-  return analyzeAuthoringSources(snapshot.project, ...args);
-}
-
-export function collectProjectWorkspaceLuaSources(
-  snapshot: ProjectWorkspaceSnapshot,
-  contributionKeys?: Parameters<typeof collectAuthoringLuaSources>[1],
-) {
-  return collectAuthoringLuaSources(snapshot.project, contributionKeys);
-}
-
-export function buildProjectWorkspaceSearchIndex(
-  snapshot: ProjectWorkspaceSnapshot,
-): ProjectSearchIndex {
-  return buildProjectSearchIndex(snapshot.project);
-}
-
-function unsupportedSchema(projectRoot: string, manifestPath: string): ProjectWorkspaceOpenResult {
-  return {
-    ok: false,
-    projectRoot,
-    manifestPath,
-    diagnostics: [
-      createProjectValidationDiagnostic({
-        code: 'authoring.schema.unsupported',
-        severity: 'error',
-        category: 'authoring.unsupported_schema',
-        path: '/schema',
-        message: 'Project must use the current NovelTea authoring project schema.',
-        boundaries: ['authoring', 'runtime-package'],
-        ownerPaths: ['/schema'],
-      }),
-    ],
-  };
 }
 
 export class ProjectWorkspaceService {
   constructor(private readonly fileSystem: ProjectWorkspaceFileSystem) {}
-
-  async discover(projectPath: string): Promise<{ projectRoot: string; manifestPath: string }> {
-    const absolute = this.fileSystem.resolvePath(projectPath);
-    const inputKind = await this.fileSystem.inspect(absolute);
-    if (inputKind === 'file')
-      return { projectRoot: this.fileSystem.dirname(absolute), manifestPath: absolute };
-    for (const candidate of MONOLITHIC_MANIFEST_CANDIDATES) {
-      const manifestPath = this.fileSystem.joinPath(absolute, candidate);
-      if ((await this.fileSystem.inspect(manifestPath)) === 'file')
-        return { projectRoot: absolute, manifestPath };
-    }
-    return { projectRoot: absolute, manifestPath: this.fileSystem.joinPath(absolute, 'game.json') };
+  private assertContained(root: string, candidate: string): Promise<void> {
+    return assertProjectWorkspacePathContained(this.fileSystem, root, candidate);
   }
-
-  async open(projectPath: string): Promise<ProjectWorkspaceOpenResult> {
-    const discovered = await this.discover(projectPath);
-    let source: string;
+  async discover(projectRoot: string): Promise<{ projectRoot: string; manifestPath: string }> {
+    const root = this.fileSystem.resolvePath(projectRoot);
+    return { projectRoot: root, manifestPath: this.fileSystem.joinPath(root, 'project.json') };
+  }
+  async open(projectRoot: string): Promise<ProjectWorkspaceOpenResult> {
+    const discovered = await this.discover(projectRoot);
+    const fail = (message: string, path?: string) =>
+      workspaceError(discovered.projectRoot, discovered.manifestPath, message, path);
+    let manifest: Record<string, unknown>;
     try {
-      source = await this.fileSystem.readText(discovered.manifestPath);
+      await this.assertContained(discovered.projectRoot, discovered.manifestPath);
+      const value = JSON.parse(await this.fileSystem.readText(discovered.manifestPath));
+      if (!value || typeof value !== 'object' || Array.isArray(value))
+        return fail('project.json must be an object.');
+      manifest = value as Record<string, unknown>;
     } catch {
-      return unsupportedSchema(discovered.projectRoot, discovered.manifestPath);
+      return fail(
+        'Current project discovery requires a readable workspace-v1 project.json.',
+        '/project.json',
+      );
     }
-    let parsed: unknown;
+    if (
+      manifest.schema !== PROJECT_WORKSPACE_SCHEMA ||
+      manifest.schemaVersion !== PROJECT_WORKSPACE_SCHEMA_VERSION
+    )
+      return fail('Project must use the current NovelTea workspace schema.', '/schema');
+    const required = ['project', 'settings', 'startupHook', 'entrypoint'];
+    if (Object.keys(manifest).length !== 6 || !required.every((key) => key in manifest))
+      return fail('project.json has an unsupported workspace-v1 shape.');
+    let properties: unknown;
+    let localization: unknown;
+    let editor: Record<string, unknown>;
     try {
-      parsed = JSON.parse(source) as unknown;
-    } catch {
-      return unsupportedSchema(discovered.projectRoot, discovered.manifestPath);
-    }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-      return unsupportedSchema(discovered.projectRoot, discovered.manifestPath);
-
-    const savedContentProject = stripEditorProjectState(parsed);
-    const contentFingerprint = sha256HexUtf8(canonicalProjectContentJson(savedContentProject));
-    const parsedEditor = parseEditorProjectStateWithDiagnostics(
-      (parsed as Record<string, unknown>).editor,
-      contentFingerprint,
-    );
-    const decoded = decodeAuthoringProject(savedContentProject);
-    if (!decoded.project || decoded.structuralDiagnostics.length > 0) {
-      return {
-        ok: false,
-        ...discovered,
-        diagnostics: collectProjectValidationDiagnostics(
-          decoded.structuralDiagnostics,
-          parsedEditor.diagnostics,
+      await this.assertContained(
+        discovered.projectRoot,
+        this.fileSystem.joinPath(discovered.projectRoot, 'properties.json'),
+      );
+      await this.assertContained(
+        discovered.projectRoot,
+        this.fileSystem.joinPath(discovered.projectRoot, 'localization.json'),
+      );
+      await this.assertContained(
+        discovered.projectRoot,
+        this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
+      );
+      properties = JSON.parse(
+        await this.fileSystem.readText(
+          this.fileSystem.joinPath(discovered.projectRoot, 'properties.json'),
         ),
-      };
+      );
+      localization = JSON.parse(
+        await this.fileSystem.readText(
+          this.fileSystem.joinPath(discovered.projectRoot, 'localization.json'),
+        ),
+      );
+      const value = JSON.parse(
+        await this.fileSystem.readText(
+          this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
+        ),
+      );
+      if (!value || typeof value !== 'object' || Array.isArray(value))
+        return fail('editor.json must be an object.', '/editor.json');
+      editor = value as Record<string, unknown>;
+      if (Object.keys(editor).sort().join(',') !== 'chapters,recordMetadata,tags')
+        return fail(
+          'editor.json must contain exactly tracked organization fields.',
+          '/editor.json',
+        );
+    } catch {
+      return fail('Required workspace fragments are missing or malformed.');
     }
-    const semanticDiagnostics = validateAuthoringProject(decoded.project);
-    const sourceHash = sha256PrefixedUtf8(source);
-    const manifestFile = this.fileSystem.relativePath(
+    const collections = Object.fromEntries(
+      authoringCollectionKeys.map((key) => [key, {}]),
+    ) as Record<AuthoringCollectionKey, Record<string, unknown>>;
+    const scriptSourceOwners = new Set<string>();
+    const scriptRealSourceOwners = new Set<string>();
+    const layoutRealSourceOwners = new Set<string>();
+    const scriptSourcePaths: Record<string, string> = {};
+    const recordsRoot = this.fileSystem.joinPath(discovered.projectRoot, 'records');
+    if ((await this.fileSystem.inspect(recordsRoot)) !== 'missing') {
+      try {
+        await this.assertContained(discovered.projectRoot, recordsRoot);
+      } catch {
+        return fail('records/ escapes the project root.', '/records');
+      }
+    }
+    for (const directory of await this.fileSystem.listDirectory(recordsRoot)) {
+      if (!knownCollections.has(directory))
+        return fail(`Unknown records collection '${directory}'.`, `/records/${directory}`);
+      const collection = directory as AuthoringCollectionKey;
+      const collectionPath = this.fileSystem.joinPath(recordsRoot, directory);
+      try {
+        await this.assertContained(discovered.projectRoot, collectionPath);
+      } catch {
+        return fail('Record collection escapes the project root.', `/records/${directory}`);
+      }
+      for (const entry of await this.fileSystem.listDirectory(collectionPath)) {
+        if (collection === 'layouts') {
+          const layoutPath = this.fileSystem.joinPath(collectionPath, entry);
+          if ((await this.fileSystem.inspect(layoutPath)) !== 'directory')
+            return fail('Layout records must be directories.', `/records/layouts/${entry}`);
+          try {
+            await this.assertContained(discovered.projectRoot, layoutPath);
+          } catch {
+            return fail('Layout record escapes the project root.', `/records/layouts/${entry}`);
+          }
+          const idOk = entityIdSchema.safeParse(entry).success;
+          if (!idOk)
+            return fail(
+              'Layout path does not contain a valid record ID.',
+              `/records/layouts/${entry}`,
+            );
+          const file = this.fileSystem.joinPath(layoutPath, 'layout.json');
+          let raw: Record<string, unknown>;
+          try {
+            await this.assertContained(discovered.projectRoot, file);
+            raw = JSON.parse(await this.fileSystem.readText(file)) as Record<string, unknown>;
+          } catch {
+            return fail('Layout record is malformed.', `/records/layouts/${entry}/layout.json`);
+          }
+          if (raw.id !== entry)
+            return fail('Layout record ID does not match its path.', `/records/layouts/${entry}`);
+          const data = raw.data as Record<string, Record<string, unknown>>;
+          for (const channel of ['rml', 'rcss', 'lua'] as const) {
+            const source = data?.[channel];
+            if (!source || typeof source !== 'object')
+              return fail(
+                'Layout source selector is malformed.',
+                `/layouts/${entry}/data/${channel}`,
+              );
+            const companion = this.fileSystem.joinPath(layoutPath, `layout.${channel}`);
+            if (source.sourceMode === 'file') {
+              if (!hasExactKeys(source, ['sourceMode']))
+                return fail(
+                  'Layout file selector has an unsupported shape.',
+                  `/layouts/${entry}/data/${channel}`,
+                );
+              try {
+                await this.assertContained(discovered.projectRoot, companion);
+                const real = await this.fileSystem.realpath(companion);
+                if (layoutRealSourceOwners.has(real))
+                  return fail(
+                    'Two Layout channels cannot own the same companion source file.',
+                    `/records/layouts/${entry}/layout.${channel}`,
+                  );
+                layoutRealSourceOwners.add(real);
+                source.sourceText = await this.fileSystem.readText(companion);
+                source.sourceMode = 'inline';
+                source.sourceAsset = null;
+              } catch {
+                return fail(
+                  `Missing Layout ${channel.toUpperCase()} companion source.`,
+                  `/records/layouts/${entry}/layout.${channel}`,
+                );
+              }
+            } else if (source.sourceMode === 'asset') {
+              if (!hasExactKeys(source, ['sourceMode', 'sourceAsset']))
+                return fail(
+                  'Layout asset selector has an unsupported shape.',
+                  `/layouts/${entry}/data/${channel}`,
+                );
+              if ((await this.fileSystem.inspect(companion)) !== 'missing')
+                return fail(
+                  'Layout companion exists without a file selector.',
+                  `/records/layouts/${entry}/layout.${channel}`,
+                );
+              source.sourceMode = 'asset';
+              source.sourceAsset ??= null;
+            } else if (channel === 'lua' && source.sourceMode === 'none') {
+              if (!hasExactKeys(source, ['sourceMode']))
+                return fail(
+                  'Layout none selector has an unsupported shape.',
+                  `/layouts/${entry}/data/${channel}`,
+                );
+              if ((await this.fileSystem.inspect(companion)) !== 'missing')
+                return fail(
+                  'Layout companion exists without a file selector.',
+                  `/records/layouts/${entry}/layout.${channel}`,
+                );
+              source.sourceMode = 'inline';
+              source.sourceText = '';
+              source.sourceAsset = null;
+            } else
+              return fail(
+                'Layout source selector is unsupported.',
+                `/layouts/${entry}/data/${channel}`,
+              );
+          }
+          collections.layouts[entry] = raw;
+          continue;
+        }
+        if (!entry.endsWith('.json'))
+          return fail(
+            'Record files must use canonical .json names.',
+            `/records/${collection}/${entry}`,
+          );
+        const id = entry.slice(0, -5);
+        if (!entityIdSchema.safeParse(id).success)
+          return fail(
+            'Record path does not contain a valid ID.',
+            `/records/${collection}/${entry}`,
+          );
+        let raw: Record<string, unknown>;
+        try {
+          await this.assertContained(
+            discovered.projectRoot,
+            this.fileSystem.joinPath(collectionPath, entry),
+          );
+          raw = JSON.parse(
+            await this.fileSystem.readText(this.fileSystem.joinPath(collectionPath, entry)),
+          ) as Record<string, unknown>;
+        } catch {
+          return fail('Record is malformed.', `/records/${collection}/${entry}`);
+        }
+        if (raw.id !== id)
+          return fail('Record ID does not match its path.', `/records/${collection}/${entry}`);
+        if (collection === 'scripts') {
+          const source = (raw.data as { source?: { kind?: string; path?: unknown } }).source;
+          if (source?.kind === 'file') {
+            if (
+              !isSafeRelativePath(source.path) ||
+              !source.path.startsWith('scripts/') ||
+              !source.path.endsWith('.lua')
+            )
+              return fail(
+                'Script Module file source path is invalid.',
+                `/scripts/${id}/data/source/path`,
+              );
+            if (!hasExactKeys(source, ['kind', 'path']))
+              return fail(
+                'Script Module file source has an unsupported shape.',
+                `/scripts/${id}/data/source`,
+              );
+            if (scriptSourceOwners.has(source.path))
+              return fail(
+                'Two Script Modules cannot own the same Lua source file.',
+                `/scripts/${id}/data/source/path`,
+              );
+            scriptSourceOwners.add(source.path);
+            scriptSourcePaths[id] = source.path;
+            let text: string;
+            try {
+              const absolute = this.fileSystem.joinPath(discovered.projectRoot, source.path);
+              await this.assertContained(discovered.projectRoot, absolute);
+              const real = await this.fileSystem.realpath(absolute);
+              if (
+                !relative(
+                  this.fileSystem.relativePath(
+                    await this.fileSystem.realpath(discovered.projectRoot),
+                    real,
+                  ),
+                ).startsWith('scripts/')
+              )
+                return fail('Script Module source is not in scripts/.');
+              if (scriptRealSourceOwners.has(real))
+                return fail(
+                  'Two Script Modules cannot own the same Lua source file.',
+                  `/scripts/${id}/data/source/path`,
+                );
+              scriptRealSourceOwners.add(real);
+              text = await this.fileSystem.readText(absolute);
+            } catch {
+              return fail(
+                'Script Module source file is missing.',
+                `/scripts/${id}/data/source/path`,
+              );
+            }
+            (raw.data as { source: unknown }).source = { kind: 'inline-lua', source: text };
+          } else if (source?.kind === 'inline-lua')
+            return fail(
+              'Script Module inline Lua must be persisted as a file source.',
+              `/scripts/${id}/data/source`,
+            );
+        }
+        collections[collection][id] = raw;
+      }
+    }
+    const localPath = this.fileSystem.joinPath(
       discovered.projectRoot,
-      discovered.manifestPath,
+      '.noveltea/editor/state.json',
     );
-    const canonicalSourceFiles = Object.freeze([manifestFile]);
-    const fileRevisions = freezeRecord({
-      [manifestFile]: Object.freeze({
-        contentHash: sourceHash,
-        byteSize: new TextEncoder().encode(source).byteLength,
-      }),
-    });
+    let local = emptyEditorProjectState();
+    try {
+      const raw = JSON.parse(await this.fileSystem.readText(localPath)) as Record<string, unknown>;
+      const parsedLocal = editorLocalStateSchema.safeParse(raw);
+      if (parsedLocal.success) {
+        const { workspaceRevision: _workspaceRevision, ...localFields } = parsedLocal.data;
+        local = {
+          ...emptyEditorProjectState(),
+          ...localFields,
+          schema: emptyEditorProjectState().schema,
+          schemaVersion: emptyEditorProjectState().schemaVersion,
+          contentFingerprint: emptyEditorProjectState().contentFingerprint,
+        };
+      }
+    } catch {
+      /* optional local state */
+    }
+    const candidate = {
+      schema: AUTHORING_PROJECT_SCHEMA,
+      schemaVersion: AUTHORING_PROJECT_SCHEMA_VERSION,
+      ...manifest,
+      properties,
+      localization,
+      editor: {
+        ...local,
+        chapters: editor.chapters,
+        tags: editor.tags,
+        recordMetadata: editor.recordMetadata,
+      },
+      ...collections,
+    };
+    delete (candidate as Record<string, unknown>).schemaVersion;
+    (candidate as Record<string, unknown>).schema = AUTHORING_PROJECT_SCHEMA;
+    (candidate as Record<string, unknown>).schemaVersion = AUTHORING_PROJECT_SCHEMA_VERSION;
+    const decoded = authoringProjectSchema.safeParse(candidate);
+    if (!decoded.success)
+      return fail('Workspace fragments do not assemble into the current authoring project.');
+    const projected = projectWorkspaceFiles(decoded.data, local, scriptSourcePaths);
+    let assets: string[];
+    try {
+      assets = assetSourcePaths(decoded.data);
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : 'Asset source path is invalid.');
+    }
+    const canonicalSourceFiles = [...new Set([...Object.keys(projected), ...assets])].sort(
+      compareProjectWorkspaceUnicodeCodePoints,
+    );
+    const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {};
+    for (const file of canonicalSourceFiles) {
+      try {
+        const absolute = this.fileSystem.joinPath(discovered.projectRoot, file);
+        await this.assertContained(discovered.projectRoot, absolute);
+        const bytes = await this.fileSystem.readBytes(absolute);
+        fileRevisions[file] = {
+          contentHash: sha256PrefixedBytes(bytes),
+          byteSize: bytes.byteLength,
+        };
+      } catch {
+        return fail(`Authoritative source file '${file}' is missing.`, `/${file}`);
+      }
+    }
+    const workspaceRevision = aggregateRevision(fileRevisions);
+    const contentProject = { ...decoded.data, editor: undefined };
+    const fingerprint = sha256HexUtf8(canonicalJson(contentProject, authoringProjectSchema));
     const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
       snapshotKind: 'loaded',
       projectRoot: discovered.projectRoot,
       manifestPath: discovered.manifestPath,
-      project: decoded.project,
-      workspaceRevision: sourceHash,
-      sourceRevision: sourceHash,
-      canonicalSourceFiles,
-      fileRevisions,
-      saveUnitFileOwnership: ownershipFor(decoded.project, manifestFile),
-      externalSourceDescriptors: collectAuthoringLuaSources(decoded.project),
+      project: decoded.data,
+      workspaceRevision,
+      sourceRevision: workspaceRevision,
+      canonicalSourceFiles: Object.freeze(canonicalSourceFiles),
+      fileRevisions: Object.freeze(sortKeys(fileRevisions)),
+      saveUnitFileOwnership: ownershipFor(decoded.data),
+      externalSourceDescriptors: externalDescriptors(decoded.data, scriptSourcePaths),
+      scriptSourcePaths: Object.freeze(sortKeys(scriptSourcePaths)),
     });
     return {
       ok: true,
       snapshot,
-      diagnostics: collectProjectValidationDiagnostics(
-        decoded.semanticDiagnostics,
-        semanticDiagnostics,
-        parsedEditor.diagnostics,
-      ),
-      editorState: parsedEditor.state,
-      repairs: decoded.repairs,
-      contentFingerprint,
-      contentProject: stripEditorProjectState(decoded.project),
-      savedContentProject,
+      diagnostics: validateAuthoringProject(decoded.data),
+      editorState: local,
+      repairs: [],
+      contentFingerprint: fingerprint,
+      contentProject,
+      savedContentProject: contentProject,
     };
   }
-
+  async write(
+    projectRoot: string,
+    expectedRevision: string,
+    project: AuthoringProject,
+    editorState: EditorProjectState,
+    scriptSourcePathOverrides: Readonly<Record<string, string>> = {},
+  ): Promise<{ workspaceRevision: string }> {
+    const opened = await this.open(projectRoot);
+    if (!opened.ok) throw new Error(opened.diagnostics[0]?.message ?? 'Workspace cannot be saved.');
+    if (opened.snapshot.workspaceRevision !== expectedRevision)
+      throw new Error('Project content changed outside the editor.');
+    const projectedSourcePaths = {
+      ...opened.snapshot.scriptSourcePaths,
+      ...scriptSourcePathOverrides,
+    };
+    const projected = projectWorkspaceFiles(project, editorState, projectedSourcePaths);
+    // Re-read the authoritative inventory immediately before the first mutation.
+    const current = await this.open(projectRoot);
+    if (!current.ok || current.snapshot.workspaceRevision !== expectedRevision)
+      throw new Error('Project content changed outside the editor.');
+    const existing = new Set(
+      Object.keys(
+        projectWorkspaceFiles(opened.snapshot.project, opened.editorState, projectedSourcePaths),
+      ),
+    );
+    for (const [file, text] of Object.entries(projected)) {
+      await this.assertContained(projectRoot, this.fileSystem.joinPath(projectRoot, file));
+      const old = await this.fileSystem
+        .readText(this.fileSystem.joinPath(projectRoot, file))
+        .catch(() => null);
+      if (old !== text)
+        await this.fileSystem.writeTextAtomic(this.fileSystem.joinPath(projectRoot, file), text);
+      existing.delete(file);
+    }
+    for (const file of existing) {
+      await this.assertContained(projectRoot, this.fileSystem.joinPath(projectRoot, file));
+      await this.fileSystem.removeFile(this.fileSystem.joinPath(projectRoot, file));
+    }
+    const refreshed = await this.open(projectRoot);
+    if (!refreshed.ok) throw new Error('Saved workspace could not be reopened.');
+    const localPath = this.fileSystem.joinPath(projectRoot, '.noveltea/editor/state.json');
+    await this.assertContained(projectRoot, localPath);
+    const localText = projectWorkspaceLocalStateFile(
+      editorState,
+      refreshed.snapshot.workspaceRevision,
+    );
+    if ((await this.fileSystem.readText(localPath).catch(() => null)) !== localText)
+      await this.fileSystem.writeTextAtomic(localPath, localText);
+    return { workspaceRevision: refreshed.snapshot.workspaceRevision };
+  }
   publishCompiledArtifact(snapshot: ProjectWorkspaceSnapshot): CompiledArtifactPublicationResult {
-    return publishProjectWorkspaceSnapshot(snapshot);
+    return publishCompiledArtifact(snapshot.project);
   }
-
-  buildDependencyGraph(
+  buildDependencyGraph(snapshot: ProjectWorkspaceSnapshot): AuthoringDependencyGraph {
+    return buildAuthoringDependencyGraph(snapshot.project);
+  }
+  analyzeSources(
     snapshot: ProjectWorkspaceSnapshot,
-    luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
-  ): AuthoringDependencyGraph {
-    return buildAuthoringDependencyGraph(snapshot.project, luaAnalysis);
+    sourceSnapshot: LuaSourceSnapshot,
+    limits?: Parameters<typeof analyzeAuthoringSources>[2],
+    contributionKeys?: Parameters<typeof analyzeAuthoringSources>[3],
+    persistentCache?: Parameters<typeof analyzeAuthoringSources>[4],
+  ) {
+    return analyzeAuthoringSources(
+      snapshot.project,
+      sourceSnapshot,
+      limits,
+      contributionKeys,
+      persistentCache,
+      collectProjectWorkspaceLuaSources(snapshot, contributionKeys),
+    );
   }
-
-  analyzeSources(snapshot: ProjectWorkspaceSnapshot, sources: LuaSourceSnapshot) {
-    return analyzeProjectWorkspaceSources(snapshot, sources);
-  }
-
-  createSearchIndex(snapshot: ProjectWorkspaceSnapshot): ProjectSearchIndex {
-    return buildProjectWorkspaceSearchIndex(snapshot);
+  buildSearchIndex(snapshot: ProjectWorkspaceSnapshot): ProjectSearchIndex {
+    return buildProjectSearchIndex(snapshot.project);
   }
 }
+export const publishProjectWorkspaceSnapshot = (snapshot: ProjectWorkspaceSnapshot) =>
+  publishCompiledArtifact(snapshot.project);
+export const analyzeProjectWorkspaceSources = (
+  snapshot: ProjectWorkspaceSnapshot,
+  sourceSnapshot: LuaSourceSnapshot,
+  limits?: Parameters<typeof analyzeAuthoringSources>[2],
+  contributionKeys?: Parameters<typeof analyzeAuthoringSources>[3],
+  persistentCache?: Parameters<typeof analyzeAuthoringSources>[4],
+) =>
+  analyzeAuthoringSources(
+    snapshot.project,
+    sourceSnapshot,
+    limits,
+    contributionKeys,
+    persistentCache,
+    collectProjectWorkspaceLuaSources(snapshot, contributionKeys),
+  );
+export const collectProjectWorkspaceLuaSources = (
+  snapshot: ProjectWorkspaceSnapshot,
+  contributionKeys?: Parameters<typeof collectAuthoringLuaSources>[1],
+) =>
+  contributionKeys
+    ? snapshot.externalSourceDescriptors.filter((descriptor) =>
+        contributionKeys.has(descriptor.contributionKey),
+      )
+    : snapshot.externalSourceDescriptors;
+export const buildProjectWorkspaceSearchIndex = (snapshot: ProjectWorkspaceSnapshot) =>
+  buildProjectSearchIndex(snapshot.project);

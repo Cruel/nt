@@ -909,12 +909,15 @@ function ExplorerContextMenu({
       collection === 'assets' && record ? parseAssetData(record.data)?.aliases : undefined;
     setSearchResults(
       target,
-      searchProjectWorkspaceSnapshot(createProjectWorkspaceSnapshot(activeProject), {
-        referencesTo: [target],
-        aliases,
-        tokenMode: 'all',
-        sort: { kind: 'label' },
-      }).results,
+      searchProjectWorkspaceSnapshot(
+        createProjectWorkspaceSnapshot(activeProject, useProjectStore.getState().scriptSourcePaths),
+        {
+          referencesTo: [target],
+          aliases,
+          tokenMode: 'all',
+          sort: { kind: 'label' },
+        },
+      ).results,
     );
     setActiveBottomPanel('references');
   }
@@ -1299,6 +1302,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const scriptSourcePaths = useProjectStore((state) => state.scriptSourcePaths);
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
   const hiddenCollectionKeys = useProjectExplorerStore((state) => state.hiddenCollectionKeys);
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
@@ -1381,8 +1385,8 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     ],
   );
   const workspaceSnapshot = useMemo(
-    () => (project ? createProjectWorkspaceSnapshot(project) : null),
-    [project],
+    () => (project ? createProjectWorkspaceSnapshot(project, scriptSourcePaths) : null),
+    [project, scriptSourcePaths],
   );
   const activeFilterTags = useMemo(
     () => (showTagFilter ? filterTags : []),

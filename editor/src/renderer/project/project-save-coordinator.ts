@@ -304,7 +304,8 @@ async function commitSelectedSaveUnits(
   const projectState = useProjectStore.getState();
   const currentDocument = projectState.document;
   const projectFilePath = projectState.projectFilePath;
-  if (!currentDocument || !projectState.savedDocument || !projectFilePath) {
+  const workspaceRevision = projectState.workspaceRevision;
+  if (!currentDocument || !projectState.savedDocument || !projectFilePath || !workspaceRevision) {
     return {
       success: false,
       status: 'failed',
@@ -327,9 +328,10 @@ async function commitSelectedSaveUnits(
   useProjectStore.getState().setSaving(true);
   const response = await window.noveltea.saveProjectContent(
     projectFilePath,
-    snapshot.contentFingerprint,
+    workspaceRevision,
     candidateContent,
     editorStateForWrite,
+    projectState.scriptSourcePaths,
   );
   if (!response.success) {
     useProjectStore.getState().setSaveError(response.error ?? 'Project save failed.');
@@ -352,6 +354,8 @@ async function commitSelectedSaveUnits(
     document: savedDocument,
     projectPath: response.projectPath,
     projectFilePath: response.projectFilePath,
+    workspaceRevision: response.workspaceRevision,
+    scriptSourcePaths: projectState.scriptSourcePaths,
   });
   setLoadedEditorProjectState(persistedEditorState);
   useProjectStore.getState().markEditorMetadataPersisted(persistedEditorState);
@@ -804,6 +808,7 @@ export async function saveProjectAsCopy(): Promise<ProjectSaveCoordinatorResult>
     projectState.projectFilePath,
     projectState.projectFilePath,
     projectAssetPaths(projectState.document),
+    projectState.scriptSourcePaths,
   );
   if (!response.success) {
     return {

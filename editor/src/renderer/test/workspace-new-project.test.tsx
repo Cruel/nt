@@ -243,7 +243,6 @@ describe('WorkspacePage new project modal', () => {
       recentProjects: [
         {
           projectPath: '/home/test/missing-project',
-          projectFilePath: '/home/test/missing-project/project.json',
           label: 'Missing Project',
           openedAt: 1,
         },
@@ -256,7 +255,7 @@ describe('WorkspacePage new project modal', () => {
     );
 
     render(<WorkspacePage />);
-    dispatchOpenProject('/home/test/missing-project/project.json');
+    dispatchOpenProject('/home/test/missing-project');
 
     expect(
       await screen.findByRole('heading', { name: 'Unable to open project' }),
@@ -452,7 +451,7 @@ describe('WorkspacePage new project modal', () => {
     await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
     expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
       '/mock/project/project.json',
-      expect.stringMatching(/^[0-9a-f]{64}$/),
+      expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       expect.objectContaining({
         recovery: expect.objectContaining({
           saveUnitsById: expect.objectContaining({
@@ -510,7 +509,6 @@ describe('WorkspacePage new project modal', () => {
     expect(useRecentProjectsStore.getState().recentProjects).toEqual([
       expect.objectContaining({
         projectPath: '/mock/project',
-        projectFilePath: '/mock/project/project.json',
         label: 'New Name',
       }),
     ]);
@@ -631,7 +629,7 @@ describe('WorkspacePage new project modal', () => {
       expect(isAuthoringProject(useProjectStore.getState().document)).toBe(true);
       expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
         '/mock/project/project.json',
-        expect.stringMatching(/^[0-9a-f]{64}$/),
+        expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
         expect.objectContaining({
           recovery: expect.objectContaining({
             saveUnitsById: expect.objectContaining({

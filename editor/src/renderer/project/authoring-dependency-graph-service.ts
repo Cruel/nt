@@ -77,6 +77,8 @@ export interface AuthoringDependencyGraphServiceOptions {
     request: ReadProjectTextSourcesRequest,
   ): Promise<ReadProjectTextSourcesResponse>;
   getProjectReadSessionId(): string | null;
+  /** Workspace-v1 owns Script Module file paths outside the assembled project schema. */
+  getScriptSourcePaths?(): Readonly<Record<string, string>>;
 }
 
 type Analysis = AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>;
@@ -412,7 +414,10 @@ export class AuthoringDependencyGraphService {
     instance: string,
     revision: number,
   ) {
-    const workspace = createProjectWorkspaceSnapshot(project);
+    const workspace = createProjectWorkspaceSnapshot(
+      project,
+      this.options.getScriptSourcePaths?.() ?? {},
+    );
     this.metrics.fullBuilds += 1;
     const ownerKeys = new Set(enumerateAuthoringDependencyContributionKeys(project));
     const snapshot = await this.resolveSources(token, project, instance, revision, ownerKeys);
@@ -455,7 +460,10 @@ export class AuthoringDependencyGraphService {
     revision: number,
     impact: Extract<ReturnType<typeof classifyAuthoringGraphMutation>, { kind: 'incremental' }>,
   ) {
-    const workspace = createProjectWorkspaceSnapshot(project);
+    const workspace = createProjectWorkspaceSnapshot(
+      project,
+      this.options.getScriptSourcePaths?.() ?? {},
+    );
     const sourceOwners = new Set(impact.sourceAnalysisOwnerKeys);
     let sourceSnapshot: LuaSourceSnapshot<AuthoringDependencyGraphDiagnostic> | null = null;
     if (sourceOwners.size > 0) {
@@ -516,7 +524,10 @@ export class AuthoringDependencyGraphService {
     revision: number,
     owners: ReadonlySet<string>,
   ): Promise<LuaSourceSnapshot<AuthoringDependencyGraphDiagnostic> | null> {
-    const workspace = createProjectWorkspaceSnapshot(project);
+    const workspace = createProjectWorkspaceSnapshot(
+      project,
+      this.options.getScriptSourcePaths?.() ?? {},
+    );
     this.stateValue = {
       ...(this.stateValue as Extract<AuthoringDependencyGraphServiceState, { kind: 'updating' }>),
       phase: 'resolving-sources',

@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto';
 import * as nodeFileSystem from 'node:fs/promises';
 import path from 'node:path';
 import type { CompilerStageReport } from '../shared/authoring-compiler';
-import { publishCompiledArtifact } from '../shared/compiled-artifact-publication';
 import type { CompiledDiagnostic } from '../shared/project-schema/compiled-project';
+import {
+  createNodeProjectWorkspaceFileSystem,
+  ProjectWorkspaceService,
+} from '../shared/project-workspace';
 
-export const compileProjectUsage = `Usage: pnpm project:compile -- --project <file> --output <file> [--json]\n\nOptions:\n  --project <file>  Saved NovelTea project JSON file.\n  --output <file>   Destination for canonical compiled project JSON.\n  --json            Emit a structured command report as JSON.\n  --help            Print this help and exit successfully.\n`;
+export const compileProjectUsage = `Usage: pnpm project:compile -- --project <directory> --output <file> [--json]\n\nOptions:\n  --project <directory>  Workspace root containing current project.json.\n  --output <file>        Destination for canonical compiled project JSON.\n  --json                 Emit a structured command report as JSON.\n  --help                 Print this help and exit successfully.\n`;
 
 export const compileProjectExitCodes = {
   success: 0,
@@ -297,17 +300,13 @@ export async function runCompileProjectCommand(
     );
   }
 
-  const fileSystem = options.fileSystem ?? nodeFileSystem;
-  let source: string;
-  try {
-    const inputStat = await fileSystem.stat(projectPath);
-    if (!inputStat.isFile()) throw new Error('The project path is not a file.');
-    source = await fileSystem.readFile(projectPath, 'utf8');
-  } catch (error) {
+  const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+  const opened = await workspace.open(projectPath);
+  if (!opened.ok) {
     const diagnostic = commandDiagnostic(
       'PROJECT_COMPILE_INPUT_READ',
       '/project',
-      `Unable to read project file '${projectPath}': ${errorMessage(error)}`,
+      opened.diagnostics[0]?.message ?? `Unable to open workspace '${projectPath}'.`,
     );
     return formatResult(
       report(false, projectPath, outputPath, [diagnostic], []),
@@ -316,32 +315,37 @@ export async function runCompileProjectCommand(
     );
   }
 
-  let project: unknown;
-  try {
-    project = JSON.parse(source) as unknown;
-  } catch (error) {
+  const manifestPath = opened.snapshot.manifestPath;
+  if (manifestPath === outputPath) {
     const diagnostic = commandDiagnostic(
-      'PROJECT_COMPILE_INPUT_JSON',
-      '/project',
-      `Project file '${projectPath}' is not valid JSON: ${errorMessage(error)}`,
+      'PROJECT_COMPILE_OUTPUT_CONFLICT',
+      '/output',
+      'The compiled project output path must differ from the workspace manifest.',
     );
     return formatResult(
-      report(false, projectPath, outputPath, [diagnostic], []),
-      compileProjectExitCodes.input,
+      report(false, opened.snapshot.projectRoot, outputPath, [diagnostic], []),
+      compileProjectExitCodes.output,
       json,
     );
   }
 
-  const published = publishCompiledArtifact(project);
+  const published = workspace.publishCompiledArtifact(opened.snapshot);
   if (!published.ok) {
     return formatResult(
-      report(false, projectPath, outputPath, published.diagnostics, published.stages),
+      report(
+        false,
+        opened.snapshot.projectRoot,
+        outputPath,
+        published.diagnostics,
+        published.stages,
+      ),
       compileProjectExitCodes.compiler,
       json,
     );
   }
 
   const canonicalJson = published.project.gameplayJson;
+  const fileSystem = options.fileSystem ?? nodeFileSystem;
   try {
     await writeCanonicalArtifact(
       fileSystem,
@@ -358,7 +362,7 @@ export async function runCompileProjectCommand(
     return formatResult(
       report(
         false,
-        projectPath,
+        opened.snapshot.projectRoot,
         outputPath,
         [...published.diagnostics, diagnostic],
         published.stages,
@@ -370,7 +374,14 @@ export async function runCompileProjectCommand(
 
   const bytesWritten = Buffer.byteLength(canonicalJson, 'utf8');
   return formatResult(
-    report(true, projectPath, outputPath, published.diagnostics, published.stages, bytesWritten),
+    report(
+      true,
+      opened.snapshot.projectRoot,
+      outputPath,
+      published.diagnostics,
+      published.stages,
+      bytesWritten,
+    ),
     compileProjectExitCodes.success,
     json,
   );

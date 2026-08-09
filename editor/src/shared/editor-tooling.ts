@@ -15,6 +15,8 @@ export interface OpenProjectResponse {
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
   repairs?: import('./project-schema/decode-authoring-project').AuthoringEnumRepair[];
   contentFingerprint?: string;
+  workspaceRevision?: string;
+  scriptSourcePaths?: Record<string, string>;
   diagnostics: ToolDiagnostic[];
   error?: string;
   projectPath: string;
@@ -27,6 +29,7 @@ export interface SaveProjectEditorMetadataResponse {
   success: boolean;
   diagnostics: ToolDiagnostic[];
   contentFingerprint?: string;
+  workspaceRevision?: string;
   error?: string;
 }
 
@@ -165,6 +168,7 @@ export interface SaveProjectResponse {
   projectFilePath?: string;
   projectReadSessionId?: string;
   contentFingerprint?: string;
+  workspaceRevision?: string;
   diagnostics?: ToolDiagnostic[];
   error?: string;
 }

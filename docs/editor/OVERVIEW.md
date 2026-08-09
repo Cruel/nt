@@ -67,6 +67,8 @@ Direct image-asset thumbnails are not rendered-preview sessions. See
   active Save, Save All, Save As, dirty recovery, duplicate views, and metadata-only close behavior.
 - `docs/editor/project/PROJECT_STRUCTURAL_COMMAND_PERSISTENCE.md` — classified Explorer/workflow
   auto-commit commands, persistence targets, filesystem coordination, and unsafe-rebase policies.
+- `docs/editor/project/PROJECT_WORKSPACE_FORMAT.md` — current segmented workspace-v1 tracked source,
+  local editor state, canonical paths, and cutover rules.
 - `docs/editor/project/AUTHORING_DEPENDENCY_GRAPH.md` — pure structural graph ownership,
   incremental publication, semantic relationships, path-sensitive impact, repair transactions, field
   metadata, and graph-backed consumers.

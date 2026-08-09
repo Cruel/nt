@@ -75,26 +75,28 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, shaderProject, options),
   saveProjectContent: (
     projectFilePath: string,
-    expectedContentFingerprint: string,
+    expectedWorkspaceRevision: string,
     contentProject: unknown,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
+    scriptSourcePaths: Record<string, string> = {},
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_CONTENT,
       projectFilePath,
-      expectedContentFingerprint,
+      expectedWorkspaceRevision,
       contentProject,
       editorState,
+      scriptSourcePaths,
     ),
   saveProjectEditorMetadata: (
     projectFilePath: string,
-    expectedContentFingerprint: string,
+    expectedWorkspaceRevision: string,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
       projectFilePath,
-      expectedContentFingerprint,
+      expectedWorkspaceRevision,
       editorState,
     ),
   saveProjectCopyAs: (
@@ -102,6 +104,7 @@ const api: NovelTeaElectronApi = {
     defaultPath: string | null = null,
     currentProjectFilePath: string | null = null,
     workingProjectAssetPaths: string[] = [],
+    scriptSourcePaths: Record<string, string> = {},
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
@@ -109,6 +112,7 @@ const api: NovelTeaElectronApi = {
       defaultPath,
       currentProjectFilePath,
       workingProjectAssetPaths,
+      scriptSourcePaths,
     ),
   importAssets: (projectFilePath: string, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.IMPORT_ASSETS, projectFilePath, options),
