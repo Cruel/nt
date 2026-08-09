@@ -43,10 +43,12 @@ import {
   importUntrackedProjectAssets,
   purgeProjectTrash,
   restoreProjectAssetFiles,
-  startProjectAssetWatcher,
-  stopProjectAssetWatcher,
   trashProjectAssetFiles,
 } from './main/services/project-asset-audit-service';
+import {
+  startProjectWorkspaceWatcher,
+  stopProjectWorkspaceWatcher,
+} from './main/services/project-workspace-watcher-service';
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
 import { ProjectTextSourceReadSessionService } from './main/services/project-text-source-service';
 import {
@@ -938,12 +940,12 @@ void app.whenReady().then(async () => {
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.START_PROJECT_ASSET_WATCHER,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string) =>
-      startProjectAssetWatcher(mainWindow, projectFilePath),
+    IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER,
+    (_event: Electron.IpcMainInvokeEvent, projectRoot: string) =>
+      startProjectWorkspaceWatcher(mainWindow, projectRoot),
   );
 
-  ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_ASSET_WATCHER, () => stopProjectAssetWatcher());
+  ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER, () => stopProjectWorkspaceWatcher());
 
   ipcMain.handle(
     IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
@@ -1077,7 +1079,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
-  void stopProjectAssetWatcher();
+  void stopProjectWorkspaceWatcher();
   void enginePreviewServer.stop();
 });
 

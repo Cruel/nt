@@ -118,9 +118,9 @@ interface NovelTeaElectronApiContract {
     moves: ProjectAssetTrashMove[],
   ): Promise<ProjectAssetFileOperationResponse>;
   purgeProjectTrash(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
-  startProjectAssetWatcher(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
-  stopProjectAssetWatcher(): Promise<ProjectAssetFileOperationResponse>;
-  onProjectAssetAuditChanged(callback: (event: ProjectAssetAuditChangeEvent) => void): () => void;
+  startProjectWorkspaceWatcher(projectRoot: string): Promise<ProjectAssetFileOperationResponse>;
+  stopProjectWorkspaceWatcher(): Promise<ProjectAssetFileOperationResponse>;
+  onProjectWorkspaceChanged(callback: (event: ProjectWorkspaceWatchEvent) => void): () => void;
   resolveProjectAssetUrl(
     projectFilePath: string,
     projectRelativePath: string,
@@ -220,11 +220,11 @@ import type {
 import type { EnginePreviewSession } from './preview-protocol';
 import type { EditorShortcutCommand } from './editor-shortcuts';
 import type {
-  ProjectAssetAuditChangeEvent,
   ProjectAssetAuditResponse,
   ProjectAssetFileOperationResponse,
   ProjectAssetTrashMove,
 } from './project-asset-audit';
+import type { ProjectWorkspaceWatchEvent } from './project-workspace-watch';
 import type { ProjectAssetUrlResponse } from './project-asset-url';
 import type {
   CreateProjectRequest,

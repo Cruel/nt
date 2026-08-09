@@ -92,6 +92,28 @@ describe('project-file-service workspace-v1', () => {
     const state = {
       ...emptyEditorProjectState(opened.contentFingerprint),
       bottomPanel: { visible: false, activePanelId: 'problems' as const, sizePercent: 24 },
+      recovery: {
+        sequence: 1,
+        saveUnitsById: {
+          'project:settings': {
+            sequence: 1,
+            patches: [{ op: 'replace' as const, path: '/project/name', value: 'Local' }],
+            affectedPaths: ['/project/name'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: [],
+            externalConflict: {
+              baseValueByPath: { '/project/name': { exists: true as const, value: 'Metadata' } },
+              localValueByPath: { '/project/name': { exists: true as const, value: 'Local' } },
+              externalValueByPath: { '/project/name': { exists: true as const, value: 'Disk' } },
+              conflictingPaths: ['/project/name'],
+              externalWorkspaceRevision: opened.snapshot.workspaceRevision,
+              externalFileRevisions: {
+                'project.json': opened.snapshot.fileRevisions['project.json']!.contentHash,
+              },
+            },
+          },
+        },
+      },
     };
     const result = await saveProjectEditorMetadata(
       path.join(root, 'project.json'),
@@ -108,10 +130,30 @@ describe('project-file-service workspace-v1', () => {
       JSON.parse(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8')),
     ).toMatchObject({
       schema: 'noveltea.editor.local-state',
-      schemaVersion: 1,
+      schemaVersion: 2,
       workspaceRevision: result.workspaceRevision,
       bottomPanel: { visible: false },
+      recovery: {
+        saveUnitsById: {
+          'project:settings': {
+            externalConflict: {
+              conflictingPaths: ['/project/name'],
+              localValueByPath: { '/project/name': { exists: true, value: 'Local' } },
+              externalValueByPath: { '/project/name': { exists: true, value: 'Disk' } },
+            },
+          },
+        },
+      },
     });
+    const reopened = await service.open(root);
+    expect(reopened.ok).toBe(true);
+    if (reopened.ok)
+      expect(
+        reopened.editorState.recovery.saveUnitsById['project:settings']?.externalConflict,
+      ).toMatchObject({
+        conflictingPaths: ['/project/name'],
+        baseValueByPath: { '/project/name': { exists: true, value: 'Metadata' } },
+      });
   });
 
   it('merges disjoint logical editor.json owners during a granular save', async () => {

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
+  resolveExternalConflictUseDisk,
   saveActiveSaveUnit,
   saveAllSaveUnits,
+  saveConflictingSaveUnitKeepMine,
   saveProjectAsCopy,
 } from '@/project/project-save-coordinator';
 import { useProjectStore } from '@/project/project-store';
@@ -23,6 +25,8 @@ import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { buildProjectSettingsTab } from '@/workbench/editor-registry';
 
 const fingerprint = '0'.repeat(64);
+const workspaceRevision = `sha256:${'a'.repeat(64)}` as const;
+const roomFileRevision = `sha256:${'b'.repeat(64)}` as const;
 
 function roomTab(roomId: string): WorkbenchTab {
   return {
@@ -69,6 +73,8 @@ function loadProject(
     savedDocument: saved,
     projectPath: '/mock/project',
     projectFilePath: '/mock/project/game.json',
+    workspaceRevision,
+    fileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
   });
   useProjectStore
     .getState()
@@ -168,6 +174,101 @@ describe('project save coordinator', () => {
 
     expect(result.status).toBe('blocked');
     expect(result.diagnostics[0]).toMatchObject({ code: 'editor.save.pending-input' });
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+  });
+
+  it('blocks ordinary Save for an external conflict and Keep Mine writes against the external revision', async () => {
+    const saved = projectWithRooms();
+    saved.rooms.foyer!.label = 'Disk Foyer';
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Local Foyer';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Local Foyer' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+        externalConflict: {
+          baseValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Foyer' },
+          },
+          localValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Local Foyer' },
+          },
+          externalValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
+          },
+          conflictingPaths: ['/rooms/foyer/label'],
+          externalWorkspaceRevision: workspaceRevision,
+          externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
+        },
+      },
+    });
+    loadProject(saved, working, editorState);
+    useWorkbenchStore.getState().openTab(roomTab('foyer'));
+
+    const blocked = await saveActiveSaveUnit();
+    expect(blocked).toMatchObject({ success: false, status: 'blocked' });
+    expect(blocked.diagnostics[0]).toMatchObject({ code: 'editor.external-change.conflict' });
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+
+    const resolved = await saveConflictingSaveUnitKeepMine('record:rooms:foyer');
+    expect(resolved.success).toBe(true);
+    expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
+    const [projectFilePath, expectedRevision, candidate, , , commitOptions] = vi.mocked(
+      window.noveltea.saveProjectContent,
+    ).mock.calls[0]!;
+    expect(projectFilePath).toBe('/mock/project/game.json');
+    expect(expectedRevision).toBe(workspaceRevision);
+    expect(candidate).toMatchObject({ rooms: { foyer: { label: 'Local Foyer' } } });
+    expect(commitOptions?.expectedFileRevisions).toEqual({
+      'records/rooms/foyer.json': roomFileRevision,
+    });
+  });
+
+  it('Use Disk discards only the conflicted save unit and keeps the external baseline', () => {
+    const saved = projectWithRooms();
+    saved.rooms.foyer!.label = 'Disk Foyer';
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Local Foyer';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Local Foyer' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+        externalConflict: {
+          baseValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Foyer' },
+          },
+          localValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Local Foyer' },
+          },
+          externalValueByPath: {
+            '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
+          },
+          conflictingPaths: ['/rooms/foyer/label'],
+          externalWorkspaceRevision: workspaceRevision,
+          externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
+        },
+      },
+    });
+    loadProject(saved, working, editorState);
+
+    expect(resolveExternalConflictUseDisk('record:rooms:foyer')).toBe(true);
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { label: 'Disk Foyer' } },
+    });
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { foyer: { label: 'Disk Foyer' } },
+    });
+    expect(
+      useProjectStore.getState().document &&
+        (useProjectStore.getState().document as { editor?: EditorProjectState }).editor?.recovery
+          .saveUnitsById,
+    ).not.toHaveProperty('record:rooms:foyer');
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
   });
 

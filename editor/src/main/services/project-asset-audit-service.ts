@@ -1,10 +1,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { BrowserWindow } from 'electron';
-import chokidar, { type FSWatcher } from 'chokidar';
 import sharp from 'sharp';
-import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type {
   ProjectAssetAuditResponse,
@@ -17,22 +14,12 @@ import {
 } from '../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 
-interface ActiveWatcher {
-  projectFilePath: string;
-  watcher: FSWatcher;
-  timer: NodeJS.Timeout | null;
-}
-
-let activeWatcher: ActiveWatcher | null = null;
-
 function projectRootFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
 }
-
 function slashPath(value: string): string {
   return value.split(path.sep).join('/');
 }
-
 function diagnostic(
   pathValue: string | undefined,
   message: string,
@@ -78,7 +65,6 @@ function mimeForExtension(extension: string): string | undefined {
       return undefined;
   }
 }
-
 function isImageMime(mimeType?: string) {
   return !!mimeType && mimeType.startsWith('image/');
 }
@@ -299,7 +285,6 @@ export async function auditProjectAssets(
     };
   }
 }
-
 export async function importUntrackedProjectAssets(
   projectFilePath: string,
   projectRelativePaths: string[],
@@ -414,55 +399,4 @@ export async function purgeProjectTrash(
   }
 }
 
-export async function startProjectAssetWatcher(
-  owner: BrowserWindow | null,
-  projectFilePath: string,
-): Promise<ProjectAssetFileOperationResponse> {
-  await stopProjectAssetWatcher();
-  if (!owner || !projectFilePath)
-    return {
-      ok: false,
-      success: false,
-      diagnostics: [diagnostic('/assets', 'No project window or project file path is available.')],
-      error: 'No project window or project file path is available.',
-    };
-  const projectRoot = projectRootFromFile(projectFilePath);
-  const assetsRoot = path.join(projectRoot, 'assets');
-  await fs.mkdir(assetsRoot, { recursive: true });
-  const schedule = () => {
-    if (!activeWatcher || activeWatcher.projectFilePath !== projectFilePath) return;
-    if (activeWatcher.timer) clearTimeout(activeWatcher.timer);
-    activeWatcher.timer = setTimeout(() => {
-      if (!owner.isDestroyed())
-        owner.webContents.send(IPC_CHANNELS.PROJECT_ASSET_AUDIT_EVENT, {
-          projectFilePath,
-          reason: 'watcher',
-        });
-    }, 1000);
-  };
-  const watcher = chokidar.watch(assetsRoot, {
-    ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 250 },
-    atomic: true,
-    ignored: (filePath) => {
-      const relative = slashPath(path.relative(projectRoot, filePath));
-      return relative.startsWith('.noveltea/') || isTemporaryOrHiddenAssetPath(filePath);
-    },
-  });
-  watcher.on('add', schedule);
-  watcher.on('change', schedule);
-  watcher.on('unlink', schedule);
-  watcher.on('addDir', schedule);
-  watcher.on('unlinkDir', schedule);
-  activeWatcher = { projectFilePath, watcher, timer: null };
-  return { ok: true, success: true, diagnostics: [] };
-}
-
-export async function stopProjectAssetWatcher(): Promise<ProjectAssetFileOperationResponse> {
-  if (!activeWatcher) return { ok: true, success: true, diagnostics: [] };
-  const watcher = activeWatcher;
-  activeWatcher = null;
-  if (watcher.timer) clearTimeout(watcher.timer);
-  await watcher.watcher.close();
-  return { ok: true, success: true, diagnostics: [] };
-}
+// Project filesystem watching is owned by project-workspace-watcher-service.ts.

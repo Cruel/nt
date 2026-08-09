@@ -37,6 +37,14 @@ interface ProjectStoreState {
     historyCursor: number,
     mutation?: { kind: ProjectMutationKind; affectedPaths: readonly JsonPointer[] },
   ) => boolean;
+  publishExternalReconciliation: (payload: {
+    document: JsonValue;
+    savedDocument: JsonValue;
+    workspaceRevision: string;
+    fileRevisions: Readonly<Record<string, `sha256:${string}`>>;
+    scriptSourcePaths: Readonly<Record<string, string>>;
+    affectedPaths: readonly JsonPointer[];
+  }) => boolean;
   setHistoryCursor: (historyCursor: number) => void;
   markSaved: (metadata?: ProjectSaveMetadata) => void;
   markEditorMetadataPersisted: (editorState: EditorProjectState) => void;
@@ -181,6 +189,31 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
         kind,
         affectedPaths,
       }),
+    });
+    return true;
+  },
+  publishExternalReconciliation: (payload) => {
+    const state = get();
+    const admitted = admitProjectCandidate(payload.document);
+    if (!admitted || !state.projectInstanceId || !state.admittedProject) return false;
+    const projectRevision = state.projectRevision + 1;
+    set({
+      document: admitted.document,
+      admittedProject: admitted.project,
+      savedDocument: cloneJsonValue(payload.savedDocument),
+      projectRevision,
+      lastMutationPublication: createMutationPublication({
+        previousProject: state.admittedProject,
+        project: admitted.project,
+        projectInstanceId: state.projectInstanceId,
+        projectRevision,
+        kind: 'replace',
+        affectedPaths: payload.affectedPaths.length > 0 ? payload.affectedPaths : ['/'],
+      }),
+      workspaceRevision: payload.workspaceRevision,
+      fileRevisions: payload.fileRevisions,
+      scriptSourcePaths: payload.scriptSourcePaths,
+      lastSaveError: null,
     });
     return true;
   },

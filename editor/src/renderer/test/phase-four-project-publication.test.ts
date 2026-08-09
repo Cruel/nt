@@ -67,6 +67,43 @@ describe('Phase 4 authoritative project publication', () => {
     );
   });
 
+  it('publishes an external create/delete candidate as one normal replace revision', () => {
+    expect(
+      useProjectStore.getState().loadProjectDocument({
+        document: { rooms: { foyer: { label: 'Foyer' } } },
+        savedDocument: { rooms: { foyer: { label: 'Foyer' } } },
+        projectPath: '/mock',
+        projectFilePath: '/mock/project.json',
+        workspaceRevision: `sha256:${'0'.repeat(64)}`,
+        fileRevisions: {},
+      }),
+    ).toBe(true);
+    const before = useProjectStore.getState();
+
+    expect(
+      before.publishExternalReconciliation({
+        document: { rooms: { hall: { label: 'Hall' } } },
+        savedDocument: { rooms: { hall: { label: 'Hall' } } },
+        workspaceRevision: `sha256:${'1'.repeat(64)}`,
+        fileRevisions: {},
+        scriptSourcePaths: {},
+        affectedPaths: ['/rooms/foyer', '/rooms/hall'],
+      }),
+    ).toBe(true);
+
+    const published = useProjectStore.getState();
+    expect(published.projectRevision).toBe(before.projectRevision + 1);
+    expect(published.document).toEqual({ rooms: { hall: { label: 'Hall' } } });
+    expect(published.savedDocument).toEqual({ rooms: { hall: { label: 'Hall' } } });
+    expect(published.lastMutationPublication).toMatchObject({
+      previousProject: before.admittedProject,
+      changeSet: {
+        kind: 'replace',
+        affectedPaths: ['/rooms/foyer', '/rooms/hall'],
+      },
+    });
+  });
+
   it("publishes each transaction step with only that step's exact affected paths", () => {
     expect(
       useProjectStore.getState().loadUnsavedProjectDocument({

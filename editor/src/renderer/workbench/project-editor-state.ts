@@ -241,6 +241,12 @@ function buildRecoveryEntries(): EditorProjectState['recovery'] {
       affectedPaths,
       pendingRawInputByPath,
       atomicTransactionGroupIds: [...(atomicGroupsByUnit.get(saveUnitId) ?? [])].sort(),
+      ...(recoveryContext.editorState.recovery.saveUnitsById[saveUnitId]?.externalConflict
+        ? {
+            externalConflict:
+              recoveryContext.editorState.recovery.saveUnitsById[saveUnitId]!.externalConflict,
+          }
+        : {}),
     };
   }
   return { sequence, saveUnitsById };

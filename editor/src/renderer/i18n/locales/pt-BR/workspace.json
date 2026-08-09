@@ -21,6 +21,12 @@
     "lastCommandDiagnostics": "Diagnósticos do último comando",
     "toggle": "Alternar painel inferior"
   },
+  "externalConflict": {
+    "title": "Alterações externas entram em conflito com edições não salvas",
+    "description": "O disco e o editor alteraram {{saveUnitId}}. O salvamento normal fica bloqueado até você escolher qual versão deve prevalecer nesta unidade de salvamento.",
+    "useDisk": "Usar disco",
+    "keepMine": "Manter minhas alterações"
+  },
   "assetProfiler": {
     "tabs": { "overview": "Visão geral", "issues": "Problemas", "assets": "Recursos" },
     "states": {

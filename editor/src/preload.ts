@@ -140,14 +140,15 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES, projectFilePath, moves),
   purgeProjectTrash: (projectFilePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.PURGE_PROJECT_TRASH, projectFilePath),
-  startProjectAssetWatcher: (projectFilePath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.START_PROJECT_ASSET_WATCHER, projectFilePath),
-  stopProjectAssetWatcher: () => ipcRenderer.invoke(IPC_CHANNELS.STOP_PROJECT_ASSET_WATCHER),
-  onProjectAssetAuditChanged: (callback) => {
+  startProjectWorkspaceWatcher: (projectRoot: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER, projectRoot),
+  stopProjectWorkspaceWatcher: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER),
+  onProjectWorkspaceChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>
       callback(event as never);
-    ipcRenderer.on(IPC_CHANNELS.PROJECT_ASSET_AUDIT_EVENT, listener);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_ASSET_AUDIT_EVENT, listener);
+    ipcRenderer.on(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, listener);
   },
   resolveProjectAssetUrl: (projectFilePath: string, projectRelativePath: string) =>
     ipcRenderer.invoke(

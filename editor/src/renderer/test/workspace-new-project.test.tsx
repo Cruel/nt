@@ -161,7 +161,7 @@ beforeEach(() => {
     success: true,
     diagnostics: [],
   });
-  vi.mocked(window.noveltea.stopProjectAssetWatcher).mockResolvedValue({
+  vi.mocked(window.noveltea.stopProjectWorkspaceWatcher).mockResolvedValue({
     ok: true,
     success: true,
     diagnostics: [],
@@ -550,7 +550,7 @@ describe('WorkspacePage new project modal', () => {
 
     await waitFor(() => expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled());
     expect(useProjectStore.getState().document).not.toBeNull();
-    expect(window.noveltea.stopProjectAssetWatcher).not.toHaveBeenCalled();
+    expect(window.noveltea.stopProjectWorkspaceWatcher).not.toHaveBeenCalled();
     expect(useWorkspaceStore.getState().statusMessage).toBe('External project content changed.');
     expect(useBottomPanelStore.getState()).toMatchObject({
       visible: true,

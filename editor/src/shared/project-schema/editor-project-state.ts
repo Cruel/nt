@@ -221,6 +221,25 @@ export const editorPendingRawInputSchema = z
   })
   .strict();
 
+const editorRecoveryConflictValueSchema = z.union([
+  z.object({ exists: z.literal(false) }).strict(),
+  z.object({ exists: z.literal(true), value: jsonSerializableValueSchema }).strict(),
+]);
+
+export const editorRecoveryExternalConflictSchema = z
+  .object({
+    baseValueByPath: z.record(editorRecoveryJsonPointerSchema, editorRecoveryConflictValueSchema),
+    localValueByPath: z.record(editorRecoveryJsonPointerSchema, editorRecoveryConflictValueSchema),
+    externalValueByPath: z.record(
+      editorRecoveryJsonPointerSchema,
+      editorRecoveryConflictValueSchema,
+    ),
+    conflictingPaths: z.array(editorRecoveryJsonPointerSchema),
+    externalWorkspaceRevision: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    externalFileRevisions: z.record(z.string().min(1), z.string().regex(/^sha256:[0-9a-f]{64}$/)),
+  })
+  .strict();
+
 export const editorRecoverySaveUnitSchema = z
   .object({
     sequence: z.number().int().nonnegative(),
@@ -228,6 +247,7 @@ export const editorRecoverySaveUnitSchema = z
     affectedPaths: z.array(editorRecoveryJsonPointerSchema),
     pendingRawInputByPath: z.record(editorRecoveryJsonPointerSchema, editorPendingRawInputSchema),
     atomicTransactionGroupIds: z.array(z.string().min(1)).default([]),
+    externalConflict: editorRecoveryExternalConflictSchema.optional(),
   })
   .strict();
 
@@ -277,6 +297,7 @@ export type EditorRecordMetadata = z.infer<typeof editorRecordMetadataSchema>;
 export type EditorBottomPanelState = z.infer<typeof editorBottomPanelStateSchema>;
 export type EditorRecoveryPatch = z.infer<typeof editorRecoveryPatchSchema>;
 export type EditorRecoverySaveUnit = z.infer<typeof editorRecoverySaveUnitSchema>;
+export type EditorRecoveryExternalConflict = z.infer<typeof editorRecoveryExternalConflictSchema>;
 export type EditorRecoveryState = z.infer<typeof editorRecoveryStateSchema>;
 export type EditorPendingRawInput = z.infer<typeof editorPendingRawInputSchema>;
 export type EditorProjectState = z.infer<typeof editorProjectStateSchema>;

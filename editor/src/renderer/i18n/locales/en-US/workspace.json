@@ -21,6 +21,12 @@
     "lastCommandDiagnostics": "Last command diagnostics",
     "toggle": "Toggle Bottom Panel"
   },
+  "externalConflict": {
+    "title": "External changes conflict with unsaved edits",
+    "description": "Disk and the editor both changed {{saveUnitId}}. Ordinary Save is blocked until you choose which version wins for this save unit.",
+    "useDisk": "Use Disk",
+    "keepMine": "Keep Mine"
+  },
   "assetProfiler": {
     "tabs": { "overview": "Overview", "issues": "Issues", "assets": "Assets" },
     "states": {

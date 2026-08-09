@@ -5,6 +5,8 @@ import { resolveSaveUnitForTab } from './save-unit-registry';
 import type { SaveUnitId } from './save-unit-types';
 import { useProjectStore } from './project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
+import { useCommandStore } from '@/commands/command-store';
 import {
   buildEditorProjectStateSnapshot,
   mergeEditorProjectState,
@@ -210,6 +212,23 @@ function pendingInputDiagnostic(saveUnitId: SaveUnitId, path: string): ProjectVa
   });
 }
 
+function externalConflictSaveDiagnostic(
+  saveUnitId: SaveUnitId,
+  entry: EditorRecoverySaveUnit,
+): ProjectValidationDiagnostic {
+  const conflict = entry.externalConflict!;
+  const path = conflict.conflictingPaths[0] ?? entry.affectedPaths[0] ?? '/';
+  return createProjectValidationDiagnostic({
+    code: 'editor.external-change.conflict',
+    severity: 'error',
+    category: 'External changes',
+    path,
+    message: `External changes conflict with unsaved edits in '${saveUnitId}'. Choose Use Disk or Keep Mine before saving this item.`,
+    boundaries: ['authoring'],
+    ownerPaths: conflict.conflictingPaths.length > 0 ? conflict.conflictingPaths : [path],
+  });
+}
+
 function dependencyDiagnostic(
   activeSaveUnitId: SaveUnitId,
   dependencyIds: readonly SaveUnitId[],
@@ -378,6 +397,7 @@ async function commitSelectedSaveUnits(
 
 export async function saveActiveSaveUnit(
   explicitSaveUnitId?: SaveUnitId,
+  options: { allowExternalConflict?: boolean } = {},
 ): Promise<ProjectSaveCoordinatorResult> {
   const projectState = useProjectStore.getState();
   const tab = activeTab();
@@ -421,6 +441,20 @@ export async function saveActiveSaveUnit(
   const selectedIds = atomicClosure(snapshot.recovery, saveUnitId);
   const selectedEntries = orderedEntries(snapshot.recovery, selectedIds);
   const selectedPaths = componentPaths(selectedEntries);
+  const conflictDiagnostics = selectedEntries
+    .filter(([, entry]) => entry.externalConflict)
+    .map(([selectedSaveUnitId, entry]) =>
+      externalConflictSaveDiagnostic(selectedSaveUnitId, entry),
+    );
+  if (conflictDiagnostics.length > 0 && !options.allowExternalConflict) {
+    return {
+      success: false,
+      status: 'blocked',
+      diagnostics: conflictDiagnostics,
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
+    };
+  }
   const pendingDiagnostics = selectedEntries.flatMap(([, entry]) =>
     Object.keys(entry.pendingRawInputByPath).map((path) =>
       pendingInputDiagnostic(saveUnitId, path),
@@ -616,13 +650,14 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
 
   const blockedDiagnostics: ProjectValidationDiagnostic[] = [];
   components = components.filter((component) => {
-    const pending = component.entries.flatMap(([, entry]) =>
-      Object.keys(entry.pendingRawInputByPath).map((path) =>
+    const blocked = component.entries.flatMap(([saveUnitId, entry]) => [
+      ...(entry.externalConflict ? [externalConflictSaveDiagnostic(saveUnitId, entry)] : []),
+      ...Object.keys(entry.pendingRawInputByPath).map((path) =>
         pendingInputDiagnostic(component.ids[0]!, path),
       ),
-    );
-    blockedDiagnostics.push(...pending);
-    return pending.length === 0;
+    ]);
+    blockedDiagnostics.push(...blocked);
+    return blocked.length === 0;
   });
 
   const baselineDiagnostics = authoringDiagnostics(projectState.savedDocument);
@@ -791,6 +826,49 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
       ...blockedDiagnostics,
     ]),
   };
+}
+
+export async function saveConflictingSaveUnitKeepMine(
+  saveUnitId: SaveUnitId,
+): Promise<ProjectSaveCoordinatorResult> {
+  return saveActiveSaveUnit(saveUnitId, { allowExternalConflict: true });
+}
+
+export function resolveExternalConflictUseDisk(saveUnitId: SaveUnitId): boolean {
+  const projectState = useProjectStore.getState();
+  if (!projectState.document || !projectState.savedDocument || !projectState.workspaceRevision)
+    return false;
+  const snapshot = buildEditorProjectStateSnapshot();
+  const conflict = snapshot.recovery.saveUnitsById[saveUnitId]?.externalConflict;
+  if (!conflict) return false;
+
+  const saveUnitsById = { ...snapshot.recovery.saveUnitsById };
+  delete saveUnitsById[saveUnitId];
+  const recovery: EditorRecoveryState = { ...snapshot.recovery, saveUnitsById };
+  const remainingIds = new Set(Object.keys(saveUnitsById));
+  const workingContent = buildCandidateForSaveUnitIds(
+    projectState.savedDocument,
+    recovery,
+    remainingIds,
+  );
+  const editorState: EditorProjectState = { ...snapshot, recovery };
+  const workingDocument = mergeEditorProjectState(workingContent, editorState);
+  const savedDocument = mergeEditorProjectState(
+    stripEditorProjectState(projectState.savedDocument) as JsonValue,
+    editorState,
+  );
+
+  useCommandStore.getState().discardSaveUnitHistory(saveUnitId);
+  usePendingInputStore.getState().clearPendingInputsForSaveUnit(saveUnitId);
+  setLoadedEditorProjectState(editorState);
+  return useProjectStore.getState().publishExternalReconciliation({
+    document: workingDocument,
+    savedDocument,
+    workspaceRevision: projectState.workspaceRevision,
+    fileRevisions: projectState.fileRevisions,
+    scriptSourcePaths: projectState.scriptSourcePaths,
+    affectedPaths: conflict.conflictingPaths,
+  });
 }
 
 export async function saveProjectAsCopy(): Promise<ProjectSaveCoordinatorResult> {

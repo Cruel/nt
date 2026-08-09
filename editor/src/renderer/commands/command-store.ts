@@ -36,6 +36,7 @@ interface CommandStoreState {
   commitTransaction: () => CommandExecutionResult;
   cancelTransaction: () => void;
   resetCommandHistory: () => void;
+  discardSaveUnitHistory: (saveUnitId: string) => void;
 }
 
 function busStateFromStores(history: CommandHistoryState): CommandBusState {
@@ -306,6 +307,16 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       lastDiagnostics: [],
       persistencePending: false,
     }),
+  discardSaveUnitHistory: (saveUnitId) => {
+    const history = get().history;
+    const removedApplied = history.entries
+      .slice(0, history.cursor + 1)
+      .filter((entry) => entry.originSaveUnitId === saveUnitId).length;
+    const entries = history.entries.filter((entry) => entry.originSaveUnitId !== saveUnitId);
+    const cursor = Math.max(-1, history.cursor - removedApplied);
+    set({ history: { ...history, entries, cursor } });
+    useProjectStore.getState().setHistoryCursor(cursor);
+  },
 }));
 
 export function selectCanUndo(state: Pick<CommandStoreState, 'history'>) {

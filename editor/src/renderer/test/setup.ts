@@ -236,13 +236,13 @@ Object.defineProperty(window, 'noveltea', {
       .fn()
       .mockResolvedValue({ ok: true, success: true, restored: [], diagnostics: [] }),
     purgeProjectTrash: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
-    startProjectAssetWatcher: vi
+    startProjectWorkspaceWatcher: vi
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
-    stopProjectAssetWatcher: vi
+    stopProjectWorkspaceWatcher: vi
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
-    onProjectAssetAuditChanged: vi.fn().mockReturnValue(() => {}),
+    onProjectWorkspaceChanged: vi.fn().mockReturnValue(() => {}),
     resolveProjectAssetUrl: vi.fn().mockResolvedValue({
       url: 'data:image/png;base64,bW9jaw==',
       absolutePath: '/mock/project/assets/images/logo.png',
