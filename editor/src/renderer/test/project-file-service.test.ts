@@ -114,7 +114,67 @@ describe('project-file-service workspace-v1', () => {
     });
   });
 
-  it('rejects saves after the coarse workspace baseline changes', async () => {
+  it('merges disjoint logical editor.json owners during a granular save', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Organization', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const external = JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8')) as {
+      tags: { records: Record<string, unknown> };
+    };
+    external.tags.records.external = { name: 'External', color: '#123456' };
+    fs.writeFileSync(path.join(root, 'editor.json'), `${JSON.stringify(external, null, 2)}\n`);
+    const editorState = structuredClone(opened.editorState);
+    editorState.chapters.records.story = { id: 'story', label: 'Story' };
+    const result = await saveProjectContent(
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
+      opened.contentProject,
+      editorState,
+      {},
+      {
+        expectedFileRevisions: Object.fromEntries(
+          Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+            file,
+            revision.contentHash,
+          ]),
+        ),
+        saveUnitIds: ['project:chapters'],
+        baselineProject: opened.snapshot.project,
+        operationLabel: 'save chapters',
+      },
+    );
+    expect(result.success).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8'))).toMatchObject({
+      chapters: { records: { story: { label: 'Story' } } },
+      tags: { records: { external: { name: 'External' } } },
+    });
+
+    const conflictingTags = structuredClone(opened.editorState);
+    conflictingTags.tags.records.local = { name: 'Local', color: '#654321' };
+    const conflictingResult = await saveProjectContent(
+      path.join(root, 'project.json'),
+      result.workspaceRevision!,
+      opened.contentProject,
+      conflictingTags,
+      {},
+      {
+        expectedFileRevisions: result.fileRevisions!,
+        saveUnitIds: ['project:tags'],
+        baselineProject: opened.snapshot.project,
+        operationLabel: 'save tags',
+      },
+    );
+    expect(conflictingResult.success).toBe(false);
+    expect(conflictingResult.diagnostics?.[0]?.code).toBe('WORKSPACE_REVISION_CONFLICT');
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8'))).toMatchObject({
+      tags: { records: { external: { name: 'External' } } },
+    });
+  });
+
+  it('allows local editor-state persistence after an unrelated tracked-file change', async () => {
     const root = tempRoot();
     await createProject({ projectName: 'Conflict', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
@@ -130,7 +190,49 @@ describe('project-file-service workspace-v1', () => {
       opened.snapshot.workspaceRevision,
       emptyEditorProjectState(projectContentFingerprint(opened.snapshot.project)),
     );
+    expect(result.success).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name).toBe(
+      'External',
+    );
+  });
+
+  it('returns the stable revision-conflict diagnostic for an externally changed selected owner', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Conflict', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const external = JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')) as {
+      project: { name: string };
+    };
+    external.project.name = 'External';
+    fs.writeFileSync(path.join(root, 'project.json'), `${JSON.stringify(external, null, 2)}\n`);
+    const candidate = structuredClone(opened.snapshot.project);
+    candidate.project.name = 'Local';
+    const result = await saveProjectContent(
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
+      candidate,
+      opened.editorState,
+      {},
+      {
+        expectedFileRevisions: Object.fromEntries(
+          Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+            file,
+            revision.contentHash,
+          ]),
+        ),
+        saveUnitIds: ['project:settings'],
+        baselineProject: opened.snapshot.project,
+        operationLabel: 'save project settings',
+      },
+    );
     expect(result.success).toBe(false);
+    expect(result.diagnostics?.[0]?.code).toBe('WORKSPACE_REVISION_CONFLICT');
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name).toBe(
+      'External',
+    );
   });
 
   it('preserves a loaded Script Module source owner through production content save', async () => {
@@ -167,6 +269,87 @@ describe('project-file-service workspace-v1', () => {
       'scripts/custom/entry.lua',
     );
     expect(fs.readFileSync(path.join(root, 'scripts/custom/entry.lua'), 'utf8')).toBe('return 1\n');
+  });
+
+  it('commits asset trash and restore with structural source changes in one transaction', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Asset transaction', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await workspace.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const withAsset = structuredClone(initial.snapshot.project);
+    withAsset.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/logo.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    fs.writeFileSync(path.join(root, 'assets/logo.bin'), 'asset bytes');
+    await workspace.write(root, initial.snapshot.workspaceRevision, withAsset, initial.editorState);
+    const beforeDelete = await workspace.open(root);
+    expect(beforeDelete.ok).toBe(true);
+    if (!beforeDelete.ok) return;
+    const deleted = structuredClone(beforeDelete.snapshot.project);
+    delete deleted.assets.logo;
+    const deletedResult = await saveProjectContent(
+      path.join(root, 'project.json'),
+      beforeDelete.snapshot.workspaceRevision,
+      deleted,
+      beforeDelete.editorState,
+      {},
+      {
+        expectedFileRevisions: Object.fromEntries(
+          Object.entries(beforeDelete.snapshot.fileRevisions).map(([file, revision]) => [
+            file,
+            revision.contentHash,
+          ]),
+        ),
+        structural: true,
+        baselineProject: beforeDelete.snapshot.project,
+        affectedPaths: ['/assets/logo'],
+        operationLabel: 'delete Asset logo',
+        assetTransition: { kind: 'trash', projectRelativePaths: ['assets/logo.bin'] },
+      },
+    );
+    expect(deletedResult.success).toBe(true);
+    expect(fs.existsSync(path.join(root, 'records/assets/logo.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'assets/logo.bin'))).toBe(false);
+    const move = deletedResult.assetTrashMoves?.[0];
+    expect(move).toBeDefined();
+    expect(fs.readFileSync(path.join(root, move!.trashRelativePath), 'utf8')).toBe('asset bytes');
+
+    const beforeRestore = await workspace.open(root);
+    expect(beforeRestore.ok).toBe(true);
+    if (!beforeRestore.ok) return;
+    const restoredResult = await saveProjectContent(
+      path.join(root, 'project.json'),
+      beforeRestore.snapshot.workspaceRevision,
+      withAsset,
+      beforeRestore.editorState,
+      {},
+      {
+        expectedFileRevisions: Object.fromEntries(
+          Object.entries(beforeRestore.snapshot.fileRevisions).map(([file, revision]) => [
+            file,
+            revision.contentHash,
+          ]),
+        ),
+        structural: true,
+        baselineProject: beforeRestore.snapshot.project,
+        affectedPaths: ['/assets/logo'],
+        operationLabel: 'restore Asset logo',
+        assetTransition: { kind: 'restore', moves: [move!] },
+      },
+    );
+    expect(restoredResult.success).toBe(true);
+    expect(fs.readFileSync(path.join(root, 'assets/logo.bin'), 'utf8')).toBe('asset bytes');
+    expect(fs.existsSync(path.join(root, move!.trashRelativePath))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'records/assets/logo.json'))).toBe(true);
   });
 
   it('rejects a local-state symlink escape instead of writing through it', async () => {

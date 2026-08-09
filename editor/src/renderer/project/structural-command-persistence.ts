@@ -456,6 +456,7 @@ function normalizeToolDiagnostics(
     path?: string;
     message: string;
     category?: string;
+    code?: string;
   }>,
   fallbackPath = '/',
 ): ToolDiagnostic[] {
@@ -464,6 +465,7 @@ function normalizeToolDiagnostics(
     path: diagnostic.path ?? fallbackPath,
     message: diagnostic.message,
     ...(diagnostic.category ? { category: diagnostic.category } : {}),
+    ...(diagnostic.code ? { code: diagnostic.code } : {}),
   }));
 }
 
@@ -484,87 +486,39 @@ function fileOperationFailure(
       ];
 }
 
-async function trashAssetPaths(
+function assetTransitionFor(
   commandId: string,
-  projectFilePath: string,
-  projectRelativePaths: string[],
-): Promise<ToolDiagnostic[]> {
-  const result = await window.noveltea.trashProjectAssetFiles(
-    projectFilePath,
-    projectRelativePaths,
-  );
-  const moved = result.moved ?? [];
-  if (moved.length > 0) filesystemStateByCommandId.set(commandId, moved);
-  if (!result.ok || moved.length !== projectRelativePaths.length) {
-    return fileOperationFailure(
-      normalizeToolDiagnostics(result.diagnostics, '/assets'),
-      result.error,
-      'Failed to move every project asset file to trash.',
-    );
+  plan: AutoCommitPlan,
+  direction: 'forward' | 'undo' | 'redo',
+): import('../../shared/editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'] {
+  for (const operation of plan.filesystemOperations) {
+    if (operation.kind === 'preexisting-project-assets') continue;
+    const shouldTrash =
+      operation.kind === 'trash-project-assets' ? direction !== 'undo' : direction === 'undo';
+    if (shouldTrash) return { kind: 'trash', projectRelativePaths: operation.projectRelativePaths };
+    const moves = filesystemStateByCommandId.get(commandId) ?? [];
+    if (moves.length > 0) return { kind: 'restore', moves };
   }
-  return [];
+  return undefined;
 }
 
-async function restoreAssetMoves(commandId: string, projectFilePath: string) {
-  const moves = filesystemStateByCommandId.get(commandId) ?? [];
-  if (moves.length === 0) return [];
-  const result = await window.noveltea.restoreProjectAssetFiles(projectFilePath, moves);
-  if (result.ok && (result.restored?.length ?? 0) === moves.length) return [];
+async function trashStagedAssetsAfterFailure(
+  commandId: string,
+  projectFilePath: string,
+  plan: AutoCommitPlan,
+): Promise<ToolDiagnostic[]> {
+  const paths = plan.filesystemOperations.flatMap((operation) =>
+    operation.kind === 'staged-project-assets' ? operation.projectRelativePaths : [],
+  );
+  if (paths.length === 0) return [];
+  const result = await window.noveltea.trashProjectAssetFiles(projectFilePath, paths);
+  if (result.moved?.length) filesystemStateByCommandId.set(commandId, result.moved);
+  if (result.ok && result.moved?.length === paths.length) return [];
   return fileOperationFailure(
     normalizeToolDiagnostics(result.diagnostics, '/assets'),
     result.error,
-    'Failed to restore every project asset file.',
+    'Failed to move staged asset files to trash after persistence failed.',
   );
-}
-
-async function applyFilesystemTransition(
-  commandId: string,
-  projectFilePath: string,
-  plan: AutoCommitPlan,
-  direction: 'forward' | 'undo' | 'redo',
-): Promise<ToolDiagnostic[]> {
-  for (const operation of plan.filesystemOperations) {
-    if (operation.kind === 'preexisting-project-assets') continue;
-    const diagnostics =
-      operation.kind === 'trash-project-assets'
-        ? direction === 'undo'
-          ? await restoreAssetMoves(commandId, projectFilePath)
-          : await trashAssetPaths(commandId, projectFilePath, operation.projectRelativePaths)
-        : direction === 'forward'
-          ? []
-          : direction === 'undo'
-            ? await trashAssetPaths(commandId, projectFilePath, operation.projectRelativePaths)
-            : await restoreAssetMoves(commandId, projectFilePath);
-    if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) return diagnostics;
-  }
-  return [];
-}
-
-async function rollbackFilesystemTransition(
-  commandId: string,
-  projectFilePath: string,
-  plan: AutoCommitPlan,
-  direction: 'forward' | 'undo' | 'redo',
-) {
-  for (const operation of [...plan.filesystemOperations].reverse()) {
-    if (operation.kind === 'preexisting-project-assets') continue;
-    if (operation.kind === 'trash-project-assets') {
-      if (direction === 'undo') {
-        await trashAssetPaths(commandId, projectFilePath, operation.projectRelativePaths);
-      } else {
-        await restoreAssetMoves(commandId, projectFilePath);
-        filesystemStateByCommandId.delete(commandId);
-      }
-      continue;
-    }
-    if (direction === 'undo') {
-      await restoreAssetMoves(commandId, projectFilePath);
-      filesystemStateByCommandId.delete(commandId);
-    } else {
-      await trashAssetPaths(commandId, projectFilePath, operation.projectRelativePaths);
-      if (direction === 'forward') filesystemStateByCommandId.delete(commandId);
-    }
-  }
 }
 
 export async function persistAutoCommitPlan(
@@ -615,6 +569,7 @@ export async function persistAutoCommitPlan(
       projectState.projectFilePath,
       projectState.workspaceRevision,
       editorState,
+      { ...projectState.fileRevisions },
     );
     if (!response.success) {
       return {
@@ -630,7 +585,10 @@ export async function persistAutoCommitPlan(
       contentFingerprint: response.contentFingerprint ?? editorState.contentFingerprint,
     };
     setLoadedEditorProjectState(persisted);
-    useProjectStore.getState().markSaved({ workspaceRevision: response.workspaceRevision });
+    useProjectStore.getState().markSaved({
+      workspaceRevision: response.workspaceRevision,
+      fileRevisions: response.fileRevisions,
+    });
     useProjectStore.getState().markEditorMetadataPersisted(persisted);
     return { status: 'persisted', diagnostics: [] };
   }
@@ -667,17 +625,6 @@ export async function persistAutoCommitPlan(
     };
   }
 
-  const filesystemDiagnostics = await applyFilesystemTransition(
-    commandId,
-    projectState.projectFilePath,
-    plan,
-    direction,
-  );
-  if (filesystemDiagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
-    await rollbackFilesystemTransition(commandId, projectState.projectFilePath, plan, direction);
-    return { status: 'failed', diagnostics: filesystemDiagnostics };
-  }
-
   const rebasedRecovery = rebaseRecoveryOverlays(
     remappedRecovery,
     candidateContent,
@@ -699,18 +646,34 @@ export async function persistAutoCommitPlan(
     candidateContent,
     editorState,
     scriptSourcePaths,
+    {
+      expectedFileRevisions: { ...projectState.fileRevisions },
+      operationLabel: `${plan.commandType}:${direction}`,
+      structural: true,
+      baselineProject: projectState.savedDocument,
+      affectedPaths: [...plan.affectedPaths],
+      assetTransition: assetTransitionFor(commandId, plan, direction),
+    },
   );
   if (!response.success) {
-    await rollbackFilesystemTransition(commandId, projectState.projectFilePath, plan, direction);
+    const cleanupDiagnostics =
+      direction === 'forward'
+        ? await trashStagedAssetsAfterFailure(commandId, projectState.projectFilePath, plan)
+        : [];
     return {
       status: 'failed',
-      diagnostics: fileOperationFailure(
-        normalizeToolDiagnostics(response.diagnostics ?? []),
-        response.error,
-        'Structural project content persistence failed.',
-      ),
+      diagnostics: [
+        ...fileOperationFailure(
+          normalizeToolDiagnostics(response.diagnostics ?? []),
+          response.error,
+          'Structural project content persistence failed.',
+        ),
+        ...cleanupDiagnostics,
+      ],
     };
   }
+  if (response.assetTrashMoves && response.assetTrashMoves.length > 0)
+    filesystemStateByCommandId.set(commandId, response.assetTrashMoves);
   const persistedEditorState: EditorProjectState = {
     ...editorState,
     contentFingerprint: response.contentFingerprint ?? editorState.contentFingerprint,
@@ -720,11 +683,12 @@ export async function persistAutoCommitPlan(
     projectPath: response.projectPath,
     projectFilePath: response.projectFilePath,
     workspaceRevision: response.workspaceRevision,
+    fileRevisions: response.fileRevisions,
     scriptSourcePaths,
   });
   setLoadedEditorProjectState(persistedEditorState);
   useProjectStore.getState().markEditorMetadataPersisted(persistedEditorState);
-  return { status: 'persisted', diagnostics: filesystemDiagnostics };
+  return { status: 'persisted', diagnostics: [] };
 }
 
 export function structuralRuleForTests(commandType: string, originSaveUnitId: string) {

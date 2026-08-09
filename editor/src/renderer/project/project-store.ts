@@ -24,6 +24,7 @@ interface ProjectStoreState {
   projectFilePath: string | null;
   projectReadSessionId: string | null;
   workspaceRevision: string | null;
+  fileRevisions: Readonly<Record<string, `sha256:${string}`>>;
   scriptSourcePaths: Readonly<Record<string, string>>;
   historyCursor: number;
   isSaving: boolean;
@@ -58,6 +59,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   projectFilePath: null,
   projectReadSessionId: null,
   workspaceRevision: null,
+  fileRevisions: {},
   scriptSourcePaths: {},
   historyCursor: -1,
   isSaving: false,
@@ -69,6 +71,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     projectFilePath,
     projectReadSessionId = null,
     workspaceRevision = `sha256:${'0'.repeat(64)}`,
+    fileRevisions = {},
     scriptSourcePaths = {},
   }) => {
     const admitted = admitProjectCandidate(document);
@@ -93,6 +96,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectFilePath,
       projectReadSessionId,
       workspaceRevision,
+      fileRevisions,
       scriptSourcePaths,
       historyCursor: -1,
       isSaving: false,
@@ -123,6 +127,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectFilePath: null,
       projectReadSessionId: null,
       workspaceRevision: null,
+      fileRevisions: {},
       scriptSourcePaths: {},
       historyCursor: 0,
       isSaving: false,
@@ -142,6 +147,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectFilePath: null,
       projectReadSessionId: null,
       workspaceRevision: null,
+      fileRevisions: {},
       scriptSourcePaths: {},
       historyCursor: -1,
       isSaving: false,
@@ -193,6 +199,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath: metadata?.projectPath ?? state.projectPath,
       projectFilePath: metadata?.projectFilePath ?? state.projectFilePath,
       workspaceRevision: metadata?.workspaceRevision ?? state.workspaceRevision,
+      fileRevisions: metadata?.fileRevisions ?? state.fileRevisions,
       scriptSourcePaths: metadata?.scriptSourcePaths ?? state.scriptSourcePaths,
       isSaving: false,
       lastSaveError: null,

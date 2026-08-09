@@ -5,6 +5,7 @@ export interface ProjectLoadPayload {
   projectFilePath: string | null;
   projectReadSessionId?: string | null;
   workspaceRevision?: string | null;
+  fileRevisions?: Record<string, `sha256:${string}`>;
   scriptSourcePaths?: Record<string, string>;
 }
 
@@ -13,6 +14,7 @@ export interface ProjectSaveMetadata {
   projectFilePath?: string;
   document?: unknown;
   workspaceRevision?: string;
+  fileRevisions?: Record<string, `sha256:${string}`>;
   scriptSourcePaths?: Record<string, string>;
 }
 

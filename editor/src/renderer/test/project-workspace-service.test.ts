@@ -134,7 +134,12 @@ describe('ProjectWorkspaceService', () => {
     expect(opened.snapshot.manifestPath).toBe('/projects/headless/project.json');
     expect(opened.snapshot.canonicalSourceFiles).toContain('project.json');
     expect(opened.snapshot.canonicalSourceFiles).toContain('editor.json');
-    expect(opened.snapshot.saveUnitFileOwnership['project:settings']?.file).toBe('project.json');
+    expect(opened.snapshot.saveUnitFileOwnership['project:settings']?.files).toEqual([
+      'project.json',
+    ]);
+    expect(opened.snapshot.saveUnitFileOwnership['workflow:play-recorder']?.paths).toEqual([
+      '/tests',
+    ]);
   });
 
   it('rejects retired monolithic files and unsupported workspace versions', async () => {

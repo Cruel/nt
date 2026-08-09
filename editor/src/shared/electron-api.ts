@@ -84,11 +84,13 @@ interface NovelTeaElectronApiContract {
     contentProject: unknown,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
     scriptSourcePaths?: Record<string, string>,
+    commitOptions?: import('./editor-tooling').ProjectWorkspaceCommitOptions,
   ): Promise<SaveProjectResponse>;
   saveProjectEditorMetadata(
     projectFilePath: string,
     expectedWorkspaceRevision: string,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
+    expectedFileRevisions?: Record<string, `sha256:${string}`>,
   ): Promise<SaveProjectEditorMetadataResponse>;
   saveProjectCopyAs(
     project: unknown,

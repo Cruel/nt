@@ -1,6 +1,7 @@
 export type ToolSeverity = 'info' | 'warning' | 'error';
 
 export interface ToolDiagnostic {
+  code?: string;
   severity: ToolSeverity;
   path: string;
   message: string;
@@ -16,6 +17,7 @@ export interface OpenProjectResponse {
   repairs?: import('./project-schema/decode-authoring-project').AuthoringEnumRepair[];
   contentFingerprint?: string;
   workspaceRevision?: string;
+  fileRevisions?: Record<string, `sha256:${string}`>;
   scriptSourcePaths?: Record<string, string>;
   diagnostics: ToolDiagnostic[];
   error?: string;
@@ -30,6 +32,7 @@ export interface SaveProjectEditorMetadataResponse {
   diagnostics: ToolDiagnostic[];
   contentFingerprint?: string;
   workspaceRevision?: string;
+  fileRevisions?: Record<string, `sha256:${string}`>;
   error?: string;
 }
 
@@ -169,8 +172,22 @@ export interface SaveProjectResponse {
   projectReadSessionId?: string;
   contentFingerprint?: string;
   workspaceRevision?: string;
+  fileRevisions?: Record<string, `sha256:${string}`>;
+  assetTrashMoves?: import('./project-asset-audit').ProjectAssetTrashMove[];
   diagnostics?: ToolDiagnostic[];
   error?: string;
+}
+
+export interface ProjectWorkspaceCommitOptions {
+  expectedFileRevisions: Record<string, `sha256:${string}`>;
+  saveUnitIds?: string[];
+  baselineProject?: unknown;
+  affectedPaths?: string[];
+  operationLabel: string;
+  structural?: boolean;
+  assetTransition?:
+    | { kind: 'trash'; projectRelativePaths: string[] }
+    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] };
 }
 
 export interface CreateProjectRequest {

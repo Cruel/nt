@@ -40,6 +40,10 @@ field-level pending input in recovery metadata.
 - Save All attempts every dirty unit, writes the maximal independently valid set once, and leaves
   blocked units dirty with their recovery overlays intact. It intentionally has no shortcut that
   conflicts with Save As.
+- Scoped commits resolve each selected unit to its canonical JSON/source file set and carry the
+  loaded exact-byte revision for each target. Files outside the selected dependency component are
+  neither checked as save blockers nor rewritten. Shared `editor.json` owners are applied by their
+  declared JSON paths over the current disk fragment.
 - Save As and `Ctrl+Shift+S` create a copy from the saved content baseline plus complete editor
   metadata, recovery overlays, and dirty-only project asset files. The active project identity and
   dirty state do not change.
@@ -49,6 +53,9 @@ field-level pending input in recovery metadata.
   Save / Don't Save / Cancel dialog for the logical save unit.
 
 The renderer exposes only scoped content Save, metadata-only persistence, and Save As copy IPC.
+Content commits cross that boundary with selected save-unit IDs, their saved baseline, and per-file
+revisions. The main-process workspace service performs the final path projection and revision check
+under the cross-process writer lock.
 There is no renderer-accessible whole-document Save or old Save As branch.
 
 ## Registered editor mapping

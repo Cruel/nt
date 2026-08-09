@@ -3,10 +3,7 @@ import * as nodeFileSystem from 'node:fs/promises';
 import path from 'node:path';
 import type { CompilerStageReport } from '../shared/authoring-compiler';
 import type { CompiledDiagnostic } from '../shared/project-schema/compiled-project';
-import {
-  createNodeProjectWorkspaceFileSystem,
-  ProjectWorkspaceService,
-} from '../shared/project-workspace';
+import { createNodeProjectWorkspaceService } from '../shared/project-workspace';
 
 export const compileProjectUsage = `Usage: pnpm project:compile -- --project <directory> --output <file> [--json]\n\nOptions:\n  --project <directory>  Workspace root containing current project.json.\n  --output <file>        Destination for canonical compiled project JSON.\n  --json                 Emit a structured command report as JSON.\n  --help                 Print this help and exit successfully.\n`;
 
@@ -300,7 +297,7 @@ export async function runCompileProjectCommand(
     );
   }
 
-  const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+  const workspace = createNodeProjectWorkspaceService();
   const opened = await workspace.open(projectPath);
   if (!opened.ok) {
     const diagnostic = commandDiagnostic(

@@ -79,6 +79,7 @@ const api: NovelTeaElectronApi = {
     contentProject: unknown,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
     scriptSourcePaths: Record<string, string> = {},
+    commitOptions?: import('./shared/editor-tooling').ProjectWorkspaceCommitOptions,
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_CONTENT,
@@ -87,17 +88,20 @@ const api: NovelTeaElectronApi = {
       contentProject,
       editorState,
       scriptSourcePaths,
+      commitOptions,
     ),
   saveProjectEditorMetadata: (
     projectFilePath: string,
     expectedWorkspaceRevision: string,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
+    expectedFileRevisions: Record<string, `sha256:${string}`> = {},
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
       projectFilePath,
       expectedWorkspaceRevision,
       editorState,
+      expectedFileRevisions,
     ),
   saveProjectCopyAs: (
     project: unknown,

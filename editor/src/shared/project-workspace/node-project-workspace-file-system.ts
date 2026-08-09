@@ -47,6 +47,10 @@ export class NodeProjectWorkspaceFileSystem implements ProjectWorkspaceFileSyste
   }
 
   async writeTextAtomic(value: string, text: string): Promise<void> {
+    await this.writeBytesAtomic(value, new TextEncoder().encode(text));
+  }
+
+  async writeBytesAtomic(value: string, bytes: Uint8Array): Promise<void> {
     const absolute = path.resolve(value);
     const directory = path.dirname(absolute);
     const temporary = path.join(
@@ -54,7 +58,7 @@ export class NodeProjectWorkspaceFileSystem implements ProjectWorkspaceFileSyste
       `.${path.basename(absolute)}.${process.pid}.${Date.now()}.tmp`,
     );
     await fs.mkdir(directory, { recursive: true });
-    await fs.writeFile(temporary, text, 'utf8');
+    await fs.writeFile(temporary, bytes);
     await fs.rename(temporary, absolute);
   }
 
@@ -66,6 +70,24 @@ export class NodeProjectWorkspaceFileSystem implements ProjectWorkspaceFileSyste
     }
   }
 
+  async createDirectory(value: string): Promise<void> {
+    await fs.mkdir(value, { recursive: true });
+  }
+
+  async createDirectoryExclusive(value: string): Promise<boolean> {
+    try {
+      await fs.mkdir(value);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+      throw error;
+    }
+  }
+
+  async removeDirectory(value: string): Promise<void> {
+    await fs.rm(value, { recursive: true, force: true });
+  }
+
   realpath(value: string): Promise<string> {
     return fs.realpath(value);
   }
@@ -73,4 +95,19 @@ export class NodeProjectWorkspaceFileSystem implements ProjectWorkspaceFileSyste
 
 export function createNodeProjectWorkspaceFileSystem(): ProjectWorkspaceFileSystem {
   return new NodeProjectWorkspaceFileSystem();
+}
+
+export class NodeProjectWorkspaceProcessLiveness {
+  async isProcessAlive(pid: number): Promise<boolean | null> {
+    if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ESRCH') return false;
+      if (code === 'EPERM') return true;
+      return null;
+    }
+  }
 }

@@ -124,6 +124,7 @@ async function recordSuccessfulExportIdentity(
     projectState.projectFilePath,
     projectState.workspaceRevision,
     editorState,
+    { ...projectState.fileRevisions },
   );
   if (!result.success) {
     return createPlatformExportValidationDiagnostic({
@@ -140,7 +141,10 @@ async function recordSuccessfulExportIdentity(
     contentFingerprint: result.contentFingerprint ?? editorState.contentFingerprint,
   };
   setLoadedEditorProjectState(persisted);
-  useProjectStore.getState().markSaved({ workspaceRevision: result.workspaceRevision });
+  useProjectStore.getState().markSaved({
+    workspaceRevision: result.workspaceRevision,
+    fileRevisions: result.fileRevisions,
+  });
   useProjectStore.getState().markEditorMetadataPersisted(persisted);
   return null;
 }

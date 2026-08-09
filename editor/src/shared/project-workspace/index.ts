@@ -1,12 +1,26 @@
 export {
   createNodeProjectWorkspaceFileSystem,
   NodeProjectWorkspaceFileSystem,
+  NodeProjectWorkspaceProcessLiveness,
 } from './node-project-workspace-file-system';
 export {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
+  type ProjectWorkspaceProcessLiveness,
 } from './project-workspace-file-system';
+export {
+  PROJECT_WORKSPACE_ABSENT_REVISION,
+  PROJECT_WORKSPACE_TRANSACTION_SCHEMA,
+  PROJECT_WORKSPACE_TRANSACTION_SCHEMA_VERSION,
+  ProjectWorkspaceMutationError,
+  ProjectWorkspaceTransactionService,
+  utf8WorkspaceTransactionTarget,
+  type ProjectWorkspaceExpectedRevision,
+  type ProjectWorkspaceTransactionRequest,
+  type ProjectWorkspaceTransactionTargetInput,
+} from './project-workspace-transaction';
 export { InMemoryProjectWorkspaceFileSystem } from './testing';
+export { createNodeProjectWorkspaceService } from './node-project-workspace-service';
 export { searchProjectWorkspaceSnapshot } from './project-workspace-search';
 export {
   analyzeProjectWorkspaceSources,
@@ -27,4 +41,5 @@ export {
   type ProjectWorkspaceOpenResult,
   type ProjectWorkspaceSaveUnitFileOwnership,
   type ProjectWorkspaceSnapshot,
+  type ProjectWorkspaceWriteOptions,
 } from './project-workspace-service';

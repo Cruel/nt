@@ -20,6 +20,12 @@ overlap, precondition, remap, filesystem, or content-write safety cannot be prov
 `convert-to-manual-save` retains the working mutation as an ordinary dirty save unit and removes its
 auto-commit plan; it never writes the complete working document.
 
+Persisted forward, Undo, and Redo commits use the shared workspace transaction writer. The complete
+affected-path projection determines the exact changed source files, and the writer journals every
+write/delete with expected before and intended after revisions. Asset trash/restore bytes participate
+in the same transaction target set as Asset record/reference changes, so consumers cannot observe a
+committed record deletion without its corresponding file move (or the inverse during Undo).
+
 ## Classified auto-commit mutations
 
 | Surface | Command / origin | Persistence target | Complete affected-path rule | Filesystem operation | Identity remap | Unsafe policy |
@@ -29,10 +35,10 @@ auto-commit plan; it never writes the complete working document.
 | Explorer duplicate | `entity.duplicateRecord`; `structure:<collection>` | Project content | `/<collection>/<targetId>` and every actual content patch; copied editor metadata is saved in the accompanying metadata snapshot | None | None | `convert-to-manual-save` |
 | Explorer rename | `entity.renameId`; `structure:<collection>` | Project content | Source remove path, destination add path, record `id`, and every rewritten entrypoint or reference content path; editor-metadata moves are saved in the accompanying metadata snapshot | None | `record:<collection>:<fromId>` and every descendant path remap to `record:<collection>:<toId>` | `reject-command` |
 | Explorer delete | `entity.deleteRecord`; `structure:<collection>` | Project content | `/<collection>/<entityId>`; record-metadata cleanup is saved in the accompanying metadata snapshot. Forced deletion does not silently rewrite remaining references. | None | None | `reject-command` |
-| File-dialog asset import from Explorer or the workspace | `asset.importFiles`; `workflow:asset-import`; `fileOrigin: copied-by-import` | Project content | One `/assets/<assetId>` add path per imported asset | The import service copied each declared `projectRelativePath` before command execution. Handler failure or content-write failure moves those copies to project trash; Undo trashes them; Redo restores them. | None | `convert-to-manual-save` |
+| File-dialog asset import from Explorer or the workspace | `asset.importFiles`; `workflow:asset-import`; `fileOrigin: copied-by-import` | Project content | One `/assets/<assetId>` add path per imported asset | The import service copied each declared `projectRelativePath` before command execution. Handler failure or transaction rollback cleanup moves those copies to project trash; persisted Undo/Redo journals the trash/restore target with the record change. | None | `convert-to-manual-save` |
 | Untracked-project-file registration | `asset.importFiles`; `workflow:asset-import`; `fileOrigin: existing-project-file` | Project content | One `/assets/<assetId>` add path per registered asset | The file predates the command and remains in place after failure or Undo. | None | `convert-to-manual-save` |
 | Generated-image asset insertion | `asset.importFiles`; `workflow:image-generation-assets`; `fileOrigin: generated-project-file` | Project content | One `/assets/<assetId>` add path per inserted revision | The generated revision predates asset registration and remains available to the generation workflow after failure or Undo. | None | `convert-to-manual-save` |
-| Asset deletion | `asset.deleteAsset`; `structure:assets` | Project content | `/assets/<assetId>` and every actual alias/reference cleanup patch emitted by the handler | Move the project-owned source file to project trash before the content write; restore it on failed write or Undo; trash it again on Redo | None | `reject-command` |
+| Asset deletion | `asset.deleteAsset`; `structure:assets` | Project content | `/assets/<assetId>` and every actual alias/reference cleanup patch emitted by the handler | The source delete/trash write and record/reference changes are one journal target set; rollback restores the source, Undo restores it transactionally, and Redo journals a new trash move. | None | `reject-command` |
 | Explorer presentation options | `project.setExplorerOptions`; `project:explorer-options` | Editor metadata | Exact changed descendants under `/editor/explorer` | None | None | `convert-to-manual-save` |
 | Explorer hidden collections | `project.setHiddenCollections`; `project:explorer-options` | Editor metadata | `/editor/explorer/hiddenCollectionKeys` | None | None | `convert-to-manual-save` |
 

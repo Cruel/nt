@@ -45,6 +45,14 @@ import {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
 } from './project-workspace-file-system';
+import {
+  PROJECT_WORKSPACE_ABSENT_REVISION,
+  ProjectWorkspaceMutationError,
+  type ProjectWorkspaceExpectedRevision,
+  type ProjectWorkspaceTransactionTargetInput,
+  ProjectWorkspaceTransactionService,
+  utf8WorkspaceTransactionTarget,
+} from './project-workspace-transaction';
 
 export const PROJECT_WORKSPACE_SCHEMA = 'noveltea.project.workspace' as const;
 export const PROJECT_WORKSPACE_SCHEMA_VERSION = 1 as const;
@@ -94,7 +102,7 @@ export interface ProjectWorkspaceFileRevision {
   readonly byteSize: number;
 }
 export interface ProjectWorkspaceSaveUnitFileOwnership {
-  readonly file: string | null;
+  readonly files: readonly string[];
   readonly paths: readonly string[];
 }
 export interface ProjectWorkspaceSnapshot {
@@ -272,13 +280,14 @@ const workspaceError = (
   manifest: string,
   message: string,
   path = '/',
+  code = 'authoring.workspace.invalid',
 ): ProjectWorkspaceOpenResult => ({
   ok: false,
   projectRoot: root,
   manifestPath: manifest,
   diagnostics: [
     createProjectValidationDiagnostic({
-      code: 'authoring.workspace.invalid',
+      code,
       severity: 'error',
       category: 'Project workspace',
       path,
@@ -329,20 +338,27 @@ function aggregateRevision(revisions: Readonly<Record<string, ProjectWorkspaceFi
 
 function ownershipFor(
   project: AuthoringProject,
+  scriptSourcePaths: Readonly<Record<string, string>> = {},
 ): Readonly<Record<string, ProjectWorkspaceSaveUnitFileOwnership>> {
   const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
-      file: 'project.json',
+      files: ['project.json'],
       paths: ['/project', '/settings', '/startupHook', '/entrypoint'],
     },
-    'project:properties': { file: 'properties.json', paths: ['/properties'] },
-    'project:localization': { file: 'localization.json', paths: ['/localization'] },
+    'project:properties': { files: ['properties.json'], paths: ['/properties'] },
+    'project:localization': { files: ['localization.json'], paths: ['/localization'] },
+    'project:chapters': {
+      files: ['editor.json'],
+      paths: ['/editor/chapters', '/editor/recordMetadata'],
+    },
+    'project:tags': { files: ['editor.json'], paths: ['/editor/tags'] },
+    'project:platform-export-profiles': { files: ['project.json'], paths: ['/settings/export'] },
     'editor:organization': {
-      file: 'editor.json',
+      files: ['editor.json'],
       paths: ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'],
     },
     'editor:state': {
-      file: '.noveltea/editor/state.json',
+      files: ['.noveltea/editor/state.json'],
       paths: [
         '/editor/recovery',
         '/editor/workbench',
@@ -353,14 +369,37 @@ function ownershipFor(
       ],
     },
   };
-  for (const collection of authoringCollectionKeys)
+  for (const collection of authoringCollectionKeys) {
+    const collectionFiles: string[] = [];
     for (const id of Object.keys(project[collection]).sort(
       compareProjectWorkspaceUnicodeCodePoints,
-    ))
+    )) {
+      const files = [recordFile(collection, id)];
+      if (collection === 'layouts') {
+        const data = project.layouts[id]!.data;
+        if (data.rml.sourceMode === 'inline') files.push(layoutFile(id, 'rml'));
+        if (data.rcss.sourceMode === 'inline') files.push(layoutFile(id, 'rcss'));
+        if (data.lua.sourceMode === 'inline') files.push(layoutFile(id, 'lua'));
+      } else if (collection === 'scripts') {
+        const source = project.scripts[id]!.data.source;
+        if (source.kind === 'inline-lua') files.push(scriptSourcePaths[id] ?? `scripts/${id}.lua`);
+      }
+      files.push('editor.json');
       result[`record:${collection}:${id}`] = {
-        file: recordFile(collection, id),
-        paths: [`/${collection}/${id}`],
+        files: Object.freeze([...new Set(files)].sort(compareProjectWorkspaceUnicodeCodePoints)),
+        paths: [`/${collection}/${id}`, `/editor/recordMetadata/${collection}/${id}`],
       };
+      collectionFiles.push(...files);
+    }
+    result[`collection:${collection}`] = {
+      files: Object.freeze(
+        [...new Set(collectionFiles)].sort(compareProjectWorkspaceUnicodeCodePoints),
+      ),
+      paths: [`/${collection}`],
+    };
+  }
+  result['workflow:play-recorder'] = result['collection:tests']!;
+  result['workflow:shader-compiled-output'] = result['collection:shaders']!;
   return Object.freeze(sortKeys(result));
 }
 
@@ -501,14 +540,31 @@ export function createProjectWorkspaceSnapshot(
     sourceRevision: hash,
     canonicalSourceFiles: Object.freeze([]),
     fileRevisions: Object.freeze({}),
-    saveUnitFileOwnership: ownershipFor(project),
+    saveUnitFileOwnership: ownershipFor(project, scriptSourcePaths),
     externalSourceDescriptors: externalDescriptors(project, scriptSourcePaths),
     scriptSourcePaths: Object.freeze(sortKeys({ ...scriptSourcePaths })),
   });
 }
 
+export interface ProjectWorkspaceWriteOptions {
+  readonly transactionId?: string;
+  readonly expectedFileRevisions?: Readonly<Record<string, ProjectWorkspaceExpectedRevision>>;
+  readonly targetFiles?: readonly string[];
+  readonly operationLabel?: string;
+  readonly extraTargets?: readonly ProjectWorkspaceTransactionTargetInput[];
+}
+
 export class ProjectWorkspaceService {
-  constructor(private readonly fileSystem: ProjectWorkspaceFileSystem) {}
+  private readonly transactions: ProjectWorkspaceTransactionService;
+
+  constructor(
+    private readonly fileSystem: ProjectWorkspaceFileSystem,
+    transactions?: ProjectWorkspaceTransactionService,
+  ) {
+    this.transactions =
+      transactions ??
+      new ProjectWorkspaceTransactionService(fileSystem, { isProcessAlive: async () => null }, 1);
+  }
   private assertContained(root: string, candidate: string): Promise<void> {
     return assertProjectWorkspacePathContained(this.fileSystem, root, candidate);
   }
@@ -520,6 +576,19 @@ export class ProjectWorkspaceService {
     const discovered = await this.discover(projectRoot);
     const fail = (message: string, path?: string) =>
       workspaceError(discovered.projectRoot, discovered.manifestPath, message, path);
+    try {
+      await this.transactions.recover(discovered.projectRoot);
+    } catch (error) {
+      if (error instanceof ProjectWorkspaceMutationError)
+        return workspaceError(
+          discovered.projectRoot,
+          discovered.manifestPath,
+          error.message,
+          '/.noveltea/transactions',
+          error.code,
+        );
+      throw error;
+    }
     let manifest: Record<string, unknown>;
     try {
       await this.assertContained(discovered.projectRoot, discovered.manifestPath);
@@ -866,7 +935,7 @@ export class ProjectWorkspaceService {
       sourceRevision: workspaceRevision,
       canonicalSourceFiles: Object.freeze(canonicalSourceFiles),
       fileRevisions: Object.freeze(sortKeys(fileRevisions)),
-      saveUnitFileOwnership: ownershipFor(decoded.data),
+      saveUnitFileOwnership: ownershipFor(decoded.data, scriptSourcePaths),
       externalSourceDescriptors: externalDescriptors(decoded.data, scriptSourcePaths),
       scriptSourcePaths: Object.freeze(sortKeys(scriptSourcePaths)),
     });
@@ -887,37 +956,54 @@ export class ProjectWorkspaceService {
     project: AuthoringProject,
     editorState: EditorProjectState,
     scriptSourcePathOverrides: Readonly<Record<string, string>> = {},
+    options: ProjectWorkspaceWriteOptions = {},
   ): Promise<{ workspaceRevision: string }> {
     const opened = await this.open(projectRoot);
     if (!opened.ok) throw new Error(opened.diagnostics[0]?.message ?? 'Workspace cannot be saved.');
-    if (opened.snapshot.workspaceRevision !== expectedRevision)
+    if (!options.expectedFileRevisions && opened.snapshot.workspaceRevision !== expectedRevision)
       throw new Error('Project content changed outside the editor.');
     const projectedSourcePaths = {
       ...opened.snapshot.scriptSourcePaths,
       ...scriptSourcePathOverrides,
     };
     const projected = projectWorkspaceFiles(project, editorState, projectedSourcePaths);
-    // Re-read the authoritative inventory immediately before the first mutation.
-    const current = await this.open(projectRoot);
-    if (!current.ok || current.snapshot.workspaceRevision !== expectedRevision)
-      throw new Error('Project content changed outside the editor.');
-    const existing = new Set(
-      Object.keys(
-        projectWorkspaceFiles(opened.snapshot.project, opened.editorState, projectedSourcePaths),
-      ),
+    const priorProjected = projectWorkspaceFiles(
+      opened.snapshot.project,
+      opened.editorState,
+      opened.snapshot.scriptSourcePaths,
     );
-    for (const [file, text] of Object.entries(projected)) {
-      await this.assertContained(projectRoot, this.fileSystem.joinPath(projectRoot, file));
-      const old = await this.fileSystem
+    const candidates = new Set([...Object.keys(priorProjected), ...Object.keys(projected)]);
+    const allowed = options.targetFiles ? new Set(options.targetFiles) : candidates;
+    const expected =
+      options.expectedFileRevisions ??
+      Object.fromEntries(
+        Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+          file,
+          revision.contentHash,
+        ]),
+      );
+    const targets: ProjectWorkspaceTransactionTargetInput[] = [];
+    for (const file of [...candidates].sort(compareProjectWorkspaceUnicodeCodePoints)) {
+      if (!allowed.has(file)) continue;
+      const currentText = await this.fileSystem
         .readText(this.fileSystem.joinPath(projectRoot, file))
         .catch(() => null);
-      if (old !== text)
-        await this.fileSystem.writeTextAtomic(this.fileSystem.joinPath(projectRoot, file), text);
-      existing.delete(file);
+      const nextText = projected[file] ?? null;
+      if (currentText === nextText) continue;
+      const expectedRevision = expected[file] ?? PROJECT_WORKSPACE_ABSENT_REVISION;
+      targets.push(
+        nextText === null
+          ? { path: file, operation: 'delete', expectedRevision }
+          : utf8WorkspaceTransactionTarget(file, expectedRevision, nextText),
+      );
     }
-    for (const file of existing) {
-      await this.assertContained(projectRoot, this.fileSystem.joinPath(projectRoot, file));
-      await this.fileSystem.removeFile(this.fileSystem.joinPath(projectRoot, file));
+    targets.push(...(options.extraTargets ?? []));
+    if (targets.length > 0) {
+      await this.transactions.commit(projectRoot, {
+        transactionId: options.transactionId,
+        operationLabel: options.operationLabel ?? 'project save',
+        targets,
+      });
     }
     const refreshed = await this.open(projectRoot);
     if (!refreshed.ok) throw new Error('Saved workspace could not be reopened.');

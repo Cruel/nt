@@ -833,6 +833,7 @@ void app.whenReady().then(async () => {
       contentProject: unknown,
       editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
       scriptSourcePaths: Record<string, string>,
+      commitOptions: import('./shared/editor-tooling').ProjectWorkspaceCommitOptions | undefined,
     ) =>
       rememberProjectReadSession(
         rememberPreviewProjectRoot(
@@ -842,6 +843,7 @@ void app.whenReady().then(async () => {
             contentProject,
             editorState,
             scriptSourcePaths,
+            commitOptions,
           ),
         ),
       ),
@@ -854,7 +856,14 @@ void app.whenReady().then(async () => {
       projectFilePath: string,
       expectedWorkspaceRevision: string,
       editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
-    ) => saveProjectEditorMetadata(projectFilePath, expectedWorkspaceRevision, editorState),
+      expectedFileRevisions: Record<string, `sha256:${string}`> | undefined,
+    ) =>
+      saveProjectEditorMetadata(
+        projectFilePath,
+        expectedWorkspaceRevision,
+        editorState,
+        expectedFileRevisions,
+      ),
   );
 
   ipcMain.handle(

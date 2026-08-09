@@ -1,8 +1,4 @@
-/**
- * Narrow filesystem port for project workspace discovery and monolithic
- * persistence. Workspace algorithms only depend on this boundary so they can
- * run in Node, tests, and the future headless CLI without Electron.
- */
+/** Narrow filesystem port shared by workspace assembly and transaction recovery. */
 export interface ProjectWorkspaceFileSystem {
   resolvePath(path: string): string;
   joinPath(...paths: string[]): string;
@@ -14,8 +10,17 @@ export interface ProjectWorkspaceFileSystem {
   /** Exact on-disk bytes; revisions must never be derived from decoded text. */
   readBytes(path: string): Promise<Uint8Array>;
   writeTextAtomic(path: string, text: string): Promise<void>;
+  writeBytesAtomic(path: string, bytes: Uint8Array): Promise<void>;
   removeFile(path: string): Promise<void>;
+  createDirectory(path: string): Promise<void>;
+  createDirectoryExclusive(path: string): Promise<boolean>;
+  removeDirectory(path: string): Promise<void>;
   realpath(path: string): Promise<string>;
+}
+
+export interface ProjectWorkspaceProcessLiveness {
+  /** `null` means the host cannot establish liveness reliably. */
+  isProcessAlive(pid: number): Promise<boolean | null>;
 }
 
 /** Resolve the nearest existing parent before comparing real paths so new files

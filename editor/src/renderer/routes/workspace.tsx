@@ -349,6 +349,7 @@ export function WorkspacePage() {
     projectFilePathValue: string | null,
     projectReadSessionId: string | null,
     workspaceRevision: string | null | undefined,
+    fileRevisions: Record<string, `sha256:${string}`> | undefined,
     scriptSourcePaths: Record<string, string> | undefined,
     diagnostics: ToolDiagnostic[],
   ) {
@@ -362,6 +363,7 @@ export function WorkspacePage() {
       projectFilePath: projectFilePathValue,
       projectReadSessionId,
       workspaceRevision,
+      fileRevisions,
       scriptSourcePaths,
     });
     resetCommandHistory();
@@ -470,6 +472,7 @@ export function WorkspacePage() {
     const latestProject = useProjectStore.getState().document;
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
     const workspaceRevision = useProjectStore.getState().workspaceRevision;
+    const fileRevisions = useProjectStore.getState().fileRevisions;
     saveLocalEditorSessionSnapshot(latestProjectFilePath ?? null);
     if (!latestProject || !latestProjectFilePath || !workspaceRevision) return true;
     const editorState = buildEditorProjectStateSnapshot();
@@ -477,6 +480,7 @@ export function WorkspacePage() {
       latestProjectFilePath,
       workspaceRevision,
       editorState,
+      { ...fileRevisions },
     );
     if (!result.success) {
       const message = result.error ?? 'Editor recovery metadata save failed.';
@@ -497,7 +501,10 @@ export function WorkspacePage() {
       contentFingerprint: result.contentFingerprint ?? editorState.contentFingerprint,
     };
     setLoadedEditorProjectState(persistedEditorState);
-    useProjectStore.getState().markSaved({ workspaceRevision: result.workspaceRevision });
+    useProjectStore.getState().markSaved({
+      workspaceRevision: result.workspaceRevision,
+      fileRevisions: result.fileRevisions,
+    });
     markEditorMetadataPersisted(persistedEditorState);
     if (reason !== 'debounce') {
       const message =
@@ -653,6 +660,7 @@ export function WorkspacePage() {
         loaded.projectFilePath,
         loaded.projectReadSessionId ?? null,
         loaded.workspaceRevision,
+        loaded.fileRevisions,
         loaded.scriptSourcePaths,
         diagnostics,
       );

@@ -463,6 +463,7 @@ describe('WorkspacePage new project modal', () => {
           }),
         }),
       }),
+      {},
     );
   });
 
@@ -639,6 +640,7 @@ describe('WorkspacePage new project modal', () => {
             }),
           }),
         }),
+        {},
       );
       await act(async () => {
         vi.advanceTimersByTime(500);

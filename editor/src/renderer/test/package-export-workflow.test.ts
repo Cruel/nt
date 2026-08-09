@@ -342,6 +342,7 @@ describe('package export workflow', () => {
           saveNamespace: 'workflow-save',
         }),
       }),
+      {},
     );
     expect(useProjectStore.getState().document).toHaveProperty(
       'editor.lastSuccessfulPlatformExportIdentity.applicationId',

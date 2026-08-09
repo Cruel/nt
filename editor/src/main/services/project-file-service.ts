@@ -1,10 +1,12 @@
 import { promises as fs } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
 import type {
   CreateProjectRequest,
   SaveProjectEditorMetadataResponse,
   SaveProjectResponse,
+  ProjectWorkspaceCommitOptions,
   ToolDiagnostic,
 } from '../../shared/editor-tooling';
 import {
@@ -26,17 +28,174 @@ import {
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { projectContentFingerprint } from './project-content-fingerprint';
 import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
+import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import { assertProjectWorkspacePathContained } from '../../shared/project-workspace/project-workspace-file-system';
 import {
-  ProjectWorkspaceService,
+  createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
   projectWorkspaceLocalStateFile,
+  type LoadedProjectWorkspaceSnapshot,
 } from '../../shared/project-workspace/project-workspace-service';
+import {
+  PROJECT_WORKSPACE_ABSENT_REVISION,
+  ProjectWorkspaceMutationError,
+  type ProjectWorkspaceExpectedRevision,
+  type ProjectWorkspaceTransactionTargetInput,
+} from '../../shared/project-workspace/project-workspace-transaction';
 
 export { projectContentFingerprint } from './project-content-fingerprint';
 
+function mutationFailureDiagnostic(error: ProjectWorkspaceMutationError): ToolDiagnostic {
+  return {
+    code: error.code,
+    severity: 'error',
+    category: 'Project workspace',
+    path: '/.noveltea/transactions',
+    message: error.message,
+  };
+}
+
+function isSafeGeneratedAssetTrashPath(value: string): boolean {
+  return (
+    value.startsWith('.noveltea/trash/assets/') &&
+    !value.includes('\\') &&
+    !value.startsWith('/') &&
+    !/^[A-Za-z]:/.test(value) &&
+    value.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..')
+  );
+}
+
 function workspaceService() {
-  return new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+  return createNodeProjectWorkspaceService();
+}
+
+function snapshotFileRevisions(snapshot: LoadedProjectWorkspaceSnapshot) {
+  return Object.fromEntries(
+    Object.entries(snapshot.fileRevisions).map(([file, revision]) => [file, revision.contentHash]),
+  ) as Record<string, `sha256:${string}`>;
+}
+
+function filesForSaveUnits(
+  before: LoadedProjectWorkspaceSnapshot,
+  project: Parameters<typeof createProjectWorkspaceSnapshot>[0],
+  scriptSourcePaths: Readonly<Record<string, string>>,
+  saveUnitIds: readonly string[],
+): string[] {
+  const after = createProjectWorkspaceSnapshot(project, scriptSourcePaths);
+  const files = new Set<string>();
+  for (const saveUnitId of saveUnitIds) {
+    for (const file of before.saveUnitFileOwnership[saveUnitId]?.files ?? []) files.add(file);
+    for (const file of after.saveUnitFileOwnership[saveUnitId]?.files ?? []) files.add(file);
+  }
+  return [...files].sort();
+}
+
+function pointerSegments(pointer: string): string[] {
+  return pointer
+    .slice(1)
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'));
+}
+
+function valueAtPointer(root: unknown, pointer: string): { present: boolean; value?: unknown } {
+  let current = root;
+  for (const segment of pointerSegments(pointer)) {
+    if (!isRecord(current) || !(segment in current)) return { present: false };
+    current = current[segment];
+  }
+  return { present: true, value: current };
+}
+
+function replaceAtPointer(root: Record<string, unknown>, pointer: string, source: unknown) {
+  const segments = pointerSegments(pointer);
+  if (segments.length === 0) return;
+  const selected = valueAtPointer(source, pointer);
+  let current = root;
+  for (const segment of segments.slice(0, -1)) {
+    const nested = current[segment];
+    if (!isRecord(nested)) {
+      if (!selected.present) return;
+      current[segment] = {};
+    }
+    current = current[segment] as Record<string, unknown>;
+  }
+  const key = segments.at(-1)!;
+  if (selected.present) current[key] = structuredClone(selected.value);
+  else delete current[key];
+}
+
+function scopedCandidate(
+  before: LoadedProjectWorkspaceSnapshot,
+  candidate: Parameters<typeof createProjectWorkspaceSnapshot>[0],
+  scriptSourcePaths: Readonly<Record<string, string>>,
+  saveUnitIds: readonly string[],
+) {
+  const after = createProjectWorkspaceSnapshot(candidate, scriptSourcePaths);
+  const merged = structuredClone(before.project) as unknown as Record<string, unknown>;
+  for (const saveUnitId of saveUnitIds) {
+    const paths = new Set([
+      ...(before.saveUnitFileOwnership[saveUnitId]?.paths ?? []),
+      ...(after.saveUnitFileOwnership[saveUnitId]?.paths ?? []),
+    ]);
+    for (const pointer of paths) replaceAtPointer(merged, pointer, candidate);
+  }
+  return authoringProjectSchema.parse(merged);
+}
+
+function candidateAtPaths(
+  before: LoadedProjectWorkspaceSnapshot,
+  candidate: Parameters<typeof createProjectWorkspaceSnapshot>[0],
+  paths: readonly string[],
+) {
+  const merged = structuredClone(before.project) as unknown as Record<string, unknown>;
+  for (const pointer of paths) replaceAtPointer(merged, pointer, candidate);
+  return authoringProjectSchema.parse(merged);
+}
+
+function changedProjectionFiles(
+  baseline: Parameters<typeof createProjectWorkspaceSnapshot>[0],
+  candidate: Parameters<typeof createProjectWorkspaceSnapshot>[0],
+  baselineSourcePaths: Readonly<Record<string, string>>,
+  candidateSourcePaths: Readonly<Record<string, string>>,
+) {
+  const beforeFiles = projectWorkspaceFiles(baseline, baseline.editor, baselineSourcePaths);
+  const afterFiles = projectWorkspaceFiles(candidate, candidate.editor, candidateSourcePaths);
+  return [...new Set([...Object.keys(beforeFiles), ...Object.keys(afterFiles)])]
+    .filter((file) => beforeFiles[file] !== afterFiles[file])
+    .sort();
+}
+
+function scopedExpectedRevisions(
+  opened: LoadedProjectWorkspaceSnapshot,
+  commitOptions: ProjectWorkspaceCommitOptions | undefined,
+) {
+  const expected: Record<string, ProjectWorkspaceExpectedRevision> = {
+    ...(commitOptions?.expectedFileRevisions ?? snapshotFileRevisions(opened)),
+  };
+  if (!commitOptions || !commitOptions.baselineProject) return expected;
+  const baseline = authoringProjectSchema.safeParse(commitOptions.baselineProject);
+  if (!baseline.success) return expected;
+  if (commitOptions.structural) return expected;
+  for (const saveUnitId of commitOptions.saveUnitIds ?? []) {
+    const ownership = opened.saveUnitFileOwnership[saveUnitId];
+    if (!ownership) continue;
+    const selectedPathsAreUnchanged = ownership.paths.every((pointer) => {
+      const disk = valueAtPointer(opened.project, pointer);
+      const base = valueAtPointer(baseline.data, pointer);
+      return (
+        disk.present === base.present && JSON.stringify(disk.value) === JSON.stringify(base.value)
+      );
+    });
+    if (!selectedPathsAreUnchanged)
+      throw new ProjectWorkspaceMutationError(
+        'WORKSPACE_REVISION_CONFLICT',
+        `Save unit '${saveUnitId}' changed outside the editor.`,
+      );
+    for (const file of ownership.files)
+      expected[file] = opened.fileRevisions[file]?.contentHash ?? PROJECT_WORKSPACE_ABSENT_REVISION;
+  }
+  return expected;
 }
 
 async function writeWorkspaceProject(
@@ -45,27 +204,162 @@ async function writeWorkspaceProject(
   editorState: EditorProjectState,
   expectedWorkspaceRevision: string,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
-): Promise<{ contentFingerprint: string; workspaceRevision: string }> {
+  commitOptions?: ProjectWorkspaceCommitOptions,
+): Promise<{
+  contentFingerprint: string;
+  workspaceRevision: string;
+  fileRevisions: Record<string, `sha256:${string}`>;
+  assetTrashMoves: import('../../shared/project-asset-audit').ProjectAssetTrashMove[];
+}> {
   const workspace = workspaceService();
   const opened = await workspace.open(projectRoot);
   if (!opened.ok)
     throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
-  if (opened.snapshot.workspaceRevision !== expectedWorkspaceRevision)
+  if (!commitOptions && opened.snapshot.workspaceRevision !== expectedWorkspaceRevision)
     throw new Error('Project content changed outside the editor.');
   const content = stripEditorProjectState(project);
   if (!isRecord(content)) throw new Error('Project content root must be an object.');
   const candidate = authoringProjectSchema.safeParse({ ...content, editor: editorState });
   if (!candidate.success) throw new Error('Project content is invalid.');
+  const sourcePaths = { ...opened.snapshot.scriptSourcePaths, ...scriptSourcePaths };
+  const baseline = commitOptions?.baselineProject
+    ? authoringProjectSchema.safeParse(commitOptions.baselineProject)
+    : null;
+  const projectForWrite =
+    commitOptions?.structural && commitOptions.affectedPaths
+      ? candidateAtPaths(opened.snapshot, candidate.data, commitOptions.affectedPaths)
+      : commitOptions && !commitOptions.structural
+        ? scopedCandidate(
+            opened.snapshot,
+            candidate.data,
+            sourcePaths,
+            commitOptions.saveUnitIds ?? [],
+          )
+        : candidate.data;
+  const editorStateForWrite: EditorProjectState = {
+    ...editorState,
+    chapters: projectForWrite.editor.chapters,
+    tags: projectForWrite.editor.tags,
+    recordMetadata: projectForWrite.editor.recordMetadata,
+  };
+  const transactionId = randomUUID();
+  const extraTargets: ProjectWorkspaceTransactionTargetInput[] = [];
+  const assetTrashMoves: import('../../shared/project-asset-audit').ProjectAssetTrashMove[] = [];
+  if (commitOptions?.assetTransition?.kind === 'trash') {
+    for (const assetPath of [...commitOptions.assetTransition.projectRelativePaths].sort()) {
+      if (!isSafeProjectAssetPath(assetPath))
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_PATH_INVALID',
+          `Asset transaction path '${assetPath}' is invalid.`,
+        );
+      const source = path.join(projectRoot, assetPath);
+      await assertContained(projectRoot, source);
+      const bytes = await createNodeProjectWorkspaceFileSystem().readBytes(source);
+      const trashRelativePath = `.noveltea/trash/assets/${transactionId}/${assetPath}`;
+      extraTargets.push({
+        path: trashRelativePath,
+        operation: 'write',
+        expectedRevision: PROJECT_WORKSPACE_ABSENT_REVISION,
+        bytes,
+      });
+      extraTargets.push({
+        path: assetPath,
+        operation: 'delete',
+        expectedRevision:
+          commitOptions.expectedFileRevisions[assetPath] ??
+          opened.snapshot.fileRevisions[assetPath]?.contentHash ??
+          PROJECT_WORKSPACE_ABSENT_REVISION,
+      });
+      assetTrashMoves.push({ projectRelativePath: assetPath, trashRelativePath });
+    }
+  } else if (commitOptions?.assetTransition?.kind === 'restore') {
+    for (const move of [...commitOptions.assetTransition.moves].sort((a, b) =>
+      a.projectRelativePath.localeCompare(b.projectRelativePath),
+    )) {
+      if (
+        !isSafeProjectAssetPath(move.projectRelativePath) ||
+        !isSafeGeneratedAssetTrashPath(move.trashRelativePath)
+      )
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_PATH_INVALID',
+          'Asset restore transaction contains an invalid source or trash path.',
+        );
+      const trashPath = path.join(projectRoot, move.trashRelativePath);
+      await assertContained(projectRoot, trashPath);
+      const bytes = await createNodeProjectWorkspaceFileSystem().readBytes(trashPath);
+      const trashRevision = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
+      extraTargets.push({
+        path: move.projectRelativePath,
+        operation: 'write',
+        expectedRevision: PROJECT_WORKSPACE_ABSENT_REVISION,
+        bytes,
+      });
+      extraTargets.push({
+        path: move.trashRelativePath,
+        operation: 'delete',
+        expectedRevision: trashRevision,
+      });
+    }
+  }
+  const targetFiles = !commitOptions
+    ? undefined
+    : commitOptions.structural && baseline?.success
+      ? changedProjectionFiles(
+          baseline.data,
+          projectForWrite,
+          opened.snapshot.scriptSourcePaths,
+          sourcePaths,
+        )
+      : commitOptions.structural
+        ? undefined
+        : filesForSaveUnits(
+            opened.snapshot,
+            projectForWrite,
+            sourcePaths,
+            commitOptions.saveUnitIds ?? [],
+          );
+  const expectedFileRevisions = scopedExpectedRevisions(opened.snapshot, commitOptions);
+  const structuralPathsAreUnchanged =
+    commitOptions?.structural &&
+    baseline?.success &&
+    commitOptions.affectedPaths?.every((pointer) => {
+      const disk = valueAtPointer(opened.snapshot.project, pointer);
+      const base = valueAtPointer(baseline.data, pointer);
+      return (
+        disk.present === base.present && JSON.stringify(disk.value) === JSON.stringify(base.value)
+      );
+    });
+  if (structuralPathsAreUnchanged)
+    for (const file of targetFiles ?? []) {
+      expectedFileRevisions[file] =
+        opened.snapshot.fileRevisions[file]?.contentHash ?? PROJECT_WORKSPACE_ABSENT_REVISION;
+    }
+  else if (commitOptions?.structural && baseline?.success && commitOptions.affectedPaths)
+    throw new ProjectWorkspaceMutationError(
+      'WORKSPACE_REVISION_CONFLICT',
+      'A structural command target changed outside the editor.',
+    );
   const written = await workspace.write(
     projectRoot,
     expectedWorkspaceRevision,
-    candidate.data,
-    editorState,
+    projectForWrite,
+    editorStateForWrite,
     scriptSourcePaths,
+    {
+      transactionId,
+      expectedFileRevisions,
+      targetFiles,
+      operationLabel: commitOptions?.operationLabel ?? 'project save',
+      extraTargets,
+    },
   );
+  const refreshed = await workspace.open(projectRoot);
+  if (!refreshed.ok) throw new Error('Saved workspace could not be reopened.');
   return {
     contentFingerprint: projectContentFingerprint(content),
     workspaceRevision: written.workspaceRevision,
+    fileRevisions: snapshotFileRevisions(refreshed.snapshot),
+    assetTrashMoves,
   };
 }
 
@@ -328,6 +622,10 @@ export async function saveProject(
       ok: false,
       success: false,
       error: error instanceof Error ? error.message : 'Project save failed.',
+      diagnostics:
+        error instanceof ProjectWorkspaceMutationError
+          ? [mutationFailureDiagnostic(error)]
+          : undefined,
     };
   }
 }
@@ -336,6 +634,7 @@ export async function saveProjectEditorMetadata(
   projectFilePath: string,
   expectedWorkspaceRevision: string,
   editorState: EditorProjectState,
+  expectedFileRevisions: Record<string, `sha256:${string}`> = {},
 ): Promise<SaveProjectEditorMetadataResponse> {
   if (!projectFilePath || typeof projectFilePath !== 'string') {
     return {
@@ -352,25 +651,6 @@ export async function saveProjectEditorMetadata(
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
     const content = opened.contentProject;
     const actualContentFingerprint = opened.contentFingerprint;
-    if (opened.snapshot.workspaceRevision !== expectedWorkspaceRevision) {
-      const diagnostic = createProjectValidationDiagnostic({
-        code: 'editor.metadata.content-conflict',
-        severity: 'error',
-        category: 'Project recovery',
-        path: '/editor',
-        message:
-          'Project content changed outside the editor. Recovery metadata was not written so the external changes remain untouched.',
-        boundaries: ['authoring'],
-        ownerPaths: ['/editor'],
-      });
-      return {
-        ok: false,
-        success: false,
-        diagnostics: [diagnostic],
-        contentFingerprint: actualContentFingerprint,
-        error: diagnostic.message,
-      };
-    }
     const normalizedEditor = editorProjectStateSchema.safeParse({
       ...editorState,
       contentFingerprint: actualContentFingerprint,
@@ -397,6 +677,12 @@ export async function saveProjectEditorMetadata(
       content,
       normalizedEditor.data,
       expectedWorkspaceRevision,
+      {},
+      {
+        expectedFileRevisions,
+        saveUnitIds: [],
+        operationLabel: 'editor local state save',
+      },
     );
     return {
       ok: true,
@@ -404,12 +690,14 @@ export async function saveProjectEditorMetadata(
       diagnostics: [],
       contentFingerprint: written.contentFingerprint,
       workspaceRevision: written.workspaceRevision,
+      fileRevisions: written.fileRevisions,
     };
   } catch (error) {
     return {
       ok: false,
       success: false,
-      diagnostics: [],
+      diagnostics:
+        error instanceof ProjectWorkspaceMutationError ? [mutationFailureDiagnostic(error)] : [],
       error: error instanceof Error ? error.message : 'Editor metadata save failed.',
     };
   }
@@ -421,6 +709,7 @@ export async function saveProjectContent(
   contentProject: unknown,
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
+  commitOptions?: ProjectWorkspaceCommitOptions,
 ): Promise<SaveProjectResponse> {
   if (!projectFilePath || typeof projectFilePath !== 'string') {
     return {
@@ -436,7 +725,7 @@ export async function saveProjectContent(
     if (!opened.ok)
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
     const actualContentFingerprint = opened.contentFingerprint;
-    if (opened.snapshot.workspaceRevision !== expectedWorkspaceRevision) {
+    if (!commitOptions && opened.snapshot.workspaceRevision !== expectedWorkspaceRevision) {
       const diagnostic = createProjectValidationDiagnostic({
         code: 'editor.content-save.content-conflict',
         severity: 'error',
@@ -487,6 +776,7 @@ export async function saveProjectContent(
       normalizedEditor.data,
       expectedWorkspaceRevision,
       scriptSourcePaths,
+      commitOptions,
     );
     return {
       ok: true,
@@ -495,6 +785,8 @@ export async function saveProjectContent(
       projectFilePath: absolute,
       contentFingerprint: written.contentFingerprint,
       workspaceRevision: written.workspaceRevision,
+      fileRevisions: written.fileRevisions,
+      assetTrashMoves: written.assetTrashMoves,
       diagnostics: [],
     };
   } catch (error) {
@@ -502,6 +794,10 @@ export async function saveProjectContent(
       ok: false,
       success: false,
       error: error instanceof Error ? error.message : 'Project content save failed.',
+      diagnostics:
+        error instanceof ProjectWorkspaceMutationError
+          ? [mutationFailureDiagnostic(error)]
+          : undefined,
     };
   }
 }
@@ -576,6 +872,7 @@ export async function saveProjectCopyAs(
       projectFilePath: manifestPath,
       contentFingerprint: normalized.contentFingerprint,
       workspaceRevision: openedCopy.snapshot.workspaceRevision,
+      fileRevisions: snapshotFileRevisions(openedCopy.snapshot),
       diagnostics,
     };
   } catch (error) {

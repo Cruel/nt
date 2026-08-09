@@ -9,10 +9,9 @@ import type {
   ToolDiagnostic,
 } from '../../shared/editor-tooling';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
-import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
+import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import {
   createProjectWorkspaceSnapshot,
-  ProjectWorkspaceService,
   publishProjectWorkspaceSnapshot,
 } from '../../shared/project-workspace/project-workspace-service';
 import { AUTHORING_PROJECT_SCHEMA_VERSION } from '../../shared/project-schema/authoring-collections';
@@ -143,7 +142,7 @@ export function invokeEditorTool(command: string, payload: unknown): Promise<unk
 }
 
 export async function openProject(projectPath: string) {
-  const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+  const workspace = createNodeProjectWorkspaceService();
   const opened = await workspace.open(projectPath);
   if (!opened.ok)
     return {
@@ -167,6 +166,12 @@ export async function openProject(projectPath: string) {
     repairs: opened.repairs,
     contentFingerprint: opened.contentFingerprint,
     workspaceRevision: opened.snapshot.workspaceRevision,
+    fileRevisions: Object.fromEntries(
+      Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+        file,
+        revision.contentHash,
+      ]),
+    ),
     scriptSourcePaths: { ...opened.snapshot.scriptSourcePaths },
     projectPath: opened.snapshot.projectRoot,
     projectFilePath: opened.snapshot.manifestPath,

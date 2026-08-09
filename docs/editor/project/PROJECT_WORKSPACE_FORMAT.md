@@ -26,9 +26,20 @@ Assets remain complete Asset records in `records/assets/`; their project source 
 explicit Asset source path, normally under `assets/`. Project-local `workflows/` is owned by the
 ComfyUI workflow service and is not AuthoringProject input.
 
-Writers emit UTF-8, LF, two-space JSON with a trailing newline and deterministic key order. Saves
-project the complete canonical tree, use one aggregate workspace-revision freshness check, and only
-write or delete files whose canonical bytes/existence changed.
+Writers emit UTF-8, LF, two-space JSON with a trailing newline and deterministic key order. Every
+authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. The
+aggregate workspace revision hashes the sorted path/revision inventory, but Save and Save All use the
+selected logical save units' exact files as their concurrency boundary. An unrelated file change does
+not block a scoped save. Logical owners that share `editor.json` are merged by owned JSON paths so a
+chapter save preserves independently changed tag data.
+
+NovelTea tracked writers serialize through `.noveltea/transactions/.writer-lock/`. Multi-file saves
+and structural operations stage recoverable before/after blobs and a
+`noveltea.workspace.transaction` version-1 manifest before replacing targets. Journal state advances
+through `prepared`, `writing`, `committed`, or `rolled-back`. Project open recovers interrupted known
+states before assembly; an unknown target state or malformed journal is retained and blocks mutation
+with `WORKSPACE_TRANSACTION_RECOVERY_CONFLICT`. A live, unverifiable, or malformed lock owner fails
+closed with `WORKSPACE_BUSY`; a proven-dead owner is recovered before its lock is reclaimed.
 
 ## Local state
 
@@ -37,8 +48,8 @@ write or delete files whose canonical bytes/existence changed.
 export identity, workbench, explorer, bottom panel, tab state, and drafts. It never duplicates
 tracked organization fields. Missing, corrupt, or unsupported local state is discarded; it cannot
 repair tracked source. Its `workspaceRevision` is a baseline marker for recovery/session payloads,
-not an input to aggregate workspace identity; tracked writes carry the loaded aggregate revision and
-are rejected when it is stale.
+not an input to aggregate workspace identity. Local-state writes do not rewrite tracked
+`editor.json`; tracked organization and ignored local/session state are persisted independently.
 
 New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. Save As
 targets a project root and writes `project.json`; it carries tracked baseline, local editor state,

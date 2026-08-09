@@ -427,6 +427,15 @@ describe('structural command persistence', () => {
       restored: [move],
       diagnostics: [],
     });
+    vi.mocked(window.noveltea.saveProjectContent)
+      .mockResolvedValueOnce({ ok: true, success: true, diagnostics: [] })
+      .mockResolvedValueOnce({
+        ok: true,
+        success: true,
+        diagnostics: [],
+        assetTrashMoves: [move],
+      })
+      .mockResolvedValueOnce({ ok: true, success: true, diagnostics: [] });
     await loadProjectDocumentWithGraph({
       document: toJsonValue(project),
       projectPath: '/mock/project',
@@ -447,17 +456,16 @@ describe('structural command persistence', () => {
 
     useCommandStore.getState().undo();
     await flushStructuralCommandPersistence();
-    expect(window.noveltea.trashProjectAssetFiles).toHaveBeenCalledWith('/mock/project/game.json', [
-      asset.projectRelativePath,
-    ]);
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[1]?.[5]).toMatchObject({
+      assetTransition: { kind: 'trash', projectRelativePaths: [asset.projectRelativePath] },
+    });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: {} });
 
     useCommandStore.getState().redo();
     await flushStructuralCommandPersistence();
-    expect(window.noveltea.restoreProjectAssetFiles).toHaveBeenCalledWith(
-      '/mock/project/game.json',
-      [move],
-    );
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[2]?.[5]).toMatchObject({
+      assetTransition: { kind: 'restore', moves: [move] },
+    });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: { logo: {} } });
   });
 
@@ -537,6 +545,20 @@ describe('structural command persistence', () => {
       restored: [firstMove],
       diagnostics: [],
     });
+    vi.mocked(window.noveltea.saveProjectContent)
+      .mockResolvedValueOnce({
+        ok: true,
+        success: true,
+        diagnostics: [],
+        assetTrashMoves: [firstMove],
+      })
+      .mockResolvedValueOnce({ ok: true, success: true, diagnostics: [] })
+      .mockResolvedValueOnce({
+        ok: true,
+        success: true,
+        diagnostics: [],
+        assetTrashMoves: [secondMove],
+      });
     await loadProjectDocumentWithGraph({
       document: toJsonValue(project),
       projectPath: '/mock/project',
@@ -555,18 +577,16 @@ describe('structural command persistence', () => {
 
     useCommandStore.getState().undo();
     await flushStructuralCommandPersistence();
-    expect(window.noveltea.restoreProjectAssetFiles).toHaveBeenCalledWith(
-      '/mock/project/game.json',
-      [firstMove],
-    );
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[1]?.[5]).toMatchObject({
+      assetTransition: { kind: 'restore', moves: [firstMove] },
+    });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: { logo: {} } });
 
     useCommandStore.getState().redo();
     await flushStructuralCommandPersistence();
-    expect(window.noveltea.trashProjectAssetFiles).toHaveBeenLastCalledWith(
-      '/mock/project/game.json',
-      [asset.projectRelativePath],
-    );
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[2]?.[5]).toMatchObject({
+      assetTransition: { kind: 'trash', projectRelativePaths: [asset.projectRelativePath] },
+    });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: {} });
   });
 });

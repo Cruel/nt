@@ -332,6 +332,12 @@ async function commitSelectedSaveUnits(
     candidateContent,
     editorStateForWrite,
     projectState.scriptSourcePaths,
+    {
+      expectedFileRevisions: { ...projectState.fileRevisions },
+      saveUnitIds: [...selectedIds].sort(),
+      baselineProject: projectState.savedDocument,
+      operationLabel: 'editor save',
+    },
   );
   if (!response.success) {
     useProjectStore.getState().setSaveError(response.error ?? 'Project save failed.');
@@ -355,6 +361,7 @@ async function commitSelectedSaveUnits(
     projectPath: response.projectPath,
     projectFilePath: response.projectFilePath,
     workspaceRevision: response.workspaceRevision,
+    fileRevisions: response.fileRevisions,
     scriptSourcePaths: projectState.scriptSourcePaths,
   });
   setLoadedEditorProjectState(persistedEditorState);
