@@ -11,6 +11,7 @@ export interface ProjectWorkspaceFileSystem {
   readBytes(path: string): Promise<Uint8Array>;
   writeTextAtomic(path: string, text: string): Promise<void>;
   writeBytesAtomic(path: string, bytes: Uint8Array): Promise<void>;
+  movePathAtomic(from: string, to: string): Promise<void>;
   removeFile(path: string): Promise<void>;
   createDirectory(path: string): Promise<void>;
   createDirectoryExclusive(path: string): Promise<boolean>;

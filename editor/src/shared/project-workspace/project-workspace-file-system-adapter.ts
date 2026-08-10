@@ -87,6 +87,10 @@ export class ProjectWorkspaceFileSystemAdapter implements ProjectWorkspaceFileSy
     await this.operations.rename(temporary, absolute);
   }
 
+  async movePathAtomic(from: string, to: string): Promise<void> {
+    await this.operations.rename(from, to);
+  }
+
   async removeFile(value: string): Promise<void> {
     try {
       await this.operations.removeFile(value);

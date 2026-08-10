@@ -284,6 +284,7 @@ export async function runNovelTeaCli(
     const semantic = await command.run({
       cwd,
       stdinJson,
+      fileSystem,
       workspace,
       snapshot: opened.opened.snapshot,
       nativeTools,

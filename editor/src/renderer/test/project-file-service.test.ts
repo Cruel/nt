@@ -18,6 +18,7 @@ import {
 } from '../../main/services/project-file-service';
 import { ProjectWorkspaceService } from '../../shared/project-workspace';
 import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
+import { NOVELTEA_PROJECT_AGENTS_BOOTSTRAP } from '../../shared/project-workspace/agent-bootstrap';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 
 const roots: string[] = [];
@@ -40,8 +41,11 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.existsSync(path.join(projectDirectory, 'properties.json'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'localization.json'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'editor.json'))).toBe(true);
-    expect(fs.readFileSync(path.join(projectDirectory, '.gitignore'), 'utf8')).toContain(
-      '/.noveltea/',
+    expect(fs.readFileSync(path.join(projectDirectory, '.gitignore'), 'utf8')).toBe(
+      '/.noveltea/\n',
+    );
+    expect(fs.readFileSync(path.join(projectDirectory, 'AGENTS.md'), 'utf8')).toBe(
+      NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
     );
     expect(fs.existsSync(path.join(projectDirectory, 'records'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'scripts'))).toBe(true);
@@ -420,6 +424,36 @@ describe('project-file-service workspace-v1', () => {
     );
     expect(rejected.success).toBe(false);
     expect(fs.existsSync(path.join(outside, 'state.json'))).toBe(false);
+  });
+
+  it('preserves user-owned AGENTS.md and unrelated .gitignore content through Save As', async () => {
+    const source = tempRoot();
+    const destination = tempRoot();
+    await createProject({ projectName: 'Source', projectDirectory: source });
+    fs.writeFileSync(
+      path.join(source, 'AGENTS.md'),
+      `${NOVELTEA_PROJECT_AGENTS_BOOTSTRAP}\n# Team Rules\n\nKeep authored copy concise.\n`,
+    );
+    fs.writeFileSync(path.join(destination, '.gitignore'), 'custom-output/\n');
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(source);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    dialogs.destination = destination;
+    const result = await saveProjectCopyAs(
+      {} as never,
+      opened.snapshot.project,
+      null,
+      path.join(source, 'project.json'),
+      [],
+    );
+    expect(result.success).toBe(true);
+    expect(fs.readFileSync(path.join(destination, 'AGENTS.md'), 'utf8')).toBe(
+      fs.readFileSync(path.join(source, 'AGENTS.md'), 'utf8'),
+    );
+    expect(fs.readFileSync(path.join(destination, '.gitignore'), 'utf8')).toBe(
+      'custom-output/\n/.noveltea/\n',
+    );
   });
 
   it.each([

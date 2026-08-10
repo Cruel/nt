@@ -6,6 +6,7 @@ import {
 } from '../../shared/project-schema/authoring-collections';
 import type {
   LoadedProjectWorkspaceSnapshot,
+  ProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
 } from '../../shared/project-workspace';
 
@@ -19,6 +20,7 @@ export class CliCommandUsageError extends Error {
 export interface CliCommandContext {
   readonly cwd: string;
   readonly stdinJson?: unknown;
+  readonly fileSystem: ProjectWorkspaceFileSystem;
   readonly workspace: ProjectWorkspaceService;
   readonly snapshot: LoadedProjectWorkspaceSnapshot;
   readonly nativeTools: NovelTeaCliNativeToolService;

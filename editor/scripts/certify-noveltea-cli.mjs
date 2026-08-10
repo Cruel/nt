@@ -201,6 +201,7 @@ const differentialCases = [
   { name: 'help', args: () => ['--help'], project: false },
   { name: 'validate-explicit', args: (root) => ['--project', root, '--json', 'validate'] },
   { name: 'validate-root', args: () => ['--json', 'validate'] },
+  { name: 'agent-sync', args: (root) => ['--project', root, '--json', 'agent', 'sync'] },
   {
     name: 'validate-upward',
     args: () => ['--json', 'validate'],

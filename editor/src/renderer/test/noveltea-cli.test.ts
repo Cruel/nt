@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
+import { createNovelTeaAgentKitPayload } from '../../cli/agent-kit';
+import { syncNovelTeaAgentKit } from '../../cli/agent-sync';
 import { NOVELTEA_CLI_WORKSPACE_DIAGNOSTIC_CODES } from '../../cli/contracts';
 import {
   PHASE_SIX_NODE_REFERENCE_COMMANDS,
@@ -72,7 +74,7 @@ function projectWithSourceReference() {
   return project;
 }
 
-describe('NovelTea Phase 6 headless CLI', () => {
+describe('NovelTea headless CLI', () => {
   it('keeps help/version project-independent and documents direct file editing', async () => {
     const help = await runNovelTeaCli(['--help'], { cwd: '/missing' });
     expect(help.exitCode).toBe(0);
@@ -557,5 +559,131 @@ describe('NovelTea Phase 6 headless CLI', () => {
       expect(second.stdout).toBe(first.stdout);
       expect(second.stderr).toBe(first.stderr);
     }
+  });
+
+  it('generates the complete deterministic Phase 8 agent-kit payload from current codecs', () => {
+    const first = createNovelTeaAgentKitPayload();
+    const second = createNovelTeaAgentKitPayload();
+    expect(second).toEqual(first);
+    expect(Object.keys(first.files)).toEqual(
+      expect.arrayContaining([
+        'GUIDE.md',
+        'CLI.md',
+        'PROJECT_FORMAT.md',
+        'skill/SKILL.md',
+        'schemas/project.schema.json',
+        'schemas/properties.schema.json',
+        'schemas/localization.schema.json',
+        'schemas/editor.schema.json',
+        'schemas/records/layouts.schema.json',
+        'schemas/records/scripts.schema.json',
+        'schemas/records/tests.schema.json',
+      ]),
+    );
+    const manifest = JSON.parse(first.manifestText);
+    expect(manifest).toMatchObject({
+      schema: 'noveltea.agent-kit.manifest',
+      schemaVersion: 1,
+      agentKitVersion: 1,
+      cliVersion: '1.0.0',
+      projectWorkspaceVersion: 1,
+    });
+    expect(Object.keys(manifest.files)).toEqual(Object.keys(first.files));
+    expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
+    expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
+    const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);
+    expect(scriptSchema.properties.data.properties.source.oneOf[0].properties.path.pattern).toBe(
+      '^scripts\\/(?:[^/]+\\/)*[^/]+\\.lua$',
+    );
+  });
+
+  it('repairs, validates, and then leaves an unchanged agent kit untouched', async () => {
+    const value = fixture();
+    const first = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
+    expect(first.exitCode).toBe(0);
+    expect(JSON.parse(first.stdout).agentKitChanged).toBe(true);
+    const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
+    const second = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
+    expect(second.exitCode).toBe(0);
+    expect(JSON.parse(second.stdout).agentKitChanged).toBe(false);
+    expect(await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`)).toBe(
+      manifestBefore,
+    );
+  });
+
+  it('regenerates an unsupported agent-kit manifest without changing tracked project source', async () => {
+    const value = fixture();
+    await syncNovelTeaAgentKit(value.fileSystem, root);
+    const trackedRoomBefore = await value.fileSystem.readText(`${root}/records/rooms/start.json`);
+    const manifestPath = `${root}/.noveltea/agent/manifest.json`;
+    const staleManifest = JSON.parse(await value.fileSystem.readText(manifestPath));
+    staleManifest.schemaVersion = 999;
+    await value.fileSystem.writeTextAtomic(
+      manifestPath,
+      `${JSON.stringify(staleManifest, null, 2)}\n`,
+    );
+
+    const result = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout).agentKitChanged).toBe(true);
+    expect(JSON.parse(await value.fileSystem.readText(manifestPath)).schemaVersion).toBe(1);
+    expect(await value.fileSystem.readText(`${root}/records/rooms/start.json`)).toBe(
+      trackedRoomBefore,
+    );
+  });
+
+  it('preserves the previous complete kit when refresh activation fails', async () => {
+    const value = fixture();
+    await syncNovelTeaAgentKit(value.fileSystem, root);
+    const originalGuide = await value.fileSystem.readText(`${root}/.noveltea/agent/GUIDE.md`);
+    await value.fileSystem.writeTextAtomic(
+      `${root}/.noveltea/agent/GUIDE.md`,
+      `${originalGuide}\nold`,
+    );
+    await expect(
+      syncNovelTeaAgentKit(value.fileSystem, root, {
+        beforeActivate() {
+          throw new Error('injected refresh failure');
+        },
+      }),
+    ).rejects.toThrow('injected refresh failure');
+    expect(await value.fileSystem.readText(`${root}/.noveltea/agent/GUIDE.md`)).toBe(
+      `${originalGuide}\nold`,
+    );
+    expect(await value.fileSystem.inspect(`${root}/.noveltea/agent/manifest.json`)).toBe('file');
+  });
+
+  it('supports the agent workflow with direct edits, semantic rename, and no generated-state dependency', async () => {
+    const value = fixture();
+    expect((await runNovelTeaCli(['--json', 'agent', 'sync'], options(value))).exitCode).toBe(0);
+
+    const roomPath = `${root}/records/rooms/start.json`;
+    const room = JSON.parse(await value.fileSystem.readText(roomPath));
+    room.description = 'Edited directly by an agent-like workflow.';
+    await value.fileSystem.writeTextAtomic(roomPath, `${JSON.stringify(room, null, 2)}\n`);
+    expect((await runNovelTeaCli(['--json', 'validate'], options(value))).exitCode).toBe(0);
+
+    const dryRun = await runNovelTeaCli(
+      ['--json', 'entity', 'rename', 'rooms', 'start', 'foyer', '--dry-run'],
+      options(value),
+    );
+    expect(dryRun.exitCode).toBe(0);
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/start.json`)).toBe('file');
+
+    const rename = await runNovelTeaCli(
+      ['--json', 'entity', 'rename', 'rooms', 'start', 'foyer'],
+      options(value),
+    );
+    expect(rename.exitCode).toBe(0);
+    expect((await runNovelTeaCli(['--json', 'validate'], options(value))).exitCode).toBe(0);
+
+    const opened = await value.workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(
+      opened.snapshot.canonicalSourceFiles.every((file) => !file.startsWith('.noveltea/')),
+    ).toBe(true);
+    await value.fileSystem.removeDirectory(`${root}/.noveltea`);
+    expect((await runNovelTeaCli(['--json', 'validate'], options(value))).exitCode).toBe(0);
   });
 });

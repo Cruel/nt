@@ -1,3 +1,4 @@
+import { agentSyncCommand } from './agent-sync-command';
 import { entityCreateCommand } from './entity-create-command';
 import { entityDeleteCommand } from './entity-delete-command';
 import { entityRenameCommand } from './entity-rename-command';
@@ -14,6 +15,7 @@ import {
 } from './native-commands';
 
 const commands: readonly CliCommandDefinition[] = Object.freeze([
+  agentSyncCommand,
   shadersCompileCommand,
   testRunCommand,
   testRunSpecCommand,

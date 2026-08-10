@@ -120,26 +120,31 @@ export async function validateExplicitProjectRoot(
   return validateManifestAt(fileSystem, root);
 }
 
-export async function discoverProjectRoot(
+export function discoverProjectRoot(
   fileSystem: ProjectWorkspaceFileSystem,
   startPath: string,
 ): Promise<ProjectWorkspaceDiscoveryResult> {
-  let current = fileSystem.resolvePath(startPath);
-  if ((await fileSystem.inspect(current)) === 'file')
-    current = parentDirectory(fileSystem, current);
-  for (;;) {
-    const manifestPath = fileSystem.joinPath(current, 'project.json');
-    if ((await fileSystem.inspect(manifestPath)) !== 'missing') {
-      return validateManifestAt(fileSystem, current);
-    }
-    const parent = parentDirectory(fileSystem, current);
-    if (parent === current) break;
-    current = parent;
-  }
-  return {
-    ok: false,
-    code: 'WORKSPACE_NOT_FOUND',
-    message: 'No NovelTea project.json was found from the current directory upward.',
-    path: '/project.json',
-  };
+  return new Promise((resolve, reject) => {
+    void (async () => {
+      let current = fileSystem.resolvePath(startPath);
+      if ((await fileSystem.inspect(current)) === 'file')
+        current = parentDirectory(fileSystem, current);
+      for (;;) {
+        const manifestPath = fileSystem.joinPath(current, 'project.json');
+        if ((await fileSystem.inspect(manifestPath)) !== 'missing') {
+          resolve(await validateManifestAt(fileSystem, current));
+          return;
+        }
+        const parent = parentDirectory(fileSystem, current);
+        if (parent === current) break;
+        current = parent;
+      }
+      resolve({
+        ok: false,
+        code: 'WORKSPACE_NOT_FOUND',
+        message: 'No NovelTea project.json was found from the current directory upward.',
+        path: '/project.json',
+      });
+    })().catch(reject);
+  });
 }

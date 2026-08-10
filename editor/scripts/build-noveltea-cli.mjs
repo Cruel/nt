@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { lstat, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +66,55 @@ async function sourceTreeSha256(root) {
   }
   await visit();
   return hash.digest('hex');
+}
+
+async function prepareEmbeddedAgentKit(buildEnv) {
+  const fixtureRoot = path.join(repositoryRoot, 'build', 'host-tools', 'agent-kit-fixture');
+  const embeddedRoot = path.join(editorRoot, 'scripts', 'dist', 'agent-kit');
+  const nodeCli = path.join(editorRoot, 'dist-electron', 'tools', 'noveltea.mjs');
+  const fixtureTool = path.join(
+    editorRoot,
+    'dist-electron',
+    'tools',
+    'materialize-android-export-fixture.mjs',
+  );
+
+  run('pnpm', ['exec', 'vp', 'pack'], { cwd: editorRoot, env: buildEnv });
+  await rm(fixtureRoot, { recursive: true, force: true });
+  await rm(embeddedRoot, { recursive: true, force: true });
+  run(process.execPath, [fixtureTool, '--root', fixtureRoot, '--target', 'web'], {
+    cwd: editorRoot,
+    env: buildEnv,
+  });
+  run(process.execPath, [nodeCli, '--project', fixtureRoot, '--json', 'agent', 'sync'], {
+    cwd: editorRoot,
+    env: buildEnv,
+  });
+  await cp(path.join(fixtureRoot, '.noveltea', 'agent'), embeddedRoot, { recursive: true });
+
+  const manifestPath = path.join(embeddedRoot, 'manifest.json');
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  if (
+    manifest.schema !== 'noveltea.agent-kit.manifest' ||
+    manifest.schemaVersion !== 1 ||
+    manifest.agentKitVersion !== 1 ||
+    manifest.cliVersion !== '1.0.0' ||
+    manifest.projectWorkspaceVersion !== 1 ||
+    !manifest.files ||
+    typeof manifest.files !== 'object'
+  )
+    throw new Error('Generated embedded NovelTea agent-kit manifest is invalid.');
+  for (const [relativePath, expectedHash] of Object.entries(manifest.files)) {
+    const actualHash = `sha256:${await sha256(path.join(embeddedRoot, relativePath))}`;
+    if (actualHash !== expectedHash)
+      throw new Error(
+        `Embedded NovelTea agent-kit hash mismatch for ${relativePath}: expected ${expectedHash}, received ${actualHash}.`,
+      );
+  }
+
+  // Perry resolves --embed relative to the compile entry's parent directory. Keep the generated
+  // payload under scripts/dist/ so the original scripts/noveltea.ts remains the compile entry.
+  return { embeddedRoot };
 }
 
 async function ensurePerrySourceWorkspace() {
@@ -149,12 +198,32 @@ run('cmake', ['--build', '--preset', 'linux-release', '--target', 'noveltea_tool
   env: buildEnv,
 });
 
+const embeddedAgentKit = await prepareEmbeddedAgentKit(buildEnv);
+
 const outputDirectory = path.join(repositoryRoot, 'build', 'cli', 'linux');
 const outputPath = path.join(outputDirectory, 'noveltea');
 await mkdir(outputDirectory, { recursive: true });
-run(perryBinary, ['compile', 'scripts/noveltea.ts', '--target', 'linux', '--output', outputPath], {
-  cwd: editorRoot,
-  env: buildEnv,
-});
+try {
+  run(
+    perryBinary,
+    [
+      'compile',
+      'scripts/noveltea.ts',
+      '--target',
+      'linux',
+      '--embed',
+      'dist/agent-kit',
+      '--output',
+      outputPath,
+    ],
+    {
+      cwd: editorRoot,
+      env: buildEnv,
+    },
+  );
+} finally {
+  await rm(embeddedAgentKit.embeddedRoot, { recursive: true, force: true });
+  await rm(path.join(editorRoot, '__perry_embedded_assets.c'), { force: true });
+}
 
 console.log(`NovelTea CLI: ${outputPath}`);

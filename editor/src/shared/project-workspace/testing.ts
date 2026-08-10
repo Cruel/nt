@@ -77,6 +77,34 @@ export class InMemoryProjectWorkspaceFileSystem implements ProjectWorkspaceFileS
     this.putFile(normalize(value), bytes.slice());
   }
 
+  async movePathAtomic(from: string, to: string): Promise<void> {
+    const source = normalize(from);
+    const target = normalize(to);
+    const sourceKind = await this.inspect(source);
+    if (sourceKind === 'missing') throw new Error(`ENOENT: ${from}`);
+    if ((await this.inspect(target)) !== 'missing') throw new Error(`EEXIST: ${to}`);
+    if (sourceKind === 'file') {
+      const bytes = this.files.get(source)!;
+      this.putFile(target, bytes);
+      this.files.delete(source);
+      return;
+    }
+    const movedFiles = [...this.files.entries()].filter(([file]) => file.startsWith(`${source}/`));
+    for (const [file, bytes] of movedFiles) {
+      const relative = file.slice(source.length + 1);
+      this.putFile(`${target}/${relative}`, bytes);
+      this.files.delete(file);
+    }
+    const movedDirectories = [...this.directories].filter(
+      (directory) => directory === source || directory.startsWith(`${source}/`),
+    );
+    for (const directory of movedDirectories) {
+      const relative = directory.slice(source.length);
+      this.directories.delete(directory);
+      this.addDirectory(`${target}${relative}`);
+    }
+  }
+
   async removeFile(value: string): Promise<void> {
     this.files.delete(normalize(value));
   }

@@ -31,6 +31,10 @@ import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-works
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import { assertProjectWorkspacePathContained } from '../../shared/project-workspace/project-workspace-file-system';
 import {
+  ensureNovelTeaLocalStateIgnored,
+  NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
+} from '../../shared/project-workspace/agent-bootstrap';
+import {
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
   projectWorkspaceLocalStateFile,
@@ -859,7 +863,17 @@ export async function saveProjectCopyAs(
       path.join(root, '.noveltea/editor/state.json'),
       projectWorkspaceLocalStateFile(editor, openedCopy.snapshot.workspaceRevision),
     );
-    await writeContainedText(root, path.join(root, '.gitignore'), '/.noveltea/\n');
+    const fsPort = createNodeProjectWorkspaceFileSystem();
+    await ensureNovelTeaLocalStateIgnored(fsPort, root);
+    if (currentProjectFilePath) {
+      const sourceAgents = path.join(projectPathFromFile(currentProjectFilePath), 'AGENTS.md');
+      if ((await fsPort.inspect(sourceAgents)) === 'file')
+        await writeContainedText(
+          root,
+          path.join(root, 'AGENTS.md'),
+          await fsPort.readText(sourceAgents),
+        );
+    }
     for (const directory of ['records', 'scripts', 'assets']) {
       const target = path.join(root, directory);
       await assertContained(root, target);
@@ -922,7 +936,11 @@ export async function createProject(request: CreateProjectRequest): Promise<Save
     await fs.mkdir(path.join(absoluteDirectory, 'records'), { recursive: true });
     await fs.mkdir(path.join(absoluteDirectory, 'scripts'), { recursive: true });
     await fs.mkdir(path.join(absoluteDirectory, 'assets'), { recursive: true });
-    await fsPort.writeTextAtomic(path.join(absoluteDirectory, '.gitignore'), '/.noveltea/\n');
+    await ensureNovelTeaLocalStateIgnored(fsPort, absoluteDirectory);
+    await fsPort.writeTextAtomic(
+      path.join(absoluteDirectory, 'AGENTS.md'),
+      NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
+    );
     return {
       ok: true,
       success: true,
