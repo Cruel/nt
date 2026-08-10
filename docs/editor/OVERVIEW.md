@@ -27,6 +27,8 @@ their visible category and message must use plain, localizable product language 
 
 - `docs/editor/AGENT_GUIDE.md` — editor-wide agent practices, workbench navigation, diagnostics, tab state, preview ownership, localization, UI components, and verification.
 - `docs/editor/TECH_STACK.md` — editor dependency and component standards, shadcn/Base UI usage, forms, tables, source editing, preview, localization, and testing standards.
+- `docs/editor/PERRY_COMPATIBILITY.md` — temporary Perry compiler/runtime/build accommodations used
+  by the standalone `noveltea` CLI, with explicit upgrade and removal gates.
 - `docs/editor/IMAGE_THUMBNAIL_CACHE.md` — permanent direct-image thumbnail cache contract,
   request/lifecycle behavior, clearing, fallbacks, and retained original-image consumers.
 - `docs/editor/LOCALIZATION.md` — current locale status, namespace coverage, and translation conventions.

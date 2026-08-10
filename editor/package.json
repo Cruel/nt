@@ -39,6 +39,9 @@
     "package:smoke": "node scripts/run-package-smoke.mjs",
     "project:compile": "node scripts/run-project-compiler.mjs",
     "noveltea": "node scripts/run-noveltea-cli.mjs",
+    "noveltea:build": "node scripts/build-noveltea-cli.mjs",
+    "noveltea:certify": "node scripts/certify-noveltea-cli.mjs",
+    "noveltea:lock": "node scripts/build-noveltea-cli.mjs --update-native-lock",
     "project:export": "node scripts/run-project-export.mjs",
     "android:stage-project": "node scripts/run-android-project-staging.mjs",
     "android:fixture": "node scripts/run-android-fixture.mjs",
@@ -55,12 +58,17 @@
   "license": "MIT",
   "perry": {
     "compilePackages": [
+      "fuse.js",
       "saxes",
       "xmlchars",
       "zod"
     ],
     "allow": {
+      "nativeLibrary": [
+        "@noveltea/tooling-native"
+      ],
       "compilePackages": [
+        "fuse.js",
         "saxes",
         "xmlchars",
         "zod"
@@ -92,6 +100,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fsegurai/codemirror-theme-bundle": "^6.4.2",
     "@lezer/highlight": "1.2.3",
+    "@noveltea/tooling-native": "link:./native/noveltea-tooling",
     "@perryts/perry": "0.5.1220",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.101.2",

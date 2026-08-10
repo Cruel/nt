@@ -117,9 +117,11 @@ export function buildReferenceIndexFromGraph(
   project: AuthoringProject,
   graph: AuthoringDependencyGraph,
 ): ReferenceIndex {
+  const graphEdges: AuthoringDependencyEdge[] = [];
+  for (const [, edge] of graph.edgesById) graphEdges.push(edge);
   const usages = legacyUsageOrder(
     project,
-    [...graph.edgesById.values()]
+    graphEdges
       .map(projectCompatibilityUsage)
       .filter((usage): usage is ReferenceUsage => usage !== null),
   );

@@ -154,6 +154,39 @@ export async function pathExists(target) {
   }
 }
 
+export async function verifyStandaloneNovelTeaCli(cliPath) {
+  const home = os.tmpdir();
+  const env =
+    process.platform === 'win32'
+      ? {
+          PATH: process.env.SystemRoot ? `${process.env.SystemRoot}\\System32` : '',
+          SystemRoot: process.env.SystemRoot ?? '',
+          USERPROFILE: home,
+        }
+      : { HOME: home, LANG: 'C.UTF-8', PATH: '/usr/bin:/bin' };
+  const result = await runCommand(cliPath, ['--json', '--version'], {
+    cwd: home,
+    env,
+    capture: true,
+  });
+  let payload;
+  try {
+    payload = JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`Standalone NovelTea CLI returned invalid JSON: ${String(error)}`);
+  }
+  if (
+    payload?.success !== true ||
+    payload?.exitCode !== 0 ||
+    payload?.version !== '1.0.0' ||
+    result.stderr !== ''
+  ) {
+    throw new Error(
+      `Standalone NovelTea CLI version smoke failed: stdout=${JSON.stringify(result.stdout)} stderr=${JSON.stringify(result.stderr)}`,
+    );
+  }
+}
+
 export async function readJson(target) {
   return JSON.parse(await readFile(target, 'utf8'));
 }
@@ -309,32 +342,17 @@ async function getElectronMetadata() {
   };
 }
 
-function expectedEditorToolName(platform = process.platform) {
-  return platform === 'win32' ? 'noveltea-editor-tool.exe' : 'noveltea-editor-tool';
+function expectedNovelTeaCliName(platform = process.platform) {
+  return platform === 'win32' ? 'noveltea.exe' : 'noveltea';
 }
 
-export function resolveEditorToolSource() {
-  const configured = process.env.NOVELTEA_EDITOR_TOOL_PATH?.trim();
+export function resolveNovelTeaCliSource() {
+  const configured = process.env.NOVELTEA_CLI_PATH?.trim();
   if (configured) return path.resolve(configured);
-  const toolName = expectedEditorToolName();
+  const toolName = expectedNovelTeaCliName();
   const platformDirectory =
-    process.platform === 'win32'
-      ? 'windows-release'
-      : process.platform === 'darwin'
-        ? 'macos-release'
-        : 'linux-release';
-  const candidates = [
-    path.join(repositoryRoot, 'build', platformDirectory, 'tools', 'editor_tool', toolName),
-    path.join(
-      repositoryRoot,
-      'build',
-      platformDirectory,
-      'tools',
-      'editor_tool',
-      'Release',
-      toolName,
-    ),
-  ];
+    process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
+  const candidates = [path.join(repositoryRoot, 'build', 'cli', platformDirectory, toolName)];
   return candidates.find((candidate) => {
     try {
       return createRequire(import.meta.url)('node:fs')
@@ -363,10 +381,10 @@ async function copyPreview(destination) {
 }
 
 async function copyResources(resourcesRoot) {
-  const editorToolSource = resolveEditorToolSource();
-  if (!editorToolSource || !(await pathExists(editorToolSource))) {
+  const cliSource = resolveNovelTeaCliSource();
+  if (!cliSource || !(await pathExists(cliSource))) {
     throw new Error(
-      'The host NovelTea editor tool is missing. Build the host release editor_tool target or set NOVELTEA_EDITOR_TOOL_PATH.',
+      'The NovelTea CLI release binary is missing. Run pnpm run noveltea:build or set NOVELTEA_CLI_PATH.',
     );
   }
   await copyPreview(path.join(resourcesRoot, 'engine-preview'));
@@ -377,10 +395,10 @@ async function copyResources(resourcesRoot) {
     recursive: true,
     dereference: true,
   });
-  const destinationTool = path.join(resourcesRoot, 'bin', expectedEditorToolName());
-  await mkdir(path.dirname(destinationTool), { recursive: true });
-  await cp(editorToolSource, destinationTool);
-  if (process.platform !== 'win32') await chmod(destinationTool, 0o755);
+  const destinationCli = path.join(resourcesRoot, 'bin', expectedNovelTeaCliName());
+  await mkdir(path.dirname(destinationCli), { recursive: true });
+  await cp(cliSource, destinationCli);
+  if (process.platform !== 'win32') await chmod(destinationCli, 0o755);
 }
 
 async function collectInstalledPackages(appRoot) {
@@ -478,6 +496,17 @@ async function pruneTypeOnlyOptionalPeerClosure(appRoot) {
   }
 }
 
+async function pruneProductionSourceMaps(appRoot) {
+  const records = await listTree(appRoot);
+  await Promise.all(
+    records
+      .filter(
+        (record) => record.type === 'file' && path.extname(record.path).toLowerCase() === '.map',
+      )
+      .map((record) => rm(path.join(appRoot, ...record.path.split('/')), { force: true })),
+  );
+}
+
 async function runSharpOperation(appRoot) {
   const appRequire = createRequire(path.join(appRoot, 'package.json'));
   const sharp = appRequire('sharp');
@@ -534,6 +563,16 @@ function assertSafePackageMetadata(metadata) {
 
 async function assertTextDoesNotLeakSource(stageRoot, records) {
   for (const record of records) {
+    if (record.type === 'file' && path.extname(record.path).toLowerCase() === '.map') {
+      throw new Error(`Production source map is forbidden in the editor stage: ${record.path}`);
+    }
+    if (
+      record.type === 'file' &&
+      /\.(?:ts|tsx|mts|cts)$/i.test(record.path) &&
+      !record.path.includes('/node_modules/')
+    ) {
+      throw new Error(`Raw TypeScript source is forbidden in the editor stage: ${record.path}`);
+    }
     if (record.type !== 'file' || record.size > 10 * 1024 * 1024) continue;
     if (!textExtensions.has(path.extname(record.path).toLowerCase())) continue;
     const contents = await readFile(path.join(stageRoot, ...record.path.split('/')), 'utf8');
@@ -602,11 +641,16 @@ export async function verifyStage(stageRoot, options = {}) {
       throw new Error(`Required staged editor asset is missing: ${required}`);
     }
   }
-  const toolPath = path.join(resourcesRoot, 'bin', expectedEditorToolName());
-  const toolInfo = await stat(toolPath);
-  if (!toolInfo.isFile() || (process.platform !== 'win32' && (toolInfo.mode & 0o111) === 0)) {
-    throw new Error(`Staged editor tool is missing or not executable: ${toolPath}`);
+  const cliPath = path.join(resourcesRoot, 'bin', expectedNovelTeaCliName());
+  const cliInfo = await stat(cliPath);
+  if (!cliInfo.isFile() || (process.platform !== 'win32' && (cliInfo.mode & 0o111) === 0)) {
+    throw new Error(`Staged NovelTea CLI is missing or not executable: ${cliPath}`);
   }
+  const binEntries = (await readdir(path.join(resourcesRoot, 'bin'))).sort();
+  if (binEntries.length !== 1 || binEntries[0] !== expectedNovelTeaCliName()) {
+    throw new Error(`Unexpected staged native-tool closure: ${binEntries.join(', ')}`);
+  }
+  await verifyStandaloneNovelTeaCli(cliPath);
 
   const records = [
     ...(await listTree(stageRoot, 'app')),
@@ -719,7 +763,17 @@ export async function createStage(options = {}) {
   let publishedStage = false;
   try {
     if (build) {
-      await runCommand('pnpm', ['run', 'build'], { cwd: editorRoot, label: 'build' });
+      await runCommand('pnpm', ['run', 'build'], {
+        cwd: editorRoot,
+        label: 'build',
+        env: { ...process.env, NODE_ENV: 'production' },
+      });
+      if (!process.env.NOVELTEA_CLI_PATH?.trim()) {
+        await runCommand('pnpm', ['run', 'noveltea:build'], {
+          cwd: editorRoot,
+          label: 'noveltea-cli',
+        });
+      }
     }
     await mkdir(transactionStage, { recursive: true });
     const appRoot = path.join(transactionStage, 'app');
@@ -734,6 +788,7 @@ export async function createStage(options = {}) {
         .map((entry) => rm(path.join(appRoot, entry), { recursive: true, force: true })),
     );
     await pruneTypeOnlyOptionalPeerClosure(appRoot);
+    await pruneProductionSourceMaps(appRoot);
     const editorPackage = await readJson(path.join(editorRoot, 'package.json'));
     const deployedMetadata = {
       name: editorPackage.name,

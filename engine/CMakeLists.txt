@@ -168,7 +168,7 @@ set(NOVELTEA_PROJECT_ASSET_SOURCE "${_NOVELTEA_DEFAULT_PROJECT_ASSET_SOURCE}" CA
     "Optional project/demo assets to stage")
 set(NOVELTEA_PREBUILT_SHADER_ASSET_ROOT "" CACHE PATH "Prebuilt shader asset root containing shaders/bgfx/<variant>")
 set(NOVELTEA_SHADER_VARIANTS "" CACHE STRING "Semicolon-separated shader variants to build or stage")
-set(NOVELTEA_SHADERC_EXECUTABLE "" CACHE FILEPATH "Host bgfx shaderc executable")
+set(NOVELTEA_CLI_EXECUTABLE "" CACHE FILEPATH "Host NovelTea CLI executable used for shader compilation")
 set(NOVELTEA_BGFX_SHADER_INCLUDE_DIR "" CACHE PATH "Directory containing bgfx_shader.sh")
 set(NOVELTEA_RUNTIME_ASSET_STAMP "${CMAKE_BINARY_DIR}/generated-assets/runtime-assets.stamp")
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
@@ -195,10 +195,10 @@ set(SHADER_ASSET_ROOT "${NOVELTEA_GENERATED_SHADER_ASSET_ROOT}")
 noveltea_collect_shader_inputs("${SHADER_SRC_DIR}" NOVELTEA_SHADER_INPUTS)
 noveltea_collect_shader_outputs(VARIANTS ${NOVELTEA_SHADER_VARIANTS} OUTPUT_ROOT "${SHADER_ASSET_ROOT}" OUT_VAR NOVELTEA_SHADER_OUTPUTS)
 if(NOVELTEA_COMPILE_SHADERS)
-    noveltea_find_shader_tools(REQUIRED OUT_SHADERC SHADERC_EXECUTABLE OUT_BGFX_INCLUDE BGFX_SHADER_INCLUDE_DIR)
+    noveltea_find_shader_tools(REQUIRED OUT_NOVELTEA NOVELTEA_CLI_HOST OUT_BGFX_INCLUDE BGFX_SHADER_INCLUDE_DIR)
     noveltea_add_shader_target(
         TARGET noveltea-shaders
-        SHADERC "${SHADERC_EXECUTABLE}"
+        NOVELTEA "${NOVELTEA_CLI_HOST}"
         SOURCE_DIR "${SHADER_SRC_DIR}"
         OUTPUT_ROOT "${SHADER_ASSET_ROOT}"
         VARIANTS ${NOVELTEA_SHADER_VARIANTS}

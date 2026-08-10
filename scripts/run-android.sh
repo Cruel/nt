@@ -49,6 +49,21 @@ FIXTURE_ROOT="$RUN_ROOT/fixture"
 GENERATED_ROOT="$RUN_ROOT/generated"
 mkdir -p "$RUN_ROOT"
 
+cd "$PROJECT_ROOT"
+if [ -z "${NOVELTEA_CLI:-}" ]; then
+  NOVELTEA_CLI="$PROJECT_ROOT/build/cli/linux/noveltea"
+  echo "[run] refreshing NovelTea host CLI..."
+  pnpm -C editor run noveltea:build
+fi
+[ -x "$NOVELTEA_CLI" ] || { echo "[run] NovelTea host CLI not found: $NOVELTEA_CLI" >&2; exit 1; }
+export NOVELTEA_CLI
+BGFX_SHADER_INCLUDE_DIR="$PROJECT_ROOT/build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx"
+[ -f "$BGFX_SHADER_INCLUDE_DIR/bgfx_shader.sh" ] || {
+  echo "[run] bgfx shader include directory is invalid: $BGFX_SHADER_INCLUDE_DIR" >&2
+  exit 1
+}
+GRADLE_ARGS+=("-PnovelteaCli=$NOVELTEA_CLI" "-PbgfxShaderInclude=$BGFX_SHADER_INCLUDE_DIR")
+
 cd "$PROJECT_ROOT/android"
 
 echo "[run] building android app ($GRADLE_TASK)..."
@@ -106,21 +121,11 @@ if [ -z "${JAVA_HOME:-}" ]; then
     JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
   fi
 fi
-SHADERC="${SHADERC:-$PROJECT_ROOT/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc}"
-BGFX_SHADER_INCLUDE_DIR="${BGFX_SHADER_INCLUDE_DIR:-$PROJECT_ROOT/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx}"
-[ -x "$SHADERC" ] || { echo "[run] shaderc not found: $SHADERC" >&2; exit 1; }
-[ -f "$BGFX_SHADER_INCLUDE_DIR/bgfx_shader.sh" ] || {
-  echo "[run] bgfx shader include directory is invalid: $BGFX_SHADER_INCLUDE_DIR" >&2
-  exit 1
-}
-
 echo "[run] compiling the project and staging Android inputs..."
 STAGE_JSON="$(pnpm -C editor run android:stage-project -- \
   --project "$PROJECT_PATH" \
   --profile "$PROFILE_ID" \
-  --output "$GENERATED_ROOT" \
-  --shaderc "$SHADERC" \
-  --bgfx-shader-include "$BGFX_SHADER_INCLUDE_DIR")"
+  --output "$GENERATED_ROOT")"
 STAGE_RESULT="$(printf '%s\n' "$STAGE_JSON" | tail -n 1)"
 PROPERTIES_PATH="$(node -e 'console.log(JSON.parse(process.argv[1]).propertiesPath)' "$STAGE_RESULT")"
 PKG="${PKG:-$(node -e 'console.log(JSON.parse(process.argv[1]).applicationId)' "$STAGE_RESULT")}"

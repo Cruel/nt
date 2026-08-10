@@ -262,8 +262,6 @@ export async function exportProjectToPlatform(
           targetRuntimeProfile.shaderVariants,
         );
         const response = (await compileShaders(shaderProject.project, {
-          shaderc: request.localState?.shaderc,
-          bgfxShaderIncludeDir: request.localState?.bgfxShaderIncludeDir,
           projectRoot,
           outputRoot: path.join(projectRoot, '.noveltea', 'build'),
           cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),

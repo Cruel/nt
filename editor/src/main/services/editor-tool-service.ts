@@ -18,8 +18,12 @@ import {
   classifyProjectValidationDiagnostics,
   projectValidationBoundariesForCompilerDiagnostic,
 } from '../../shared/project-schema/project-validation';
-export { invokeEditorTool, resolveEditorToolPath } from '../../shared/editor-tool-subprocess';
-import { invokeEditorTool } from '../../shared/editor-tool-subprocess';
+export {
+  invokeNovelTeaNativeOperation,
+  resolveNovelTeaCliPath,
+} from '../../shared/noveltea-cli-subprocess';
+import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
+import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
 
 export async function openProject(projectPath: string) {
   const workspace = createNodeProjectWorkspaceService();
@@ -110,15 +114,25 @@ export function listPlaybackTests(project: unknown) {
 }
 
 export function runPlaybackTest(project: unknown, testId: string) {
-  return invokeEditorTool('run-test', { project, testId });
+  if (isAuthoringProject(project)) {
+    const built = buildRuntimePlaybackSpecFromAuthoringTest(project, testId);
+    if (!built.ok || !built.project || !built.spec)
+      return Promise.resolve({ ok: false, success: false, diagnostics: built.diagnostics });
+    return invokeNovelTeaNativeOperation('run-test', { project: built.project, spec: built.spec });
+  }
+  return Promise.resolve({
+    ok: false,
+    success: false,
+    error: 'Playback requires an authoring project.',
+  });
 }
 
 export function runPlaybackSpec(project: unknown, spec: unknown) {
-  return invokeEditorTool('run-test', { project, spec });
+  return invokeNovelTeaNativeOperation('run-test', { project, spec });
 }
 
 export function runUiPlaybackSpec(project: unknown, spec: unknown) {
-  return invokeEditorTool('run-ui-test', { project, spec });
+  return invokeNovelTeaNativeOperation('run-ui-test', { project, spec });
 }
 
 export function exportPackage(
@@ -126,7 +140,7 @@ export function exportPackage(
   outputPath: string,
   options?: PackageExportOptions,
 ) {
-  return invokeEditorTool('export-package', {
+  return invokeNovelTeaNativeOperation('export-package', {
     project,
     outputPath,
     options: options ?? {},
@@ -134,7 +148,7 @@ export function exportPackage(
 }
 
 export function compileShaders(shaderProject: unknown, options?: ShaderCompileOptions) {
-  return invokeEditorTool('compile-shaders', {
+  return invokeNovelTeaNativeOperation('compile-shaders', {
     shaderProject,
     options: options ?? {},
   }).then((value) => normalizeShaderToolResponse(value));

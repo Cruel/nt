@@ -66,6 +66,12 @@ Commands:
   entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]
   entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]
   usages <collection> <id>
+  shaders compile [--variant <id>]... [--force-rebuild]
+  shaderc <bgfx-shaderc-args...>
+  test run <test-id>
+  test run-spec
+  test run-ui-spec
+  package export --output <path> [--profile <profile-id>]
 
 Global options:
   --project <project-directory>  Use this project root instead of upward project.json discovery.
@@ -83,13 +89,14 @@ export function compareCliDiagnostics(
   left: NovelTeaCliDiagnostic,
   right: NovelTeaCliDiagnostic,
 ): number {
+  const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   return (
-    left.code.localeCompare(right.code) ||
-    left.path.localeCompare(right.path) ||
-    (left.sourceUrl ?? '').localeCompare(right.sourceUrl ?? '') ||
+    compareText(left.code, right.code) ||
+    compareText(left.path, right.path) ||
+    compareText(left.sourceUrl ?? '', right.sourceUrl ?? '') ||
     (left.line ?? 0) - (right.line ?? 0) ||
     (left.column ?? 0) - (right.column ?? 0) ||
-    left.message.localeCompare(right.message)
+    compareText(left.message, right.message)
   );
 }
 

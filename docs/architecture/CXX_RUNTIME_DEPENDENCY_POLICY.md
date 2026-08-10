@@ -36,9 +36,10 @@ receive the policy directly on their CMake targets.
 - Web and Android apply `-fno-exceptions -fno-rtti` to every source-built C++ dependency target.
 - MSVC target libraries use `/GR- /EHs-c- /D_HAS_EXCEPTIONS=0`.
 
-The `shader-tools` vcpkg feature deliberately declares `bgfx[tools]` as a host dependency. Its
-SPIRV-Cross/glslang toolchain may use exceptions because those executables run during the build and are
-not linked or packaged into NovelTea players.
+The host `noveltea` CLI statically links the pinned bgfx shaderc source closure, including its
+SPIRV-Cross/glslang compiler stack. That build-host/editor tooling may use the normal host exception
+and RTTI model because it is isolated from the player graph. NovelTea does not enable vcpkg
+`bgfx[tools]` or build/package a separate shaderc executable.
 
 ## Verification
 
@@ -67,9 +68,9 @@ A native-only build tool may use exceptions or compiler RTTI only when all of th
 - it is not copied into desktop, Web, Android, or editor-export player templates;
 - the exemption and graph boundary are documented in this file.
 
-The current approved example is `bgfx[tools]` for `shaderc` and its host-side compiler stack. The Linux
-link audit rejects ordinary host-triplet archives in `noveltea-player`. A tool becoming runtime-linked
-automatically voids the exemption and requires full admission review.
+The current approved example is the embedded shaderc/compiler closure linked only into the standalone
+host `noveltea` CLI. The Linux link audit rejects host-tool archives in `noveltea-player`. A tool
+becoming runtime-linked automatically voids the exemption and requires full admission review.
 
 ## Admission gate
 

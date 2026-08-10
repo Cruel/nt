@@ -31,7 +31,7 @@ SDL, bgfx, RmlUi, miniaudio, text backends, Twink, and optional ImGui belong to 
 | `NOVELTEA_BUILD_BENCHMARKS` | `OFF` | Build the reusable release microbenchmark executable for JSON and Lua regression measurements. |
 | `NOVELTEA_ENABLE_DEVTOOLS` | `ON` | Include Dear ImGui dev/debug overlay. |
 | `NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER` | `OFF` | Compile the editor-only asset memory and prefetch profiler. Enabled only by dedicated editor-profiler presets. |
-| `NOVELTEA_COMPILE_SHADERS` | `ON` | Compile bgfx shader binaries with `shaderc`. Set `OFF` to use prebuilt shaders from `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT`. |
+| `NOVELTEA_COMPILE_SHADERS` | `ON` | Compile bgfx shader binaries through the host `noveltea` CLI's embedded shaderc. Set `OFF` to use prebuilt shaders from `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT`. |
 | `NOVELTEA_ENABLE_THREADS` | `ON` | Enable NovelTea's SDL job workers. Canonical native, Android, and Web presets enable this; explicit `*-no-threads` presets select cooperative execution. Threaded Web artifacts require `SharedArrayBuffer` and cross-origin isolation. |
 | `NOVELTEA_JOB_WORKER_COUNT` | `0` | Number of NovelTea SDL job workers. `0` selects the native automatic policy (`clamp(logical CPU count - 1, 1, 4)`). Threaded Web presets must set an explicit count and currently use `1`; non-threaded builds require `0`. |
 
@@ -85,7 +85,7 @@ exercise the `NOVELTEA_FETCH_RMLUI=OFF` revision and extension probe.
 
 | Variable | Default | Description |
 |---|---|---|
-| `NOVELTEA_SHADERC_EXECUTABLE` | `""` | Path to the `shaderc` executable. |
+| `NOVELTEA_CLI_EXECUTABLE` | `""` | Path to the host `noveltea` CLI used for build-time shader compilation. If unset, CMake checks `NOVELTEA_CLI`, `PATH`, then `build/cli/linux/noveltea`. |
 | `NOVELTEA_BGFX_SHADER_INCLUDE_DIR` | `""` | Directory containing `bgfx_shader.sh`. |
 | `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT` | `""` | Root directory for prebuilt shader binaries. Expected structure: `shaders/bgfx/<variant>/`. |
 | `NOVELTEA_SHADER_VARIANTS` | `""` | Semicolon-separated shader variants to build/stage. Default varies by platform (e.g., `glsl-120` for desktop). |

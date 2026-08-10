@@ -36,6 +36,7 @@ import { validateAuthoringProject } from '../project-schema/authoring-validation
 import {
   editorChaptersStateSchema,
   emptyEditorProjectState,
+  editorRecordMetadataSchema,
   editorRecordMetadataStateSchema,
   editorProjectStateSchema,
   editorTagsStateSchema,
@@ -103,6 +104,46 @@ const trackedEditorOrganizationSchema = z
     recordMetadata: editorRecordMetadataStateSchema,
   })
   .strict();
+
+function parseTrackedEditorOrganization(value: Readonly<Record<string, unknown>>): Readonly<{
+  chapters: EditorProjectState['chapters'];
+  tags: EditorProjectState['tags'];
+  recordMetadata: EditorProjectState['recordMetadata'];
+}> | null {
+  const chapters = editorChaptersStateSchema.safeParse(value.chapters);
+  const tags = editorTagsStateSchema.safeParse(value.tags);
+  const rawMetadata = value.recordMetadata;
+  if (
+    !chapters.success ||
+    !tags.success ||
+    !rawMetadata ||
+    typeof rawMetadata !== 'object' ||
+    Array.isArray(rawMetadata)
+  )
+    return null;
+
+  // Perry 0.5.1220 miscompiles this nested z.record(z.record(...)) shape in the
+  // full workspace-open graph, silently returning an empty outer record. Validate
+  // each dynamic level explicitly so the persisted editor metadata survives the
+  // Node/Perry mutation differential without weakening its schema.
+  const recordMetadata: EditorProjectState['recordMetadata'] = {};
+  for (const collection of Object.keys(rawMetadata)) {
+    if (collection === '__proto__') return null;
+    const rawRecords = (rawMetadata as Readonly<Record<string, unknown>>)[collection];
+    if (!rawRecords || typeof rawRecords !== 'object' || Array.isArray(rawRecords)) return null;
+    const records: Record<string, z.infer<typeof editorRecordMetadataSchema>> = {};
+    for (const id of Object.keys(rawRecords)) {
+      if (id === '__proto__') return null;
+      const parsed = editorRecordMetadataSchema.safeParse(
+        (rawRecords as Readonly<Record<string, unknown>>)[id],
+      );
+      if (!parsed.success) return null;
+      records[id] = parsed.data;
+    }
+    recordMetadata[collection] = records;
+  }
+  return { chapters: chapters.data, tags: tags.data, recordMetadata };
+}
 
 export interface ProjectWorkspaceFileRevision {
   readonly contentHash: `sha256:${string}`;
@@ -341,10 +382,30 @@ function assetSourcePaths(project: AuthoringProject): string[] {
 }
 
 function aggregateRevision(revisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>) {
-  const pairs = Object.keys(revisions)
-    .sort(compareProjectWorkspaceUnicodeCodePoints)
-    .map((file) => [file, revisions[file]!.contentHash]);
+  // Keep the projection iterative. Perry 0.5.1220 can corrupt one captured
+  // value in the equivalent sorted-array `.map(...)` callback in the full CLI.
+  const pairs: [string, string][] = [];
+  for (const file of Object.keys(revisions).sort(compareProjectWorkspaceUnicodeCodePoints))
+    pairs.push([file, revisions[file]!.contentHash]);
   return sha256PrefixedUtf8(JSON.stringify(pairs));
+}
+
+async function readWorkspaceFileRevision(
+  fileSystem: ProjectWorkspaceFileSystem,
+  projectRoot: string,
+  file: string,
+): Promise<ProjectWorkspaceFileRevision | null> {
+  try {
+    const absolute = fileSystem.joinPath(projectRoot, file);
+    await assertProjectWorkspacePathContained(fileSystem, projectRoot, absolute);
+    const bytes = await fileSystem.readBytes(absolute);
+    return {
+      contentHash: sha256PrefixedBytes(bytes),
+      byteSize: bytes.byteLength,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function ownershipFor(
@@ -566,15 +627,12 @@ export function projectWorkspaceLocalStateFile(
     contentFingerprint: _contentFingerprint,
     ...local
   } = editorState;
-  return canonicalJson(
-    {
-      schema: EDITOR_LOCAL_STATE_SCHEMA,
-      schemaVersion: EDITOR_LOCAL_STATE_SCHEMA_VERSION,
-      workspaceRevision,
-      ...local,
-    },
-    editorLocalStateSchema,
-  );
+  return canonicalJson({
+    schema: EDITOR_LOCAL_STATE_SCHEMA,
+    schemaVersion: EDITOR_LOCAL_STATE_SCHEMA_VERSION,
+    workspaceRevision,
+    ...local,
+  });
 }
 
 export function createProjectWorkspaceSnapshot(
@@ -623,404 +681,439 @@ export class ProjectWorkspaceService {
     const root = this.fileSystem.resolvePath(projectRoot);
     return { projectRoot: root, manifestPath: this.fileSystem.joinPath(root, 'project.json') };
   }
-  async open(
+  open(
     projectRoot: string,
     options: ProjectWorkspaceOpenOptions = {},
   ): Promise<ProjectWorkspaceOpenResult> {
-    const discovered = await this.discover(projectRoot);
-    const fail = (message: string, path?: string) =>
-      workspaceError(discovered.projectRoot, discovered.manifestPath, message, path);
-    if (options.recoverTransactions === false) {
-      const transactionRoot = this.fileSystem.joinPath(
-        discovered.projectRoot,
-        '.noveltea/transactions',
-      );
-      const pending = (await this.fileSystem.listDirectory(transactionRoot)).filter(
-        (entry) => entry !== '.writer-lock',
-      );
-      if (pending.length > 0)
-        return workspaceError(
-          discovered.projectRoot,
-          discovered.manifestPath,
-          'The workspace has a pending transaction that requires recovery before a read-only dry run.',
-          '/.noveltea/transactions',
-          'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
-        );
-    } else {
-      try {
-        await this.transactions.recover(discovered.projectRoot);
-      } catch (error) {
-        if (error instanceof ProjectWorkspaceMutationError)
-          return workspaceError(
-            discovered.projectRoot,
-            discovered.manifestPath,
-            error.message,
-            '/.noveltea/transactions',
-            error.code,
-          );
-        throw error;
-      }
-    }
-    let manifest: Record<string, unknown>;
-    try {
-      await this.assertContained(discovered.projectRoot, discovered.manifestPath);
-      const value = JSON.parse(await this.fileSystem.readText(discovered.manifestPath));
-      if (!value || typeof value !== 'object' || Array.isArray(value))
-        return fail('project.json must be an object.');
-      manifest = value as Record<string, unknown>;
-    } catch {
-      return fail(
-        'Current project discovery requires a readable workspace-v1 project.json.',
-        '/project.json',
-      );
-    }
-    if (
-      manifest.schema !== PROJECT_WORKSPACE_SCHEMA ||
-      manifest.schemaVersion !== PROJECT_WORKSPACE_SCHEMA_VERSION
-    )
-      return fail('Project must use the current NovelTea workspace schema.', '/schema');
-    const required = ['project', 'settings', 'startupHook', 'entrypoint'];
-    if (Object.keys(manifest).length !== 6 || !required.every((key) => key in manifest))
-      return fail('project.json has an unsupported workspace-v1 shape.');
-    let properties: unknown;
-    let localization: unknown;
-    let editor: Record<string, unknown>;
-    try {
-      await this.assertContained(
-        discovered.projectRoot,
-        this.fileSystem.joinPath(discovered.projectRoot, 'properties.json'),
-      );
-      await this.assertContained(
-        discovered.projectRoot,
-        this.fileSystem.joinPath(discovered.projectRoot, 'localization.json'),
-      );
-      await this.assertContained(
-        discovered.projectRoot,
-        this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
-      );
-      properties = JSON.parse(
-        await this.fileSystem.readText(
-          this.fileSystem.joinPath(discovered.projectRoot, 'properties.json'),
-        ),
-      );
-      localization = JSON.parse(
-        await this.fileSystem.readText(
-          this.fileSystem.joinPath(discovered.projectRoot, 'localization.json'),
-        ),
-      );
-      const value = JSON.parse(
-        await this.fileSystem.readText(
-          this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
-        ),
-      );
-      if (!value || typeof value !== 'object' || Array.isArray(value))
-        return fail('editor.json must be an object.', '/editor.json');
-      editor = value as Record<string, unknown>;
-      if (Object.keys(editor).sort().join(',') !== 'chapters,recordMetadata,tags')
-        return fail(
-          'editor.json must contain exactly tracked organization fields.',
-          '/editor.json',
-        );
-    } catch {
-      return fail('Required workspace fragments are missing or malformed.');
-    }
-    const collections = Object.fromEntries(
-      authoringCollectionKeys.map((key) => [key, {}]),
-    ) as Record<AuthoringCollectionKey, Record<string, unknown>>;
-    const scriptSourceOwners = new Set<string>();
-    const scriptRealSourceOwners = new Set<string>();
-    const layoutRealSourceOwners = new Set<string>();
-    const scriptSourcePaths: Record<string, string> = {};
-    const recordsRoot = this.fileSystem.joinPath(discovered.projectRoot, 'records');
-    if ((await this.fileSystem.inspect(recordsRoot)) !== 'missing') {
-      try {
-        await this.assertContained(discovered.projectRoot, recordsRoot);
-      } catch {
-        return fail('records/ escapes the project root.', '/records');
-      }
-    }
-    for (const directory of await this.fileSystem.listDirectory(recordsRoot)) {
-      if (!knownCollections.has(directory))
-        return fail(`Unknown records collection '${directory}'.`, `/records/${directory}`);
-      const collection = directory as AuthoringCollectionKey;
-      const collectionPath = this.fileSystem.joinPath(recordsRoot, directory);
-      try {
-        await this.assertContained(discovered.projectRoot, collectionPath);
-      } catch {
-        return fail('Record collection escapes the project root.', `/records/${directory}`);
-      }
-      for (const entry of await this.fileSystem.listDirectory(collectionPath)) {
-        if (collection === 'layouts') {
-          const layoutPath = this.fileSystem.joinPath(collectionPath, entry);
-          if ((await this.fileSystem.inspect(layoutPath)) !== 'directory')
-            return fail('Layout records must be directories.', `/records/layouts/${entry}`);
-          try {
-            await this.assertContained(discovered.projectRoot, layoutPath);
-          } catch {
-            return fail('Layout record escapes the project root.', `/records/layouts/${entry}`);
-          }
-          const idOk = entityIdSchema.safeParse(entry).success;
-          if (!idOk)
-            return fail(
-              'Layout path does not contain a valid record ID.',
-              `/records/layouts/${entry}`,
-            );
-          const file = this.fileSystem.joinPath(layoutPath, 'layout.json');
-          let raw: Record<string, unknown>;
-          try {
-            await this.assertContained(discovered.projectRoot, file);
-            raw = JSON.parse(await this.fileSystem.readText(file)) as Record<string, unknown>;
-          } catch {
-            return fail('Layout record is malformed.', `/records/layouts/${entry}/layout.json`);
-          }
-          if (raw.id !== entry)
-            return fail('Layout record ID does not match its path.', `/records/layouts/${entry}`);
-          const data = raw.data as Record<string, Record<string, unknown>>;
-          for (const channel of ['rml', 'rcss', 'lua'] as const) {
-            const source = data?.[channel];
-            if (!source || typeof source !== 'object')
-              return fail(
-                'Layout source selector is malformed.',
-                `/layouts/${entry}/data/${channel}`,
-              );
-            const companion = this.fileSystem.joinPath(layoutPath, `layout.${channel}`);
-            if (source.sourceMode === 'file') {
-              if (!hasExactKeys(source, ['sourceMode']))
-                return fail(
-                  'Layout file selector has an unsupported shape.',
-                  `/layouts/${entry}/data/${channel}`,
-                );
-              try {
-                await this.assertContained(discovered.projectRoot, companion);
-                const real = await this.fileSystem.realpath(companion);
-                if (layoutRealSourceOwners.has(real))
-                  return fail(
-                    'Two Layout channels cannot own the same companion source file.',
-                    `/records/layouts/${entry}/layout.${channel}`,
-                  );
-                layoutRealSourceOwners.add(real);
-                source.sourceText = await this.fileSystem.readText(companion);
-                source.sourceMode = 'inline';
-                source.sourceAsset = null;
-              } catch {
-                return fail(
-                  `Missing Layout ${channel.toUpperCase()} companion source.`,
-                  `/records/layouts/${entry}/layout.${channel}`,
-                );
-              }
-            } else if (source.sourceMode === 'asset') {
-              if (!hasExactKeys(source, ['sourceMode', 'sourceAsset']))
-                return fail(
-                  'Layout asset selector has an unsupported shape.',
-                  `/layouts/${entry}/data/${channel}`,
-                );
-              if ((await this.fileSystem.inspect(companion)) !== 'missing')
-                return fail(
-                  'Layout companion exists without a file selector.',
-                  `/records/layouts/${entry}/layout.${channel}`,
-                );
-              source.sourceMode = 'asset';
-              source.sourceAsset ??= null;
-            } else if (channel === 'lua' && source.sourceMode === 'none') {
-              if (!hasExactKeys(source, ['sourceMode']))
-                return fail(
-                  'Layout none selector has an unsupported shape.',
-                  `/layouts/${entry}/data/${channel}`,
-                );
-              if ((await this.fileSystem.inspect(companion)) !== 'missing')
-                return fail(
-                  'Layout companion exists without a file selector.',
-                  `/records/layouts/${entry}/layout.${channel}`,
-                );
-              source.sourceMode = 'inline';
-              source.sourceText = '';
-              source.sourceAsset = null;
-            } else
-              return fail(
-                'Layout source selector is unsupported.',
-                `/layouts/${entry}/data/${channel}`,
-              );
-          }
-          collections.layouts[entry] = raw;
-          continue;
-        }
-        if (!entry.endsWith('.json'))
-          return fail(
-            'Record files must use canonical .json names.',
-            `/records/${collection}/${entry}`,
-          );
-        const id = entry.slice(0, -5);
-        if (!entityIdSchema.safeParse(id).success)
-          return fail(
-            'Record path does not contain a valid ID.',
-            `/records/${collection}/${entry}`,
-          );
-        let raw: Record<string, unknown>;
+    return new Promise<ProjectWorkspaceOpenResult>((resolve, reject) => {
+      void (async () => {
         try {
-          await this.assertContained(
-            discovered.projectRoot,
-            this.fileSystem.joinPath(collectionPath, entry),
-          );
-          raw = JSON.parse(
-            await this.fileSystem.readText(this.fileSystem.joinPath(collectionPath, entry)),
-          ) as Record<string, unknown>;
-        } catch {
-          return fail('Record is malformed.', `/records/${collection}/${entry}`);
-        }
-        if (raw.id !== id)
-          return fail('Record ID does not match its path.', `/records/${collection}/${entry}`);
-        if (collection === 'scripts') {
-          const source = (raw.data as { source?: { kind?: string; path?: unknown } }).source;
-          if (source?.kind === 'file') {
-            if (
-              !isSafeRelativePath(source.path) ||
-              !source.path.startsWith('scripts/') ||
-              !source.path.endsWith('.lua')
-            )
-              return fail(
-                'Script Module file source path is invalid.',
-                `/scripts/${id}/data/source/path`,
-              );
-            if (!hasExactKeys(source, ['kind', 'path']))
-              return fail(
-                'Script Module file source has an unsupported shape.',
-                `/scripts/${id}/data/source`,
-              );
-            if (scriptSourceOwners.has(source.path))
-              return fail(
-                'Two Script Modules cannot own the same Lua source file.',
-                `/scripts/${id}/data/source/path`,
-              );
-            scriptSourceOwners.add(source.path);
-            scriptSourcePaths[id] = source.path;
-            let text: string;
-            try {
-              const absolute = this.fileSystem.joinPath(discovered.projectRoot, source.path);
-              await this.assertContained(discovered.projectRoot, absolute);
-              const real = await this.fileSystem.realpath(absolute);
-              if (
-                !relative(
-                  this.fileSystem.relativePath(
-                    await this.fileSystem.realpath(discovered.projectRoot),
-                    real,
-                  ),
-                ).startsWith('scripts/')
-              )
-                return fail('Script Module source is not in scripts/.');
-              if (scriptRealSourceOwners.has(real))
-                return fail(
-                  'Two Script Modules cannot own the same Lua source file.',
-                  `/scripts/${id}/data/source/path`,
-                );
-              scriptRealSourceOwners.add(real);
-              text = await this.fileSystem.readText(absolute);
-            } catch {
-              return fail(
-                'Script Module source file is missing.',
-                `/scripts/${id}/data/source/path`,
-              );
-            }
-            (raw.data as { source: unknown }).source = { kind: 'inline-lua', source: text };
-          } else if (source?.kind === 'inline-lua')
-            return fail(
-              'Script Module inline Lua must be persisted as a file source.',
-              `/scripts/${id}/data/source`,
+          const discovered = await this.discover(projectRoot);
+          const complete = (result: ProjectWorkspaceOpenResult) => {
+            resolve(result);
+            return result;
+          };
+          const fail = (message: string, path?: string, code?: string) =>
+            complete(
+              workspaceError(discovered.projectRoot, discovered.manifestPath, message, path, code),
             );
+          if (options.recoverTransactions === false) {
+            const transactionRoot = this.fileSystem.joinPath(
+              discovered.projectRoot,
+              '.noveltea/transactions',
+            );
+            const pending = (await this.fileSystem.listDirectory(transactionRoot)).filter(
+              (entry) => entry !== '.writer-lock',
+            );
+            if (pending.length > 0)
+              return fail(
+                'The workspace has a pending transaction that requires recovery before a read-only dry run.',
+                '/.noveltea/transactions',
+                'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
+              );
+          } else {
+            try {
+              await this.transactions.recover(discovered.projectRoot);
+            } catch (error) {
+              if (error instanceof ProjectWorkspaceMutationError)
+                return fail(error.message, '/.noveltea/transactions', error.code);
+              throw error;
+            }
+          }
+          let manifest: Record<string, unknown>;
+          try {
+            await this.assertContained(discovered.projectRoot, discovered.manifestPath);
+            const value = JSON.parse(await this.fileSystem.readText(discovered.manifestPath));
+            if (!value || typeof value !== 'object' || Array.isArray(value))
+              return fail('project.json must be an object.');
+            manifest = value as Record<string, unknown>;
+          } catch {
+            return fail(
+              'Current project discovery requires a readable workspace-v1 project.json.',
+              '/project.json',
+            );
+          }
+          if (
+            manifest.schema !== PROJECT_WORKSPACE_SCHEMA ||
+            manifest.schemaVersion !== PROJECT_WORKSPACE_SCHEMA_VERSION
+          )
+            return fail('Project must use the current NovelTea workspace schema.', '/schema');
+          const required = ['project', 'settings', 'startupHook', 'entrypoint'];
+          if (Object.keys(manifest).length !== 6 || !required.every((key) => key in manifest))
+            return fail('project.json has an unsupported workspace-v1 shape.');
+          let properties: unknown;
+          let localization: unknown;
+          let editor: Record<string, unknown>;
+          let trackedEditor: ReturnType<typeof parseTrackedEditorOrganization>;
+          try {
+            await this.assertContained(
+              discovered.projectRoot,
+              this.fileSystem.joinPath(discovered.projectRoot, 'properties.json'),
+            );
+            await this.assertContained(
+              discovered.projectRoot,
+              this.fileSystem.joinPath(discovered.projectRoot, 'localization.json'),
+            );
+            await this.assertContained(
+              discovered.projectRoot,
+              this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
+            );
+            properties = JSON.parse(
+              await this.fileSystem.readText(
+                this.fileSystem.joinPath(discovered.projectRoot, 'properties.json'),
+              ),
+            );
+            localization = JSON.parse(
+              await this.fileSystem.readText(
+                this.fileSystem.joinPath(discovered.projectRoot, 'localization.json'),
+              ),
+            );
+            const value = JSON.parse(
+              await this.fileSystem.readText(
+                this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
+              ),
+            );
+            if (!value || typeof value !== 'object' || Array.isArray(value))
+              return fail('editor.json must be an object.', '/editor.json');
+            editor = value as Record<string, unknown>;
+            if (Object.keys(editor).sort().join(',') !== 'chapters,recordMetadata,tags')
+              return fail(
+                'editor.json must contain exactly tracked organization fields.',
+                '/editor.json',
+              );
+            trackedEditor = parseTrackedEditorOrganization(editor);
+            if (!trackedEditor)
+              return fail('editor.json tracked organization fields are malformed.', '/editor.json');
+          } catch {
+            return fail('Required workspace fragments are missing or malformed.');
+          }
+          const collections = Object.fromEntries(
+            authoringCollectionKeys.map((key) => [key, {}]),
+          ) as Record<AuthoringCollectionKey, Record<string, unknown>>;
+          const scriptSourceOwners = new Set<string>();
+          const scriptRealSourceOwners = new Set<string>();
+          const layoutRealSourceOwners = new Set<string>();
+          const scriptSourcePaths: Record<string, string> = {};
+          const recordsRoot = this.fileSystem.joinPath(discovered.projectRoot, 'records');
+          if ((await this.fileSystem.inspect(recordsRoot)) !== 'missing') {
+            try {
+              await this.assertContained(discovered.projectRoot, recordsRoot);
+            } catch {
+              return fail('records/ escapes the project root.', '/records');
+            }
+          }
+          for (const directory of await this.fileSystem.listDirectory(recordsRoot)) {
+            if (!knownCollections.has(directory))
+              return fail(`Unknown records collection '${directory}'.`, `/records/${directory}`);
+            const collection = directory as AuthoringCollectionKey;
+            const collectionPath = this.fileSystem.joinPath(recordsRoot, directory);
+            try {
+              await this.assertContained(discovered.projectRoot, collectionPath);
+            } catch {
+              return fail('Record collection escapes the project root.', `/records/${directory}`);
+            }
+            for (const entry of await this.fileSystem.listDirectory(collectionPath)) {
+              if (collection === 'layouts') {
+                const layoutPath = this.fileSystem.joinPath(collectionPath, entry);
+                if ((await this.fileSystem.inspect(layoutPath)) !== 'directory')
+                  return fail('Layout records must be directories.', `/records/layouts/${entry}`);
+                try {
+                  await this.assertContained(discovered.projectRoot, layoutPath);
+                } catch {
+                  return fail(
+                    'Layout record escapes the project root.',
+                    `/records/layouts/${entry}`,
+                  );
+                }
+                const idOk = entityIdSchema.safeParse(entry).success;
+                if (!idOk)
+                  return fail(
+                    'Layout path does not contain a valid record ID.',
+                    `/records/layouts/${entry}`,
+                  );
+                const file = this.fileSystem.joinPath(layoutPath, 'layout.json');
+                let raw: Record<string, unknown>;
+                try {
+                  await this.assertContained(discovered.projectRoot, file);
+                  raw = JSON.parse(await this.fileSystem.readText(file)) as Record<string, unknown>;
+                } catch {
+                  return fail(
+                    'Layout record is malformed.',
+                    `/records/layouts/${entry}/layout.json`,
+                  );
+                }
+                if (raw.id !== entry)
+                  return fail(
+                    'Layout record ID does not match its path.',
+                    `/records/layouts/${entry}`,
+                  );
+                const data = raw.data as Record<string, Record<string, unknown>>;
+                for (const channel of ['rml', 'rcss', 'lua'] as const) {
+                  const source = data?.[channel];
+                  if (!source || typeof source !== 'object')
+                    return fail(
+                      'Layout source selector is malformed.',
+                      `/layouts/${entry}/data/${channel}`,
+                    );
+                  const companion = this.fileSystem.joinPath(layoutPath, `layout.${channel}`);
+                  if (source.sourceMode === 'file') {
+                    if (!hasExactKeys(source, ['sourceMode']))
+                      return fail(
+                        'Layout file selector has an unsupported shape.',
+                        `/layouts/${entry}/data/${channel}`,
+                      );
+                    try {
+                      await this.assertContained(discovered.projectRoot, companion);
+                      const real = await this.fileSystem.realpath(companion);
+                      if (layoutRealSourceOwners.has(real))
+                        return fail(
+                          'Two Layout channels cannot own the same companion source file.',
+                          `/records/layouts/${entry}/layout.${channel}`,
+                        );
+                      layoutRealSourceOwners.add(real);
+                      source.sourceText = await this.fileSystem.readText(companion);
+                      source.sourceMode = 'inline';
+                      source.sourceAsset = null;
+                    } catch {
+                      return fail(
+                        `Missing Layout ${channel.toUpperCase()} companion source.`,
+                        `/records/layouts/${entry}/layout.${channel}`,
+                      );
+                    }
+                  } else if (source.sourceMode === 'asset') {
+                    if (!hasExactKeys(source, ['sourceMode', 'sourceAsset']))
+                      return fail(
+                        'Layout asset selector has an unsupported shape.',
+                        `/layouts/${entry}/data/${channel}`,
+                      );
+                    if ((await this.fileSystem.inspect(companion)) !== 'missing')
+                      return fail(
+                        'Layout companion exists without a file selector.',
+                        `/records/layouts/${entry}/layout.${channel}`,
+                      );
+                    source.sourceMode = 'asset';
+                    source.sourceAsset ??= null;
+                  } else if (channel === 'lua' && source.sourceMode === 'none') {
+                    if (!hasExactKeys(source, ['sourceMode']))
+                      return fail(
+                        'Layout none selector has an unsupported shape.',
+                        `/layouts/${entry}/data/${channel}`,
+                      );
+                    if ((await this.fileSystem.inspect(companion)) !== 'missing')
+                      return fail(
+                        'Layout companion exists without a file selector.',
+                        `/records/layouts/${entry}/layout.${channel}`,
+                      );
+                    source.sourceMode = 'inline';
+                    source.sourceText = '';
+                    source.sourceAsset = null;
+                  } else
+                    return fail(
+                      'Layout source selector is unsupported.',
+                      `/layouts/${entry}/data/${channel}`,
+                    );
+                }
+                collections.layouts[entry] = raw;
+                continue;
+              }
+              if (!entry.endsWith('.json'))
+                return fail(
+                  'Record files must use canonical .json names.',
+                  `/records/${collection}/${entry}`,
+                );
+              const id = entry.slice(0, -5);
+              if (!entityIdSchema.safeParse(id).success)
+                return fail(
+                  'Record path does not contain a valid ID.',
+                  `/records/${collection}/${entry}`,
+                );
+              let raw: Record<string, unknown>;
+              try {
+                await this.assertContained(
+                  discovered.projectRoot,
+                  this.fileSystem.joinPath(collectionPath, entry),
+                );
+                raw = JSON.parse(
+                  await this.fileSystem.readText(this.fileSystem.joinPath(collectionPath, entry)),
+                ) as Record<string, unknown>;
+              } catch {
+                return fail('Record is malformed.', `/records/${collection}/${entry}`);
+              }
+              if (raw.id !== id)
+                return fail(
+                  'Record ID does not match its path.',
+                  `/records/${collection}/${entry}`,
+                );
+              if (collection === 'scripts') {
+                const source = (raw.data as { source?: { kind?: string; path?: unknown } }).source;
+                if (source?.kind === 'file') {
+                  if (
+                    !isSafeRelativePath(source.path) ||
+                    !source.path.startsWith('scripts/') ||
+                    !source.path.endsWith('.lua')
+                  )
+                    return fail(
+                      'Script Module file source path is invalid.',
+                      `/scripts/${id}/data/source/path`,
+                    );
+                  if (!hasExactKeys(source, ['kind', 'path']))
+                    return fail(
+                      'Script Module file source has an unsupported shape.',
+                      `/scripts/${id}/data/source`,
+                    );
+                  if (scriptSourceOwners.has(source.path))
+                    return fail(
+                      'Two Script Modules cannot own the same Lua source file.',
+                      `/scripts/${id}/data/source/path`,
+                    );
+                  scriptSourceOwners.add(source.path);
+                  scriptSourcePaths[id] = source.path;
+                  let text: string;
+                  try {
+                    const absolute = this.fileSystem.joinPath(discovered.projectRoot, source.path);
+                    await this.assertContained(discovered.projectRoot, absolute);
+                    const real = await this.fileSystem.realpath(absolute);
+                    if (
+                      !relative(
+                        this.fileSystem.relativePath(
+                          await this.fileSystem.realpath(discovered.projectRoot),
+                          real,
+                        ),
+                      ).startsWith('scripts/')
+                    )
+                      return fail('Script Module source is not in scripts/.');
+                    if (scriptRealSourceOwners.has(real))
+                      return fail(
+                        'Two Script Modules cannot own the same Lua source file.',
+                        `/scripts/${id}/data/source/path`,
+                      );
+                    scriptRealSourceOwners.add(real);
+                    text = await this.fileSystem.readText(absolute);
+                  } catch {
+                    return fail(
+                      'Script Module source file is missing.',
+                      `/scripts/${id}/data/source/path`,
+                    );
+                  }
+                  (raw.data as { source: unknown }).source = { kind: 'inline-lua', source: text };
+                } else if (source?.kind === 'inline-lua')
+                  return fail(
+                    'Script Module inline Lua must be persisted as a file source.',
+                    `/scripts/${id}/data/source`,
+                  );
+              }
+              collections[collection][id] = raw;
+            }
+          }
+          const localPath = this.fileSystem.joinPath(
+            discovered.projectRoot,
+            '.noveltea/editor/state.json',
+          );
+          let local = emptyEditorProjectState();
+          try {
+            const raw = JSON.parse(await this.fileSystem.readText(localPath)) as Record<
+              string,
+              unknown
+            >;
+            const parsedLocal = editorLocalStateSchema.safeParse(raw);
+            if (parsedLocal.success) {
+              const { workspaceRevision: _workspaceRevision, ...localFields } = parsedLocal.data;
+              local = {
+                ...emptyEditorProjectState(),
+                ...localFields,
+                schema: emptyEditorProjectState().schema,
+                schemaVersion: emptyEditorProjectState().schemaVersion,
+                contentFingerprint: emptyEditorProjectState().contentFingerprint,
+              };
+            }
+          } catch {
+            /* optional local state */
+          }
+          const candidate = {
+            schema: AUTHORING_PROJECT_SCHEMA,
+            schemaVersion: AUTHORING_PROJECT_SCHEMA_VERSION,
+            ...manifest,
+            properties,
+            localization,
+            editor: {
+              ...local,
+              chapters: trackedEditor.chapters,
+              tags: trackedEditor.tags,
+              recordMetadata: trackedEditor.recordMetadata,
+            },
+            ...collections,
+          };
+          delete (candidate as Record<string, unknown>).schemaVersion;
+          (candidate as Record<string, unknown>).schema = AUTHORING_PROJECT_SCHEMA;
+          (candidate as Record<string, unknown>).schemaVersion = AUTHORING_PROJECT_SCHEMA_VERSION;
+          const decoded = authoringProjectSchema.safeParse(candidate);
+          if (!decoded.success)
+            return fail('Workspace fragments do not assemble into the current authoring project.');
+          // Preserve the separately validated tracked editor organization after
+          // AuthoringProject parsing. Perry 0.5.1220 otherwise loses the nested
+          // dynamic recordMetadata map while Node preserves it.
+          decoded.data.editor.chapters = trackedEditor.chapters;
+          decoded.data.editor.tags = trackedEditor.tags;
+          decoded.data.editor.recordMetadata = trackedEditor.recordMetadata;
+          const projected = projectWorkspaceFiles(
+            decoded.data,
+            decoded.data.editor,
+            scriptSourcePaths,
+          );
+          let assets: string[];
+          try {
+            assets = assetSourcePaths(decoded.data);
+          } catch (error) {
+            return fail(error instanceof Error ? error.message : 'Asset source path is invalid.');
+          }
+          const canonicalSourceFiles = [...new Set([...Object.keys(projected), ...assets])].sort(
+            compareProjectWorkspaceUnicodeCodePoints,
+          );
+          const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {};
+          for (const file of canonicalSourceFiles) {
+            const revision = await readWorkspaceFileRevision(
+              this.fileSystem,
+              discovered.projectRoot,
+              file,
+            );
+            if (revision === null)
+              return fail(`Authoritative source file '${file}' is missing.`, `/${file}`);
+            fileRevisions[file] = revision;
+          }
+          const workspaceRevision = aggregateRevision(fileRevisions);
+          const contentProject = { ...decoded.data, editor: undefined };
+          const fingerprint = sha256HexUtf8(canonicalJson(contentProject, authoringProjectSchema));
+          const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
+            snapshotKind: 'loaded',
+            projectRoot: discovered.projectRoot,
+            manifestPath: discovered.manifestPath,
+            project: decoded.data,
+            workspaceRevision,
+            sourceRevision: workspaceRevision,
+            canonicalSourceFiles: Object.freeze(canonicalSourceFiles),
+            // canonicalSourceFiles is already sorted, and fileRevisions is populated
+            // in that order, so preserve it without a redundant reconstruction.
+            fileRevisions: Object.freeze(fileRevisions),
+            saveUnitFileOwnership: ownershipFor(decoded.data, scriptSourcePaths),
+            externalSourceDescriptors: externalDescriptors(decoded.data, scriptSourcePaths),
+            scriptSourcePaths: Object.freeze(sortKeys(scriptSourcePaths)),
+          });
+          const result: ProjectWorkspaceOpenResult = {
+            ok: true,
+            snapshot,
+            diagnostics: validateAuthoringProject(decoded.data),
+            editorState: local,
+            repairs: [],
+            contentFingerprint: fingerprint,
+            contentProject,
+            savedContentProject: contentProject,
+          };
+          return complete(result);
+        } catch (error) {
+          reject(error);
         }
-        collections[collection][id] = raw;
-      }
-    }
-    const localPath = this.fileSystem.joinPath(
-      discovered.projectRoot,
-      '.noveltea/editor/state.json',
-    );
-    let local = emptyEditorProjectState();
-    try {
-      const raw = JSON.parse(await this.fileSystem.readText(localPath)) as Record<string, unknown>;
-      const parsedLocal = editorLocalStateSchema.safeParse(raw);
-      if (parsedLocal.success) {
-        const { workspaceRevision: _workspaceRevision, ...localFields } = parsedLocal.data;
-        local = {
-          ...emptyEditorProjectState(),
-          ...localFields,
-          schema: emptyEditorProjectState().schema,
-          schemaVersion: emptyEditorProjectState().schemaVersion,
-          contentFingerprint: emptyEditorProjectState().contentFingerprint,
-        };
-      }
-    } catch {
-      /* optional local state */
-    }
-    const candidate = {
-      schema: AUTHORING_PROJECT_SCHEMA,
-      schemaVersion: AUTHORING_PROJECT_SCHEMA_VERSION,
-      ...manifest,
-      properties,
-      localization,
-      editor: {
-        ...local,
-        chapters: editor.chapters,
-        tags: editor.tags,
-        recordMetadata: editor.recordMetadata,
-      },
-      ...collections,
-    };
-    delete (candidate as Record<string, unknown>).schemaVersion;
-    (candidate as Record<string, unknown>).schema = AUTHORING_PROJECT_SCHEMA;
-    (candidate as Record<string, unknown>).schemaVersion = AUTHORING_PROJECT_SCHEMA_VERSION;
-    const decoded = authoringProjectSchema.safeParse(candidate);
-    if (!decoded.success)
-      return fail('Workspace fragments do not assemble into the current authoring project.');
-    const projected = projectWorkspaceFiles(decoded.data, local, scriptSourcePaths);
-    let assets: string[];
-    try {
-      assets = assetSourcePaths(decoded.data);
-    } catch (error) {
-      return fail(error instanceof Error ? error.message : 'Asset source path is invalid.');
-    }
-    const canonicalSourceFiles = [...new Set([...Object.keys(projected), ...assets])].sort(
-      compareProjectWorkspaceUnicodeCodePoints,
-    );
-    const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {};
-    for (const file of canonicalSourceFiles) {
-      try {
-        const absolute = this.fileSystem.joinPath(discovered.projectRoot, file);
-        await this.assertContained(discovered.projectRoot, absolute);
-        const bytes = await this.fileSystem.readBytes(absolute);
-        fileRevisions[file] = {
-          contentHash: sha256PrefixedBytes(bytes),
-          byteSize: bytes.byteLength,
-        };
-      } catch {
-        return fail(`Authoritative source file '${file}' is missing.`, `/${file}`);
-      }
-    }
-    const workspaceRevision = aggregateRevision(fileRevisions);
-    const contentProject = { ...decoded.data, editor: undefined };
-    const fingerprint = sha256HexUtf8(canonicalJson(contentProject, authoringProjectSchema));
-    const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
-      snapshotKind: 'loaded',
-      projectRoot: discovered.projectRoot,
-      manifestPath: discovered.manifestPath,
-      project: decoded.data,
-      workspaceRevision,
-      sourceRevision: workspaceRevision,
-      canonicalSourceFiles: Object.freeze(canonicalSourceFiles),
-      fileRevisions: Object.freeze(sortKeys(fileRevisions)),
-      saveUnitFileOwnership: ownershipFor(decoded.data, scriptSourcePaths),
-      externalSourceDescriptors: externalDescriptors(decoded.data, scriptSourcePaths),
-      scriptSourcePaths: Object.freeze(sortKeys(scriptSourcePaths)),
+      })();
     });
-    return {
-      ok: true,
-      snapshot,
-      diagnostics: validateAuthoringProject(decoded.data),
-      editorState: local,
-      repairs: [],
-      contentFingerprint: fingerprint,
-      contentProject,
-      savedContentProject: contentProject,
-    };
   }
   async write(
     projectRoot: string,

@@ -5,8 +5,20 @@ import type { CliCommandDefinition, CliCommandInvocation } from './types';
 import { CliCommandUsageError } from './types';
 import { usagesCommand } from './usages-command';
 import { validateCommand } from './validate-command';
+import {
+  packageExportCommand,
+  shadersCompileCommand,
+  testRunCommand,
+  testRunSpecCommand,
+  testRunUiSpecCommand,
+} from './native-commands';
 
-const phaseSixCommands: readonly CliCommandDefinition[] = Object.freeze([
+const commands: readonly CliCommandDefinition[] = Object.freeze([
+  shadersCompileCommand,
+  testRunCommand,
+  testRunSpecCommand,
+  testRunUiSpecCommand,
+  packageExportCommand,
   entityCreateCommand,
   entityRenameCommand,
   entityDeleteCommand,
@@ -19,7 +31,7 @@ function matchesPath(command: readonly string[], path: readonly string[]): boole
 }
 
 export function parseCliCommand(command: readonly string[]): CliCommandInvocation {
-  const definition = phaseSixCommands.find((candidate) => matchesPath(command, candidate.path));
+  const definition = commands.find((candidate) => matchesPath(command, candidate.path));
   if (!definition) throw new CliCommandUsageError(`Unknown command path '${command.join(' ')}'.`);
   return definition.parse(command.slice(definition.path.length));
 }

@@ -161,6 +161,7 @@ target_compile_definitions(noveltea_content_tests PRIVATE
 target_link_libraries(noveltea_content_tests PRIVATE
     noveltea_content
     noveltea_domain
+    $<$<TARGET_EXISTS:noveltea_shader_tooling>:noveltea_shader_tooling>
     nlohmann_json::nlohmann_json
     # This lower-layer test binary has no bimg provider, so it intentionally links
     # the standalone miniz implementation used by the content codecs under test.
@@ -279,14 +280,6 @@ target_link_libraries(noveltea_host_tests PRIVATE
 target_compile_definitions(noveltea_host_tests PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 catch_discover_tests(noveltea_host_tests)
-
-add_test(
-    NAME noveltea_editor_tool_malformed_json
-    COMMAND /bin/sh -c "printf '{' | '$<TARGET_FILE:noveltea-editor-tool>' run-test || true"
-)
-set_tests_properties(noveltea_editor_tool_malformed_json PROPERTIES
-    PASS_REGULAR_EXPRESSION "Malformed request JSON"
-)
 
 # --- Text tests (text stack is mandatory) ---
 

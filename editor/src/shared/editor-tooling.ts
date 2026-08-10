@@ -120,8 +120,6 @@ export interface PackagePreviewResponse {
 }
 
 export interface ShaderCompileOptions {
-  shaderc?: string;
-  bgfxShaderIncludeDir?: string;
   projectRoot?: string;
   outputRoot?: string;
   cacheRoot?: string;

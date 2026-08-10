@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   analyzeAuthoringSourceContent,
@@ -34,7 +35,7 @@ import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { sha256HexUtf8 } from '../../shared/sha256';
+import { sha256HexBytes, sha256HexUtf8 } from '../../shared/sha256';
 import type { AuthoringSourceReferenceRecognizer } from '../../shared/authoring-source-references';
 
 const hash = (digit: string) => `sha256:${digit.repeat(64)}` as const;
@@ -47,6 +48,14 @@ describe('authoring Lua lexer', () => {
     expect(sha256HexUtf8('abc')).toBe(
       'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
     );
+  });
+
+  it('hashes block boundaries and large binary inputs without input-sized padding', () => {
+    for (const size of [55, 56, 63, 64, 65, 1024 * 1024 + 17]) {
+      const bytes = new Uint8Array(size);
+      for (let index = 0; index < bytes.length; index += 1) bytes[index] = index & 0xff;
+      expect(sha256HexBytes(bytes)).toBe(createHash('sha256').update(bytes).digest('hex'));
+    }
   });
 
   it('decodes Lua 5.5 quoted and long-bracket strings while skipping comments', () => {

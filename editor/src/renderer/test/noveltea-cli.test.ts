@@ -137,6 +137,55 @@ describe('NovelTea Phase 6 headless CLI', () => {
     expect(unsupportedAssetCreate.stderr).toContain('Generic Asset creation is not supported');
   });
 
+  it('reads stdin only for the exact test run-spec command path', async () => {
+    const value = fixture();
+    let reads = 0;
+    const unrelated = await runNovelTeaCli(
+      ['--json', 'entity', 'create', 'rooms', 'run-spec', '--dry-run'],
+      {
+        ...options(value),
+        readStdinText() {
+          reads += 1;
+          return '{}';
+        },
+      },
+    );
+    expect(unrelated.exitCode).toBe(0);
+    expect(reads).toBe(0);
+
+    const nativeTools: NovelTeaCliNativeToolService = {
+      async compileShaders() {
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async runHeadlessTest() {
+        return { ok: true, success: true };
+      },
+      async runUiTest() {
+        return { ok: true, success: true };
+      },
+      async exportPackage() {
+        return { ok: true, success: true };
+      },
+      shaderc() {
+        return 0;
+      },
+    };
+    const runSpec = await runNovelTeaCli(['--json', 'test', 'run-spec'], {
+      ...options(value, root, nativeTools),
+      readStdinText() {
+        reads += 1;
+        return JSON.stringify({
+          schema: 'noveltea.editor.playback',
+          version: 2,
+          id: 'stdin-test',
+          steps: [],
+        });
+      },
+    });
+    expect(runSpec.exitCode).toBe(0);
+    expect(reads).toBe(1);
+  });
+
   it('discovers project.json upward, accepts explicit roots, and ignores retired filenames', async () => {
     const value = fixture();
     const upward = await runNovelTeaCli(
@@ -219,6 +268,18 @@ describe('NovelTea Phase 6 headless CLI', () => {
         receivedOptions = compileOptions;
         return { ok: true, success: true, diagnostics: [], outputs: [] };
       },
+      async runHeadlessTest() {
+        return {};
+      },
+      async runUiTest() {
+        return {};
+      },
+      async exportPackage() {
+        return {};
+      },
+      shaderc() {
+        return 0;
+      },
     };
     const result = await runNovelTeaCli(['--json', 'validate'], options(value, root, nativeTools));
     expect(result.exitCode).toBe(0);
@@ -245,6 +306,18 @@ describe('NovelTea Phase 6 headless CLI', () => {
             ],
             outputs: [],
           };
+        },
+        async runHeadlessTest() {
+          return {};
+        },
+        async runUiTest() {
+          return {};
+        },
+        async exportPackage() {
+          return {};
+        },
+        shaderc() {
+          return 0;
         },
       }),
     );

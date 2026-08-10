@@ -34,6 +34,12 @@ set(rule_patterns
 set(failures "")
 foreach(source IN LISTS sources)
     file(RELATIVE_PATH relative "${SOURCE_ROOT}" "${source}")
+    # Native editor/build-host tooling is isolated from the shipped game runtime graph. In
+    # particular, embedded shaderc requires the normal host C++ exception/RTTI model, so runtime
+    # source restrictions do not apply to this directory.
+    if(relative MATCHES "^tools/editor_tool/")
+        continue()
+    endif()
     file(STRINGS "${source}" lines)
     set(line_number 0)
     foreach(line IN LISTS lines)

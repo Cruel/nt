@@ -19,10 +19,7 @@ import {
   type NovelTeaCliExitCode,
 } from './contracts';
 import { openCliProject } from './semantic-project';
-import {
-  createSubprocessNovelTeaCliNativeToolService,
-  type NovelTeaCliNativeToolService,
-} from './native-tool-service';
+import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import { CliCommandUsageError, parseCliCommand } from './commands';
 
 interface ParsedGlobalArguments {
@@ -45,7 +42,27 @@ export interface RunNovelTeaCliOptions {
   readonly fileSystem?: ProjectWorkspaceFileSystem;
   readonly workspace?: ProjectWorkspaceService;
   readonly nativeTools?: NovelTeaCliNativeToolService;
+  readonly stdinText?: string;
+  readonly readStdinText?: () => string;
 }
+
+const unavailableNativeTools: NovelTeaCliNativeToolService = {
+  compileShaders() {
+    return Promise.reject(new Error('Native NovelTea tooling is unavailable in this CLI host.'));
+  },
+  runHeadlessTest() {
+    return Promise.reject(new Error('Native NovelTea tooling is unavailable in this CLI host.'));
+  },
+  runUiTest() {
+    return Promise.reject(new Error('Native NovelTea tooling is unavailable in this CLI host.'));
+  },
+  exportPackage() {
+    return Promise.reject(new Error('Native NovelTea tooling is unavailable in this CLI host.'));
+  },
+  shaderc() {
+    throw new Error('Native NovelTea tooling is unavailable in this CLI host.');
+  },
+};
 
 function parseGlobals(argv: readonly string[]): ParsedGlobalArguments {
   let json = false;
@@ -187,6 +204,38 @@ export async function runNovelTeaCli(
   }
   if (globals.command.length === 0) return usageFailure('A command is required.', globals.json);
 
+  const nativeTools = options.nativeTools ?? unavailableNativeTools;
+  if (globals.command[0] === 'shaderc') {
+    if (globals.json)
+      return usageFailure("Raw 'shaderc' does not support NovelTea --json mode.", true);
+    let exitCode: number;
+    try {
+      exitCode = nativeTools.shaderc(globals.command.slice(1));
+    } catch (error) {
+      return failure(
+        NOVELTEA_CLI_EXIT_CODES.internal,
+        [
+          cliDiagnostic(
+            'CLI_INTERNAL',
+            '/',
+            error instanceof Error ? error.message : String(error),
+          ),
+        ],
+        globals.json,
+      );
+    }
+    return {
+      exitCode: exitCode as NovelTeaCliExitCode,
+      envelope: {
+        success: exitCode === 0,
+        exitCode: exitCode as NovelTeaCliExitCode,
+        diagnostics: [],
+      },
+      stdout: '',
+      stderr: '',
+    };
+  }
+
   let command;
   try {
     command = parseCliCommand(globals.command);
@@ -197,7 +246,21 @@ export async function runNovelTeaCli(
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const fileSystem = options.fileSystem ?? createNodeProjectWorkspaceFileSystem();
   const workspace = options.workspace ?? createNodeProjectWorkspaceService();
-  const nativeTools = options.nativeTools ?? createSubprocessNovelTeaCliNativeToolService();
+  let stdinJson: unknown;
+  if (
+    globals.command.length === 2 &&
+    globals.command[0] === 'test' &&
+    (globals.command[1] === 'run-spec' || globals.command[1] === 'run-ui-spec')
+  ) {
+    try {
+      const stdinText = options.stdinText ?? options.readStdinText?.();
+      if (!stdinText || stdinText.trim() === '')
+        throw new Error('Command requires one UTF-8 JSON value on stdin.');
+      stdinJson = JSON.parse(stdinText) as unknown;
+    } catch (error) {
+      return usageFailure(error instanceof Error ? error.message : String(error), globals.json);
+    }
+  }
 
   const discovery = await resolvedProjectRoot(globals, cwd, fileSystem);
   if (!discovery.ok) {
@@ -219,6 +282,8 @@ export async function runNovelTeaCli(
 
   try {
     const semantic = await command.run({
+      cwd,
+      stdinJson,
       workspace,
       snapshot: opened.opened.snapshot,
       nativeTools,

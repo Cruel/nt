@@ -23,7 +23,7 @@ export const entityDeleteCommand: CliCommandDefinition = {
       dryRun,
       mutation: true,
       run: ({ workspace, snapshot }) =>
-        deleteEntity(workspace, snapshot, collection!, id!, {
+        deleteEntity(workspace, snapshot, collection, id!, {
           dryRun,
           force,
           allowPossibleSourceReferences,

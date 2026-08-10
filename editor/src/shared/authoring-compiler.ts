@@ -566,7 +566,7 @@ function linkAuthoringProject(context: CompilerContext): void {
   }
   const symbols = buildAuthoringSymbolTables(context.normalizedProject);
   const graph = buildAuthoringStructuralDependencyGraph(context.normalizedProject);
-  for (const edge of graph.edgesById.values()) {
+  for (const [, edge] of graph.edgesById) {
     if (!edge.facets.includes('reference-integrity')) continue;
     if (graph.nodesByKey.has(serializeAuthoringDependencyNodeKey(edge.target))) continue;
     const targetLabel =

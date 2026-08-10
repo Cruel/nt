@@ -944,8 +944,6 @@ export interface ProjectPlatformExportRequest {
   templateToken?: string;
   preparedRuntimeExport?: PreparedPlatformRuntimeExport;
   localState?: {
-    shaderc?: string;
-    bgfxShaderIncludeDir?: string;
     androidSdk?: string;
     androidNdk?: string;
     javaHome?: string;
@@ -1003,8 +1001,6 @@ const projectPlatformExportRequestSchema = z
     preparedRuntimeExport: preparedPlatformRuntimeExportSchema.optional(),
     localState: z
       .object({
-        shaderc: z.string().optional(),
-        bgfxShaderIncludeDir: z.string().optional(),
         androidSdk: z.string().optional(),
         androidNdk: z.string().optional(),
         javaHome: z.string().optional(),

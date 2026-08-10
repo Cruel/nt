@@ -109,8 +109,10 @@ staged file hash/mode/size, aggregate resource hashes, and relocation validation
 also executes a real `sharp` encode/decode operation and rejects undeclared files, source trees,
 tests, caches, type-only packages, private keys, and checkout-path leaks.
 
-The host `noveltea-editor-tool` must be built with the matching native release preset or supplied by
-`NOVELTEA_EDITOR_TOOL_PATH`. The profiler-enabled engine preview must exist at
+The standalone `noveltea` CLI must be built for the release-admitted host or supplied by
+`NOVELTEA_CLI_PATH`. Normal staging refreshes the repository CLI automatically and copies it to
+`resources/bin/noveltea`; packaged native operations resolve that installation-relative binary and
+do not depend on `PATH`. The profiler-enabled engine preview must exist at
 `build/web-editor-preview/apps/editor_preview`; `pnpm -C editor run engine:preview:build` produces it.
 
 ## Packaging and Security

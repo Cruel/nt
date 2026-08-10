@@ -28,60 +28,9 @@ void write_text(const std::filesystem::path& path, std::string_view text)
     REQUIRE(file.good());
 }
 
-void make_executable(const std::filesystem::path& path)
-{
-    std::filesystem::permissions(path,
-                                 std::filesystem::perms::owner_exec |
-                                     std::filesystem::perms::owner_read |
-                                     std::filesystem::perms::owner_write,
-                                 std::filesystem::perm_options::add);
-}
-
-std::filesystem::path write_fake_shaderc(const std::filesystem::path& dir)
-{
-    const auto script = dir / "fake-shaderc.sh";
-    write_text(script, R"sh(#!/bin/sh
-out=""
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        -o)
-            shift
-            out="$1"
-            ;;
-    esac
-    shift
-done
-if [ -z "$out" ]; then
-    echo "missing output" >&2
-    exit 9
-fi
-mkdir -p "$(dirname "$out")"
-printf 'fake compiled shader\n' > "$out"
-exit 0
-)sh");
-    make_executable(script);
-    return script;
-}
-
-std::filesystem::path write_failing_shaderc(const std::filesystem::path& dir)
-{
-    const auto script = dir / "failing-shaderc.sh";
-    write_text(script, R"sh(#!/bin/sh
-echo "fake shaderc failure" >&2
-exit 7
-)sh");
-    make_executable(script);
-    return script;
-}
-
 noveltea::ShaderCompileOptions make_options(const std::filesystem::path& temp)
 {
-    const auto bgfx_include = temp / "bgfx-include";
-    write_text(bgfx_include / "bgfx_shader.sh", "// fake bgfx include\n");
-
     noveltea::ShaderCompileOptions options;
-    options.shaderc = write_fake_shaderc(temp);
-    options.bgfx_shader_include_dir = bgfx_include;
     options.project_root = temp / "project";
     options.output_root = temp / "generated";
     options.cache_root = temp / "cache";
@@ -91,8 +40,11 @@ noveltea::ShaderCompileOptions make_options(const std::filesystem::path& temp)
 
 noveltea::ShaderMaterialProject make_source_project(const std::filesystem::path& project_root)
 {
-    write_text(project_root / "shaders" / "sample.vs.sc", "// vertex\n");
-    write_text(project_root / "shaders" / "sample.fs.sc", "// fragment\n");
+    write_text(project_root / "shaders" / "sample.vs.sc",
+               "$input a_position\n#include <bgfx_shader.sh>\n"
+               "void main() { gl_Position = vec4(a_position, 0.0, 1.0); }\n");
+    write_text(project_root / "shaders" / "sample.fs.sc",
+               "#include <bgfx_shader.sh>\nvoid main() { gl_FragColor = vec4(1.0); }\n");
 
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v2",
@@ -250,7 +202,7 @@ TEST_CASE("shader compiler compiles source_text through generated temporary sour
       "schema":"noveltea.shader-materials.v2",
       "shaders":{
         "inline_effect":{
-          "stages":{"fragment":{"source_text":"// inline fragment\n"}},
+          "stages":{"fragment":{"source_text":"#include <bgfx_shader.sh>\nvoid main() { gl_FragColor = vec4(1.0); }\n"}},
           "roles":["engine-2d"],
           "role_bindings":{}
         }
@@ -276,9 +228,10 @@ TEST_CASE("shader compiler failure diagnostics include command context and compi
 {
     const auto temp = unique_temp_dir("failure");
     auto options = make_options(temp);
-    options.shaderc = write_failing_shaderc(temp);
     options.variants = noveltea::shader_compile_variants_from_names({"glsl-120"});
     const auto project = make_source_project(options.project_root);
+    write_text(options.project_root / "shaders" / "sample.fs.sc",
+               "this is not valid shader code\n");
 
     const noveltea::ShaderCompilerService compiler;
     const auto result = compiler.compile_shader_project(project, options);
@@ -288,17 +241,16 @@ TEST_CASE("shader compiler failure diagnostics include command context and compi
     CHECK(result.diagnostics.front().code == noveltea::ShaderCompileDiagnosticCode::CompilerFailed);
     CHECK(diagnostic_mentions(result, "sample_effect"));
     CHECK(diagnostic_mentions(result, "glsl-120"));
-    CHECK(diagnostic_mentions(result, "fake shaderc failure"));
+    CHECK(diagnostic_mentions(result, "sample.fs.sc"));
     CHECK(diagnostic_mentions(result, "--platform"));
 
     std::filesystem::remove_all(temp);
 }
 
-TEST_CASE("shader compiler reports missing source and missing tool diagnostics")
+TEST_CASE("shader compiler reports missing source diagnostics without an external tool path")
 {
     const auto temp = unique_temp_dir("missing");
     auto options = make_options(temp);
-    options.shaderc = temp / "missing-shaderc";
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v2",
       "shaders":{
@@ -314,12 +266,7 @@ TEST_CASE("shader compiler reports missing source and missing tool diagnostics")
 
     REQUIRE_FALSE(result.success());
     REQUIRE_FALSE(result.diagnostics.empty());
-    CHECK(result.diagnostics.front().code == noveltea::ShaderCompileDiagnosticCode::MissingShaderc);
-
-    options.shaderc = write_fake_shaderc(temp);
-    const auto source_result = compiler.compile_shader_project(*parsed.project, options);
-    REQUIRE_FALSE(source_result.success());
-    CHECK(diagnostic_mentions(source_result, "missing.fs.sc"));
+    CHECK(diagnostic_mentions(result, "missing.fs.sc"));
 
     std::filesystem::remove_all(temp);
 }

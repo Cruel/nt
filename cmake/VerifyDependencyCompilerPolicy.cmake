@@ -55,6 +55,12 @@ foreach(index RANGE 0 ${last_command})
         endif()
     endforeach()
 
+    # editor_tool is host/build tooling, not part of the shipped player/runtime graph. It embeds
+    # upstream shaderc and is intentionally allowed to use the host C++ exception/RTTI model.
+    if(source MATCHES "/tools/editor_tool/")
+        set(is_first_party FALSE)
+    endif()
+
     string(JSON command GET "${commands}" ${index} command)
     if(is_first_party)
         math(EXPR found_first_party_commands "${found_first_party_commands} + 1")

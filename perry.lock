@@ -1,0 +1,4 @@
+version = 1
+
+[native_library."@noveltea/tooling-native".sha256_per_target]
+linux-x86_64 = "943336dcf27524d7448f5b2183d396273c3a328b7138950dd8fb997b20f265bc"

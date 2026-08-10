@@ -494,7 +494,10 @@ export function assembleAuthoringDependencyGraph(
   const edgeOwnerContributionKeys = new Map<string, string>();
   const diagnostics: AuthoringDependencyGraphDiagnostic[] = [];
 
-  for (const contribution of contributionSet.byKey.values()) {
+  // Perry 0.5.1220 misdispatches `.values()` when this custom ImmutableMap is
+  // observed through its ReadonlyMap interface. Direct map iteration uses the
+  // wrapper's Symbol.iterator path and preserves all entries under Node/Perry.
+  for (const [, contribution] of contributionSet.byKey) {
     for (const node of contribution.nodes) {
       const keyText = serializeAuthoringDependencyNodeKey(node.key);
       if (node.keyText !== keyText) {
@@ -532,7 +535,6 @@ export function assembleAuthoringDependencyGraph(
     }
     diagnostics.push(...contribution.diagnostics.map(freezeDiagnostic));
   }
-
   const sortedNodes = [...nodes].sort(([left], [right]) => left.localeCompare(right));
   const sortedEdges = [...edgesByRelationship.values()].sort(compareEdges);
   const outgoing = new Map<string, string[]>();

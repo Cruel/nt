@@ -48,8 +48,14 @@ function roleLabel(role: AuthoringDependencyEdge['role']): string {
     .join(' ');
 }
 
+function readonlyMapValues<K, V>(map: ReadonlyMap<K, V>): V[] {
+  const values: V[] = [];
+  for (const [, value] of map) values.push(value);
+  return values;
+}
+
 function nodeLabel(snapshot: AuthoringDependencyGraphSnapshot, key: AuthoringDependencyNodeKey) {
-  const node = [...snapshot.graph.nodesByKey.values()].find((candidate) =>
+  const node = readonlyMapValues(snapshot.graph.nodesByKey).find((candidate) =>
     keyEquals(candidate.key, key),
   );
   if (node) return node.label;
@@ -82,7 +88,7 @@ export function semanticUsagesForTarget(
   target: ReferenceTarget | AuthoringDependencyNodeKey,
 ): readonly SemanticGraphUsage[] {
   const key = 'collection' in target ? targetKey(target) : target;
-  const usages = [...snapshot.graph.edgesById.values()]
+  const usages = readonlyMapValues(snapshot.graph.edgesById)
     .filter((edge) => keyEquals(edge.target, key))
     .map((edge) => {
       const sourceLocation = occurrenceLocation(edge);

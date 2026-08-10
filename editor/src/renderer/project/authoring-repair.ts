@@ -32,13 +32,19 @@ function keyEquals(left: AuthoringDependencyNodeKey, right: AuthoringDependencyN
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function readonlyMapValues<K, V>(map: ReadonlyMap<K, V>): V[] {
+  const values: V[] = [];
+  for (const [, value] of map) values.push(value);
+  return values;
+}
+
 function repairTargetsForTarget(
   snapshot: AuthoringDependencyGraphSnapshot,
   target: AuthoringDependencyNodeKey,
 ): readonly AuthoringDependencyNodeKey[] {
   const targets = [target];
   if (target.kind === 'record' && target.collection === 'rooms') {
-    for (const node of snapshot.graph.nodesByKey.values())
+    for (const [, node] of snapshot.graph.nodesByKey)
       if (
         node.key.kind === 'nested' &&
         node.key.ownerCollection === 'rooms' &&
@@ -56,7 +62,7 @@ export function authoringRepairEdgesForTarget(
 ) {
   if (!snapshot) return [];
   const repairTargets = repairTargetsForTarget(snapshot, target);
-  return [...snapshot.graph.edgesById.values()].filter(
+  return readonlyMapValues(snapshot.graph.edgesById).filter(
     (edge) =>
       repairTargets.some((repairTarget) => keyEquals(edge.target, repairTarget)) &&
       !keyEquals(edge.source, target),

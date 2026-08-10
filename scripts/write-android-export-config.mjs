@@ -52,17 +52,10 @@ async function main() {
 
   const androidSdk = requiredEnvironment(['ANDROID_SDK_ROOT', 'ANDROID_HOME'], 'Android SDK');
   const javaHome = requiredEnvironment(['JAVA_HOME'], 'Java home');
-  const shaderc = requiredEnvironment(['SHADERC', 'NOVELTEA_SHADERC'], 'shaderc');
-  const bgfxShaderIncludeDir = requiredEnvironment(
-    ['BGFX_SHADER_INCLUDE_DIR', 'BGFX_SHADER_INCLUDE', 'NOVELTEA_BGFX_SHADER_INCLUDE_DIR'],
-    'bgfx shader include directory',
-  );
 
   await Promise.all([
     requirePath(androidSdk, 'Android SDK'),
     requirePath(javaHome, 'Java home'),
-    requirePath(shaderc, 'shaderc'),
-    requirePath(path.join(bgfxShaderIncludeDir, 'bgfx_shader.sh'), 'bgfx_shader.sh'),
   ]);
 
   const outputPath = path.resolve(output);
@@ -71,7 +64,7 @@ async function main() {
   try {
     await writeFile(
       temporaryPath,
-      `${JSON.stringify({ androidSdk, javaHome, shaderc, bgfxShaderIncludeDir })}\n`,
+      `${JSON.stringify({ androidSdk, javaHome })}\n`,
       'utf8',
     );
     await rename(temporaryPath, outputPath);

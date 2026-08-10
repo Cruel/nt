@@ -1,4 +1,4 @@
-const ROUND_CONSTANTS = new Uint32Array([
+const ROUND_CONSTANTS = [
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
   0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
   0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -7,54 +7,49 @@ const ROUND_CONSTANTS = new Uint32Array([
   0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
   0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
   0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
-]);
-
-const INITIAL_STATE = new Uint32Array([
-  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
-]);
+] as const;
 
 const rotateRight = (value: number, shift: number) => (value >>> shift) | (value << (32 - shift));
 
 export function sha256HexBytes(input: Uint8Array): string {
-  const paddedLength = Math.ceil((input.length + 9) / 64) * 64;
-  const padded = new Uint8Array(paddedLength);
-  padded.set(input);
-  padded[input.length] = 0x80;
-  const bitLength = BigInt(input.length) * 8n;
-  for (let index = 0; index < 8; index += 1)
-    padded[paddedLength - 1 - index] = Number((bitLength >> BigInt(index * 8)) & 0xffn);
+  // Keep the mutable digest state as a fresh ordinary array. Perry 0.5.1220
+  // can corrupt repeated hashes when this state is created by copying a
+  // module-level Uint32Array in the full CLI program.
+  const state = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+  ];
+  const words = Array.from<number>({ length: 64 }).fill(0);
 
-  const state = new Uint32Array(INITIAL_STATE);
-  const words = new Uint32Array(64);
-  for (let offset = 0; offset < padded.length; offset += 64) {
+  const compress = (bytes: Uint8Array, offset: number) => {
     for (let index = 0; index < 16; index += 1) {
       const byteOffset = offset + index * 4;
       words[index] =
-        (padded[byteOffset] << 24) |
-        (padded[byteOffset + 1] << 16) |
-        (padded[byteOffset + 2] << 8) |
-        padded[byteOffset + 3];
+        ((bytes[byteOffset]! << 24) |
+          (bytes[byteOffset + 1]! << 16) |
+          (bytes[byteOffset + 2]! << 8) |
+          bytes[byteOffset + 3]!) >>>
+        0;
     }
     for (let index = 16; index < 64; index += 1) {
-      const previous15 = words[index - 15];
-      const previous2 = words[index - 2];
+      const previous15 = words[index - 15]!;
+      const previous2 = words[index - 2]!;
       const sigma0 = rotateRight(previous15, 7) ^ rotateRight(previous15, 18) ^ (previous15 >>> 3);
       const sigma1 = rotateRight(previous2, 17) ^ rotateRight(previous2, 19) ^ (previous2 >>> 10);
-      words[index] = (words[index - 16] + sigma0 + words[index - 7] + sigma1) >>> 0;
+      words[index] = (words[index - 16]! + sigma0 + words[index - 7]! + sigma1) >>> 0;
     }
 
-    let a = state[0];
-    let b = state[1];
-    let c = state[2];
-    let d = state[3];
-    let e = state[4];
-    let f = state[5];
-    let g = state[6];
-    let h = state[7];
+    let a = state[0]!;
+    let b = state[1]!;
+    let c = state[2]!;
+    let d = state[3]!;
+    let e = state[4]!;
+    let f = state[5]!;
+    let g = state[6]!;
+    let h = state[7]!;
     for (let index = 0; index < 64; index += 1) {
       const upperSigma1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
       const choice = (e & f) ^ (~e & g);
-      const temporary1 = (h + upperSigma1 + choice + ROUND_CONSTANTS[index] + words[index]) >>> 0;
+      const temporary1 = (h + upperSigma1 + choice + ROUND_CONSTANTS[index]! + words[index]!) >>> 0;
       const upperSigma0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
       const majority = (a & b) ^ (a & c) ^ (b & c);
       const temporary2 = (upperSigma0 + majority) >>> 0;
@@ -67,16 +62,44 @@ export function sha256HexBytes(input: Uint8Array): string {
       b = a;
       a = (temporary1 + temporary2) >>> 0;
     }
-    state[0] = (state[0] + a) >>> 0;
-    state[1] = (state[1] + b) >>> 0;
-    state[2] = (state[2] + c) >>> 0;
-    state[3] = (state[3] + d) >>> 0;
-    state[4] = (state[4] + e) >>> 0;
-    state[5] = (state[5] + f) >>> 0;
-    state[6] = (state[6] + g) >>> 0;
-    state[7] = (state[7] + h) >>> 0;
+    state[0] = (state[0]! + a) >>> 0;
+    state[1] = (state[1]! + b) >>> 0;
+    state[2] = (state[2]! + c) >>> 0;
+    state[3] = (state[3]! + d) >>> 0;
+    state[4] = (state[4]! + e) >>> 0;
+    state[5] = (state[5]! + f) >>> 0;
+    state[6] = (state[6]! + g) >>> 0;
+    state[7] = (state[7]! + h) >>> 0;
+  };
+
+  let offset = 0;
+  while (offset + 64 <= input.length) {
+    compress(input, offset);
+    offset += 64;
   }
-  return [...state].map((word) => word.toString(16).padStart(8, '0')).join('');
+
+  const remaining = input.length - offset;
+  const tail = new Uint8Array(remaining < 56 ? 64 : 128);
+  for (let index = 0; index < remaining; index += 1) tail[index] = input[offset + index]!;
+  tail[remaining] = 0x80;
+  const bitLength = input.length * 8;
+  const bitLengthHigh = Math.floor(bitLength / 0x1_0000_0000) >>> 0;
+  const bitLengthLow = bitLength >>> 0;
+  const lengthOffset = tail.length - 8;
+  tail[lengthOffset] = (bitLengthHigh >>> 24) & 0xff;
+  tail[lengthOffset + 1] = (bitLengthHigh >>> 16) & 0xff;
+  tail[lengthOffset + 2] = (bitLengthHigh >>> 8) & 0xff;
+  tail[lengthOffset + 3] = bitLengthHigh & 0xff;
+  tail[lengthOffset + 4] = (bitLengthLow >>> 24) & 0xff;
+  tail[lengthOffset + 5] = (bitLengthLow >>> 16) & 0xff;
+  tail[lengthOffset + 6] = (bitLengthLow >>> 8) & 0xff;
+  tail[lengthOffset + 7] = bitLengthLow & 0xff;
+  compress(tail, 0);
+  if (tail.length === 128) compress(tail, 64);
+
+  let hex = '';
+  for (const word of state) hex += word.toString(16).padStart(8, '0');
+  return hex;
 }
 
 export function sha256HexUtf8(value: string): string {

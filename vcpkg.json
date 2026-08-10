@@ -29,18 +29,6 @@
     "nlohmann-json"
   ],
   "features": {
-    "shader-tools": {
-      "description": "Install bgfx shader compiler tools for regenerating shader binaries.",
-      "dependencies": [
-        {
-          "name": "bgfx",
-          "host": true,
-          "features": [
-            "tools"
-          ]
-        }
-      ]
-    },
     "tests": {
       "description": "NovelTea native test dependencies.",
       "dependencies": [

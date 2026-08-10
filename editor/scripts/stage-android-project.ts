@@ -63,11 +63,9 @@ async function main(): Promise<void> {
   const projectPath = option(args, '--project');
   const profileId = option(args, '--profile');
   const outputRoot = option(args, '--output');
-  const shaderc = option(args, '--shaderc');
-  const bgfxShaderIncludeDir = option(args, '--bgfx-shader-include');
   if (!projectPath || !profileId || !outputRoot) {
     throw new Error(
-      'Usage: stage-android-project --project <project.json> --profile <id> --output <directory> [--shaderc <path> --bgfx-shader-include <path>]',
+      'Usage: stage-android-project --project <project.json> --profile <id> --output <directory>',
     );
   }
 
@@ -96,17 +94,12 @@ async function main(): Promise<void> {
   const runtimeProfile = runtimeExportProfileForPlatform(project, 'android');
   let exportProject = project;
   if (runtimeProfile.compileShadersBeforeExport && hasAuthoringShadersOrMaterials(project)) {
-    if (!shaderc || !bgfxShaderIncludeDir) {
-      throw new Error('Shader compilation requires --shaderc and --bgfx-shader-include.');
-    }
     const shaderProject = buildShaderMaterialProject(project);
     const capturedFingerprints = captureShaderCompileInputFingerprints(
       project,
       runtimeProfile.shaderVariants,
     );
     const response = (await compileShaders(shaderProject.project, {
-      shaderc,
-      bgfxShaderIncludeDir,
       projectRoot: loaded.projectPath,
       outputRoot: path.join(loaded.projectPath, '.noveltea', 'build'),
       cacheRoot: path.join(loaded.projectPath, '.noveltea', 'cache'),

@@ -12,6 +12,7 @@ const nodeRuntimeExternals = [
   ...new Set(builtinModules.flatMap((moduleName) => [moduleName, `node:${moduleName}`])),
 ];
 const electronRuntimeExternals = [...nodeRuntimeExternals, 'electron', 'sharp', /^sharp\//];
+const productionBuild = process.env.NODE_ENV === 'production';
 const editorCheckInputs = [
   'src/**/*',
   'scripts/**/*',
@@ -30,7 +31,7 @@ function shouldBundleNodeDependency(id: string): boolean {
 const commonNodePack = {
   platform: 'node' as const,
   target: 'node24.18',
-  sourcemap: true,
+  sourcemap: !productionBuild,
   hash: false,
   treeshake: true,
   deps: {
@@ -65,7 +66,7 @@ export default defineConfig({
   build: {
     outDir: path.resolve(editorRoot, 'dist-electron/renderer'),
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: !productionBuild,
   },
   test: {
     environment: 'jsdom',

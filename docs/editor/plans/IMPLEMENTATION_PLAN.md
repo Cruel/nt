@@ -45,9 +45,9 @@ The repository already has a useful editor foundation:
 - An Emscripten engine preview embedded through an iframe.
 - A typed `MessageChannel` preview handshake and command/event protocol.
 - A loopback-only preview server owned by the Electron main process.
-- A `noveltea-editor-tool` helper executable for project load/import,
-  validation, raw entity edits, playback tests, shader compilation, package
-  export, and related privileged work.
+- A bundled standalone `noveltea` CLI for validation, semantic entity
+  operations, playback tests, shader compilation, package export, and related
+  privileged/native work.
 - Basic project tree, raw JSON inspector, diagnostics, timeline, playback, and
   package export scaffolding.
 
@@ -474,7 +474,7 @@ Keep privileged operations in Electron main or helper tools:
 - Project filesystem reads/writes.
 - Asset import file copying.
 - External file watching.
-- Spawning `noveltea-editor-tool`.
+- Spawning the installation-relative bundled `noveltea` CLI for native operations.
 - Preview server lifecycle.
 - Opening external URLs.
 
@@ -482,7 +482,8 @@ Do not expose generic filesystem or IPC access to the renderer.
 
 ### Native Helper Services
 
-The `noveltea-editor-tool` should remain the native/engine-adjacent tool for:
+The bundled `noveltea` CLI and its `noveltea_tooling_native` library are the native/engine-adjacent
+tooling boundary for:
 
 - Project validation.
 - Runtime export/package building.
@@ -492,8 +493,7 @@ The `noveltea-editor-tool` should remain the native/engine-adjacent tool for:
 - Asset dependency analysis where native decoders are useful.
 - Runtime-safe schema export.
 
-As editor needs grow, prefer explicit helper commands over a generic command
-interpreter.
+As editor needs grow, prefer explicit CLI/native operations over a generic command interpreter.
 
 ## Preview Architecture
 
@@ -707,7 +707,7 @@ Initial features:
 - Texture slot declarations.
 - Material instances with inherited defaults.
 - Material preview mode with engine-rendered swatch/test geometry.
-- Compile variants through `noveltea-editor-tool`.
+- Compile variants through bundled `noveltea` native tooling.
 - Compile diagnostics and cache-hit display.
 - Keep previous valid preview after failed compile.
 - Material thumbnail sidebar.

@@ -151,6 +151,7 @@ const toolFiles = (await listFiles(path.join(outputRoot, 'tools'))).filter((file
 const sharpRuntimeToolChunks = new Set([
   'compiled-runtime-export.mjs',
   'materialize-android-export-fixture.mjs',
+  'platform-deployment.mjs',
   'project-export.mjs',
   'stage-android-project.mjs',
 ]);

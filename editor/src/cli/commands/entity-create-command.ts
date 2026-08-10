@@ -18,7 +18,7 @@ export const entityCreateCommand: CliCommandDefinition = {
     return {
       dryRun,
       mutation: true,
-      run: ({ workspace, snapshot }) => createEntity(workspace, snapshot, collection!, id!, dryRun),
+      run: ({ workspace, snapshot }) => createEntity(workspace, snapshot, collection, id!, dryRun),
     };
   },
 };

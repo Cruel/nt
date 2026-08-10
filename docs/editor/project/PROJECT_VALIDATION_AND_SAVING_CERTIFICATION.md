@@ -42,7 +42,7 @@ The following checks passed from the certification working tree:
 - save/settings/recovery/structural/preview/export focus: 11 files and 112 tests passed;
 - editor formatting, typecheck, aggregate checks, renderer build, and Electron/main/preload/tool
   builds;
-- Linux release `noveltea-editor-tool` build;
+- Linux release `noveltea` CLI/native-tooling build;
 - packaged Linux editor verification and smoke, including renderer, preload, packaged protocol and
   traversal protection, engine preview, editor assets, native editor tool, and sharp;
 - canonical Linux Desktop export: 10 tests passed, 3 host-specific tests skipped;

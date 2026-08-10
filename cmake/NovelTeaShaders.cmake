@@ -68,28 +68,21 @@ endfunction()
 
 function(noveltea_find_shader_tools)
     set(options REQUIRED)
-    cmake_parse_arguments(ARG "${options}" "OUT_SHADERC;OUT_BGFX_INCLUDE" "" ${ARGN})
+    cmake_parse_arguments(ARG "${options}" "OUT_NOVELTEA;OUT_BGFX_INCLUDE" "" ${ARGN})
 
-    set(_shaderc "${NOVELTEA_SHADERC_EXECUTABLE}")
-    if(NOT _shaderc AND DEFINED ENV{SHADERC})
-        set(_shaderc "$ENV{SHADERC}")
+    set(_noveltea "${NOVELTEA_CLI_EXECUTABLE}")
+    if(NOT _noveltea AND DEFINED ENV{NOVELTEA_CLI})
+        set(_noveltea "$ENV{NOVELTEA_CLI}")
     endif()
-    if(NOT _shaderc)
-        find_program(_shaderc_found shaderc)
-        set(_shaderc "${_shaderc_found}")
+    if(NOT _noveltea AND EXISTS "${CMAKE_SOURCE_DIR}/build/cli/linux/noveltea")
+        set(_noveltea "${CMAKE_SOURCE_DIR}/build/cli/linux/noveltea")
     endif()
-    if(NOT _shaderc)
-        foreach(_root "${VCPKG_INSTALLED_DIR}" "${CMAKE_BINARY_DIR}/vcpkg_installed" "${CMAKE_SOURCE_DIR}/vcpkg_installed")
-            foreach(_triplet "${VCPKG_HOST_TRIPLET}" "x64-linux" "${CMAKE_HOST_SYSTEM_PROCESSOR}-linux" "${VCPKG_TARGET_TRIPLET}")
-                if(EXISTS "${_root}/${_triplet}/tools/bgfx/shaderc")
-                    set(_shaderc "${_root}/${_triplet}/tools/bgfx/shaderc")
-                    break()
-                endif()
-            endforeach()
-        endforeach()
+    if(NOT _noveltea)
+        find_program(_noveltea_found noveltea)
+        set(_noveltea "${_noveltea_found}")
     endif()
-    if(ARG_REQUIRED AND (NOT _shaderc OR NOT EXISTS "${_shaderc}"))
-        message(FATAL_ERROR "shaderc host executable not found. Set NOVELTEA_SHADERC_EXECUTABLE or SHADERC, or install bgfx[tools].")
+    if(ARG_REQUIRED AND (NOT _noveltea OR NOT EXISTS "${_noveltea}"))
+        message(FATAL_ERROR "NovelTea host CLI not found. Build it with 'pnpm -C editor run noveltea:build', set NOVELTEA_CLI_EXECUTABLE/NOVELTEA_CLI, or place 'noveltea' on PATH.")
     endif()
 
     set(_bgfx_include "${NOVELTEA_BGFX_SHADER_INCLUDE_DIR}")
@@ -107,25 +100,25 @@ function(noveltea_find_shader_tools)
         message(FATAL_ERROR "bgfx_shader.sh not found. Set NOVELTEA_BGFX_SHADER_INCLUDE_DIR to the bgfx shader include directory.")
     endif()
 
-    set(${ARG_OUT_SHADERC} "${_shaderc}" PARENT_SCOPE)
+    set(${ARG_OUT_NOVELTEA} "${_noveltea}" PARENT_SCOPE)
     set(${ARG_OUT_BGFX_INCLUDE} "${_bgfx_include}" PARENT_SCOPE)
 endfunction()
 
 function(noveltea_add_shader_target)
-    cmake_parse_arguments(ARG "" "TARGET;SHADERC;SOURCE_DIR;OUTPUT_ROOT;BGFX_INCLUDE_DIR" "VARIANTS" ${ARGN})
+    cmake_parse_arguments(ARG "" "TARGET;NOVELTEA;SOURCE_DIR;OUTPUT_ROOT;BGFX_INCLUDE_DIR" "VARIANTS" ${ARGN})
     noveltea_collect_shader_outputs(VARIANTS ${ARG_VARIANTS} OUTPUT_ROOT "${ARG_OUTPUT_ROOT}" OUT_VAR _outputs)
     noveltea_collect_shader_inputs("${ARG_SOURCE_DIR}" _inputs)
     list(JOIN ARG_VARIANTS ";" _variants_arg)
     add_custom_command(
         OUTPUT ${_outputs}
         COMMAND "${CMAKE_COMMAND}"
-            "-DNOVELTEA_SHADERC_EXECUTABLE=${ARG_SHADERC}"
+            "-DNOVELTEA_CLI_EXECUTABLE=${ARG_NOVELTEA}"
             "-DNOVELTEA_SHADER_SOURCE_DIR=${ARG_SOURCE_DIR}"
             "-DNOVELTEA_SHADER_OUTPUT_ROOT=${ARG_OUTPUT_ROOT}"
             "-DNOVELTEA_SHADER_VARIANTS=${_variants_arg}"
             "-DNOVELTEA_BGFX_SHADER_INCLUDE_DIR=${ARG_BGFX_INCLUDE_DIR}"
             -P "${CMAKE_SOURCE_DIR}/cmake/CompileNovelTeaShaders.cmake"
-        DEPENDS ${_inputs}
+        DEPENDS ${_inputs} "${ARG_NOVELTEA}"
         COMMENT "Compiling NovelTea bgfx shaders"
         VERBATIM
     )

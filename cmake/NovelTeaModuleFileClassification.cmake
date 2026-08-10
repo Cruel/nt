@@ -101,7 +101,6 @@ set(NOVELTEA_MODULE_FILES_noveltea_content
     engine/src/core/save_state_codec/state_codec.cpp
     engine/src/core/save_state_codec/validation.cpp
     engine/src/render/material_codec.cpp
-    engine/src/render/shader_compiler.cpp
     engine/src/render/shader_manifest.cpp
 )
 

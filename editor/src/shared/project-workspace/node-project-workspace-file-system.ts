@@ -1,99 +1,54 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
+import {
+  ProjectWorkspaceFileSystemAdapter,
+  type ProjectWorkspaceFileSystemOperations,
+} from './project-workspace-file-system-adapter';
 
-export class NodeProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
-  resolvePath(value: string): string {
-    return path.resolve(value);
-  }
-
-  joinPath(...values: string[]): string {
+const nodeProjectWorkspaceFileSystemOperations: ProjectWorkspaceFileSystemOperations = {
+  joinPath(values) {
     return path.join(...values);
-  }
-
-  dirname(value: string): string {
-    return path.dirname(value);
-  }
-
-  relativePath(from: string, to: string): string {
-    return path.relative(from, to).replaceAll(path.sep, '/');
-  }
-
-  async inspect(value: string): Promise<'missing' | 'file' | 'directory'> {
-    try {
-      const stat = await fs.stat(value);
-      return stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : 'missing';
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
-      throw error;
-    }
-  }
-
-  readText(value: string): Promise<string> {
+  },
+  async inspect(value) {
+    const info = await fs.stat(value);
+    return info.isFile() ? 'file' : info.isDirectory() ? 'directory' : 'missing';
+  },
+  readText(value) {
     return fs.readFile(value, 'utf8');
-  }
-
-  async readBytes(value: string): Promise<Uint8Array> {
+  },
+  async readBytes(value) {
     return new Uint8Array(await fs.readFile(value));
-  }
-
-  async listDirectory(value: string): Promise<readonly string[]> {
-    try {
-      return await fs.readdir(value);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      throw error;
-    }
-  }
-
-  async writeTextAtomic(value: string, text: string): Promise<void> {
-    await this.writeBytesAtomic(value, new TextEncoder().encode(text));
-  }
-
-  async writeBytesAtomic(value: string, bytes: Uint8Array): Promise<void> {
-    const absolute = path.resolve(value);
-    const directory = path.dirname(absolute);
-    const temporary = path.join(
-      directory,
-      `.${path.basename(absolute)}.${process.pid}.${Date.now()}.tmp`,
-    );
-    await fs.mkdir(directory, { recursive: true });
-    await fs.writeFile(temporary, bytes);
-    await fs.rename(temporary, absolute);
-  }
-
-  async removeFile(value: string): Promise<void> {
-    try {
-      await fs.unlink(value);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-  }
-
-  async createDirectory(value: string): Promise<void> {
-    await fs.mkdir(value, { recursive: true });
-  }
-
-  async createDirectoryExclusive(value: string): Promise<boolean> {
-    try {
-      await fs.mkdir(value);
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
-      throw error;
-    }
-  }
-
-  async removeDirectory(value: string): Promise<void> {
+  },
+  listDirectory(value) {
+    return fs.readdir(value);
+  },
+  async createDirectory(value, exclusive) {
+    await fs.mkdir(value, exclusive ? undefined : { recursive: true });
+  },
+  async writeBytes(value, bytes) {
+    await fs.writeFile(value, bytes);
+  },
+  async rename(from, to) {
+    await fs.rename(from, to);
+  },
+  async removeFile(value) {
+    await fs.unlink(value);
+  },
+  async removeDirectory(value) {
     await fs.rm(value, { recursive: true, force: true });
-  }
-
-  realpath(value: string): Promise<string> {
+  },
+  realpath(value) {
     return fs.realpath(value);
+  },
+};
+
+export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAdapter {
+  constructor() {
+    super(nodeProjectWorkspaceFileSystemOperations);
   }
 }
 
-export function createNodeProjectWorkspaceFileSystem(): ProjectWorkspaceFileSystem {
+export function createNodeProjectWorkspaceFileSystem(): NodeProjectWorkspaceFileSystem {
   return new NodeProjectWorkspaceFileSystem();
 }
 

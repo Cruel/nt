@@ -73,19 +73,13 @@ suite('canonical platform export integration', () => {
       const outputDirectory =
         process.env.NOVELTEA_CANONICAL_EXPORT_OUTPUT ?? path.join(root, 'Output ü space');
       let configPath: string | undefined;
-      const localConfig = {
-        shaderc: process.env.NOVELTEA_SHADERC,
-        bgfxShaderIncludeDir: process.env.NOVELTEA_BGFX_SHADER_INCLUDE_DIR,
-        ...(target === 'android'
-          ? {
-              androidSdk: process.env.ANDROID_SDK_ROOT,
-              androidNdk: process.env.ANDROID_NDK_ROOT,
-              javaHome: process.env.JAVA_HOME,
-              cmake: process.env.ANDROID_CMAKE_ROOT,
-            }
-          : {}),
-      };
-      if (localConfig.shaderc || localConfig.bgfxShaderIncludeDir || target === 'android') {
+      if (target === 'android') {
+        const localConfig = {
+          androidSdk: process.env.ANDROID_SDK_ROOT,
+          androidNdk: process.env.ANDROID_NDK_ROOT,
+          javaHome: process.env.JAVA_HOME,
+          cmake: process.env.ANDROID_CMAKE_ROOT,
+        };
         configPath = path.join(root, 'export-local-state.json');
         await writeFile(configPath, `${JSON.stringify(localConfig)}\n`);
       }

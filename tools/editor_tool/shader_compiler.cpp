@@ -3,13 +3,27 @@
 
 #include <nlohmann/json.hpp>
 
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+#include "embedded_bgfx_resources.hpp"
+#include <bx/error.h>
+#include <bx/readerwriter.h>
+#include <shaderc.h>
+
+namespace bgfx {
+bool compileShader(const char* varying, const char* comment, char* shader, std::uint32_t shader_len,
+                   const Options& options, bx::WriterI* shader_writer,
+                   bx::WriterI* message_writer);
+}
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -122,51 +136,118 @@ constexpr std::uint64_t fnv_prime = 1099511628211ull;
     return command;
 }
 
-[[nodiscard]] std::string output_capture_path_key(const std::string& command_line)
-{
-    return hash_hex(command_line);
-}
-
-[[nodiscard]] std::string read_or_empty(const std::filesystem::path& path)
-{
-    if (const auto text = read_text_file(path))
-        return *text;
-    return {};
-}
-
 struct ProcessResult {
     int exit_code = 0;
     std::string output;
 };
 
-[[nodiscard]] ProcessResult run_command_capture(const std::vector<std::string>& args,
-                                                const std::filesystem::path& cache_root)
-{
-    const std::string command_line = command_line_from_args(args);
-    std::error_code filesystem_error;
-    const auto temporary_root = std::filesystem::temp_directory_path(filesystem_error);
-    const auto capture_dir = cache_root.empty() && !filesystem_error
-                                 ? temporary_root
-                                 : cache_root / "shader-cache" / "logs";
-    filesystem_error.clear();
-    std::filesystem::create_directories(capture_dir, filesystem_error);
-    if (filesystem_error) {
-        return ProcessResult{.exit_code = -1,
-                             .output = "failed to create shader compiler capture directory: " +
-                                       filesystem_error.message()};
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+class VectorWriter final : public bx::WriterI {
+public:
+    int32_t write(const void* data, int32_t size, bx::Error*) override
+    {
+        if (size <= 0)
+            return 0;
+        const auto* bytes = static_cast<const char*>(data);
+        value.append(bytes, static_cast<std::size_t>(size));
+        return size;
     }
-    const auto capture_path =
-        capture_dir / ("shaderc-" + output_capture_path_key(command_line) + ".txt");
-    const std::string shell_command =
-        command_line + " > " + shell_quote(capture_path.string()) + " 2>&1";
-    const int exit_code = std::system(shell_command.c_str());
-    ProcessResult result;
-    result.exit_code = exit_code;
-    result.output = read_or_empty(capture_path);
-    std::error_code ignored;
-    std::filesystem::remove(capture_path, ignored);
-    return result;
+
+    std::string value;
+};
+
+[[nodiscard]] std::string embedded_toolchain_hash()
+{
+    static const std::string value = core::sha256_hex(std::as_bytes(std::span(
+        embedded_bgfx::shader_sha256.data(), embedded_bgfx::shader_sha256.size()))) +
+                                     core::sha256_hex(std::as_bytes(std::span(
+                                         embedded_bgfx::compute_sha256.data(),
+                                         embedded_bgfx::compute_sha256.size())));
+    return core::sha256_hex(std::as_bytes(std::span(value.data(), value.size())));
 }
+
+[[nodiscard]] std::optional<std::filesystem::path>
+materialize_embedded_bgfx_resources(const std::filesystem::path& cache_root)
+{
+    const auto root = cache_root / "toolchain" / "bgfx" / embedded_toolchain_hash();
+    const auto shader = std::string_view(
+        reinterpret_cast<const char*>(embedded_bgfx::shader_bytes), sizeof(embedded_bgfx::shader_bytes));
+    const auto compute = std::string_view(reinterpret_cast<const char*>(embedded_bgfx::compute_bytes),
+                                          sizeof(embedded_bgfx::compute_bytes));
+    if (!write_text_file_if_changed(root / "bgfx_shader.sh", shader) ||
+        !write_text_file_if_changed(root / "bgfx_compute.sh", compute)) {
+        return std::nullopt;
+    }
+    const auto shader_check = read_text_file(root / "bgfx_shader.sh");
+    const auto compute_check = read_text_file(root / "bgfx_compute.sh");
+    if (!shader_check || !compute_check)
+        return std::nullopt;
+    const auto shader_hash = core::sha256_hex(
+        std::as_bytes(std::span(shader_check->data(), shader_check->size())));
+    const auto compute_hash = core::sha256_hex(
+        std::as_bytes(std::span(compute_check->data(), compute_check->size())));
+    if (shader_hash != embedded_bgfx::shader_sha256 || compute_hash != embedded_bgfx::compute_sha256)
+        return std::nullopt;
+    return root;
+}
+
+[[nodiscard]] ProcessResult run_embedded_shaderc(const std::vector<std::string>& args,
+                                                 ShaderStage stage,
+                                                 const ShaderCompileVariant& variant,
+                                                 const std::filesystem::path& source_path,
+                                                 const std::filesystem::path& output_path,
+                                                 const std::filesystem::path& varying_path,
+                                                 const std::filesystem::path& project_root,
+                                                 const std::filesystem::path& include_root)
+{
+    const auto source = read_text_file(source_path);
+    const auto varying = read_text_file(varying_path);
+    if (!source || !varying)
+        return {.exit_code = -1, .output = "failed to read shader source or varying definition"};
+
+    std::string normalized_source = *source;
+    if (normalized_source.size() >= 3 &&
+        static_cast<unsigned char>(normalized_source[0]) == 0xef &&
+        static_cast<unsigned char>(normalized_source[1]) == 0xbb &&
+        static_cast<unsigned char>(normalized_source[2]) == 0xbf) {
+        normalized_source.erase(0, 3);
+    }
+    const auto source_size = static_cast<std::uint32_t>(normalized_source.size());
+    constexpr std::size_t shaderc_padding = 16384;
+    auto mutable_source = std::make_unique<char[]>(normalized_source.size() + shaderc_padding + 1);
+    std::memcpy(mutable_source.get(), normalized_source.data(), normalized_source.size());
+    std::memset(mutable_source.get() + normalized_source.size(), 0, shaderc_padding + 1);
+
+    bgfx::Options native_options;
+    native_options.shaderType = stage == ShaderStage::Vertex ? 'v' : 'f';
+    native_options.platform = variant.platform;
+    native_options.profile = variant.profile;
+    native_options.inputFilePath = source_path.string();
+    native_options.outputFilePath = output_path.string();
+    native_options.includeDirs = {source_path.parent_path().string(), project_root.string(),
+                                  include_root.string()};
+
+    std::string comment = "// shaderc command line:\n//";
+    for (const auto& arg : args) {
+        comment += " ";
+        comment += arg;
+    }
+    comment += "\n\n";
+
+    VectorWriter binary_writer;
+    VectorWriter message_writer;
+    // The pinned bgfx structured compiler takes ownership of the input buffer and
+    // deletes it after preprocessing, matching its argc/argv frontend.
+    const bool compiled = bgfx::compileShader(varying->c_str(), comment.c_str(),
+                                              mutable_source.release(), source_size, native_options,
+                                              &binary_writer, &message_writer);
+    if (!compiled)
+        return {.exit_code = 1, .output = std::move(message_writer.value)};
+    if (!write_text_file_if_changed(output_path, binary_writer.value))
+        return {.exit_code = -1, .output = "failed to write embedded shaderc output"};
+    return {.exit_code = 0, .output = std::move(message_writer.value)};
+}
+#endif
 
 void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
                     ShaderCompileSeverity severity, ShaderCompileDiagnosticCode code,
@@ -236,8 +317,12 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
                                             std::string_view source_text)
 {
     std::ostringstream out;
-    out << "shaderc=" << options.shaderc.string() << '\n';
-    out << "bgfx_include=" << options.bgfx_shader_include_dir.string() << '\n';
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+    out << "shaderc=embedded-bgfx-1.129.8940-496\n";
+    out << "bgfx_resources=" << embedded_toolchain_hash() << '\n';
+#else
+    out << "shaderc=unavailable\n";
+#endif
     out << "variant=" << variant.name << ':' << variant.platform << ':' << variant.profile << '\n';
     out << "stage=" << to_string(stage.stage) << '\n';
     out << interface_fingerprint(shader);
@@ -387,26 +472,21 @@ source_path_for_stage(const ShaderDefinition& shader, const ShaderStageDefinitio
                        "No shader compile variants were requested.");
         ok = false;
     }
-    std::error_code shaderc_error;
-    const bool shaderc_exists = std::filesystem::exists(options.shaderc, shaderc_error);
-    if (options.shaderc.empty() || !shaderc_exists || shaderc_error) {
-        add_diagnostic(
-            diagnostics, ShaderCompileSeverity::Error, ShaderCompileDiagnosticCode::MissingShaderc,
-            ShaderId{}, ShaderStage::Fragment, {}, options.shaderc, {}, {}, 0,
-            "shaderc host executable was not found: '" + options.shaderc.string() + "'.");
-        ok = false;
-    }
-    std::error_code include_error;
-    const bool include_exists =
-        std::filesystem::exists(options.bgfx_shader_include_dir / "bgfx_shader.sh", include_error);
-    if (options.bgfx_shader_include_dir.empty() || !include_exists || include_error) {
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+    if (!materialize_embedded_bgfx_resources(options.cache_root)) {
         add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
                        ShaderCompileDiagnosticCode::MissingBgfxInclude, ShaderId{},
-                       ShaderStage::Fragment, {}, options.bgfx_shader_include_dir, {}, {}, 0,
-                       "bgfx shader include directory must contain bgfx_shader.sh: '" +
-                           options.bgfx_shader_include_dir.string() + "'.");
+                       ShaderStage::Fragment, {}, options.cache_root, {}, {}, 0,
+                       "Embedded bgfx shader resources could not be materialized and verified.");
         ok = false;
     }
+#else
+    add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
+                   ShaderCompileDiagnosticCode::MissingShaderc, ShaderId{}, ShaderStage::Fragment,
+                   {}, {}, {}, {}, 0,
+                   "This build does not contain the embedded bgfx shader compiler.");
+    ok = false;
+#endif
     return ok;
 }
 
@@ -456,6 +536,12 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
     result.project = project;
     if (!validate_tools(options, result.diagnostics))
         return result;
+
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+    const auto embedded_include_root = materialize_embedded_bgfx_resources(options.cache_root);
+    if (!embedded_include_root)
+        return result;
+#endif
 
     const auto manifest_path = options.cache_root / "shader-cache" / "manifest.json";
     auto cache_manifest = read_cache_manifest(manifest_path, result.diagnostics);
@@ -541,7 +627,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     continue;
                 }
                 const std::vector<std::string> args = {
-                    options.shaderc.string(),
+                    "shaderc",
                     "-f",
                     source_path->string(),
                     "-o",
@@ -559,10 +645,22 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     "-i",
                     options.project_root.string(),
                     "-i",
-                    options.bgfx_shader_include_dir.string(),
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+                    embedded_include_root->string(),
+#else
+                    std::string{},
+#endif
                 };
                 const auto command_line = command_line_from_args(args);
-                const auto process = run_command_capture(args, options.cache_root);
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+                const auto process = run_embedded_shaderc(args, stage.stage, variant, *source_path,
+                                                          output_path, varying_path,
+                                                          options.project_root,
+                                                          *embedded_include_root);
+#else
+                const ProcessResult process{.exit_code = -1,
+                                            .output = "embedded shaderc is unavailable"};
+#endif
                 std::error_code output_exists_error;
                 const bool output_exists =
                     std::filesystem::exists(output_path, output_exists_error);

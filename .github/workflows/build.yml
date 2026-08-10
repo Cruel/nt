@@ -74,32 +74,58 @@ jobs:
             zip \
             unzip \
             tar \
-            git
+            git \
+            libssl-dev
 
-      - name: Download shaderc
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache vcpkg and embedded shaderc for host CLI
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            build/linux-release/vcpkg_installed
+            build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
+            build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
+            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
+            build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
+          key: ${{ runner.os }}-x64-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-shader-host-
+
+      - name: Bootstrap vcpkg
         run: |
-          SHADERC_DIR="${{ github.workspace }}/.cache/shaderc"
-          mkdir -p "$SHADERC_DIR"
-          curl -L \
-            -o "$SHADERC_DIR/bgfx-shaderc-linux-x64.tar.gz" \
-            https://github.com/Cruel/nt-tools/releases/download/r1/bgfx-shaderc-linux-x64.tar.gz
-          tar -xzf "$SHADERC_DIR/bgfx-shaderc-linux-x64.tar.gz" \
-            -C "$SHADERC_DIR"
-          SHADERC="$SHADERC_DIR/bin/shaderc"
-          test -x "$SHADERC"
-          echo "SHADERC=$SHADERC" >> "$GITHUB_ENV"
-          echo "BGFX_SHADER_INCLUDE=$SHADERC_DIR/include/bgfx" >> "$GITHUB_ENV"
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+
+      - name: Build NovelTea host CLI
+        run: pnpm -C editor run noveltea:build
+
+      - name: Certify NovelTea host CLI
+        run: pnpm -C editor run noveltea:certify
 
       - name: Compile and verify shader assets
         run: |
-          SHADERC="${{ env.SHADERC }}"
-          BGFX_SHADER_INCLUDE="${{ env.BGFX_SHADER_INCLUDE }}"
           cmake \
-            -DNOVELTEA_SHADERC_EXECUTABLE="$SHADERC" \
+            -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" \
             -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
             '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' \
-            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$BGFX_SHADER_INCLUDE" \
+            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx" \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
           cmake \
             -DNOVELTEA_VERIFY_ONLY=ON \
@@ -112,6 +138,13 @@ jobs:
         with:
           name: noveltea-shader-assets
           path: build/generated-assets/shaders
+          if-no-files-found: error
+
+      - name: Upload NovelTea host CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-host-cli-linux-x64
+          path: build/cli/linux/noveltea
           if-no-files-found: error
 
   linux:
@@ -218,13 +251,6 @@ jobs:
         run: |
           cmake --preset linux-debug-no-threads -G Ninja -DVCPKG_INSTALLED_DIR="${{ github.workspace }}/build/linux-debug/vcpkg_installed" -DVCPKG_MANIFEST_FEATURES=tests -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset linux-debug-no-threads --target noveltea_asset_tests
-
-      - name: Upload headless editor tool
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-linux-editor-tool
-          path: build/linux-debug/tools/editor_tool/noveltea-editor-tool
-          if-no-files-found: error
 
   linux-sanitize:
     name: Linux ASan / UBSan robustness
@@ -367,7 +393,7 @@ jobs:
 
       - name: Build shipped Windows targets
         shell: pwsh
-        run: cmake --build --preset windows-release --target noveltea-player noveltea-editor-tool
+        run: cmake --build --preset windows-release --target noveltea-player
 
       - name: Report Windows compiler cache
         if: always()
@@ -452,12 +478,6 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
-      - name: Download headless editor tool
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-linux-editor-tool
-          path: build/linux-debug/tools/editor_tool
-
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
@@ -469,7 +489,6 @@ jobs:
           mkdir -p build/tools
           curl -fL -o build/tools/bundletool-all-1.18.1.jar https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
           echo '675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c  build/tools/bundletool-all-1.18.1.jar' | sha256sum -c -
-          chmod +x build/linux-debug/tools/editor_tool/noveltea-editor-tool
 
       - name: Configure and build editor preview
         env:
@@ -590,23 +609,14 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
-      - name: Download shader compiler
-        run: |
-          SHADERC_DIR="${{ github.workspace }}/.cache/shaderc"
-          mkdir -p "$SHADERC_DIR"
-          curl -fL \
-            -o "$SHADERC_DIR/bgfx-shaderc-linux-x64.tar.gz" \
-            https://github.com/Cruel/nt-tools/releases/download/r1/bgfx-shaderc-linux-x64.tar.gz
-          tar -xzf "$SHADERC_DIR/bgfx-shaderc-linux-x64.tar.gz" \
-            -C "$SHADERC_DIR"
-          test -x "$SHADERC_DIR/bin/shaderc"
-          test -f "$SHADERC_DIR/include/bgfx/bgfx_shader.sh"
-
-      - name: Download headless editor tool
+      - name: Download NovelTea host CLI
         uses: actions/download-artifact@v7
         with:
-          name: noveltea-linux-editor-tool
-          path: build/linux-debug/tools/editor_tool
+          name: noveltea-host-cli-linux-x64
+          path: build/cli/linux
+
+      - name: Make NovelTea host CLI executable
+        run: chmod +x build/cli/linux/noveltea
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -619,7 +629,6 @@ jobs:
           mkdir -p build/tools
           curl -fL -o build/tools/bundletool-all-1.18.1.jar https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
           echo '675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c  build/tools/bundletool-all-1.18.1.jar' | sha256sum -c -
-          chmod +x build/linux-debug/tools/editor_tool/noveltea-editor-tool
 
       - name: Build Android debug APK
         working-directory: android
@@ -666,15 +675,11 @@ jobs:
             if (!descriptor.host.tools.includes("java") || !descriptor.host.tools.includes("android-sdk")) process.exit(1);
           '
       - name: Export fixture revisions through public project export CLI
-        env:
-          NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
         run: |
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           test -f "$ANDROID_SDK_ROOT/platforms/android-${ANDROID_API_LEVEL}/android.jar"
           test -x "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/aapt2"
           config="$RUNNER_TEMP/noveltea-android-export-config.json"
-          SHADERC="${{ github.workspace }}/.cache/shaderc/bin/shaderc" \
-          BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/.cache/shaderc/include/bgfx" \
           pnpm android:export-config -- --output "$config"
 
           template="${{ github.workspace }}/dist/noveltea-player-template-ci-${GITHUB_SHA}-android-x86_64-debug.tar.gz"
@@ -779,7 +784,6 @@ jobs:
     needs: web
     timeout-minutes: 90
     env:
-      NOVELTEA_EDITOR_TOOL_PATH: ${{ github.workspace }}/build/editor-tool/noveltea-editor-tool
       NOVELTEA_RELEASE_TAG: 0.0.0-ci.${{ github.sha }}
 
     steps:
@@ -821,22 +825,14 @@ jobs:
             libasound2-dev \
             libgbm-dev \
             libpango1.0-dev \
-            libcairo2-dev
+            libcairo2-dev \
+            libssl-dev
 
       - name: Download web release preview
         uses: actions/download-artifact@v7
         with:
           name: noveltea-web-editor-preview
           path: build/web-editor-preview/apps/editor_preview
-
-      - name: Download native editor tool
-        uses: actions/download-artifact@v7
-        with:
-          name: noveltea-linux-editor-tool
-          path: build/editor-tool
-
-      - name: Prepare native editor tool
-        run: chmod +x build/editor-tool/noveltea-editor-tool
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -850,6 +846,34 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Cache vcpkg for standalone CLI native tooling
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+            build/linux-release/vcpkg_installed
+          key: ${{ runner.os }}-x64-cli-vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-cli-vcpkg-
+
+      - name: Bootstrap vcpkg for standalone CLI native tooling
+        run: |
+          if [ ! -d "$VCPKG_ROOT/.git" ]; then
+            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+          fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+
+      - name: Cache embedded bgfx shaderc build
+        uses: actions/cache@v5
+        with:
+          path: |
+            build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
+            build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
+            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
+            build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
+          key: ${{ runner.os }}-x64-embedded-shaderc-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high

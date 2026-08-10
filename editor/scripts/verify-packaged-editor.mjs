@@ -9,6 +9,7 @@ import {
   packageLayout,
   pathExists,
   requiredPreviewFiles,
+  verifyStandaloneNovelTeaCli,
 } from './editor-distribution-lib.mjs';
 
 const expectedFuses = new Map([
@@ -139,13 +140,17 @@ export async function verifyPackagedEditor(outputOrApplication) {
       throw new Error(`Packaged editor asset is missing: ${required}`);
     }
   }
-  const toolName =
-    process.platform === 'win32' ? 'noveltea-editor-tool.exe' : 'noveltea-editor-tool';
-  const toolPath = path.join(application.resources, 'bin', toolName);
-  const toolInfo = await stat(toolPath);
-  if (!toolInfo.isFile() || (process.platform !== 'win32' && (toolInfo.mode & 0o111) === 0)) {
-    throw new Error(`Packaged native editor tool is missing or not executable: ${toolPath}`);
+  const cliName = process.platform === 'win32' ? 'noveltea.exe' : 'noveltea';
+  const cliPath = path.join(application.resources, 'bin', cliName);
+  const cliInfo = await stat(cliPath);
+  if (!cliInfo.isFile() || (process.platform !== 'win32' && (cliInfo.mode & 0o111) === 0)) {
+    throw new Error(`Packaged NovelTea CLI is missing or not executable: ${cliPath}`);
   }
+  const binEntries = (await readdir(path.join(application.resources, 'bin'))).sort();
+  if (binEntries.length !== 1 || binEntries[0] !== cliName) {
+    throw new Error(`Unexpected packaged native-tool closure: ${binEntries.join(', ')}`);
+  }
+  await verifyStandaloneNovelTeaCli(cliPath);
 
   for (const required of ['node_modules/sharp/package.json', 'node_modules/sharp/dist/index.cjs']) {
     if (!(await pathExists(path.join(unpackedRoot, ...required.split('/'))))) {

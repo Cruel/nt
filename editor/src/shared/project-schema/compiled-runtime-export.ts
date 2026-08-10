@@ -309,9 +309,25 @@ export function buildCompiledRuntimeExport(
   });
 
   const shaderBuild = buildShaderMaterialProject(project);
+  const shaderAuthoringOutputs =
+    options.shaderAuthoringOutputs ??
+    options.shaderOutputs?.map(
+      (output): VerifiedShaderCompiledOutput => ({
+        shader: output.shader,
+        stage: output.stage,
+        variant: output.variant,
+        metadata: {
+          path: output.runtimePath,
+          byteHash: output.byteHash,
+          byteSize: output.byteSize,
+          compileInputFingerprint: output.cacheKey,
+        },
+      }),
+    ) ??
+    [];
   const preparedShaderMetadata = shaderMaterialMetadataWithOutputs(
     shaderBuild.project,
-    options.shaderAuthoringOutputs ?? [],
+    shaderAuthoringOutputs,
   );
   const shaderDiagnostics = classifyProjectValidationDiagnostics(
     shaderBuild.diagnostics.map((item) => ({

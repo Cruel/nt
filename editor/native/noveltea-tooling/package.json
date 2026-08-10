@@ -1,0 +1,95 @@
+{
+  "name": "@noveltea/tooling-native",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "types": "index.ts",
+  "perry": {
+    "nativeLibrary": {
+      "abiVersion": "0.5",
+      "functions": [
+        {
+          "name": "noveltea_tooling_compile_shaders_json",
+          "params": [
+            "buffer+len",
+            "buffer+len"
+          ],
+          "returns": "u64"
+        },
+        {
+          "name": "noveltea_tooling_run_headless_test_json",
+          "params": [
+            "buffer+len",
+            "buffer+len"
+          ],
+          "returns": "u64"
+        },
+        {
+          "name": "noveltea_tooling_run_ui_test_json",
+          "params": [
+            "buffer+len",
+            "buffer+len"
+          ],
+          "returns": "u64"
+        },
+        {
+          "name": "noveltea_tooling_export_package_json",
+          "params": [
+            "buffer+len",
+            "buffer+len"
+          ],
+          "returns": "u64"
+        },
+        {
+          "name": "noveltea_tooling_shaderc_json",
+          "params": [
+            "buffer+len",
+            "buffer+len"
+          ],
+          "returns": "u64"
+        }
+      ],
+      "targets": {
+        "linux": {
+          "prebuilt": "../../../build/linux-release/tools/editor_tool/libnoveltea_tooling_native.a",
+          "libDirs": [
+            "../../../build/linux-release/engine",
+            "../../../build/linux-release/tools/editor_tool",
+            "../../../build/linux-release/_deps/noveltea_bgfx_shaderc_source-build/cmake/bgfx",
+            "../../../build/linux-release/_deps/noveltea_bgfx_shaderc_source-build/cmake/bimg",
+            "../../../build/linux-release/_deps/noveltea_bgfx_shaderc_source-build/cmake/bx",
+            "../../../build/linux-release/vcpkg_installed/x64-linux-noveltea/lib"
+          ],
+          "libs": [
+            "noveltea_presentation",
+            "noveltea_script_lua",
+            "noveltea_runtime",
+            "lua",
+            "m",
+            "noveltea_shader_tooling",
+            "noveltea_content",
+            "noveltea_domain",
+            "miniz",
+            "noveltea_bgfx_shaderc_embedded",
+            "fcpp",
+            "glslang",
+            "glsl-optimizer",
+            "spirv-opt",
+            "spirv-cross",
+            "bimg",
+            "bx",
+            "dl",
+            "rt",
+            "stdc++"
+          ]
+        },
+        "macos": {
+          "available": false
+        },
+        "windows": {
+          "available": false
+        }
+      }
+    }
+  }
+}

@@ -11,7 +11,7 @@ NovelTea has two related but distinct file/package concepts:
 - A **project file** is the editor-authoring representation. It stores project schema records for shaders, materials, rooms, objects, scripts, UI, and other authoring data. Shader source may live in the project schema or be referenced as project assets, depending on editor implementation, but the project schema is the source of truth for shader and material definitions.
 - A **game file** or exported runtime package is the shareable game representation. It is the project stripped of data not needed to run, such as shader source text, editor preview/cache data, and other authoring-only metadata. It contains the runtime game data, material records, shader interface/runtime metadata, and precompiled bgfx shader binaries.
 
-Runtime shader source compilation is not part of the normal renderer. Editor/import/export workflows invoke `shaderc` and produce compiled bgfx shader binaries for the variants implied by the active build/export targets. Shipped runtimes load those binaries through `AssetManager`.
+Runtime shader source compilation is not part of the normal renderer. Editor/import/export workflows use the `noveltea` host CLI's embedded shaderc and produce compiled bgfx shader binaries for the variants implied by the active build/export targets. Shipped runtimes load those binaries through `AssetManager`.
 
 Materials are not stored as standalone `.ntmat` files in the intended NovelTea project model. Materials are project-schema records. Only compiled shader binaries are expected to be separate runtime binary assets.
 
@@ -338,7 +338,7 @@ MaterialRegistry
 
 ShaderCompilerService
   editor/import/export only
-  invokes shaderc for variants implied by active build/export targets
+  invokes embedded shaderc through NovelTea tooling for variants implied by active build/export targets
   emits compiled shader binaries and diagnostics
   writes generated runtime metadata / manifest entries as needed
 
@@ -388,7 +388,7 @@ Initial constraints:
 1. Read shader and material records from the project schema.
 2. Validate shader source refs, stage declarations, uniform declarations, sampler declarations, shader roles, material shader refs, material uniform values, texture assignments, and blend policy.
 3. Compute a stable hash from shader source, includes, shader definition metadata, compiler version, inferred target variant, and relevant flags.
-4. Invoke `shaderc` for each variant implied by the active build/export targets.
+4. Invoke the embedded shaderc implementation for each variant implied by the active build/export targets.
 5. Store compiled shader binaries under a cache/output path keyed by hash and inferred target variant.
 6. Store diagnostics in a form the editor can display inline.
 7. Write/update generated runtime metadata that maps shader ids, shader roles, and inferred variants to compiled binary paths and binding metadata.
@@ -525,14 +525,14 @@ Acceptance:
 
 Implemented model:
 
-- `ShaderCompilerService` wraps host-side `shaderc` invocation for project-authored shader stages.
+- `ShaderCompilerService` routes project-authored shader stages through the unified `noveltea` host tooling and its embedded shaderc implementation; no external shaderc executable is required.
 - Current compile variants are mapped to existing bgfx shaderc conventions: `glsl-120`, `essl-100`, and `essl-300`.
 - Stage source can come from `source` refs resolved under the project root or from `source_text` written to a generated cache source file.
 - Compiled outputs are written to runtime-compatible paths under `shaders/bgfx/<variant>/<shader-id>.<vs|fs>.bin`.
 - The returned shader project metadata is updated with compiled refs for successful stage outputs; project files are not mutated implicitly.
 - A simple content/interface/variant cache manifest under `<cacheRoot>/shader-cache/manifest.json` skips unchanged compiles.
 - Diagnostics capture shader id, stage, variant, source path, output path, command line, exit code, and compiler output.
-- `noveltea-editor-tool compile-shaders` exposes the compiler service for editor/import/export workflows.
+- bundled `noveltea` native tooling exposes the compiler service for editor/import/export workflows.
 - Tests cover variant mapping, source refs, `source_text`, cache hits, missing source/tool errors, and compiler failure diagnostics.
 
 Still intentionally not implemented:

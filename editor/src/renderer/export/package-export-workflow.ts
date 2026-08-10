@@ -90,8 +90,6 @@ function defaultShaderCompileOptions(
 ) {
   const root = projectRoot ?? '';
   return {
-    shaderc: '',
-    bgfxShaderIncludeDir: '',
     projectRoot: root,
     outputRoot: root ? `${root}/.noveltea/build` : '',
     cacheRoot: root ? `${root}/.noveltea/cache` : '',

@@ -21,7 +21,7 @@ export const entityRenameCommand: CliCommandDefinition = {
       dryRun,
       mutation: true,
       run: ({ workspace, snapshot }) =>
-        renameEntity(workspace, snapshot, collection!, fromId!, toId!, {
+        renameEntity(workspace, snapshot, collection, fromId!, toId!, {
           dryRun,
           allowPossibleSourceReferences,
         }),

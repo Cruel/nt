@@ -28,8 +28,8 @@ The editor already uses:
 - lucide-react for icons.
 - Vitest + Testing Library for renderer/unit tests.
 - The engine web preview iframe plus typed `MessageChannel` protocol.
-- `noveltea-editor-tool` for privileged/native project, validation, shader,
-  package, and playback operations.
+- bundled standalone `noveltea` for privileged/native project, validation, shader,
+  package, and playback operations through its private editor bridge.
 
 Existing local UI components at the time this document was created:
 
@@ -191,7 +191,7 @@ Primary use cases:
 - Command payload validation.
 - Preview protocol message validation.
 - Electron IPC request/response validation.
-- `noveltea-editor-tool` JSON response validation.
+- bundled `noveltea` native-bridge JSON response validation.
 - Import/export profile validation.
 - Editor session state validation.
 

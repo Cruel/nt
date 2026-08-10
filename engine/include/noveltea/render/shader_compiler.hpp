@@ -47,8 +47,6 @@ struct ShaderCompileDiagnostic {
 };
 
 struct ShaderCompileOptions {
-    std::filesystem::path shaderc;
-    std::filesystem::path bgfx_shader_include_dir;
     std::filesystem::path project_root;
     std::filesystem::path output_root;
     std::filesystem::path cache_root;

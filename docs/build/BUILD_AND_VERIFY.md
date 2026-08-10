@@ -35,6 +35,14 @@ export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-12}"
 
 ## Initial Command Set
 
+Repository-local shader compilation uses the standalone `noveltea` host CLI. On the currently
+admitted Linux x64 development host, build or refresh it before a CMake preset that has
+`NOVELTEA_COMPILE_SHADERS=ON`:
+
+```sh
+pnpm -C editor run noveltea:build
+```
+
 ```sh
 cmake --preset linux-debug
 cmake --build --preset linux-debug
@@ -85,8 +93,11 @@ package or platform application. Add `--json` for a machine-readable report. Exi
 
 Export a saved editor project through the headless platform-export path with `pnpm project:export`.
 Use `pnpm android:export-config -- --output <file>` to generate the Android exporter local-toolchain
-configuration from `ANDROID_SDK_ROOT`/`ANDROID_HOME`, `JAVA_HOME`, `SHADERC`/`NOVELTEA_SHADERC`, and
-`BGFX_SHADER_INCLUDE_DIR`/`BGFX_SHADER_INCLUDE`/`NOVELTEA_BGFX_SHADER_INCLUDE_DIR`.
+configuration from `ANDROID_SDK_ROOT`/`ANDROID_HOME` and `JAVA_HOME`. Shader compilation is provided
+by the standalone `noveltea` host CLI and no external `shaderc` executable is configured for export.
+The current AOT host CLI is certified on Linux x64. Windows/macOS player jobs consume shader assets
+precompiled by the Linux shader-assets job (`NOVELTEA_COMPILE_SHADERS=OFF`) until those CLI hosts are
+admitted.
 For repository-local Android development, `scripts/run-android.sh` builds the native player with the
 checked-in `android/` Gradle project, compiles the selected NovelTea project into generated Android
 inputs under `build/run-android/generated`, and invokes the same Gradle project again in prebuilt-
@@ -98,8 +109,8 @@ immutable packaged player templates.
 Android CI invokes `pnpm android:fixture` and `pnpm project:export` directly for both fixture
 revisions so the public command path, rather than a private test-only entrypoint, is certified.
 
-For repository-local Web export testing, `scripts/run-web.sh` configures the host editor tool and
-canonical release Web player template, exports the selected project (or the shared acceptance
+For repository-local Web export testing, `scripts/run-web.sh` refreshes the repository `noveltea`
+host CLI, configures the canonical release Web player template, exports the selected project (or the shared acceptance
 fixture), and serves the result. Pass `--project` and optionally `--export-profile` to select a saved
 project. The script selects canonical threaded `web-release` for a profile with
 `web.threaded: true` and compatibility `web-release-no-threads` for a single-threaded profile. It
@@ -132,10 +143,11 @@ pnpm package:smoke
 pnpm artifact
 ```
 
-The default development command builds the threaded `web-release` sandbox preview. Staging and packaging
-also require a host `noveltea-editor-tool`; build the matching release preset or set
-`NOVELTEA_EDITOR_TOOL_PATH`. Native distributables must be produced on their target host: Linux x64
-for AppImage/DEB/RPM, Windows x64 for NSIS, and macOS arm64 for DMG/ZIP. See
+The default development command builds the threaded `web-release` sandbox preview. Staging and
+packaging build and bundle the standalone `noveltea` CLI under `resources/bin/noveltea`; the current
+release-admitted editor/CLI host is Linux x64. `NOVELTEA_CLI_PATH` may supply an already-built CLI to
+distribution staging. Windows/macOS player builds remain supported, but Windows/macOS editor/CLI
+release artifacts are not admitted until their Perry/native certification gate passes. See
 [Editor Build and Distribution](../editor/BUILD_AND_DISTRIBUTION.md) for stage layout, manifest,
 ASAR/native-module policy, fuse verification, package smoke, release collection, and signing inputs.
 
@@ -188,9 +200,9 @@ xvfb-run -a build/linux-sanitize/tests/noveltea_ui_backend_tests
 ```
 
 Shipped C++ targets always compile without C++ exceptions and compiler RTTI. There is no supported
-exception-enabled or RTTI-enabled build mode. Desktop target dependencies use NovelTea policy triplets;
-build-host executables such as `shaderc` remain on the ordinary host triplet and must not enter player
-link or package graphs.
+exception-enabled or RTTI-enabled build mode. Desktop target dependencies use NovelTea policy triplets.
+The standalone Linux host `noveltea` CLI embeds the bgfx shader compiler and remains outside player
+link/package graphs; build and export paths do not require a separate `shaderc` executable.
 
 The default `pnpm run web:smoke` command remains an alias for the debug structural Web smoke. Use `web-profile` plus `pnpm run web:smoke:profile` for optimized RmlUi/bgfx perf-counter measurement; that path compiles render perf counters in, enables them at runtime with `renderPerf=1`, disables ImGui with `noImgui=1`, and treats FPS as informational only.
 

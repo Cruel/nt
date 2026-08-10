@@ -6,6 +6,7 @@ import {
   type BrowserWindow as BrowserWindowType,
 } from 'electron';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -21,6 +22,42 @@ interface PackageSmokeResult {
   success: boolean;
   checks: Record<string, boolean>;
   error?: string;
+}
+
+async function characterizeNovelTeaCli(cliPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(cliPath, ['--json', '--version'], {
+      cwd: process.resourcesPath,
+      env: { HOME: process.resourcesPath, LANG: 'C.UTF-8', PATH: '/usr/bin:/bin' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once('error', () => resolve(false));
+    child.once('close', (code) => {
+      try {
+        const payload = JSON.parse(stdout) as Record<string, unknown>;
+        resolve(
+          code === 0 &&
+            stderr === '' &&
+            payload.success === true &&
+            payload.exitCode === 0 &&
+            payload.version === '1.0.0',
+        );
+      } catch {
+        resolve(false);
+      }
+    });
+  });
 }
 
 async function waitForRenderer(window: BrowserWindowType): Promise<void> {
@@ -309,13 +346,13 @@ export async function runPackageSmoke(
     checks.editorAssets =
       assetResponse.ok && (await assetResponse.text()).includes('nt-layout-preview-root');
 
-    const editorToolName =
-      process.platform === 'win32' ? 'noveltea-editor-tool.exe' : 'noveltea-editor-tool';
-    const editorToolPath = path.join(process.resourcesPath, 'bin', editorToolName);
-    const editorToolInfo = await fs.promises.stat(editorToolPath);
-    checks.nativeEditorTool =
-      editorToolInfo.isFile() &&
-      (process.platform === 'win32' || (editorToolInfo.mode & 0o111) !== 0);
+    const cliName = process.platform === 'win32' ? 'noveltea.exe' : 'noveltea';
+    const cliPath = path.join(process.resourcesPath, 'bin', cliName);
+    const cliInfo = await fs.promises.stat(cliPath);
+    checks.novelteaCli =
+      cliInfo.isFile() &&
+      (process.platform === 'win32' || (cliInfo.mode & 0o111) !== 0) &&
+      (await characterizeNovelTeaCli(cliPath));
 
     const sharpFormats = await characterizeSharpFormats();
     checks.sharp = Object.values(sharpFormats).every(Boolean);

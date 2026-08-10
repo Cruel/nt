@@ -74,6 +74,14 @@ TEMPLATE_TAG="local-run-web"
 
 cd "$PROJECT_ROOT"
 
+if [ -z "${NOVELTEA_CLI:-}" ]; then
+  NOVELTEA_CLI="$PROJECT_ROOT/build/cli/linux/noveltea"
+  echo "[run] refreshing NovelTea host CLI..."
+  pnpm -C editor run noveltea:build
+fi
+[ -x "$NOVELTEA_CLI" ] || { echo "[run] NovelTea host CLI not found: $NOVELTEA_CLI" >&2; exit 1; }
+export NOVELTEA_CLI
+
 if [ "$READBACK_GALLERY" = "1" ]; then
   CROSS_ORIGIN_ISOLATED=1
   CMAKE_CONFIGURE_ARGS=(
@@ -147,25 +155,6 @@ else
   fi
   TEMPLATE_ARCHIVE="$PROJECT_ROOT/dist/noveltea-player-template-${TEMPLATE_TAG}-web-wasm32${TEMPLATE_SUFFIX}-release.zip"
 
-  SHADERC="${SHADERC:-$PROJECT_ROOT/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc}"
-  BGFX_SHADER_INCLUDE_DIR="${BGFX_SHADER_INCLUDE_DIR:-$PROJECT_ROOT/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx}"
-  EDITOR_TOOL="${NOVELTEA_EDITOR_TOOL:-$PROJECT_ROOT/build/linux-debug/tools/editor_tool/noveltea-editor-tool}"
-
-  echo "[run] configuring and building the host editor tool..."
-  cmake --preset linux-debug -DBUILD_TESTING=OFF
-  PARALLEL_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
-  if [ -n "$PARALLEL_JOBS" ]; then
-      cmake --build --preset linux-debug --target noveltea-editor-tool --parallel "$PARALLEL_JOBS"
-  else
-      cmake --build --preset linux-debug --target noveltea-editor-tool --parallel
-  fi
-  [ -x "$EDITOR_TOOL" ] || { echo "[run] editor tool not found: $EDITOR_TOOL" >&2; exit 1; }
-  [ -x "$SHADERC" ] || { echo "[run] shaderc not found: $SHADERC" >&2; exit 1; }
-  [ -f "$BGFX_SHADER_INCLUDE_DIR/bgfx_shader.sh" ] || {
-    echo "[run] bgfx shader include directory is invalid: $BGFX_SHADER_INCLUDE_DIR" >&2
-    exit 1
-  }
-
   WEB_CMAKE_ARGS=(-DBUILD_TESTING=OFF)
   if [ -d "$PROJECT_ROOT/rmlui-bgfx" ]; then
     echo "[run] using local rmlui-bgfx checkout at $PROJECT_ROOT/rmlui-bgfx"
@@ -188,10 +177,9 @@ else
     -DNOVELTEA_RELEASE_TAG="$TEMPLATE_TAG" \
     -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
 
-  printf '%s\n' "$(node -e 'console.log(JSON.stringify({shaderc:process.argv[1],bgfxShaderIncludeDir:process.argv[2]}))' "$SHADERC" "$BGFX_SHADER_INCLUDE_DIR")" > "$CONFIG_PATH"
+  printf '%s\n' '{}' > "$CONFIG_PATH"
   echo "[run] exporting project through the canonical Web exporter..."
-  NOVELTEA_EDITOR_TOOL="$EDITOR_TOOL" \
-    pnpm -C editor run project:export -- \
+  pnpm -C editor run project:export -- \
       --template "$TEMPLATE_ARCHIVE" \
       --project "$PROJECT_PATH" \
       --profile "$EXPORT_PROFILE_ID" \

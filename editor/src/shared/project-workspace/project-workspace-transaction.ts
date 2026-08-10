@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { sha256PrefixedBytes } from '../sha256';
 import {
   assertProjectWorkspacePathContained,
@@ -99,8 +100,12 @@ function validRevision(value: unknown): value is ProjectWorkspaceExpectedRevisio
   return value === 'absent' || (typeof value === 'string' && /^sha256:[0-9a-f]{64}$/.test(value));
 }
 
-function parseOwner(value: unknown): LockOwner | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+type ParsedLockOwner =
+  | { readonly valid: true; readonly owner: LockOwner }
+  | { readonly valid: false };
+
+function parseOwner(value: unknown): ParsedLockOwner {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { valid: false };
   const owner = value as Record<string, unknown>;
   if (
     typeof owner.ownerToken !== 'string' ||
@@ -110,8 +115,12 @@ function parseOwner(value: unknown): LockOwner | null {
     typeof owner.operationLabel !== 'string' ||
     !(owner.transactionId === null || typeof owner.transactionId === 'string')
   )
-    return null;
-  return owner as unknown as LockOwner;
+    return { valid: false };
+  return { valid: true, owner: owner as unknown as LockOwner };
+}
+
+function createTransactionId(override?: () => string): string {
+  return override === undefined ? randomUUID() : override();
 }
 
 function parseManifest(value: unknown, expectedId: string): JournalManifest | null {
@@ -161,7 +170,7 @@ export class ProjectWorkspaceTransactionService {
     private readonly fileSystem: ProjectWorkspaceFileSystem,
     private readonly processLiveness: ProjectWorkspaceProcessLiveness,
     private readonly pid: number,
-    private readonly createId: () => string = () => globalThis.crypto.randomUUID(),
+    private readonly createIdOverride?: () => string,
   ) {}
 
   async recover(projectRoot: string): Promise<void> {
@@ -173,120 +182,145 @@ export class ProjectWorkspaceTransactionService {
     }
   }
 
-  async commit(
+  commit(
     projectRoot: string,
     request: ProjectWorkspaceTransactionRequest,
   ): Promise<{ transactionId: string }> {
-    const transactionId = request.transactionId ?? this.createId();
-    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(transactionId))
-      throw new ProjectWorkspaceMutationError(
-        'WORKSPACE_PATH_INVALID',
-        'Workspace transaction ID is invalid.',
-      );
-    const lock = await this.acquireLock(projectRoot, request.operationLabel, transactionId, true);
-    const directory = `${transactionsPath}/${transactionId}`;
-    try {
-      await this.recoverJournals(projectRoot);
-      if (request.targets.length === 0) return { transactionId };
-      const targets = [...request.targets].sort((left, right) =>
-        compareCodePoints(left.path, right.path),
-      );
-      if (new Set(targets.map((target) => target.path)).size !== targets.length)
-        throw new ProjectWorkspaceMutationError(
-          'WORKSPACE_PATH_INVALID',
-          'A workspace transaction cannot target one path more than once.',
-        );
-      await this.fileSystem.createDirectory(this.absolute(projectRoot, directory));
-      const journalTargets: JournalTarget[] = [];
-      let manifest: JournalManifest = {
-        schema: PROJECT_WORKSPACE_TRANSACTION_SCHEMA,
-        schemaVersion: PROJECT_WORKSPACE_TRANSACTION_SCHEMA_VERSION,
-        transactionId,
-        state: 'prepared',
-        writerOwnerToken: lock.ownerToken,
-        writerPid: this.pid,
-        operationLabel: request.operationLabel,
-        targets: journalTargets,
-        completedTargets: [],
-      };
-      try {
-        for (let index = 0; index < targets.length; index += 1) {
-          const target = targets[index]!;
-          if (!isSafeRelativePath(target.path) || (target.operation === 'write' && !target.bytes))
+    return new Promise<{ transactionId: string }>((resolve, reject) => {
+      void (async () => {
+        try {
+          const transactionId = request.transactionId ?? createTransactionId(this.createIdOverride);
+          if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(transactionId))
             throw new ProjectWorkspaceMutationError(
               'WORKSPACE_PATH_INVALID',
-              `Workspace transaction target '${target.path}' is invalid.`,
+              'Workspace transaction ID is invalid.',
             );
-          const absolute = this.absolute(projectRoot, target.path);
-          await assertProjectWorkspacePathContained(this.fileSystem, projectRoot, absolute);
-          const beforeRevision = await revisionAt(this.fileSystem, absolute);
-          if (beforeRevision !== target.expectedRevision)
-            throw new ProjectWorkspaceMutationError(
-              'WORKSPACE_REVISION_CONFLICT',
-              `Workspace source '${target.path}' changed before commit.`,
-            );
-          const beforeBlob = beforeRevision === 'absent' ? null : `before/${index}`;
-          const afterBlob = target.operation === 'write' ? `after/${index}` : null;
-          if (beforeBlob)
-            await this.writeStaged(
-              projectRoot,
-              directory,
-              beforeBlob,
-              await this.fileSystem.readBytes(absolute),
-            );
-          if (afterBlob) await this.writeStaged(projectRoot, directory, afterBlob, target.bytes!);
-          journalTargets.push({
-            path: target.path,
-            operation: target.operation,
-            beforeRevision,
-            afterRevision:
-              target.operation === 'write' ? sha256PrefixedBytes(target.bytes!) : 'absent',
-            beforeBlob,
-            afterBlob,
-          });
-        }
-        manifest = { ...manifest, targets: journalTargets };
-        await this.writeManifest(projectRoot, manifest);
-      } catch (error) {
-        await this.fileSystem.removeDirectory(this.absolute(projectRoot, directory));
-        throw error;
-      }
-      try {
-        for (const target of journalTargets) {
-          const current = await revisionAt(
-            this.fileSystem,
-            this.absolute(projectRoot, target.path),
+          const lock = await this.acquireLock(
+            projectRoot,
+            request.operationLabel,
+            transactionId,
+            true,
           );
-          if (current !== target.beforeRevision)
-            throw new ProjectWorkspaceMutationError(
-              'WORKSPACE_REVISION_CONFLICT',
-              `Workspace source '${target.path}' changed after staging.`,
+          let released = false;
+          const directory = `${transactionsPath}/${transactionId}`;
+          try {
+            await this.recoverJournals(projectRoot);
+            if (request.targets.length === 0) {
+              await this.releaseLock(projectRoot, lock);
+              released = true;
+              resolve({ transactionId });
+              return;
+            }
+            const targets = [...request.targets].sort((left, right) =>
+              compareCodePoints(left.path, right.path),
             );
+            if (new Set(targets.map((target) => target.path)).size !== targets.length)
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_PATH_INVALID',
+                'A workspace transaction cannot target one path more than once.',
+              );
+            await this.fileSystem.createDirectory(this.absolute(projectRoot, directory));
+            const journalTargets: JournalTarget[] = [];
+            let manifest: JournalManifest = {
+              schema: PROJECT_WORKSPACE_TRANSACTION_SCHEMA,
+              schemaVersion: PROJECT_WORKSPACE_TRANSACTION_SCHEMA_VERSION,
+              transactionId,
+              state: 'prepared',
+              writerOwnerToken: lock.ownerToken,
+              writerPid: this.pid,
+              operationLabel: request.operationLabel,
+              targets: journalTargets,
+              completedTargets: [],
+            };
+            try {
+              for (let index = 0; index < targets.length; index += 1) {
+                const target = targets[index]!;
+                if (
+                  !isSafeRelativePath(target.path) ||
+                  (target.operation === 'write' && !target.bytes)
+                )
+                  throw new ProjectWorkspaceMutationError(
+                    'WORKSPACE_PATH_INVALID',
+                    `Workspace transaction target '${target.path}' is invalid.`,
+                  );
+                const absolute = this.absolute(projectRoot, target.path);
+                await assertProjectWorkspacePathContained(this.fileSystem, projectRoot, absolute);
+                const beforeRevision = await revisionAt(this.fileSystem, absolute);
+                if (beforeRevision !== target.expectedRevision)
+                  throw new ProjectWorkspaceMutationError(
+                    'WORKSPACE_REVISION_CONFLICT',
+                    `Workspace source '${target.path}' changed before commit.`,
+                  );
+                const beforeBlob = beforeRevision === 'absent' ? null : `before/${index}`;
+                const afterBlob = target.operation === 'write' ? `after/${index}` : null;
+                if (beforeBlob)
+                  await this.writeStaged(
+                    projectRoot,
+                    directory,
+                    beforeBlob,
+                    await this.fileSystem.readBytes(absolute),
+                  );
+                if (afterBlob)
+                  await this.writeStaged(projectRoot, directory, afterBlob, target.bytes!);
+                journalTargets.push({
+                  path: target.path,
+                  operation: target.operation,
+                  beforeRevision,
+                  afterRevision:
+                    target.operation === 'write' ? sha256PrefixedBytes(target.bytes!) : 'absent',
+                  beforeBlob,
+                  afterBlob,
+                });
+              }
+              manifest = { ...manifest, targets: journalTargets };
+              await this.writeManifest(projectRoot, manifest);
+            } catch (error) {
+              await this.fileSystem.removeDirectory(this.absolute(projectRoot, directory));
+              throw error;
+            }
+            try {
+              for (const target of journalTargets) {
+                const current = await revisionAt(
+                  this.fileSystem,
+                  this.absolute(projectRoot, target.path),
+                );
+                if (current !== target.beforeRevision)
+                  throw new ProjectWorkspaceMutationError(
+                    'WORKSPACE_REVISION_CONFLICT',
+                    `Workspace source '${target.path}' changed after staging.`,
+                  );
+              }
+              manifest = { ...manifest, state: 'writing' };
+              await this.writeManifest(projectRoot, manifest);
+              for (const target of journalTargets) {
+                await this.applyState(projectRoot, directory, target, 'after');
+                manifest = {
+                  ...manifest,
+                  completedTargets: [...manifest.completedTargets, target.path],
+                };
+                await this.writeManifest(projectRoot, manifest);
+              }
+              manifest = { ...manifest, state: 'committed' };
+              await this.writeManifest(projectRoot, manifest);
+            } catch (error) {
+              await this.restoreBeforeState(projectRoot, directory, manifest);
+              manifest = { ...manifest, state: 'rolled-back' };
+              await this.writeManifest(projectRoot, manifest);
+              await this.fileSystem.removeDirectory(this.absolute(projectRoot, directory));
+              throw error;
+            }
+            await this.fileSystem.removeDirectory(this.absolute(projectRoot, directory));
+            await this.releaseLock(projectRoot, lock);
+            released = true;
+            resolve({ transactionId });
+          } finally {
+            if (!released) await this.releaseLock(projectRoot, lock);
+          }
+        } catch (error) {
+          reject(error);
         }
-        manifest = { ...manifest, state: 'writing' };
-        await this.writeManifest(projectRoot, manifest);
-        for (const target of journalTargets) {
-          await this.applyState(projectRoot, directory, target, 'after');
-          manifest = {
-            ...manifest,
-            completedTargets: [...manifest.completedTargets, target.path],
-          };
-          await this.writeManifest(projectRoot, manifest);
-        }
-        manifest = { ...manifest, state: 'committed' };
-        await this.writeManifest(projectRoot, manifest);
-      } catch (error) {
-        await this.restoreBeforeState(projectRoot, directory, manifest);
-        manifest = { ...manifest, state: 'rolled-back' };
-        await this.writeManifest(projectRoot, manifest);
-        await this.fileSystem.removeDirectory(this.absolute(projectRoot, directory));
-        throw error;
-      }
-      await this.fileSystem.removeDirectory(this.absolute(projectRoot, directory));
-      return { transactionId };
-    } finally {
-      await this.releaseLock(projectRoot, lock);
-    }
+      })();
+    });
   }
 
   private absolute(projectRoot: string, relativePath: string): string {
@@ -311,117 +345,148 @@ export class ProjectWorkspaceTransactionService {
     );
   }
 
-  private async acquireLock(
+  private acquireLock(
     projectRoot: string,
     operationLabel: string,
     transactionId: string | null,
     recoverExisting: boolean,
   ): Promise<LockOwner> {
-    const transactionsAbsolute = this.absolute(projectRoot, transactionsPath);
-    try {
-      await assertProjectWorkspacePathContained(this.fileSystem, projectRoot, transactionsAbsolute);
-    } catch {
-      throw new ProjectWorkspaceMutationError(
-        'WORKSPACE_PATH_INVALID',
-        'The workspace transaction directory escapes the project root.',
-      );
-    }
-    await this.fileSystem.createDirectory(transactionsAbsolute);
-    const lockAbsolute = this.absolute(projectRoot, lockPath);
-    if (!(await this.fileSystem.createDirectoryExclusive(lockAbsolute))) {
-      let existing: LockOwner | null = null;
-      try {
-        existing = parseOwner(
-          JSON.parse(
-            await this.fileSystem.readText(this.absolute(projectRoot, `${lockPath}/owner.json`)),
-          ),
-        );
-      } catch {
-        // A lock without a trustworthy owner fails closed.
-      }
-      if (!existing)
-        throw new ProjectWorkspaceMutationError(
-          'WORKSPACE_BUSY',
-          'The project writer lock has no valid owner.',
-        );
-      const alive = await this.processLiveness.isProcessAlive(existing.pid);
-      if (alive !== false)
-        throw new ProjectWorkspaceMutationError(
-          'WORKSPACE_BUSY',
-          'Another NovelTea process owns the project writer lock.',
-        );
-      await this.recoverJournals(projectRoot);
-      await this.fileSystem.removeDirectory(lockAbsolute);
-      if (!(await this.fileSystem.createDirectoryExclusive(lockAbsolute)))
-        throw new ProjectWorkspaceMutationError(
-          'WORKSPACE_BUSY',
-          'The project writer lock was acquired concurrently.',
-        );
-    }
-    const owner = { ownerToken: this.createId(), pid: this.pid, operationLabel, transactionId };
-    await this.fileSystem.writeTextAtomic(
-      this.absolute(projectRoot, `${lockPath}/owner.json`),
-      canonicalJson(owner),
-    );
-    if (recoverExisting) await this.recoverJournals(projectRoot);
-    return owner;
+    return new Promise<LockOwner>((resolve, reject) => {
+      void (async () => {
+        try {
+          const transactionsAbsolute = this.absolute(projectRoot, transactionsPath);
+          try {
+            await assertProjectWorkspacePathContained(
+              this.fileSystem,
+              projectRoot,
+              transactionsAbsolute,
+            );
+          } catch {
+            throw new ProjectWorkspaceMutationError(
+              'WORKSPACE_PATH_INVALID',
+              'The workspace transaction directory escapes the project root.',
+            );
+          }
+          await this.fileSystem.createDirectory(transactionsAbsolute);
+          const lockAbsolute = this.absolute(projectRoot, lockPath);
+          if (!(await this.fileSystem.createDirectoryExclusive(lockAbsolute))) {
+            let parsed: ParsedLockOwner = { valid: false };
+            try {
+              parsed = parseOwner(
+                JSON.parse(
+                  await this.fileSystem.readText(
+                    this.absolute(projectRoot, `${lockPath}/owner.json`),
+                  ),
+                ),
+              );
+            } catch {
+              // A lock without a trustworthy owner fails closed.
+            }
+            if (!parsed.valid)
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'The project writer lock has no valid owner.',
+              );
+            const existing = parsed.owner;
+            const alive = await this.processLiveness.isProcessAlive(existing.pid);
+            if (alive !== false)
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'Another NovelTea process owns the project writer lock.',
+              );
+            await this.recoverJournals(projectRoot);
+            await this.fileSystem.removeDirectory(lockAbsolute);
+            if (!(await this.fileSystem.createDirectoryExclusive(lockAbsolute)))
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'The project writer lock was acquired concurrently.',
+              );
+          }
+          const owner = {
+            ownerToken: createTransactionId(this.createIdOverride),
+            pid: this.pid,
+            operationLabel,
+            transactionId,
+          };
+          await this.fileSystem.writeTextAtomic(
+            this.absolute(projectRoot, `${lockPath}/owner.json`),
+            canonicalJson(owner),
+          );
+          if (recoverExisting) await this.recoverJournals(projectRoot);
+          resolve(owner);
+        } catch (error) {
+          reject(error);
+        }
+      })();
+    });
   }
 
   private async releaseLock(projectRoot: string, owner: LockOwner) {
     try {
-      const stored = parseOwner(
+      const parsed = parseOwner(
         JSON.parse(
           await this.fileSystem.readText(this.absolute(projectRoot, `${lockPath}/owner.json`)),
         ),
       );
-      if (stored?.ownerToken === owner.ownerToken)
+      if (parsed.valid && parsed.owner.ownerToken === owner.ownerToken)
         await this.fileSystem.removeDirectory(this.absolute(projectRoot, lockPath));
     } catch {
       // Never remove a lock whose ownership cannot be verified.
     }
   }
 
-  private async recoverJournals(projectRoot: string) {
-    const root = this.absolute(projectRoot, transactionsPath);
-    for (const entry of [...(await this.fileSystem.listDirectory(root))].sort(compareCodePoints)) {
-      if (entry === '.writer-lock') continue;
-      const directory = `${transactionsPath}/${entry}`;
-      let manifest: JournalManifest | null = null;
-      try {
-        manifest = parseManifest(
-          JSON.parse(
-            await this.fileSystem.readText(
-              this.absolute(projectRoot, `${directory}/manifest.json`),
-            ),
-          ),
-          entry,
-        );
-      } catch {
-        // Invalid journals are retained for explicit intervention.
-      }
-      if (!manifest)
-        throw new ProjectWorkspaceMutationError(
-          'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
-          `Transaction '${entry}' has no valid current manifest.`,
-        );
-      await this.assertKnownTargetStates(projectRoot, manifest);
-      if (manifest.state === 'committed') {
-        for (const target of manifest.targets)
-          await this.recoverTarget(projectRoot, directory, target, 'after');
-      } else if (manifest.state === 'rolled-back') {
-        for (const target of manifest.targets) {
-          if (
-            (await revisionAt(this.fileSystem, this.absolute(projectRoot, target.path))) !==
-            target.beforeRevision
-          )
-            throw this.recoveryConflict(target.path);
+  private recoverJournals(projectRoot: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      void (async () => {
+        try {
+          const root = this.absolute(projectRoot, transactionsPath);
+          for (const entry of [...(await this.fileSystem.listDirectory(root))].sort(
+            compareCodePoints,
+          )) {
+            if (entry === '.writer-lock') continue;
+            const directory = `${transactionsPath}/${entry}`;
+            let manifest: JournalManifest | null = null;
+            try {
+              manifest = parseManifest(
+                JSON.parse(
+                  await this.fileSystem.readText(
+                    this.absolute(projectRoot, `${directory}/manifest.json`),
+                  ),
+                ),
+                entry,
+              );
+            } catch {
+              // Invalid journals are retained for explicit intervention.
+            }
+            if (manifest === null)
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
+                `Transaction '${entry}' has no valid current manifest.`,
+              );
+            await this.assertKnownTargetStates(projectRoot, manifest);
+            if (manifest.state === 'committed') {
+              for (const target of manifest.targets)
+                await this.recoverTarget(projectRoot, directory, target, 'after');
+            } else if (manifest.state === 'rolled-back') {
+              for (const target of manifest.targets) {
+                if (
+                  (await revisionAt(this.fileSystem, this.absolute(projectRoot, target.path))) !==
+                  target.beforeRevision
+                )
+                  throw this.recoveryConflict(target.path);
+              }
+            } else {
+              await this.restoreBeforeState(projectRoot, directory, manifest);
+              await this.writeManifest(projectRoot, { ...manifest, state: 'rolled-back' });
+            }
+            await this.fileSystem.removeDirectory(this.absolute(projectRoot, directory));
+          }
+          resolve();
+        } catch (error) {
+          reject(error);
         }
-      } else {
-        await this.restoreBeforeState(projectRoot, directory, manifest);
-        await this.writeManifest(projectRoot, { ...manifest, state: 'rolled-back' });
-      }
-      await this.fileSystem.removeDirectory(this.absolute(projectRoot, directory));
-    }
+      })();
+    });
   }
 
   private async restoreBeforeState(

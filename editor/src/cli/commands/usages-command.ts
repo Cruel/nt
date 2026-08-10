@@ -13,7 +13,7 @@ export const usagesCommand: CliCommandDefinition = {
     return {
       dryRun: false,
       mutation: false,
-      run: ({ workspace, snapshot }) => usagesForEntity(workspace, snapshot, collection!, id!),
+      run: ({ workspace, snapshot }) => usagesForEntity(workspace, snapshot, collection, id!),
     };
   },
 };

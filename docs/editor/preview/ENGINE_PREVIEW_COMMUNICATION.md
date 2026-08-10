@@ -152,7 +152,7 @@ The token is included in the iframe URL. The renderer does not receive generic
 IPC, filesystem access, or arbitrary server controls.
 
 Project load, import, validation, playback, raw entity edits, and package
-export are handled by a separate `noveltea-editor-tool` helper executable. The
+export are handled by the bundled standalone `noveltea` executable through its private native bridge. The
 Electron main process spawns the helper with JSON on stdin and returns the
 helper's JSON response through typed preload IPC. This keeps Electron and Node dependencies out of
 the backend-neutral runtime modules; the helper uses the explicit engine/content protocol boundary.

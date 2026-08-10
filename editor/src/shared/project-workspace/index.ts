@@ -4,6 +4,10 @@ export {
   NodeProjectWorkspaceProcessLiveness,
 } from './node-project-workspace-file-system';
 export {
+  createPerryProjectWorkspaceFileSystem,
+  PerryProjectWorkspaceFileSystem,
+} from './perry-project-workspace-file-system';
+export {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
   type ProjectWorkspaceProcessLiveness,
@@ -20,7 +24,10 @@ export {
   type ProjectWorkspaceTransactionTargetInput,
 } from './project-workspace-transaction';
 export { InMemoryProjectWorkspaceFileSystem } from './testing';
-export { createNodeProjectWorkspaceService } from './node-project-workspace-service';
+export {
+  createHostProjectWorkspaceService,
+  createNodeProjectWorkspaceService,
+} from './node-project-workspace-service';
 export {
   discoverProjectRoot,
   validateExplicitProjectRoot,

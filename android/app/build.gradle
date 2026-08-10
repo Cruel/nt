@@ -143,23 +143,22 @@ android {
     }
 }
 
-def findShaderc = {
-    if (project.hasProperty("shaderc")) {
-        def candidate = file(project.property("shaderc"))
+def findNovelTeaCli = {
+    if (project.hasProperty("novelteaCli")) {
+        def candidate = file(project.property("novelteaCli"))
         if (candidate.canExecute()) return candidate.absolutePath
     }
-    if (System.getenv("SHADERC")) {
-        def candidate = file(System.getenv("SHADERC"))
+    if (System.getenv("NOVELTEA_CLI")) {
+        def candidate = file(System.getenv("NOVELTEA_CLI"))
         if (candidate.canExecute()) return candidate.absolutePath
     }
     def path = System.getenv("PATH") ?: ""
     for (String entry : path.split(File.pathSeparator)) {
-        def candidate = file("${entry}/shaderc")
+        def candidate = file("${entry}/noveltea")
         if (candidate.canExecute()) return candidate.absolutePath
     }
     for (String rel : [
-        "../../build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc",
-        "../../vcpkg_installed/x64-linux/tools/bgfx/shaderc"
+        "../../build/cli/linux/noveltea"
     ]) {
         def candidate = file(rel)
         if (candidate.canExecute()) return candidate.absolutePath
@@ -210,9 +209,9 @@ tasks.register("compileNovelTeaShaderAssets") {
         if (!compileShaders) {
             return
         }
-        def shaderc = findShaderc()
-        if (shaderc == null) {
-            throw new GradleException("shaderc not found. Set SHADERC, pass -Pshaderc=/path/to/shaderc, or build the Linux vcpkg shader-tools preset first.")
+        def novelteaCli = findNovelTeaCli()
+        if (novelteaCli == null) {
+            throw new GradleException("NovelTea CLI not found. Build it with 'pnpm -C editor run noveltea:build', set NOVELTEA_CLI, pass -PnovelteaCli=/path/to/noveltea, or place it on PATH.")
         }
         def bgfxShaderInclude = findBgfxShaderInclude()
         if (bgfxShaderInclude == null) {
@@ -221,7 +220,7 @@ tasks.register("compileNovelTeaShaderAssets") {
 
         exec {
             executable "cmake"
-            args "-DNOVELTEA_SHADERC_EXECUTABLE=${shaderc}",
+            args "-DNOVELTEA_CLI_EXECUTABLE=${novelteaCli}",
                  "-DNOVELTEA_SHADER_SOURCE_DIR=${file("../../engine/shaders/bgfx").absolutePath}",
                  "-DNOVELTEA_SHADER_OUTPUT_ROOT=${outputRoot.absolutePath}",
                  "-DNOVELTEA_SHADER_VARIANTS=essl-300",

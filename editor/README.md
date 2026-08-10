@@ -7,7 +7,7 @@ Desktop visual novel editor built with Electron, React, and TypeScript.
 - Node.js 24.18.0
 - pnpm 11.15.0 through Corepack
 - Emscripten SDK activated in your shell for engine preview builds
-- A host `noveltea-editor-tool` release build for staging and packaging
+- A host standalone `noveltea` CLI release build for staging and packaging (currently Linux x64)
 
 ## Setup
 

@@ -16,8 +16,8 @@ function electronRuntimeState(): { packaged: boolean; resourcesPath?: string } {
   };
 }
 
-function toolName() {
-  return process.platform === 'win32' ? 'noveltea-editor-tool.exe' : 'noveltea-editor-tool';
+function cliName() {
+  return process.platform === 'win32' ? 'noveltea.exe' : 'noveltea';
 }
 
 function repoRootCandidates() {
@@ -32,19 +32,15 @@ function repoRootCandidates() {
   ];
 }
 
-export function resolveEditorToolPath(): string {
-  if (process.env.NOVELTEA_EDITOR_TOOL) return process.env.NOVELTEA_EDITOR_TOOL;
+export function resolveNovelTeaCliPath(): string {
+  if (process.env.NOVELTEA_CLI) return process.env.NOVELTEA_CLI;
 
   const runtime = electronRuntimeState();
   if (runtime.packaged && runtime.resourcesPath) {
-    return path.join(runtime.resourcesPath, 'bin', toolName());
+    return path.join(runtime.resourcesPath, 'bin', cliName());
   }
 
-  const relativeCandidates = [
-    path.join('build', 'linux-debug', 'tools', 'editor_tool', toolName()),
-    path.join('build', 'linux-release', 'tools', 'editor_tool', toolName()),
-    path.join('build', 'web-debug', 'tools', 'editor_tool', toolName()),
-  ];
+  const relativeCandidates = [path.join('build', 'cli', 'linux', cliName())];
   for (const root of repoRootCandidates()) {
     for (const relative of relativeCandidates) {
       const candidate = path.resolve(root, relative);
@@ -52,32 +48,24 @@ export function resolveEditorToolPath(): string {
     }
   }
 
-  return path.resolve(
-    process.cwd(),
-    '..',
-    'build',
-    'linux-debug',
-    'tools',
-    'editor_tool',
-    toolName(),
-  );
+  return path.resolve(process.cwd(), '..', 'build', 'cli', 'linux', cliName());
 }
 
-export function invokeEditorTool(command: string, payload: unknown): Promise<unknown> {
+export function invokeNovelTeaNativeOperation(command: string, payload: unknown): Promise<unknown> {
   const input = JSON.stringify(payload ?? {});
   if (Buffer.byteLength(input, 'utf8') > MAX_TOOL_INPUT_BYTES) {
     return Promise.reject(new Error('Editor tool payload is too large.'));
   }
 
   return new Promise((resolve, reject) => {
-    const child = spawn(resolveEditorToolPath(), [command], {
+    const child = spawn(resolveNovelTeaCliPath(), ['__editor-native', command], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
     let stderr = '';
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error('Editor tool timed out.'));
+      reject(new Error('NovelTea native operation timed out.'));
     }, 30_000);
 
     child.stdout.setEncoding('utf8');
@@ -101,14 +89,18 @@ export function invokeEditorTool(command: string, payload: unknown): Promise<unk
       } catch (parseError) {
         reject(
           new Error(
-            `Editor tool returned invalid JSON.${stderr ? ` stderr: ${stderr}` : ''} ${String(parseError)}`,
+            `NovelTea native operation returned invalid JSON.${stderr ? ` stderr: ${stderr}` : ''} ${String(parseError)}`,
           ),
         );
         return;
       }
 
       if (code !== 0 && !parsed) {
-        reject(new Error(stderr || `Editor tool failed with exit code ${code ?? 'unknown'}.`));
+        reject(
+          new Error(
+            stderr || `NovelTea native operation failed with exit code ${code ?? 'unknown'}.`,
+          ),
+        );
         return;
       }
       resolve(parsed);

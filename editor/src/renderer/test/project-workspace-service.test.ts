@@ -143,6 +143,22 @@ describe('ProjectWorkspaceService', () => {
     ]);
   });
 
+  it('rejects metadata keys that would mutate dictionary prototypes', async () => {
+    const files = filesFor();
+    files['/projects/headless/editor.json'] = `${JSON.stringify({
+      chapters: { records: {} },
+      tags: { records: {} },
+      recordMetadata: JSON.parse(
+        '{"__proto__":{"ghost":{"tags":["outer"]}},"rooms":{"__proto__":{"tags":["inner"]}}}',
+      ),
+    })}\n`;
+
+    const opened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(files),
+    ).open('/projects/headless');
+    expect(opened.ok).toBe(false);
+  });
+
   it('rejects retired monolithic files and unsupported workspace versions', async () => {
     const project = createAuthoringProject();
     const monolithic = new ProjectWorkspaceService(
