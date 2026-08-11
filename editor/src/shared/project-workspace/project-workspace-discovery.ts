@@ -2,7 +2,7 @@ import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system
 import {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
-} from './project-workspace-service';
+} from './project-workspace-contracts';
 
 export type ProjectWorkspaceDiscoveryCode =
   | 'WORKSPACE_NOT_FOUND'

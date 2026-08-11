@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { authoringLocalizationSchema } from '../shared/project-schema/authoring-localization';
@@ -16,9 +15,10 @@ import { sha256PrefixedUtf8 } from '../shared/sha256';
 import {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
-} from '../shared/project-workspace/project-workspace-service';
+} from '../shared/project-workspace/project-workspace-contracts';
 import { NOVELTEA_CLI_VERSION } from './contracts';
 import { loadAgentKitSourceFiles } from './agent-kit/source';
+import type { NovelTeaAgentKitPayload } from './agent-kit-embedded';
 
 export const NOVELTEA_AGENT_KIT_SCHEMA = 'noveltea.agent-kit.manifest' as const;
 export const NOVELTEA_AGENT_KIT_SCHEMA_VERSION = 1 as const;
@@ -113,39 +113,9 @@ function schemaText(schema: z.ZodType): string {
   )}\n`;
 }
 
-export interface NovelTeaAgentKitPayload {
-  readonly manifestText: string;
-  readonly files: Readonly<Record<string, string>>;
-}
-
-const PERRY_EMBEDDED_AGENT_KIT_ROOT = '$perryfs/dist/agent-kit';
-
-function readPerryEmbeddedAgentKit(): NovelTeaAgentKitPayload | null {
-  if (!('perry' in process.versions)) return null;
-  const embeddedRoot = PERRY_EMBEDDED_AGENT_KIT_ROOT;
-  let manifestText: string;
-  try {
-    manifestText = readFileSync(`${embeddedRoot}/manifest.json`, 'utf8');
-  } catch {
-    throw new Error('Embedded NovelTea agent kit is missing from this CLI release.');
-  }
-  const manifest = JSON.parse(manifestText) as { files?: Record<string, string> };
-  if (!manifest.files || typeof manifest.files !== 'object')
-    throw new Error('Embedded NovelTea agent-kit manifest is invalid.');
-  const files = Object.fromEntries(
-    Object.keys(manifest.files)
-      .sort(compareCodePoints)
-      .map((relativePath) => [
-        relativePath,
-        readFileSync(`${embeddedRoot}/${relativePath}`, 'utf8'),
-      ]),
-  );
-  return { manifestText, files: Object.freeze(files) };
-}
+export type { NovelTeaAgentKitPayload } from './agent-kit-embedded';
 
 export function createNovelTeaAgentKitPayload(): NovelTeaAgentKitPayload {
-  const embedded = readPerryEmbeddedAgentKit();
-  if (embedded) return embedded;
   const files: Record<string, string> = { ...loadAgentKitSourceFiles() };
   for (const [relativePath, schema] of Object.entries(schemaSources))
     files[`schemas/${relativePath}`] = schemaText(schema);

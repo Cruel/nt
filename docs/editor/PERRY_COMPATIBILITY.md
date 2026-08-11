@@ -196,8 +196,11 @@ when Zod initialized before jitless mode was enabled.
 z.config({ jitless: true });
 ```
 
-`editor/scripts/noveltea.ts` imports that bootstrap before the CLI application/schema module graph is
-initialized. Import order is intentional.
+`editor/scripts/noveltea.ts` loads that bootstrap immediately before importing the CLI
+application/schema module graph for commands that require authoring/workspace schemas. Lightweight
+commands (`--version`, `--help`, usage/unknown-command handling, raw `shaderc`, and Perry `agent
+sync`) never initialize Zod at all. Import order is intentional: every schema-backed branch still
+loads `zod-jitless.ts` before the first module that constructs a Zod schema.
 
 **Revisit/remove when:** either Perry supports the required dynamic-function behavior or Zod no
 longer attempts it in the relevant AOT environment, and `noveltea --json --version` plus the full CLI
@@ -251,9 +254,11 @@ complete. Phase 8 also exposed the same class of defect in the free `discoverPro
 boundary when the enlarged CLI graph performed upward project discovery: the work completed but the
 implicit Promise could remain unsettled and the executable exited with status 13. Discovery now owns
 an explicit outer Promise and resolves/rejects it after the unchanged upward-search algorithm. The
-complete Node/Perry differential covers root and upward discovery plus successful mutations,
-live/malformed/stale locks, interrupted-journal recovery, and the current guarded/atomic stale-lock
-reclamation path.
+CLI startup optimization later exposed the same defect in the changed=true `agent sync` mutation
+path; `syncNovelTeaAgentKit()` now explicitly settles its outer Promise after activation/cleanup.
+The complete Node/Perry differential covers root and upward discovery, agent-kit activation, successful
+mutations, live/malformed/stale locks, interrupted-journal recovery, and the current guarded/atomic
+stale-lock reclamation path.
 
 ### Transaction UUID call shape
 

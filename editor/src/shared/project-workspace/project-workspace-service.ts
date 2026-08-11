@@ -52,6 +52,12 @@ import { parseAssetData } from '../project-schema/authoring-assets';
 import type { LuaSourceSnapshot } from '../project-schema/authoring-lua-analysis';
 import { sha256PrefixedBytes, sha256PrefixedUtf8 } from '../sha256';
 import {
+  EDITOR_LOCAL_STATE_SCHEMA,
+  EDITOR_LOCAL_STATE_SCHEMA_VERSION,
+  PROJECT_WORKSPACE_SCHEMA,
+  PROJECT_WORKSPACE_SCHEMA_VERSION,
+} from './project-workspace-contracts';
+import {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
 } from './project-workspace-file-system';
@@ -64,10 +70,12 @@ import {
   utf8WorkspaceTransactionTarget,
 } from './project-workspace-transaction';
 
-export const PROJECT_WORKSPACE_SCHEMA = 'noveltea.project.workspace' as const;
-export const PROJECT_WORKSPACE_SCHEMA_VERSION = 1 as const;
-export const EDITOR_LOCAL_STATE_SCHEMA = 'noveltea.editor.local-state' as const;
-export const EDITOR_LOCAL_STATE_SCHEMA_VERSION = 2 as const;
+export {
+  EDITOR_LOCAL_STATE_SCHEMA,
+  EDITOR_LOCAL_STATE_SCHEMA_VERSION,
+  PROJECT_WORKSPACE_SCHEMA,
+  PROJECT_WORKSPACE_SCHEMA_VERSION,
+} from './project-workspace-contracts';
 
 /* This is deliberately a distinct persistence codec.  The assembled editor state
  * remains the old in-memory shape, but no workspace file is read as that retired

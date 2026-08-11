@@ -23,6 +23,8 @@ noveltea agent sync
 
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. `noveltea --help` is authoritative for the installed version's exact syntax.
 
+The standalone entrypoint has a deliberately lightweight dispatch layer. Version/help/usage handling, unknown-command rejection, raw `shaderc`, and Perry's embedded `agent sync` path do not construct the authoring Zod schema graph. Commands that assemble or validate authoring content load the jitless Zod configuration and heavy CLI application graph only after dispatch determines those schemas are required. This boundary is part of the release architecture because Zod v4 schema construction is comparatively expensive under the pinned Perry compiler.
+
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
 
 ## Machine-readable protocol

@@ -8,12 +8,11 @@ import {
   type ProjectWorkspaceFileSystem,
   type ProjectWorkspaceService,
 } from '../shared/project-workspace';
+import { bootstrapNovelTeaCli, novelTeaCliUsageFailure } from './bootstrap';
 import {
   cliDiagnostic,
   formatCliResult,
   NOVELTEA_CLI_EXIT_CODES,
-  NOVELTEA_CLI_HELP,
-  NOVELTEA_CLI_VERSION,
   type NovelTeaCliCommandResult,
   type NovelTeaCliDiagnostic,
   type NovelTeaCliExitCode,
@@ -21,21 +20,7 @@ import {
 import { openCliProject } from './semantic-project';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import { CliCommandUsageError, parseCliCommand } from './commands';
-
-interface ParsedGlobalArguments {
-  readonly json: boolean;
-  readonly project?: string;
-  readonly command: readonly string[];
-  readonly help: boolean;
-  readonly version: boolean;
-}
-
-class CliUsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CliUsageError';
-  }
-}
+import { runNovelTeaAgentSyncCli } from './agent-sync-cli';
 
 export interface RunNovelTeaCliOptions {
   readonly cwd?: string;
@@ -63,61 +48,6 @@ const unavailableNativeTools: NovelTeaCliNativeToolService = {
     throw new Error('Native NovelTea tooling is unavailable in this CLI host.');
   },
 };
-
-function parseGlobals(argv: readonly string[]): ParsedGlobalArguments {
-  let json = false;
-  let project: string | undefined;
-  let help = false;
-  let version = false;
-  let index = 0;
-  while (index < argv.length && argv[index]!.startsWith('--')) {
-    const argument = argv[index]!;
-    if (argument === '--json') {
-      if (json) throw new CliUsageError("Global option '--json' may be supplied only once.");
-      json = true;
-      index += 1;
-      continue;
-    }
-    if (argument === '--project') {
-      if (project !== undefined)
-        throw new CliUsageError("Global option '--project' may be supplied only once.");
-      const value = argv[index + 1];
-      if (!value || value.startsWith('--'))
-        throw new CliUsageError("Global option '--project' requires a project directory.");
-      project = value;
-      index += 2;
-      continue;
-    }
-    if (argument === '--help') {
-      help = true;
-      index += 1;
-      continue;
-    }
-    if (argument === '--version') {
-      version = true;
-      index += 1;
-      continue;
-    }
-    throw new CliUsageError(`Unknown global option '${argument}'.`);
-  }
-  const command = argv.slice(index);
-  if ((help || version) && command.length > 0)
-    throw new CliUsageError('--help and --version do not accept a command path.');
-  if (help && version) throw new CliUsageError('--help and --version cannot be combined.');
-  return { json, project, command, help, version };
-}
-
-function usageFailure(message: string, json: boolean): NovelTeaCliCommandResult {
-  return formatCliResult(
-    {
-      success: false,
-      exitCode: NOVELTEA_CLI_EXIT_CODES.usage,
-      diagnostics: [cliDiagnostic('CLI_USAGE', '/', message)],
-    },
-    json,
-    { failure: `${message}\n\n${NOVELTEA_CLI_HELP.trimEnd()}` },
-  );
-}
 
 function failure(
   exitCode: NovelTeaCliExitCode,
@@ -148,66 +78,23 @@ function workspaceOpenExitCode(diagnostics: readonly NovelTeaCliDiagnostic[]): N
     : NOVELTEA_CLI_EXIT_CODES.workspace;
 }
 
-async function resolvedProjectRoot(
-  globals: ParsedGlobalArguments,
-  cwd: string,
-  fileSystem: ProjectWorkspaceFileSystem,
-) {
-  return globals.project
-    ? validateExplicitProjectRoot(fileSystem, path.resolve(cwd, globals.project))
-    : discoverProjectRoot(fileSystem, cwd);
-}
-
 export async function runNovelTeaCli(
   argv: readonly string[],
   options: RunNovelTeaCliOptions = {},
 ): Promise<NovelTeaCliCommandResult> {
-  let globals: ParsedGlobalArguments;
-  try {
-    globals = parseGlobals(argv);
-  } catch (error) {
-    return usageFailure(
-      error instanceof Error ? error.message : String(error),
-      argv.includes('--json'),
-    );
-  }
+  const bootstrap = bootstrapNovelTeaCli(argv);
+  if (bootstrap.complete) return bootstrap.result;
+  const globals = bootstrap.globals;
 
-  if (globals.help) {
-    if (globals.json)
-      return formatCliResult(
-        {
-          success: true,
-          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
-          diagnostics: [],
-          help: NOVELTEA_CLI_HELP,
-        },
-        true,
-      );
-    return {
-      exitCode: 0,
-      envelope: { success: true, exitCode: 0, diagnostics: [], help: NOVELTEA_CLI_HELP },
-      stdout: NOVELTEA_CLI_HELP,
-      stderr: '',
-    };
-  }
-  if (globals.version) {
-    return formatCliResult(
-      {
-        success: true,
-        exitCode: NOVELTEA_CLI_EXIT_CODES.success,
-        diagnostics: [],
-        version: NOVELTEA_CLI_VERSION,
-      },
-      globals.json,
-      { success: NOVELTEA_CLI_VERSION },
-    );
-  }
-  if (globals.command.length === 0) return usageFailure('A command is required.', globals.json);
+  const cwd = path.resolve(options.cwd ?? process.cwd());
+  const fileSystem = options.fileSystem ?? createNodeProjectWorkspaceFileSystem();
+  if (globals.command[0] === 'agent' && globals.command[1] === 'sync')
+    return runNovelTeaAgentSyncCli(globals, fileSystem, cwd);
 
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
   if (globals.command[0] === 'shaderc') {
     if (globals.json)
-      return usageFailure("Raw 'shaderc' does not support NovelTea --json mode.", true);
+      return novelTeaCliUsageFailure("Raw 'shaderc' does not support NovelTea --json mode.", true);
     let exitCode: number;
     try {
       exitCode = nativeTools.shaderc(globals.command.slice(1));
@@ -240,12 +127,12 @@ export async function runNovelTeaCli(
   try {
     command = parseCliCommand(globals.command);
   } catch (error) {
-    return usageFailure(error instanceof Error ? error.message : String(error), globals.json);
+    return novelTeaCliUsageFailure(
+      error instanceof Error ? error.message : String(error),
+      globals.json,
+    );
   }
 
-  const cwd = path.resolve(options.cwd ?? process.cwd());
-  const fileSystem = options.fileSystem ?? createNodeProjectWorkspaceFileSystem();
-  const workspace = options.workspace ?? createNodeProjectWorkspaceService();
   let stdinJson: unknown;
   if (
     globals.command.length === 2 &&
@@ -258,20 +145,25 @@ export async function runNovelTeaCli(
         throw new Error('Command requires one UTF-8 JSON value on stdin.');
       stdinJson = JSON.parse(stdinText) as unknown;
     } catch (error) {
-      return usageFailure(error instanceof Error ? error.message : String(error), globals.json);
+      return novelTeaCliUsageFailure(
+        error instanceof Error ? error.message : String(error),
+        globals.json,
+      );
     }
   }
 
-  const discovery = await resolvedProjectRoot(globals, cwd, fileSystem);
-  if (!discovery.ok) {
+  const discovery = globals.project
+    ? await validateExplicitProjectRoot(fileSystem, path.resolve(cwd, globals.project))
+    : await discoverProjectRoot(fileSystem, cwd);
+  if (!discovery.ok)
     return failure(
       NOVELTEA_CLI_EXIT_CODES.workspace,
       [cliDiagnostic(discovery.code, discovery.path, discovery.message)],
       globals.json,
       discovery.projectRoot ? { projectRoot: discovery.projectRoot } : {},
     );
-  }
 
+  const workspace = options.workspace ?? createNodeProjectWorkspaceService();
   const opened = await openCliProject(workspace, discovery.projectRoot, {
     readOnly: command.dryRun,
   });
@@ -291,12 +183,11 @@ export async function runNovelTeaCli(
     });
 
     const diagnostics = [...opened.diagnostics, ...semantic.diagnostics];
-    if (!semantic.ok) {
+    if (!semantic.ok)
       return failure(semanticExitCode(diagnostics), diagnostics, globals.json, {
         projectRoot: discovery.projectRoot,
         ...semantic.fields,
       });
-    }
     return formatCliResult(
       {
         success: true,
@@ -309,16 +200,15 @@ export async function runNovelTeaCli(
       { success: `NovelTea ${globals.command.join(' ')} succeeded.` },
     );
   } catch (error) {
-    if (error instanceof CliUsageError || error instanceof CliCommandUsageError)
-      return usageFailure(error.message, globals.json);
-    if (error instanceof ProjectWorkspaceMutationError) {
+    if (error instanceof CliCommandUsageError)
+      return novelTeaCliUsageFailure(error.message, globals.json);
+    if (error instanceof ProjectWorkspaceMutationError)
       return failure(
         NOVELTEA_CLI_EXIT_CODES.mutation,
         [cliDiagnostic(error.code, '/.noveltea/transactions', error.message)],
         globals.json,
         { projectRoot: discovery.projectRoot },
       );
-    }
     const message = error instanceof Error ? error.message : String(error);
     return failure(
       NOVELTEA_CLI_EXIT_CODES.internal,

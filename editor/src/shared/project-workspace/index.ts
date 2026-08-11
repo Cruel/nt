@@ -8,6 +8,12 @@ export {
   PerryProjectWorkspaceFileSystem,
 } from './perry-project-workspace-file-system';
 export {
+  EDITOR_LOCAL_STATE_SCHEMA,
+  EDITOR_LOCAL_STATE_SCHEMA_VERSION,
+  PROJECT_WORKSPACE_SCHEMA,
+  PROJECT_WORKSPACE_SCHEMA_VERSION,
+} from './project-workspace-contracts';
+export {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
   type ProjectWorkspaceProcessLiveness,
@@ -43,10 +49,6 @@ export {
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
   projectWorkspaceLocalStateFile,
-  PROJECT_WORKSPACE_SCHEMA,
-  PROJECT_WORKSPACE_SCHEMA_VERSION,
-  EDITOR_LOCAL_STATE_SCHEMA,
-  EDITOR_LOCAL_STATE_SCHEMA_VERSION,
   publishProjectWorkspaceSnapshot,
   ProjectWorkspaceService,
   type ProjectWorkspaceFileRevision,

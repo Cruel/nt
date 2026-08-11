@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
-import './zod-jitless';
-import { runNovelTeaCli } from '../src/cli/application';
-import { createInProcessNovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
 import {
-  createHostProjectWorkspaceService,
-  createPerryProjectWorkspaceFileSystem,
-} from '../src/shared/project-workspace';
+  bootstrapNovelTeaCli,
+  novelTeaCliCommandNeedsZod,
+  novelTeaCliUsageFailure,
+} from '../src/cli/bootstrap';
+import { runNovelTeaAgentSyncCli } from '../src/cli/agent-sync-cli';
+import { createPerryProjectWorkspaceFileSystem } from '../src/shared/project-workspace/perry-project-workspace-file-system';
 
 function readStdinText(): string {
   return readFileSync(process.platform === 'win32' ? 0 : '/dev/stdin', 'utf8');
@@ -45,6 +45,8 @@ if (argv[0] === '__shaderc-batch') {
       finalStderr = 'Internal shaderc batch bridge requires an array of string arrays.\n';
       finalExitCode = 2;
     } else {
+      const { createInProcessNovelTeaCliNativeToolService } =
+        await import('../src/cli/native-tool-service');
       const nativeTools = createInProcessNovelTeaCliNativeToolService();
       for (const command of parsed as string[][]) {
         const exitCode = nativeTools.shaderc(command);
@@ -62,6 +64,8 @@ if (argv[0] === '__shaderc-batch') {
     finalExitCode = 2;
   } else {
     const input = JSON.parse(readStdinText() || '{}') as Record<string, unknown>;
+    const { createInProcessNovelTeaCliNativeToolService } =
+      await import('../src/cli/native-tool-service');
     const nativeTools = createInProcessNovelTeaCliNativeToolService();
     let response: unknown;
     if (operation === 'compile-shaders') {
@@ -84,17 +88,65 @@ if (argv[0] === '__shaderc-batch') {
     }
   }
 } else {
-  const fileSystem = createPerryProjectWorkspaceFileSystem();
-  const nativeTools = createInProcessNovelTeaCliNativeToolService();
-  const result = await runNovelTeaCli(argv, {
-    fileSystem,
-    workspace: createHostProjectWorkspaceService(fileSystem),
-    nativeTools,
-    readStdinText,
-  });
-  finalStdout = result.stdout;
-  finalStderr = result.stderr;
-  finalExitCode = result.exitCode;
+  const bootstrap = bootstrapNovelTeaCli(argv);
+  if (bootstrap.complete) {
+    finalStdout = bootstrap.result.stdout;
+    finalStderr = bootstrap.result.stderr;
+    finalExitCode = bootstrap.result.exitCode;
+  } else {
+    const fileSystem = createPerryProjectWorkspaceFileSystem();
+    if (bootstrap.globals.command[0] === 'agent') {
+      const result = await runNovelTeaAgentSyncCli(bootstrap.globals, fileSystem);
+      finalStdout = result.stdout;
+      finalStderr = result.stderr;
+      finalExitCode = result.exitCode;
+    } else if (bootstrap.globals.command[0] === 'shaderc') {
+      if (bootstrap.globals.json) {
+        const result = novelTeaCliUsageFailure(
+          "Raw 'shaderc' does not support NovelTea --json mode.",
+          true,
+        );
+        finalStdout = result.stdout;
+        finalStderr = result.stderr;
+        finalExitCode = result.exitCode;
+      } else {
+        const nativeTools = (
+          await import('../src/cli/native-tool-service')
+        ).createInProcessNovelTeaCliNativeToolService();
+        try {
+          finalExitCode = nativeTools.shaderc(bootstrap.globals.command.slice(1));
+        } catch (error) {
+          finalStderr = `${error instanceof Error ? error.message : String(error)}\n`;
+          finalExitCode = 70;
+        }
+      }
+    } else {
+      if (novelTeaCliCommandNeedsZod(bootstrap.globals.command)) await import('./zod-jitless');
+      const [{ runNovelTeaCli }, { createHostProjectWorkspaceService }] = await Promise.all([
+        import('../src/cli/application'),
+        import('../src/shared/project-workspace/node-project-workspace-service'),
+      ]);
+      const needsNativeTools =
+        bootstrap.globals.command[0] === 'validate' ||
+        bootstrap.globals.command[0] === 'shaders' ||
+        bootstrap.globals.command[0] === 'test' ||
+        bootstrap.globals.command[0] === 'package';
+      const nativeTools = needsNativeTools
+        ? (
+            await import('../src/cli/native-tool-service')
+          ).createInProcessNovelTeaCliNativeToolService()
+        : undefined;
+      const result = await runNovelTeaCli(argv, {
+        fileSystem,
+        workspace: createHostProjectWorkspaceService(fileSystem),
+        nativeTools,
+        readStdinText,
+      });
+      finalStdout = result.stdout;
+      finalStderr = result.stderr;
+      finalExitCode = result.exitCode;
+    }
+  }
 }
 
 await writeBeforeExit(process.stdout, finalStdout);
