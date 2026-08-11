@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { cp, lstat, mkdir, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises';
+import {
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  readlink,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -188,6 +198,40 @@ const buildEnv = {
     ? { PERRY_LOCK_UPDATE: '@noveltea/tooling-native' }
     : { PERRY_LOCK_FROZEN: '1' }),
 };
+const prebuiltShadercRoot = process.env.NOVELTEA_PREBUILT_SHADERC_ROOT;
+const shadercProviderArguments = prebuiltShadercRoot
+  ? [`-DNOVELTEA_PREBUILT_SHADERC_ROOT=${prebuiltShadercRoot}`]
+  : [];
+
+async function stagePrebuiltShadercLinkClosure() {
+  if (!prebuiltShadercRoot) return;
+  const archives = [
+    'libnoveltea_bgfx_shaderc_embedded.a',
+    'libfcpp.a',
+    'libglslang.a',
+    'libglsl-optimizer.a',
+    'libspirv-opt.a',
+    'libspirv-cross.a',
+    'libbimg.a',
+    'libbx.a',
+  ];
+  const linkDirectory = path.join(repositoryRoot, 'build', 'linux-release', 'tools', 'editor_tool');
+  await mkdir(linkDirectory, { recursive: true });
+  for (const archive of archives) {
+    const source = path.join(prebuiltShadercRoot, 'lib', archive);
+    if (!existsSync(source)) throw new Error(`Prebuilt shaderc archive is missing: ${source}`);
+    const destination = path.join(linkDirectory, archive);
+    if (existsSync(destination)) {
+      const info = await lstat(destination);
+      if (!info.isSymbolicLink())
+        throw new Error(
+          `Refusing to overwrite existing shaderc build artifact: ${destination}. Remove the stale build output before using NOVELTEA_PREBUILT_SHADERC_ROOT.`,
+        );
+      await rm(destination);
+    }
+    await symlink(source, destination);
+  }
+}
 
 run(
   'cmake',
@@ -197,12 +241,15 @@ run(
     '-DBUILD_TESTING=OFF',
     '-DNOVELTEA_COMPILE_SHADERS=OFF',
     '-DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF',
+    ...shadercProviderArguments,
   ],
   { env: buildEnv },
 );
 run('cmake', ['--build', '--preset', 'linux-release', '--target', 'noveltea_tooling_native'], {
   env: buildEnv,
 });
+
+await stagePrebuiltShadercLinkClosure();
 
 const embeddedAgentKit = await prepareEmbeddedAgentKit(buildEnv);
 

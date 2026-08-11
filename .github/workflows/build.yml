@@ -32,6 +32,7 @@ permissions:
 # CI coverage split:
 # - shader-assets compiles the shared glsl-120, essl-100, and essl-300 shader tree.
 # - Platform jobs consume the artifact with local shader compilation disabled.
+# - Linux builds and certifies the host CLI consumed by Android export and Electron packaging.
 
 jobs:
   cxx-runtime-policy:
@@ -67,65 +68,29 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            ninja-build \
-            cmake \
-            curl \
-            zip \
-            unzip \
-            tar \
-            git \
-            libssl-dev
+          sudo apt-get install -y cmake curl tar
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Cache vcpkg and embedded shaderc for host CLI
-        uses: actions/cache@v5
-        with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-            build/linux-release/vcpkg_installed
-            build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
-            build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
-            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
-            build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
-          restore-keys: |
-            ${{ runner.os }}-x64-shader-host-
-
-      - name: Bootstrap vcpkg
+      - name: Download standalone shaderc
         run: |
-          if [ ! -d "$VCPKG_ROOT/.git" ]; then
-            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-          fi
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
-
-      - name: Build NovelTea host CLI
-        run: pnpm -C editor run noveltea:build
-
-      - name: Certify NovelTea host CLI
-        run: pnpm -C editor run noveltea:certify
+          shaderc_root="${{ github.workspace }}/.cache/shaderc"
+          mkdir -p "$shaderc_root"
+          curl -fL \
+            -o "$shaderc_root/bgfx-shaderc-linux-x64.tar.gz" \
+            https://github.com/Cruel/nt-tools/releases/download/r1/bgfx-shaderc-linux-x64.tar.gz
+          tar -xzf "$shaderc_root/bgfx-shaderc-linux-x64.tar.gz" -C "$shaderc_root"
+          test -x "$shaderc_root/bin/shaderc"
+          test -f "$shaderc_root/include/bgfx/bgfx_shader.sh"
+          echo "SHADERC=$shaderc_root/bin/shaderc" >> "$GITHUB_ENV"
+          echo "BGFX_SHADER_INCLUDE=$shaderc_root/include/bgfx" >> "$GITHUB_ENV"
 
       - name: Compile and verify shader assets
         run: |
           cmake \
-            -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" \
+            -DNOVELTEA_SHADERC_EXECUTABLE="$SHADERC" \
             -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
             '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' \
-            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx" \
+            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$BGFX_SHADER_INCLUDE" \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
           cmake \
             -DNOVELTEA_VERIFY_ONLY=ON \
@@ -140,22 +105,28 @@ jobs:
           path: build/generated-assets/shaders
           if-no-files-found: error
 
-      - name: Upload NovelTea host CLI
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-host-cli-linux-x64
-          path: build/cli/linux/noveltea
-          if-no-files-found: error
-
   linux:
     name: Linux desktop
     runs-on: ubuntu-24.04
     needs: shader-assets
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install system packages
         run: |
@@ -199,17 +170,29 @@ jobs:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-          key: ${{ runner.os }}-x64-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          key: ${{ runner.os }}-x64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
-            ${{ runner.os }}-x64-vcpkg-sdk-
+            ${{ runner.os }}-x64-vcpkg-common-
 
       - name: Cache vcpkg installed
         uses: actions/cache@v5
         with:
-          path: build/linux-debug/vcpkg_installed
+          path: |
+            build/linux-debug/vcpkg_installed
+            build/linux-release/vcpkg_installed
           key: ${{ runner.os }}-x64-vcpkg-installed-linux-debug-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
             ${{ runner.os }}-x64-vcpkg-installed-linux-debug-
+
+      - name: Cache embedded shaderc host-tool build
+        uses: actions/cache@v5
+        with:
+          path: |
+            build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
+            build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
+            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
+            build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
+          key: ${{ runner.os }}-x64-embedded-shaderc-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Cache ccache
         uses: actions/cache@v5
@@ -232,8 +215,41 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
+      - name: Download prebuilt embedded shaderc closure
+        if: vars.NOVELTEA_SHADERC_TOOLCHAIN_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOVELTEA_SHADERC_TOOLCHAIN_TAG: ${{ vars.NOVELTEA_SHADERC_TOOLCHAIN_TAG }}
+        run: |
+          mkdir -p build/prebuilt-shaderc-download build/prebuilt-shaderc-toolchain
+          gh release download "$NOVELTEA_SHADERC_TOOLCHAIN_TAG" \
+            --repo Cruel/nt-tools \
+            --pattern 'noveltea-bgfx-shaderc-linux-x64.tar.gz' \
+            --pattern 'noveltea-bgfx-shaderc-linux-x64.tar.gz.sha256' \
+            --dir build/prebuilt-shaderc-download
+          (
+            cd build/prebuilt-shaderc-download
+            sha256sum -c noveltea-bgfx-shaderc-linux-x64.tar.gz.sha256
+          )
+          tar -xzf build/prebuilt-shaderc-download/noveltea-bgfx-shaderc-linux-x64.tar.gz \
+            -C build/prebuilt-shaderc-toolchain
+          echo "NOVELTEA_PREBUILT_SHADERC_ROOT=${{ github.workspace }}/build/prebuilt-shaderc-toolchain" >> "$GITHUB_ENV"
+
       - name: Configure
-        run: cmake --preset linux-debug -G Ninja -DVCPKG_MANIFEST_FEATURES=tests -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: |
+          shaderc_provider=()
+          if [ -n "${NOVELTEA_PREBUILT_SHADERC_ROOT:-}" ]; then
+            shaderc_provider+=("-DNOVELTEA_PREBUILT_SHADERC_ROOT=$NOVELTEA_PREBUILT_SHADERC_ROOT")
+          fi
+          cmake --preset linux-debug -G Ninja \
+            -DVCPKG_MANIFEST_FEATURES=tests \
+            -DNOVELTEA_BUILD_HOST_TOOLS=ON \
+            -DNOVELTEA_COMPILE_SHADERS=OFF \
+            -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            "${shaderc_provider[@]}"
 
       - name: Build
         run: cmake --build --preset linux-debug
@@ -241,15 +257,37 @@ jobs:
       - name: Enforce C++ runtime and dependency policy
         run: cmake --build --preset linux-debug --target cxx-policy
 
-      - name: Enable RmlUi base-direct compat fallback
-        run: touch build/linux-debug/rmlui-base-direct-compat.enabled
-
       - name: Unit tests
         run: xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure
 
+      - name: Build and certify NovelTea host CLI
+        run: |
+          pnpm -C editor run noveltea:build
+          pnpm -C editor run noveltea:certify
+
+      - name: Verify CLI shader output matches canonical shader assets
+        run: |
+          cmake \
+            -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" \
+            -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
+            -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/cli-shader-assets" \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' \
+            -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx" \
+            -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
+          diff --recursive --brief \
+            build/prebuilt-shader-assets/shaders \
+            build/cli-shader-assets/shaders
+
+      - name: Upload NovelTea host CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-host-cli-linux-x64
+          path: build/cli/linux/noveltea
+          if-no-files-found: error
+
       - name: Native cooperative build coverage
         run: |
-          cmake --preset linux-debug-no-threads -G Ninja -DVCPKG_INSTALLED_DIR="${{ github.workspace }}/build/linux-debug/vcpkg_installed" -DVCPKG_MANIFEST_FEATURES=tests -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --preset linux-debug-no-threads -G Ninja -DVCPKG_INSTALLED_DIR="${{ github.workspace }}/build/linux-debug/vcpkg_installed" -DVCPKG_MANIFEST_FEATURES=tests -DNOVELTEA_BUILD_HOST_TOOLS=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset linux-debug-no-threads --target noveltea_asset_tests
 
   linux-sanitize:
@@ -311,7 +349,7 @@ jobs:
           path: build/prebuilt-shader-assets
 
       - name: Configure sanitizer build
-        run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build sanitizer targets
         run: cmake --build --preset linux-sanitize
@@ -389,7 +427,7 @@ jobs:
 
       - name: Configure Windows release
         shell: pwsh
-        run: cmake --preset windows-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake --preset windows-release -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build shipped Windows targets
         shell: pwsh
@@ -407,7 +445,7 @@ jobs:
   web:
     name: Web / Emscripten
     runs-on: ubuntu-24.04
-    needs: [shader-assets, linux]
+    needs: shader-assets
     timeout-minutes: 90
 
     steps:
@@ -693,7 +731,7 @@ jobs:
               --flavor debug
             pnpm -C editor run project:export -- \
               --template "$template" \
-              --project "$fixture_root/project.json" \
+              --project "$fixture_root" \
               --profile canonical-android-debug \
               --output "$output" \
               --config "$config" \
@@ -781,10 +819,11 @@ jobs:
   editor:
     name: Editor / Electron
     runs-on: ubuntu-24.04
-    needs: web
+    needs: [linux, web]
     timeout-minutes: 90
     env:
       NOVELTEA_RELEASE_TAG: 0.0.0-ci.${{ github.sha }}
+      NOVELTEA_CLI_PATH: ${{ github.workspace }}/build/cli/linux/noveltea
 
     steps:
       - name: Checkout
@@ -834,6 +873,15 @@ jobs:
           name: noveltea-web-editor-preview
           path: build/web-editor-preview/apps/editor_preview
 
+      - name: Download NovelTea host CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-host-cli-linux-x64
+          path: build/cli/linux
+
+      - name: Make NovelTea host CLI executable
+        run: chmod +x build/cli/linux/noveltea
+
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
@@ -846,34 +894,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Cache vcpkg for standalone CLI native tooling
-        uses: actions/cache@v5
-        with:
-          path: |
-            .cache/vcpkg
-            .cache/vcpkg-binary
-            build/linux-release/vcpkg_installed
-          key: ${{ runner.os }}-x64-cli-vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
-          restore-keys: |
-            ${{ runner.os }}-x64-cli-vcpkg-
-
-      - name: Bootstrap vcpkg for standalone CLI native tooling
-        run: |
-          if [ ! -d "$VCPKG_ROOT/.git" ]; then
-            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-          fi
-          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
-
-      - name: Cache embedded bgfx shaderc build
-        uses: actions/cache@v5
-        with:
-          path: |
-            build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
-            build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
-            build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
-            build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-embedded-shaderc-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level high

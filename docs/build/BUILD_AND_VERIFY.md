@@ -251,6 +251,14 @@ for reuse by later commits. Do not share compiler-output cache prefixes between 
 their flags, object formats, and instrumentation are intentionally incompatible. CI prints cache
 statistics for the sanitizer and Windows jobs so cache effectiveness remains visible in job logs.
 
+The CI `shader-assets` job is intentionally a narrow bootstrap producer: it downloads the pinned
+standalone `shaderc`, compiles the canonical `glsl-120`, `essl-100`, and `essl-300` trees, and uploads
+only those binaries. The Linux desktop job owns the release-admitted `noveltea` host CLI, runs its
+full certification, verifies its repository shader-tree output byte-for-byte against the canonical
+shader artifact, and uploads the CLI for Android export acceptance and Electron packaging. Web
+depends only on the shader artifact; Android and Electron also depend on Linux because they consume
+the certified CLI without rebuilding it.
+
 The checked-in Android project is the immutable player-template source. It builds
 `noveltea-player`, not the sandbox, and requires one ABI per invocation:
 

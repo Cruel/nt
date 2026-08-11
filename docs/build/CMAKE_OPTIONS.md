@@ -28,6 +28,7 @@ SDL, bgfx, RmlUi, miniaudio, text backends, Twink, and optional ImGui belong to 
 |---|---|---|
 | `NOVELTEA_BUILD_SANDBOX` | `ON` | Build the sandbox application. |
 | `NOVELTEA_BUILD_PLAYER` | `ON` | Build the dedicated release-facing `noveltea-player` application. |
+| `NOVELTEA_BUILD_HOST_TOOLS` | `ON` | Build native editor/host-tool targets, including the embedded shaderc tooling. Player-only builds can disable this to avoid compiling host tooling. |
 | `NOVELTEA_BUILD_BENCHMARKS` | `OFF` | Build the reusable release microbenchmark executable for JSON and Lua regression measurements. |
 | `NOVELTEA_ENABLE_DEVTOOLS` | `ON` | Include Dear ImGui dev/debug overlay. |
 | `NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER` | `OFF` | Compile the editor-only asset memory and prefetch profiler. Enabled only by dedicated editor-profiler presets. |
@@ -85,7 +86,9 @@ exercise the `NOVELTEA_FETCH_RMLUI=OFF` revision and extension probe.
 | Variable | Default | Description |
 |---|---|---|
 | `NOVELTEA_CLI_EXECUTABLE` | `""` | Path to the host `noveltea` CLI used for build-time shader compilation. If unset, CMake checks `NOVELTEA_CLI`, `PATH`, then `build/cli/linux/noveltea`. |
+| `NOVELTEA_SHADERC_EXECUTABLE` | `""` | Path to a standalone bgfx `shaderc`. This is the CI bootstrap provider for canonical precompiled shader assets; normal repository and export builds use `NOVELTEA_CLI_EXECUTABLE`. |
 | `NOVELTEA_BGFX_SHADER_INCLUDE_DIR` | `""` | Directory containing `bgfx_shader.sh`. |
+| `NOVELTEA_PREBUILT_SHADERC_ROOT` | `""` | Extracted `nt-tools` static shaderc closure. When set, host tooling imports its pinned shaderc archive, link closure, headers, and shader resources instead of fetching and compiling shaderc source. |
 | `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT` | `""` | Root directory for prebuilt shader binaries. Expected structure: `shaders/bgfx/<variant>/`. |
 | `NOVELTEA_SHADER_VARIANTS` | `""` | Semicolon-separated shader variants to build/stage. Default varies by platform (e.g., `glsl-120` for desktop). |
 

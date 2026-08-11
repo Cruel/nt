@@ -4,9 +4,51 @@ set(NOVELTEA_BGFX_SHADERC_ARCHIVE_URL
     "https://github.com/bkaradzic/bgfx.cmake/releases/download/v1.129.8940-496/bgfx.cmake.v1.129.8940-496.tar.gz")
 set(NOVELTEA_BGFX_SHADERC_ARCHIVE_SHA256
     "0fa0482d3b09ae262c9c7fc54a7193022510313f1250077caad5ff18504fce02")
+set(NOVELTEA_PREBUILT_SHADERC_ROOT "" CACHE PATH
+    "Extracted nt-tools static shaderc closure; empty builds the pinned source locally")
 
 function(noveltea_configure_embedded_shaderc)
     if(TARGET noveltea_bgfx_shaderc_embedded)
+        return()
+    endif()
+
+    if(NOVELTEA_PREBUILT_SHADERC_ROOT)
+        get_filename_component(_noveltea_shaderc_root "${NOVELTEA_PREBUILT_SHADERC_ROOT}" ABSOLUTE)
+        set(_noveltea_shaderc_import "${_noveltea_shaderc_root}/cmake/noveltea_shaderc_toolchain.cmake")
+        set(_noveltea_shader_resource "${_noveltea_shaderc_root}/resources/bgfx_shader.sh")
+        set(_noveltea_compute_resource "${_noveltea_shaderc_root}/resources/bgfx_compute.sh")
+        foreach(_noveltea_shaderc_file IN ITEMS
+                "${_noveltea_shaderc_import}"
+                "${_noveltea_shader_resource}"
+                "${_noveltea_compute_resource}")
+            if(NOT EXISTS "${_noveltea_shaderc_file}")
+                message(FATAL_ERROR "NovelTea prebuilt shaderc closure is incomplete: ${_noveltea_shaderc_file}")
+            endif()
+        endforeach()
+
+        include("${_noveltea_shaderc_import}")
+        if(NOT TARGET noveltea_shaderc::embedded)
+            message(FATAL_ERROR "NovelTea prebuilt shaderc closure did not define noveltea_shaderc::embedded")
+        endif()
+        add_library(noveltea_bgfx_shaderc_embedded ALIAS noveltea_shaderc::embedded)
+
+        set(_resource_dir "${CMAKE_BINARY_DIR}/generated/noveltea-bgfx-toolchain")
+        file(MAKE_DIRECTORY "${_resource_dir}")
+        file(SHA256 "${_noveltea_shader_resource}" NOVELTEA_BGFX_SHADER_RESOURCE_SHA256)
+        file(SHA256 "${_noveltea_compute_resource}" NOVELTEA_BGFX_COMPUTE_RESOURCE_SHA256)
+        file(READ "${_noveltea_shader_resource}" NOVELTEA_BGFX_SHADER_RESOURCE_HEX HEX)
+        file(READ "${_noveltea_compute_resource}" NOVELTEA_BGFX_COMPUTE_RESOURCE_HEX HEX)
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," NOVELTEA_BGFX_SHADER_RESOURCE_BYTES
+               "${NOVELTEA_BGFX_SHADER_RESOURCE_HEX}")
+        string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," NOVELTEA_BGFX_COMPUTE_RESOURCE_BYTES
+               "${NOVELTEA_BGFX_COMPUTE_RESOURCE_HEX}")
+        configure_file(
+            "${CMAKE_SOURCE_DIR}/engine/src/render/embedded_bgfx_resources.hpp.in"
+            "${_resource_dir}/embedded_bgfx_resources.hpp"
+            @ONLY)
+
+        set(NOVELTEA_EMBEDDED_SHADERC_INCLUDE_DIR "${_noveltea_shaderc_root}/include/bgfx/tools/shaderc" PARENT_SCOPE)
+        set(NOVELTEA_EMBEDDED_SHADERC_GENERATED_DIR "${_resource_dir}" PARENT_SCOPE)
         return()
     endif()
 

@@ -56,12 +56,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Cache vcpkg and embedded shaderc for host CLI
+      # Share downloads and vcpkg binary artifacts with the platform jobs. The
+      # installed tree and host-tool build outputs remain release-host specific.
+      - name: Cache shared vcpkg SDK and binaries
         uses: actions/cache@v5
         with:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
+          key: ${{ runner.os }}-x64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-vcpkg-common-
+
+      - name: Cache host CLI dependencies and embedded shaderc
+        uses: actions/cache@v5
+        with:
+          path: |
             build/linux-release/vcpkg_installed
             build/linux-release/_deps/noveltea_bgfx_shaderc_source-src
             build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
@@ -151,15 +161,15 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja ccache
 
-      - name: Cache vcpkg SDK
+      - name: Cache shared vcpkg SDK and binaries
         uses: actions/cache@v5
         with:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-          key: ${{ runner.os }}-${{ matrix.arch }}-vcpkg-sdk-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-vcpkg-sdk-
+            ${{ runner.os }}-${{ matrix.arch }}-vcpkg-common-
 
       - name: Cache vcpkg installed
         uses: actions/cache@v5
@@ -219,6 +229,7 @@ jobs:
           $ccacheArgs = @()
           if ("${{ runner.os }}" -ne "Windows") { $ccacheArgs = @("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache") }
           cmake --preset ${{ matrix.preset }} -G Ninja `
+            -DNOVELTEA_BUILD_HOST_TOOLS=OFF `
             -DNOVELTEA_COMPILE_SHADERS=OFF `
             -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" `
             -DBUILD_TESTING=OFF `
@@ -638,7 +649,7 @@ jobs:
           pnpm -C editor run android:fixture -- --root "$fixture_root" --abi arm64-v8a --flavor release --artifact both
           pnpm -C editor run project:export -- \
             --template "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-release.tar.gz" \
-            --project "$fixture_root/project.json" \
+            --project "$fixture_root" \
             --profile canonical-android-release \
             --output "${{ github.workspace }}/dist/android-release-fixture" \
             --config "$config" \
@@ -666,7 +677,7 @@ jobs:
           pnpm -C editor run android:fixture -- --root "$fixture_root" --abi x86_64 --flavor debug --artifact apk
           pnpm -C editor run project:export -- \
             --template "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-x86_64-debug.tar.gz" \
-            --project "$fixture_root/project.json" \
+            --project "$fixture_root" \
             --profile canonical-android-debug \
             --output "${{ github.workspace }}/dist/android-debug-fixture" \
             --config "$config" \
