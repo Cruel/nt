@@ -85,7 +85,10 @@ describe('save-unit registry', () => {
     if (firstResolution.status !== 'savable' || secondResolution.status !== 'savable') return;
     expect(firstResolution.descriptor.id).toBe('record:rooms:foyer');
     expect(secondResolution.descriptor.id).toBe(firstResolution.descriptor.id);
-    expect(firstResolution.descriptor.ownedPaths).toEqual(['/rooms/foyer']);
+    expect(firstResolution.descriptor.ownedPaths).toEqual([
+      '/editor/recordMetadata/rooms/foyer',
+      '/rooms/foyer',
+    ]);
   });
 
   it('owns only the explicit Project Settings paths and never the document root', () => {
@@ -109,7 +112,10 @@ describe('save-unit registry', () => {
     );
     expect(variables).toMatchObject({
       status: 'savable',
-      descriptor: { id: 'collection:variables', ownedPaths: ['/variables'] },
+      descriptor: {
+        id: 'collection:variables',
+        ownedPaths: ['/editor/recordMetadata/variables', '/variables'],
+      },
     });
 
     expect(

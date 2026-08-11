@@ -88,6 +88,20 @@ function interruptedFiles(
 }
 
 describe('workspace granular persistence and transactions', () => {
+  it('does not manufacture a writer lock when a clean workspace has nothing to recover', async () => {
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(workspaceFiles());
+    const transactions = new ProjectWorkspaceTransactionService(
+      fileSystem,
+      { isProcessAlive: async () => false },
+      7,
+    );
+
+    await transactions.recover(root);
+
+    expect(await fileSystem.inspect(`${root}/.noveltea/transactions/.writer-lock`)).toBe('missing');
+    expect(await fileSystem.listDirectory(`${root}/.noveltea/transactions`)).toEqual([]);
+  });
+
   it('saves one record after an unrelated record changed externally', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

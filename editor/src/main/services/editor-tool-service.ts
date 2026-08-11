@@ -47,8 +47,8 @@ export async function openProject(projectPath: string) {
     contentProject: opened.contentProject,
     savedContentProject: opened.savedContentProject,
     editorState: opened.editorState,
+    recoveryBaselineWorkspaceRevision: opened.recoveryBaselineWorkspaceRevision,
     repairs: opened.repairs,
-    contentFingerprint: opened.contentFingerprint,
     workspaceRevision: opened.snapshot.workspaceRevision,
     fileRevisions: Object.fromEntries(
       Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [

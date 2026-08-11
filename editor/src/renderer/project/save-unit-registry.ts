@@ -201,7 +201,10 @@ export function resolveSaveUnitForResource(
       descriptor: descriptor({
         id: recordSaveUnitId(resource.collection, resource.entityId),
         kind: 'record',
-        ownedPaths: [buildJsonPointer([resource.collection, resource.entityId])],
+        ownedPaths: [
+          buildJsonPointer([resource.collection, resource.entityId]),
+          buildJsonPointer(['editor', 'recordMetadata', resource.collection, resource.entityId]),
+        ],
         resource,
         editorType,
         tabId,
@@ -211,11 +214,11 @@ export function resolveSaveUnitForResource(
 
   const collectionEditor =
     editorType === 'asset-library'
-      ? { id: SAVE_UNIT_IDS.assetCollection, path: '/assets' }
+      ? { id: SAVE_UNIT_IDS.assetCollection, path: '/assets', collection: 'assets' }
       : editorType === 'test-suite'
-        ? { id: SAVE_UNIT_IDS.testCollection, path: '/tests' }
+        ? { id: SAVE_UNIT_IDS.testCollection, path: '/tests', collection: 'tests' }
         : editorType === 'variables'
-          ? { id: SAVE_UNIT_IDS.variableCollection, path: '/variables' }
+          ? { id: SAVE_UNIT_IDS.variableCollection, path: '/variables', collection: 'variables' }
           : null;
   if (collectionEditor) {
     return {
@@ -223,7 +226,10 @@ export function resolveSaveUnitForResource(
       descriptor: descriptor({
         id: collectionEditor.id,
         kind: 'collection',
-        ownedPaths: [collectionEditor.path],
+        ownedPaths: [
+          collectionEditor.path,
+          buildJsonPointer(['editor', 'recordMetadata', collectionEditor.collection]),
+        ],
         resource,
         editorType,
         tabId,

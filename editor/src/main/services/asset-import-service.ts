@@ -14,6 +14,14 @@ import {
   defaultAssetIdFromFilename,
   inferAssetKindFromExtension,
 } from '../../shared/project-schema/authoring-assets';
+import {
+  PROJECT_WORKSPACE_ABSENT_REVISION,
+  type ProjectWorkspaceExpectedRevision,
+} from '../../shared/project-workspace/project-workspace-transaction';
+import {
+  readProjectAssetFileRevision,
+  writeProjectAssetFileTransaction,
+} from './project-asset-file-transaction';
 
 function projectRootFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
@@ -86,7 +94,10 @@ function mimeForExtension(extension: string): string | undefined {
 async function copyAssetIntoProject(
   projectFilePath: string,
   sourcePath: string,
-  replacementPath?: string,
+  replacement?: Readonly<{
+    path: string;
+    expectedRevision: ProjectWorkspaceExpectedRevision;
+  }>,
 ): Promise<ImportedAssetMetadata> {
   const projectRoot = projectRootFromFile(projectFilePath);
   const sourceAbsolute = path.resolve(sourcePath);
@@ -94,21 +105,26 @@ async function copyAssetIntoProject(
   if (!sourceStat.isFile()) throw new Error('Asset import source is not a file.');
   const extension = path.extname(sourceAbsolute).toLowerCase();
   const kind = inferAssetKindFromExtension(extension);
-  const targetRelativeDirectory = replacementPath
-    ? path.dirname(replacementPath)
+  const targetRelativeDirectory = replacement
+    ? path.dirname(replacement.path)
     : assetFolderForKind(kind);
   const targetDirectory = path.resolve(projectRoot, targetRelativeDirectory);
   if (!targetDirectory.startsWith(projectRoot))
     throw new Error('Asset target path escapes the project directory.');
-  await fs.mkdir(targetDirectory, { recursive: true });
-  const targetFilename = replacementPath
-    ? path.basename(replacementPath)
+  const targetFilename = replacement
+    ? path.basename(replacement.path)
     : sanitizeAssetFilename(path.basename(sourceAbsolute));
-  const destination = replacementPath
+  const destination = replacement
     ? path.join(targetDirectory, targetFilename)
     : await uniqueDestination(targetDirectory, targetFilename);
-  await fs.copyFile(sourceAbsolute, destination);
-  const bytes = await fs.readFile(destination);
+  const bytes = await fs.readFile(sourceAbsolute);
+  await writeProjectAssetFileTransaction(
+    projectRoot,
+    slashPath(path.relative(projectRoot, destination)),
+    bytes,
+    replacement ? 'asset reimport' : 'asset import',
+    replacement?.expectedRevision ?? PROJECT_WORKSPACE_ABSENT_REVISION,
+  );
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   const common = {
     originalPath: sourceAbsolute,
@@ -207,6 +223,21 @@ export async function reimportAsset(
       diagnostics: [],
       error: 'Asset reimport requires a saved project file.',
     };
+  const projectRoot = projectRootFromFile(projectFilePath);
+  let replacementExpectedRevision: ProjectWorkspaceExpectedRevision;
+  try {
+    replacementExpectedRevision = await readProjectAssetFileRevision(
+      projectRoot,
+      projectRelativePath,
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      success: false,
+      diagnostics: [],
+      error: error instanceof Error ? error.message : 'Asset reimport precondition failed.',
+    };
+  }
   const result = await dialog.showOpenDialog(owner, {
     title: 'Reimport Asset',
     properties: ['openFile'],
@@ -215,11 +246,10 @@ export async function reimportAsset(
     return { ok: false, success: false, diagnostics: [], error: 'Asset reimport canceled.' };
   }
   try {
-    const asset = await copyAssetIntoProject(
-      projectFilePath,
-      result.filePaths[0],
-      projectRelativePath,
-    );
+    const asset = await copyAssetIntoProject(projectFilePath, result.filePaths[0], {
+      path: projectRelativePath,
+      expectedRevision: replacementExpectedRevision,
+    });
     return { ok: true, success: true, asset, diagnostics: [] };
   } catch (error) {
     return {

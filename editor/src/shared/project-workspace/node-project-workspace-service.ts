@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   NodeProjectWorkspaceFileSystem,
   NodeProjectWorkspaceProcessLiveness,
@@ -15,6 +16,7 @@ export function createHostProjectWorkspaceService(
       fileSystem,
       new NodeProjectWorkspaceProcessLiveness(),
       process.pid,
+      randomUUID,
     ),
   );
 }

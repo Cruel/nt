@@ -27,6 +27,8 @@ their visible category and message must use plain, localizable product language 
 
 - `docs/editor/AGENT_GUIDE.md` — editor-wide agent practices, workbench navigation, diagnostics, tab state, preview ownership, localization, UI components, and verification.
 - `docs/editor/TECH_STACK.md` — editor dependency and component standards, shadcn/Base UI usage, forms, tables, source editing, preview, localization, and testing standards.
+- `docs/editor/CLI.md` — public standalone `noveltea` command, JSON, exit-code, discovery, and transaction contract.
+- `docs/editor/AGENT_KIT.md` — embedded/generated coding-agent guidance, schemas, versioning, and sync behavior.
 - `docs/editor/PERRY_COMPATIBILITY.md` — temporary Perry compiler/runtime/build accommodations used
   by the standalone `noveltea` CLI, with explicit upgrade and removal gates.
 - `docs/editor/IMAGE_THUMBNAIL_CACHE.md` — permanent direct-image thumbnail cache contract,
@@ -71,6 +73,8 @@ Direct image-asset thumbnails are not rendered-preview sessions. See
   auto-commit commands, persistence targets, filesystem coordination, and unsafe-rebase policies.
 - `docs/editor/project/PROJECT_WORKSPACE_FORMAT.md` — current segmented workspace-v1 tracked source,
   local editor state, canonical paths, and cutover rules.
+- `docs/editor/project/PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md` — workspace watcher, revisions,
+  three-way external reconciliation, conflict resolution, and transaction recovery.
 - `docs/editor/project/AUTHORING_DEPENDENCY_GRAPH.md` — pure structural graph ownership,
   incremental publication, semantic relationships, path-sensitive impact, repair transactions, field
   metadata, and graph-backed consumers.
@@ -119,10 +123,12 @@ move durable behavior into a current subsystem document, and archive the impleme
 For editor code changes, run the narrow relevant tests first when useful, then finish with:
 
 ```sh
-cd editor
-pnpm lint
-pnpm typecheck
-pnpm test
+pnpm -C editor run check
+pnpm -C editor run test
 ```
+
+Run `pnpm -C editor run build` when main/shared/tooling/build configuration changes. Distribution
+changes additionally follow `BUILD_AND_DISTRIBUTION.md` through stage, package verification, and
+package smoke.
 
 If UI behavior changes, run the editor app or a narrow UI smoke test when practical. Report any environment limitation explicitly.

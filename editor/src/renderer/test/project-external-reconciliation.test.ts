@@ -89,6 +89,32 @@ describe('external project reconciliation', () => {
     expect(conflict?.externalWorkspaceRevision).toBe(REVISION);
   });
 
+  it('detects conflicts in tracked editor.json organization state', () => {
+    const path = '/editor/tags/records/story/color';
+    const base = { editor: { tags: { records: { story: { color: 'old' } } } } };
+    const local = { editor: { tags: { records: { story: { color: 'local' } } } } };
+    const external = { editor: { tags: { records: { story: { color: 'disk' } } } } };
+    const recoveryState: EditorRecoveryState = {
+      sequence: 1,
+      saveUnitsById: {
+        'project:tags': {
+          sequence: 1,
+          patches: [{ op: 'replace', path, value: 'local' }],
+          affectedPaths: [path],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      },
+    };
+
+    const result = reconcile(base, local, external, recoveryState);
+
+    expect(result.conflictingSaveUnitIds).toEqual(['project:tags']);
+    expect(result.conflictingPaths).toEqual([path]);
+    expect(result.workingDocument).toEqual(local);
+    expect(result.savedDocument).toEqual(external);
+  });
+
   it('applies an external change to another dirty record without creating a conflict', () => {
     const base = {
       rooms: {

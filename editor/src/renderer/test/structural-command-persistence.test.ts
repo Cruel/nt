@@ -21,7 +21,6 @@ import {
   startAuthoringDependencyGraphService,
 } from '@/project/authoring-dependency-graph-runtime';
 
-const fingerprint = '0'.repeat(64);
 let stopGraphService: (() => void) | null = null;
 
 type LoadProjectDocumentInput = Parameters<
@@ -77,7 +76,7 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   useDraftDirtyStore.getState().resetDraftDirty();
   useCommandStore.getState().resetCommandHistory();
-  setLoadedEditorProjectState(emptyEditorProjectState(fingerprint));
+  setLoadedEditorProjectState(emptyEditorProjectState());
   stopGraphService = startAuthoringDependencyGraphService();
 });
 
@@ -155,8 +154,11 @@ describe('structural command persistence', () => {
     expect(result.plan.inverseBaselinePatches.length).toBeGreaterThan(0);
   });
 
-  it('keeps editor-state patches out of a project-content baseline', () => {
+  it('keeps tracked editor.json patches in the project-content baseline', () => {
     const project = projectWithRoom();
+    project.editor.recordMetadata.rooms = {
+      foyer: { tags: [], color: null },
+    };
     const result = buildAutoCommitPlan({
       commandType: 'entity.deleteRecord',
       originSaveUnitId: 'structure:rooms',
@@ -172,7 +174,10 @@ describe('structural command persistence', () => {
     expect(result.status).toBe('planned');
     if (result.status !== 'planned') return;
     expect(result.plan.workingDocumentPatches).toHaveLength(2);
-    expect(result.plan.forwardBaselinePatches).toEqual([{ op: 'remove', path: '/rooms/foyer' }]);
+    expect(result.plan.forwardBaselinePatches).toEqual([
+      { op: 'remove', path: '/rooms/foyer' },
+      { op: 'remove', path: '/editor/recordMetadata/rooms/foyer' },
+    ]);
   });
 
   it('remaps dirty recovery across a structural rename', () => {
@@ -207,6 +212,43 @@ describe('structural command persistence', () => {
       pendingRawInputByPath: {
         '/rooms/hall/data/zoom': { value: 'invalid' },
       },
+    });
+  });
+
+  it('does not let an editor tab opened by a structural create manufacture an overlapping dirty recovery unit', async () => {
+    const project = createAuthoringProject();
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    const executed = useCommandStore.getState().executeCommand({
+      type: 'entity.createRecord',
+      label: 'Create hall',
+      payload: { collection: 'rooms', entityId: 'hall', label: 'Hall' },
+      originSaveUnitId: 'workflow:new-entity',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(executed.ok).toBe(true);
+    useWorkbenchStore.getState().openTab({
+      id: 'tab:rooms:hall',
+      title: 'Hall',
+      editorType: 'room-detail',
+      resource: {
+        kind: 'record',
+        stableId: 'record:rooms:hall',
+        collection: 'rooms',
+        entityId: 'hall',
+      },
+    });
+
+    await flushStructuralCommandPersistence();
+
+    expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { hall: { id: 'hall', label: 'Hall' } },
     });
   });
 
@@ -248,6 +290,38 @@ describe('structural command persistence', () => {
       rooms: { hall: { id: 'hall' } },
     });
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not let an open asset-library tab block asset-import auto-commit', async () => {
+    const project = createAuthoringProject();
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useWorkbenchStore.getState().openTab({
+      id: 'tab:asset-library',
+      title: 'Assets',
+      editorType: 'asset-library',
+      resource: { kind: 'tool', stableId: 'asset-library' },
+    });
+
+    const executed = useCommandStore.getState().executeCommand({
+      type: 'asset.importFiles',
+      label: 'Import logo',
+      payload: { assets: [importedImage()], fileOrigin: 'copied-by-import' },
+      originSaveUnitId: 'workflow:asset-import',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(executed.ok).toBe(true);
+
+    await flushStructuralCommandPersistence();
+
+    expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      assets: { logo: { id: 'logo' } },
+    });
   });
 
   it('does not delete pre-existing or generated files when imported asset content is undone', async () => {
@@ -296,7 +370,7 @@ describe('structural command persistence', () => {
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
     await publishCurrentGraph();
     setLoadedEditorProjectState({
-      ...emptyEditorProjectState(fingerprint),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 1,
         saveUnitsById: {
@@ -373,7 +447,7 @@ describe('structural command persistence', () => {
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
     await publishCurrentGraph();
     setLoadedEditorProjectState({
-      ...emptyEditorProjectState(fingerprint),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 1,
         saveUnitsById: {
@@ -467,6 +541,64 @@ describe('structural command persistence', () => {
       assetTransition: { kind: 'restore', moves: [move] },
     });
     expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: { logo: {} } });
+  });
+
+  it('adopts unrelated authoritative disk changes returned by a successful structural commit', async () => {
+    const project = projectWithRoom();
+    const authoritative = projectWithRoom();
+    authoritative.rooms.foyer!.label = 'External Foyer';
+    authoritative.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    const revision = `sha256:${'d'.repeat(64)}` as const;
+    vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+      workspaceRevision: revision,
+      fileRevisions: {
+        'records/rooms/foyer.json': `sha256:${'e'.repeat(64)}`,
+        'records/rooms/hall.json': `sha256:${'f'.repeat(64)}`,
+      },
+      contentProject: authoritative,
+      editorState: emptyEditorProjectState(),
+      scriptSourcePaths: {},
+    });
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    const result = useCommandStore.getState().executeCommand({
+      type: 'entity.createRecord',
+      label: 'Create hall',
+      payload: { collection: 'rooms', entityId: 'hall', label: 'Hall' },
+      originSaveUnitId: 'workflow:new-entity',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(result.ok).toBe(true);
+    await flushStructuralCommandPersistence();
+
+    const state = useProjectStore.getState();
+    expect(state.workspaceRevision).toBe(revision);
+    expect(state.document).toMatchObject({
+      rooms: {
+        foyer: { label: 'External Foyer' },
+        hall: { label: 'Hall' },
+      },
+    });
+    expect(state.savedDocument).toMatchObject({
+      rooms: {
+        foyer: { label: 'External Foyer' },
+        hall: { label: 'Hall' },
+      },
+    });
   });
 
   it('moves copied import files to project trash when the content write fails', async () => {

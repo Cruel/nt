@@ -213,9 +213,10 @@ relevant editor store or preview session. No sandbox demo state participates in 
   - `editor/src/shared/electron-api.ts`
   - `editor/src/shared/ipc-channels.ts`
   - `editor/src/preload.ts`
-- Editor helper service:
+- Editor helper service and native CLI boundary:
   - `editor/src/main/services/editor-tool-service.ts`
-  - `tools/editor_tool/main.cpp`
+  - `editor/src/shared/noveltea-cli-subprocess.ts`
+  - `tools/editor_tool/tooling_native.cpp`
 - Emscripten normal web shell:
   - `web/shell.html`
 - Emscripten editor preview widget shell:

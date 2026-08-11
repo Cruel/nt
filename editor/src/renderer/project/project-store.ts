@@ -2,7 +2,10 @@ import { create } from 'zustand';
 import type { ProjectLoadPayload, ProjectSaveMetadata } from './project-types';
 import { cloneJsonValue, jsonValuesEqual, toJsonValue, type JsonValue } from './json-value';
 import type { EditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import {
+  parseEditorProjectState,
+  stripLocalEditorProjectState,
+} from '../../shared/project-schema/editor-project-state';
 import type { ProjectMutationPublication } from '../../shared/authoring-dependency-contracts';
 import type { StructurallyAdmittedAuthoringProject } from '../../shared/project-schema/structurally-admitted-authoring-project';
 import type { JsonPointer } from './json-pointer';
@@ -45,6 +48,11 @@ interface ProjectStoreState {
     scriptSourcePaths: Readonly<Record<string, string>>;
     affectedPaths: readonly JsonPointer[];
   }) => boolean;
+  refreshWorkspaceMetadata: (payload: {
+    workspaceRevision: string;
+    fileRevisions: Readonly<Record<string, `sha256:${string}`>>;
+    scriptSourcePaths: Readonly<Record<string, string>>;
+  }) => void;
   setHistoryCursor: (historyCursor: number) => void;
   markSaved: (metadata?: ProjectSaveMetadata) => void;
   markEditorMetadataPersisted: (editorState: EditorProjectState) => void;
@@ -166,8 +174,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     const admitted = admitProjectCandidate(document);
     if (!admitted || !state.projectInstanceId || !state.admittedProject) return false;
     const contentEqual = jsonValuesEqual(
-      stripEditorProjectState(state.document),
-      stripEditorProjectState(admitted.document),
+      stripLocalEditorProjectState(state.document),
+      stripLocalEditorProjectState(admitted.document),
     );
     if (contentEqual) {
       set({ document: admitted.document, historyCursor });
@@ -217,15 +225,18 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     });
     return true;
   },
+  refreshWorkspaceMetadata: ({ workspaceRevision, fileRevisions, scriptSourcePaths }) =>
+    set({ workspaceRevision, fileRevisions, scriptSourcePaths }),
   setHistoryCursor: (historyCursor) => set({ historyCursor }),
   markSaved: (metadata) => {
     const state = get();
-    const savedDocument =
-      metadata && 'document' in metadata
+    const savedDocument = metadata
+      ? 'document' in metadata
         ? normalizeDocument(metadata.document)
-        : state.document === null
-          ? null
-          : cloneJsonValue(state.document);
+        : state.savedDocument
+      : state.document === null
+        ? null
+        : cloneJsonValue(state.document);
     set({
       document: state.document,
       savedDocument,
@@ -240,14 +251,24 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   },
   markEditorMetadataPersisted: (editorState) => {
     const state = get();
-    const serializedEditorState = JSON.parse(JSON.stringify(editorState)) as JsonValue;
-    const replaceEditor = (document: JsonValue | null): JsonValue | null => {
+    const replaceLocalEditorState = (document: JsonValue | null): JsonValue | null => {
       if (!document || typeof document !== 'object' || Array.isArray(document)) return document;
+      const currentEditor = parseEditorProjectState((document as Record<string, unknown>).editor);
+      const serializedEditorState = JSON.parse(
+        JSON.stringify({
+          ...editorState,
+          // These fields are tracked in editor.json and are content, not local metadata. Preserve
+          // each document's own baseline so a local-state flush cannot silently mark them saved.
+          chapters: currentEditor.chapters,
+          tags: currentEditor.tags,
+          recordMetadata: currentEditor.recordMetadata,
+        }),
+      ) as JsonValue;
       return { ...cloneJsonValue(document), editor: serializedEditorState };
     };
     set({
-      document: replaceEditor(state.document),
-      savedDocument: replaceEditor(state.savedDocument),
+      document: replaceLocalEditorState(state.document),
+      savedDocument: replaceLocalEditorState(state.savedDocument),
     });
   },
   setSaving: (isSaving) => set({ isSaving }),

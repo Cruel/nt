@@ -162,7 +162,10 @@ describe('editor registry', () => {
     });
     expect(resolveSaveUnitForTab(tab!, {})).toMatchObject({
       status: 'savable',
-      descriptor: { id: 'record:rooms:foyer', ownedPaths: ['/rooms/foyer'] },
+      descriptor: {
+        id: 'record:rooms:foyer',
+        ownedPaths: ['/editor/recordMetadata/rooms/foyer', '/rooms/foyer'],
+      },
     });
   });
 

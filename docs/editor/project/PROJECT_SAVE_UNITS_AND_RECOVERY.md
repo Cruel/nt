@@ -13,8 +13,8 @@ executable structural classification and safety policies.
 
 | Unit family | Stable ID | Owned paths | Policy used by current editor mutations |
 | --- | --- | --- | --- |
-| Record | `record:<collection>:<entityId>` | `/<collection>/<entityId>` | `manual-save` |
-| Collection editor | `collection:<collection>` | The concrete collection root listed below | `manual-save` |
+| Record | `record:<collection>:<entityId>` | `/<collection>/<entityId>` plus `/editor/recordMetadata/<collection>/<entityId>` | `manual-save` |
+| Collection editor | `collection:<collection>` | The concrete collection root plus `/editor/recordMetadata/<collection>` | `manual-save` |
 | Explorer structural operation | `structure:<collection>` | Canonical command-derived paths for create, rename, duplicate, or delete | `auto-commit` attribution only |
 | Project Settings | `project:settings` | `/project`, `/settings`, `/startupHook`, `/entrypoint` | `manual-save` |
 | Project-scoped editor/tool | Named `project:*` unit | The exact paths listed below | Listed per surface |
@@ -41,14 +41,23 @@ field-level pending input in recovery metadata.
   blocked units dirty with their recovery overlays intact. It intentionally has no shortcut that
   conflicts with Save As.
 - Scoped commits resolve each selected unit to its canonical JSON/source file set and carry the
-  loaded exact-byte revision for each target. Files outside the selected dependency component are
-  neither checked as save blockers nor rewritten. Shared `editor.json` owners are applied by their
-  declared JSON paths over the current disk fragment.
+  loaded exact-byte revision for each target. The renderer also supplies the exact JSON paths changed
+  by the selected recovery component. The main process verifies those paths against the saved
+  baseline, rebases the selected paths onto the newest disk snapshot, and writes only the selected
+  physical files. A disjoint external edit can therefore survive even when it shares a Room record
+  file or `editor.json` with the local save; an overlapping path fails closed instead.
+- After a successful content write, the main process returns the authoritative post-commit workspace
+  snapshot. The renderer reconciles that snapshot with any remaining local dirty units before it
+  adopts the returned workspace/file revisions. A watcher event can therefore never be skipped merely
+  because Save advanced the revision before adopting a concurrent external change.
 - Save As and `Ctrl+Shift+S` create a copy from the saved content baseline plus complete editor
   metadata, recovery overlays, and dirty-only project asset files. The active project identity and
   dirty state do not change.
-- Closing the project, switching projects, and normal editor exit flush editor metadata and recovery
-  only. They never pass the complete working document to a content-save API.
+- Closing the project, switching projects, and normal editor exit flush ignored local editor metadata
+  and recovery only. They never pass the complete working document to a content-save API. Metadata-
+  only writes never advance `savedDocument` or adopt newer tracked-file revisions. A scheduled recovery
+  debounce is canceled/settled before Save, Save All, Save As, or Keep Mine so it cannot race a content
+  commit and overwrite the new recovery-baseline marker.
 - Closing a non-final duplicate view never prompts. Closing the final dirty view uses the shared
   Save / Don't Save / Cancel dialog for the logical save unit.
 
@@ -56,7 +65,10 @@ The renderer exposes only scoped content Save, metadata-only persistence, and Sa
 Content commits cross that boundary with selected save-unit IDs, their saved baseline, and per-file
 revisions. The main-process workspace service performs the final path projection and revision check
 under the cross-process writer lock.
-There is no renderer-accessible whole-document Save or old Save As branch.
+There is no renderer-accessible whole-document Save or old Save As branch. The retired whole-project
+content fingerprint is not part of editor metadata, IPC responses, or conflict detection; persisted
+concurrency is expressed only through `workspaceRevision` plus exact owned-file revisions. External
+rebase/conflict semantics are documented in `PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md`.
 
 ## Registered editor mapping
 
@@ -66,26 +78,26 @@ Every editor registered in `default-editors.tsx` has one explicit registry outco
 | --- | --- | --- | --- |
 | `engine-preview` | Non-content | `tool:engine-preview` | No authoring-content ownership |
 | `full-game-preview` | Non-content | `tool:full-game-preview` | Preview state is non-content; recorder mutations use a workflow unit below |
-| `asset-library` | Savable collection | `collection:assets` | `/assets` |
-| `asset-detail` | Savable record | `record:assets:<entityId>` | `/assets/<entityId>` |
+| `asset-library` | Savable collection | `collection:assets` | `/assets` plus `/editor/recordMetadata/assets` |
+| `asset-detail` | Savable record | `record:assets:<entityId>` | `/assets/<entityId>` plus matching record metadata |
 | `image-generation` | Non-content | `tool:image-generation` | Generated-asset insertion uses a workflow unit below |
 | `comfyui-workflows` | Non-content | `tool:comfyui-workflows` | Workflow-library changes are external editor tooling, not project content |
-| `shader-detail` | Savable record | `record:shaders:<entityId>` | `/shaders/<entityId>` |
-| `material-detail` | Savable record | `record:materials:<entityId>` | `/materials/<entityId>` |
-| `layout-detail` | Savable record | `record:layouts:<entityId>` | `/layouts/<entityId>`; system-role changes are attributed to Project Settings |
-| `character-detail` | Savable record | `record:characters:<entityId>` | `/characters/<entityId>` |
-| `room-detail` | Savable record | `record:rooms:<entityId>` | `/rooms/<entityId>` |
-| `interactable-detail` | Savable record | `record:interactables:<entityId>` | `/interactables/<entityId>` |
-| `dialogue-detail` | Savable record | `record:dialogues:<entityId>` | `/dialogues/<entityId>` |
-| `scene-detail` | Savable record | `record:scenes:<entityId>` | `/scenes/<entityId>` |
-| `test-suite` | Savable collection | `collection:tests` | `/tests` |
-| `test-detail` | Savable record | `record:tests:<entityId>` | `/tests/<entityId>` |
+| `shader-detail` | Savable record | `record:shaders:<entityId>` | `/shaders/<entityId>` plus matching record metadata |
+| `material-detail` | Savable record | `record:materials:<entityId>` | `/materials/<entityId>` plus matching record metadata |
+| `layout-detail` | Savable record | `record:layouts:<entityId>` | `/layouts/<entityId>` plus matching record metadata; system-role changes are attributed to Project Settings |
+| `character-detail` | Savable record | `record:characters:<entityId>` | `/characters/<entityId>` plus matching record metadata |
+| `room-detail` | Savable record | `record:rooms:<entityId>` | `/rooms/<entityId>` plus matching record metadata |
+| `interactable-detail` | Savable record | `record:interactables:<entityId>` | `/interactables/<entityId>` plus matching record metadata |
+| `dialogue-detail` | Savable record | `record:dialogues:<entityId>` | `/dialogues/<entityId>` plus matching record metadata |
+| `scene-detail` | Savable record | `record:scenes:<entityId>` | `/scenes/<entityId>` plus matching record metadata |
+| `test-suite` | Savable collection | `collection:tests` | `/tests` plus `/editor/recordMetadata/tests` |
+| `test-detail` | Savable record | `record:tests:<entityId>` | `/tests/<entityId>` plus matching record metadata |
 | `placeholder-entity` | Savable record | `record:<collection>:<entityId>` | Concrete resource path; missing collection/ID is explicitly unsupported |
-| `verb-detail` | Savable record | `record:verbs:<entityId>` | `/verbs/<entityId>` |
-| `interaction-detail` | Savable record | `record:interactions:<entityId>` | `/interactions/<entityId>` |
-| `map-detail` | Savable record | `record:maps:<entityId>` | `/maps/<entityId>` |
-| `script-module-detail` | Savable record | `record:scripts:<entityId>` | `/scripts/<entityId>` |
-| `variables` | Savable collection | `collection:variables` | `/variables` |
+| `verb-detail` | Savable record | `record:verbs:<entityId>` | `/verbs/<entityId>` plus matching record metadata |
+| `interaction-detail` | Savable record | `record:interactions:<entityId>` | `/interactions/<entityId>` plus matching record metadata |
+| `map-detail` | Savable record | `record:maps:<entityId>` | `/maps/<entityId>` plus matching record metadata |
+| `script-module-detail` | Savable record | `record:scripts:<entityId>` | `/scripts/<entityId>` plus matching record metadata |
+| `variables` | Savable collection | `collection:variables` | `/variables` plus `/editor/recordMetadata/variables` |
 | `components` | Non-content | `tool:components` | Documentation/reference surface only |
 | `settings` | Non-content | `tool:settings` | Editor preferences, not project content |
 | `project-settings` | Savable project unit | `project:settings` | `/project`, `/settings`, `/startupHook`, `/entrypoint` |
@@ -126,8 +138,13 @@ Every mutating `CommandRequest` must provide `originSaveUnitId` and `persistence
 ownership is rejected before a command handler runs. Every committed history entry retains those
 fields, the canonical deduplicated union of actual patch paths and handler-declared semantic
 `affectedPaths`, and an `atomicTransactionGroupId` whenever a command or transaction spans multiple
-owned paths. Transactions reject missing ownership and conflicting origin, persistence-policy, or
-atomic-group attribution rather than silently weakening the initiating transaction.
+owned paths. For manual commands, a patch that leaves the initiating record/collection is reassigned
+to its actual logical save unit during recovery construction while retaining the same atomic group.
+For example, adding a previously unknown tag to a Room yields a Room record-metadata unit plus a
+`project:tags` unit, and a Variables rename that rewrites another record gives that rewrite to the
+other record's unit. Saving either member commits the entire atomic component. Transactions reject
+missing ownership and conflicting origin, persistence-policy, or atomic-group attribution rather
+than silently weakening the initiating transaction.
 
 Static non-tab mutation entrypoints consume `MUTATION_SURFACE_ATTRIBUTIONS` directly so the checked-in
 inventory is the executable source of truth for both logical ownership and persistence policy rather
@@ -142,7 +159,11 @@ no structural auto-commit compatibility rule.
 
 Dirty state is computed by resolving the tab to its logical save unit and comparing every owned path
 against `savedDocument`. The visual tab's `dirty` flag and command-history cursor are not
-authoritative.
+authoritative. Open tabs may supply fallback recovery ownership only for otherwise unattributed dirty
+paths; they never create a second overlapping recovery owner for a path already attributed by a
+command, workflow, pending input, repair, or persisted recovery entry. This prevents a structural
+workflow such as New Entity or Asset Import from being blocked merely because its resulting editor
+tab is already open when asynchronous auto-commit snapshots recovery state.
 Consequently, two tabs for the same record resolve to the same save-unit ID and cannot carry
 independent persistent dirty state. Serializable local drafts that remain for other editors are
 stored separately from project content; Project Settings uses authoritative commands plus

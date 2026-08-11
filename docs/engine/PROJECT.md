@@ -6,14 +6,19 @@ The project root owns identity, runtime settings, feature flags, localization, s
 entrypoint, collection indexes, and editor metadata. It is not an entity, property owner, or generic
 mutation target.
 
-Authoring uses strict `noveltea.authoring.project` version 3. The editor owns, reads, writes, and
-validates it; native runtime code never parses it. Compilation emits strict canonical
-`noveltea.compiled.project` version 3.
+Tracked authoring uses workspace v1 (`noveltea.project.workspace` version 1) rooted at a project
+directory with `project.json` plus segmented record/source files. `ProjectWorkspaceService` strictly
+assembles that tree into the internal `noveltea.authoring.project` version 3 model used by editor,
+compiler, graph, preview, and tests. That internal identity is not a persisted monolithic project
+format. Native runtime code never parses authoring workspace source. Compilation emits strict
+canonical `noveltea.compiled.project` version 3.
 
 ## Collections
 
-V2 has collection-specific records for assets, variables, shaders, materials, layouts, characters,
-rooms, interactables, verbs, interactions, dialogues, scenes, maps, script modules, and tests.
+The current authoring model has collection-specific records for assets, variables, shaders,
+materials, layouts, characters, rooms, interactables, verbs, interactions, dialogues, scenes, maps,
+script modules, and tests. Workspace-v1 persistence stores each record at its canonical stable-ID path;
+Layouts use an owning directory for their companion source files.
 Stable record IDs are unique within a collection and nested IDs within their owner.
 
 Property-bearing definitions may use same-collection `extends` and declared typed property
@@ -51,9 +56,12 @@ there is no legacy import/runtime fallback.
 
 ## Editor Commands
 
-Project/entity mutations use the editor command and JSON-patch infrastructure so dirty state,
-undo/redo, diagnostics, reference rewrites, and save remain coherent. Record rename rewrites indexed
-references and deletion performs reference-use preflight.
+Ordinary fields and source are file-first. Editor saves operate on logical save units and exact file
+revisions; external source changes reconcile against the saved baseline without silent overwrite.
+Project/entity structural mutations use the shared command/graph/transaction infrastructure so dirty
+state, undo/redo, diagnostics, reference rewrites, and filesystem changes remain coherent. The public
+`noveltea` CLI uses the same workspace and transaction services for headless create/rename/delete and
+usages operations.
 
 Key implementation areas:
 

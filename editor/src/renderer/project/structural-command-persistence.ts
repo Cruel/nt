@@ -5,16 +5,22 @@ import {
   parseJsonPointer,
   type JsonPointer,
 } from './json-pointer';
-import { cloneJsonValue, type JsonValue } from './json-value';
-import { rebaseRecoveryOverlays } from './project-save-coordinator';
+import { cloneJsonValue, jsonValuesEqual, toJsonValue, type JsonValue } from './json-value';
+import { rebaseRecoveryOverlays } from './project-recovery-rebase';
+import {
+  externalConflictDiagnostic,
+  reconcileExternalProjectChange,
+} from './project-external-reconciliation';
 import { useProjectStore } from './project-store';
 import {
   buildEditorProjectStateSnapshot,
+  editorProjectStateFromProject,
   mergeEditorProjectState,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import {
-  stripEditorProjectState,
+  isTrackedEditorProjectStatePath,
+  stripLocalEditorProjectState,
   type EditorProjectState,
   type EditorRecoverySaveUnit,
   type EditorRecoveryState,
@@ -167,8 +173,10 @@ function uniqueSorted(paths: readonly JsonPointer[]): JsonPointer[] {
   return [...new Set(paths)].sort((left, right) => left.localeCompare(right));
 }
 
-function isEditorStatePath(path: JsonPointer): boolean {
-  return path === '/editor' || path.startsWith('/editor/');
+function isPersistedProjectContentPath(path: JsonPointer): boolean {
+  return (
+    path !== '/editor' && (!path.startsWith('/editor/') || isTrackedEditorProjectStatePath(path))
+  );
 }
 
 function pathOverlaps(left: string, right: string): boolean {
@@ -291,11 +299,12 @@ export function buildAutoCommitPlan(input: AutoCommitPlanBuildInput): AutoCommit
   let forwardBaselinePatches: JsonPatchOperation[] = [];
   let inverseBaselinePatches: JsonPatchOperation[] = [];
   if (persistenceTarget === 'project-content') {
-    const savedContent = stripEditorProjectState(input.savedDocument) as JsonValue;
-    // Editor state is saved alongside content as a separate snapshot. Applying its
-    // patches to the stripped content baseline makes structural commands fail when
-    // they add, rename, or delete record metadata.
-    const contentPatches = input.patches.filter((patch) => !isEditorStatePath(patch.path));
+    const savedContent = stripLocalEditorProjectState(input.savedDocument) as JsonValue;
+    // Tracked editor organization is part of project content even though it lives in editor.json;
+    // only ignored/session editor paths are excluded from the structural content baseline.
+    const contentPatches = input.patches.filter((patch) =>
+      isPersistedProjectContentPath(patch.path),
+    );
     try {
       const applied = applyJsonPatch(savedContent, contentPatches);
       forwardBaselinePatches = contentPatches.map((patch) => cloneJsonValue(patch));
@@ -403,7 +412,7 @@ export function remapRecoveryForAutoCommit(
 }
 
 function collectAuthoringDiagnostics(document: JsonValue): ProjectValidationDiagnostic[] {
-  const decoded = decodeAuthoringProject(stripEditorProjectState(document));
+  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(document));
   if (!decoded.project) return collectProjectValidationDiagnostics(decoded.structuralDiagnostics);
   return collectProjectValidationDiagnostics(
     decoded.semanticDiagnostics,
@@ -521,6 +530,21 @@ async function trashStagedAssetsAfterFailure(
   );
 }
 
+function editorStateForContentCandidate(
+  snapshot: EditorProjectState,
+  candidateContent: JsonValue,
+  recovery: EditorRecoveryState,
+): EditorProjectState {
+  const tracked = editorProjectStateFromProject(candidateContent);
+  return {
+    ...snapshot,
+    chapters: tracked.chapters,
+    tags: tracked.tags,
+    recordMetadata: tracked.recordMetadata,
+    recovery,
+  };
+}
+
 export async function persistAutoCommitPlan(
   commandId: string,
   plan: AutoCommitPlan,
@@ -580,20 +604,18 @@ export async function persistAutoCommitPlan(
             : [],
       };
     }
-    const persisted = {
-      ...editorState,
-      contentFingerprint: response.contentFingerprint ?? editorState.contentFingerprint,
-    };
+    const persisted = editorState;
     setLoadedEditorProjectState(persisted);
-    useProjectStore.getState().markSaved({
-      workspaceRevision: response.workspaceRevision,
-      fileRevisions: response.fileRevisions,
+    useProjectStore.getState().refreshWorkspaceMetadata({
+      workspaceRevision: response.workspaceRevision ?? projectState.workspaceRevision,
+      fileRevisions: response.fileRevisions ?? projectState.fileRevisions,
+      scriptSourcePaths: projectState.scriptSourcePaths,
     });
     useProjectStore.getState().markEditorMetadataPersisted(persisted);
     return { status: 'persisted', diagnostics: [] };
   }
 
-  const baselineContent = stripEditorProjectState(projectState.savedDocument) as JsonValue;
+  const baselineContent = stripLocalEditorProjectState(projectState.savedDocument) as JsonValue;
   const patches = direction === 'undo' ? plan.inverseBaselinePatches : plan.forwardBaselinePatches;
   let candidateContent: JsonValue;
   try {
@@ -631,7 +653,7 @@ export async function persistAutoCommitPlan(
     projectState.document,
     new Set([plan.originSaveUnitId]),
   );
-  const editorState: EditorProjectState = { ...snapshot, recovery: rebasedRecovery };
+  const editorState = editorStateForContentCandidate(snapshot, candidateContent, rebasedRecovery);
   const scriptSourcePaths = { ...projectState.scriptSourcePaths };
   for (const remap of plan.identityRemap) {
     const match = remap.fromPath.match(/^\/scripts\/([^/]+)$/);
@@ -674,21 +696,81 @@ export async function persistAutoCommitPlan(
   }
   if (response.assetTrashMoves && response.assetTrashMoves.length > 0)
     filesystemStateByCommandId.set(commandId, response.assetTrashMoves);
-  const persistedEditorState: EditorProjectState = {
-    ...editorState,
-    contentFingerprint: response.contentFingerprint ?? editorState.contentFingerprint,
-  };
-  useProjectStore.getState().markSaved({
-    document: mergeEditorProjectState(candidateContent, persistedEditorState),
-    projectPath: response.projectPath,
-    projectFilePath: response.projectFilePath,
-    workspaceRevision: response.workspaceRevision,
-    fileRevisions: response.fileRevisions,
-    scriptSourcePaths,
+  const authoritativeEditorState = response.editorState ?? editorState;
+  const authoritativeDiskDocument = mergeEditorProjectState(
+    response.contentProject ? toJsonValue(response.contentProject) : candidateContent,
+    authoritativeEditorState,
+  );
+  const authoritativeWorkspaceRevision = (response.workspaceRevision ??
+    projectState.workspaceRevision) as `sha256:${string}`;
+  const authoritativeFileRevisions = response.fileRevisions ?? projectState.fileRevisions;
+  const authoritativeScriptSourcePaths = response.scriptSourcePaths ?? scriptSourcePaths;
+  const postSave = reconcileExternalProjectChange({
+    baseDocument: projectState.savedDocument,
+    localDocument: projectState.document,
+    externalDocument: authoritativeDiskDocument,
+    recovery: rebasedRecovery,
+    externalWorkspaceRevision: authoritativeWorkspaceRevision,
+    externalFileRevisions: authoritativeFileRevisions,
   });
-  setLoadedEditorProjectState(persistedEditorState);
-  useProjectStore.getState().markEditorMetadataPersisted(persistedEditorState);
-  return { status: 'persisted', diagnostics: [] };
+  const workingEditorState = editorStateForContentCandidate(
+    authoritativeEditorState,
+    postSave.workingDocument,
+    postSave.recovery,
+  );
+  const savedEditorState = editorStateForContentCandidate(
+    authoritativeEditorState,
+    postSave.savedDocument,
+    postSave.recovery,
+  );
+  const workingDocument = mergeEditorProjectState(postSave.workingDocument, workingEditorState);
+  const savedDocument = mergeEditorProjectState(postSave.savedDocument, savedEditorState);
+  const workingContentChanged = !jsonValuesEqual(
+    stripLocalEditorProjectState(projectState.document) as JsonValue,
+    stripLocalEditorProjectState(workingDocument) as JsonValue,
+  );
+  if (workingContentChanged) {
+    if (
+      !useProjectStore.getState().publishExternalReconciliation({
+        document: workingDocument,
+        savedDocument,
+        workspaceRevision: authoritativeWorkspaceRevision,
+        fileRevisions: authoritativeFileRevisions,
+        scriptSourcePaths: authoritativeScriptSourcePaths,
+        affectedPaths: postSave.externalChangedPaths,
+      })
+    ) {
+      return {
+        status: 'failed',
+        diagnostics: [
+          createProjectValidationDiagnostic({
+            code: 'editor.auto-commit.publication-failed',
+            severity: 'error',
+            category: 'Project structural persistence',
+            path: plan.affectedPaths[0] ?? '/',
+            message: 'Saved workspace could not be published.',
+            boundaries: ['authoring'],
+            ownerPaths: plan.affectedPaths.length > 0 ? plan.affectedPaths : ['/'],
+          }),
+        ],
+      };
+    }
+  } else {
+    useProjectStore.getState().markSaved({
+      document: savedDocument,
+      projectPath: response.projectPath,
+      projectFilePath: response.projectFilePath,
+      workspaceRevision: authoritativeWorkspaceRevision,
+      fileRevisions: authoritativeFileRevisions,
+      scriptSourcePaths: authoritativeScriptSourcePaths,
+    });
+  }
+  setLoadedEditorProjectState(workingEditorState);
+  useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
+  const conflictDiagnostics = Object.entries(postSave.recovery.saveUnitsById)
+    .filter(([, entry]) => entry.externalConflict)
+    .map(([saveUnitId, entry]) => externalConflictDiagnostic(saveUnitId, entry.externalConflict!));
+  return { status: 'persisted', diagnostics: conflictDiagnostics };
 }
 
 export function structuralRuleForTests(commandType: string, originSaveUnitId: string) {

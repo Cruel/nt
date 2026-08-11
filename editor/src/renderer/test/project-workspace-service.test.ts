@@ -9,6 +9,10 @@ import {
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
+import {
+  FINAL_WORKSPACE_FIXTURE_ROOT,
+  finalWorkspaceV1SourceTreeFixture,
+} from './fixtures/workspace-v1-comprehensive';
 
 function filesFor(project = createAuthoringProject({ id: 'headless', name: 'Headless' })) {
   return Object.fromEntries(
@@ -126,6 +130,57 @@ describe('ProjectWorkspaceService', () => {
     );
   });
 
+  it('certifies the final workspace-v1 source-tree fixture across every collection and source surface', async () => {
+    const files = finalWorkspaceV1SourceTreeFixture();
+    const opened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(files),
+    ).open(FINAL_WORKSPACE_FIXTURE_ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    for (const collection of [
+      'assets',
+      'variables',
+      'shaders',
+      'materials',
+      'layouts',
+      'characters',
+      'rooms',
+      'interactables',
+      'verbs',
+      'interactions',
+      'dialogues',
+      'scenes',
+      'maps',
+      'scripts',
+      'tests',
+    ] as const) {
+      expect(Object.keys(opened.snapshot.project[collection]).length, collection).toBeGreaterThan(
+        0,
+      );
+    }
+
+    expect(opened.snapshot.canonicalSourceFiles).toEqual(
+      expect.arrayContaining([
+        'project.json',
+        'properties.json',
+        'localization.json',
+        'editor.json',
+        'records/layouts/hud-inline/layout.json',
+        'records/layouts/hud-inline/layout.rml',
+        'records/layouts/hud-inline/layout.rcss',
+        'records/layouts/hud-inline/layout.lua',
+        'records/scripts/inline-module.json',
+        'scripts/inline-module.lua',
+        'assets/images/main.png',
+      ]),
+    );
+    expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/AGENTS.md`);
+    expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.gitignore`);
+    expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.noveltea/editor/state.json`);
+    expect(opened.editorState).toMatchObject({ schemaVersion: 2 });
+  });
+
   it('loads the current segmented workspace without Electron', async () => {
     const opened = await new ProjectWorkspaceService(
       new InMemoryProjectWorkspaceFileSystem(filesFor()),
@@ -140,7 +195,33 @@ describe('ProjectWorkspaceService', () => {
     ]);
     expect(opened.snapshot.saveUnitFileOwnership['workflow:play-recorder']?.paths).toEqual([
       '/tests',
+      '/editor/recordMetadata/tests',
     ]);
+  });
+
+  it('returns the full composed editor state while keeping contentProject editor-free', async () => {
+    const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    project.editor.recordMetadata.rooms = {
+      hall: { tags: ['indoors'], color: null },
+    };
+    project.editor.tags.records.indoors = { name: 'indoors', color: 'tag-slate' };
+    const opened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(filesFor(project)),
+    ).open('/projects/headless');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    expect(opened.editorState.recordMetadata.rooms?.hall).toEqual({
+      tags: ['indoors'],
+      color: null,
+    });
+    expect(opened.editorState.tags.records.indoors).toEqual({
+      name: 'indoors',
+      color: 'tag-slate',
+    });
+    expect(opened.editorState).toEqual(opened.snapshot.project.editor);
+    expect(opened.contentProject).not.toHaveProperty('editor');
   });
 
   it('rejects metadata keys that would mutate dictionary prototypes', async () => {
@@ -363,6 +444,35 @@ describe('ProjectWorkspaceService', () => {
         sourceAssetId: 'rml',
         sourceUrl: 'project:/assets/ui/shared.rml',
       }),
+    );
+  });
+
+  it('keeps ignored editor-local state out of working workspace identity', () => {
+    const project = createAuthoringProject({ id: 'identity', name: 'Identity' });
+    const baseline = createProjectWorkspaceSnapshot(project);
+
+    const localOnly = structuredClone(project);
+    localOnly.editor.bottomPanel.visible = false;
+    localOnly.editor.recovery = {
+      sequence: 1,
+      saveUnitsById: {
+        'project:settings': {
+          sequence: 1,
+          patches: [{ op: 'replace', path: '/project/name', value: 'Recovered' }],
+          affectedPaths: ['/project/name'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      },
+    };
+    expect(createProjectWorkspaceSnapshot(localOnly).workspaceRevision).toBe(
+      baseline.workspaceRevision,
+    );
+
+    const tracked = structuredClone(project);
+    tracked.editor.tags.records.story = { name: 'Story', color: 'tag-slate' };
+    expect(createProjectWorkspaceSnapshot(tracked).workspaceRevision).not.toBe(
+      baseline.workspaceRevision,
     );
   });
 

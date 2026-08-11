@@ -8,7 +8,12 @@ Layouts are the new engine's runtime UI authoring component. They should be refe
 
 ## Current Status
 
-Layouts are implemented as a typed authoring collection in the editor. The Layout editor supports inline or asset-backed RML, RCSS, and Lua sources; target selection; document/fragment modes; dependency lists; script metadata; mount metadata; default layout assignment; validation diagnostics; and live engine preview.
+Layouts are implemented as a typed authoring collection in the editor. The Layout editor supports
+file-backed or asset-backed RML/RCSS and file-backed, asset-backed, or absent Lua through the
+workspace-v1 persistence projection; its assembled internal model still uses the existing inline or
+asset source union. It also supports target selection, document/fragment modes, dependency lists,
+script metadata, mount metadata, default layout assignment, validation diagnostics, and live engine
+preview.
 
 The engine has an RmlUi runtime UI integration with bgfx rendering, SDL3 input/system/file adapters,
 custom component hooks, document binding, and template resolution. Authoring Layout preview uses the
@@ -182,6 +187,11 @@ wait-for-completion and skippable intent. Hide requires no Layout reference; sho
 The compiler and native decoder preserve these fields without converting them into CSS animation.
 
 ### Sources
+
+The following is the assembled internal authoring model consumed by editor/compiler code. It is not
+the workspace-v1 JSON shape for file-backed source. On disk, file-backed RML/RCSS/Lua is selected by
+`file` and stored in the canonical companion file; asset-backed source stores only its typed asset
+selector; Layout Lua additionally permits `none`.
 
 A source has:
 

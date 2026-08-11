@@ -16,6 +16,19 @@ export interface ProjectWorkspaceWatchEvent {
   readonly projectRoot: string;
   readonly manifestPath: string;
   readonly changedPaths: readonly string[];
-  readonly assetAuditChanged: boolean;
+  readonly authoringChangedPaths: readonly string[];
+  readonly assetChangedPaths: readonly string[];
   readonly candidate: ProjectWorkspaceWatchCandidate;
+}
+
+export function shouldReconcileProjectWorkspaceWatchEvent(
+  currentWorkspaceRevision: string | null,
+  event: ProjectWorkspaceWatchEvent,
+): boolean {
+  if (event.authoringChangedPaths.length === 0) return false;
+  return !(
+    event.candidate.success &&
+    event.candidate.workspaceRevision !== undefined &&
+    event.candidate.workspaceRevision === currentWorkspaceRevision
+  );
 }

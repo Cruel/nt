@@ -260,9 +260,15 @@ live/malformed/stale locks, and interrupted-journal recovery.
 produced `undefined` under Perry 0.5.1220 in the full CLI, causing `ownerToken` to disappear when the
 lock owner was JSON-serialized.
 
-**NovelTea accommodation:** production transaction IDs/owner tokens use the supported named
-`randomUUID` import from `node:crypto` through a top-level helper. Tests retain the injectable ID
-override so deterministic transaction fixtures do not depend on random values.
+**NovelTea accommodation:** the Node/Perry workspace host factory imports the supported named
+`randomUUID` function from `node:crypto` and injects it into `ProjectWorkspaceTransactionService`.
+The shared transaction module keeps a browser-safe `globalThis.crypto.randomUUID()` default for
+non-Node hosts, so renderer-reachable code does not import `node:crypto`. Tests retain the injectable
+ID override so deterministic transaction fixtures do not depend on random values. Phase 9 final
+certification caught a regression where the host injection had been lost: Perry then serialized a
+writer lock without `ownerToken`, could not verify ownership during release, and failed the first
+executing mutation on its post-commit reopen. The permanent Node/Perry filesystem differential now
+covers this exact lock lifecycle.
 
 **Revisit/remove when:** the original `globalThis.crypto.randomUUID()` class-helper shape returns a
 valid UUID repeatedly in the full Perry CLI and the writer-lock differential remains exact.

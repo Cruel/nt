@@ -148,6 +148,23 @@ describe('workbench dirty state', () => {
     });
   });
 
+  it('marks a record tab dirty when only its tracked record metadata changed', () => {
+    const saved = {
+      materials: { panel: { id: 'panel', label: 'Panel' } },
+      editor: { recordMetadata: { materials: { panel: { tags: [] } } } },
+    };
+    const current = {
+      materials: { panel: { id: 'panel', label: 'Panel' } },
+      editor: { recordMetadata: { materials: { panel: { tags: ['ui'] } } } },
+    };
+
+    expect(getTabDirtyState(tab, current, saved, {})).toMatchObject({
+      dirty: true,
+      persistentDirty: true,
+      saveUnitId: 'record:materials:panel',
+    });
+  });
+
   it('builds discard patches that restore saved resource values', () => {
     const current = { materials: { panel: { id: 'panel', label: 'New Panel' } } };
     const saved = { materials: { panel: { id: 'panel', label: 'Panel' } } };

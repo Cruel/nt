@@ -3,7 +3,7 @@ import type {
   ProjectMutationPublication,
 } from '../../shared/authoring-dependency-contracts';
 import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
-import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import { stripLocalEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import {
   asStructurallyAdmittedAuthoringProject,
   type StructurallyAdmittedAuthoringProject,
@@ -45,7 +45,7 @@ export interface AdmittedProjectCandidate {
 
 export function admitProjectCandidate(value: unknown): AdmittedProjectCandidate | null {
   const cloned = cloneJsonValue(value as JsonValue);
-  const decoded = decodeAuthoringProject(stripEditorProjectState(cloned));
+  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(cloned));
   if (!decoded.project) {
     // Historical renderer unit tests use deliberately tiny JSON documents to exercise generic store
     // mechanics. They are not project-file candidates and remain isolated from production builds.

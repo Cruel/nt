@@ -6,9 +6,11 @@ import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import { defaultComfyUiConfig } from '../../shared/comfyui';
 import {
+  authoringProjectSchema,
   createAuthoringProject,
   isAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   emptyEditorProjectState,
   stripEditorProjectState,
@@ -152,7 +154,6 @@ beforeEach(() => {
       createAuthoringProject({ id: 'my-story', name: 'My Story' }),
     ),
     editorState: emptyEditorProjectState(),
-    contentFingerprint: '0'.repeat(64),
     repairs: [],
     diagnostics: [],
   });
@@ -169,6 +170,277 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('routes asset-only watcher events to asset audit without republishing authoring state', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    const initialRevision = `sha256:${'a'.repeat(64)}` as `sha256:${string}`;
+    const assetRevision = `sha256:${'b'.repeat(64)}` as `sha256:${string}`;
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      workspaceRevision: initialRevision,
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+
+    render(<WorkspacePage />);
+    await waitFor(() =>
+      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith('/mock/project'),
+    );
+    vi.mocked(window.noveltea.auditProjectAssets).mockClear();
+    const beforeDocument = useProjectStore.getState().document;
+    const beforeSavedDocument = useProjectStore.getState().savedDocument;
+    const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
+    expect(callback).toBeDefined();
+
+    act(() => {
+      callback?.({
+        projectRoot: '/mock/project',
+        manifestPath: '/mock/project/project.json',
+        changedPaths: ['assets/images/logo.png'],
+        authoringChangedPaths: [],
+        assetChangedPaths: ['assets/images/logo.png'],
+        candidate: {
+          success: true,
+          diagnostics: [],
+          contentProject: stripEditorProjectState(project),
+          savedContentProject: stripEditorProjectState(project),
+          editorState: emptyEditorProjectState(),
+          workspaceRevision: assetRevision,
+          fileRevisions: { 'assets/images/logo.png': assetRevision },
+          scriptSourcePaths: {},
+        },
+      });
+    });
+
+    await waitFor(() => expect(window.noveltea.auditProjectAssets).toHaveBeenCalledTimes(1));
+    expect(useProjectStore.getState().document).toBe(beforeDocument);
+    expect(useProjectStore.getState().savedDocument).toBe(beforeSavedDocument);
+    expect(useProjectStore.getState().workspaceRevision).toBe(assetRevision);
+    expect(useWorkspaceStore.getState().statusMessage).not.toBe(
+      'Reloaded external project changes',
+    );
+  });
+
+  it('surfaces a missing tracked asset without republishing or clearing the authoring project', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    const revision = `sha256:${'a'.repeat(64)}` as `sha256:${string}`;
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      workspaceRevision: revision,
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+
+    render(<WorkspacePage />);
+    await waitFor(() =>
+      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith('/mock/project'),
+    );
+    const beforeDocument = useProjectStore.getState().document;
+    const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
+    expect(callback).toBeDefined();
+
+    act(() => {
+      callback?.({
+        projectRoot: '/mock/project',
+        manifestPath: '/mock/project/project.json',
+        changedPaths: ['assets/images/missing.png'],
+        authoringChangedPaths: [],
+        assetChangedPaths: ['assets/images/missing.png'],
+        candidate: {
+          success: false,
+          diagnostics: [
+            {
+              code: 'workspace.source.missing',
+              severity: 'error',
+              category: 'Project workspace',
+              path: '/assets/images/missing.png',
+              message: "Authoritative source file 'assets/images/missing.png' is missing.",
+              boundaries: ['authoring'],
+              ownerPaths: ['/assets/images/missing.png'],
+            },
+          ],
+        },
+      });
+    });
+
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().statusMessage).toBe(
+        'Asset source changes require attention',
+      ),
+    );
+    expect(useProjectStore.getState().document).toBe(beforeDocument);
+    expect(isAuthoringProject(useProjectStore.getState().document)).toBe(true);
+    expect(useBottomPanelStore.getState()).toMatchObject({
+      visible: true,
+      activePanelId: 'problems',
+    });
+    expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
+      expect.objectContaining({ category: 'Asset source', severity: 'error' }),
+    );
+  });
+
+  it('clears a latched external-source error when the repaired source returns to the current revision', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    const revision = `sha256:${'a'.repeat(64)}` as `sha256:${string}`;
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      workspaceRevision: revision,
+      fileRevisions: { 'records/rooms/hall.json': revision },
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+
+    render(<WorkspacePage />);
+    await waitFor(() =>
+      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith('/mock/project'),
+    );
+    const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
+    expect(callback).toBeDefined();
+
+    act(() => {
+      callback?.({
+        projectRoot: '/mock/project',
+        manifestPath: '/mock/project/project.json',
+        changedPaths: ['records/rooms/hall.json'],
+        authoringChangedPaths: ['records/rooms/hall.json'],
+        assetChangedPaths: [],
+        candidate: {
+          success: false,
+          diagnostics: [
+            {
+              code: 'authoring.workspace.invalid',
+              severity: 'error',
+              category: 'Project workspace',
+              path: '/rooms/hall/data',
+              message: 'Required Room field is missing.',
+              boundaries: ['authoring'],
+              ownerPaths: ['/rooms/hall/data'],
+            },
+          ],
+        },
+      });
+    });
+
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().statusMessage).toBe(
+        'External project changes contain unreadable source files',
+      ),
+    );
+    expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
+      expect.objectContaining({ category: 'External project source', severity: 'error' }),
+    );
+
+    act(() => {
+      callback?.({
+        projectRoot: '/mock/project',
+        manifestPath: '/mock/project/project.json',
+        changedPaths: ['records/rooms/hall.json'],
+        authoringChangedPaths: ['records/rooms/hall.json'],
+        assetChangedPaths: [],
+        candidate: {
+          success: true,
+          diagnostics: [],
+          contentProject: stripEditorProjectState(project),
+          savedContentProject: stripEditorProjectState(project),
+          editorState: emptyEditorProjectState(),
+          workspaceRevision: revision,
+          fileRevisions: { 'records/rooms/hall.json': revision },
+          scriptSourcePaths: {},
+        },
+      });
+    });
+
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().statusMessage).toBe(
+        'External project source is valid again',
+      ),
+    );
+    expect(useWorkspaceStore.getState().diagnostics).not.toContainEqual(
+      expect.objectContaining({ category: 'External project source' }),
+    );
+    expect(useProjectStore.getState().workspaceRevision).toBe(revision);
+    expect(isAuthoringProject(useProjectStore.getState().document)).toBe(true);
+  });
+
+  it('publishes an external Room source edit without invalidating the live authoring project', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    const externalProject = structuredClone(project);
+    externalProject.rooms.hall!.description = 'Changed outside NovelTea';
+    const initialRevision = `sha256:${'a'.repeat(64)}` as `sha256:${string}`;
+    const externalRevision = `sha256:${'b'.repeat(64)}` as `sha256:${string}`;
+    const roomRevision = `sha256:${'c'.repeat(64)}` as `sha256:${string}`;
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      workspaceRevision: initialRevision,
+      fileRevisions: { 'records/rooms/hall.json': initialRevision },
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+
+    render(<WorkspacePage />);
+    await waitFor(() =>
+      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith('/mock/project'),
+    );
+    const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
+    expect(callback).toBeDefined();
+
+    act(() => {
+      callback?.({
+        projectRoot: '/mock/project',
+        manifestPath: '/mock/project/project.json',
+        changedPaths: ['records/rooms/hall.json'],
+        authoringChangedPaths: ['records/rooms/hall.json'],
+        assetChangedPaths: [],
+        candidate: {
+          success: true,
+          diagnostics: [],
+          contentProject: stripEditorProjectState(externalProject),
+          savedContentProject: stripEditorProjectState(externalProject),
+          editorState: emptyEditorProjectState(),
+          workspaceRevision: externalRevision,
+          fileRevisions: { 'records/rooms/hall.json': roomRevision },
+          scriptSourcePaths: {},
+        },
+      });
+    });
+
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().statusMessage).toBe('Reloaded external project changes'),
+    );
+    const live = useProjectStore.getState().document;
+    expect(authoringProjectSchema.safeParse(live).success).toBe(true);
+    expect(isAuthoringProject(live)).toBe(true);
+    if (isAuthoringProject(live)) {
+      expect(live.rooms.hall?.description).toBe('Changed outside NovelTea');
+    }
+    expect(isAuthoringProject(useWorkspaceStore.getState().project)).toBe(true);
+  });
+
   it('keeps the workbench mounted when the bottom panel is toggled', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     useProjectStore.getState().loadProjectDocument({
@@ -297,6 +569,52 @@ describe('WorkspacePage new project modal', () => {
 
     await waitFor(() => expect(useWorkspaceStore.getState().statusMessage).toBe('Nothing to save'));
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+  });
+
+  it('cancels a scheduled recovery debounce before an immediate content save', async () => {
+    vi.useFakeTimers();
+    try {
+      const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+      useProjectStore.getState().loadProjectDocument({
+        document: project,
+        savedDocument: project,
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.json',
+      });
+      useWorkspaceStore.setState({
+        project,
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.json',
+      });
+      const settingsTab = buildProjectSettingsTab();
+      useWorkbenchStore.getState().openTab(settingsTab);
+      render(<WorkspacePage />);
+
+      act(() => {
+        useCommandStore.getState().executeCommand({
+          type: 'project.replaceAtPath',
+          label: 'Rename project',
+          payload: { path: '/project/name', value: 'Saved immediately' },
+          originSaveUnitId: 'project:settings',
+          persistencePolicy: 'manual-save',
+        });
+      });
+      const shortcutHandler = vi.mocked(window.noveltea.onEditorShortcut).mock.calls.at(-1)?.[0];
+      act(() => shortcutHandler?.('save'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
+      expect(window.noveltea.saveProjectEditorMetadata).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+      });
+      expect(window.noveltea.saveProjectEditorMetadata).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('applies an active serializable draft before saving the project snapshot', async () => {
@@ -627,7 +945,16 @@ describe('WorkspacePage new project modal', () => {
         await Promise.resolve();
       });
       expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledTimes(1);
-      expect(isAuthoringProject(useProjectStore.getState().document)).toBe(true);
+      const afterMetadataFlush = useProjectStore.getState();
+      expect(isAuthoringProject(afterMetadataFlush.document)).toBe(true);
+      expect(isAuthoringProject(afterMetadataFlush.savedDocument)).toBe(true);
+      if (
+        isAuthoringProject(afterMetadataFlush.document) &&
+        isAuthoringProject(afterMetadataFlush.savedDocument)
+      ) {
+        expect(afterMetadataFlush.document.project.name).toBe('Changed');
+        expect(afterMetadataFlush.savedDocument.project.name).toBe('My Story');
+      }
       expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
         '/mock/project/project.json',
         expect.stringMatching(/^sha256:[0-9a-f]{64}$/),

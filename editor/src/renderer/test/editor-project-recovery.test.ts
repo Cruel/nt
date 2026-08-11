@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   emptyEditorProjectState,
   stripEditorProjectState,
@@ -27,7 +28,7 @@ describe('project recovery reconstruction', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     const content = toJsonValue(stripEditorProjectState(project));
     const editorState = {
-      ...emptyEditorProjectState('a'.repeat(64)),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 2,
         saveUnitsById: {
@@ -64,7 +65,7 @@ describe('project recovery reconstruction', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     const content = toJsonValue(stripEditorProjectState(project));
     const editorState = {
-      ...emptyEditorProjectState('b'.repeat(64)),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 1,
         saveUnitsById: {
@@ -118,11 +119,58 @@ describe('project recovery reconstruction', () => {
     });
   });
 
+  it('marks recovered edits conflicted when their persisted workspace baseline is stale', () => {
+    const project = createAuthoringProject({ id: 'demo', name: 'Disk changed' });
+    const content = toJsonValue(stripEditorProjectState(project));
+    const editorState = {
+      ...emptyEditorProjectState(),
+      recovery: {
+        sequence: 1,
+        saveUnitsById: {
+          'project:settings': {
+            sequence: 1,
+            patches: [{ op: 'replace' as const, path: '/project/name', value: 'Recovered local' }],
+            affectedPaths: ['/project/name'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    };
+    const oldRevision = `sha256:${'a'.repeat(64)}` as const;
+    const currentRevision = `sha256:${'b'.repeat(64)}` as const;
+
+    const reconstructed = reconstructEditorProject(content, content, editorState, [], {
+      recoveryBaselineWorkspaceRevision: oldRevision,
+      currentWorkspaceRevision: currentRevision,
+      currentFileRevisions: { 'project.json': currentRevision },
+    });
+
+    expect((reconstructed.workingDocument as { project: { name: string } }).project.name).toBe(
+      'Recovered local',
+    );
+    expect((reconstructed.savedDocument as { project: { name: string } }).project.name).toBe(
+      'Disk changed',
+    );
+    expect(
+      reconstructed.editorState.recovery.saveUnitsById['project:settings']?.externalConflict,
+    ).toMatchObject({
+      conflictingPaths: ['/project/name'],
+      externalWorkspaceRevision: currentRevision,
+      baseValueByPath: { '/project/name': { exists: true, value: 'Disk changed' } },
+      localValueByPath: { '/project/name': { exists: true, value: 'Recovered local' } },
+      externalValueByPath: { '/project/name': { exists: true, value: 'Disk changed' } },
+    });
+    expect(reconstructed.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'editor.recovery.baseline-changed', severity: 'warning' }),
+    );
+  });
+
   it('hydrates pending-only field input and marks the owning settings save unit dirty', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     const content = toJsonValue(stripEditorProjectState(project));
     const editorState = {
-      ...emptyEditorProjectState('b'.repeat(64)),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 1,
         saveUnitsById: {
@@ -184,7 +232,7 @@ describe('project recovery reconstruction', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     const content = toJsonValue(stripEditorProjectState(project));
     const editorState = {
-      ...emptyEditorProjectState('c'.repeat(64)),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 2,
         saveUnitsById: {
@@ -216,6 +264,39 @@ describe('project recovery reconstruction', () => {
     );
   });
 
+  it('splits shared tag-registry mutations into an atomic project-tags recovery owner', () => {
+    const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/project',
+      projectFilePath: '/project/project.json',
+    });
+    setLoadedEditorProjectState(project.editor);
+
+    const result = useCommandStore.getState().executeCommand({
+      type: 'entity.updateMetadata',
+      label: 'Tag Hall',
+      payload: { collection: 'rooms', entityId: 'hall', tags: ['Story'] },
+      originSaveUnitId: 'record:rooms:hall',
+      persistencePolicy: 'manual-save',
+    });
+    expect(result.ok).toBe(true);
+
+    const recovery = buildEditorProjectStateSnapshot().recovery;
+    expect(recovery.saveUnitsById['record:rooms:hall']?.affectedPaths).toContain(
+      '/editor/recordMetadata/rooms/hall',
+    );
+    expect(recovery.saveUnitsById['project:tags']?.affectedPaths).toContain(
+      '/editor/tags/records/story',
+    );
+    const recordGroups = recovery.saveUnitsById['record:rooms:hall']?.atomicTransactionGroupIds;
+    const tagGroups = recovery.saveUnitsById['project:tags']?.atomicTransactionGroupIds;
+    expect(recordGroups).toHaveLength(1);
+    expect(tagGroups).toEqual(recordGroups);
+  });
+
   it('serializes the same dirty command state deterministically', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     useProjectStore.getState().loadProjectDocument({
@@ -223,7 +304,7 @@ describe('project recovery reconstruction', () => {
       projectPath: '/project',
       projectFilePath: '/project/project.json',
     });
-    setLoadedEditorProjectState(emptyEditorProjectState('d'.repeat(64)));
+    setLoadedEditorProjectState(emptyEditorProjectState());
     useCommandStore.getState().executeCommand({
       type: 'project.applyPatch',
       label: 'Rename project',

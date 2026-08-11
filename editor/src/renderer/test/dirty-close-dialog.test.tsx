@@ -80,7 +80,7 @@ beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
   clearWorkbenchTabStates();
-  setLoadedEditorProjectState(emptyEditorProjectState('0'.repeat(64)));
+  setLoadedEditorProjectState(emptyEditorProjectState());
   vi.clearAllMocks();
 });
 
@@ -500,7 +500,7 @@ describe('dirty tab close guard', () => {
       projectFilePath: '/mock/project/game.json',
     });
     setLoadedEditorProjectState({
-      ...emptyEditorProjectState('0'.repeat(64)),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 1,
         saveUnitsById: {
@@ -565,7 +565,7 @@ describe('dirty tab close guard', () => {
     });
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
     setLoadedEditorProjectState({
-      ...emptyEditorProjectState('0'.repeat(64)),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 1,
         saveUnitsById: {

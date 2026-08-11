@@ -13,6 +13,8 @@ import {
   parseAssetData,
 } from '../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { PROJECT_WORKSPACE_ABSENT_REVISION } from '../../shared/project-workspace/project-workspace-transaction';
+import { moveProjectAssetFileTransaction } from './project-asset-file-transaction';
 
 function projectRootFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
@@ -200,7 +202,6 @@ async function trashPathFor(projectFilePath: string, projectRelativePath: string
     path.join('.noveltea', 'trash', 'assets', operationId, projectRelativePath),
   );
   const absolute = path.resolve(projectRoot, trashRelativePath);
-  await fs.mkdir(path.dirname(absolute), { recursive: true });
   return { trashRelativePath, absolute };
 }
 
@@ -208,7 +209,13 @@ async function moveAssetToTrash(projectFilePath: string, projectRelativePath: st
   const safe = safeAssetRelativePath(projectFilePath, projectRelativePath);
   if (!safe) throw new Error('Only files inside assets/ can be moved to project trash.');
   const destination = await trashPathFor(projectFilePath, safe.relative);
-  await fs.rename(safe.absolute, destination.absolute);
+  await moveProjectAssetFileTransaction(
+    projectRootFromFile(projectFilePath),
+    safe.relative,
+    destination.trashRelativePath,
+    'asset trash',
+    PROJECT_WORKSPACE_ABSENT_REVISION,
+  );
   return { projectRelativePath: safe.relative, trashRelativePath: destination.trashRelativePath };
 }
 
@@ -359,8 +366,13 @@ export async function restoreProjectAssetFiles(
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
-      await fs.mkdir(path.dirname(targetSafe.absolute), { recursive: true });
-      await fs.rename(path.resolve(projectRoot, move.trashRelativePath), targetSafe.absolute);
+      await moveProjectAssetFileTransaction(
+        projectRoot,
+        move.trashRelativePath,
+        targetSafe.relative,
+        'asset restore',
+        PROJECT_WORKSPACE_ABSENT_REVISION,
+      );
       restored.push(move);
     } catch (error) {
       diagnostics.push(

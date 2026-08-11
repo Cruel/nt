@@ -136,14 +136,12 @@ async function recordSuccessfulExportIdentity(
       ownerPaths: ['/editor/lastSuccessfulPlatformExportIdentity'],
     });
   }
-  const persisted = {
-    ...editorState,
-    contentFingerprint: result.contentFingerprint ?? editorState.contentFingerprint,
-  };
+  const persisted = editorState;
   setLoadedEditorProjectState(persisted);
-  useProjectStore.getState().markSaved({
-    workspaceRevision: result.workspaceRevision,
-    fileRevisions: result.fileRevisions,
+  useProjectStore.getState().refreshWorkspaceMetadata({
+    workspaceRevision: result.workspaceRevision ?? projectState.workspaceRevision,
+    fileRevisions: result.fileRevisions ?? projectState.fileRevisions,
+    scriptSourcePaths: projectState.scriptSourcePaths,
   });
   useProjectStore.getState().markEditorMetadataPersisted(persisted);
   return null;

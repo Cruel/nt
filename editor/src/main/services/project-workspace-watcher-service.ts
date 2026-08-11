@@ -6,17 +6,20 @@ import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ProjectAssetFileOperationResponse } from '../../shared/project-asset-audit';
 import type { ProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
+import { assetSourcePaths } from '../../shared/project-workspace/project-workspace-service';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 
-export const PROJECT_WORKSPACE_WATCH_STABILITY_THRESHOLD_MS = 2000;
-export const PROJECT_WORKSPACE_WATCH_POLL_INTERVAL_MS = 250;
-export const PROJECT_WORKSPACE_WATCH_QUIET_PERIOD_MS = 1000;
+export const PROJECT_WORKSPACE_WATCH_STABILITY_THRESHOLD_MS = 200;
+export const PROJECT_WORKSPACE_WATCH_POLL_INTERVAL_MS = 50;
+export const PROJECT_WORKSPACE_WATCH_QUIET_PERIOD_MS = 150;
 
 interface ActiveWatcher {
   projectRoot: string;
   watcher: FSWatcher;
   timer: NodeJS.Timeout | null;
-  changedPaths: Set<string>;
-  assetAuditChanged: boolean;
+  authoringChangedPaths: Set<string>;
+  assetChangedPaths: Set<string>;
+  assetSourcePaths: Set<string>;
 }
 
 let activeWatcher: ActiveWatcher | null = null;
@@ -44,6 +47,8 @@ function isTemporaryPath(relative: string): boolean {
   return /(?:\.tmp|\.temp|\.swp|\.swo|\.bak)$/i.test(base);
 }
 
+export type ProjectWorkspaceWatchPathRoute = 'authoring' | 'asset' | 'transaction' | 'ignore';
+
 export function shouldIgnoreProjectWorkspaceWatchPath(
   projectRoot: string,
   filePath: string,
@@ -58,8 +63,31 @@ export function shouldIgnoreProjectWorkspaceWatchPath(
     ['.git', 'node_modules', 'dist', 'dist-electron', 'out', 'build', 'generated'].includes(first)
   )
     return true;
-  if (isTemporaryPath(relative)) return true;
-  return false;
+  return isTemporaryPath(relative);
+}
+
+export function classifyProjectWorkspaceWatchPath(
+  projectRoot: string,
+  filePath: string,
+  knownAssetSourcePaths: ReadonlySet<string> = new Set(),
+): ProjectWorkspaceWatchPathRoute {
+  const relative = projectRelative(projectRoot, filePath);
+  if (shouldIgnoreProjectWorkspaceWatchPath(projectRoot, filePath)) return 'ignore';
+  if (!relative || relative === '.') return 'authoring';
+  if (isTransactionObservationPath(relative)) return 'transaction';
+  const isKnownAssetSource = [...knownAssetSourcePaths].some(
+    (assetPath) => relative === assetPath || assetPath.startsWith(`${relative}/`),
+  );
+  if (relative === 'assets' || relative.startsWith('assets/') || isKnownAssetSource) return 'asset';
+  if (
+    ['project.json', 'properties.json', 'localization.json', 'editor.json'].includes(relative) ||
+    relative === 'records' ||
+    relative.startsWith('records/') ||
+    relative === 'scripts' ||
+    relative.startsWith('scripts/')
+  )
+    return 'authoring';
+  return 'ignore';
 }
 
 export function scheduleProjectWorkspaceQuietFlush(
@@ -80,30 +108,47 @@ async function hasActiveNovelTeaWriter(projectRoot: string): Promise<boolean> {
   }
 }
 
-async function assembleCandidate(
-  projectRoot: string,
-): Promise<ProjectWorkspaceWatchEvent['candidate']> {
+interface AssembledWatchCandidate {
+  readonly candidate: ProjectWorkspaceWatchEvent['candidate'];
+  readonly project: AuthoringProject | null;
+}
+
+async function assembleCandidate(projectRoot: string): Promise<AssembledWatchCandidate> {
   const opened = await createNodeProjectWorkspaceService().open(projectRoot);
   if (!opened.ok)
     return {
-      success: false,
-      diagnostics: opened.diagnostics,
+      candidate: {
+        success: false,
+        diagnostics: opened.diagnostics,
+      },
+      project: null,
     };
   return {
-    success: true,
-    diagnostics: opened.diagnostics,
-    contentProject: opened.contentProject,
-    savedContentProject: opened.savedContentProject,
-    editorState: opened.editorState,
-    workspaceRevision: opened.snapshot.workspaceRevision,
-    fileRevisions: Object.fromEntries(
-      Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
-        file,
-        revision.contentHash,
-      ]),
-    ),
-    scriptSourcePaths: { ...opened.snapshot.scriptSourcePaths },
+    candidate: {
+      success: true,
+      diagnostics: opened.diagnostics,
+      contentProject: opened.contentProject,
+      savedContentProject: opened.savedContentProject,
+      editorState: opened.editorState,
+      workspaceRevision: opened.snapshot.workspaceRevision,
+      fileRevisions: Object.fromEntries(
+        Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+          file,
+          revision.contentHash,
+        ]),
+      ),
+      scriptSourcePaths: { ...opened.snapshot.scriptSourcePaths },
+    },
+    project: opened.snapshot.project,
   };
+}
+
+export function refreshProjectWorkspaceWatchAssetSourcePaths(
+  target: Set<string>,
+  project: AuthoringProject,
+): void {
+  target.clear();
+  assetSourcePaths(project).forEach((assetPath) => target.add(assetPath));
 }
 
 async function flushWatcher(owner: BrowserWindow, watcher: ActiveWatcher) {
@@ -112,19 +157,24 @@ async function flushWatcher(owner: BrowserWindow, watcher: ActiveWatcher) {
   // Opening a workspace performs transaction recovery. Never invoke it while another NovelTea
   // writer still owns the project; the journal/lock watcher will schedule the committed state.
   if (await hasActiveNovelTeaWriter(watcher.projectRoot)) return;
-  const changedPaths = [...watcher.changedPaths].sort();
-  const assetAuditChanged = watcher.assetAuditChanged;
-  if (changedPaths.length === 0 && !assetAuditChanged) return;
-  watcher.changedPaths.clear();
-  watcher.assetAuditChanged = false;
+  const authoringChangedPaths = [...watcher.authoringChangedPaths].sort();
+  const assetChangedPaths = [...watcher.assetChangedPaths].sort();
+  if (authoringChangedPaths.length === 0 && assetChangedPaths.length === 0) return;
+  watcher.authoringChangedPaths.clear();
+  watcher.assetChangedPaths.clear();
+  const changedPaths = [...new Set([...authoringChangedPaths, ...assetChangedPaths])].sort();
   const manifestPath = path.join(watcher.projectRoot, 'project.json');
-  const candidate = await assembleCandidate(watcher.projectRoot);
+  const assembled = await assembleCandidate(watcher.projectRoot);
+  const candidate = assembled.candidate;
+  if (assembled.project)
+    refreshProjectWorkspaceWatchAssetSourcePaths(watcher.assetSourcePaths, assembled.project);
   if (activeWatcher !== watcher || owner.isDestroyed()) return;
   owner.webContents.send(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, {
     projectRoot: watcher.projectRoot,
     manifestPath,
     changedPaths,
-    assetAuditChanged,
+    authoringChangedPaths,
+    assetChangedPaths,
     candidate,
   } satisfies ProjectWorkspaceWatchEvent);
 }
@@ -132,10 +182,14 @@ async function flushWatcher(owner: BrowserWindow, watcher: ActiveWatcher) {
 function scheduleWatcher(owner: BrowserWindow, watcher: ActiveWatcher, filePath: string) {
   if (activeWatcher !== watcher) return;
   const relative = projectRelative(watcher.projectRoot, filePath);
-  if (!relative.startsWith('.noveltea/transactions/')) {
-    watcher.changedPaths.add(relative);
-    if (relative === 'assets' || relative.startsWith('assets/')) watcher.assetAuditChanged = true;
-  }
+  const route = classifyProjectWorkspaceWatchPath(
+    watcher.projectRoot,
+    filePath,
+    watcher.assetSourcePaths,
+  );
+  if (route === 'ignore') return;
+  if (route === 'authoring') watcher.authoringChangedPaths.add(relative);
+  else if (route === 'asset') watcher.assetChangedPaths.add(relative);
   watcher.timer = scheduleProjectWorkspaceQuietFlush(
     watcher.timer,
     () => void flushWatcher(owner, watcher),
@@ -159,7 +213,9 @@ export async function startProjectWorkspaceWatcher(
   const projectRoot = path.resolve(projectRootValue);
   const transactionsRoot = path.join(projectRoot, '.noveltea', 'transactions');
   await fs.mkdir(transactionsRoot, { recursive: true });
-  const watcher = chokidar.watch([projectRoot, transactionsRoot], {
+  const opened = await createNodeProjectWorkspaceService().open(projectRoot);
+  const knownAssetSourcePaths = new Set(opened.ok ? assetSourcePaths(opened.snapshot.project) : []);
+  const watcher = chokidar.watch(projectRoot, {
     ignoreInitial: true,
     awaitWriteFinish: {
       stabilityThreshold: PROJECT_WORKSPACE_WATCH_STABILITY_THRESHOLD_MS,
@@ -172,8 +228,9 @@ export async function startProjectWorkspaceWatcher(
     projectRoot,
     watcher,
     timer: null,
-    changedPaths: new Set(),
-    assetAuditChanged: false,
+    authoringChangedPaths: new Set(),
+    assetChangedPaths: new Set(),
+    assetSourcePaths: knownAssetSourcePaths,
   };
   const schedule = (filePath: string) => scheduleWatcher(owner, state, filePath);
   watcher.on('add', schedule);

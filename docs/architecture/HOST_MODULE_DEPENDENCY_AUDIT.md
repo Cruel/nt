@@ -74,7 +74,7 @@ fails configuration if the deleted public `noveltea/ui_runtime.hpp` reappears.
 | --- | --- |
 | `noveltea-player` | `noveltea_engine`, SDL; final application owns runtime-asset staging |
 | `noveltea-sandbox` | `noveltea_engine`, SDL, bgfx, JSON; deliberate demo/readback/tooling consumer with private engine test seams |
-| `noveltea_tooling_native` / bundled `noveltea` | Native tooling links only the engine-adjacent typed modules it needs; the Perry CLI exposes those operations through its narrow C ABI. `noveltea-editor-tool` remains an `EXCLUDE_FROM_ALL` compatibility frontend only. |
+| `noveltea_tooling_native` / bundled `noveltea` | Native tooling links only the engine-adjacent typed modules it needs; the Perry CLI exposes those operations through its narrow C ABI. The retired `noveltea-editor-tool` frontend is no longer built or shipped. |
 | `noveltea-benchmark` | `noveltea_script_lua`, `noveltea_content`, JSON; measures only the Lua/content boundaries it exercises |
 | Domain/content/runtime/presentation/script tests | Link their owning modules plus only the adjacent typed dependencies and explicit boundary libraries used by fixtures |
 | Host/text/assets/tween tests | Link `noveltea_engine`; private-source access is limited to the owning engine subsystem under test |

@@ -31,6 +31,10 @@ Use these documents as the main references for editor work:
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md` describes preview and test playback direction.
 - `docs/editor/project/PROJECT_EXPLORER.md` describes project explorer behavior.
 - `docs/editor/project/PROJECT_SETTINGS.md` describes project settings behavior.
+- `docs/editor/project/PROJECT_WORKSPACE_FORMAT.md` is the tracked workspace-v1 filesystem contract.
+- `docs/editor/project/PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md` owns watcher, revision, rebase, and conflict-resolution behavior.
+- `docs/editor/CLI.md` is the permanent public `noveltea` command/protocol contract.
+- `docs/editor/AGENT_KIT.md` owns generated agent-kit versioning and sync behavior.
 - `docs/editor/export/EXPORT_AND_PACKAGING.md` describes export and packaging behavior.
 
 When a task materially changes one of these areas, update the relevant document or explicitly report why no documentation change was needed.
@@ -79,7 +83,10 @@ Undo/Redo, recovery rebase, identity remap, and the declared unsafe policy belon
 persistence coordinator.
 
 The complete save-unit ownership and recovery contract is documented in
-`docs/editor/project/PROJECT_SAVE_UNITS_AND_RECOVERY.md`. Diagnostic producers and boundary owners
+`docs/editor/project/PROJECT_SAVE_UNITS_AND_RECOVERY.md`. Workspace/source changes from external tools
+must use the three-way reconciliation contract in
+`docs/editor/project/PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md`; do not reintroduce whole-project
+fingerprint blocking or a separate asset watcher. Diagnostic producers and boundary owners
 must remain consistent with `docs/editor/project/PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md`.
 The latest repository-level certification record is
 `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md`.

@@ -49,18 +49,9 @@ target_link_libraries(noveltea_tooling_native PUBLIC
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 target_include_directories(noveltea_tooling_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-# Transitional developer/test-only frontend. Keep it available by explicit target name for
-# compatibility tests, but exclude it from normal/default builds and all distribution staging.
-add_executable(noveltea-editor-tool EXCLUDE_FROM_ALL main.cpp)
-target_link_libraries(noveltea-editor-tool PRIVATE noveltea_tooling_native)
-
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(noveltea_tooling_native PRIVATE
         -Wall -Wextra -Wpedantic -Wno-unused-parameter
     )
-    target_compile_options(noveltea-editor-tool PRIVATE
-        -Wall -Wextra -Wpedantic -Wno-unused-parameter
-    )
 endif()
 noveltea_apply_policy_warnings(noveltea_tooling_native)
-noveltea_apply_policy_warnings(noveltea-editor-tool)

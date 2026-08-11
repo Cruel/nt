@@ -6,7 +6,6 @@ import {
 
 export const EDITOR_PROJECT_STATE_SCHEMA = 'noveltea.editor.project-state' as const;
 export const EDITOR_PROJECT_STATE_SCHEMA_VERSION = 2 as const;
-export const EMPTY_CONTENT_FINGERPRINT = '0'.repeat(64);
 
 const workbenchResourceKindSchema = z.enum(['record', 'preview', 'tool', 'project', 'raw']);
 
@@ -174,7 +173,8 @@ export const editorBottomPanelStateSchema = z
   .strict();
 
 function isCanonicalContentPointer(value: string): boolean {
-  if (!value.startsWith('/') || value === '/editor' || value.startsWith('/editor/')) return false;
+  if (!value.startsWith('/') || value === '/editor') return false;
+  if (value.startsWith('/editor/') && !isTrackedEditorProjectStatePath(value)) return false;
   return value
     .slice(1)
     .split('/')
@@ -274,7 +274,6 @@ export const editorProjectStateSchema = z
   .object({
     schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
     schemaVersion: z.literal(EDITOR_PROJECT_STATE_SCHEMA_VERSION),
-    contentFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
     recovery: editorRecoveryStateSchema.default({ sequence: 0, saveUnitsById: {} }),
     lastSuccessfulPlatformExportIdentity: lastSuccessfulPlatformExportIdentitySchema.optional(),
     workbench: editorWorkbenchStateSchema.optional(),
@@ -338,13 +337,10 @@ export function emptyEditorBottomPanelState(): EditorBottomPanelState {
   return { visible: true, activePanelId: 'problems', sizePercent: 30 };
 }
 
-export function emptyEditorProjectState(
-  contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
-): EditorProjectState {
+export function emptyEditorProjectState(): EditorProjectState {
   return {
     schema: EDITOR_PROJECT_STATE_SCHEMA,
     schemaVersion: EDITOR_PROJECT_STATE_SCHEMA_VERSION,
-    contentFingerprint,
     recovery: { sequence: 0, saveUnitsById: {} },
     explorer: emptyEditorExplorerState(),
     chapters: emptyEditorChaptersState(),
@@ -394,16 +390,12 @@ function unsupportedMetadataVersionDiagnostic(received: unknown): ProjectValidat
   });
 }
 
-export function parseEditorProjectStateWithDiagnostics(
-  value: unknown,
-  contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
-): ParsedEditorProjectState {
-  if (value === undefined)
-    return { state: emptyEditorProjectState(contentFingerprint), diagnostics: [] };
+export function parseEditorProjectStateWithDiagnostics(value: unknown): ParsedEditorProjectState {
+  if (value === undefined) return { state: emptyEditorProjectState(), diagnostics: [] };
 
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return {
-      state: emptyEditorProjectState(contentFingerprint),
+      state: emptyEditorProjectState(),
       diagnostics: [invalidMetadataDiagnostic()],
     };
   }
@@ -411,12 +403,12 @@ export function parseEditorProjectStateWithDiagnostics(
   const record = value as Record<string, unknown>;
   if (record.schemaVersion !== EDITOR_PROJECT_STATE_SCHEMA_VERSION) {
     return {
-      state: emptyEditorProjectState(contentFingerprint),
+      state: emptyEditorProjectState(),
       diagnostics: [unsupportedMetadataVersionDiagnostic(record.schemaVersion)],
     };
   }
 
-  const candidate: Record<string, unknown> = { ...record, contentFingerprint };
+  const candidate: Record<string, unknown> = { ...record };
   const recoveryValue = candidate.recovery;
   const recoveryRecord =
     typeof recoveryValue === 'object' && recoveryValue !== null && !Array.isArray(recoveryValue)
@@ -437,7 +429,7 @@ export function parseEditorProjectStateWithDiagnostics(
   const parsedBase = editorProjectStateSchema.safeParse(baseCandidate);
   if (!parsedBase.success)
     return {
-      state: emptyEditorProjectState(contentFingerprint),
+      state: emptyEditorProjectState(),
       diagnostics: [invalidMetadataDiagnostic()],
     };
 
@@ -457,18 +449,14 @@ export function parseEditorProjectStateWithDiagnostics(
   return {
     state: {
       ...parsedBase.data,
-      contentFingerprint,
       recovery: { ...parsedBase.data.recovery, saveUnitsById },
     },
     diagnostics,
   };
 }
 
-export function parseEditorProjectState(
-  value: unknown,
-  contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
-): EditorProjectState {
-  return parseEditorProjectStateWithDiagnostics(value, contentFingerprint).state;
+export function parseEditorProjectState(value: unknown): EditorProjectState {
+  return parseEditorProjectStateWithDiagnostics(value).state;
 }
 
 function cloneJson<T>(value: T): T {
@@ -480,6 +468,44 @@ export function stripEditorProjectState<T>(project: T): T {
     return cloneJson(project);
   const cloned = cloneJson(project) as Record<string, unknown>;
   delete cloned.editor;
+  return cloned as T;
+}
+
+const trackedEditorProjectStateRoots = [
+  '/editor/chapters',
+  '/editor/tags',
+  '/editor/recordMetadata',
+] as const;
+
+export function isTrackedEditorProjectStatePath(path: string): boolean {
+  return trackedEditorProjectStateRoots.some(
+    (root) => path === root || path.startsWith(`${root}/`),
+  );
+}
+
+/**
+ * Removes ignored/session-only editor state while retaining the authoring organization persisted in
+ * tracked editor.json. This is the content view used by dirty recovery, scoped saves, and external
+ * reconciliation; compiler-facing callers that intentionally ignore all editor state should keep
+ * using stripEditorProjectState().
+ */
+export function stripLocalEditorProjectState<T>(project: T): T {
+  if (typeof project !== 'object' || project === null || Array.isArray(project))
+    return cloneJson(project);
+  const cloned = cloneJson(project) as Record<string, unknown>;
+  const editor = cloned.editor;
+  if (typeof editor !== 'object' || editor === null || Array.isArray(editor)) {
+    delete cloned.editor;
+    return cloned as T;
+  }
+  const source = editor as Record<string, unknown>;
+  cloned.editor = {
+    ...(source.schema !== undefined ? { schema: source.schema } : {}),
+    ...(source.schemaVersion !== undefined ? { schemaVersion: source.schemaVersion } : {}),
+    ...(source.chapters !== undefined ? { chapters: source.chapters } : {}),
+    ...(source.tags !== undefined ? { tags: source.tags } : {}),
+    ...(source.recordMetadata !== undefined ? { recordMetadata: source.recordMetadata } : {}),
+  };
   return cloned as T;
 }
 
@@ -495,4 +521,8 @@ function canonicalizeJson(value: unknown): unknown {
 
 export function canonicalProjectContentJson(project: unknown): string {
   return JSON.stringify(canonicalizeJson(stripEditorProjectState(project)));
+}
+
+export function canonicalProjectPersistenceContentJson(project: unknown): string {
+  return JSON.stringify(canonicalizeJson(stripLocalEditorProjectState(project)));
 }

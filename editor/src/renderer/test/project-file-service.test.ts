@@ -11,7 +11,6 @@ vi.mock('electron', () => ({
 }));
 import {
   createProject,
-  projectContentFingerprint,
   saveProjectContent,
   saveProjectEditorMetadata,
   saveProjectCopyAs,
@@ -19,6 +18,7 @@ import {
 import { ProjectWorkspaceService } from '../../shared/project-workspace';
 import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { NOVELTEA_PROJECT_AGENTS_BOOTSTRAP } from '../../shared/project-workspace/agent-bootstrap';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 
 const roots: string[] = [];
@@ -86,6 +86,231 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.readFileSync(path.join(root, 'editor.json'), 'utf8')).toBe(beforeEditor);
   });
 
+  it('persists a scoped Room record save to its segmented record file', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Room Save', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await service.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const withRoom = structuredClone(initial.snapshot.project);
+    withRoom.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      description: 'Before',
+      data: defaultRoomData('Hall'),
+    };
+    await service.write(
+      root,
+      initial.snapshot.workspaceRevision,
+      withRoom,
+      initial.editorState,
+      {},
+    );
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const candidate = structuredClone(opened.snapshot.project);
+    candidate.rooms.hall!.description = 'After';
+
+    const result = await saveProjectContent(
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
+      candidate,
+      opened.editorState,
+      opened.snapshot.scriptSourcePaths,
+      {
+        expectedFileRevisions: Object.fromEntries(
+          Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+            file,
+            revision.contentHash,
+          ]),
+        ),
+        saveUnitIds: ['record:rooms:hall'],
+        baselineProject: opened.snapshot.project,
+        operationLabel: 'save Room hall',
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, 'records/rooms/hall.json'), 'utf8')),
+    ).toMatchObject({ description: 'After' });
+  });
+
+  it('fails closed instead of saving through a structurally unreadable external source', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Fail Closed', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await service.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const withRoom = structuredClone(initial.snapshot.project);
+    withRoom.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      data: defaultRoomData('Hall'),
+    };
+    await service.write(
+      root,
+      initial.snapshot.workspaceRevision,
+      withRoom,
+      initial.editorState,
+      {},
+    );
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const projectPath = path.join(root, 'project.json');
+    const roomPath = path.join(root, 'records/rooms/hall.json');
+    const invalidRoom = JSON.parse(fs.readFileSync(roomPath, 'utf8')) as Record<string, unknown>;
+    delete invalidRoom.data;
+    fs.writeFileSync(roomPath, `${JSON.stringify(invalidRoom, null, 2)}\n`);
+    const candidate = structuredClone(opened.snapshot.project);
+    candidate.project.name = 'Should Not Save';
+
+    const result = await saveProjectContent(
+      projectPath,
+      opened.snapshot.workspaceRevision,
+      candidate,
+      opened.editorState,
+      opened.snapshot.scriptSourcePaths,
+      {
+        expectedFileRevisions: Object.fromEntries(
+          Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+            file,
+            revision.contentHash,
+          ]),
+        ),
+        saveUnitIds: ['project:settings'],
+        baselineProject: opened.snapshot.project,
+        affectedPaths: ['/project/name'],
+        operationLabel: 'save project settings while Room source is invalid',
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(JSON.parse(fs.readFileSync(projectPath, 'utf8')).project.name).toBe('Fail Closed');
+  });
+
+  it('merges a disjoint external edit in the same Room during a scoped save', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Room Merge', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await service.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const withRoom = structuredClone(initial.snapshot.project);
+    withRoom.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      description: 'Before',
+      data: defaultRoomData('Hall'),
+    };
+    await service.write(
+      root,
+      initial.snapshot.workspaceRevision,
+      withRoom,
+      initial.editorState,
+      {},
+    );
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const roomPath = path.join(root, 'records/rooms/hall.json');
+    const external = JSON.parse(fs.readFileSync(roomPath, 'utf8')) as Record<string, unknown>;
+    external.label = 'External Hall';
+    fs.writeFileSync(roomPath, `${JSON.stringify(external, null, 2)}\n`);
+    const candidate = structuredClone(opened.snapshot.project);
+    candidate.rooms.hall!.description = 'Local description';
+
+    const result = await saveProjectContent(
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
+      candidate,
+      opened.editorState,
+      opened.snapshot.scriptSourcePaths,
+      {
+        expectedFileRevisions: Object.fromEntries(
+          Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+            file,
+            revision.contentHash,
+          ]),
+        ),
+        saveUnitIds: ['record:rooms:hall'],
+        baselineProject: opened.snapshot.project,
+        affectedPaths: ['/rooms/hall/description'],
+        operationLabel: 'save Room hall description',
+      },
+    );
+
+    expect(result.success).toBe(true);
+    const persisted = JSON.parse(fs.readFileSync(roomPath, 'utf8')) as {
+      label: string;
+      description: string;
+    };
+    expect(persisted.label).toBe('External Hall');
+    expect(persisted.description).toBe('Local description');
+  });
+
+  it('does not report a false external Room conflict after reopening tracked record metadata', async () => {
+    const root = tempRoot();
+    await createProject({ projectName: 'Room Metadata', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const initial = await service.open(root);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    const withRoom = structuredClone(initial.snapshot.project);
+    withRoom.rooms.bedroom = {
+      id: 'bedroom',
+      label: 'Bedroom',
+      data: defaultRoomData('Bedroom'),
+    };
+    withRoom.editor.recordMetadata.rooms = {
+      bedroom: { tags: [], color: null },
+    };
+    await service.write(root, initial.snapshot.workspaceRevision, withRoom, withRoom.editor, {});
+
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const candidate = structuredClone(opened.snapshot.project);
+    candidate.rooms.bedroom!.data.description.source = {
+      kind: 'inline',
+      text: 'Changed in editor',
+    };
+    const baselineProject = {
+      ...(opened.contentProject as Record<string, unknown>),
+      editor: opened.editorState,
+    };
+    const expectedFileRevisions = Object.fromEntries(
+      Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+        file,
+        revision.contentHash,
+      ]),
+    ) as Record<string, `sha256:${string}`>;
+
+    const result = await saveProjectContent(
+      path.join(root, 'project.json'),
+      opened.snapshot.workspaceRevision,
+      candidate,
+      opened.editorState,
+      opened.snapshot.scriptSourcePaths,
+      {
+        expectedFileRevisions,
+        saveUnitIds: ['record:rooms:bedroom'],
+        baselineProject,
+        operationLabel: 'save Room bedroom',
+      },
+    );
+
+    expect(result.success).toBe(true);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, 'records/rooms/bedroom.json'), 'utf8')).data
+        .description.source.text,
+    ).toBe('Changed in editor');
+  });
+
   it('persists only local editor state outside tracked editor.json', async () => {
     const root = tempRoot();
     await createProject({ projectName: 'Metadata', projectDirectory: root });
@@ -94,7 +319,7 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     const state = {
-      ...emptyEditorProjectState(opened.contentFingerprint),
+      ...emptyEditorProjectState(),
       bottomPanel: { visible: false, activePanelId: 'problems' as const, sizePercent: 24 },
       recovery: {
         sequence: 1,
@@ -231,12 +456,25 @@ describe('project-file-service workspace-v1', () => {
       path.join(root, 'project.json'),
       fs.readFileSync(path.join(root, 'project.json'), 'utf8').replace('Conflict', 'External'),
     );
+    const expectedFileRevisions = Object.fromEntries(
+      Object.entries(opened.snapshot.fileRevisions).map(([file, revision]) => [
+        file,
+        revision.contentHash,
+      ]),
+    ) as Record<string, `sha256:${string}`>;
     const result = await saveProjectEditorMetadata(
       path.join(root, 'project.json'),
       opened.snapshot.workspaceRevision,
-      emptyEditorProjectState(projectContentFingerprint(opened.snapshot.project)),
+      emptyEditorProjectState(),
+      expectedFileRevisions,
     );
     expect(result.success).toBe(true);
+    expect(result.workspaceRevision).toBe(opened.snapshot.workspaceRevision);
+    expect(result.fileRevisions).toEqual(expectedFileRevisions);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8'))
+        .workspaceRevision,
+    ).toBe(opened.snapshot.workspaceRevision);
     expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name).toBe(
       'External',
     );
@@ -271,6 +509,7 @@ describe('project-file-service workspace-v1', () => {
         ),
         saveUnitIds: ['project:settings'],
         baselineProject: opened.snapshot.project,
+        affectedPaths: ['/project/name'],
         operationLabel: 'save project settings',
       },
     );
@@ -408,7 +647,7 @@ describe('project-file-service workspace-v1', () => {
     if (!opened.ok) return;
     fs.mkdirSync(path.join(root, '.noveltea', 'editor'), { recursive: true });
     fs.symlinkSync(outside, path.join(root, '.noveltea', 'editor', 'escape'));
-    const state = emptyEditorProjectState(opened.contentFingerprint);
+    const state = emptyEditorProjectState();
     const result = await saveProjectEditorMetadata(
       path.join(root, 'project.json'),
       opened.snapshot.workspaceRevision,

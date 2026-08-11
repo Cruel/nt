@@ -91,8 +91,8 @@ import {
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
 import {
-  canonicalProjectContentJson,
-  stripEditorProjectState,
+  canonicalProjectPersistenceContentJson,
+  stripLocalEditorProjectState,
   type EditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 import {
@@ -103,6 +103,7 @@ import { validateProjectSettingsAuthoringState } from '../../shared/project-sche
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
+import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
 
 export const Route = createFileRoute('/workspace')({
   component: WorkspacePage,
@@ -154,7 +155,7 @@ function collectWorkspaceProjectDiagnostics(
   document: unknown,
   persistentDiagnostics: readonly ToolDiagnostic[] = [],
 ): ToolDiagnostic[] {
-  const decoded = decodeAuthoringProject(stripEditorProjectState(document));
+  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(document));
   const supplementalSettingsDiagnostics = decoded.project
     ? validateProjectSettingsAuthoringState(decoded.project).filter(
         (diagnostic) =>
@@ -188,7 +189,7 @@ function collectWorkspaceProjectDiagnostics(
 }
 
 function authoringProjectForEditor(value: unknown): AuthoringProject | null {
-  const decoded = decodeAuthoringProject(stripEditorProjectState(value));
+  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(value));
   return decoded.project ? (value as AuthoringProject) : null;
 }
 
@@ -242,6 +243,7 @@ export function WorkspacePage() {
   const persistentRecoveryDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const externalSourceDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
   const metadataFlushPromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const metadataFlushTimerRef = useRef<number | null>(null);
   const imageThumbnailPrewarmRef = useRef<ImageThumbnailPrewarmCoordinator | null>(null);
   const flushProjectEditorMetadataRef = useRef<
     (reason: 'debounce' | 'close-project' | 'window-close' | 'switch-project') => Promise<boolean>
@@ -267,7 +269,7 @@ export function WorkspacePage() {
   const previewConnectionState = useWorkspaceStore((state) => state.previewConnectionState);
   const statusMessage = useWorkspaceStore((state) => state.statusMessage);
   const project = useProjectStore((state) => state.document);
-  const projectContentSnapshot = project ? canonicalProjectContentJson(project) : null;
+  const projectContentSnapshot = project ? canonicalProjectPersistenceContentJson(project) : null;
   const projectPath = useProjectStore((state) => state.projectPath);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectDirty = useProjectStore(selectProjectDirty);
@@ -517,14 +519,12 @@ export function WorkspacePage() {
       addTimelineEntry({ source: 'command', message, detail: result });
       return false;
     }
-    const persistedEditorState = {
-      ...editorState,
-      contentFingerprint: result.contentFingerprint ?? editorState.contentFingerprint,
-    };
+    const persistedEditorState = editorState;
     setLoadedEditorProjectState(persistedEditorState);
-    useProjectStore.getState().markSaved({
-      workspaceRevision: result.workspaceRevision,
-      fileRevisions: result.fileRevisions,
+    useProjectStore.getState().refreshWorkspaceMetadata({
+      workspaceRevision: result.workspaceRevision ?? workspaceRevision,
+      fileRevisions: result.fileRevisions ?? fileRevisions,
+      scriptSourcePaths: useProjectStore.getState().scriptSourcePaths,
     });
     markEditorMetadataPersisted(persistedEditorState);
     if (reason !== 'debounce') {
@@ -539,9 +539,21 @@ export function WorkspacePage() {
     return true;
   }
 
+  function cancelScheduledProjectEditorMetadataFlush() {
+    if (metadataFlushTimerRef.current === null) return;
+    window.clearTimeout(metadataFlushTimerRef.current);
+    metadataFlushTimerRef.current = null;
+  }
+
+  async function settleProjectEditorMetadataWrites() {
+    cancelScheduledProjectEditorMetadataFlush();
+    await metadataFlushPromiseRef.current;
+  }
+
   function flushProjectEditorMetadata(
     reason: 'debounce' | 'close-project' | 'window-close' | 'switch-project',
   ) {
+    cancelScheduledProjectEditorMetadataFlush();
     const run = () => performProjectEditorMetadataFlush(reason);
     const pending = metadataFlushPromiseRef.current.then(run, run);
     metadataFlushPromiseRef.current = pending;
@@ -663,6 +675,11 @@ export function WorkspacePage() {
         toJsonValue(loaded.contentProject),
         loaded.editorState,
         loaded.repairs ?? [],
+        {
+          recoveryBaselineWorkspaceRevision: loaded.recoveryBaselineWorkspaceRevision,
+          currentWorkspaceRevision: loaded.workspaceRevision,
+          currentFileRevisions: loaded.fileRevisions,
+        },
       );
       persistentRecoveryDiagnosticsRef.current = [
         ...loaded.diagnostics,
@@ -676,7 +693,7 @@ export function WorkspacePage() {
       loadAuthoringDocument(
         reconstructed.workingDocument,
         reconstructed.savedDocument,
-        loaded.editorState,
+        reconstructed.editorState,
         loaded.projectPath,
         loaded.projectFilePath,
         loaded.projectReadSessionId ?? null,
@@ -817,9 +834,55 @@ export function WorkspacePage() {
           latestProjectFilePathRef.current !== event.manifestPath
         )
           return;
-        if (event.assetAuditChanged) void runAssetAudit(latestProject);
-
         const candidate = event.candidate;
+        const assetAuditChanged = event.assetChangedPaths.length > 0;
+        if (
+          !shouldReconcileProjectWorkspaceWatchEvent(
+            useProjectStore.getState().workspaceRevision,
+            event,
+          )
+        ) {
+          if (
+            candidate.success &&
+            candidate.workspaceRevision &&
+            candidate.fileRevisions &&
+            candidate.scriptSourcePaths
+          ) {
+            useProjectStore.getState().refreshWorkspaceMetadata({
+              workspaceRevision: candidate.workspaceRevision,
+              fileRevisions: candidate.fileRevisions,
+              scriptSourcePaths: candidate.scriptSourcePaths,
+            });
+            if (externalSourceDiagnosticsRef.current.length > 0) {
+              externalSourceDiagnosticsRef.current = [];
+              setDiagnostics(
+                collectWorkspaceProjectDiagnostics(latestProject, [
+                  ...persistentRecoveryDiagnosticsRef.current,
+                  ...candidate.diagnostics,
+                ]),
+              );
+              setStatusMessage('External project source is valid again');
+            }
+          } else if (assetAuditChanged) {
+            externalSourceDiagnosticsRef.current = candidate.diagnostics.map((diagnostic) => ({
+              ...diagnostic,
+              category: 'Asset source',
+              message: `Asset source changes could not be loaded: ${diagnostic.message}`,
+            }));
+            setDiagnostics(
+              collectWorkspaceProjectDiagnostics(latestProject, [
+                ...persistentRecoveryDiagnosticsRef.current,
+                ...externalSourceDiagnosticsRef.current,
+              ]),
+            );
+            useBottomPanelStore.getState().setActivePanelId('problems');
+            setBottomPanelVisible(true);
+            setStatusMessage('Asset source changes require attention');
+          }
+          if (assetAuditChanged) void runAssetAudit(latestProject);
+          return;
+        }
+
         if (
           !candidate.success ||
           !candidate.contentProject ||
@@ -828,6 +891,7 @@ export function WorkspacePage() {
           !candidate.fileRevisions ||
           !candidate.scriptSourcePaths
         ) {
+          if (assetAuditChanged) void runAssetAudit(latestProject);
           externalSourceDiagnosticsRef.current = candidate.diagnostics.map((diagnostic) => ({
             ...diagnostic,
             category: 'External project source',
@@ -847,28 +911,45 @@ export function WorkspacePage() {
 
         try {
           const snapshot = buildEditorProjectStateSnapshot();
+          const externalDocument = mergeEditorProjectState(
+            toJsonValue(candidate.contentProject),
+            candidate.editorState,
+          );
           const reconciliation = reconcileExternalProjectChange({
             baseDocument: latestSavedProject,
             localDocument: latestProject,
-            externalDocument: toJsonValue(candidate.contentProject),
+            externalDocument,
             recovery: snapshot.recovery,
             externalWorkspaceRevision: candidate.workspaceRevision as `sha256:${string}`,
             externalFileRevisions: candidate.fileRevisions,
           });
-          const editorState: EditorProjectState = {
+          const workingTrackedEditor = editorProjectStateFromProject(
+            reconciliation.workingDocument,
+          );
+          const savedTrackedEditor = editorProjectStateFromProject(reconciliation.savedDocument);
+          const workingEditorState: EditorProjectState = {
             ...snapshot,
-            contentFingerprint: candidate.editorState.contentFingerprint,
-            chapters: candidate.editorState.chapters,
-            tags: candidate.editorState.tags,
-            recordMetadata: candidate.editorState.recordMetadata,
+            chapters: workingTrackedEditor.chapters,
+            tags: workingTrackedEditor.tags,
+            recordMetadata: workingTrackedEditor.recordMetadata,
+            recovery: reconciliation.recovery,
+          };
+          const savedEditorState: EditorProjectState = {
+            ...snapshot,
+            chapters: savedTrackedEditor.chapters,
+            tags: savedTrackedEditor.tags,
+            recordMetadata: savedTrackedEditor.recordMetadata,
             recovery: reconciliation.recovery,
           };
           const workingDocument = mergeEditorProjectState(
             reconciliation.workingDocument,
-            editorState,
+            workingEditorState,
           );
-          const savedDocument = mergeEditorProjectState(reconciliation.savedDocument, editorState);
-          setLoadedEditorProjectState(editorState);
+          const savedDocument = mergeEditorProjectState(
+            reconciliation.savedDocument,
+            savedEditorState,
+          );
+          setLoadedEditorProjectState(workingEditorState);
           const published = useProjectStore.getState().publishExternalReconciliation({
             document: workingDocument,
             savedDocument,
@@ -881,6 +962,7 @@ export function WorkspacePage() {
             throw new Error('External project candidate was not structurally admissible.');
           externalSourceDiagnosticsRef.current = [];
           setProject(workingDocument);
+          if (assetAuditChanged) void runAssetAudit(workingDocument);
           const conflictDiagnostics = Object.entries(reconciliation.recovery.saveUnitsById)
             .filter(([, entry]) => entry.externalConflict)
             .map(([saveUnitId, entry]) =>
@@ -944,9 +1026,14 @@ export function WorkspacePage() {
     )
       return;
     const timer = window.setTimeout(() => {
+      if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
       void flushProjectEditorMetadataRef.current('debounce');
     }, 500);
-    return () => window.clearTimeout(timer);
+    metadataFlushTimerRef.current = timer;
+    return () => {
+      window.clearTimeout(timer);
+      if (metadataFlushTimerRef.current === timer) metadataFlushTimerRef.current = null;
+    };
   }, [
     commandHistory.cursor,
     draftEntries,
@@ -1048,7 +1135,7 @@ export function WorkspacePage() {
     setExternalConflictBusy(true);
     try {
       await flushStructuralCommandPersistence();
-      await metadataFlushPromiseRef.current;
+      await settleProjectEditorMetadataWrites();
       const result = await saveConflictingSaveUnitKeepMine(externalConflict.saveUnitId);
       publishSaveResult(result, 'Resolved external conflict by keeping editor changes');
       const latestProject = useProjectStore.getState().document;
@@ -1115,7 +1202,7 @@ export function WorkspacePage() {
         }
       }
       await flushStructuralCommandPersistence();
-      await metadataFlushPromiseRef.current;
+      await settleProjectEditorMetadataWrites();
       return publishSaveResult(await saveActiveSaveUnit(), 'Saved active item');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Save failed';
@@ -1191,7 +1278,7 @@ export function WorkspacePage() {
         for (const entry of applicableDrafts) draftStore.clearDraftDirty(entry.key);
       }
       await flushStructuralCommandPersistence();
-      await metadataFlushPromiseRef.current;
+      await settleProjectEditorMetadataWrites();
       return publishSaveResult(await saveAllSaveUnits(), 'Saved all valid items');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Save All failed';
@@ -1209,7 +1296,7 @@ export function WorkspacePage() {
     setProjectSaving(true);
     try {
       await flushStructuralCommandPersistence();
-      await metadataFlushPromiseRef.current;
+      await settleProjectEditorMetadataWrites();
       const result = await saveProjectAsCopy();
       if (result.success && result.response?.projectFilePath) {
         refreshRecentProjectEntry(

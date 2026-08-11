@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { toJsonValue } from '@/project/json-value';
 
 describe('project store selectors', () => {
   it('derives dirty state from the saved document baseline', () => {
@@ -58,6 +60,89 @@ describe('project store selectors', () => {
     expect(useProjectStore.getState().savedDocument).toEqual({
       editor: { workbench: { tabsById: { stale: {} } } },
       rooms: { foyer: { label: 'Foyer' } },
+    });
+  });
+
+  it('does not advance the saved content baseline for metadata-only markSaved updates', () => {
+    const savedDocument = { rooms: { foyer: { label: 'Foyer' } } };
+    const document = { rooms: { foyer: { label: 'Dirty Foyer' } } };
+    useProjectStore.setState({
+      document,
+      savedDocument,
+      workspaceRevision: `sha256:${'a'.repeat(64)}`,
+      fileRevisions: {},
+      scriptSourcePaths: {},
+    });
+
+    useProjectStore.getState().markSaved({
+      workspaceRevision: `sha256:${'b'.repeat(64)}`,
+      fileRevisions: { 'editor.json': `sha256:${'c'.repeat(64)}` },
+    });
+
+    expect(useProjectStore.getState().document).toEqual(document);
+    expect(useProjectStore.getState().savedDocument).toEqual(savedDocument);
+    expect(selectProjectDirty(useProjectStore.getState())).toBe(true);
+  });
+
+  it('persists local editor metadata without advancing tracked editor.json content', () => {
+    const saved = createAuthoringProject();
+    saved.editor.recordMetadata.rooms = {
+      hall: { tags: [], color: null },
+    };
+    const working = structuredClone(saved);
+    working.editor.recordMetadata.rooms!.hall!.tags = ['dirty'];
+    working.editor.bottomPanel = {
+      ...working.editor.bottomPanel,
+      visible: false,
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: saved,
+      savedDocument: saved,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
+
+    useProjectStore.getState().markEditorMetadataPersisted(working.editor);
+
+    const state = useProjectStore.getState();
+    expect((state.document as typeof working).editor.recordMetadata.rooms?.hall?.tags).toEqual([
+      'dirty',
+    ]);
+    expect((state.savedDocument as typeof saved).editor.recordMetadata.rooms?.hall?.tags).toEqual(
+      [],
+    );
+    expect((state.document as typeof working).editor.bottomPanel.visible).toBe(false);
+    expect((state.savedDocument as typeof saved).editor.bottomPanel.visible).toBe(false);
+    expect(selectProjectDirty(state)).toBe(true);
+  });
+
+  it('refreshes workspace revisions without changing the working or saved document', () => {
+    const document = { rooms: { foyer: { label: 'Dirty foyer' } } };
+    const savedDocument = { rooms: { foyer: { label: 'Foyer' } } };
+    useProjectStore.setState({
+      document,
+      savedDocument,
+      workspaceRevision: `sha256:${'a'.repeat(64)}`,
+      fileRevisions: {},
+      scriptSourcePaths: {},
+    });
+
+    useProjectStore.getState().refreshWorkspaceMetadata({
+      workspaceRevision: `sha256:${'b'.repeat(64)}`,
+      fileRevisions: { 'assets/images/logo.png': `sha256:${'c'.repeat(64)}` },
+      scriptSourcePaths: { startup: 'scripts/startup.lua' },
+    });
+
+    expect(useProjectStore.getState().document).toEqual(document);
+    expect(useProjectStore.getState().savedDocument).toEqual(savedDocument);
+    expect(selectProjectDirty(useProjectStore.getState())).toBe(true);
+    expect(useProjectStore.getState().workspaceRevision).toBe(`sha256:${'b'.repeat(64)}`);
+    expect(useProjectStore.getState().fileRevisions).toEqual({
+      'assets/images/logo.png': `sha256:${'c'.repeat(64)}`,
+    });
+    expect(useProjectStore.getState().scriptSourcePaths).toEqual({
+      startup: 'scripts/startup.lua',
     });
   });
 

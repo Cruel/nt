@@ -2,7 +2,7 @@ import {
   type EditorRecoveryExternalConflict,
   type EditorRecoveryPatch,
   type EditorRecoveryState,
-  stripEditorProjectState,
+  stripLocalEditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
 import {
@@ -12,7 +12,7 @@ import {
   type JsonPointer,
 } from './json-pointer';
 import { cloneJsonValue, isJsonObject, jsonValuesEqual, type JsonValue } from './json-value';
-import { rebaseRecoveryOverlays } from './project-save-coordinator';
+import { rebaseRecoveryOverlays } from './project-recovery-rebase';
 
 export interface ProjectExternalReconciliationInput {
   baseDocument: JsonValue;
@@ -146,9 +146,9 @@ function clearConflict(entry: EditorRecoveryState['saveUnitsById'][string]) {
 export function reconcileExternalProjectChange(
   input: ProjectExternalReconciliationInput,
 ): ProjectExternalReconciliationResult {
-  const base = stripEditorProjectState(input.baseDocument) as JsonValue;
-  const local = stripEditorProjectState(input.localDocument) as JsonValue;
-  const external = stripEditorProjectState(input.externalDocument) as JsonValue;
+  const base = stripLocalEditorProjectState(input.baseDocument) as JsonValue;
+  const local = stripLocalEditorProjectState(input.localDocument) as JsonValue;
+  const external = stripLocalEditorProjectState(input.externalDocument) as JsonValue;
   const localPatches = diffJsonDocuments(base, local);
   const externalPatches = diffJsonDocuments(base, external);
   const localPaths = localPatches.map((patch) => patch.path);

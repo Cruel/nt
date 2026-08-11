@@ -113,7 +113,7 @@ beforeEach(() => {
   useDraftDirtyStore.getState().resetDraftDirty();
   usePendingInputStore.getState().resetPendingInputs();
   clearWorkbenchTabStates();
-  setLoadedEditorProjectState(emptyEditorProjectState('0'.repeat(64)));
+  setLoadedEditorProjectState(emptyEditorProjectState());
 });
 
 describe('ProjectSettingsEditor', () => {

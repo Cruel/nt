@@ -24,7 +24,9 @@ Persisted forward, Undo, and Redo commits use the shared workspace transaction w
 affected-path projection determines the exact changed source files, and the writer journals every
 write/delete with expected before and intended after revisions. Asset trash/restore bytes participate
 in the same transaction target set as Asset record/reference changes, so consumers cannot observe a
-committed record deletion without its corresponding file move (or the inverse during Undo).
+committed record deletion without its corresponding file move (or the inverse during Undo). The
+headless `noveltea entity create|rename|delete` commands reuse the same workspace graph/planning and
+transaction-writer boundary; they do not maintain a second structural persistence implementation.
 
 ## Classified auto-commit mutations
 

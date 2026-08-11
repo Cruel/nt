@@ -64,20 +64,26 @@ export function getResourceDirtyState(
       savedExists: false,
     };
   }
-  return getSaveUnitDirtyState(resolution.descriptor, currentDocument, savedDocument);
+  return getSaveUnitDirtyState(
+    resolution.descriptor,
+    currentDocument,
+    savedDocument,
+    resourcePathForDirtyCheck(resource),
+  );
 }
 
 export function getSaveUnitDirtyState(
   descriptor: SaveUnitDescriptor,
   currentDocument: JsonValue | null,
   savedDocument: JsonValue | null,
+  primaryPath: JsonPointer | null = null,
 ): ResourceDirtyState {
   const states = descriptor.ownedPaths.map((path) => ({
     path,
     current: readOptionalJson(currentDocument, path),
     saved: readOptionalJson(savedDocument, path),
   }));
-  const first = states[0];
+  const first = states.find(({ path }) => path === primaryPath) ?? states[0];
   return {
     dirty: states.some(
       ({ current, saved }) =>
@@ -101,7 +107,12 @@ export function getTabDirtyState(
   const resolution = resolveSaveUnitForTab(tab, currentDocument);
   const resource =
     resolution.status === 'savable'
-      ? getSaveUnitDirtyState(resolution.descriptor, currentDocument, savedDocument)
+      ? getSaveUnitDirtyState(
+          resolution.descriptor,
+          currentDocument,
+          savedDocument,
+          resourcePathForDirtyCheck(tab.resource),
+        )
       : {
           dirty: false,
           path: null,
@@ -133,17 +144,11 @@ export function restoreSaveUnitPatchesFromSaved(
 ): JsonPatchOperation[] {
   const resolution = resolveSaveUnitForTab(tab, currentDocument);
   if (resolution.status !== 'savable' || !currentDocument) return [];
-  const restorePaths = [...resolution.descriptor.ownedPaths];
-  const resource = tab.resource;
-  if (resource?.kind === 'record' && resource.collection && resource.entityId) {
-    const metadataPath = buildJsonPointer([
-      'editor',
-      'recordMetadata',
-      resource.collection,
-      resource.entityId,
-    ]);
-    if (!restorePaths.includes(metadataPath)) restorePaths.push(metadataPath);
-  }
+  const primaryPath = resourcePathForDirtyCheck(tab.resource);
+  const restorePaths = [
+    ...(primaryPath && resolution.descriptor.ownedPaths.includes(primaryPath) ? [primaryPath] : []),
+    ...resolution.descriptor.ownedPaths.filter((path) => path !== primaryPath),
+  ];
   return restorePaths.flatMap((path) =>
     restorePathPatchesFromSaved(path, currentDocument, savedDocument),
   );

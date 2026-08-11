@@ -29,9 +29,11 @@ ComfyUI workflow service and is not AuthoringProject input.
 Writers emit UTF-8, LF, two-space JSON with a trailing newline and deterministic key order. Every
 authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. The
 aggregate workspace revision hashes the sorted path/revision inventory, but Save and Save All use the
-selected logical save units' exact files as their concurrency boundary. An unrelated file change does
-not block a scoped save. Logical owners that share `editor.json` are merged by owned JSON paths so a
-chapter save preserves independently changed tag data.
+selected logical save units' exact files plus their exact changed JSON paths as the concurrency
+boundary. An unrelated file change does not block a scoped save, and a disjoint change to another
+field inside the same physical record is preserved by rebasing selected paths over the newest disk
+fragment. Logical owners that share `editor.json` are likewise merged by owned JSON paths so a
+chapter save preserves independently changed tag or record-metadata data.
 
 NovelTea tracked writers serialize through `.noveltea/transactions/.writer-lock/`. Multi-file saves
 and structural operations stage recoverable before/after blobs and a
@@ -46,10 +48,17 @@ closed with `WORKSPACE_BUSY`; a proven-dead owner is recovered before its lock i
 `.noveltea/` is ignored via the root-scoped `/.noveltea/` `.gitignore` rule. Optional
 `.noveltea/editor/state.json` uses `noveltea.editor.local-state` version `2`; it stores recovery,
 export identity, workbench, explorer, bottom panel, tab state, and drafts. It never duplicates
-tracked organization fields. Missing, corrupt, or unsupported local state is discarded; it cannot
-repair tracked source. Its `workspaceRevision` is a baseline marker for recovery/session payloads,
-not an input to aggregate workspace identity. Local-state writes do not rewrite tracked
-`editor.json`; tracked organization and ignored local/session state are persisted independently.
+tracked organization fields. On open, `ProjectWorkspaceService` composes those ignored fields with
+tracked `editor.json` chapters/tags/recordMetadata into the internal `AuthoringProject.editor` state;
+callers that need project content receive the complete composed editor state separately from the
+editor-free content projection. Missing, corrupt, or unsupported local state is discarded; it cannot
+repair tracked source. Its `workspaceRevision` is the tracked source baseline against which recovery
+was produced, not an input to aggregate workspace identity. If the marker differs from the current
+workspace on reopen, recovered values remain visible but are marked conflicted until Use Disk or Keep
+Mine resolves them. Local-state writes neither rewrite tracked `editor.json` nor adopt tracked-file
+revisions that the watcher has not reconciled. Tracked organization and ignored local/session state
+are persisted independently, and ignored local/session changes do not change in-memory or on-disk
+workspace identity.
 
 New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. Save As
 targets a project root and writes `project.json`; it carries tracked baseline, local editor state,
@@ -81,12 +90,14 @@ workspace transaction service used by editor structural writes.
 
 `noveltea validate` uses the shared authoring compiler/validation and dependency/source-analysis
 pipeline. Projects with authored Shaders or Materials also run shader readiness for `glsl-120`,
-`essl-100`, and `essl-300` through the existing native editor-tool subprocess boundary. Phase 6 does
-not add another native transport.
+`essl-100`, and `essl-300` through the standalone `noveltea` native tooling boundary. The retired
+`noveltea-editor-tool` executable and standalone released shaderc process are not part of the current
+workspace/toolchain contract.
 
 In `--json` mode, expected successes and failures emit exactly one compact JSON object plus one LF on
 stdout and keep stderr empty. The envelope always includes `success`, `exitCode`, and `diagnostics`;
 diagnostics are deterministically ordered and carry stable code/path/message fields plus source
 location when available. Exit codes are `0` success, `2` CLI usage, `3` workspace/discovery, `4`
 semantic/preflight, `5` mutation/concurrency, `6` native shader-tool failure, and `70` unexpected
-internal failure.
+internal failure. See `../CLI.md` for the permanent public command/protocol contract and
+`PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md` for editor/external reconciliation semantics.

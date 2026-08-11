@@ -2,7 +2,11 @@
 
 ## Contract
 
-A Script Module is a runtime resource containing Lua source. Source is exactly inline Lua or a typed Asset reference. Script Modules are not entities, property owners, entrypoints, continuation targets, or mutable session records.
+A Script Module is a runtime resource containing Lua source. In the assembled internal authoring model,
+source is exactly inline Lua or a typed Asset reference. Workspace-v1 persistence never stores that
+inline Lua text in the record JSON: file-backed modules store an explicit safe `scripts/*.lua` path and
+the source bytes live in that file. Script Modules are not entities, property owners, entrypoints,
+continuation targets, or mutable session records.
 
 Modules never autorun because they exist in a collection or package. Lua executes only through the explicit synchronous project startup hook, a typed expression/effect/instruction reference, or an explicit host request. The startup hook must complete without yielding before the Room/Scene/Dialogue entrypoint begins.
 
@@ -14,7 +18,7 @@ Lua VM and coroutine state are never serialized. Saving is rejected while suspen
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific Script Module record with inline or Asset source and editor-facing label/notes. In workspace-v1 persistence, inline Lua is projected as an explicit safe project-relative `scripts/*.lua` file source; assembly restores the unchanged internal inline representation. File presence never changes explicit execution/autorun rules.
+- **Authoring:** collection-specific Script Module record with file or Asset source in tracked workspace-v1 persistence and editor-facing label/notes. A file source is an explicit safe project-relative `scripts/*.lua` path; assembly restores the existing internal inline representation for compiler/editor consumers. File presence never changes explicit execution/autorun rules.
 - **Compiled/package:** validated `ScriptId`, source/resource reference, and explicit call sites. Native package loading validates Lua syntax before use.
 - **Mutable:** engine-owned invocation/correlation state only; serializable logical waits may enter `SaveState`, never VM state.
 - **Tooling only:** categories, tags, colors, sort keys, source-editor selection, diagnostics display, and preview state.
@@ -23,8 +27,9 @@ The TypeScript compiler treats Lua as opaque text after structural validation. P
 
 ## Implementation
 
-The editor supports a strict mutually exclusive source union: inline Lua or a typed script Asset.
-Validation confirms that an asset-backed source is a script asset. The compiler preserves either
-source in the canonical compiled artifact; native package loading certifies and executes it through
-the single Lua runtime. There is no legacy Script/CustomScript entity path, implicit execution, or
-generic property API.
+The editor's assembled model supports a strict mutually exclusive source union: inline Lua or a typed
+script Asset. The workspace codec maps the inline branch only to/from its explicit file source and
+rejects persisted Script Module `inline-lua` JSON. Validation confirms that an asset-backed source is
+a script asset. The compiler preserves either assembled source in the canonical compiled artifact;
+native package loading certifies and executes it through the single Lua runtime. There is no legacy
+Script/CustomScript entity path, implicit execution, or generic property API.

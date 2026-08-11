@@ -8,9 +8,9 @@ import {
 
 describe('editor project state defaults', () => {
   it('creates fresh metadata without a warning when metadata is absent', () => {
-    const parsed = parseEditorProjectStateWithDiagnostics(undefined, 'f'.repeat(64));
+    const parsed = parseEditorProjectStateWithDiagnostics(undefined);
 
-    expect(parsed.state).toEqual(emptyEditorProjectState('f'.repeat(64)));
+    expect(parsed.state).toEqual(emptyEditorProjectState());
     expect(parsed.diagnostics).toEqual([]);
   });
 
@@ -28,7 +28,7 @@ describe('editor project state defaults', () => {
   });
 
   it('accepts the persisted Asset Performance bottom-panel identity', () => {
-    const state = emptyEditorProjectState('a'.repeat(64));
+    const state = emptyEditorProjectState();
     state.bottomPanel = {
       visible: true,
       activePanelId: 'asset-performance',
@@ -43,54 +43,47 @@ describe('editor project state defaults', () => {
   });
 
   it('accepts persisted image-generation tab resources in v2 metadata', () => {
-    const parsed = parseEditorProjectState(
-      {
-        ...emptyEditorProjectState('a'.repeat(64)),
-        workbench: {
-          layout: { kind: 'group', groupId: 'group:main' },
-          groupsById: {
-            'group:main': {
-              id: 'group:main',
-              tabIds: ['tab:image-generation'],
-              activeTabId: 'tab:image-generation',
-            },
+    const parsed = parseEditorProjectState({
+      ...emptyEditorProjectState(),
+      workbench: {
+        layout: { kind: 'group', groupId: 'group:main' },
+        groupsById: {
+          'group:main': {
+            id: 'group:main',
+            tabIds: ['tab:image-generation'],
+            activeTabId: 'tab:image-generation',
           },
-          tabsById: {
-            'tab:image-generation': {
-              id: 'tab:image-generation',
-              title: 'Generate Image',
-              editorType: 'image-generation',
-              resource: {
-                kind: 'project',
-                stableId: 'utility:image-generation',
-                collection: 'assets',
-                generationMode: 'generate',
-              },
-            },
-          },
-          activeGroupId: 'group:main',
         },
+        tabsById: {
+          'tab:image-generation': {
+            id: 'tab:image-generation',
+            title: 'Generate Image',
+            editorType: 'image-generation',
+            resource: {
+              kind: 'project',
+              stableId: 'utility:image-generation',
+              collection: 'assets',
+              generationMode: 'generate',
+            },
+          },
+        },
+        activeGroupId: 'group:main',
       },
-      'b'.repeat(64),
-    );
+    });
 
     expect(parsed.workbench?.tabsById['tab:image-generation']?.resource?.generationMode).toBe(
       'generate',
     );
-    expect(parsed.contentFingerprint).toBe('b'.repeat(64));
   });
 
   it('discards v1 metadata with an unsupported-version warning', () => {
-    const parsed = parseEditorProjectStateWithDiagnostics(
-      {
-        schema: 'noveltea.editor.project-state',
-        schemaVersion: 1,
-        explorer: { searchQuery: 'must not survive' },
-      },
-      '1'.repeat(64),
-    );
+    const parsed = parseEditorProjectStateWithDiagnostics({
+      schema: 'noveltea.editor.project-state',
+      schemaVersion: 1,
+      explorer: { searchQuery: 'must not survive' },
+    });
 
-    expect(parsed.state).toEqual(emptyEditorProjectState('1'.repeat(64)));
+    expect(parsed.state).toEqual(emptyEditorProjectState());
     expect(parsed.diagnostics).toContainEqual(
       expect.objectContaining({
         code: 'editor.metadata.schema-version.unsupported',
@@ -103,12 +96,12 @@ describe('editor project state defaults', () => {
   });
 
   it.each([undefined, 3])('discards metadata with schema version %s', (schemaVersion) => {
-    const parsed = parseEditorProjectStateWithDiagnostics(
-      { schema: 'noveltea.editor.project-state', schemaVersion },
-      '2'.repeat(64),
-    );
+    const parsed = parseEditorProjectStateWithDiagnostics({
+      schema: 'noveltea.editor.project-state',
+      schemaVersion,
+    });
 
-    expect(parsed.state).toEqual(emptyEditorProjectState('2'.repeat(64)));
+    expect(parsed.state).toEqual(emptyEditorProjectState());
     expect(parsed.diagnostics).toContainEqual(
       expect.objectContaining({
         code: 'editor.metadata.schema-version.unsupported',
@@ -129,9 +122,9 @@ describe('editor project state defaults', () => {
       recovery: { sequence: 0, saveUnitsById: [] },
     },
   ])('discards malformed current metadata without salvaging fields', (value) => {
-    const parsed = parseEditorProjectStateWithDiagnostics(value, '3'.repeat(64));
+    const parsed = parseEditorProjectStateWithDiagnostics(value);
 
-    expect(parsed.state).toEqual(emptyEditorProjectState('3'.repeat(64)));
+    expect(parsed.state).toEqual(emptyEditorProjectState());
     expect(parsed.diagnostics).toContainEqual(
       expect.objectContaining({
         code: 'editor.metadata.invalid',
@@ -144,7 +137,7 @@ describe('editor project state defaults', () => {
 
   it('isolates invalid recovery entries while preserving valid entries', () => {
     const value = {
-      ...emptyEditorProjectState('a'.repeat(64)),
+      ...emptyEditorProjectState(),
       recovery: {
         sequence: 4,
         saveUnitsById: {
@@ -163,8 +156,8 @@ describe('editor project state defaults', () => {
           },
           'record:rooms:broken': {
             sequence: 4,
-            patches: [{ op: 'replace', path: '/editor/tags', value: {} }],
-            affectedPaths: ['/editor/tags'],
+            patches: [{ op: 'replace', path: '/editor/workbench', value: {} }],
+            affectedPaths: ['/editor/workbench'],
             pendingRawInputByPath: {},
             atomicTransactionGroupIds: [],
           },
@@ -179,7 +172,7 @@ describe('editor project state defaults', () => {
       },
     };
 
-    const parsed = parseEditorProjectStateWithDiagnostics(value, 'a'.repeat(64));
+    const parsed = parseEditorProjectStateWithDiagnostics(value);
 
     expect(Object.keys(parsed.state.recovery.saveUnitsById)).toEqual(['record:rooms:foyer']);
     expect(parsed.diagnostics).toContainEqual(
@@ -198,9 +191,34 @@ describe('editor project state defaults', () => {
     );
   });
 
+  it('accepts recovery patches for tracked editor.json organization paths', () => {
+    const value = {
+      ...emptyEditorProjectState(),
+      recovery: {
+        sequence: 1,
+        saveUnitsById: {
+          'project:tags': {
+            sequence: 1,
+            patches: [{ op: 'replace', path: '/editor/tags', value: { records: {} } }],
+            affectedPaths: ['/editor/tags'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    };
+
+    const parsed = parseEditorProjectStateWithDiagnostics(value);
+
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.state.recovery.saveUnitsById['project:tags']).toMatchObject({
+      affectedPaths: ['/editor/tags'],
+    });
+  });
+
   it('round-trips complete v2 recovery and export identity metadata', () => {
     const state = {
-      ...emptyEditorProjectState('d'.repeat(64)),
+      ...emptyEditorProjectState(),
       lastSuccessfulPlatformExportIdentity: {
         applicationId: 'com.example.story',
         saveNamespace: 'story-save',
@@ -226,14 +244,14 @@ describe('editor project state defaults', () => {
     };
 
     const serialized = JSON.parse(JSON.stringify(editorProjectStateSchema.parse(state)));
-    const parsed = parseEditorProjectStateWithDiagnostics(serialized, 'd'.repeat(64));
+    const parsed = parseEditorProjectStateWithDiagnostics(serialized);
 
     expect(parsed.diagnostics).toEqual([]);
     expect(parsed.state).toEqual(state);
   });
 
   it('rejects recovery operations outside content paths or with unsupported operations', () => {
-    const base = emptyEditorProjectState('b'.repeat(64));
+    const base = emptyEditorProjectState();
     expect(
       editorProjectStateSchema.safeParse({
         ...base,

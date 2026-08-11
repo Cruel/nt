@@ -26,7 +26,6 @@ import {
   type EditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
-import { projectContentFingerprint } from './project-content-fingerprint';
 import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import { assertProjectWorkspacePathContained } from '../../shared/project-workspace/project-workspace-file-system';
@@ -46,8 +45,6 @@ import {
   type ProjectWorkspaceExpectedRevision,
   type ProjectWorkspaceTransactionTargetInput,
 } from '../../shared/project-workspace/project-workspace-transaction';
-
-export { projectContentFingerprint } from './project-content-fingerprint';
 
 function mutationFailureDiagnostic(error: ProjectWorkspaceMutationError): ToolDiagnostic {
   return {
@@ -181,21 +178,38 @@ function scopedExpectedRevisions(
   const baseline = authoringProjectSchema.safeParse(commitOptions.baselineProject);
   if (!baseline.success) return expected;
   if (commitOptions.structural) return expected;
-  for (const saveUnitId of commitOptions.saveUnitIds ?? []) {
-    const ownership = opened.saveUnitFileOwnership[saveUnitId];
-    if (!ownership) continue;
-    const selectedPathsAreUnchanged = ownership.paths.every((pointer) => {
+  const exactChangedPaths = commitOptions.affectedPaths ?? [];
+  if (exactChangedPaths.length > 0) {
+    const exactPathsAreUnchanged = exactChangedPaths.every((pointer) => {
       const disk = valueAtPointer(opened.project, pointer);
       const base = valueAtPointer(baseline.data, pointer);
       return (
         disk.present === base.present && JSON.stringify(disk.value) === JSON.stringify(base.value)
       );
     });
-    if (!selectedPathsAreUnchanged)
+    if (!exactPathsAreUnchanged)
       throw new ProjectWorkspaceMutationError(
         'WORKSPACE_REVISION_CONFLICT',
-        `Save unit '${saveUnitId}' changed outside the editor.`,
+        'A selected save path changed outside the editor.',
       );
+  }
+  for (const saveUnitId of commitOptions.saveUnitIds ?? []) {
+    const ownership = opened.saveUnitFileOwnership[saveUnitId];
+    if (!ownership) continue;
+    if (exactChangedPaths.length === 0) {
+      const selectedPathsAreUnchanged = ownership.paths.every((pointer) => {
+        const disk = valueAtPointer(opened.project, pointer);
+        const base = valueAtPointer(baseline.data, pointer);
+        return (
+          disk.present === base.present && JSON.stringify(disk.value) === JSON.stringify(base.value)
+        );
+      });
+      if (!selectedPathsAreUnchanged)
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_REVISION_CONFLICT',
+          `Save unit '${saveUnitId}' changed outside the editor.`,
+        );
+    }
     for (const file of ownership.files)
       expected[file] = opened.fileRevisions[file]?.contentHash ?? PROJECT_WORKSPACE_ABSENT_REVISION;
   }
@@ -210,9 +224,11 @@ async function writeWorkspaceProject(
   scriptSourcePaths: Readonly<Record<string, string>> = {},
   commitOptions?: ProjectWorkspaceCommitOptions,
 ): Promise<{
-  contentFingerprint: string;
   workspaceRevision: string;
   fileRevisions: Record<string, `sha256:${string}`>;
+  contentProject: unknown;
+  editorState: EditorProjectState;
+  scriptSourcePaths: Record<string, string>;
   assetTrashMoves: import('../../shared/project-asset-audit').ProjectAssetTrashMove[];
 }> {
   const workspace = workspaceService();
@@ -232,14 +248,16 @@ async function writeWorkspaceProject(
   const projectForWrite =
     commitOptions?.structural && commitOptions.affectedPaths
       ? candidateAtPaths(opened.snapshot, candidate.data, commitOptions.affectedPaths)
-      : commitOptions && !commitOptions.structural
-        ? scopedCandidate(
-            opened.snapshot,
-            candidate.data,
-            sourcePaths,
-            commitOptions.saveUnitIds ?? [],
-          )
-        : candidate.data;
+      : commitOptions && !commitOptions.structural && commitOptions.affectedPaths?.length
+        ? candidateAtPaths(opened.snapshot, candidate.data, commitOptions.affectedPaths)
+        : commitOptions && !commitOptions.structural
+          ? scopedCandidate(
+              opened.snapshot,
+              candidate.data,
+              sourcePaths,
+              commitOptions.saveUnitIds ?? [],
+            )
+          : candidate.data;
   const editorStateForWrite: EditorProjectState = {
     ...editorState,
     chapters: projectForWrite.editor.chapters,
@@ -360,9 +378,11 @@ async function writeWorkspaceProject(
   const refreshed = await workspace.open(projectRoot);
   if (!refreshed.ok) throw new Error('Saved workspace could not be reopened.');
   return {
-    contentFingerprint: projectContentFingerprint(content),
     workspaceRevision: written.workspaceRevision,
     fileRevisions: snapshotFileRevisions(refreshed.snapshot),
+    contentProject: refreshed.contentProject,
+    editorState: refreshed.editorState,
+    scriptSourcePaths: { ...refreshed.snapshot.scriptSourcePaths },
     assetTrashMoves,
   };
 }
@@ -380,16 +400,12 @@ async function writeContainedText(root: string, file: string, text: string): Pro
   await createNodeProjectWorkspaceFileSystem().writeTextAtomic(file, text);
 }
 
-function projectWithCurrentEditorFingerprint(project: unknown): {
-  project: unknown;
-  contentFingerprint: string;
-} {
+function projectWithCurrentEditorState(project: unknown): unknown {
   const content = stripEditorProjectState(project);
-  const contentFingerprint = projectContentFingerprint(content);
-  if (!isRecord(content)) return { project, contentFingerprint };
+  if (!isRecord(content)) return project;
   const rawEditor = isRecord(project) ? project.editor : undefined;
-  const editor = parseEditorProjectState(rawEditor, contentFingerprint);
-  return { project: { ...content, editor }, contentFingerprint };
+  const editor = parseEditorProjectState(rawEditor);
+  return { ...content, editor };
 }
 
 function projectPathFromFile(projectFilePath: string): string {
@@ -590,8 +606,8 @@ export async function saveProject(
   if (!projectFilePath || typeof projectFilePath !== 'string') {
     return { ok: false, success: false, error: 'Project save requires a project file path.' };
   }
-  const normalized = projectWithCurrentEditorFingerprint(project);
-  const errors = validationErrors(normalized.project);
+  const normalized = projectWithCurrentEditorState(project);
+  const errors = validationErrors(normalized);
   if (errors.length > 0) {
     return {
       ok: false,
@@ -602,23 +618,17 @@ export async function saveProject(
   }
   try {
     const root = projectPathFromFile(projectFilePath);
-    const editor = parseEditorProjectState((normalized.project as Record<string, unknown>).editor);
+    const editor = parseEditorProjectState((normalized as Record<string, unknown>).editor);
     const opened = await workspaceService().open(root);
     if (!opened.ok)
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
-    await writeWorkspaceProject(
-      root,
-      normalized.project,
-      editor,
-      opened.snapshot.workspaceRevision,
-    );
+    await writeWorkspaceProject(root, normalized, editor, opened.snapshot.workspaceRevision);
     const absolute = path.resolve(projectFilePath);
     return {
       ok: true,
       success: true,
       projectPath: projectPathFromFile(absolute),
       projectFilePath: absolute,
-      contentFingerprint: normalized.contentFingerprint,
       diagnostics: [],
     };
   } catch (error) {
@@ -650,15 +660,11 @@ export async function saveProjectEditorMetadata(
   }
   try {
     const root = projectPathFromFile(projectFilePath);
-    const opened = await workspaceService().open(root);
+    const workspace = workspaceService();
+    const opened = await workspace.open(root);
     if (!opened.ok)
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
-    const content = opened.contentProject;
-    const actualContentFingerprint = opened.contentFingerprint;
-    const normalizedEditor = editorProjectStateSchema.safeParse({
-      ...editorState,
-      contentFingerprint: actualContentFingerprint,
-    });
+    const normalizedEditor = editorProjectStateSchema.safeParse(editorState);
     if (!normalizedEditor.success) {
       const diagnostic = createProjectValidationDiagnostic({
         code: 'editor.metadata.invalid',
@@ -676,25 +682,16 @@ export async function saveProjectEditorMetadata(
         error: diagnostic.message,
       };
     }
-    const written = await writeWorkspaceProject(
-      root,
-      content,
-      normalizedEditor.data,
-      expectedWorkspaceRevision,
-      {},
-      {
-        expectedFileRevisions,
-        saveUnitIds: [],
-        operationLabel: 'editor local state save',
-      },
-    );
+    // Local recovery/session metadata is outside canonical workspace content. Persist it against the
+    // renderer's known baseline without adopting any tracked-file revisions that may have changed on
+    // disk before the workspace watcher has reconciled them.
+    await workspace.writeEditorLocalState(root, expectedWorkspaceRevision, normalizedEditor.data);
     return {
       ok: true,
       success: true,
       diagnostics: [],
-      contentFingerprint: written.contentFingerprint,
-      workspaceRevision: written.workspaceRevision,
-      fileRevisions: written.fileRevisions,
+      workspaceRevision: expectedWorkspaceRevision,
+      fileRevisions: { ...expectedFileRevisions },
     };
   } catch (error) {
     return {
@@ -728,7 +725,6 @@ export async function saveProjectContent(
     const opened = await workspaceService().open(root);
     if (!opened.ok)
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
-    const actualContentFingerprint = opened.contentFingerprint;
     if (!commitOptions && opened.snapshot.workspaceRevision !== expectedWorkspaceRevision) {
       const diagnostic = createProjectValidationDiagnostic({
         code: 'editor.content-save.content-conflict',
@@ -745,17 +741,12 @@ export async function saveProjectContent(
         success: false,
         error: diagnostic.message,
         diagnostics: [diagnostic],
-        contentFingerprint: actualContentFingerprint,
       };
     }
 
     const content = stripEditorProjectState(contentProject);
     if (!isRecord(content)) throw new Error('Project content root must be an object.');
-    const contentFingerprint = projectContentFingerprint(content);
-    const normalizedEditor = editorProjectStateSchema.safeParse({
-      ...editorState,
-      contentFingerprint,
-    });
+    const normalizedEditor = editorProjectStateSchema.safeParse(editorState);
     if (!normalizedEditor.success) {
       const diagnostic = createProjectValidationDiagnostic({
         code: 'editor.content-save.metadata-invalid',
@@ -787,9 +778,11 @@ export async function saveProjectContent(
       success: true,
       projectPath: projectPathFromFile(absolute),
       projectFilePath: absolute,
-      contentFingerprint: written.contentFingerprint,
       workspaceRevision: written.workspaceRevision,
       fileRevisions: written.fileRevisions,
+      contentProject: written.contentProject,
+      editorState: written.editorState,
+      scriptSourcePaths: written.scriptSourcePaths,
       assetTrashMoves: written.assetTrashMoves,
       diagnostics: [],
     };
@@ -840,14 +833,14 @@ export async function saveProjectCopyAs(
       : [];
     const manifestPath = path.join(root, 'project.json');
     if (currentProjectFilePath) await copyProjectWorkflows(currentProjectFilePath, manifestPath);
-    const normalized = projectWithCurrentEditorFingerprint(project);
-    const editor = parseEditorProjectState((normalized.project as Record<string, unknown>).editor);
+    const normalized = projectWithCurrentEditorState(project);
+    const editor = parseEditorProjectState((normalized as Record<string, unknown>).editor);
     const sourcePaths = currentProjectFilePath
       ? await workspaceService().open(projectPathFromFile(currentProjectFilePath))
       : null;
     for (const [relativePath, text] of Object.entries(
       projectWorkspaceFiles(
-        normalized.project as Parameters<typeof projectWorkspaceFiles>[0],
+        normalized as Parameters<typeof projectWorkspaceFiles>[0],
         editor,
         sourcePaths?.ok
           ? { ...sourcePaths.snapshot.scriptSourcePaths, ...scriptSourcePaths }
@@ -884,7 +877,6 @@ export async function saveProjectCopyAs(
       success: true,
       projectPath: root,
       projectFilePath: manifestPath,
-      contentFingerprint: normalized.contentFingerprint,
       workspaceRevision: openedCopy.snapshot.workspaceRevision,
       fileRevisions: snapshotFileRevisions(openedCopy.snapshot),
       diagnostics,
@@ -946,7 +938,6 @@ export async function createProject(request: CreateProjectRequest): Promise<Save
       success: true,
       projectPath: absoluteDirectory,
       projectFilePath,
-      contentFingerprint: projectContentFingerprint(project),
       diagnostics: [],
     };
   } catch (error) {

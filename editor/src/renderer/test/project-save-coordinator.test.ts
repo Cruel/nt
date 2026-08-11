@@ -11,6 +11,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useCommandStore } from '@/commands/command-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import {
+  buildEditorProjectStateSnapshot,
   setLoadedEditorProjectState,
   mergeEditorProjectState,
 } from '@/workbench/project-editor-state';
@@ -24,7 +25,6 @@ import { toJsonValue } from '@/project/json-value';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { buildProjectSettingsTab } from '@/workbench/editor-registry';
 
-const fingerprint = '0'.repeat(64);
 const workspaceRevision = `sha256:${'a'.repeat(64)}` as const;
 const roomFileRevision = `sha256:${'b'.repeat(64)}` as const;
 
@@ -57,7 +57,7 @@ function recoveryState(
   entries: EditorProjectState['recovery']['saveUnitsById'],
 ): EditorProjectState {
   return {
-    ...emptyEditorProjectState(fingerprint),
+    ...emptyEditorProjectState(),
     recovery: { sequence: Object.keys(entries).length, saveUnitsById: entries },
   };
 }
@@ -91,7 +91,7 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   useCommandStore.getState().resetCommandHistory();
   useDraftDirtyStore.getState().resetDraftDirty();
-  setLoadedEditorProjectState(emptyEditorProjectState(fingerprint));
+  setLoadedEditorProjectState(emptyEditorProjectState());
 });
 
 describe('project save coordinator', () => {
@@ -149,6 +149,159 @@ describe('project save coordinator', () => {
         foyer: { label: 'New Foyer' },
         kitchen: { label: 'Kitchen' },
       },
+    });
+  });
+
+  it('saves selected tracked editor.json content without marking unrelated tracked editor content saved', async () => {
+    const saved = projectWithRooms();
+    saved.editor.tags.records.story = { name: 'Story', color: 'tag-slate' };
+    saved.editor.recordMetadata.rooms = { foyer: { tags: [], color: null } };
+    const working = structuredClone(saved);
+    working.editor.tags.records.story!.color = 'tag-blue';
+    working.editor.recordMetadata.rooms!.foyer!.tags = ['dirty'];
+    const recovery = recoveryState({
+      'project:tags': {
+        sequence: 1,
+        patches: [
+          {
+            op: 'replace',
+            path: '/editor/tags/records/story/color',
+            value: 'tag-blue',
+          },
+        ],
+        affectedPaths: ['/editor/tags/records/story/color'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+      'record:rooms:foyer': {
+        sequence: 2,
+        patches: [
+          {
+            op: 'replace',
+            path: '/editor/recordMetadata/rooms/foyer/tags',
+            value: ['dirty'],
+          },
+        ],
+        affectedPaths: ['/editor/recordMetadata/rooms/foyer/tags'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    });
+    const savedEditor = {
+      ...recovery,
+      chapters: saved.editor.chapters,
+      tags: saved.editor.tags,
+      recordMetadata: saved.editor.recordMetadata,
+    };
+    const workingEditor = {
+      ...recovery,
+      chapters: working.editor.chapters,
+      tags: working.editor.tags,
+      recordMetadata: working.editor.recordMetadata,
+    };
+    const savedDocument = mergeEditorProjectState(toJsonValue(saved), savedEditor);
+    const workingDocument = mergeEditorProjectState(toJsonValue(working), workingEditor);
+    useProjectStore.getState().loadProjectDocument({
+      document: savedDocument,
+      savedDocument,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      workspaceRevision,
+      fileRevisions: { 'editor.json': roomFileRevision },
+    });
+    useProjectStore.getState().replaceDocumentFromCommand(workingDocument, 0);
+    setLoadedEditorProjectState(workingEditor);
+
+    const result = await saveActiveSaveUnit('project:tags');
+
+    expect(result.success).toBe(true);
+    const state = useProjectStore.getState();
+    expect((state.savedDocument as typeof working).editor.tags.records.story?.color).toBe(
+      'tag-blue',
+    );
+    expect(
+      (state.savedDocument as typeof working).editor.recordMetadata.rooms?.foyer?.tags,
+    ).toEqual([]);
+    expect((state.document as typeof working).editor.recordMetadata.rooms?.foyer?.tags).toEqual([
+      'dirty',
+    ]);
+    expect(result.remainingDirtySaveUnitIds).toContain('record:rooms:foyer');
+  });
+
+  it('reconciles unrelated external changes returned by a successful scoped save before adopting its revisions', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Local Foyer';
+    working.rooms.kitchen!.label = 'Local Kitchen';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Local Foyer' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+      'record:rooms:kitchen': {
+        sequence: 2,
+        patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'Local Kitchen' }],
+        affectedPaths: ['/rooms/kitchen/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    });
+    loadProject(saved, working, editorState);
+    useWorkbenchStore.getState().openTab(roomTab('foyer'));
+    const diskAfterSave = projectWithRooms();
+    diskAfterSave.rooms.foyer!.label = 'Local Foyer';
+    diskAfterSave.rooms.kitchen!.label = 'Disk Kitchen';
+    const diskRevision = `sha256:${'d'.repeat(64)}` as const;
+    vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      workspaceRevision: diskRevision,
+      fileRevisions: {
+        'records/rooms/foyer.json': `sha256:${'e'.repeat(64)}`,
+        'records/rooms/kitchen.json': `sha256:${'f'.repeat(64)}`,
+      },
+      contentProject: diskAfterSave,
+      editorState: emptyEditorProjectState(),
+      scriptSourcePaths: {},
+    });
+
+    const result = await saveActiveSaveUnit();
+
+    expect(result).toMatchObject({
+      success: true,
+      status: 'partially-saved',
+      savedSaveUnitIds: ['record:rooms:foyer'],
+      remainingDirtySaveUnitIds: ['record:rooms:kitchen'],
+    });
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'editor.external-change.conflict', severity: 'error' }),
+    );
+    const state = useProjectStore.getState();
+    expect(state.workspaceRevision).toBe(diskRevision);
+    expect(state.document).toMatchObject({
+      rooms: {
+        foyer: { label: 'Local Foyer' },
+        kitchen: { label: 'Local Kitchen' },
+      },
+    });
+    expect(state.savedDocument).toMatchObject({
+      rooms: {
+        foyer: { label: 'Local Foyer' },
+        kitchen: { label: 'Disk Kitchen' },
+      },
+    });
+    expect(
+      buildEditorProjectStateSnapshot().recovery.saveUnitsById['record:rooms:kitchen']
+        ?.externalConflict,
+    ).toMatchObject({
+      conflictingPaths: ['/rooms/kitchen/label'],
+      externalWorkspaceRevision: diskRevision,
     });
   });
 

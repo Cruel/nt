@@ -111,8 +111,10 @@ tests, caches, type-only packages, private keys, and checkout-path leaks.
 
 The standalone `noveltea` CLI must be built for the release-admitted host or supplied by
 `NOVELTEA_CLI_PATH`. Normal staging refreshes the repository CLI automatically and copies it to
-`resources/bin/noveltea`; packaged native operations resolve that installation-relative binary and
-do not depend on `PATH`. The profiler-enabled engine preview must exist at
+`resources/bin/noveltea`; that directory contains no `noveltea-editor-tool` compatibility frontend
+and no sibling bgfx `shaderc` executable. Shader compilation and raw shaderc forwarding use the
+statically linked native tooling inside `noveltea`. Packaged native operations resolve the
+installation-relative CLI and do not depend on `PATH`. The profiler-enabled engine preview must exist at
 `build/web-editor-preview/apps/editor_preview`; `pnpm -C editor run engine:preview:build` produces it.
 
 ## Packaging and Security
@@ -120,6 +122,11 @@ do not depend on `PATH`. The profiler-enabled engine preview must exist at
 `pnpm -C editor run package` creates and verifies an unpacked host application. `pnpm -C editor run artifact`
 creates native host distributables. electron-builder receives only the staged application and
 separate staged resources.
+
+Production staging prunes JavaScript source maps from the deployed application closure and package
+verification rejects remaining `.map` files, raw first-party `.ts`/`.tsx`, embedded TypeScript source,
+or source-checkout path leakage. Development Electron/Vite outputs may retain source maps; they are
+not public release contents.
 
 Application identity is defined in authoritative metadata rather than main-process constants:
 

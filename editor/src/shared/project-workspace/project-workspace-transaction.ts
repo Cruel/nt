@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { sha256PrefixedBytes } from '../sha256';
 import {
   assertProjectWorkspacePathContained,
@@ -120,7 +119,7 @@ function parseOwner(value: unknown): ParsedLockOwner {
 }
 
 function createTransactionId(override?: () => string): string {
-  return override === undefined ? randomUUID() : override();
+  return override === undefined ? globalThis.crypto.randomUUID() : override();
 }
 
 function parseManifest(value: unknown, expectedId: string): JournalManifest | null {
@@ -174,6 +173,12 @@ export class ProjectWorkspaceTransactionService {
   ) {}
 
   async recover(projectRoot: string): Promise<void> {
+    const transactionRoot = this.absolute(projectRoot, transactionsPath);
+    const entries = await this.fileSystem.listDirectory(transactionRoot);
+    // A clean read-only workspace has nothing to recover. Avoid manufacturing a writer lock merely
+    // to prove the empty transaction directory is empty; this also keeps CLI validation genuinely
+    // filesystem-neutral across Node and Perry runtimes.
+    if (entries.length === 0) return;
     const lock = await this.acquireLock(projectRoot, 'workspace recovery', null, false);
     try {
       await this.recoverJournals(projectRoot);

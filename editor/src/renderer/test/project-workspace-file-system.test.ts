@@ -51,6 +51,9 @@ describe.each(implementations)('%s workspace filesystem contract', (_name, creat
     await fileSystem.removeFile(target);
     await fileSystem.removeFile(target);
     expect(await fileSystem.inspect(target)).toBe('missing');
+    const child = fileSystem.joinPath(nested, 'child', 'nested.txt');
+    await fileSystem.writeTextAtomic(child, 'nested');
+    expect(await fileSystem.inspect(child)).toBe('file');
     await fileSystem.removeDirectory(nested);
     expect(await fileSystem.inspect(nested)).toBe('missing');
   });
