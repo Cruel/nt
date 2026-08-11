@@ -695,6 +695,92 @@ describe('project-file-service workspace-v1', () => {
     );
   });
 
+  it('rejects Save As destinations containing stale canonical project source', async () => {
+    const source = tempRoot();
+    const destination = tempRoot();
+    await createProject({ projectName: 'Source', projectDirectory: source });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(source);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    fs.mkdirSync(path.join(destination, 'records', 'rooms'), { recursive: true });
+    fs.mkdirSync(path.join(destination, 'records', 'layouts', 'old-layout'), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(destination, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(destination, 'records', 'rooms', 'old-room.json'), '{}\n');
+    fs.writeFileSync(
+      path.join(destination, 'records', 'layouts', 'old-layout', 'layout.json'),
+      '{}\n',
+    );
+    fs.writeFileSync(path.join(destination, 'scripts', 'old.lua'), 'return 1\n');
+    fs.writeFileSync(path.join(destination, 'README.md'), 'keep me\n');
+    dialogs.destination = destination;
+
+    const result = await saveProjectCopyAs(
+      {} as never,
+      opened.snapshot.project,
+      null,
+      path.join(source, 'project.json'),
+      [],
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('already contains NovelTea project state');
+    expect(fs.existsSync(path.join(destination, 'project.json'))).toBe(false);
+    expect(
+      fs.readFileSync(path.join(destination, 'records', 'rooms', 'old-room.json'), 'utf8'),
+    ).toBe('{}\n');
+    expect(fs.readFileSync(path.join(destination, 'scripts', 'old.lua'), 'utf8')).toBe(
+      'return 1\n',
+    );
+    expect(fs.readFileSync(path.join(destination, 'README.md'), 'utf8')).toBe('keep me\n');
+  });
+
+  it('rejects Save As when an exact destination asset path is already occupied', async () => {
+    const source = tempRoot();
+    const destination = tempRoot();
+    await createProject({ projectName: 'Source', projectDirectory: source });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(source);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const project = structuredClone(opened.snapshot.project);
+    project.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/logo.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    fs.mkdirSync(path.join(source, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'assets', 'logo.bin'), 'source-bytes');
+    fs.mkdirSync(path.join(destination, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(destination, 'assets', 'logo.bin'), 'destination-bytes');
+    fs.writeFileSync(path.join(destination, 'README.md'), 'keep me\n');
+    dialogs.destination = destination;
+
+    const result = await saveProjectCopyAs(
+      {} as never,
+      project,
+      null,
+      path.join(source, 'project.json'),
+      [],
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("asset destination 'assets/logo.bin' already exists");
+    expect(fs.readFileSync(path.join(destination, 'assets', 'logo.bin'), 'utf8')).toBe(
+      'destination-bytes',
+    );
+    expect(fs.existsSync(path.join(destination, 'project.json'))).toBe(false);
+    expect(fs.readFileSync(path.join(destination, 'README.md'), 'utf8')).toBe('keep me\n');
+  });
+
   it.each([
     ['projected records', 'records'],
     ['local state', '.noveltea'],

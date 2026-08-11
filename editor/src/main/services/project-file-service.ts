@@ -508,25 +508,25 @@ async function copyProjectAssets(
         continue;
       }
       try {
-        const destinationStat = await fs.stat(destination);
-        if (destinationStat.isFile() && path.resolve(source) !== path.resolve(destination)) {
-          diagnostics.push(
-            assetCopyDiagnostic(
-              `/assets/${assetPath}`,
-              `Preserved existing asset file '${assetPath}' in the destination project folder.`,
-            ),
+        await fs.lstat(destination);
+        if (path.resolve(source) !== path.resolve(destination))
+          throw new Error(
+            `Cannot save project copy because asset destination '${assetPath}' already exists.`,
           );
-          continue;
-        }
-      } catch {
-        // Destination does not exist yet.
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
       await assertContained(newRoot, path.dirname(destination));
       await fs.mkdir(path.dirname(destination), { recursive: true });
       await assertContained(newRoot, destination);
       await fs.copyFile(source, destination);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('escapes the project root')) throw error;
+      if (
+        error instanceof Error &&
+        (error.message.includes('escapes the project root') ||
+          error.message.startsWith('Cannot save project copy because asset destination'))
+      )
+        throw error;
       diagnostics.push(
         assetCopyDiagnostic(
           `/assets/${assetPath}`,
@@ -576,6 +576,33 @@ async function copyProjectWorkflows(oldProjectFilePath: string, newProjectFilePa
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
+}
+
+const saveAsOwnedDestinationPaths = [
+  'project.json',
+  'properties.json',
+  'localization.json',
+  'editor.json',
+  'records',
+  'scripts',
+  '.noveltea/transactions',
+  '.noveltea/editor',
+] as const;
+
+async function assertSaveAsDestinationHasNoWorkspace(projectRoot: string): Promise<void> {
+  const occupied: string[] = [];
+  for (const relative of saveAsOwnedDestinationPaths) {
+    try {
+      await fs.lstat(path.join(projectRoot, relative));
+      occupied.push(relative);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  if (occupied.length > 0)
+    throw new Error(
+      `Cannot save project copy into a destination that already contains NovelTea project state: ${occupied.join(', ')}. Choose a folder without existing NovelTea source/state; unrelated files may remain.`,
+    );
 }
 
 async function confirmNonEmptyDestination(
@@ -823,6 +850,7 @@ export async function saveProjectCopyAs(
   }
   let diagnostics: ToolDiagnostic[] = [];
   try {
+    await assertSaveAsDestinationHasNoWorkspace(root);
     diagnostics = currentProjectFilePath
       ? await copyProjectAssets(
           project,

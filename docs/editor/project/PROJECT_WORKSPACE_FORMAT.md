@@ -41,7 +41,12 @@ and structural operations stage recoverable before/after blobs and a
 through `prepared`, `writing`, `committed`, or `rolled-back`. Project open recovers interrupted known
 states before assembly; an unknown target state or malformed journal is retained and blocks mutation
 with `WORKSPACE_TRANSACTION_RECOVERY_CONFLICT`. A live, unverifiable, or malformed lock owner fails
-closed with `WORKSPACE_BUSY`; a proven-dead owner is recovered before its lock is reclaimed.
+closed with `WORKSPACE_BUSY`. Reclaiming a proven-dead owner first acquires the exclusive
+`.writer-lock-reclaim` guard, revalidates the stale owner token and process liveness, then atomically
+renames the stale lock to a unique `.writer-lock.claimed-*` path. Only that claimant may recover
+journals while the active lock path is absent; competing reclaimers or writers return `WORKSPACE_BUSY`.
+The claimant publishes its new owner before deleting the claimed stale directory and reclaim guard,
+and every removal verifies the expected owner token.
 
 ## Local state
 
@@ -63,7 +68,13 @@ workspace identity.
 New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. Save As
 targets a project root and writes `project.json`; it carries tracked baseline, local editor state,
 dirty-only asset bytes, and separately-owned workflows, while excluding generated agent/build/cache,
-transactions, and trash state.
+transactions, and trash state. A non-empty destination may contain unrelated user files, `.git`,
+documentation, workflows, or unrelated assets, but Save As rejects any pre-existing NovelTea-owned
+canonical source/state namespace (`project.json`, `properties.json`, `localization.json`,
+`editor.json`, `records/`, `scripts/`, `.noveltea/transactions/`, or `.noveltea/editor/`). It also
+fails if an exact Asset source destination is already occupied. Save As therefore never silently
+merges stale records, Layout companions, Script Module sources, local transaction/recovery state, or
+unrelated bytes at an Asset path into the copied project.
 
 ## Headless CLI editing boundary
 

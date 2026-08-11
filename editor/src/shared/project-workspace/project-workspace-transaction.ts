@@ -70,6 +70,8 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const transactionsPath = '.noveltea/transactions';
 const lockPath = `${transactionsPath}/.writer-lock`;
+const reclaimGuardPath = `${transactionsPath}/.writer-lock-reclaim`;
+const claimedLockPrefix = '.writer-lock.claimed-';
 
 const compareCodePoints = (left: string, right: string): number => {
   const leftPoints = Array.from(left, (character) => character.codePointAt(0)!);
@@ -358,6 +360,11 @@ export class ProjectWorkspaceTransactionService {
   ): Promise<LockOwner> {
     return new Promise<LockOwner>((resolve, reject) => {
       void (async () => {
+        let reclaimGuard: LockOwner | null = null;
+        let claimedLockPath: string | null = null;
+        let claimedOwnerToken: string | null = null;
+        let recoveredDuringReclaim = false;
+        let activeOwner: LockOwner | null = null;
         try {
           const transactionsAbsolute = this.absolute(projectRoot, transactionsPath);
           try {
@@ -374,19 +381,25 @@ export class ProjectWorkspaceTransactionService {
           }
           await this.fileSystem.createDirectory(transactionsAbsolute);
           const lockAbsolute = this.absolute(projectRoot, lockPath);
-          if (!(await this.fileSystem.createDirectoryExclusive(lockAbsolute))) {
-            let parsed: ParsedLockOwner = { valid: false };
-            try {
-              parsed = parseOwner(
-                JSON.parse(
-                  await this.fileSystem.readText(
-                    this.absolute(projectRoot, `${lockPath}/owner.json`),
-                  ),
-                ),
+          const reclaimGuardAbsolute = this.absolute(projectRoot, reclaimGuardPath);
+          if ((await this.fileSystem.inspect(reclaimGuardAbsolute)) !== 'missing')
+            throw new ProjectWorkspaceMutationError(
+              'WORKSPACE_BUSY',
+              'Another NovelTea process is reclaiming the project writer lock.',
+            );
+
+          if (await this.fileSystem.createDirectoryExclusive(lockAbsolute)) {
+            // Close the race with a stale-lock reclaimer that acquired its guard after our precheck.
+            // We have not published an owner yet, so this empty directory is safe for us to remove.
+            if ((await this.fileSystem.inspect(reclaimGuardAbsolute)) !== 'missing') {
+              await this.fileSystem.removeDirectory(lockAbsolute);
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'Another NovelTea process is reclaiming the project writer lock.',
               );
-            } catch {
-              // A lock without a trustworthy owner fails closed.
             }
+          } else {
+            const parsed = await this.readLockOwner(projectRoot, lockPath);
             if (!parsed.valid)
               throw new ProjectWorkspaceMutationError(
                 'WORKSPACE_BUSY',
@@ -399,15 +412,77 @@ export class ProjectWorkspaceTransactionService {
                 'WORKSPACE_BUSY',
                 'Another NovelTea process owns the project writer lock.',
               );
+
+            reclaimGuard = {
+              ownerToken: createTransactionId(this.createIdOverride),
+              pid: this.pid,
+              operationLabel: `reclaim ${operationLabel}`,
+              transactionId,
+            };
+            if (!(await this.fileSystem.createDirectoryExclusive(reclaimGuardAbsolute)))
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'Another NovelTea process is reclaiming the project writer lock.',
+              );
+            await this.fileSystem.writeTextAtomic(
+              this.absolute(projectRoot, `${reclaimGuardPath}/owner.json`),
+              canonicalJson(reclaimGuard),
+            );
+
+            // The owner may have changed between the first stale observation and our exclusive
+            // reclaim guard. Revalidate both identity and liveness before touching the lock path.
+            const guarded = await this.readLockOwner(projectRoot, lockPath);
+            if (!guarded.valid || guarded.owner.ownerToken !== existing.ownerToken)
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'The project writer lock changed before stale-lock reclamation.',
+              );
+            if ((await this.processLiveness.isProcessAlive(guarded.owner.pid)) !== false)
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'The project writer lock owner became live before reclamation.',
+              );
+
+            const claimId = createTransactionId(this.createIdOverride);
+            const nextClaimedLockPath = `${transactionsPath}/${claimedLockPrefix}${claimId}`;
+            const nextClaimedOwnerToken = guarded.owner.ownerToken;
+            try {
+              await this.fileSystem.movePathAtomic(
+                lockAbsolute,
+                this.absolute(projectRoot, nextClaimedLockPath),
+              );
+            } catch {
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'The project writer lock changed during stale-lock reclamation.',
+              );
+            }
+            claimedLockPath = nextClaimedLockPath;
+            claimedOwnerToken = nextClaimedOwnerToken;
+            const claimed = await this.readLockOwner(projectRoot, claimedLockPath);
+            if (!claimed.valid || claimed.owner.ownerToken !== claimedOwnerToken) {
+              if (await this.restoreClaimedLock(projectRoot, claimedLockPath, claimedOwnerToken)) {
+                claimedLockPath = null;
+                claimedOwnerToken = null;
+              }
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'The project writer lock changed during stale-lock reclamation.',
+              );
+            }
+
+            // The reclaim guard blocks all compliant writers while the active lock path is absent.
+            // Only the process that atomically moved the stale lock here may recover journals.
             await this.recoverJournals(projectRoot);
-            await this.fileSystem.removeDirectory(lockAbsolute);
+            recoveredDuringReclaim = true;
             if (!(await this.fileSystem.createDirectoryExclusive(lockAbsolute)))
               throw new ProjectWorkspaceMutationError(
                 'WORKSPACE_BUSY',
-                'The project writer lock was acquired concurrently.',
+                'The project writer lock was acquired during stale-lock reclamation.',
               );
           }
-          const owner = {
+
+          activeOwner = {
             ownerToken: createTransactionId(this.createIdOverride),
             pid: this.pid,
             operationLabel,
@@ -415,29 +490,102 @@ export class ProjectWorkspaceTransactionService {
           };
           await this.fileSystem.writeTextAtomic(
             this.absolute(projectRoot, `${lockPath}/owner.json`),
-            canonicalJson(owner),
+            canonicalJson(activeOwner),
           );
-          if (recoverExisting) await this.recoverJournals(projectRoot);
-          resolve(owner);
+          if (claimedLockPath && claimedOwnerToken) {
+            if (!(await this.removeOwnedDirectory(projectRoot, claimedLockPath, claimedOwnerToken)))
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'The claimed stale writer lock changed before reclamation cleanup.',
+              );
+            claimedLockPath = null;
+            claimedOwnerToken = null;
+          }
+          if (reclaimGuard) {
+            if (
+              !(await this.removeOwnedDirectory(
+                projectRoot,
+                reclaimGuardPath,
+                reclaimGuard.ownerToken,
+              ))
+            )
+              throw new ProjectWorkspaceMutationError(
+                'WORKSPACE_BUSY',
+                'The writer-lock reclaim guard changed before cleanup.',
+              );
+            reclaimGuard = null;
+          }
+          if (recoverExisting && !recoveredDuringReclaim) await this.recoverJournals(projectRoot);
+          resolve(activeOwner);
         } catch (error) {
+          if (activeOwner) await this.releaseLock(projectRoot, activeOwner);
+          let claimedStateRestored = true;
+          if (claimedLockPath && claimedOwnerToken)
+            claimedStateRestored = await this.restoreClaimedLock(
+              projectRoot,
+              claimedLockPath,
+              claimedOwnerToken,
+            );
+          if (reclaimGuard && claimedStateRestored)
+            await this.removeOwnedDirectory(projectRoot, reclaimGuardPath, reclaimGuard.ownerToken);
           reject(error);
         }
       })();
     });
   }
 
-  private async releaseLock(projectRoot: string, owner: LockOwner) {
+  private readLockOwner(projectRoot: string, relativeLockPath: string): Promise<ParsedLockOwner> {
+    return new Promise<ParsedLockOwner>((resolve) => {
+      void (async () => {
+        try {
+          resolve(
+            parseOwner(
+              JSON.parse(
+                await this.fileSystem.readText(
+                  this.absolute(projectRoot, `${relativeLockPath}/owner.json`),
+                ),
+              ),
+            ),
+          );
+        } catch {
+          resolve({ valid: false });
+        }
+      })();
+    });
+  }
+
+  private async removeOwnedDirectory(
+    projectRoot: string,
+    relativePath: string,
+    expectedOwnerToken: string,
+  ): Promise<boolean> {
+    const parsed = await this.readLockOwner(projectRoot, relativePath);
+    if (!parsed.valid || parsed.owner.ownerToken !== expectedOwnerToken) return false;
+    await this.fileSystem.removeDirectory(this.absolute(projectRoot, relativePath));
+    return true;
+  }
+
+  private async restoreClaimedLock(
+    projectRoot: string,
+    claimedPath: string,
+    expectedOwnerToken: string,
+  ): Promise<boolean> {
+    const parsed = await this.readLockOwner(projectRoot, claimedPath);
+    if (!parsed.valid || parsed.owner.ownerToken !== expectedOwnerToken) return false;
+    const active = this.absolute(projectRoot, lockPath);
+    if ((await this.fileSystem.inspect(active)) !== 'missing') return false;
     try {
-      const parsed = parseOwner(
-        JSON.parse(
-          await this.fileSystem.readText(this.absolute(projectRoot, `${lockPath}/owner.json`)),
-        ),
-      );
-      if (parsed.valid && parsed.owner.ownerToken === owner.ownerToken)
-        await this.fileSystem.removeDirectory(this.absolute(projectRoot, lockPath));
+      await this.fileSystem.movePathAtomic(this.absolute(projectRoot, claimedPath), active);
+      return true;
     } catch {
-      // Never remove a lock whose ownership cannot be verified.
+      // Leave the reclaim guard and claimed lock in place so later mutation fails closed rather than
+      // deleting an ownership state that can no longer be proven safe to restore.
+      return false;
     }
+  }
+
+  private async releaseLock(projectRoot: string, owner: LockOwner) {
+    await this.removeOwnedDirectory(projectRoot, lockPath, owner.ownerToken);
   }
 
   private recoverJournals(projectRoot: string): Promise<void> {
@@ -448,7 +596,12 @@ export class ProjectWorkspaceTransactionService {
           for (const entry of [...(await this.fileSystem.listDirectory(root))].sort(
             compareCodePoints,
           )) {
-            if (entry === '.writer-lock') continue;
+            if (
+              entry === '.writer-lock' ||
+              entry === '.writer-lock-reclaim' ||
+              entry.startsWith(claimedLockPrefix)
+            )
+              continue;
             const directory = `${transactionsPath}/${entry}`;
             let manifest: JournalManifest | null = null;
             try {

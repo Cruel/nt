@@ -321,4 +321,59 @@ describe('workspace granular persistence and transactions', () => {
     expect(await fileSystem.readText(`${root}/project.json`)).toBe(fixture.before);
     expect(await fileSystem.inspect(`${root}/.noveltea/transactions/interrupted`)).toBe('missing');
   });
+
+  it('allows exactly one simultaneous stale-lock reclaimer to recover the workspace', async () => {
+    const fixture = interruptedFiles('writing', 'after');
+    fixture.files[`${root}/.noveltea/transactions/.writer-lock/owner.json`] = `${JSON.stringify({
+      ownerToken: 'dead-owner',
+      pid: 42,
+      operationLabel: 'crashed writer',
+      transactionId: 'interrupted',
+    })}\n`;
+
+    class RacingReclaimFileSystem extends InMemoryProjectWorkspaceFileSystem {
+      private reclaimAttempts = 0;
+      private releaseFirst!: () => void;
+      private readonly secondReached = new Promise<void>((resolve) => {
+        this.releaseFirst = resolve;
+      });
+
+      override async movePathAtomic(from: string, to: string): Promise<void> {
+        if (
+          from === `${root}/.noveltea/transactions/.writer-lock` &&
+          to.includes('/.writer-lock.claimed-')
+        ) {
+          this.reclaimAttempts += 1;
+          if (this.reclaimAttempts === 1) await this.secondReached;
+          else if (this.reclaimAttempts === 2) this.releaseFirst();
+        }
+        await super.movePathAtomic(from, to);
+      }
+    }
+
+    const fileSystem = new RacingReclaimFileSystem(fixture.files);
+    let firstId = 0;
+    let secondId = 0;
+    const first = new ProjectWorkspaceTransactionService(
+      fileSystem,
+      { isProcessAlive: async () => false },
+      7,
+      () => `first-${++firstId}`,
+    );
+    const second = new ProjectWorkspaceTransactionService(
+      fileSystem,
+      { isProcessAlive: async () => false },
+      8,
+      () => `second-${++secondId}`,
+    );
+
+    const results = await Promise.allSettled([first.recover(root), second.recover(root)]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    expect(rejected?.reason).toMatchObject({ code: 'WORKSPACE_BUSY' });
+    expect(await fileSystem.readText(`${root}/project.json`)).toBe(fixture.before);
+    expect(await fileSystem.listDirectory(`${root}/.noveltea/transactions`)).toEqual([]);
+  });
 });

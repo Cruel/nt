@@ -252,7 +252,8 @@ boundary when the enlarged CLI graph performed upward project discovery: the wor
 implicit Promise could remain unsettled and the executable exited with status 13. Discovery now owns
 an explicit outer Promise and resolves/rejects it after the unchanged upward-search algorithm. The
 complete Node/Perry differential covers root and upward discovery plus successful mutations,
-live/malformed/stale locks, and interrupted-journal recovery.
+live/malformed/stale locks, interrupted-journal recovery, and the current guarded/atomic stale-lock
+reclamation path.
 
 ### Transaction UUID call shape
 

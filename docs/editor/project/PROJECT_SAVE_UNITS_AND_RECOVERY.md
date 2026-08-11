@@ -52,7 +52,10 @@ field-level pending input in recovery metadata.
   because Save advanced the revision before adopting a concurrent external change.
 - Save As and `Ctrl+Shift+S` create a copy from the saved content baseline plus complete editor
   metadata, recovery overlays, and dirty-only project asset files. The active project identity and
-  dirty state do not change.
+  dirty state do not change. Unrelated files may already exist at the chosen destination, but Save As
+  rejects pre-existing NovelTea canonical source/state namespaces and exact Asset-path collisions so
+  the copy cannot silently merge stale records, Layout/Script sources, recovery state, or unrelated
+  destination bytes into the copied workspace.
 - Closing the project, switching projects, and normal editor exit flush ignored local editor metadata
   and recovery only. They never pass the complete working document to a content-save API. Metadata-
   only writes never advance `savedDocument` or adopt newer tracked-file revisions. A scheduled recovery
