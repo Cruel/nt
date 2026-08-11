@@ -191,7 +191,13 @@ const buildEnv = {
 
 run(
   'cmake',
-  ['--preset', 'linux-release', '-DBUILD_TESTING=OFF', '-DNOVELTEA_COMPILE_SHADERS=OFF'],
+  [
+    '--preset',
+    'linux-release',
+    '-DBUILD_TESTING=OFF',
+    '-DNOVELTEA_COMPILE_SHADERS=OFF',
+    '-DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF',
+  ],
   { env: buildEnv },
 );
 run('cmake', ['--build', '--preset', 'linux-release', '--target', 'noveltea_tooling_native'], {

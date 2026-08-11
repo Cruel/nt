@@ -7,7 +7,9 @@
 
 namespace noveltea::ui::rmlui {
 
-std::string escape_rml(std::string_view value)
+RMLUI_RTTI_Define(NtActiveTextElement) RMLUI_RTTI_Define(NtMapViewElement)
+
+    std::string escape_rml(std::string_view value)
 {
     std::string escaped;
     escaped.reserve(value.size());

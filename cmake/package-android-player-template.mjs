@@ -75,7 +75,7 @@ await chmod(path.join(source, 'android', 'gradlew'), 0o755);
 await mkdir(path.join(stage, 'licenses'), { recursive: true });
 const dependencies = [
   ['SDL', '3.4.10'], ['Android Gradle Plugin', '8.7.3'], ['Gradle', '8.9'], ['bundletool', '1.18.1'],
-  ['Android NDK', '28.2.13676358'], ['bgfx.cmake', '1.143.9262-545'], ['RmlUi', '6.2'], ['Lua', '5.5.0'],
+  ['Android NDK', '28.2.13676358'], ['bgfx.cmake', '1.143.9262-545'], ['RmlUi', '6.3-dev-feature-calc-c6744d15'], ['Lua', '5.5.0'],
   ['sol2', '3.5.0'], ['FreeType', '2.13.3'], ['HarfBuzz', '11.2.1'], ['SheenBidi', '2.6'],
   ['libunibreak', '6.1'], ['miniaudio', '0.11.23'], ['nlohmann-json', '3.12.0'], ['twink', 'ea488b2'],
 ];

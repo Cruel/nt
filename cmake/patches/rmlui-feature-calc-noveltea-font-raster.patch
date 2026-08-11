@@ -1,5 +1,38 @@
+From 9eca3898e41fcb934e741ef58ac1f6dbfe4b7fb2 Mon Sep 17 00:00:00 2001
+From: NovelTea <dev@noveltea.invalid>
+Date: Mon, 10 Aug 2026 22:50:58 -0500
+Subject: [PATCH 2/3] Apply NovelTea font raster extensions
+
+---
+ Include/RmlUi/Core/Context.h                  |  8 +++
+ Include/RmlUi/Core/Core.h                     |  3 +
+ Include/RmlUi/Core/Element.h                  |  2 +
+ Include/RmlUi/Core/ElementText.h              |  1 +
+ Include/RmlUi/Core/FontEngineInterface.h      |  5 ++
+ Include/RmlUi/Core/NovelTeaPatch.h            |  2 +-
+ Source/Core/Context.cpp                       | 15 +++++
+ Source/Core/Core.cpp                          | 14 +++++
+ Source/Core/Element.cpp                       | 10 ++++
+ Source/Core/ElementStyle.cpp                  | 15 +++--
+ Source/Core/ElementStyle.h                    |  3 +
+ Source/Core/ElementText.cpp                   |  9 ++-
+ .../FontEngineInterfaceDefault.cpp            |  8 ++-
+ .../FontEngineInterfaceDefault.h              |  2 +
+ Source/Core/FontEngineDefault/FontFace.cpp    | 11 ++--
+ Source/Core/FontEngineDefault/FontFace.h      |  6 +-
+ .../FontFaceHandleDefault.cpp                 | 55 +++++++++++++++++--
+ .../FontEngineDefault/FontFaceHandleDefault.h |  8 ++-
+ .../Core/FontEngineDefault/FontFaceLayer.cpp  |  3 +-
+ Source/Core/FontEngineDefault/FontFaceLayer.h |  4 +-
+ Source/Core/FontEngineDefault/FontFamily.cpp  |  4 +-
+ Source/Core/FontEngineDefault/FontFamily.h    |  2 +-
+ .../Core/FontEngineDefault/FontProvider.cpp   | 10 ++--
+ Source/Core/FontEngineDefault/FontProvider.h  |  5 +-
+ Source/Core/FontEngineInterface.cpp           |  6 ++
+ 25 files changed, 178 insertions(+), 33 deletions(-)
+
 diff --git a/Include/RmlUi/Core/Context.h b/Include/RmlUi/Core/Context.h
-index 0487eb2..def2d7d 100644
+index 19711b4c..063c008f 100644
 --- a/Include/RmlUi/Core/Context.h
 +++ b/Include/RmlUi/Core/Context.h
 @@ -62,6 +62,13 @@ public:
@@ -16,7 +49,7 @@ index 0487eb2..def2d7d 100644
  	/// Changes the ratio of the 'dp' unit to the 'px' unit.
  	/// @param[in] dp_ratio The new density-independent pixel ratio of the context.
  	void SetDensityIndependentPixelRatio(float dp_ratio);
-@@ -316,6 +323,7 @@ private:
+@@ -318,6 +325,7 @@ private:
  	Vector2i media_query_dimensions;
  	bool has_media_query_dimensions = false;
  	float text_scale_factor = 1.f;
@@ -25,10 +58,10 @@ index 0487eb2..def2d7d 100644
  	String documents_base_tag = "body";
  
 diff --git a/Include/RmlUi/Core/Core.h b/Include/RmlUi/Core/Core.h
-index 87d2f51..4ae1ccd 100644
+index e73f724d..a481e12a 100644
 --- a/Include/RmlUi/Core/Core.h
 +++ b/Include/RmlUi/Core/Core.h
-@@ -151,6 +151,9 @@ RMLUICORE_API void ReleaseCompiledGeometry(RenderInterface* render_interface = n
+@@ -165,6 +165,9 @@ RMLUICORE_API void ReleaseCompiledGeometry(RenderInterface* render_interface = n
  /// Releases unused font textures and rendered glyphs to free up memory, and regenerates actively used fonts.
  /// @note Invalidates all existing FontFaceHandles returned from the font engine.
  RMLUICORE_API void ReleaseFontResources();
@@ -39,10 +72,10 @@ index 87d2f51..4ae1ccd 100644
  /// @note Any resources referring to the render manager in user space must be cleared first, including callback textures and compiled geometry.
  /// @note Also releases font resources, which invalidates all existing FontFaceHandles returned from the font engine.
 diff --git a/Include/RmlUi/Core/Element.h b/Include/RmlUi/Core/Element.h
-index bd40b2b..4ac99c8 100644
+index e0e95724..d527c42d 100644
 --- a/Include/RmlUi/Core/Element.h
 +++ b/Include/RmlUi/Core/Element.h
-@@ -676,6 +676,7 @@ private:
+@@ -680,6 +680,7 @@ private:
  
  	void OnDpRatioChangeRecursive();
  	void DirtyFontFaceRecursive();
@@ -50,7 +83,7 @@ index bd40b2b..4ac99c8 100644
  
  	void ClampScrollOffset();
  	void ClampScrollOffsetRecursive();
-@@ -790,6 +791,7 @@ private:
+@@ -794,6 +795,7 @@ private:
  	friend class Rml::LayoutEngine;
  	friend class Rml::ElementScroll;
  	friend RMLUICORE_API void Rml::ReleaseFontResources();
@@ -59,7 +92,7 @@ index bd40b2b..4ac99c8 100644
  
  } // namespace Rml
 diff --git a/Include/RmlUi/Core/ElementText.h b/Include/RmlUi/Core/ElementText.h
-index b3c7ea8..afedf8a 100644
+index 4a230855..9d30a1fe 100644
 --- a/Include/RmlUi/Core/ElementText.h
 +++ b/Include/RmlUi/Core/ElementText.h
 @@ -91,6 +91,7 @@ private:
@@ -71,10 +104,10 @@ index b3c7ea8..afedf8a 100644
  	bool geometry_dirty : 1;
  
 diff --git a/Include/RmlUi/Core/FontEngineInterface.h b/Include/RmlUi/Core/FontEngineInterface.h
-index ba3af6a..d075cc5 100644
+index ac15f59b..2a4ae027 100644
 --- a/Include/RmlUi/Core/FontEngineInterface.h
 +++ b/Include/RmlUi/Core/FontEngineInterface.h
-@@ -55,6 +55,11 @@ public:
+@@ -67,6 +67,11 @@ public:
  	/// @return A valid handle if a matching (or closely matching) font face was found, NULL otherwise.
  	virtual FontFaceHandle GetFontFaceHandle(const String& family, Style::FontStyle style, Style::FontWeight weight, int size);
  
@@ -87,19 +120,19 @@ index ba3af6a..d075cc5 100644
  	/// @param[in] handle The font handle.
  	/// @param[in] font_effects The list of font effects to generate the configuration for.
 diff --git a/Include/RmlUi/Core/NovelTeaPatch.h b/Include/RmlUi/Core/NovelTeaPatch.h
-index 672ca59..88320b7 100644
+index 672ca59c..88320b7f 100644
 --- a/Include/RmlUi/Core/NovelTeaPatch.h
 +++ b/Include/RmlUi/Core/NovelTeaPatch.h
 @@ -2,6 +2,6 @@
  #define RMLUI_CORE_NOVELTEAPATCH_H
  
  // Repository patch marker for NovelTea's presentation extensions.
--#define RMLUI_NOVELTEA_PATCH_REVISION "3c-text-scale-1"
-+#define RMLUI_NOVELTEA_PATCH_REVISION "5e-font-raster-scale-1"
+-#define RMLUI_NOVELTEA_PATCH_REVISION "6a-feature-calc-presentation-1"
++#define RMLUI_NOVELTEA_PATCH_REVISION "6b-feature-calc-font-raster-1"
  
  #endif
 diff --git a/Source/Core/Context.cpp b/Source/Core/Context.cpp
-index d154a32..2733870 100644
+index 5de8099b..69081170 100644
 --- a/Source/Core/Context.cpp
 +++ b/Source/Core/Context.cpp
 @@ -18,6 +18,7 @@
@@ -110,7 +143,7 @@ index d154a32..2733870 100644
  #include <iterator>
  #include <limits>
  
-@@ -199,6 +200,20 @@ float Context::GetTextScaleFactor() const
+@@ -203,6 +204,20 @@ float Context::GetTextScaleFactor() const
  	return text_scale_factor;
  }
  
@@ -132,10 +165,10 @@ index d154a32..2733870 100644
  {
  	if (density_independent_pixel_ratio != dp_ratio)
 diff --git a/Source/Core/Core.cpp b/Source/Core/Core.cpp
-index 78687ea..5d7ce39 100644
+index a453cfa3..c168285c 100644
 --- a/Source/Core/Core.cpp
 +++ b/Source/Core/Core.cpp
-@@ -426,6 +426,20 @@ void ReleaseFontResources()
+@@ -435,6 +435,20 @@ void ReleaseFontResources()
  		name_context.second->Update();
  }
  
@@ -157,10 +190,10 @@ index 78687ea..5d7ce39 100644
  {
  	auto& contexts = core_data->contexts;
 diff --git a/Source/Core/Element.cpp b/Source/Core/Element.cpp
-index 0619c53..3f497b0 100644
+index 9a822816..d96582a5 100644
 --- a/Source/Core/Element.cpp
 +++ b/Source/Core/Element.cpp
-@@ -2989,6 +2989,16 @@ void Element::DirtyFontFaceRecursive()
+@@ -3070,6 +3070,16 @@ void Element::DirtyFontFaceRecursive()
  		GetChild(i)->DirtyFontFaceRecursive();
  }
  
@@ -178,20 +211,20 @@ index 0619c53..3f497b0 100644
  {
  	const Vector2f new_scroll_offset = {
 diff --git a/Source/Core/ElementStyle.cpp b/Source/Core/ElementStyle.cpp
-index 7661631..142f783 100644
+index 1961f7d9..096811ec 100644
 --- a/Source/Core/ElementStyle.cpp
 +++ b/Source/Core/ElementStyle.cpp
-@@ -440,7 +440,7 @@ void ElementStyle::DirtyPropertiesWithUnitsRecursive(Units units)
+@@ -888,7 +888,7 @@ void ElementStyle::DirtyPropertiesWithUnitsRecursive(Units units)
  
  bool ElementStyle::AnyPropertiesDirty() const
  {
--	return !dirty_properties.Empty();
-+	return font_face_handle_dirty || !dirty_properties.Empty();
+-	return !dirty_properties.Empty() || !dirty_variables.empty() || !dirty_var_shorthands.empty();
++	return font_face_handle_dirty || !dirty_properties.Empty() || !dirty_variables.empty() || !dirty_var_shorthands.empty();
  }
  
- PropertiesIterator ElementStyle::Iterate() const
-@@ -473,6 +473,11 @@ void ElementStyle::DirtyProperty(PropertyId id)
- 	dirty_properties.Insert(id);
+ const Property* ElementStyle::ResolveKeyFrameProperty(PropertyId id, const Property* property, const PropertyDictionary& block_properties,
+@@ -922,6 +922,11 @@ void ElementStyle::Shutdown()
+ 	element_style_data.Shutdown();
  }
  
 +void ElementStyle::DirtyFontFaceHandle()
@@ -199,19 +232,10 @@ index 7661631..142f783 100644
 +	font_face_handle_dirty = true;
 +}
 +
- void ElementStyle::DirtyProperties(const PropertyIdSet& properties)
+ void ElementStyle::DirtyProperty(PropertyId id)
  {
- 	dirty_properties |= properties;
-@@ -481,7 +486,7 @@ void ElementStyle::DirtyProperties(const PropertyIdSet& properties)
- PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const Style::ComputedValues* parent_values,
- 	const Style::ComputedValues* document_values, bool values_are_default_initialized, float dp_ratio, Vector2f vp_dimensions)
- {
--	if (dirty_properties.Empty())
-+	if (dirty_properties.Empty() && !font_face_handle_dirty)
- 		return PropertyIdSet();
- 
- 	RMLUI_ZoneScopedC(0xFF7F50);
-@@ -564,7 +569,7 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
+ 	dirty_properties.Insert(id);
+@@ -1037,7 +1042,7 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
  		values.line_height(line_height_before);
  	}
  
@@ -220,7 +244,7 @@ index 7661631..142f783 100644
  
  	for (auto it = Iterate(); !it.AtEnd(); ++it)
  	{
-@@ -894,8 +899,9 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
+@@ -1077,8 +1082,9 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
  	if (dirty_font_face_handle)
  	{
  		RMLUI_ZoneScopedN("FontFaceHandle");
@@ -232,19 +256,19 @@ index 7661631..142f783 100644
  	}
  
  	// Next, pass inheritable dirty properties onto our children
-@@ -917,6 +923,7 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
- 
- 	PropertyIdSet result(std::move(dirty_properties));
+@@ -1104,6 +1110,7 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
  	dirty_properties.Clear();
+ 	dirty_variables.clear();
+ 	dirty_var_shorthands.clear();
 +	font_face_handle_dirty = false;
  	return result;
  }
  
 diff --git a/Source/Core/ElementStyle.h b/Source/Core/ElementStyle.h
-index 279e149..1d9b603 100644
+index e8f547d2..4ff50525 100644
 --- a/Source/Core/ElementStyle.h
 +++ b/Source/Core/ElementStyle.h
-@@ -96,6 +96,8 @@ public:
+@@ -124,6 +124,8 @@ public:
  
  	// Sets a single property as dirty.
  	void DirtyProperty(PropertyId id);
@@ -253,20 +277,20 @@ index 279e149..1d9b603 100644
  	/// Dirties all properties with any of the given units (OR-ed together) on the current element (*not* recursive).
  	void DirtyPropertiesWithUnits(Units units);
  	/// Dirties all properties with any of the given units (OR-ed together) on the current element and recursively on all children.
-@@ -137,6 +139,7 @@ private:
- 	SharedPtr<const ElementDefinition> definition;
- 
- 	PropertyIdSet dirty_properties;
+@@ -243,6 +245,7 @@ private:
+ #ifdef RMLUI_MATH_EXPRESSIONS
+ 	UniquePtr<UnorderedMap<PropertyId, Units>> resolved_unit_dependencies;
+ #endif
 +	bool font_face_handle_dirty = false;
  };
  
  } // namespace Rml
 diff --git a/Source/Core/ElementText.cpp b/Source/Core/ElementText.cpp
-index 51c5288..144ba98 100644
+index fe1dd2e0..fa1a9e3e 100644
 --- a/Source/Core/ElementText.cpp
 +++ b/Source/Core/ElementText.cpp
-@@ -98,7 +98,8 @@ void LogMissingFontFace(Element* element)
- }
+@@ -100,7 +100,8 @@ void LogMissingFontFace(Element* element)
+ RMLUI_RTTI_Define(ElementText)
  
  ElementText::ElementText(const String& tag) :
 -	Element(tag), colour(255, 255, 255), opacity(1), font_handle_version(0), geometry_dirty(true), dirty_layout_on_change(true),
@@ -275,7 +299,7 @@ index 51c5288..144ba98 100644
  	generated_decoration(Style::TextDecoration::None), decoration_property(Style::TextDecoration::None), font_effects_dirty(true),
  	font_effects_handle(0)
  {}
-@@ -128,6 +129,12 @@ void ElementText::OnRender()
+@@ -130,6 +131,12 @@ void ElementText::OnRender()
  	FontFaceHandle font_face_handle = GetFontFaceHandle();
  	if (font_face_handle == 0)
  		return;
@@ -289,10 +313,10 @@ index 51c5288..144ba98 100644
  	RenderManager& render_manager = GetContext()->GetRenderManager();
  
 diff --git a/Source/Core/FontEngineDefault/FontEngineInterfaceDefault.cpp b/Source/Core/FontEngineDefault/FontEngineInterfaceDefault.cpp
-index 615139f..be9923c 100644
+index 7f7f9119..cc15e265 100644
 --- a/Source/Core/FontEngineDefault/FontEngineInterfaceDefault.cpp
 +++ b/Source/Core/FontEngineDefault/FontEngineInterfaceDefault.cpp
-@@ -28,7 +28,13 @@ bool FontEngineInterfaceDefault::LoadFontFace(Span<const byte> data, int face_in
+@@ -34,7 +34,13 @@ bool FontEngineInterfaceDefault::LoadFontFace(Span<const byte> data, int face_in
  
  FontFaceHandle FontEngineInterfaceDefault::GetFontFaceHandle(const String& family, Style::FontStyle style, Style::FontWeight weight, int size)
  {
@@ -308,10 +332,10 @@ index 615139f..be9923c 100644
  }
  
 diff --git a/Source/Core/FontEngineDefault/FontEngineInterfaceDefault.h b/Source/Core/FontEngineDefault/FontEngineInterfaceDefault.h
-index 624a3f7..d414e20 100644
+index 701ac952..9b56e9bd 100644
 --- a/Source/Core/FontEngineDefault/FontEngineInterfaceDefault.h
 +++ b/Source/Core/FontEngineDefault/FontEngineInterfaceDefault.h
-@@ -23,6 +23,8 @@ public:
+@@ -27,6 +27,8 @@ public:
  	/// it can find, but in the event a font family is requested that does not exist, NULL will be returned instead of a
  	/// valid handle.
  	FontFaceHandle GetFontFaceHandle(const String& family, Style::FontStyle style, Style::FontWeight weight, int size) override;
@@ -321,7 +345,7 @@ index 624a3f7..d414e20 100644
  	/// Prepares for font effects by configuring a new, or returning an existing, layer configuration.
  	FontEffectsHandle PrepareFontEffects(FontFaceHandle handle, const FontEffectList& font_effects) override;
 diff --git a/Source/Core/FontEngineDefault/FontFace.cpp b/Source/Core/FontEngineDefault/FontFace.cpp
-index fec8908..d14b34b 100644
+index fec89083..d14b34b9 100644
 --- a/Source/Core/FontEngineDefault/FontFace.cpp
 +++ b/Source/Core/FontEngineDefault/FontFace.cpp
 @@ -28,9 +28,10 @@ Style::FontWeight FontFace::GetWeight() const
@@ -358,7 +382,7 @@ index fec8908..d14b34b 100644
  	return result;
  }
 diff --git a/Source/Core/FontEngineDefault/FontFace.h b/Source/Core/FontEngineDefault/FontFace.h
-index 369eda5..7ade7cb 100644
+index 369eda52..7ade7cbc 100644
 --- a/Source/Core/FontEngineDefault/FontFace.h
 +++ b/Source/Core/FontEngineDefault/FontFace.h
 @@ -19,7 +19,7 @@ public:
@@ -382,7 +406,7 @@ index 369eda5..7ade7cb 100644
  
  	FontFaceHandleFreetype face;
 diff --git a/Source/Core/FontEngineDefault/FontFaceHandleDefault.cpp b/Source/Core/FontEngineDefault/FontFaceHandleDefault.cpp
-index 7be3327..578f3be 100644
+index 7be3327a..11f45963 100644
 --- a/Source/Core/FontEngineDefault/FontFaceHandleDefault.cpp
 +++ b/Source/Core/FontEngineDefault/FontFaceHandleDefault.cpp
 @@ -13,6 +13,7 @@ namespace Rml {
@@ -445,7 +469,7 @@ index 7be3327..578f3be 100644
  int FontFaceHandleDefault::GetStringWidth(StringView string, const TextShapingContext& text_shaping_context, Character prior_character)
  {
  	RMLUI_ZoneScoped;
-@@ -168,7 +197,7 @@ bool FontFaceHandleDefault::GenerateLayerTexture(Vector<byte>& texture_data, Vec
+@@ -165,7 +194,7 @@ bool FontFaceHandleDefault::GenerateLayerTexture(Vector<byte>& texture_data, Vec
  		return false;
  	}
  
@@ -473,7 +497,7 @@ index 7be3327..578f3be 100644
  }
  
  void FontFaceHandleDefault::FillKerningPairCache()
-@@ -367,7 +397,7 @@ const FontGlyph* FontFaceHandleDefault::GetOrAppendGlyph(Character& character, b
+@@ -367,7 +404,7 @@ const FontGlyph* FontFaceHandleDefault::GetOrAppendGlyph(Character& character, b
  			const int num_fallback_faces = FontProvider::CountFallbackFontFaces();
  			for (int i = 0; i < num_fallback_faces; i++)
  			{
@@ -482,7 +506,7 @@ index 7be3327..578f3be 100644
  				if (!fallback_face || fallback_face == this)
  					continue;
  
-@@ -379,6 +409,12 @@ const FontGlyph* FontFaceHandleDefault::GetOrAppendGlyph(Character& character, b
+@@ -379,6 +416,12 @@ const FontGlyph* FontFaceHandleDefault::GetOrAppendGlyph(Character& character, b
  					it_glyph = pair.first;
  					if (pair.second)
  						is_layers_dirty = true;
@@ -496,7 +520,7 @@ index 7be3327..578f3be 100644
  				}
  			}
 diff --git a/Source/Core/FontEngineDefault/FontFaceHandleDefault.h b/Source/Core/FontEngineDefault/FontFaceHandleDefault.h
-index cf05181..4291020 100644
+index cf051810..42910207 100644
 --- a/Source/Core/FontEngineDefault/FontFaceHandleDefault.h
 +++ b/Source/Core/FontEngineDefault/FontFaceHandleDefault.h
 @@ -18,11 +18,15 @@ public:
@@ -533,7 +557,7 @@ index cf05181..4291020 100644
  	FontFaceHandleFreetype ft_face;
  };
 diff --git a/Source/Core/FontEngineDefault/FontFaceLayer.cpp b/Source/Core/FontEngineDefault/FontFaceLayer.cpp
-index 87ba603..ce73d14 100644
+index 87ba603c..ce73d141 100644
 --- a/Source/Core/FontEngineDefault/FontFaceLayer.cpp
 +++ b/Source/Core/FontEngineDefault/FontFaceLayer.cpp
 @@ -27,7 +27,8 @@ bool FontFaceLayer::Generate(const FontFaceHandleDefault* handle, const FontFace
@@ -547,7 +571,7 @@ index 87ba603..ce73d14 100644
  	// Generate the new layout.
  	if (clone)
 diff --git a/Source/Core/FontEngineDefault/FontFaceLayer.h b/Source/Core/FontEngineDefault/FontFaceLayer.h
-index 5810b62..d82cc56 100644
+index 5810b627..a1e722ec 100644
 --- a/Source/Core/FontEngineDefault/FontFaceLayer.h
 +++ b/Source/Core/FontEngineDefault/FontFaceLayer.h
 @@ -54,7 +54,8 @@ public:
@@ -569,7 +593,7 @@ index 5810b62..d82cc56 100644
  
  } // namespace Rml
 diff --git a/Source/Core/FontEngineDefault/FontFamily.cpp b/Source/Core/FontEngineDefault/FontFamily.cpp
-index 86efd71..898b218 100644
+index 53134ef9..c4eea7df 100644
 --- a/Source/Core/FontEngineDefault/FontFamily.cpp
 +++ b/Source/Core/FontEngineDefault/FontFamily.cpp
 @@ -16,7 +16,7 @@ FontFamily::~FontFamily()
@@ -589,14 +613,14 @@ index 86efd71..898b218 100644
 +	return matching_face->GetHandle(logical_size, raster_size, true);
  }
  
- FontFace* FontFamily::AddFace(FontFaceHandleFreetype ft_face, Style::FontStyle style, Style::FontWeight weight, UniquePtr<byte[]> face_memory)
+ auto FontFamily::AddFace(FontFaceHandleFreetype ft_face, Style::FontStyle style, Style::FontWeight weight, UniquePtr<byte[]> face_memory)
 diff --git a/Source/Core/FontEngineDefault/FontFamily.h b/Source/Core/FontEngineDefault/FontFamily.h
-index 5fbb27d..004a34e 100644
+index b2510294..430efa3f 100644
 --- a/Source/Core/FontEngineDefault/FontFamily.h
 +++ b/Source/Core/FontEngineDefault/FontFamily.h
-@@ -17,7 +17,7 @@ public:
+@@ -23,7 +23,7 @@ public:
  	/// @param[in] weight The weight of the desired handle.
- 	/// @param[in] size The size of desired handle, in points.
+ 	/// @param[in] size The size of the desired handle, in points.
  	/// @return A valid handle if a matching (or closely matching) font face was found, nullptr otherwise.
 -	FontFaceHandleDefault* GetFaceHandle(Style::FontStyle style, Style::FontWeight weight, int size);
 +	FontFaceHandleDefault* GetFaceHandle(Style::FontStyle style, Style::FontWeight weight, int logical_size, int raster_size);
@@ -604,7 +628,7 @@ index 5fbb27d..004a34e 100644
  	/// Adds a new face to the family.
  	/// @param[in] ft_face The previously loaded FreeType face.
 diff --git a/Source/Core/FontEngineDefault/FontProvider.cpp b/Source/Core/FontEngineDefault/FontProvider.cpp
-index 23c2781..d365584 100644
+index 94f97336..7dd9946b 100644
 --- a/Source/Core/FontEngineDefault/FontProvider.cpp
 +++ b/Source/Core/FontEngineDefault/FontProvider.cpp
 @@ -47,7 +47,8 @@ FontProvider& FontProvider::Get()
@@ -643,10 +667,10 @@ index 23c2781..d365584 100644
  	return nullptr;
  }
 diff --git a/Source/Core/FontEngineDefault/FontProvider.h b/Source/Core/FontEngineDefault/FontProvider.h
-index 4081104..a651ea7 100644
+index 7b2c1392..2d6aab37 100644
 --- a/Source/Core/FontEngineDefault/FontProvider.h
 +++ b/Source/Core/FontEngineDefault/FontProvider.h
-@@ -27,7 +27,8 @@ public:
+@@ -33,7 +33,8 @@ public:
  	/// @param[in] weight The weight of the desired font handle.
  	/// @param[in] size The size of desired handle, in points.
  	/// @return A valid handle if a matching (or closely matching) font face was found, nullptr otherwise.
@@ -656,7 +680,7 @@ index 4081104..a651ea7 100644
  
  	/// Adds a new font face to the database. The face's family, style and weight will be determined from the face itself.
  	static bool LoadFontFace(const String& file_name, int face_index, bool fallback_face, Style::FontWeight weight = Style::FontWeight::Auto);
-@@ -40,7 +41,7 @@ public:
+@@ -50,7 +51,7 @@ public:
  	static int CountFallbackFontFaces();
  
  	/// Return a font face handle with the given index, at the given font size.
@@ -666,10 +690,10 @@ index 4081104..a651ea7 100644
  	/// Releases resources owned by sized font faces, including their textures and rendered glyphs.
  	static void ReleaseFontResources();
 diff --git a/Source/Core/FontEngineInterface.cpp b/Source/Core/FontEngineInterface.cpp
-index 7fe1758..b7a8a9c 100644
+index f66c4884..84235081 100644
 --- a/Source/Core/FontEngineInterface.cpp
 +++ b/Source/Core/FontEngineInterface.cpp
-@@ -28,6 +28,12 @@ FontFaceHandle FontEngineInterface::GetFontFaceHandle(const String& /*family*/,
+@@ -34,6 +34,12 @@ FontFaceHandle FontEngineInterface::GetFontFaceHandle(const String& /*family*/,
  	return 0;
  }
  

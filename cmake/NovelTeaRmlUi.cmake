@@ -3,27 +3,25 @@ include_guard(GLOBAL)
 include(CheckCXXSourceCompiles)
 include(FetchContent)
 
-set(NOVELTEA_RMLUI_VERSION "6.2")
-set(NOVELTEA_RMLUI_SOURCE_URL
-    "https://github.com/mikke89/RmlUi/archive/refs/tags/6.2.tar.gz")
-set(NOVELTEA_RMLUI_SOURCE_SHA256
-    "814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b")
-set(NOVELTEA_RMLUI_BASE_PATCH_REVISION "3c-text-scale-1")
-set(NOVELTEA_RMLUI_FONT_RASTER_PATCH_REVISION "5e-font-raster-scale-1")
-set(NOVELTEA_RMLUI_PATCH_REVISION "5f-lua-event-listener-state-1")
+set(NOVELTEA_RMLUI_VERSION "6.3-dev")
+set(NOVELTEA_RMLUI_GIT_REPOSITORY "https://github.com/Cruel/RmlUi.git")
+set(NOVELTEA_RMLUI_GIT_COMMIT "c6744d15bda5e9df7ad9c1f8eae937157e7ed309")
+set(NOVELTEA_RMLUI_BASE_PATCH_REVISION "6a-feature-calc-presentation-1")
+set(NOVELTEA_RMLUI_FONT_RASTER_PATCH_REVISION "6b-feature-calc-font-raster-1")
+set(NOVELTEA_RMLUI_PATCH_REVISION "6c-feature-calc-lua-listener-state-1")
 set(NOVELTEA_RMLUI_PATCH_FILE
-    "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-6.2-noveltea-presentation.patch")
+    "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-feature-calc-noveltea-presentation.patch")
 set(NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE
-    "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-6.2-noveltea-font-raster.patch")
+    "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-feature-calc-noveltea-font-raster.patch")
 set(NOVELTEA_RMLUI_LUA_LISTENER_PATCH_FILE
-    "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-6.2-noveltea-lua-listener-lifetime.patch")
+    "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-feature-calc-noveltea-lua-listener-lifetime.patch")
 
 function(_noveltea_write_rmlui_dependency_diagnostic
          provider source_dir patch_sha256 font_raster_patch_sha256 lua_listener_patch_sha256)
     if(provider STREQUAL "FetchContent")
         set(_noveltea_rmlui_report_version "${NOVELTEA_RMLUI_VERSION}")
-        set(_noveltea_rmlui_report_source_url "${NOVELTEA_RMLUI_SOURCE_URL}")
-        set(_noveltea_rmlui_report_source_sha256 "${NOVELTEA_RMLUI_SOURCE_SHA256}")
+        set(_noveltea_rmlui_report_git_repository "${NOVELTEA_RMLUI_GIT_REPOSITORY}")
+        set(_noveltea_rmlui_report_git_commit "${NOVELTEA_RMLUI_GIT_COMMIT}")
         set(_noveltea_rmlui_report_patch_file "${NOVELTEA_RMLUI_PATCH_FILE}")
         set(_noveltea_rmlui_report_font_raster_patch_file
             "${NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE}")
@@ -32,8 +30,8 @@ function(_noveltea_write_rmlui_dependency_diagnostic
         set(_noveltea_rmlui_report_patch_revision "${NOVELTEA_RMLUI_PATCH_REVISION}")
     else()
         set(_noveltea_rmlui_report_version "installed")
-        set(_noveltea_rmlui_report_source_url "installed")
-        set(_noveltea_rmlui_report_source_sha256 "installed")
+        set(_noveltea_rmlui_report_git_repository "installed")
+        set(_noveltea_rmlui_report_git_commit "installed")
         set(_noveltea_rmlui_report_patch_file "installed")
         set(_noveltea_rmlui_report_font_raster_patch_file "installed")
         set(_noveltea_rmlui_report_lua_listener_patch_file "installed")
@@ -44,8 +42,8 @@ function(_noveltea_write_rmlui_dependency_diagnostic
     file(WRITE "${CMAKE_BINARY_DIR}/reports/rmlui-dependency.txt"
         "provider=${provider}\n"
         "version=${_noveltea_rmlui_report_version}\n"
-        "source_url=${_noveltea_rmlui_report_source_url}\n"
-        "source_sha256=${_noveltea_rmlui_report_source_sha256}\n"
+        "git_repository=${_noveltea_rmlui_report_git_repository}\n"
+        "git_commit=${_noveltea_rmlui_report_git_commit}\n"
         "patch_file=${_noveltea_rmlui_report_patch_file}\n"
         "font_raster_patch_file=${_noveltea_rmlui_report_font_raster_patch_file}\n"
         "lua_listener_patch_file=${_noveltea_rmlui_report_lua_listener_patch_file}\n"
@@ -167,12 +165,13 @@ function(noveltea_provide_rmlui_dependency)
         set(RMLUI_COMPILER_OPTIONS OFF CACHE BOOL "" FORCE)
         set(RMLUI_FONT_ENGINE "freetype" CACHE STRING "" FORCE)
         set(RMLUI_CUSTOM_RTTI ON CACHE BOOL "" FORCE)
+        set(RMLUI_MATH_EXPRESSIONS ON CACHE BOOL "" FORCE)
 
         FetchContent_Declare(
             RmlUi
-            URL "${NOVELTEA_RMLUI_SOURCE_URL}"
-            URL_HASH "SHA256=${NOVELTEA_RMLUI_SOURCE_SHA256}"
-            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+            GIT_REPOSITORY "${NOVELTEA_RMLUI_GIT_REPOSITORY}"
+            GIT_TAG "${NOVELTEA_RMLUI_GIT_COMMIT}"
+            GIT_PROGRESS TRUE
             PATCH_COMMAND
                 "${CMAKE_COMMAND}"
                 "-DSOURCE_DIR=<SOURCE_DIR>"
@@ -224,8 +223,8 @@ function(noveltea_provide_rmlui_dependency)
 
         set(NOVELTEA_RMLUI_PROVIDER "FetchContent" CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_SOURCE_DIR "${_noveltea_rmlui_source_dir}" CACHE INTERNAL "" FORCE)
-        set(NOVELTEA_RMLUI_CONFIGURED_SOURCE_SHA256
-            "${NOVELTEA_RMLUI_SOURCE_SHA256}" CACHE INTERNAL "" FORCE)
+        set(NOVELTEA_RMLUI_CONFIGURED_SOURCE_COMMIT
+            "${NOVELTEA_RMLUI_GIT_COMMIT}" CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_REVISION
             "${NOVELTEA_RMLUI_PATCH_REVISION}" CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_SHA256
@@ -238,7 +237,7 @@ function(noveltea_provide_rmlui_dependency)
             "${_noveltea_rmlui_lua_listener_patch_sha256}")
         message(STATUS
             "NovelTea RmlUi: provider=FetchContent version=${NOVELTEA_RMLUI_VERSION} "
-            "source_sha256=${NOVELTEA_RMLUI_SOURCE_SHA256} "
+            "git_commit=${NOVELTEA_RMLUI_GIT_COMMIT} "
             "patch=${NOVELTEA_RMLUI_PATCH_REVISION} "
             "patch_sha256=${_noveltea_rmlui_patch_sha256} "
             "font_raster_patch_sha256=${_noveltea_rmlui_font_raster_patch_sha256} "
@@ -248,7 +247,7 @@ function(noveltea_provide_rmlui_dependency)
         _noveltea_verify_installed_rmlui_extension_api()
         set(NOVELTEA_RMLUI_PROVIDER "installed-extension-api-verified" CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_SOURCE_DIR "" CACHE INTERNAL "" FORCE)
-        set(NOVELTEA_RMLUI_CONFIGURED_SOURCE_SHA256 "installed" CACHE INTERNAL "" FORCE)
+        set(NOVELTEA_RMLUI_CONFIGURED_SOURCE_COMMIT "installed" CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_REVISION "installed-api-verified"
             CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_SHA256 "installed" CACHE INTERNAL "" FORCE)

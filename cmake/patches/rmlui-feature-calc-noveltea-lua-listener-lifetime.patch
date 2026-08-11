@@ -1,31 +1,28 @@
+From bbb3f0b3d79c3044334721ac1391a4e7cbc41545 Mon Sep 17 00:00:00 2001
+From: NovelTea <dev@noveltea.invalid>
+Date: Mon, 10 Aug 2026 22:51:12 -0500
+Subject: [PATCH 3/3] Apply NovelTea Lua listener lifetime fix
+
+---
+ Include/RmlUi/Core/NovelTeaPatch.h |  2 +-
+ Source/Lua/LuaEventListener.cpp    | 34 ++++++++++++++++++++++++------
+ Source/Lua/LuaEventListener.h      |  4 +++-
+ 3 files changed, 31 insertions(+), 9 deletions(-)
+
 diff --git a/Include/RmlUi/Core/NovelTeaPatch.h b/Include/RmlUi/Core/NovelTeaPatch.h
-index 88320b7..d4b7884 100644
+index 88320b7f..489e5c17 100644
 --- a/Include/RmlUi/Core/NovelTeaPatch.h
 +++ b/Include/RmlUi/Core/NovelTeaPatch.h
 @@ -2,6 +2,6 @@
  #define RMLUI_CORE_NOVELTEAPATCH_H
  
  // Repository patch marker for NovelTea's presentation extensions.
--#define RMLUI_NOVELTEA_PATCH_REVISION "5e-font-raster-scale-1"
-+#define RMLUI_NOVELTEA_PATCH_REVISION "5f-lua-event-listener-state-1"
+-#define RMLUI_NOVELTEA_PATCH_REVISION "6b-feature-calc-font-raster-1"
++#define RMLUI_NOVELTEA_PATCH_REVISION "6c-feature-calc-lua-listener-state-1"
  
  #endif
-diff --git a/Source/Lua/LuaEventListener.h b/Source/Lua/LuaEventListener.h
---- a/Source/Lua/LuaEventListener.h
-+++ b/Source/Lua/LuaEventListener.h
-@@ -30,8 +30,10 @@ public:
- 	void ProcessEvent(Event& event) override;
- 
- private:
-+	lua_State* lua_state = nullptr;
-+	int lua_table_ref = LUA_NOREF;
- 	// the lua-side function to call when ProcessEvent is called
--	int luaFuncRef = -1;
-+	int luaFuncRef = LUA_NOREF;
- 
- 	Element* attached = nullptr;
- 	ElementDocument* owner_document = nullptr;
 diff --git a/Source/Lua/LuaEventListener.cpp b/Source/Lua/LuaEventListener.cpp
+index 51ac1186..efdb1e00 100644
 --- a/Source/Lua/LuaEventListener.cpp
 +++ b/Source/Lua/LuaEventListener.cpp
 @@ -17,6 +17,9 @@ LuaEventListener::LuaEventListener(const String& code, Element* element) : Event
@@ -38,7 +35,7 @@ diff --git a/Source/Lua/LuaEventListener.cpp b/Source/Lua/LuaEventListener.cpp
  	int top = lua_gettop(L);
  	lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
  	if (lua_isnoneornil(L, -1))
-@@ -30,10 +33,15 @@ LuaEventListener::LuaEventListener(const String& code, Element* element) : Event
+@@ -27,10 +30,15 @@ LuaEventListener::LuaEventListener(const String& code, Element* element) : Event
  		lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
  	}
  	int tbl = lua_gettop(L);
@@ -64,7 +61,7 @@ diff --git a/Source/Lua/LuaEventListener.cpp b/Source/Lua/LuaEventListener.cpp
  	int top = lua_gettop(L);
  	lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
  	if (lua_isnoneornil(L, -1))
-@@ -61,8 +72,11 @@ LuaEventListener::LuaEventListener(lua_State* L, int narg, Element* element)
+@@ -58,8 +69,11 @@ LuaEventListener::LuaEventListener(lua_State* L, int narg, Element* element)
  		lua_pop(L, 1); // pop the unsucessful getglobal
  		lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
  	}
@@ -97,7 +94,8 @@ diff --git a/Source/Lua/LuaEventListener.cpp b/Source/Lua/LuaEventListener.cpp
  }
  
  void LuaEventListener::OnDetach(Element* /*element*/)
-@@ -94,11 +113,13 @@ void LuaEventListener::ProcessEvent(Event& event)
+@@ -94,11 +112,13 @@ void LuaEventListener::ProcessEvent(Event& event)
+ 	// correct that
  	if (!owner_document && attached)
  		owner_document = attached->GetOwnerDocument();
 -	lua_State* L = Interpreter::GetLuaState();
@@ -112,4 +110,19 @@ diff --git a/Source/Lua/LuaEventListener.cpp b/Source/Lua/LuaEventListener.cpp
  	lua_rawgeti(L, -1, luaFuncRef);
  	LuaType<Event>::push(L, &event, false);
  	LuaType<Element>::push(L, attached, false);
- 	LuaType<Document>::push(L, owner_document, false);
+diff --git a/Source/Lua/LuaEventListener.h b/Source/Lua/LuaEventListener.h
+index 6b9b9b1e..7e3865e8 100644
+--- a/Source/Lua/LuaEventListener.h
++++ b/Source/Lua/LuaEventListener.h
+@@ -30,8 +30,10 @@ public:
+ 	void ProcessEvent(Event& event) override;
+ 
+ private:
++	lua_State* lua_state = nullptr;
++	int lua_table_ref = LUA_NOREF;
+ 	// the lua-side function to call when ProcessEvent is called
+-	int luaFuncRef = -1;
++	int luaFuncRef = LUA_NOREF;
+ 
+ 	Element* attached = nullptr;
+ 	ElementDocument* owner_document = nullptr;

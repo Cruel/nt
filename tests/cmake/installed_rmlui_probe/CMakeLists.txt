@@ -5,7 +5,7 @@ if(NOT DEFINED NOVELTEA_SOURCE_DIR)
     message(FATAL_ERROR "NOVELTEA_SOURCE_DIR is required")
 endif()
 if(NOT DEFINED NOVELTEA_FAKE_RMLUI_PATCH_REVISION)
-    set(NOVELTEA_FAKE_RMLUI_PATCH_REVISION "5f-lua-event-listener-state-1")
+    set(NOVELTEA_FAKE_RMLUI_PATCH_REVISION "6c-feature-calc-lua-listener-state-1")
 endif()
 
 configure_file(

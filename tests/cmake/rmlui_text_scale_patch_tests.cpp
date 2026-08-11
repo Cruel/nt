@@ -117,6 +117,16 @@ constexpr const char* kDocument = R"(
             font-size: 10px;
             width: 10em;
         }
+
+        #calc-absolute {
+            font-size: calc(10px + 5px);
+            line-height: calc(20px + 4px);
+        }
+
+        #calc-mixed {
+            font-size: calc(50% + 5px);
+            line-height: calc(1em + 2px);
+        }
     </style>
 </head>
 <body>
@@ -125,10 +135,12 @@ constexpr const char* kDocument = R"(
             <div id="percent"></div>
         </div>
         <div id="inherited"></div>
+        <div id="calc-mixed"></div>
     </div>
     <div id="rem"></div>
     <div id="zero"></div>
     <div id="layout"></div>
+    <div id="calc-absolute"></div>
 </body>
 </rml>
 )";
@@ -284,6 +296,10 @@ int main()
                       "rem font and line-height derive from the unscaled root at factor 1.0");
     ExpectTextMetrics(document, "zero", 0.0F, 7.0F,
                       "zero font size retains its independent absolute line-height");
+    ExpectTextMetrics(document, "calc-absolute", 15.0F, 24.0F,
+                      "absolute calc expressions resolve at the default text scale");
+    ExpectTextMetrics(document, "calc-mixed", 15.0F, 17.0F,
+                      "mixed relative and absolute calc terms resolve once at the default scale");
 
     Rml::Element* layout = document->GetElementById("layout");
     Expect(layout != nullptr && NearlyEqual(layout->GetBox().GetSize().x, 100.0F),
@@ -321,6 +337,10 @@ int main()
                       "rem font and line-height derive from the already-scaled document root");
     ExpectTextMetrics(document, "zero", 0.0F, 14.0F,
                       "absolute line-height recompiles even when scaled font size remains zero");
+    ExpectTextMetrics(document, "calc-absolute", 30.0F, 48.0F,
+                      "absolute calc expression terms receive the text scale once");
+    ExpectTextMetrics(document, "calc-mixed", 30.0F, 34.0F,
+                      "mixed calc terms do not double-scale their relative contribution");
     Expect(layout != nullptr && NearlyEqual(layout->GetBox().GetSize().x, 200.0F),
            "font-relative layout is remeasured after text scale changes");
     Expect(document->GetElementById("px")->GetFontFaceHandle() != 0 &&

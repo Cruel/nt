@@ -1,5 +1,24 @@
+From d109141d5383662e91eac5d04b7bc572c87a00b2 Mon Sep 17 00:00:00 2001
+From: NovelTea <dev@noveltea.invalid>
+Date: Mon, 10 Aug 2026 22:50:19 -0500
+Subject: [PATCH 1/3] Apply NovelTea presentation extensions
+
+---
+ Include/RmlUi/Core/Context.h        | 22 +++++++++++
+ Include/RmlUi/Core/NovelTeaPatch.h  |  7 ++++
+ Source/Core/CalculationResolver.cpp | 10 +++--
+ Source/Core/CalculationResolver.h   |  1 +
+ Source/Core/ComputeProperty.cpp     | 13 +++++--
+ Source/Core/ComputeProperty.h       |  5 ++-
+ Source/Core/Context.cpp             | 60 +++++++++++++++++++++++++++++
+ Source/Core/Element.cpp             |  4 +-
+ Source/Core/ElementStyle.cpp        |  7 +++-
+ Source/Core/StyleSheetContainer.cpp | 40 ++++++++++---------
+ 10 files changed, 137 insertions(+), 32 deletions(-)
+ create mode 100644 Include/RmlUi/Core/NovelTeaPatch.h
+
 diff --git a/Include/RmlUi/Core/Context.h b/Include/RmlUi/Core/Context.h
-index faff683..0487eb2 100644
+index bf73811a..19711b4c 100644
 --- a/Include/RmlUi/Core/Context.h
 +++ b/Include/RmlUi/Core/Context.h
 @@ -46,6 +46,22 @@ public:
@@ -25,7 +44,7 @@ index faff683..0487eb2 100644
  	/// Changes the ratio of the 'dp' unit to the 'px' unit.
  	/// @param[in] dp_ratio The new density-independent pixel ratio of the context.
  	void SetDensityIndependentPixelRatio(float dp_ratio);
-@@ -297,6 +313,9 @@ protected:
+@@ -299,6 +315,9 @@ protected:
  private:
  	String name;
  	Vector2i dimensions;
@@ -35,7 +54,7 @@ index faff683..0487eb2 100644
  	float density_independent_pixel_ratio = 1.f;
  	String documents_base_tag = "body";
  
-@@ -422,6 +441,9 @@ private:
+@@ -424,6 +443,9 @@ private:
  	// Builds the parameters for a drag event.
  	void GenerateDragEventParameters(Dictionary& parameters);
  
@@ -47,7 +66,7 @@ index faff683..0487eb2 100644
  
 diff --git a/Include/RmlUi/Core/NovelTeaPatch.h b/Include/RmlUi/Core/NovelTeaPatch.h
 new file mode 100644
-index 0000000..672ca59
+index 00000000..672ca59c
 --- /dev/null
 +++ b/Include/RmlUi/Core/NovelTeaPatch.h
 @@ -0,0 +1,7 @@
@@ -55,23 +74,80 @@ index 0000000..672ca59
 +#define RMLUI_CORE_NOVELTEAPATCH_H
 +
 +// Repository patch marker for NovelTea's presentation extensions.
-+#define RMLUI_NOVELTEA_PATCH_REVISION "3c-text-scale-1"
++#define RMLUI_NOVELTEA_PATCH_REVISION "6a-feature-calc-presentation-1"
 +
 +#endif
+diff --git a/Source/Core/CalculationResolver.cpp b/Source/Core/CalculationResolver.cpp
+index 5f7ac4f6..ef55ab93 100644
+--- a/Source/Core/CalculationResolver.cpp
++++ b/Source/Core/CalculationResolver.cpp
+@@ -50,18 +50,20 @@ namespace {
+ 			switch (node->unit)
+ 			{
+ 			case Unit::PX:
++				value *= context.length_scale_factor;
++				break;
+ 			case Unit::NUMBER:
+ 			case Unit::X: break;
+ 			case Unit::DP:
+-				value *= context.dp_ratio;
++				value *= context.dp_ratio * context.length_scale_factor;
+ 				unit = Unit::PX;
+ 				break;
+ 			case Unit::VW:
+-				value *= context.viewport_dimensions.x * .01f;
++				value *= context.viewport_dimensions.x * .01f * context.length_scale_factor;
+ 				unit = Unit::PX;
+ 				break;
+ 			case Unit::VH:
+-				value *= context.viewport_dimensions.y * .01f;
++				value *= context.viewport_dimensions.y * .01f * context.length_scale_factor;
+ 				unit = Unit::PX;
+ 				break;
+ 			case Unit::EM:
+@@ -77,7 +79,7 @@ namespace {
+ 			case Unit::MM:
+ 			case Unit::PT:
+ 			case Unit::PC:
+-				value = PhysicalToPx(value, node->unit, context.dp_ratio);
++				value = PhysicalToPx(value, node->unit, context.dp_ratio) * context.length_scale_factor;
+ 				unit = Unit::PX;
+ 				break;
+ 			case Unit::DEG:
+diff --git a/Source/Core/CalculationResolver.h b/Source/Core/CalculationResolver.h
+index d1db6de8..cb874a33 100644
+--- a/Source/Core/CalculationResolver.h
++++ b/Source/Core/CalculationResolver.h
+@@ -16,6 +16,7 @@ struct CalculationResolverContext {
+ 	Vector2f viewport_dimensions = {};
+ 	float dp_ratio = 1.f;
+ 	RelativeTarget relative_target = RelativeTarget::None;
++	float length_scale_factor = 1.f;
+ };
+ 
+ struct ResolvedCalculation {
 diff --git a/Source/Core/ComputeProperty.cpp b/Source/Core/ComputeProperty.cpp
-index 2dff457..9be8e93 100644
+index 77ebe005..4a961c78 100644
 --- a/Source/Core/ComputeProperty.cpp
 +++ b/Source/Core/ComputeProperty.cpp
-@@ -85,7 +85,7 @@ float ComputeAngle(NumericValue value)
+@@ -88,7 +88,7 @@ float ComputeAngle(NumericValue value)
  }
  
- float ComputeFontsize(NumericValue value, const Style::ComputedValues& values, const Style::ComputedValues* parent_values,
+ float ComputeFontsize(const Property* property, const Style::ComputedValues& values, const Style::ComputedValues* parent_values,
 -	const Style::ComputedValues* document_values, float dp_ratio, Vector2f vp_dimensions)
 +	const Style::ComputedValues* document_values, float dp_ratio, Vector2f vp_dimensions, float text_scale_factor)
  {
- 	if (Any(value.unit & (Unit::PERCENT | Unit::EM | Unit::REM)))
- 	{
-@@ -105,7 +105,7 @@ float ComputeFontsize(NumericValue value, const Style::ComputedValues& values, c
+ #ifdef RMLUI_MATH_EXPRESSIONS
+ 	if (property->unit == Unit::CALCULATION)
+@@ -98,6 +98,7 @@ float ComputeFontsize(const Property* property, const Style::ComputedValues& val
+ 			(!document_values || &values == document_values) ? DefaultComputedValues().font_size() : document_values->font_size();
+ 		CalculationResolverContext context{values.font_size(), parent_font_size, root_font_size, values.line_height().value, vp_dimensions, dp_ratio,
+ 			property->definition ? property->definition->GetRelativeTarget() : RelativeTarget::ParentFontSize};
++		context.length_scale_factor = text_scale_factor;
+ 		ResolvedCalculation resolved;
+ 		const CalculationPtr calculation = property->value.Get<CalculationPtr>();
+ 		if (calculation && ResolveCalculation(*calculation, context, resolved) && resolved.is_constant && resolved.unit == Unit::PX)
+@@ -125,7 +126,7 @@ float ComputeFontsize(const Property* property, const Style::ComputedValues& val
  		case Unit::REM:
  			// If the current element is a document, the rem unit is relative to the default size.
  			if (!document_values || &values == document_values)
@@ -80,7 +156,7 @@ index 2dff457..9be8e93 100644
  
  			// Otherwise it is relative to the document font size.
  			return value.number * document_values->font_size();
-@@ -114,7 +114,7 @@ float ComputeFontsize(NumericValue value, const Style::ComputedValues& values, c
+@@ -134,7 +135,7 @@ float ComputeFontsize(const Property* property, const Style::ComputedValues& val
  	}
  
  	// Font-relative lengths handled above, other lengths should be handled as normal.
@@ -88,8 +164,8 @@ index 2dff457..9be8e93 100644
 +	return ComputeLength(value, 0.f, 0.f, dp_ratio, vp_dimensions) * text_scale_factor;
  }
  
- String ComputeFontFamily(String font_family)
-@@ -133,11 +133,14 @@ Style::Clip ComputeClip(const Property* property)
+ bool ComputeDefiniteLength(const Property* property, float font_size, float document_font_size, float dp_ratio, Vector2f vp_dimensions, float& result)
+@@ -205,13 +206,15 @@ Style::Clip ComputeClip(const Property* property)
  	return Style::Clip();
  }
  
@@ -97,6 +173,16 @@ index 2dff457..9be8e93 100644
 +Style::LineHeight ComputeLineHeight(
 +	const Property* property, float font_size, float document_font_size, float dp_ratio, Vector2f vp_dimensions, float text_scale_factor)
  {
+ #ifdef RMLUI_MATH_EXPRESSIONS
+ 	if (property->unit == Unit::CALCULATION)
+ 	{
+ 		CalculationResolverContext context{font_size, font_size, document_font_size, 0.f, vp_dimensions, dp_ratio,
+ 			property->definition ? property->definition->GetRelativeTarget() : RelativeTarget::FontSize};
++		context.length_scale_factor = text_scale_factor;
+ 		ResolvedCalculation resolved;
+ 		const CalculationPtr calculation = property->value.Get<CalculationPtr>();
+ 		if (calculation && ResolveCalculation(*calculation, context, resolved) && resolved.is_constant)
+@@ -227,6 +230,8 @@ Style::LineHeight ComputeLineHeight(const Property* property, float font_size, f
  	if (Any(property->unit & Unit::LENGTH))
  	{
  		float value = ComputeLength(property->GetNumericValue(), font_size, document_font_size, dp_ratio, vp_dimensions);
@@ -106,17 +192,19 @@ index 2dff457..9be8e93 100644
  	}
  
 diff --git a/Source/Core/ComputeProperty.h b/Source/Core/ComputeProperty.h
-index e061a79..947fafd 100644
+index 638ba98f..c3cedea6 100644
 --- a/Source/Core/ComputeProperty.h
 +++ b/Source/Core/ComputeProperty.h
-@@ -13,13 +13,14 @@ float ComputeLength(NumericValue value, float font_size, float document_font_siz
+@@ -13,7 +13,7 @@ float ComputeLength(NumericValue value, float font_size, float document_font_siz
  float ComputeAngle(NumericValue value);
  
- float ComputeFontsize(NumericValue value, const Style::ComputedValues& values, const Style::ComputedValues* parent_values,
+ float ComputeFontsize(const Property* property, const Style::ComputedValues& values, const Style::ComputedValues* parent_values,
 -	const Style::ComputedValues* document_values, float dp_ratio, Vector2f vp_dimensions);
 +	const Style::ComputedValues* document_values, float dp_ratio, Vector2f vp_dimensions, float text_scale_factor);
  
- String ComputeFontFamily(String font_family);
+ bool ComputeDefiniteLength(const Property* property, float font_size, float document_font_size, float dp_ratio, Vector2f vp_dimensions,
+ 	float& result);
+@@ -24,7 +24,8 @@ String ComputeFontFamily(String font_family);
  
  Style::Clip ComputeClip(const Property* property);
  
@@ -127,10 +215,10 @@ index e061a79..947fafd 100644
  Style::VerticalAlign ComputeVerticalAlign(const Property* property, float line_height, float font_size, float document_font_size, float dp_ratio,
  	Vector2f vp_dimensions);
 diff --git a/Source/Core/Context.cpp b/Source/Core/Context.cpp
-index 7244cb7..d154a32 100644
+index 6af67fb5..5de8099b 100644
 --- a/Source/Core/Context.cpp
 +++ b/Source/Core/Context.cpp
-@@ -151,6 +151,54 @@ Vector2i Context::GetDimensions() const
+@@ -155,6 +155,54 @@ Vector2i Context::GetDimensions() const
  	return dimensions;
  }
  
@@ -185,7 +273,7 @@ index 7244cb7..d154a32 100644
  void Context::SetDensityIndependentPixelRatio(float dp_ratio)
  {
  	if (density_independent_pixel_ratio != dp_ratio)
-@@ -1544,6 +1592,18 @@ void Context::GenerateDragEventParameters(Dictionary& parameters)
+@@ -1554,6 +1602,18 @@ void Context::GenerateDragEventParameters(Dictionary& parameters)
  	parameters["drag_element"] = (void*)drag;
  }
  
@@ -205,10 +293,10 @@ index 7244cb7..d154a32 100644
  {
  	if (!unloaded_documents.empty())
 diff --git a/Source/Core/Element.cpp b/Source/Core/Element.cpp
-index 96b9834..0619c53 100644
+index ab6bcad7..9a822816 100644
 --- a/Source/Core/Element.cpp
 +++ b/Source/Core/Element.cpp
-@@ -2978,8 +2978,10 @@ void Element::OnDpRatioChangeRecursive()
+@@ -3059,8 +3059,10 @@ void Element::OnDpRatioChangeRecursive()
  
  void Element::DirtyFontFaceRecursive()
  {
@@ -221,24 +309,24 @@ index 96b9834..0619c53 100644
  
  	const int num_children = GetNumChildren(true);
 diff --git a/Source/Core/ElementStyle.cpp b/Source/Core/ElementStyle.cpp
-index 8f2c9bc..7661631 100644
+index 11220b46..1961f7d9 100644
 --- a/Source/Core/ElementStyle.cpp
 +++ b/Source/Core/ElementStyle.cpp
-@@ -494,6 +494,7 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
- 
+@@ -951,6 +951,7 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
+ 	Property property_storage;
  	const float font_size_before = values.font_size();
  	const Style::LineHeight line_height_before = values.line_height();
 +	const float text_scale_factor = (element->GetContext() ? element->GetContext()->GetTextScaleFactor() : 1.f);
  
  	// The next flag is just a small optimization, if the element was just created we don't need to copy all the default values.
  	if (!values_are_default_initialized)
-@@ -516,9 +517,12 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
- 	if (dirty_properties.Contains(PropertyId::FontSize))
- 	{
- 		if (auto p = GetLocalProperty(PropertyId::FontSize))
--			values.font_size(ComputeFontsize(p->GetNumericValue(), values, parent_values, document_values, dp_ratio, vp_dimensions));
-+			values.font_size(
-+				ComputeFontsize(p->GetNumericValue(), values, parent_values, document_values, dp_ratio, vp_dimensions, text_scale_factor));
+@@ -986,10 +987,12 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
+ 			variable_dependencies.clear();
+ 			property = ResolveVariables(PropertyId::FontSize, property, variable_dependencies, property_storage);
+ 			if (property)
+-				values.font_size(ComputeFontsize(property, values, parent_values, document_values, dp_ratio, vp_dimensions));
++				values.font_size(ComputeFontsize(property, values, parent_values, document_values, dp_ratio, vp_dimensions, text_scale_factor));
+ 		}
  		else if (parent_values)
  			values.font_size(parent_values->font_size());
 +		else
@@ -246,20 +334,20 @@ index 8f2c9bc..7661631 100644
  
  		if (font_size_before != values.font_size())
  		{
-@@ -539,7 +543,7 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
- 	{
- 		if (auto p = GetLocalProperty(PropertyId::LineHeight))
- 		{
--			values.line_height(ComputeLineHeight(p, font_size, document_font_size, dp_ratio, vp_dimensions));
-+			values.line_height(ComputeLineHeight(p, font_size, document_font_size, dp_ratio, vp_dimensions, text_scale_factor));
+@@ -1013,7 +1016,7 @@ PropertyIdSet ElementStyle::ComputeValues(Style::ComputedValues& values, const S
+ 			variable_dependencies.clear();
+ 			property = ResolveVariables(PropertyId::LineHeight, property, variable_dependencies, property_storage);
+ 			if (property)
+-				values.line_height(ComputeLineHeight(property, font_size, document_font_size, dp_ratio, vp_dimensions));
++				values.line_height(ComputeLineHeight(property, font_size, document_font_size, dp_ratio, vp_dimensions, text_scale_factor));
  		}
  		else if (parent_values)
  		{
 diff --git a/Source/Core/StyleSheetContainer.cpp b/Source/Core/StyleSheetContainer.cpp
-index 8185ab4..515a396 100644
+index b9e96cba..9cbce64c 100644
 --- a/Source/Core/StyleSheetContainer.cpp
 +++ b/Source/Core/StyleSheetContainer.cpp
-@@ -26,8 +26,10 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
+@@ -29,8 +29,10 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
  	RMLUI_ZoneScoped;
  
  	const float dp_ratio = context->GetDensityIndependentPixelRatio();
@@ -272,37 +360,70 @@ index 8185ab4..515a396 100644
  
  	Vector<int> new_active_media_block_indices;
  
-@@ -47,42 +49,42 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
+@@ -47,7 +49,7 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
+ 		resolver_context.font_size = font_size;
+ 		resolver_context.parent_font_size = font_size;
+ 		resolver_context.document_font_size = font_size;
+-		resolver_context.viewport_dimensions = vp_dimensions;
++		resolver_context.viewport_dimensions = layout_dimensions;
+ 		resolver_context.dp_ratio = dp_ratio;
+ 		ResolvedCalculation resolved;
+ 		if (!ResolveCalculation(*calculation, resolver_context, resolved) || !resolved.is_constant)
+@@ -86,60 +88,60 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
  			switch (id)
  			{
  			case MediaQueryId::Width:
--				if (vp_dimensions.x != ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
-+				if (media_dimensions.x != ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+-				if (!values_equal(float(vp_dimensions.x),
++				if (!values_equal(float(media_dimensions.x),
+ 						has_calculated_media_value ? media_value
+-												   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions),
++											   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions),
+ 						has_calculated_media_value))
  					all_match = false;
  				break;
  			case MediaQueryId::MinWidth:
--				if (vp_dimensions.x < ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
-+				if (media_dimensions.x < ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+-				if (value_less(float(vp_dimensions.x),
++				if (value_less(float(media_dimensions.x),
+ 						has_calculated_media_value ? media_value
+-												   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions),
++											   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions),
+ 						has_calculated_media_value))
  					all_match = false;
  				break;
  			case MediaQueryId::MaxWidth:
--				if (vp_dimensions.x > ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
-+				if (media_dimensions.x > ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+-				if (value_greater(float(vp_dimensions.x),
++				if (value_greater(float(media_dimensions.x),
+ 						has_calculated_media_value ? media_value
+-												   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions),
++											   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions),
+ 						has_calculated_media_value))
  					all_match = false;
  				break;
  			case MediaQueryId::Height:
--				if (vp_dimensions.y != ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
-+				if (media_dimensions.y != ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+-				if (!values_equal(float(vp_dimensions.y),
++				if (!values_equal(float(media_dimensions.y),
+ 						has_calculated_media_value ? media_value
+-												   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions),
++											   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions),
+ 						has_calculated_media_value))
  					all_match = false;
  				break;
  			case MediaQueryId::MinHeight:
--				if (vp_dimensions.y < ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
-+				if (media_dimensions.y < ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+-				if (value_less(float(vp_dimensions.y),
++				if (value_less(float(media_dimensions.y),
+ 						has_calculated_media_value ? media_value
+-												   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions),
++											   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions),
+ 						has_calculated_media_value))
  					all_match = false;
  				break;
  			case MediaQueryId::MaxHeight:
--				if (vp_dimensions.y > ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
-+				if (media_dimensions.y > ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+-				if (value_greater(float(vp_dimensions.y),
++				if (value_greater(float(media_dimensions.y),
+ 						has_calculated_media_value ? media_value
+-												   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions),
++											   : ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions),
+ 						has_calculated_media_value))
  					all_match = false;
  				break;
  			case MediaQueryId::AspectRatio:
@@ -324,7 +445,7 @@ index 8185ab4..515a396 100644
  					all_match = false;
  				break;
  			case MediaQueryId::Resolution:
-@@ -100,7 +102,7 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
+@@ -157,7 +159,7 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
  			case MediaQueryId::Orientation:
  				// Landscape (x > y) = 0
  				// Portrait (x <= y) = 1

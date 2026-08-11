@@ -8,7 +8,7 @@ provided, CMake emits a `FATAL_ERROR` with a clear message.
 | Dependency | Purpose | Acquisition |
 |---|---|---|
 | bgfx | Cross-platform rendering backend. | Desktop: `bgfx` vcpkg package. Web/Android: `NOVELTEA_FETCH_BGFX=ON` (FetchContent). |
-| RmlUi | Runtime UI framework (with Lua bindings). | Linux, Web, and Android use the pinned RmlUi 6.2 archive with the presentation, font-raster, and Lua-listener patches through `NOVELTEA_FETCH_RMLUI=ON`. The final revision is `5f-lua-event-listener-state-1`. The vcpkg manifest contains no RmlUi dependency or override. An installed desktop package is accepted only when it reports that exact revision and exposes the complete NovelTea extension API. |
+| RmlUi | Runtime UI framework (with Lua bindings and CSS math expressions). | Linux, Web, and Android use commit `c6744d15bda5e9df7ad9c1f8eae937157e7ed309` from Cruel/RmlUi's `feature-calc` line with the rebased presentation, font-raster, and Lua-listener patches through `NOVELTEA_FETCH_RMLUI=ON`. The final revision is `6c-feature-calc-lua-listener-state-1`. The vcpkg manifest contains no RmlUi dependency or override. An installed desktop package is accepted only when it reports that exact revision and exposes the complete NovelTea extension API. |
 | rmlui-bgfx | Reusable RmlUi renderer package. | `find_package(rmlui_bgfx)` or `NOVELTEA_FETCH_RMLUI_BGFX=ON` (FetchContent). |
 | RmlUi::Lua | Official RmlUi Lua plugin. | Bundled with RmlUi; the `lua` feature must be enabled. |
 | Lua 5.5 + sol2 | Runtime scripting. | Desktop: `lua` 5.5 and `sol2` vcpkg packages. Web/Android: FetchContent. |
@@ -40,7 +40,7 @@ SDL, bgfx, RmlUi, miniaudio, text backends, Twink, and optional ImGui belong to 
 | Variable | Default | Description |
 |---|---|---|
 | `NOVELTEA_FETCH_BGFX` | `ON` | Fetch and build bgfx via FetchContent (Web/Android). On desktop, bgfx is expected from vcpkg. |
-| `NOVELTEA_FETCH_RMLUI` | `ON` | Fetch, verify, patch, and statically build the pinned RmlUi 6.2 source on every production platform. Setting this `OFF` is a desktop-only fallback and configuration fails unless the installed package reports the exact current NovelTea patch revision and exposes the complete Context extension API. |
+| `NOVELTEA_FETCH_RMLUI` | `ON` | Fetch, verify, patch, and statically build the pinned Cruel/RmlUi `feature-calc` commit on every production platform. CSS mathematical expressions are enabled. Setting this `OFF` is a desktop-only fallback and configuration fails unless the installed package reports the exact current NovelTea patch revision and exposes the complete Context extension API. |
 | `NOVELTEA_FETCH_RMLUI_BGFX` | `ON` | Fetch `rmlui-bgfx` from `NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY` when `rmlui_bgfx::rmlui_bgfx` is not already available. |
 | `NOVELTEA_USE_LOCAL_RMLUI_BGFX` | `OFF` | Use a local `rmlui-bgfx` checkout instead of an installed package or the remote FetchContent repository. Intended for tandem renderer/engine development. |
 | `NOVELTEA_LOCAL_RMLUI_BGFX_DIR` | `${CMAKE_SOURCE_DIR}/rmlui-bgfx` | Local checkout path used when `NOVELTEA_USE_LOCAL_RMLUI_BGFX=ON`. |
@@ -67,14 +67,13 @@ cmake --preset linux-debug -DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON -DNOVELTEA_LOCAL_R
 ```
 
 RmlUi dependency identity is written to `build/<preset>/reports/rmlui-dependency.txt`. The final
-contract is RmlUi 6.2 archive SHA-256
-`814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b`, base patch revision
-`3c-text-scale-1` with SHA-256
-`d212928a876e0409ded399d93a85177c00f1ed387ca45411e9baa356f18e6d22`, followed by font-raster
-revision `5e-font-raster-scale-1` with SHA-256
-`992c411472df8491b79a7ea847bfdea9a69122a458092b7b59add75eb2b4fa88`, and final Lua-listener
-revision `5f-lua-event-listener-state-1` with SHA-256
-`780a23afedea41021535c8135adb37cbad693d35630c00c7848737da3668fe08`. Linux, Web, and Android
+contract is Cruel/RmlUi commit `c6744d15bda5e9df7ad9c1f8eae937157e7ed309` from the
+`feature-calc` line, base patch revision `6a-feature-calc-presentation-1` with SHA-256
+`95c2fdee763da0b2d87cf13e0ee9aac690d09d13e62069ccf0b0ecf87732cbc8`, followed by font-raster
+revision `6b-feature-calc-font-raster-1` with SHA-256
+`2e259f79b14f78ff37c868f23fca0c59a33dac0d35744c4e0eba2c96e7ac4f50`, and final Lua-listener
+revision `6c-feature-calc-lua-listener-state-1` with SHA-256
+`b519e72f0dfe1666445dccfddedf9ebf884f48ecb61ecd2ce5cddeb71327ff27`. Linux, Web, and Android
 configuration reports must agree on all values. Native Linux test builds expose the focused
 `rmlui-patch-test` target, which validates the patch marker, media-query-dimension and context
 text/font-raster-scale extensions, and Lua-listener creation-state teardown without enabling

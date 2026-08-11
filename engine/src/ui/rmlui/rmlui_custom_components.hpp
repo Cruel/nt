@@ -33,15 +33,15 @@ make_map_view_snapshot(const core::TypedRuntimeUIViewState& state);
 
 class NtActiveTextElement final : public Rml::Element {
 public:
-    RMLUI_RTTI_DefineWithParent(NtActiveTextElement,
-                                Rml::Element) explicit NtActiveTextElement(const Rml::String& tag);
+    RMLUI_RTTI_DeclareWithParent(NtActiveTextElement,
+                                 Rml::Element) explicit NtActiveTextElement(const Rml::String& tag);
     void set_snapshot(const ActiveTextComponentSnapshot& snapshot);
 };
 
 class NtMapViewElement final : public Rml::Element {
 public:
-    RMLUI_RTTI_DefineWithParent(NtMapViewElement,
-                                Rml::Element) explicit NtMapViewElement(const Rml::String& tag);
+    RMLUI_RTTI_DeclareWithParent(NtMapViewElement,
+                                 Rml::Element) explicit NtMapViewElement(const Rml::String& tag);
     void set_snapshot(const TypedMapViewComponentSnapshot& snapshot);
 };
 

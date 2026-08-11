@@ -20,7 +20,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             -S "${CMAKE_CURRENT_SOURCE_DIR}/cmake/installed_rmlui_probe"
             -B "${CMAKE_CURRENT_BINARY_DIR}/installed-rmlui-outdated-patch-probe"
             -DNOVELTEA_SOURCE_DIR=${CMAKE_SOURCE_DIR}
-            -DNOVELTEA_FAKE_RMLUI_PATCH_REVISION=5e-font-raster-scale-1
+            -DNOVELTEA_FAKE_RMLUI_PATCH_REVISION=6b-feature-calc-font-raster-1
             -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER})
     set_tests_properties(noveltea_installed_rmlui_outdated_patch_rejected PROPERTIES
         LABELS "rmlui;dependency;installed-package;configure"
