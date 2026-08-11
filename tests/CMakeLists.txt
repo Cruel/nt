@@ -137,7 +137,7 @@ if(NOVELTEA_NODE_EXECUTABLE)
         LABELS "web;bootstrap;assets")
 endif()
 
-add_executable(noveltea_content_tests
+set(NOVELTEA_CONTENT_TEST_SOURCES
     core/compiled_package_tests.cpp
     core/compiled_project_wire_tests.cpp
     core/json_access_tests.cpp
@@ -146,10 +146,13 @@ add_executable(noveltea_content_tests
     core/rich_text_tests.cpp
     core/runtime_user_settings_tests.cpp
     render/material_asset_tests.cpp
-    render/shader_compiler_tests.cpp
     render/shader_manifest_tests.cpp
     render/shader_package_export_tests.cpp
 )
+if(TARGET noveltea_shader_tooling)
+    list(APPEND NOVELTEA_CONTENT_TEST_SOURCES render/shader_compiler_tests.cpp)
+endif()
+add_executable(noveltea_content_tests ${NOVELTEA_CONTENT_TEST_SOURCES})
 target_include_directories(noveltea_content_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"
     "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -161,13 +164,15 @@ target_compile_definitions(noveltea_content_tests PRIVATE
 target_link_libraries(noveltea_content_tests PRIVATE
     noveltea_content
     noveltea_domain
-    $<$<TARGET_EXISTS:noveltea_shader_tooling>:noveltea_shader_tooling>
     nlohmann_json::nlohmann_json
     # This lower-layer test binary has no bimg provider, so it intentionally links
     # the standalone miniz implementation used by the content codecs under test.
     miniz::miniz
     Catch2::Catch2WithMain
 )
+if(TARGET noveltea_shader_tooling)
+    target_link_libraries(noveltea_content_tests PRIVATE noveltea_shader_tooling)
+endif()
 catch_discover_tests(noveltea_content_tests)
 
 add_executable(noveltea_runtime_tests

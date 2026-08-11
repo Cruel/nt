@@ -92,7 +92,7 @@ the repository root, run:
 
 ```sh
 pnpm project:compile -- \
-  --project path/to/project.json \
+  --project path/to/project \
   --output path/to/compiled-project.json
 ```
 
@@ -101,14 +101,15 @@ The equivalent editor-package invocation is:
 ```sh
 cd editor
 pnpm project:compile -- \
-  --project path/to/project.json \
+  --project path/to/project \
   --output path/to/compiled-project.json
 ```
 
 Paths are resolved relative to the directory where the pnpm command was invoked, including through
-the repository-root forwarding target. The command reads one explicit project JSON file and writes
-the canonical compact gameplay bytes returned by `publishCompiledArtifact`; it does not append a
-newline, build a `.ntpkg`, copy assets, compile shaders, or perform platform export.
+the repository-root forwarding target. The command opens one explicit workspace-v1 project directory
+through its `project.json` manifest and writes the canonical compact gameplay bytes returned by
+`publishCompiledArtifact`; it does not append a newline, build a `.ntpkg`, copy assets, compile
+shaders, or perform platform export.
 
 Use `--json` for one structured report on stdout. Human-readable compiler diagnostics are written to
 stderr and preserve their severity, stable code, JSON pointer, message, and compiler stage reports.
@@ -125,6 +126,7 @@ Stable exit codes are:
 | `4` | Compiler diagnostics prevented publication |
 | `5` | Output conflict or output publication failure |
 
-`editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project.json` is the checked-in
-process/CI fixture. Its output is compared byte-for-byte with the canonical minimal compiled-project
-golden; normal CI never regenerates the golden implicitly.
+`editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project/` is the checked-in
+workspace-v1 process/CI fixture. Its output is compared byte-for-byte with the canonical minimal
+compiled-project golden; normal CI never regenerates either fixture implicitly.
+`pnpm goldens:compiled-project` regenerates both from the shared minimal authoring fixture.

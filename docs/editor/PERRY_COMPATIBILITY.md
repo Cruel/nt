@@ -373,8 +373,12 @@ on the candidate Perry version and the full workspace/CLI differential passes.
 **Perry behavior:** `readFileSync(0, 'utf8')` returned `EBADF` under the Perry 0.5.1220 Linux CLI.
 
 **NovelTea accommodation:** `editor/scripts/noveltea.ts` reads `/dev/stdin` on the currently admitted
-Linux CLI host. The Windows branch retains fd `0`, but Windows is not admitted as a supported Perry
-CLI host until its complete native/differential gate passes.
+Linux CLI host. Node implements child-process `pipe` stdio with a socket pair on Linux, which Perry
+cannot reopen through `/dev/stdin` (`EIO`). The editor's private native-operation subprocess bridge
+therefore writes each bounded request to a mode-0600 file in a private temporary directory and passes
+that regular file as the child's stdin. It removes the file and directory after the child exits. The
+Windows branch retains fd `0`, but Windows is not admitted as a supported Perry CLI host until its
+complete native/differential gate passes.
 
 **Revisit/remove when:** fd `0` stdin reads match Node on each admitted host and the real `test
 run-spec` / `test run-ui-spec` stdin fixtures pass through the released Perry binary.

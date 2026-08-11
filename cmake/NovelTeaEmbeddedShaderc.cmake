@@ -63,16 +63,29 @@ function(noveltea_configure_embedded_shaderc)
     set(BGFX_CUSTOM_TARGETS OFF CACHE BOOL "" FORCE)
     set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
 
+    find_package(Git REQUIRED)
+
     FetchContent_Declare(
         noveltea_bgfx_shaderc_source
         URL "${NOVELTEA_BGFX_SHADERC_ARCHIVE_URL}"
         URL_HASH "SHA256=${NOVELTEA_BGFX_SHADERC_ARCHIVE_SHA256}"
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        PATCH_COMMAND "${CMAKE_COMMAND}"
+            "-DNOVELTEA_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
+            "-DNOVELTEA_PATCH_SOURCE_DIR=<SOURCE_DIR>"
+            "-DNOVELTEA_PATCH_FILE=${CMAKE_SOURCE_DIR}/cmake/patches/bgfx-shaderc-fcpp-value-stack.patch"
+            -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatchOnce.cmake"
     )
     FetchContent_MakeAvailable(noveltea_bgfx_shaderc_source)
 
     if(NOT TARGET shaderc)
         message(FATAL_ERROR "Pinned bgfx source did not define its shaderc target")
+    endif()
+    if(NOVELTEA_ENABLE_SANITIZERS AND TARGET glsl-optimizer AND
+       CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        # Mesa's legacy arena-allocated AST nodes and bit-packed flags bypass C++ object-lifetime
+        # and scalar-value rules assumed by UBSan. Keep AddressSanitizer enabled on this dependency.
+        target_compile_options(glsl-optimizer PRIVATE -fno-sanitize=undefined)
     endif()
 
     get_target_property(_shaderc_sources shaderc SOURCES)

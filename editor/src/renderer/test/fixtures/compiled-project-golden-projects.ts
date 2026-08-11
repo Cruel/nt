@@ -119,6 +119,7 @@ function renameProject(project: AuthoringProject, id: string, name: string): voi
 
 export function minimalGoldenProject(): AuthoringProject {
   const project = createAuthoringProject({ id: 'golden-minimal', name: 'Golden Minimal' });
+  project.settings.ui.systemLayouts = {};
   const room = defaultRoomData('Start');
   room.description = { markup: 'plain', source: { kind: 'inline', text: 'Minimal room.' } };
   project.rooms.start = { id: 'start', label: 'Start', data: room };

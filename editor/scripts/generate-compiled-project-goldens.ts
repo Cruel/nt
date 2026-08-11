@@ -1,7 +1,8 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { compileAuthoringProject } from '../src/shared/authoring-compiler';
+import { projectWorkspaceFiles } from '../src/shared/project-workspace';
 import {
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
@@ -24,6 +25,7 @@ const fixtures = [
 
 export interface GenerateCompiledProjectGoldensOptions {
   outputDirectory?: string;
+  projectFixtureDirectory?: string;
 }
 
 export function generateCompiledProjectGoldens(
@@ -31,6 +33,9 @@ export function generateCompiledProjectGoldens(
 ): void {
   const outputDirectory =
     options.outputDirectory ?? resolve('src/renderer/test/fixtures/compiled-project-golden');
+  const projectFixtureDirectory =
+    options.projectFixtureDirectory ??
+    resolve('src/renderer/test/fixtures/project-compiler-cli/minimal-project');
   mkdirSync(outputDirectory, { recursive: true });
 
   for (const [name, buildProject] of fixtures) {
@@ -39,6 +44,16 @@ export function generateCompiledProjectGoldens(
       throw new Error(`Failed to compile ${name}:\n${JSON.stringify(result.diagnostics, null, 2)}`);
     }
     writeFileSync(resolve(outputDirectory, `${name}.json`), `${result.canonicalJson}\n`, 'utf8');
+  }
+
+  const project = minimalGoldenProject();
+  rmSync(projectFixtureDirectory, { recursive: true, force: true });
+  for (const [relativePath, contents] of Object.entries(
+    projectWorkspaceFiles(project, project.editor),
+  )) {
+    const outputPath = resolve(projectFixtureDirectory, relativePath);
+    mkdirSync(resolve(outputPath, '..'), { recursive: true });
+    writeFileSync(outputPath, contents, 'utf8');
   }
 }
 

@@ -1,0 +1,42 @@
+{
+  "id": "start",
+  "label": "Start",
+  "data": {
+    "kind": "room",
+    "displayName": "Start",
+    "background": {
+      "asset": null,
+      "material": null,
+      "fit": "cover",
+      "color": null
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Minimal room."
+      },
+      "markup": "plain"
+    },
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "compose": null,
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [],
+      "beforeLeave": [],
+      "afterLeave": []
+    },
+    "exits": [],
+    "placements": [],
+    "hotspots": []
+  }
+}

@@ -192,7 +192,7 @@ jobs:
             build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
             build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-embedded-shaderc-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          key: ${{ runner.os }}-x64-embedded-shaderc-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
 
       - name: Cache ccache
         uses: actions/cache@v5
@@ -309,6 +309,13 @@ jobs:
             wayland-protocols libltdl-dev libxtst-dev autoconf automake autoconf-archive \
             libtool bison flex
 
+      - name: Resolve rmlui-bgfx master revision
+        id: rmlui-bgfx-revision
+        run: |
+          revision="$(git ls-remote https://github.com/Cruel/rmlui-bgfx.git refs/heads/master | awk 'NR == 1 { print $1 }')"
+          test -n "$revision"
+          echo "commit=$revision" >> "$GITHUB_OUTPUT"
+
       - name: Cache vcpkg SDK and binaries
         uses: actions/cache@v5
         with:
@@ -326,6 +333,29 @@ jobs:
           key: ${{ runner.os }}-x64-vcpkg-installed-linux-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
             ${{ runner.os }}-x64-vcpkg-installed-linux-sanitize-
+
+      - name: Cache sanitizer embedded shaderc build
+        uses: actions/cache@v5
+        with:
+          path: |
+            build/linux-sanitize/_deps/noveltea_bgfx_shaderc_source-src
+            build/linux-sanitize/_deps/noveltea_bgfx_shaderc_source-build
+            build/linux-sanitize/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
+            build/linux-sanitize/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
+          key: ${{ runner.os }}-x64-embedded-shaderc-sanitize-${{ hashFiles('cmake/NovelTeaEmbeddedShaderc.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyGitPatchOnce.cmake', 'cmake/patches/bgfx-shaderc-fcpp-value-stack.patch', 'engine/src/render/embedded_bgfx_resources.hpp.in', 'vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+
+      - name: Cache sanitizer RmlUi dependencies
+        id: sanitizer-rmlui-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            build/linux-sanitize/_deps/rmlui-src
+            build/linux-sanitize/_deps/rmlui-build
+            build/linux-sanitize/_deps/rmlui-subbuild
+            build/linux-sanitize/_deps/rmlui_bgfx-src
+            build/linux-sanitize/_deps/rmlui_bgfx-build
+            build/linux-sanitize/_deps/rmlui_bgfx-subbuild
+          key: ${{ runner.os }}-x64-rmlui-sanitize-${{ steps.rmlui-bgfx-revision.outputs.commit }}-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json', 'vcpkg-configuration.json', 'cmake/NovelTeaCompilerPolicy.cmake', 'cmake/NovelTeaRmlUi.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyRepositoryPatch.cmake', 'cmake/patches/rmlui-feature-calc-noveltea-presentation.patch', 'cmake/patches/rmlui-feature-calc-noveltea-font-raster.patch', 'cmake/patches/rmlui-feature-calc-noveltea-lua-listener-lifetime.patch', 'cmake/vcpkg-triplets/**') }}
 
       - name: Cache sanitizer compiler outputs
         uses: actions/cache@v5
@@ -349,10 +379,23 @@ jobs:
           path: build/prebuilt-shader-assets
 
       - name: Configure sanitizer build
-        run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DNOVELTEA_RMLUI_BGFX_GIT_TAG="${{ steps.rmlui-bgfx-revision.outputs.commit }}" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build sanitizer targets
         run: cmake --build --preset linux-sanitize
+
+      - name: Save sanitizer RmlUi dependencies
+        if: success() && steps.sanitizer-rmlui-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            build/linux-sanitize/_deps/rmlui-src
+            build/linux-sanitize/_deps/rmlui-build
+            build/linux-sanitize/_deps/rmlui-subbuild
+            build/linux-sanitize/_deps/rmlui_bgfx-src
+            build/linux-sanitize/_deps/rmlui_bgfx-build
+            build/linux-sanitize/_deps/rmlui_bgfx-subbuild
+          key: ${{ runner.os }}-x64-rmlui-sanitize-${{ steps.rmlui-bgfx-revision.outputs.commit }}-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'vcpkg.json', 'vcpkg-configuration.json', 'cmake/NovelTeaCompilerPolicy.cmake', 'cmake/NovelTeaRmlUi.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/ApplyRepositoryPatch.cmake', 'cmake/patches/rmlui-feature-calc-noveltea-presentation.patch', 'cmake/patches/rmlui-feature-calc-noveltea-font-raster.patch', 'cmake/patches/rmlui-feature-calc-noveltea-lua-listener-lifetime.patch', 'cmake/vcpkg-triplets/**') }}
 
       - name: Report sanitizer compiler cache
         if: always()
@@ -911,7 +954,7 @@ jobs:
         run: |
           OUTPUT="$RUNNER_TEMP/noveltea-minimal-compiled.json"
           pnpm -C editor run project:compile -- \
-            --project editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project.json \
+            --project editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project \
             --output "$OUTPUT"
           node -e "const fs=require('node:fs'); const actual=fs.readFileSync(process.argv[1],'utf8'); const expected=fs.readFileSync(process.argv[2],'utf8').trimEnd(); if(actual!==expected){console.error('Standalone project compiler output differs from the canonical golden.'); process.exit(1)}" \
             "$OUTPUT" \

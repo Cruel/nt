@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
@@ -51,60 +53,81 @@ export function resolveNovelTeaCliPath(): string {
   return path.resolve(process.cwd(), '..', 'build', 'cli', 'linux', cliName());
 }
 
-export function invokeNovelTeaNativeOperation(command: string, payload: unknown): Promise<unknown> {
+export async function invokeNovelTeaNativeOperation(
+  command: string,
+  payload: unknown,
+): Promise<unknown> {
   const input = JSON.stringify(payload ?? {});
   if (Buffer.byteLength(input, 'utf8') > MAX_TOOL_INPUT_BYTES) {
     return Promise.reject(new Error('Editor tool payload is too large.'));
   }
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolveNovelTeaCliPath(), ['__editor-native', command], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error('NovelTea native operation timed out.'));
-    }, 30_000);
-
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
-      if (Buffer.byteLength(stdout, 'utf8') > 16 * 1024 * 1024) child.kill();
-    });
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      let parsed: unknown = null;
-      try {
-        parsed = stdout ? JSON.parse(stdout) : null;
-      } catch (parseError) {
-        reject(
-          new Error(
-            `NovelTea native operation returned invalid JSON.${stderr ? ` stderr: ${stderr}` : ''} ${String(parseError)}`,
-          ),
-        );
+  const inputRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-input-'));
+  const inputPath = path.join(inputRoot, 'request.json');
+  let inputFile: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    await writeFile(inputPath, input, { encoding: 'utf8', mode: 0o600 });
+    inputFile = await open(inputPath, 'r');
+    return await new Promise((resolve, reject) => {
+      // Perry 0.5.1220 cannot reopen Node's socket-backed child-process pipe through /dev/stdin.
+      // A private regular file preserves the stdin protocol used by the standalone native bridge.
+      const child = spawn(resolveNovelTeaCliPath(), ['__editor-native', command], {
+        stdio: [inputFile!.fd, 'pipe', 'pipe'],
+      });
+      if (!child.stdout || !child.stderr) {
+        child.kill();
+        reject(new Error('NovelTea native operation did not expose output pipes.'));
         return;
       }
+      const childStdout = child.stdout;
+      const childStderr = child.stderr;
+      let stdout = '';
+      let stderr = '';
+      const timer = setTimeout(() => {
+        child.kill();
+        reject(new Error('NovelTea native operation timed out.'));
+      }, 30_000);
 
-      if (code !== 0 && !parsed) {
-        reject(
-          new Error(
-            stderr || `NovelTea native operation failed with exit code ${code ?? 'unknown'}.`,
-          ),
-        );
-        return;
-      }
-      resolve(parsed);
+      childStdout.setEncoding('utf8');
+      childStderr.setEncoding('utf8');
+      childStdout.on('data', (chunk: string) => {
+        stdout += chunk;
+        if (Buffer.byteLength(stdout, 'utf8') > 16 * 1024 * 1024) child.kill();
+      });
+      childStderr.on('data', (chunk: string) => {
+        stderr += chunk;
+      });
+      child.on('error', (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        let parsed: unknown = null;
+        try {
+          parsed = stdout ? JSON.parse(stdout) : null;
+        } catch (parseError) {
+          reject(
+            new Error(
+              `NovelTea native operation returned invalid JSON.${stderr ? ` stderr: ${stderr}` : ''} ${String(parseError)}`,
+            ),
+          );
+          return;
+        }
+
+        if (code !== 0 && !parsed) {
+          reject(
+            new Error(
+              stderr || `NovelTea native operation failed with exit code ${code ?? 'unknown'}.`,
+            ),
+          );
+          return;
+        }
+        resolve(parsed);
+      });
     });
-    child.stdin.end(input);
-  });
+  } finally {
+    await inputFile?.close().catch(() => undefined);
+    await rm(inputRoot, { recursive: true, force: true });
+  }
 }

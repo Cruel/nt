@@ -231,6 +231,18 @@ driver-owned allocations until process exit. Run the same expression separately 
 `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`; do not disable leak detection for the engine and parser
 test suites.
 
+The sanitizer configuration builds native host tooling as well as the player/runtime graph so the
+shader compiler service and its embedded shaderc closure receive sanitizer coverage in the same
+instrumented build. Shader binaries remain prebuilt CI artifacts; `NOVELTEA_COMPILE_SHADERS=OFF`
+avoids regenerating them. Configurations with `NOVELTEA_BUILD_HOST_TOOLS=OFF` omit the shader compiler
+tests while retaining the rest of `noveltea_content_tests`. The source-built shaderc closure applies
+`cmake/patches/bgfx-shaderc-fcpp-value-stack.patch`, which prevents its bundled `fcpp` from reading
+before an empty expression value stack while pushing operators that do not perform short-circuit
+evaluation. The legacy Mesa AST implementation in `glsl-optimizer` retains AddressSanitizer but
+disables UBSan because its arena-allocated nodes and bit-packed flags intentionally bypass the C++
+object-lifetime and scalar-value rules assumed by those checks. NovelTea's shader compiler wrapper
+and the remainder of the embedded closure retain both sanitizers.
+
 For sustained fuzzing with Clang/libFuzzer, configure a separate build with
 `NOVELTEA_BUILD_FUZZERS=ON` and `NOVELTEA_USE_LIBFUZZER=ON`, then run the desired
 `noveltea_fuzz_*` executable with a corpus directory.

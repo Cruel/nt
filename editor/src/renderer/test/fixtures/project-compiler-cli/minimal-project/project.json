@@ -1,0 +1,71 @@
+{
+  "schema": "noveltea.project.workspace",
+  "schemaVersion": 1,
+  "project": {
+    "id": "golden-minimal",
+    "name": "Golden Minimal",
+    "version": "0.1.0",
+    "author": "",
+    "description": ""
+  },
+  "settings": {
+    "ui": {
+      "systemLayouts": {}
+    },
+    "text": {
+      "defaultFont": null
+    },
+    "titleScreen": {
+      "titleImage": null,
+      "showProjectTitle": true,
+      "showAuthor": false,
+      "subtitle": "",
+      "startLabel": "Start"
+    },
+    "app": {
+      "displayName": "Golden Minimal",
+      "localized": {},
+      "applicationId": "org.noveltea.golden-minimal",
+      "saveNamespace": "org.noveltea.golden-minimal",
+      "versionName": "0.1.0",
+      "icon": null,
+      "launchImage": null,
+      "desktop": {},
+      "web": {},
+      "android": {}
+    },
+    "display": {
+      "referenceResolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "worldRasterPolicy": "capped",
+      "barColor": "#000000"
+    },
+    "accessibility": {
+      "uiScale": {
+        "enabled": true,
+        "minimum": 1,
+        "maximum": 2
+      },
+      "textScale": {
+        "enabled": true,
+        "minimum": 1,
+        "maximum": 2
+      }
+    },
+    "presentation": {
+      "roomNavigationTransition": {
+        "kind": "cut",
+        "durationMs": 0,
+        "color": null,
+        "skippable": true
+      }
+    }
+  },
+  "startupHook": null,
+  "entrypoint": {
+    "kind": "room",
+    "id": "start"
+  }
+}

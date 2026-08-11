@@ -1,0 +1,13 @@
+diff --git a/bgfx/3rdparty/fcpp/cpp5.c b/bgfx/3rdparty/fcpp/cpp5.c
+--- a/bgfx/3rdparty/fcpp/cpp5.c
++++ b/bgfx/3rdparty/fcpp/cpp5.c
+@@ -307,7 +307,8 @@ ReturnCode fpp_eval(struct Global *global, int *eval)
+ 	}
+ 	opp->op = op;
+ 	opp->prec = prec;
+-	skip = (valp[-1] != 0);         /* Short-circuit tester */
++	/* A leading unary operator is pushed before its operand. */
++	skip = valp > value && (valp[-1] != 0); /* Short-circuit tester */
+ 	/*
+ 	 * Do the short-circuit stuff here.  Short-circuiting
+ 	 * stops automagically when operators are evaluated.
