@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executablePath = path.join(editorRoot, 'dist-electron', 'tools', 'noveltea.mjs');
 const commandArguments = process.argv.slice(2);
+if (commandArguments[0] === '--') commandArguments.shift();
 const structuredOutput = commandArguments.includes('--json');
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 
