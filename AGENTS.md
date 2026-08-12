@@ -1,5 +1,15 @@
 # AGENTS.md
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues for `Cruel/nt`, managed with `gh`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Planning, specs, tickets, and domain-language work use root `CONTEXT.md` as a glossary plus rare `docs/adr/` decision rationale. Read `docs/agents/domain.md` before that work.
+
 ## Project Purpose
 
 This repository is the new NovelTea runtime/framework and editor. The target stack is SDL3 for platform/input/windowing, bgfx for rendering across Linux, Web, and Android, RmlUi for runtime UI, Dear ImGui for developer/debug UI only, and Lua for runtime scripting.
@@ -10,7 +20,7 @@ This is a new engine/editor, not a compatibility fork of the old `Cruel/NovelTea
 
 Use `docs/OVERVIEW.md` as the top-level documentation map. `AGENTS.md` should stay focused on root repository rules and route agents to top-level documentation entrypoints; detailed subsystem references belong in the area overview files.
 
-Read the relevant area overview before changing code in that area:
+Read the relevant area overview before planning or changing code in that area:
 
 - Build, CMake, CI, toolchains, shaders, platform build wiring: `docs/build/OVERVIEW.md`
 - Engine/runtime architecture and C++ framework direction: `docs/architecture/OVERVIEW.md`
@@ -172,7 +182,7 @@ Prefer small, named boundaries:
 
 ## Subagent Policy
 
-This repo intentionally uses `agents.max_depth = 1`. Only the root task may delegate; subagents must not spawn other agents. This avoids recursive fan-out, duplicated exploration, and unnecessary token use.
+This repo intentionally uses `agents.max_depth = 1`. Only the root task may delegate; subagents must not spawn other agents. When a skill describes nested delegation (for example Wayfinder dispatching a `/research` worker whose stock skill would delegate again), flatten it: the root dispatches one bounded subagent that performs the work directly. This avoids recursive fan-out, duplicated exploration, and unnecessary token use.
 
 Subagents are optional specialists, not a default workflow. Use one only when independent parallel work, a bounded specialist task, or an isolated review is likely to save more effort than the extra context and coordination cost. Most small or already-understood tasks should remain single-agent.
 
