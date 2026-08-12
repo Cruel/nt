@@ -6,7 +6,8 @@ Usage:
   noveltea [--project <project-directory>] [--json] <command> ...
 
 Commands:
-  agent sync
+  project create <directory> --name <project-name>
+  agent sync [--fix]
   validate
   entity create <collection> <id> [--dry-run]
   entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]

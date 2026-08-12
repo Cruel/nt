@@ -22,6 +22,7 @@ import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import { CliCommandUsageError, parseCliCommand } from './commands';
 import type { NovelTeaAgentKitPayload } from './agent-kit';
 import { runNovelTeaAgentSyncCli } from './agent-sync-cli';
+import { runNovelTeaProjectCreateCli } from './project-create-cli';
 
 export interface RunNovelTeaCliOptions {
   readonly cwd?: string;
@@ -90,6 +91,9 @@ export async function runNovelTeaCli(
 
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const fileSystem = options.fileSystem ?? createNodeProjectWorkspaceFileSystem();
+  const workspace = options.workspace ?? createNodeProjectWorkspaceService();
+  if (globals.command[0] === 'project' && globals.command[1] === 'create')
+    return runNovelTeaProjectCreateCli(globals, fileSystem, workspace);
   if (globals.command[0] === 'agent' && globals.command[1] === 'sync')
     return runNovelTeaAgentSyncCli(globals, fileSystem, cwd, options.agentKitPayload);
 
@@ -165,7 +169,6 @@ export async function runNovelTeaCli(
       discovery.projectRoot ? { projectRoot: discovery.projectRoot } : {},
     );
 
-  const workspace = options.workspace ?? createNodeProjectWorkspaceService();
   const opened = await openCliProject(workspace, discovery.projectRoot, {
     readOnly: command.dryRun,
   });

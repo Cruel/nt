@@ -65,7 +65,14 @@ revisions that the watcher has not reconciled. Tracked organization and ignored 
 are persisted independently, and ignored local/session changes do not change in-memory or on-disk
 workspace identity.
 
-New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. Save As
+New projects create `records/`, `scripts/`, and `assets/` but do not add placeholder files. Editor and
+CLI creation use one transactional service: it stages and validates the complete workspace before
+activating a new destination path that does not exist. Every existing file, directory, or symlink is
+rejected, and paths containing spaces are supported. The editor's Browse action selects a parent
+directory and derives a new child directory from the project name.
+When `.gitignore` is absent, creation and Save As create it with `/.noveltea/`; an existing file is
+user-owned and preserved exactly. Save As reports a warning when that existing file does not mention
+`.noveltea`, leaving the user to choose the appropriate ignore rule. Save As
 targets a project root and writes `project.json`; it carries tracked baseline, local editor state,
 dirty-only asset bytes, and separately-owned workflows, while excluding generated agent/build/cache,
 transactions, and trash state. A non-empty destination may contain unrelated user files, `.git`,

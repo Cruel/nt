@@ -13,13 +13,16 @@ Ordinary authoring is file-first: edit tracked JSON, Lua, RML, and RCSS directly
 Core authoring commands are:
 
 ```text
+noveltea project create <directory> --name <project-name>
 noveltea validate
 noveltea usages <collection> <id>
 noveltea entity create <collection> <id> [--dry-run]
 noveltea entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]
 noveltea entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]
-noveltea agent sync
+noveltea agent sync [--fix]
 ```
+
+`project create` accepts a new destination path that does not exist, including paths containing spaces, and rejects every existing file, directory, or symlink. It assembles and validates the complete initial workspace in a sibling staging directory before atomic activation. The editor uses the same creation service and project defaults. Creation does not generate `.noveltea/agent/`; run `agent sync` afterward.
 
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. `noveltea --help` is authoritative for the installed version's exact syntax.
 

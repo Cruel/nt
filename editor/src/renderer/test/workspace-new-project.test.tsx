@@ -993,6 +993,22 @@ describe('WorkspacePage new project modal', () => {
     expect(directory).toHaveValue('/tmp/custom-project');
   });
 
+  it('uses the selected directory as the parent of a new project folder', async () => {
+    render(<WorkspacePage />);
+    dispatchNewProject();
+
+    fireEvent.change(await screen.findByLabelText('Project name'), {
+      target: { value: 'My Story' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Browse…' }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('Project directory')).toHaveValue(
+        '/home/test/Documents/NovelTea/custom-project/my-story',
+      ),
+    );
+  });
+
   it('creates and loads a saved project', async () => {
     render(<WorkspacePage />);
     dispatchNewProject();
@@ -1016,7 +1032,7 @@ describe('WorkspacePage new project modal', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('blocks custom project directories containing spaces', async () => {
+  it('allows custom project directories containing spaces', async () => {
     render(<WorkspacePage />);
     dispatchNewProject();
 
@@ -1024,7 +1040,6 @@ describe('WorkspacePage new project modal', () => {
       target: { value: '/tmp/my project' },
     });
 
-    expect(screen.getByText('Project paths must not contain spaces.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create Project' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Create Project' })).toBeEnabled();
   });
 });

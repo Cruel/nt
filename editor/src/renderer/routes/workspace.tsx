@@ -211,10 +211,6 @@ function joinProjectPath(parent: string, child: string) {
   return `${parent.replace(/[\\/]+$/, '')}${separator}${child}`;
 }
 
-function pathContainsSpaces(value: string) {
-  return /\s/.test(value);
-}
-
 interface WorkspaceAlert {
   title: string;
   message: string;
@@ -436,12 +432,13 @@ export function WorkspacePage() {
   }
 
   async function browseNewProjectDirectory() {
-    const directory = await window.noveltea.selectDirectory({
-      title: 'Select New Project Directory',
+    const parentDirectory = await window.noveltea.selectDirectory({
+      title: 'Select Parent Directory for New Project',
       defaultPath: newProjectDirectory || (await resolveNewProjectParentDirectory()),
     });
-    if (!directory) return;
-    setNewProjectDirectory(directory);
+    if (!parentDirectory) return;
+    const slug = projectSlug(newProjectName) ?? 'new-project';
+    setNewProjectDirectory(joinProjectPath(parentDirectory, slug));
     setNewProjectDirectoryEdited(true);
     setNewProjectError(null);
   }
@@ -460,10 +457,6 @@ export function WorkspacePage() {
     }
     if (!directory) {
       setNewProjectError('Project directory is required.');
-      return;
-    }
-    if (pathContainsSpaces(directory)) {
-      setNewProjectError('Project paths must not contain spaces.');
       return;
     }
     setNewProjectCreating(true);
@@ -1713,9 +1706,7 @@ export function WorkspacePage() {
       : null;
   const newProjectDirectoryIssue = !newProjectDirectory.trim()
     ? 'Project directory is required.'
-    : pathContainsSpaces(newProjectDirectory)
-      ? 'Project paths must not contain spaces.'
-      : null;
+    : null;
   const canCreateNewProject =
     !newProjectNameIssue && !newProjectDirectoryIssue && !newProjectCreating;
   const showBottomPanel = project !== null && bottomPanelVisible;

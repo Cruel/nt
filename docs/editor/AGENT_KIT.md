@@ -16,9 +16,11 @@ Release builds embed the checked-in hand-authored kit source as a private script
 
 ## Project bootstrap and sync
 
-New projects contain a thin, user-owned root `AGENTS.md` that tells agents to run `noveltea agent sync` before relying on generated guidance. Project creation also adds a root-scoped `/.noveltea/` ignore rule while preserving unrelated `.gitignore` content.
+New projects contain a root `AGENTS.md` with a clearly marked NovelTea-managed bootstrap block that tells agents to run `noveltea agent sync` before relying on generated guidance. Users own all content outside that block. Project creation also creates a root `.gitignore` containing `/.noveltea/` when the file is absent; it never rewrites an existing `.gitignore`.
 
-`noveltea agent sync` refreshes only `.noveltea/agent/`. It is atomic and idempotent: an unchanged current kit causes no second content-tree replacement, and a failed swap leaves the previous complete kit intact. Sync does not rewrite tracked project content, root `AGENTS.md`, or editor-local state outside the agent namespace.
+`noveltea agent sync` atomically and idempotently refreshes `.noveltea/agent/`. It also inspects the managed root bootstrap and reports missing, outdated, or malformed blocks without failing ordinary sync. `noveltea agent sync --fix` explicitly creates a missing `AGENTS.md`, inserts a missing block after an initial H1 (or at the start otherwise), or replaces only a valid outdated block. Malformed or duplicate markers require manual repair and make `--fix` fail without guessing. Content outside a valid block is preserved byte-for-byte.
+
+Sync creates the canonical root `.gitignore` when it is absent. When an existing regular file contains `.noveltea` anywhere, NovelTea assumes the user has handled the rule; when it does not, sync succeeds with `AGENT_LOCAL_STATE_NOT_IGNORED` and leaves the file untouched. `--fix` does not modify an existing `.gitignore`. A non-file `AGENTS.md` or `.gitignore` is an error.
 
 The generated kit tells agents to edit ordinary JSON/Lua/RML/RCSS source directly, run `noveltea validate`, and reserve semantic CLI commands for operations requiring whole-project knowledge or transactions. `.noveltea/` is never a compilation input or authoring source.
 
@@ -28,4 +30,4 @@ The project watcher ignores `.noveltea/`, so running `noveltea agent sync` while
 
 ## Certification
 
-CLI differential certification covers sync generation, version/hash verification, repeated idempotent sync, rollback on injected swap failure, and Node/scriptc byte equivalence. Distribution verification additionally certifies standalone relocation and that production packages contain no prohibited first-party source maps or external runtime dependencies.
+CLI differential certification covers sync generation, bootstrap inspection/repair, version/hash verification, repeated idempotent sync, rollback on injected swap failure, project creation, and Node/scriptc byte equivalence. Distribution verification additionally certifies standalone relocation and that production packages contain no prohibited first-party source maps or external runtime dependencies.

@@ -203,6 +203,21 @@ const differentialCases = [
   { name: 'validate-root', args: () => ['--json', 'validate'] },
   { name: 'agent-sync', args: (root) => ['--project', root, '--json', 'agent', 'sync'] },
   {
+    name: 'agent-sync-fix',
+    args: (root) => ['--project', root, '--json', 'agent', 'sync', '--fix'],
+  },
+  {
+    name: 'project-create',
+    args: (root) => [
+      '--json',
+      'project',
+      'create',
+      path.join(root, 'created project'),
+      '--name',
+      'Created Project',
+    ],
+  },
+  {
     name: 'validate-upward',
     args: () => ['--json', 'validate'],
     cwd: (root) => path.join(root, 'records', 'layouts', 'fixture-hud'),

@@ -1,6 +1,7 @@
 import { CliCommandUsageError } from './types';
 
-export function validateAgentSyncCommand(command: readonly string[]): void {
-  if (command.length !== 2)
-    throw new CliCommandUsageError("'agent sync' does not accept command arguments.");
+export function parseAgentSyncCommand(command: readonly string[]): Readonly<{ fix: boolean }> {
+  if (command.length === 2) return { fix: false };
+  if (command.length === 3 && command[2] === '--fix') return { fix: true };
+  throw new CliCommandUsageError("'agent sync' accepts only the optional '--fix' flag.");
 }

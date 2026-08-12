@@ -14,7 +14,6 @@ import {
   parseAssetData,
 } from '../../shared/project-schema/authoring-assets';
 import {
-  createAuthoringProject,
   isAuthoringProject,
   authoringProjectSchema,
 } from '../../shared/project-schema/authoring-project';
@@ -29,10 +28,11 @@ import { createProjectValidationDiagnostic } from '../../shared/project-schema/p
 import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import { assertProjectWorkspacePathContained } from '../../shared/project-workspace/project-workspace-file-system';
+import { ensureNovelTeaLocalStateIgnored } from '../../shared/project-workspace/agent-bootstrap';
 import {
-  ensureNovelTeaLocalStateIgnored,
-  NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
-} from '../../shared/project-workspace/agent-bootstrap';
+  createNovelTeaProject,
+  NovelTeaProjectCreationError,
+} from '../../shared/project-workspace/project-creation-service';
 import {
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
@@ -414,27 +414,6 @@ function projectPathFromFile(projectFilePath: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function safeFileStem(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const stem = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return stem.length > 0 ? stem : null;
-}
-
-export function safeProjectSlug(value: string): string | null {
-  return safeFileStem(value);
-}
-
-function hasSpacePathSegment(value: string): boolean {
-  return path
-    .resolve(value)
-    .split(path.sep)
-    .some((segment) => /\s/.test(segment));
 }
 
 async function directoryEntries(directory: string): Promise<string[]> {
@@ -885,7 +864,15 @@ export async function saveProjectCopyAs(
       projectWorkspaceLocalStateFile(editor, openedCopy.snapshot.workspaceRevision),
     );
     const fsPort = createNodeProjectWorkspaceFileSystem();
-    await ensureNovelTeaLocalStateIgnored(fsPort, root);
+    const gitignoreStatus = await ensureNovelTeaLocalStateIgnored(fsPort, root);
+    if (gitignoreStatus === 'missing-rule')
+      diagnostics.push({
+        severity: 'warning',
+        code: 'AGENT_LOCAL_STATE_NOT_IGNORED',
+        category: 'Project save',
+        path: '/.gitignore',
+        message: 'Add a .noveltea ignore rule to the existing .gitignore file.',
+      });
     if (currentProjectFilePath) {
       const sourceAgents = path.join(projectPathFromFile(currentProjectFilePath), 'AGENTS.md');
       if ((await fsPort.inspect(sourceAgents)) === 'file')
@@ -920,59 +907,28 @@ export async function saveProjectCopyAs(
 }
 
 export async function createProject(request: CreateProjectRequest): Promise<SaveProjectResponse> {
-  const projectName = typeof request.projectName === 'string' ? request.projectName.trim() : '';
-  const projectDirectory =
-    typeof request.projectDirectory === 'string' ? request.projectDirectory.trim() : '';
-  if (!projectName) return { ok: false, success: false, error: 'Project name is required.' };
-  if (!projectDirectory)
-    return { ok: false, success: false, error: 'Project directory is required.' };
-  const projectId = safeProjectSlug(projectName);
-  if (!projectId) {
-    return {
-      ok: false,
-      success: false,
-      error: 'Project name must contain at least one letter or number.',
-    };
-  }
-  const absoluteDirectory = path.resolve(projectDirectory);
-  const projectFilePath = path.join(absoluteDirectory, 'project.json');
-  if (hasSpacePathSegment(absoluteDirectory) || hasSpacePathSegment(projectFilePath)) {
-    return { ok: false, success: false, error: 'Project paths must not contain spaces.' };
-  }
   try {
-    const entries = await directoryEntries(absoluteDirectory);
-    if (entries.length > 0) {
-      return {
-        ok: false,
-        success: false,
-        error: 'Project directory already exists and is not empty.',
-      };
-    }
-    const project = createAuthoringProject({ id: projectId, name: projectName });
     const fsPort = createNodeProjectWorkspaceFileSystem();
-    const editor = parseEditorProjectState(project.editor);
-    for (const [relativePath, text] of Object.entries(projectWorkspaceFiles(project, editor)))
-      await fsPort.writeTextAtomic(path.join(absoluteDirectory, relativePath), text);
-    await fs.mkdir(path.join(absoluteDirectory, 'records'), { recursive: true });
-    await fs.mkdir(path.join(absoluteDirectory, 'scripts'), { recursive: true });
-    await fs.mkdir(path.join(absoluteDirectory, 'assets'), { recursive: true });
-    await ensureNovelTeaLocalStateIgnored(fsPort, absoluteDirectory);
-    await fsPort.writeTextAtomic(
-      path.join(absoluteDirectory, 'AGENTS.md'),
-      NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
-    );
+    const created = await createNovelTeaProject(fsPort, workspaceService(), {
+      projectName: typeof request.projectName === 'string' ? request.projectName : '',
+      projectDirectory:
+        typeof request.projectDirectory === 'string' ? request.projectDirectory : '',
+    });
     return {
       ok: true,
       success: true,
-      projectPath: absoluteDirectory,
-      projectFilePath,
+      projectPath: created.projectRoot,
+      projectFilePath: created.projectFilePath,
       diagnostics: [],
     };
   } catch (error) {
     return {
       ok: false,
       success: false,
-      error: error instanceof Error ? error.message : 'Project creation failed.',
+      error:
+        error instanceof NovelTeaProjectCreationError || error instanceof Error
+          ? error.message
+          : 'Project creation failed.',
     };
   }
 }

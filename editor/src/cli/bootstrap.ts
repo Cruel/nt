@@ -144,6 +144,7 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
   const command = globals.command;
   const knownPath =
     command[0] === 'shaderc' ||
+    (command[0] === 'project' && command[1] === 'create') ||
     (command[0] === 'agent' && command[1] === 'sync') ||
     command[0] === 'validate' ||
     command[0] === 'usages' ||
@@ -163,6 +164,7 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
 }
 
 export function novelTeaCliCommandNeedsZod(command: readonly string[]): boolean {
+  if (command[0] === 'project' && command[1] === 'create') return true;
   if (command[0] === 'validate' || command[0] === 'usages') return true;
   if (command[0] === 'entity')
     return command[1] === 'create' || command[1] === 'rename' || command[1] === 'delete';

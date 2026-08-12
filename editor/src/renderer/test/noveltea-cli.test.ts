@@ -15,6 +15,9 @@ import {
 } from '../../shared/project-schema/authoring-project';
 import {
   InMemoryProjectWorkspaceFileSystem,
+  NOVELTEA_AGENT_BOOTSTRAP_END,
+  NOVELTEA_AGENT_BOOTSTRAP_START,
+  NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
   ProjectWorkspaceService,
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
@@ -111,6 +114,14 @@ describe('NovelTea headless CLI', () => {
       'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
       'WORKSPACE_EXTERNAL_STRUCTURAL_INVALID',
       'AGENT_KIT_WORKSPACE_UNSUPPORTED',
+      'AGENT_BOOTSTRAP_MISSING',
+      'AGENT_BOOTSTRAP_OUTDATED',
+      'AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED',
+      'AGENT_LOCAL_STATE_NOT_IGNORED',
+      'AGENT_SYNC_MUTATION_FAILED',
+      'PROJECT_CREATE_DESTINATION_CONFLICT',
+      'PROJECT_CREATE_MUTATION_FAILED',
+      'PROJECT_CREATE_INTERNAL',
     ]);
   });
 
@@ -602,6 +613,16 @@ describe('NovelTea headless CLI', () => {
     const first = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(first.exitCode).toBe(0);
     expect(JSON.parse(first.stdout).agentKitChanged).toBe(true);
+    expect(JSON.parse(first.stdout)).toMatchObject({
+      agentBootstrapStatus: 'missing',
+      agentBootstrapChanged: false,
+      agentGitignoreStatus: 'created',
+      agentGitignoreCreated: true,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: 'AGENT_BOOTSTRAP_MISSING', severity: 'warning' }),
+      ]),
+    });
+    expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('/.noveltea/\n');
     const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
     const second = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(second.exitCode).toBe(0);
@@ -609,6 +630,93 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`)).toBe(
       manifestBefore,
     );
+  });
+
+  it('creates, updates, and refuses malformed managed AGENTS.md blocks through --fix', async () => {
+    const value = fixture();
+    const created = await runNovelTeaCli(['--json', 'agent', 'sync', '--fix'], options(value));
+    expect(created.exitCode).toBe(0);
+    expect(JSON.parse(created.stdout)).toMatchObject({
+      agentBootstrapStatus: 'current',
+      agentBootstrapChanged: true,
+      diagnostics: [],
+    });
+    expect(await value.fileSystem.readText(`${root}/AGENTS.md`)).toBe(
+      NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
+    );
+
+    await value.fileSystem.writeTextAtomic(
+      `${root}/AGENTS.md`,
+      `# Team Project\r\n\r\n${NOVELTEA_AGENT_BOOTSTRAP_START}\r\nold\r\n${NOVELTEA_AGENT_BOOTSTRAP_END}\r\n\r\nTeam rule.\r\n`,
+    );
+    const updated = await runNovelTeaCli(['--json', 'agent', 'sync', '--fix'], options(value));
+    expect(updated.exitCode).toBe(0);
+    const updatedText = await value.fileSystem.readText(`${root}/AGENTS.md`);
+    expect(updatedText).toContain('# Team Project\r\n');
+    expect(updatedText).toContain('DO NOT EDIT THIS BLOCK.');
+    expect(updatedText).toContain('\r\n\r\nTeam rule.\r\n');
+
+    await value.fileSystem.writeTextAtomic(
+      `${root}/AGENTS.md`,
+      `${NOVELTEA_AGENT_BOOTSTRAP_START}\nmissing end\n`,
+    );
+    const malformed = await runNovelTeaCli(['--json', 'agent', 'sync', '--fix'], options(value));
+    expect(malformed.exitCode).toBe(5);
+    expect(JSON.parse(malformed.stdout).diagnostics[0].code).toBe(
+      'AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED',
+    );
+  });
+
+  it('preserves an existing gitignore and warns only when it does not mention .noveltea', async () => {
+    const value = fixture();
+    await value.fileSystem.writeTextAtomic(`${root}/.gitignore`, 'dist/\n');
+    const missing = await runNovelTeaCli(['--json', 'agent', 'sync', '--fix'], options(value));
+    expect(missing.exitCode).toBe(0);
+    expect(JSON.parse(missing.stdout)).toMatchObject({
+      agentGitignoreStatus: 'missing-rule',
+      agentGitignoreCreated: false,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: 'AGENT_LOCAL_STATE_NOT_IGNORED' }),
+      ]),
+    });
+    expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('dist/\n');
+
+    await value.fileSystem.writeTextAtomic(`${root}/.gitignore`, '# custom .noveltea handling\n');
+    const accepted = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
+    expect(JSON.parse(accepted.stdout).agentGitignoreStatus).toBe('present');
+    expect(JSON.parse(accepted.stdout).diagnostics).toEqual([]);
+  });
+
+  it('creates projects transactionally without discovery and rejects occupied destinations', async () => {
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem();
+    const workspace = new ProjectWorkspaceService(fileSystem);
+    const created = await runNovelTeaCli(
+      ['--json', 'project', 'create', '/projects/My Story', '--name', 'My Story'],
+      { cwd: '/', fileSystem, workspace },
+    );
+    expect(created.exitCode).toBe(0);
+    expect(JSON.parse(created.stdout)).toMatchObject({
+      projectRoot: '/projects/My Story',
+      projectFilePath: '/projects/My Story/project.json',
+      projectId: 'my-story',
+    });
+    expect(await fileSystem.readText('/projects/My Story/AGENTS.md')).toBe(
+      NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
+    );
+
+    const conflict = await runNovelTeaCli(
+      ['--json', 'project', 'create', '/projects/My Story', '--name', 'Again'],
+      { cwd: '/', fileSystem, workspace },
+    );
+    expect(conflict.exitCode).toBe(5);
+    expect(JSON.parse(conflict.stdout).diagnostics[0].code).toBe(
+      'PROJECT_CREATE_DESTINATION_CONFLICT',
+    );
+    const explicit = await runNovelTeaCli(
+      ['--project', '/elsewhere', '--json', 'project', 'create', '/new', '--name', 'New'],
+      { cwd: '/', fileSystem, workspace },
+    );
+    expect(explicit.exitCode).toBe(2);
   });
 
   it('regenerates an unsupported agent-kit manifest without changing tracked project source', async () => {

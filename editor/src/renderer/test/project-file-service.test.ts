@@ -27,6 +27,9 @@ function tempRoot() {
   roots.push(root);
   return root;
 }
+function tempProjectRoot() {
+  return path.join(tempRoot(), 'project');
+}
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -52,6 +55,29 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.existsSync(path.join(projectDirectory, 'assets'))).toBe(true);
   });
 
+  it('creates projects in new spaced destinations and rejects every existing destination', async () => {
+    const parent = tempRoot();
+    const spaced = path.join(parent, 'my spaced project');
+    expect(
+      (await createProject({ projectName: 'Spaced Project', projectDirectory: spaced })).success,
+    ).toBe(true);
+
+    const empty = path.join(parent, 'empty-project');
+    fs.mkdirSync(empty);
+    const emptyRejected = await createProject({ projectName: 'Empty', projectDirectory: empty });
+    expect(emptyRejected.success).toBe(false);
+    expect(emptyRejected.error).toContain('already exists');
+
+    const emptyTarget = path.join(parent, 'empty-target');
+    const linked = path.join(parent, 'linked-project');
+    fs.mkdirSync(emptyTarget);
+    fs.symlinkSync(emptyTarget, linked, 'dir');
+    const rejected = await createProject({ projectName: 'Linked', projectDirectory: linked });
+    expect(rejected.success).toBe(false);
+    expect(rejected.error).toContain('symbolic link');
+    expect(fs.readdirSync(emptyTarget)).toEqual([]);
+  });
+
   it('does not discover retired game.json projects', async () => {
     const root = tempRoot();
     fs.writeFileSync(path.join(root, 'game.json'), '{}');
@@ -62,7 +88,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('writes project content as segmented files and only changes affected files', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Save', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const opened = await service.open(root);
@@ -87,7 +113,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('persists a scoped Room record save to its segmented record file', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Room Save', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const initial = await service.open(root);
@@ -139,7 +165,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('fails closed instead of saving through a structurally unreadable external source', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Fail Closed', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const initial = await service.open(root);
@@ -194,7 +220,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('merges a disjoint external edit in the same Room during a scoped save', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Room Merge', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const initial = await service.open(root);
@@ -254,7 +280,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('does not report a false external Room conflict after reopening tracked record metadata', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Room Metadata', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const initial = await service.open(root);
@@ -312,7 +338,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('persists only local editor state outside tracked editor.json', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Metadata', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const opened = await service.open(root);
@@ -386,7 +412,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('merges disjoint logical editor.json owners during a granular save', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Organization', projectDirectory: root });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const opened = await workspace.open(root);
@@ -446,7 +472,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('allows local editor-state persistence after an unrelated tracked-file change', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Conflict', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const opened = await service.open(root);
@@ -481,7 +507,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('returns the stable revision-conflict diagnostic for an externally changed selected owner', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Conflict', projectDirectory: root });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const opened = await workspace.open(root);
@@ -521,7 +547,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('preserves a loaded Script Module source owner through production content save', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Script source', projectDirectory: root });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const initial = await workspace.open(root);
@@ -557,7 +583,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('commits asset trash and restore with structural source changes in one transaction', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     await createProject({ projectName: 'Asset transaction', projectDirectory: root });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const initial = await workspace.open(root);
@@ -638,7 +664,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('rejects a local-state symlink escape instead of writing through it', async () => {
-    const root = tempRoot();
+    const root = tempProjectRoot();
     const outside = tempRoot();
     await createProject({ projectName: 'Contained', projectDirectory: root });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
@@ -666,7 +692,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('preserves user-owned AGENTS.md and unrelated .gitignore content through Save As', async () => {
-    const source = tempRoot();
+    const source = tempProjectRoot();
     const destination = tempRoot();
     await createProject({ projectName: 'Source', projectDirectory: source });
     fs.writeFileSync(
@@ -690,13 +716,18 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.readFileSync(path.join(destination, 'AGENTS.md'), 'utf8')).toBe(
       fs.readFileSync(path.join(source, 'AGENTS.md'), 'utf8'),
     );
-    expect(fs.readFileSync(path.join(destination, '.gitignore'), 'utf8')).toBe(
-      'custom-output/\n/.noveltea/\n',
+    expect(fs.readFileSync(path.join(destination, '.gitignore'), 'utf8')).toBe('custom-output/\n');
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'AGENT_LOCAL_STATE_NOT_IGNORED',
+        severity: 'warning',
+        path: '/.gitignore',
+      }),
     );
   });
 
   it('rejects Save As destinations containing stale canonical project source', async () => {
-    const source = tempRoot();
+    const source = tempProjectRoot();
     const destination = tempRoot();
     await createProject({ projectName: 'Source', projectDirectory: source });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
@@ -739,7 +770,7 @@ describe('project-file-service workspace-v1', () => {
   });
 
   it('rejects Save As when an exact destination asset path is already occupied', async () => {
-    const source = tempRoot();
+    const source = tempProjectRoot();
     const destination = tempRoot();
     await createProject({ projectName: 'Source', projectDirectory: source });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
@@ -787,7 +818,7 @@ describe('project-file-service workspace-v1', () => {
     ['copied assets', 'assets'],
     ['copied workflows', 'workflows'],
   ])('rejects Save As %s symlink escapes', async (_label, escapedDirectory) => {
-    const source = tempRoot();
+    const source = tempProjectRoot();
     const destination = tempRoot();
     const outside = tempRoot();
     await createProject({ projectName: 'Source', projectDirectory: source });

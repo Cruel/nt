@@ -55,3 +55,26 @@ export {
   type ProjectWorkspaceSnapshot,
   type ProjectWorkspaceWriteOptions,
 } from './project-workspace-service';
+export {
+  ensureNovelTeaLocalStateIgnored,
+  inspectNovelTeaAgentBootstrap,
+  inspectNovelTeaAgentBootstrapText,
+  repairNovelTeaAgentBootstrap,
+  repairNovelTeaAgentBootstrapText,
+  NOVELTEA_AGENT_BOOTSTRAP_END,
+  NOVELTEA_AGENT_BOOTSTRAP_START,
+  NOVELTEA_LOCAL_STATE_GITIGNORE_RULE,
+  NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
+  NOVELTEA_PROJECT_AGENTS_MANAGED_BLOCK,
+  type NovelTeaAgentBootstrapInspection,
+  type NovelTeaAgentBootstrapStatus,
+  type NovelTeaGitignoreStatus,
+} from './agent-bootstrap';
+export {
+  createNovelTeaProject,
+  novelTeaProjectId,
+  NovelTeaProjectCreationError,
+  type CreateNovelTeaProjectOptions,
+  type CreateNovelTeaProjectResult,
+  type NovelTeaProjectCreationFailureKind,
+} from './project-creation-service';
