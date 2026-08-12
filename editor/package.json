@@ -41,7 +41,6 @@
     "noveltea": "node scripts/run-noveltea-cli.mjs",
     "noveltea:build": "node scripts/build-noveltea-cli.mjs",
     "noveltea:certify": "node scripts/certify-noveltea-cli.mjs",
-    "noveltea:lock": "node scripts/build-noveltea-cli.mjs --update-native-lock",
     "project:export": "node scripts/run-project-export.mjs",
     "android:stage-project": "node scripts/run-android-project-staging.mjs",
     "android:fixture": "node scripts/run-android-fixture.mjs",
@@ -56,25 +55,6 @@
     "email": "machin3@gmail.com"
   },
   "license": "MIT",
-  "perry": {
-    "compilePackages": [
-      "fuse.js",
-      "saxes",
-      "xmlchars",
-      "zod"
-    ],
-    "allow": {
-      "nativeLibrary": [
-        "@noveltea/tooling-native"
-      ],
-      "compilePackages": [
-        "fuse.js",
-        "saxes",
-        "xmlchars",
-        "zod"
-      ]
-    }
-  },
   "dependencies": {
     "culori": "^4.0.2",
     "sharp": "catalog:"
@@ -101,7 +81,6 @@
     "@fsegurai/codemirror-theme-bundle": "^6.4.2",
     "@lezer/highlight": "1.2.3",
     "@noveltea/tooling-native": "link:./native/noveltea-tooling",
-    "@perryts/perry": "0.5.1220",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-router": "^1.170.18",
@@ -131,6 +110,7 @@
     "react-resizable-panels": "^4.12.2",
     "resedit": "3.0.2",
     "saxes": "6.0.0",
+    "scriptc": "0.0.26",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:",

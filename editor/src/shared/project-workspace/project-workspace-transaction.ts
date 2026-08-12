@@ -178,8 +178,8 @@ export class ProjectWorkspaceTransactionService {
     const transactionRoot = this.absolute(projectRoot, transactionsPath);
     const entries = await this.fileSystem.listDirectory(transactionRoot);
     // A clean read-only workspace has nothing to recover. Avoid manufacturing a writer lock merely
-    // to prove the empty transaction directory is empty; this also keeps CLI validation genuinely
-    // filesystem-neutral across Node and Perry runtimes.
+    // to prove the empty transaction directory is empty; this also keeps read-only validation free
+    // of unnecessary filesystem mutations across CLI hosts.
     if (entries.length === 0) return;
     const lock = await this.acquireLock(projectRoot, 'workspace recovery', null, false);
     try {

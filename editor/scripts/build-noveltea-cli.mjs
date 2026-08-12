@@ -1,36 +1,47 @@
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import {
-  cp,
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  readlink,
-  rm,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
+import { cp, lstat, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
-const perryVersion = '0.5.1220';
-const perryArchiveSha256 = 'e4bcd0f362e001101a0d1b3683d14bd8e42b882dd59a1395be670fb9af9593c3';
-const perrySourceTreeSha256 = '1adef789a428d96cf69b27ed59cdc46e72dcebaa9d22218a2c4ea6b3046134b7';
-const cacheRoot = path.join(repositoryRoot, 'build', 'host-tools', 'perry-cache');
-const perryToolRoot = path.join(repositoryRoot, 'build', 'host-tools', 'perry', `v${perryVersion}`);
-const perrySourceRoot = path.join(perryToolRoot, `perry-${perryVersion}`);
-const perryArchivePath = path.join(perryToolRoot, `perry-${perryVersion}.tar.gz`);
-const perryBinary = path.join(editorRoot, 'node_modules', '.bin', 'perry');
-const updateNativeLock = process.argv.slice(2).includes('--update-native-lock');
-const unknownArguments = process.argv
-  .slice(2)
-  .filter((argument) => argument !== '--update-native-lock');
-if (unknownArguments.length > 0)
-  throw new Error(`Unknown NovelTea CLI build argument(s): ${unknownArguments.join(', ')}.`);
+const scriptcVersion = '0.0.26';
+const scriptcBinary = path.join(editorRoot, 'node_modules', '.bin', 'scriptc');
+const scriptcRoot = path.join(
+  repositoryRoot,
+  'build',
+  'host-tools',
+  'scriptc',
+  `v${scriptcVersion}`,
+);
+const stageRoot = path.join(scriptcRoot, 'stage');
+const islandPackageRoot = path.join(stageRoot, 'node_modules', 'noveltea-scriptc-island');
+const agentKitSourcePackageRoot = path.join(
+  stageRoot,
+  'node_modules',
+  'noveltea-scriptc-agent-kit-source',
+);
+const agentKitSourcePaths = [
+  'CLI.md',
+  'GUIDE.md',
+  'PROJECT_FORMAT.md',
+  'docs/ASSETS_SHADERS.md',
+  'docs/AUTHORING.md',
+  'docs/LAYOUTS.md',
+  'docs/LUA.md',
+  'docs/TESTS.md',
+  'skill/SKILL.md',
+];
+const islandBundle = path.join(editorRoot, 'dist-scriptc-island', 'noveltea-scriptc-island.cjs');
+const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');
+const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
+const staticContractsSource = path.join(editorRoot, 'src', 'cli', 'static-contracts.ts');
+
+if (process.argv.length > 2)
+  throw new Error(
+    `NovelTea CLI build does not accept arguments: ${process.argv.slice(2).join(' ')}`,
+  );
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -45,159 +56,32 @@ function run(command, args, options = {}) {
     );
 }
 
-async function sha256(filePath) {
-  return createHash('sha256')
-    .update(await readFile(filePath))
-    .digest('hex');
-}
-
-async function sourceTreeSha256(root) {
-  const hash = createHash('sha256');
-  async function visit(relative = '') {
-    const entries = await readdir(path.join(root, relative), { withFileTypes: true });
-    entries.sort((left, right) => left.name.localeCompare(right.name, 'en'));
-    for (const entry of entries) {
-      const child = relative ? `${relative}/${entry.name}` : entry.name;
-      // Perry writes Rust build outputs into this directory after source verification.
-      if (child === 'target' || child.startsWith('target/')) continue;
-      const absolute = path.join(root, child);
-      const info = await lstat(absolute);
-      if (info.isDirectory()) {
-        hash.update(`D\0${child}\0`);
-        await visit(child);
-      } else if (info.isSymbolicLink()) {
-        hash.update(`L\0${child}\0${await readlink(absolute)}\0`);
-      } else if (info.isFile()) {
-        hash.update(`F\0${child}\0${info.mode & 0o777}\0`);
-        hash.update(await readFile(absolute));
-        hash.update('\0');
-      }
-    }
-  }
-  await visit();
-  return hash.digest('hex');
-}
-
-async function prepareEmbeddedAgentKit(buildEnv) {
-  const fixtureRoot = path.join(repositoryRoot, 'build', 'host-tools', 'agent-kit-fixture');
-  const embeddedRoot = path.join(editorRoot, 'scripts', 'dist', 'agent-kit');
-  const nodeCli = path.join(editorRoot, 'dist-electron', 'tools', 'noveltea.mjs');
-  const fixtureTool = path.join(
-    editorRoot,
-    'dist-electron',
-    'tools',
-    'materialize-android-export-fixture.mjs',
-  );
-
-  run('pnpm', ['exec', 'vp', 'pack'], { cwd: editorRoot, env: buildEnv });
-  await rm(fixtureRoot, { recursive: true, force: true });
-  await rm(embeddedRoot, { recursive: true, force: true });
-  run(process.execPath, [fixtureTool, '--root', fixtureRoot, '--target', 'web'], {
-    cwd: editorRoot,
-    env: buildEnv,
-  });
-  run(process.execPath, [nodeCli, '--project', fixtureRoot, '--json', 'agent', 'sync'], {
-    cwd: editorRoot,
-    env: buildEnv,
-  });
-  await cp(path.join(fixtureRoot, '.noveltea', 'agent'), embeddedRoot, { recursive: true });
-
-  const manifestPath = path.join(embeddedRoot, 'manifest.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  if (
-    manifest.schema !== 'noveltea.agent-kit.manifest' ||
-    manifest.schemaVersion !== 1 ||
-    manifest.agentKitVersion !== 1 ||
-    manifest.cliVersion !== '1.0.0' ||
-    manifest.projectWorkspaceVersion !== 1 ||
-    !manifest.files ||
-    typeof manifest.files !== 'object'
-  )
-    throw new Error('Generated embedded NovelTea agent-kit manifest is invalid.');
-  for (const [relativePath, expectedHash] of Object.entries(manifest.files)) {
-    const actualHash = `sha256:${await sha256(path.join(embeddedRoot, relativePath))}`;
-    if (actualHash !== expectedHash)
-      throw new Error(
-        `Embedded NovelTea agent-kit hash mismatch for ${relativePath}: expected ${expectedHash}, received ${actualHash}.`,
-      );
-  }
-
-  // Perry resolves --embed relative to the compile entry's parent directory. Keep the generated
-  // payload under scripts/dist/ so the original scripts/noveltea.ts remains the compile entry.
-  return { embeddedRoot };
-}
-
-async function ensurePerrySourceWorkspace() {
-  await mkdir(perryToolRoot, { recursive: true });
-  if (!existsSync(perryArchivePath)) {
-    const response = await fetch(
-      `https://github.com/PerryTS/perry/archive/refs/tags/v${perryVersion}.tar.gz`,
-      { redirect: 'follow' },
-    );
-    if (!response.ok)
-      throw new Error(`Unable to download Perry v${perryVersion} source: HTTP ${response.status}.`);
-    await writeFile(perryArchivePath, Buffer.from(await response.arrayBuffer()));
-  }
-
-  const actualHash = await sha256(perryArchivePath);
-  if (actualHash !== perryArchiveSha256) {
-    await rm(perryArchivePath, { force: true });
-    throw new Error(
-      `Perry v${perryVersion} source hash mismatch: expected ${perryArchiveSha256}, received ${actualHash}.`,
-    );
-  }
-
-  if (existsSync(path.join(perrySourceRoot, 'Cargo.toml'))) {
-    const actualTreeHash = await sourceTreeSha256(perrySourceRoot);
-    if (actualTreeHash === perrySourceTreeSha256) return;
-    await rm(perrySourceRoot, { recursive: true, force: true });
-  }
-
-  const extractionRoot = path.join(perryToolRoot, '.extract');
-  await rm(extractionRoot, { recursive: true, force: true });
-  await mkdir(extractionRoot, { recursive: true });
-  run('tar', ['-xzf', perryArchivePath, '-C', extractionRoot]);
-  const extractedRoot = path.join(extractionRoot, `perry-${perryVersion}`);
-  if (!existsSync(path.join(extractedRoot, 'Cargo.toml')))
-    throw new Error(
-      `Perry v${perryVersion} archive did not contain the expected source workspace.`,
-    );
-  await rm(perrySourceRoot, { recursive: true, force: true });
-  run('mv', [extractedRoot, perrySourceRoot]);
-  await rm(extractionRoot, { recursive: true, force: true });
-  const extractedTreeHash = await sourceTreeSha256(perrySourceRoot);
-  if (extractedTreeHash !== perrySourceTreeSha256) {
-    await rm(perrySourceRoot, { recursive: true, force: true });
-    throw new Error(
-      `Perry v${perryVersion} extracted source hash mismatch: expected ${perrySourceTreeSha256}, received ${extractedTreeHash}.`,
-    );
-  }
-}
-
-if (process.versions.node !== '24.18.0') {
+if (process.versions.node !== '24.18.0')
   throw new Error(
     `NovelTea CLI release builds require Node 24.18.0; received ${process.versions.node}.`,
   );
-}
-if (process.platform !== 'linux') {
+if (process.platform !== 'linux' || process.arch !== 'x64')
   throw new Error(
-    `NovelTea CLI release builds currently support Linux hosts only; received ${process.platform}.`,
+    `NovelTea CLI release builds currently support Linux x64 hosts only; received ${process.platform}/${process.arch}.`,
   );
-}
 if (!process.env.VCPKG_ROOT)
   throw new Error('VCPKG_ROOT is required for the native tooling release build.');
-if (!existsSync(perryBinary))
-  throw new Error(`Pinned Perry ${perryVersion} is not installed. Run pnpm install first.`);
+if (!existsSync(scriptcBinary))
+  throw new Error(`Pinned scriptc ${scriptcVersion} is not installed. Run pnpm install first.`);
 
-await ensurePerrySourceWorkspace();
-const buildEnv = {
-  ...process.env,
-  PERRY_CACHE_DIR: cacheRoot,
-  PERRY_WORKSPACE_ROOT: perrySourceRoot,
-  ...(updateNativeLock
-    ? { PERRY_LOCK_UPDATE: '@noveltea/tooling-native' }
-    : { PERRY_LOCK_FROZEN: '1' }),
-};
+const clangCheck = spawnSync('clang', ['--version'], { encoding: 'utf8' });
+if (clangCheck.error?.code === 'ENOENT' || clangCheck.status !== 0)
+  throw new Error('NovelTea CLI release builds require clang on PATH for scriptc.');
+if (clangCheck.error) throw clangCheck.error;
+
+const versionCheck = spawnSync(scriptcBinary, ['--version'], { cwd: editorRoot, encoding: 'utf8' });
+if (versionCheck.error) throw versionCheck.error;
+if (versionCheck.status !== 0 || versionCheck.stdout.trim() !== scriptcVersion)
+  throw new Error(
+    `NovelTea CLI requires scriptc ${scriptcVersion}; received '${versionCheck.stdout.trim() || 'unknown'}'.`,
+  );
+
+const buildEnv = { ...process.env, NODE_ENV: 'production' };
 const prebuiltShadercRoot = process.env.NOVELTEA_PREBUILT_SHADERC_ROOT;
 const shadercProviderArguments = prebuiltShadercRoot
   ? [`-DNOVELTEA_PREBUILT_SHADERC_ROOT=${prebuiltShadercRoot}`]
@@ -248,35 +132,170 @@ run(
 run('cmake', ['--build', '--preset', 'linux-release', '--target', 'noveltea_tooling_native'], {
   env: buildEnv,
 });
-
 await stagePrebuiltShadercLinkClosure();
 
-const embeddedAgentKit = await prepareEmbeddedAgentKit(buildEnv);
+run('pnpm', ['exec', 'vp', 'pack'], { cwd: editorRoot, env: buildEnv });
+if (!existsSync(islandBundle))
+  throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
+
+const buildRoot = path.join(repositoryRoot, 'build', 'linux-release');
+const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
+const engineRoot = path.join(buildRoot, 'engine');
+const vcpkgLibRoot = path.join(buildRoot, 'vcpkg_installed', 'x64-linux-noveltea', 'lib');
+const shadercBgfxRoot = path.join(
+  buildRoot,
+  '_deps',
+  'noveltea_bgfx_shaderc_source-build',
+  'cmake',
+  'bgfx',
+);
+const shadercBimgRoot = path.join(
+  buildRoot,
+  '_deps',
+  'noveltea_bgfx_shaderc_source-build',
+  'cmake',
+  'bimg',
+);
+const shadercBxRoot = path.join(
+  buildRoot,
+  '_deps',
+  'noveltea_bgfx_shaderc_source-build',
+  'cmake',
+  'bx',
+);
+
+function archive(...candidates) {
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found)
+    throw new Error(`Required NovelTea CLI link archive is missing: ${candidates.join(' or ')}`);
+  return found;
+}
+
+const libraries = [
+  archive(path.join(editorToolRoot, 'libnoveltea_tooling_native.a')),
+  archive(path.join(engineRoot, 'libnoveltea_presentation.a')),
+  archive(path.join(engineRoot, 'libnoveltea_script_lua.a')),
+  archive(path.join(engineRoot, 'libnoveltea_runtime.a')),
+  archive(path.join(vcpkgLibRoot, 'liblua.a')),
+  archive(path.join(editorToolRoot, 'libnoveltea_shader_tooling.a')),
+  archive(path.join(engineRoot, 'libnoveltea_content.a')),
+  archive(path.join(engineRoot, 'libnoveltea_domain.a')),
+  archive(path.join(vcpkgLibRoot, 'libminiz.a')),
+  archive(path.join(editorToolRoot, 'libnoveltea_bgfx_shaderc_embedded.a')),
+  archive(path.join(editorToolRoot, 'libfcpp.a'), path.join(shadercBgfxRoot, 'libfcpp.a')),
+  archive(path.join(editorToolRoot, 'libglslang.a'), path.join(shadercBgfxRoot, 'libglslang.a')),
+  archive(
+    path.join(editorToolRoot, 'libglsl-optimizer.a'),
+    path.join(shadercBgfxRoot, 'libglsl-optimizer.a'),
+  ),
+  archive(
+    path.join(editorToolRoot, 'libspirv-opt.a'),
+    path.join(shadercBgfxRoot, 'libspirv-opt.a'),
+  ),
+  archive(
+    path.join(editorToolRoot, 'libspirv-cross.a'),
+    path.join(shadercBgfxRoot, 'libspirv-cross.a'),
+  ),
+  archive(path.join(editorToolRoot, 'libbimg.a'), path.join(shadercBimgRoot, 'libbimg.a')),
+  archive(path.join(editorToolRoot, 'libbx.a'), path.join(shadercBxRoot, 'libbx.a')),
+];
 
 const outputDirectory = path.join(repositoryRoot, 'build', 'cli', 'linux');
 const outputPath = path.join(outputDirectory, 'noveltea');
 await mkdir(outputDirectory, { recursive: true });
+await rm(stageRoot, { recursive: true, force: true });
+await mkdir(islandPackageRoot, { recursive: true });
+await mkdir(agentKitSourcePackageRoot, { recursive: true });
+
 try {
-  run(
-    perryBinary,
-    [
-      'compile',
-      'scripts/noveltea.ts',
-      '--target',
-      'linux',
-      '--embed',
-      'dist/agent-kit',
-      '--output',
-      outputPath,
-    ],
-    {
-      cwd: editorRoot,
-      env: buildEnv,
-    },
+  await cp(islandBundle, path.join(islandPackageRoot, 'index.cjs'));
+  await writeFile(
+    path.join(islandPackageRoot, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'noveltea-scriptc-island',
+        version: '1.0.0',
+        private: true,
+        main: 'index.cjs',
+        types: 'index.d.ts',
+      },
+      null,
+      2,
+    )}\n`,
   );
+  await cp(islandDeclaration, path.join(islandPackageRoot, 'index.d.ts'));
+
+  const agentKitSourceFiles = Object.fromEntries(
+    await Promise.all(
+      agentKitSourcePaths.map(async (relativePath) => [
+        relativePath,
+        await readFile(path.join(editorRoot, 'agent-kit', relativePath), 'utf8'),
+      ]),
+    ),
+  );
+  await writeFile(
+    path.join(agentKitSourcePackageRoot, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'noveltea-scriptc-agent-kit-source',
+        version: '1.0.0',
+        private: true,
+        main: 'index.cjs',
+        types: 'index.d.ts',
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await writeFile(
+    path.join(agentKitSourcePackageRoot, 'index.cjs'),
+    `exports.scriptcAgentKitSourceFiles = Object.freeze(${JSON.stringify(agentKitSourceFiles)});\n`,
+  );
+  await writeFile(
+    path.join(agentKitSourcePackageRoot, 'index.d.ts'),
+    'export declare const scriptcAgentKitSourceFiles: Readonly<Record<string, string>>;\n',
+  );
+
+  const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');
+  const stagedStaticContracts = path.join(stageRoot, 'static-contracts.ts');
+  const stagedHostSource = (await readFile(hostSource, 'utf8'))
+    .replace('../src/cli/static-contracts', './static-contracts')
+    .replace(
+      '      // @ts-expect-error The private island package is materialized only during release staging.\n',
+      '',
+    );
+  await cp(staticContractsSource, stagedStaticContracts);
+  await writeFile(stagedHost, stagedHostSource);
+  const ffiPath = path.join(stageRoot, 'ffi.json');
+  await writeFile(
+    ffiPath,
+    `${JSON.stringify(
+      {
+        ffi_format: 1,
+        functions: [
+          {
+            name: 'nativeInvokeToFile',
+            symbol: 'noveltea_tooling_scriptc_invoke_to_file',
+            params: ['string', 'string', 'string'],
+            returns: 'void',
+          },
+        ],
+        libraries,
+        system_libraries: ['m', 'dl', 'rt', 'stdc++'],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  run(
+    scriptcBinary,
+    ['build', stagedHost, '--dynamic', '--ffi', ffiPath, '--out', outputPath, '--no-keep-c'],
+    { cwd: stageRoot, env: buildEnv },
+  );
+  run('strip', ['--strip-all', outputPath], { env: buildEnv });
 } finally {
-  await rm(embeddedAgentKit.embeddedRoot, { recursive: true, force: true });
-  await rm(path.join(editorRoot, '__perry_embedded_assets.c'), { force: true });
+  await rm(stageRoot, { recursive: true, force: true });
 }
 
 console.log(`NovelTea CLI: ${outputPath}`);

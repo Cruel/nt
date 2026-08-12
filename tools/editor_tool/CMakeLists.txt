@@ -22,6 +22,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_native.cpp
     tooling_native.hpp
     tooling_native_c.h
+    tooling_native_scriptc.cpp
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp"
 )
 # This engine-owned source is reused by host tooling but remains part of the shipped runtime policy

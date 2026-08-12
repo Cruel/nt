@@ -12,9 +12,8 @@ const ROUND_CONSTANTS = [
 const rotateRight = (value: number, shift: number) => (value >>> shift) | (value << (32 - shift));
 
 export function sha256HexBytes(input: Uint8Array): string {
-  // Keep the mutable digest state as a fresh ordinary array. Perry 0.5.1220
-  // can corrupt repeated hashes when this state is created by copying a
-  // module-level Uint32Array in the full CLI program.
+  // Keep the mutable digest state as a fresh ordinary array so each hash invocation owns its
+  // working state and cannot alias module-level typed-array storage.
   const state = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
   ];

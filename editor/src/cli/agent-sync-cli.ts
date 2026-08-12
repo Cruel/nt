@@ -1,4 +1,5 @@
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
+import type { NovelTeaAgentKitPayload } from './agent-kit';
 import { syncNovelTeaAgentKit } from './agent-sync';
 import { novelTeaCliUsageFailure, type ParsedGlobalArguments } from './bootstrap';
 import { validateAgentSyncCommand } from './commands/agent-sync-command';
@@ -14,6 +15,7 @@ export async function runNovelTeaAgentSyncCli(
   globals: ParsedGlobalArguments,
   fileSystem: ProjectWorkspaceFileSystem,
   cwd = process.cwd(),
+  payload?: NovelTeaAgentKitPayload,
 ): Promise<NovelTeaCliCommandResult> {
   try {
     validateAgentSyncCommand(globals.command);
@@ -28,7 +30,7 @@ export async function runNovelTeaAgentSyncCli(
   if (!preflight.ok) return preflight.result;
 
   try {
-    const result = await syncNovelTeaAgentKit(fileSystem, preflight.projectRoot);
+    const result = await syncNovelTeaAgentKit(fileSystem, preflight.projectRoot, { payload });
     return formatCliResult(
       {
         success: true,

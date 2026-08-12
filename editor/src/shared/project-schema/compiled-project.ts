@@ -976,7 +976,7 @@ function canonicalizeJson(value: CanonicalJson): CanonicalJson {
         },
   ];
 
-  // Keep this iterative: Perry 0.5.1220 miscompiles the equivalent recursive traversal.
+  // Keep this iterative so large compiled-project traversals do not depend on host recursion depth.
   while (pending.length > 0) {
     const current = pending.pop();
     if (!current) continue;

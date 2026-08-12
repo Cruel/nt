@@ -4,10 +4,6 @@ export {
   NodeProjectWorkspaceProcessLiveness,
 } from './node-project-workspace-file-system';
 export {
-  createPerryProjectWorkspaceFileSystem,
-  PerryProjectWorkspaceFileSystem,
-} from './perry-project-workspace-file-system';
-export {
   EDITOR_LOCAL_STATE_SCHEMA,
   EDITOR_LOCAL_STATE_SCHEMA_VERSION,
   PROJECT_WORKSPACE_SCHEMA,

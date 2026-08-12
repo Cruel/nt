@@ -4,7 +4,6 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
   createNodeProjectWorkspaceFileSystem,
-  createPerryProjectWorkspaceFileSystem,
   type ProjectWorkspaceFileSystem,
 } from '../../shared/project-workspace';
 
@@ -24,7 +23,6 @@ async function temporaryRoot(): Promise<string> {
 
 const implementations: readonly [string, () => ProjectWorkspaceFileSystem][] = [
   ['Node async operations', createNodeProjectWorkspaceFileSystem],
-  ['Perry synchronous operations', createPerryProjectWorkspaceFileSystem],
 ];
 
 describe.each(implementations)('%s workspace filesystem contract', (_name, createFileSystem) => {

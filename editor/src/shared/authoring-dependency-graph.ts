@@ -494,9 +494,8 @@ export function assembleAuthoringDependencyGraph(
   const edgeOwnerContributionKeys = new Map<string, string>();
   const diagnostics: AuthoringDependencyGraphDiagnostic[] = [];
 
-  // Perry 0.5.1220 misdispatches `.values()` when this custom ImmutableMap is
-  // observed through its ReadonlyMap interface. Direct map iteration uses the
-  // wrapper's Symbol.iterator path and preserves all entries under Node/Perry.
+  // Iterate the map directly so custom ReadonlyMap implementations only need to preserve their
+  // standard iterator contract; this also avoids allocating a separate values iterator.
   for (const [, contribution] of contributionSet.byKey) {
     for (const node of contribution.nodes) {
       const keyText = serializeAuthoringDependencyNodeKey(node.key);

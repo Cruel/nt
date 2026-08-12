@@ -39,8 +39,7 @@ function stableJsonStringify(value: unknown, arrayElement = false): string | und
 }
 
 function requestBytes(request: unknown): Uint8Array {
-  // Perry 0.5.1220 can lose leading properties from nested object graphs when
-  // JSON.stringify is used directly in the full CLI native-call shape.
+  // Keep native requests deterministic and JSON-only across standalone CLI hosts.
   const serialized = stableJsonStringify(request);
   if (serialized === undefined) throw new Error('Native tooling request is not JSON serializable.');
   return new TextEncoder().encode(serialized);

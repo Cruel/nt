@@ -69,8 +69,8 @@ export async function invokeNovelTeaNativeOperation(
     await writeFile(inputPath, input, { encoding: 'utf8', mode: 0o600 });
     inputFile = await open(inputPath, 'r');
     return await new Promise((resolve, reject) => {
-      // Perry 0.5.1220 cannot reopen Node's socket-backed child-process pipe through /dev/stdin.
-      // A private regular file preserves the stdin protocol used by the standalone native bridge.
+      // Use a private regular file so the standalone native bridge receives a seekable, portable
+      // stdin payload instead of depending on child-process pipe behavior.
       const child = spawn(resolveNovelTeaCliPath(), ['__editor-native', command], {
         stdio: [inputFile!.fd, 'pipe', 'pipe'],
       });

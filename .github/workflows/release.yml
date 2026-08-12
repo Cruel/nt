@@ -31,6 +31,8 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
@@ -41,7 +43,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake curl zip unzip tar git libssl-dev
+          sudo apt-get install -y build-essential clang ninja-build cmake pkg-config curl zip unzip tar git
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -111,6 +113,25 @@ jobs:
         with:
           name: noveltea-release-host-cli-linux-x64
           path: build/cli/linux/noveltea
+          if-no-files-found: error
+
+      - name: Stage standalone NovelTea CLI release asset
+        run: |
+          mkdir -p build/release-cli
+          install -m 0755 \
+            build/cli/linux/noveltea \
+            "build/release-cli/noveltea-${RELEASE_TAG}-linux-x64"
+
+      - name: Attest standalone NovelTea CLI
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64
+
+      - name: Upload standalone NovelTea CLI release asset
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-cli-release-dist
+          path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64
           if-no-files-found: error
 
   desktop-hosts:

@@ -1,6 +1,6 @@
 # NovelTea CLI
 
-NovelTea ships one public headless executable: `noveltea`. It is a Perry-compiled standalone binary containing the shared TypeScript authoring/workspace implementation and a narrow statically linked native tooling boundary. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
+NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built standalone binary containing the shared TypeScript authoring/workspace implementation in an embedded QuickJS-ng island plus a narrow statically linked host/native tooling boundary. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
 
 ## Project discovery and direct editing
 
@@ -23,7 +23,7 @@ noveltea agent sync
 
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. `noveltea --help` is authoritative for the installed version's exact syntax.
 
-The standalone entrypoint has a deliberately lightweight dispatch layer. Version/help/usage handling, unknown-command rejection, raw `shaderc`, and Perry's embedded `agent sync` path do not construct the authoring Zod schema graph. Commands that assemble or validate authoring content load the jitless Zod configuration and heavy CLI application graph only after dispatch determines those schemas are required. This boundary is part of the release architecture because Zod v4 schema construction is comparatively expensive under the pinned Perry compiler.
+The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations cross the existing NovelTea C ABI. `agent sync` embeds the checked-in agent-kit source texts as build-time package data and generates the schema portion only when that command runs.
 
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
 
@@ -53,4 +53,4 @@ The CLI does not require Electron or an open editor. If an editor is open, its w
 
 ## Build and release
 
-The exact Perry version and native ABI are pinned and certified against the Node reference implementation. Release packages contain the standalone `noveltea` binary, not TypeScript source, source maps containing first-party TypeScript, Node/Perry runtimes, a sibling shaderc binary, or the retired editor helper executable. See `PERRY_COMPATIBILITY.md` and `BUILD_AND_DISTRIBUTION.md`.
+The exact scriptc version and native ABI are pinned and certified against the Node reference implementation. Tagged releases publish the certified Linux x64 standalone executable as `noveltea-<tag>-linux-x64`, include it in `SHA256SUMS`, and attest its build provenance. Release packages contain the standalone `noveltea` binary, not TypeScript source files, source maps containing first-party TypeScript, a Node installation, a sibling shaderc binary, or the retired editor helper executable. See `SCRIPTC_COMPATIBILITY.md` and `BUILD_AND_DISTRIBUTION.md`.

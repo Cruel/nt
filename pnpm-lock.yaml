@@ -112,9 +112,6 @@ importers:
       '@noveltea/tooling-native':
         specifier: link:./native/noveltea-tooling
         version: link:native/noveltea-tooling
-      '@perryts/perry':
-        specifier: 0.5.1220
-        version: 0.5.1220
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(@voidzero-dev/vite-plus-core@0.2.5(@types/node@26.1.1)(jiti@2.7.0)(typescript@7.0.2))
@@ -202,6 +199,9 @@ importers:
       saxes:
         specifier: 6.0.0
         version: 6.0.0
+      scriptc:
+        specifier: 0.0.26
+        version: 0.0.26
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -1293,55 +1293,17 @@ packages:
     resolution: {integrity: sha512-ODOov0sGMJMf3jPonOkgGqPknTsu+DdQ7kD++gz8aI+aFMOMHFbWAA2taqXXVTdP+OTOQR/znGvSpmkeI0WTYQ==}
     engines: {node: '>=14.18.0'}
 
-  '@perryts/perry-darwin-arm64@0.5.1220':
-    resolution: {integrity: sha512-5FLa1ciHZwLZVtoecQqhiJ6K7pGjzcBay9y5DiDuSX4+7R4EJDmx9oXKXDXKz1xv5q00seMcLAZkIMQj/hyquw==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@perryts/perry-darwin-x64@0.5.1220':
-    resolution: {integrity: sha512-ZVJPZT+NKLf5dWejqOVYoElJGOap0Ic9FEjy4qiTC2IMnZ+5xtxkRMinpEVv61TdAf1pRWAFYw5CzHI88WFvzQ==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@perryts/perry-linux-arm64-musl@0.5.1220':
-    resolution: {integrity: sha512-rizM9uW3wyBQc1VS7rJaWO0XYeH1dSGI0NC9FBxv3/CT31nniyYQEShGhHKTd6gaisxJNSC/rwqhEqy5NQi3iw==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [musl]
-
-  '@perryts/perry-linux-arm64@0.5.1220':
-    resolution: {integrity: sha512-qJeup8XTMstoXWDrREZCmhQjqnwJlML3zmBZLhKp3nNRTzn3cEhQFUempEtL3++M2MQjP3CLmzgMh+ZHGZUO7Q==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@perryts/perry-linux-x64-musl@0.5.1220':
-    resolution: {integrity: sha512-OFJLceB+qNlzYTTHl5rK1PaDReNrwxtYJB+xDMf0RKq+MofecKpNjdICHQzKdtO47Guok2bTnTghOTdsHpdR7w==}
-    cpu: [x64]
-    os: [linux]
-    libc: [musl]
-
-  '@perryts/perry-linux-x64@0.5.1220':
-    resolution: {integrity: sha512-N8QG2AboPzw3cBdv1pQdFGc75xTpAwUcWIgik4O6WlU3zMIrOHxIaqj8UWZ1XN8nAxCueBjvGGu8CPi856SvPQ==}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@perryts/perry-win32-x64@0.5.1220':
-    resolution: {integrity: sha512-p33zkG/s3fMfYgAgtfHTWfjTlmlxxaTYZ/Yhw6HzFtyPeBXxz4DtKdbmwNu95ZgFYVAIknF/Fd2Loym56FeXXg==}
-    cpu: [x64]
-    os: [win32]
-
-  '@perryts/perry@0.5.1220':
-    resolution: {integrity: sha512-hgeFCUE8usn/9vObDwlHkE+gRkZm3kjppz6KIefU/+dJ1523bYLI4hAsKk6lnZnaUc6iaiuK8yBF8wklqqVDwQ==}
-    engines: {node: '>=16'}
-    hasBin: true
-
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@scriptc/compiler@0.0.26':
+    resolution: {integrity: sha512-JCLQbW5ZLTDOwlSbUwfA8ZYcsHUb1SJzzpAwNFNPOlf+mw8kvTMKFnQaDzCD+bK/eOAzLhn2U6jO95fiYsNJxQ==}
+
+  '@scriptc/runtime@0.0.26':
+    resolution: {integrity: sha512-M035p4yYbnxTkgIt+hKVO4ekWc0iAicMXpsBEgxmpr2fAUHgM7UI/r8V9nHtzAXb8rB2kQEe/l6nbzSeUmIgSg==}
 
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
@@ -3399,6 +3361,16 @@ packages:
     resolution: {integrity: sha512-34R7HTnG0XIJcBSn5XhDd7nNFPRcXYRZrBB2O2jdKqYODldSzBAqzsWoZYYvduky73toYS/ESqxPvkDf/F0XMg==}
     engines: {node: '>=10'}
 
+  scriptc@0.0.26:
+    resolution: {integrity: sha512-UqqmtrdYV0cS7lA/hOfx+DLhWwglHjxSwKXUqUez6l2TnFo8D12dSickGp0oo7dPxBhVcvrLHIG8aOZ0PunmqQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -4683,40 +4655,17 @@ snapshots:
       tslib: 2.8.1
       webcrypto-core: 1.9.2
 
-  '@perryts/perry-darwin-arm64@0.5.1220':
-    optional: true
-
-  '@perryts/perry-darwin-x64@0.5.1220':
-    optional: true
-
-  '@perryts/perry-linux-arm64-musl@0.5.1220':
-    optional: true
-
-  '@perryts/perry-linux-arm64@0.5.1220':
-    optional: true
-
-  '@perryts/perry-linux-x64-musl@0.5.1220':
-    optional: true
-
-  '@perryts/perry-linux-x64@0.5.1220':
-    optional: true
-
-  '@perryts/perry-win32-x64@0.5.1220':
-    optional: true
-
-  '@perryts/perry@0.5.1220':
-    optionalDependencies:
-      '@perryts/perry-darwin-arm64': 0.5.1220
-      '@perryts/perry-darwin-x64': 0.5.1220
-      '@perryts/perry-linux-arm64': 0.5.1220
-      '@perryts/perry-linux-arm64-musl': 0.5.1220
-      '@perryts/perry-linux-x64': 0.5.1220
-      '@perryts/perry-linux-x64-musl': 0.5.1220
-      '@perryts/perry-win32-x64': 0.5.1220
-
   '@polka/url@1.0.0-next.29': {}
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@scriptc/compiler@0.0.26':
+    dependencies:
+      '@scriptc/runtime': 0.0.26
+      typescript: 7.0.2
+      typescript5: typescript@5.9.3
+
+  '@scriptc/runtime@0.0.26': {}
 
   '@sindresorhus/is@4.6.0': {}
 
@@ -6650,6 +6599,12 @@ snapshots:
 
   type-fest@0.13.1:
     optional: true
+
+  scriptc@0.0.26:
+    dependencies:
+      '@scriptc/compiler': 0.0.26
+
+  typescript@5.9.3: {}
 
   typescript@7.0.2:
     optionalDependencies:

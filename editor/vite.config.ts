@@ -234,7 +234,12 @@ export default defineConfig({
       'compile:electron': {
         command: 'vp pack',
         cache: true,
-        output: ['dist-electron/main/**', 'dist-electron/preload/**', 'dist-electron/tools/**'],
+        output: [
+          'dist-electron/main/**',
+          'dist-electron/preload/**',
+          'dist-electron/tools/**',
+          'dist-scriptc-island/**',
+        ],
       },
       'validate:bundles': {
         command: 'node scripts/validate-bundle-policy.mjs',
@@ -310,6 +315,23 @@ export default defineConfig({
       outDir: 'dist-electron/tools',
       fixedExtension: true,
       clean: true,
+    },
+    {
+      ...commonNodePack,
+      name: 'scriptc-island',
+      deps: {
+        ...commonNodePack.deps,
+        neverBundle: [...electronRuntimeExternals, 'noveltea-scriptc-agent-kit-source'],
+        onlyBundle: ['saxes', 'xmlchars', 'zod'],
+      },
+      entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },
+      format: 'cjs',
+      outDir: 'dist-scriptc-island',
+      fixedExtension: true,
+      clean: true,
+      checks: { legacyCjs: false },
+      outputOptions: { codeSplitting: false },
+      sourcemap: false,
     },
   ],
 });

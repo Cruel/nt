@@ -1,8 +1,9 @@
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
-import { readPerryEmbeddedAgentKit, type NovelTeaAgentKitPayload } from './agent-kit-embedded';
+import type { NovelTeaAgentKitPayload } from './agent-kit';
 
 export interface NovelTeaAgentSyncOptions {
   readonly beforeActivate?: () => Promise<void> | void;
+  readonly payload?: NovelTeaAgentKitPayload;
 }
 
 export interface NovelTeaAgentSyncResult {
@@ -78,7 +79,6 @@ async function writeAndValidateCandidate(
 let stagingSequence = 0;
 
 async function loadNovelTeaAgentKitPayload(): Promise<NovelTeaAgentKitPayload> {
-  if ('perry' in process.versions) return readPerryEmbeddedAgentKit();
   return (await import('./agent-kit')).createNovelTeaAgentKitPayload();
 }
 
@@ -95,7 +95,7 @@ export function syncNovelTeaAgentKit(
       let activated = false;
       let succeeded = false;
       try {
-        const payload = await loadNovelTeaAgentKitPayload();
+        const payload = options.payload ?? (await loadNovelTeaAgentKitPayload());
         const localRoot = fileSystem.joinPath(projectRoot, '.noveltea');
         const agentRoot = fileSystem.joinPath(localRoot, 'agent');
         const guidePath = fileSystem.joinPath(agentRoot, 'GUIDE.md');

@@ -35,7 +35,7 @@ function schemaDefinition(schema: unknown): ZodDefinition | undefined {
 }
 
 function collectSchemaLeafPaths(schema: unknown, output: Set<JsonPointer>): void {
-  // Keep this iterative: Perry 0.5.1220 miscompiles the equivalent recursive Zod-schema walk.
+  // Keep this iterative so deeply composed schema graphs do not depend on host recursion depth.
   const pending: Array<{
     schema: unknown;
     path: readonly string[];

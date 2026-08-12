@@ -12,7 +12,7 @@ Changing kit wording, examples, workflow guidance, or generated schema payload m
 
 Checked-in kit source lives under `editor/agent-kit/`. Stable guidance and `skill/SKILL.md` are hand-authored public resources. Machine-readable schemas are derived from the exact workspace-v1 Zod/contextual codecs rather than maintained as a second handwritten format definition. Constraints JSON Schema cannot represent, such as project-wide path/ownership rules, are documented in generated `PROJECT_FORMAT.md` and enforced by the executable workspace loader.
 
-Release builds materialize a complete candidate kit with the Node reference implementation, verify its deterministic manifest/hashes, and embed those exact bytes into Perry. Perry 0.5.1220 currently cannot execute Zod's `toJSONSchema` closure correctly in the full release graph, so schema generation is intentionally a verified build-time step rather than runtime regeneration. The compatibility record and removal gate are in `PERRY_COMPATIBILITY.md`.
+Release builds embed the checked-in hand-authored kit source as a private scriptc island package. `noveltea agent sync` combines those exact source texts with JSON Schemas generated from the shared Zod schemas, then writes and validates the deterministic manifest/hashes. This work is command-local: ordinary CLI operations do not generate the agent-kit schemas. See `SCRIPTC_COMPATIBILITY.md`.
 
 ## Project bootstrap and sync
 
@@ -28,4 +28,4 @@ The project watcher ignores `.noveltea/`, so running `noveltea agent sync` while
 
 ## Certification
 
-CLI differential certification covers sync generation, version/hash verification, repeated idempotent sync, rollback on injected swap failure, and Node/Perry byte equivalence. Distribution verification additionally certifies that the embedded kit matches its manifest and that production packages contain no prohibited TypeScript/source-map leakage.
+CLI differential certification covers sync generation, version/hash verification, repeated idempotent sync, rollback on injected swap failure, and Node/scriptc byte equivalence. Distribution verification additionally certifies standalone relocation and that production packages contain no prohibited first-party source maps or external runtime dependencies.

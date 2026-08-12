@@ -390,17 +390,17 @@ async function runDifferential(tempRoot) {
 
     await resetCase(pristine, caseRoot);
     await test.prepare?.(caseRoot);
-    const perryResult = runNative(args, { cwd: test.cwd?.(caseRoot) ?? cwd });
-    const perryTree = test.project === false ? '' : await treeSnapshot(caseRoot);
+    const scriptcResult = runNative(args, { cwd: test.cwd?.(caseRoot) ?? cwd });
+    const scriptcTree = test.project === false ? '' : await treeSnapshot(caseRoot);
 
     for (const field of ['status', 'stdout', 'stderr']) {
-      if (perryResult[field] !== nodeResult[field])
+      if (scriptcResult[field] !== nodeResult[field])
         fail(
-          `Node/Perry differential '${test.name}' differs in ${field}.\nNode: ${String(nodeResult[field])}\nPerry: ${String(perryResult[field])}`,
+          `Node/scriptc differential '${test.name}' differs in ${field}.\nNode: ${String(nodeResult[field])}\nscriptc: ${String(scriptcResult[field])}`,
         );
     }
-    if (perryTree !== nodeTree)
-      fail(`Node/Perry differential '${test.name}' produced different filesystem state.`);
+    if (scriptcTree !== nodeTree)
+      fail(`Node/scriptc differential '${test.name}' produced different filesystem state.`);
     process.stdout.write(`[differential] ${test.name}: PASS\n`);
   }
   return { pristine };
@@ -521,8 +521,20 @@ async function certifyRelocation(tempRoot) {
     fail(`Relocated CLI returned unexpected version '${payload.version}'.`);
 
   const closure = requireSuccess('CLI ldd audit', run('ldd', [relocated], { env })).stdout;
-  if (/\b(?:node|perry|shaderc)\b/i.test(closure))
+  if (/\b(?:node|shaderc)\b/i.test(closure))
     fail(`Standalone CLI has a forbidden runtime dependency:\n${closure}`);
+
+  const binary = await readFile(relocated);
+  for (const marker of [
+    'sourceMappingURL',
+    'scripts/noveltea-scriptc-island.ts',
+    'NovelTea command failed',
+    'Fragment layout RML should not include',
+  ]) {
+    if (binary.includes(Buffer.from(marker)))
+      fail(`Standalone CLI exposes prohibited first-party source marker '${marker}'.`);
+  }
+
   return closure
     .split('\n')
     .map((line) => line.trim())
@@ -559,6 +571,7 @@ async function main() {
         rawShaderVariants: Object.keys(rawShaderGoldens),
         nativeOperations: ['shader-compile', 'raw-shaderc', 'test', 'ui-test', 'package-export'],
         relocation: true,
+        sourceLeakageAudit: true,
         binarySize,
         linkedClosure: closure,
       })}\n`,

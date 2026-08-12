@@ -18,7 +18,6 @@ import {
 } from '../shared/project-workspace/project-workspace-contracts';
 import { NOVELTEA_CLI_VERSION } from './contracts';
 import { loadAgentKitSourceFiles } from './agent-kit/source';
-import type { NovelTeaAgentKitPayload } from './agent-kit-embedded';
 
 export const NOVELTEA_AGENT_KIT_SCHEMA = 'noveltea.agent-kit.manifest' as const;
 export const NOVELTEA_AGENT_KIT_SCHEMA_VERSION = 1 as const;
@@ -113,10 +112,15 @@ function schemaText(schema: z.ZodType): string {
   )}\n`;
 }
 
-export type { NovelTeaAgentKitPayload } from './agent-kit-embedded';
+export interface NovelTeaAgentKitPayload {
+  readonly manifestText: string;
+  readonly files: Readonly<Record<string, string>>;
+}
 
-export function createNovelTeaAgentKitPayload(): NovelTeaAgentKitPayload {
-  const files: Record<string, string> = { ...loadAgentKitSourceFiles() };
+export function createNovelTeaAgentKitPayload(
+  sourceFiles: Readonly<Record<string, string>> = loadAgentKitSourceFiles(),
+): NovelTeaAgentKitPayload {
+  const files: Record<string, string> = { ...sourceFiles };
   for (const [relativePath, schema] of Object.entries(schemaSources))
     files[`schemas/${relativePath}`] = schemaText(schema);
 

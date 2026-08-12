@@ -131,10 +131,8 @@ function parseTrackedEditorOrganization(value: Readonly<Record<string, unknown>>
   )
     return null;
 
-  // Perry 0.5.1220 miscompiles this nested z.record(z.record(...)) shape in the
-  // full workspace-open graph, silently returning an empty outer record. Validate
-  // each dynamic level explicitly so the persisted editor metadata survives the
-  // Node/Perry mutation differential without weakening its schema.
+  // Validate each dynamic record level explicitly. This keeps prototype keys rejected and makes
+  // the persisted editor-metadata shape independent of nested dynamic-record parser behavior.
   const recordMetadata: EditorProjectState['recordMetadata'] = {};
   for (const collection of Object.keys(rawMetadata)) {
     if (collection === '__proto__') return null;
@@ -392,8 +390,8 @@ export function assetSourcePaths(project: AuthoringProject): string[] {
 }
 
 function aggregateRevision(revisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>) {
-  // Keep the projection iterative. Perry 0.5.1220 can corrupt one captured
-  // value in the equivalent sorted-array `.map(...)` callback in the full CLI.
+  // Keep the revision projection explicit and iterative so ordering and captured values are easy
+  // to audit across CLI hosts.
   const pairs: [string, string][] = [];
   for (const file of Object.keys(revisions).sort(compareProjectWorkspaceUnicodeCodePoints))
     pairs.push([file, revisions[file]!.contentHash]);
@@ -1060,9 +1058,8 @@ export class ProjectWorkspaceService {
           const decoded = authoringProjectSchema.safeParse(candidate);
           if (!decoded.success)
             return fail('Workspace fragments do not assemble into the current authoring project.');
-          // Preserve the separately validated tracked editor organization after
-          // AuthoringProject parsing. Perry 0.5.1220 otherwise loses the nested
-          // dynamic recordMetadata map while Node preserves it.
+          // Preserve the separately validated tracked editor organization after AuthoringProject
+          // parsing instead of relying on a second nested dynamic-record normalization pass.
           decoded.data.editor.chapters = trackedEditor.chapters;
           decoded.data.editor.tags = trackedEditor.tags;
           decoded.data.editor.recordMetadata = trackedEditor.recordMetadata;

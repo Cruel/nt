@@ -20,6 +20,7 @@ import {
 import { openCliProject } from './semantic-project';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import { CliCommandUsageError, parseCliCommand } from './commands';
+import type { NovelTeaAgentKitPayload } from './agent-kit';
 import { runNovelTeaAgentSyncCli } from './agent-sync-cli';
 
 export interface RunNovelTeaCliOptions {
@@ -27,6 +28,7 @@ export interface RunNovelTeaCliOptions {
   readonly fileSystem?: ProjectWorkspaceFileSystem;
   readonly workspace?: ProjectWorkspaceService;
   readonly nativeTools?: NovelTeaCliNativeToolService;
+  readonly agentKitPayload?: NovelTeaAgentKitPayload;
   readonly stdinText?: string;
   readonly readStdinText?: () => string;
 }
@@ -89,7 +91,7 @@ export async function runNovelTeaCli(
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const fileSystem = options.fileSystem ?? createNodeProjectWorkspaceFileSystem();
   if (globals.command[0] === 'agent' && globals.command[1] === 'sync')
-    return runNovelTeaAgentSyncCli(globals, fileSystem, cwd);
+    return runNovelTeaAgentSyncCli(globals, fileSystem, cwd, options.agentKitPayload);
 
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
   if (globals.command[0] === 'shaderc') {
