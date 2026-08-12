@@ -40,9 +40,10 @@ properties, references, programs, resources, settings, and startup; lowers speci
 Room/Scene/Dialogue/Interaction content; removes tooling metadata; and emits deterministic canonical
 gameplay bytes.
 
-`publishCompiledArtifact` is the shared publication service used by preview, playback, package
-export, and platform/CLI export. `buildCompiledRuntimeExport` only assembles file entries,
-shader/material metadata, and package options around those exact bytes.
+`publishCompiledArtifact` is the shared gameplay publication module. The deep
+`prepareRuntimeArtifact` module is the sole preparation interface used by preview, playback,
+Runtime Package export, and platform/CLI export; it assembles file entries, shader/material metadata,
+diagnostics, source identity, and package options around those exact bytes.
 
 ## Native Runtime
 
@@ -70,7 +71,7 @@ editor/src/shared/project-schema/authoring-project.ts
 editor/src/shared/project-schema/authoring-validation.ts
 editor/src/shared/project-schema/authoring-compiler.ts
 editor/src/shared/compiled-artifact-publication.ts
-editor/src/shared/project-schema/compiled-runtime-export.ts
+editor/src/shared/runtime-artifact-preparation.ts
 editor/src/renderer/project/project-store.ts
 editor/src/renderer/project/entity-operations.ts
 engine/include/noveltea/core/compiled_project.hpp

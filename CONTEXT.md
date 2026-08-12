@@ -21,6 +21,10 @@ _See_: `docs/architecture/COMPILED_PROJECT_WIRE_V2.md`
 The distributable `.ntpkg` artifact containing a Compiled Project and the runtime resources needed to run it.
 _See_: `docs/runtime/PACKAGE_EXPORT.md`
 
+**Prepared Runtime Artifact**:
+An immutable, detached export result containing a Compiled Project plus the package metadata, diagnostics, and source identity needed to produce or verify a Runtime Package. It is not itself a Runtime Package.
+_See_: `docs/editor/export/EXPORT_AND_PACKAGING.md`
+
 ## Gameplay
 
 **Room**:

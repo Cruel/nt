@@ -65,6 +65,7 @@ describe('PackageExportPanel', () => {
           assetId: 'logo',
           source: '/project/assets/images/logo.png',
           packagePath: 'textures/logo.png',
+          storage: 'auto',
           kind: 'image',
         },
       ],
@@ -75,6 +76,29 @@ describe('PackageExportPanel', () => {
         assetCount: 1,
         shaderVariants: ['glsl-120'],
         requiredShaderBinaryPaths: ['shaders/bgfx/glsl-120/noise.fs.bin'],
+        display: {
+          reference_resolution: { width: 1920, height: 1080 },
+          world_raster_policy: 'capped',
+          bar_color: '#000000',
+        },
+        accessibility: {
+          ui_scale: { enabled: true, minimum: 0.75, maximum: 1.5 },
+          text_scale: { enabled: true, minimum: 0.75, maximum: 1.5 },
+        },
+        platform: {
+          orientation: 'landscape',
+          desktop: {
+            initialWidth: 1280,
+            initialHeight: 720,
+            arguments: ['--display-orientation', 'landscape'],
+          },
+          web: { orientation: 'landscape', query: 'orientation=landscape' },
+          android: {
+            orientation: 'landscape',
+            gradleProperty: 'novelteaOrientation=landscape',
+            screenOrientation: 'sensorLandscape',
+          },
+        },
       },
       manifest: {
         format: 'noveltea.runtime-package',

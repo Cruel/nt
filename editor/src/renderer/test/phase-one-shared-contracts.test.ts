@@ -335,7 +335,7 @@ describe('Phase 1 shared contracts', () => {
     ]) {
       const source = fs.readFileSync(path.resolve(relative), 'utf8');
       expect(source).not.toMatch(
-        /authoring-compiler|compiled-runtime-export|compiled-artifact-publication/,
+        /authoring-compiler|runtime-artifact-preparation|compiled-artifact-publication/,
       );
     }
   });

@@ -19,10 +19,11 @@ Gameplay JSON never embeds package inventory or shader/material manifests.
 
 ## Production
 
-The editor calls `buildCompiledRuntimeExport`, which wraps the single
-`publishCompiledArtifact` compiler publication service. That assembly adds file entries,
-shader/material metadata, required shader binaries, and package options without rebuilding gameplay
-properties.
+The editor and CLI call the host-neutral `prepareRuntimeArtifact` module, which wraps the single
+`publishCompiledArtifact` compiler publication module. Preparation adds file entries,
+shader/material metadata, required shader binaries, package options, diagnostics, and source
+identity without rebuilding gameplay properties. Only its `prepared` outcome carries an immutable
+Prepared Runtime Artifact; `blocked` and `cancelled` cannot be passed to package writing.
 
 Preview, playback, package export, and platform export consume the exact canonical gameplay bytes
 from publication. Runtime-package-classified compiler/readiness errors block publication and export;
@@ -133,10 +134,10 @@ derive launch aspect/orientation from reference resolution at their platform bou
 values are not duplicated into the compiled project or canonical package display metadata. See
 `docs/assets/ASSET_MEMORY_PROFILES.md` for measurements and exact defaults.
 
-The renderer prepares one current-revision runtime artifact and source fingerprint. Main-process
-orchestration reparses the request, recomputes the source fingerprint, hashes the produced package,
-and requires matching package evidence before staging. A stale renderer result or mismatched package
-bytes cannot bypass readiness.
+The renderer prepares one current-revision Prepared Runtime Artifact. Main-process orchestration
+strictly parses its current schema, verifies profile, source identity, gameplay bytes, and package
+inventory, hashes the produced package, and requires matching package evidence before staging. A
+stale renderer result or mismatched package bytes cannot bypass readiness.
 
 ## Verification
 

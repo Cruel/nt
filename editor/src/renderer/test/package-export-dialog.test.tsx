@@ -319,7 +319,7 @@ describe('PackageExportDialog', () => {
       />,
     );
 
-    expect(screen.getByText('[Unnamed Project]')).toBeInTheDocument();
+    expect(await screen.findByText('[Unnamed Project]')).toBeInTheDocument();
     expect(screen.getByText('0.0.0')).toBeInTheDocument();
     const exportButton = screen.getByRole('button', { name: 'Export Project' });
     expect(exportButton).toBeEnabled();
@@ -356,7 +356,7 @@ describe('PackageExportDialog', () => {
     expect(screen.getByText('Strip shader sources')).toBeInTheDocument();
   });
 
-  it('disables export and shows blocking diagnostics when preflight fails', () => {
+  it('disables export and shows blocking diagnostics when preflight fails', async () => {
     const project = exportableProject();
     project.entrypoint = { kind: 'room', id: 'missing-room' };
 
@@ -370,7 +370,7 @@ describe('PackageExportDialog', () => {
       />,
     );
 
-    expect(screen.getByText('Export is blocked')).toBeInTheDocument();
+    expect(await screen.findByText('Export is blocked')).toBeInTheDocument();
     expect(
       screen.getAllByText(
         /Missing room 'missing-room'|Entrypoint room 'missing-room' does not exist/,
@@ -382,7 +382,7 @@ describe('PackageExportDialog', () => {
     expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
   });
 
-  it('opens project settings from a missing-entrypoint export blocker', () => {
+  it('opens project settings from a missing-entrypoint export blocker', async () => {
     const onOpenChange = vi.fn();
     const dispatched: Event[] = [];
     const listener = (event: Event) => dispatched.push(event);
@@ -400,7 +400,7 @@ describe('PackageExportDialog', () => {
         />,
       );
 
-      fireEvent.click(screen.getByRole('button', { name: 'Open Project Settings' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Open Project Settings' }));
       expect((dispatched[0] as CustomEvent).detail).toBe('project-settings');
       expect(onOpenChange).toHaveBeenCalledWith(false);
     } finally {
@@ -434,7 +434,7 @@ describe('PackageExportDialog', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export Project' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Export Project' }));
     await waitFor(() => expect(screen.getByText('Last export failed')).toBeInTheDocument());
     expect(screen.getByText('Package file entry source does not exist.')).toBeInTheDocument();
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
@@ -511,6 +511,9 @@ describe('PackageExportDialog', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Playable Platform Export' }));
     await waitFor(() => expect(screen.getByText('linux-x64@build-1')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Export Project' })).toBeEnabled(),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Export Project' }));
     expect(
@@ -520,7 +523,7 @@ describe('PackageExportDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(window.noveltea.exportProjectToPlatform).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Export Project' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Export Project' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Continue Export' }));
     await waitFor(() => expect(window.noveltea.exportProjectToPlatform).toHaveBeenCalledTimes(1));
   });

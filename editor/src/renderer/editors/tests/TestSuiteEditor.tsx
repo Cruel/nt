@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useProjectStore } from '@/project/project-store';
@@ -10,6 +10,7 @@ import { isAuthoringProject } from '../../../shared/project-schema/authoring-pro
 import {
   buildRuntimePlaybackSpecFromAuthoringTest,
   getAuthoringTestRunReadiness,
+  type TestRunReadiness,
 } from '../../../shared/project-schema/test-playback-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
@@ -21,18 +22,41 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
   const setBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
-  const tests = useMemo(() => {
-    if (!project) return [];
-    return Object.entries(project.tests)
-      .map(([id, record]) => ({
+  const [tests, setTests] = useState<
+    Array<{
+      id: string;
+      record: NonNullable<typeof project>['tests'][string];
+      readiness: TestRunReadiness;
+      label: string;
+    }>
+  >([]);
+  useEffect(() => {
+    let current = true;
+    if (!project) {
+      setTests([]);
+      return () => {
+        current = false;
+      };
+    }
+    void Promise.all(
+      Object.entries(project.tests).map(async ([id, record]) => ({
         id,
         record,
-        readiness: getAuthoringTestRunReadiness(project, id),
+        readiness: await getAuthoringTestRunReadiness(project, id),
         label: record.label || id,
-      }))
-      .sort(
-        (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
-      );
+      })),
+    ).then((next) => {
+      if (current)
+        setTests(
+          next.sort(
+            (left, right) =>
+              left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
+          ),
+        );
+    });
+    return () => {
+      current = false;
+    };
   }, [project]);
 
   if (!project)
@@ -44,7 +68,7 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   const activeProject = project;
 
   async function runTest(testId: string) {
-    const spec = buildRuntimePlaybackSpecFromAuthoringTest(activeProject, testId);
+    const spec = await buildRuntimePlaybackSpecFromAuthoringTest(activeProject, testId);
     if (!spec.ok || !spec.spec) {
       const report = {
         id: testId,

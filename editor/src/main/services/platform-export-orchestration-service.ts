@@ -24,19 +24,11 @@ import {
 } from '../../shared/project-schema/authoring-project-settings';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
 import {
-  buildCompiledRuntimeExport,
-  compiledRuntimeExportSourceFingerprint,
-  hasAuthoringShadersOrMaterials,
-  stableStringify,
-} from '../../shared/project-schema/compiled-runtime-export';
+  prepareRuntimeArtifact,
+  verifyPreparedRuntimeArtifact,
+  type PreparedRuntimeArtifact,
+} from '../../shared/runtime-artifact-preparation';
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
-import {
-  canonicalRuntimeShaderOutputPath,
-  captureShaderCompileInputFingerprints,
-  parseShaderData,
-  shaderCompileInputFingerprint,
-} from '../../shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   classifyProjectValidationDiagnostics,
@@ -54,6 +46,11 @@ import {
 } from '../../shared/project-schema/platform-export-contracts';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
 import type { OpenProjectResponse, PackageExportResponse } from '../../shared/editor-tooling';
+import type { ShaderCompileResponse } from '../../shared/editor-tooling';
+import {
+  nodeRuntimeArtifactPaths,
+  nodeShaderCompilerAdapter,
+} from './node-runtime-artifact-adapters';
 
 async function openProjectForPlatformExport(projectPath: string): Promise<OpenProjectResponse> {
   const opened = await createNodeProjectWorkspaceService().open(projectPath);
@@ -306,152 +303,55 @@ export async function exportProjectToPlatform(
         ),
       ]);
     }
-    let built;
-    if (request.preparedRuntimeExport) {
+    let artifact: PreparedRuntimeArtifact;
+    if (request.preparedRuntimeArtifact) {
       progress('compiling-project', 'Verifying the prepared current-revision runtime artifact');
-      const prepared = request.preparedRuntimeExport;
-      if (stableStringify(prepared.profile) !== stableStringify(targetRuntimeProfile)) {
-        return failure(operationId, [
-          diagnostic(
-            'runtime-package-profile-mismatch',
-            '/preparedRuntimeExport/profile',
-            'The prepared runtime package profile does not match the selected platform target.',
-          ),
-        ]);
-      }
-      const expectedFingerprint = compiledRuntimeExportSourceFingerprint(
+      const verified = verifyPreparedRuntimeArtifact(request.preparedRuntimeArtifact, {
         project,
-        prepared.profile,
-        prepared.recoveryFingerprint ?? null,
-      );
-      if (prepared.sourceFingerprint !== expectedFingerprint) {
-        return failure(operationId, [
-          createPlatformExportValidationDiagnostic({
-            severity: 'error',
-            code: 'runtime-package-fingerprint-stale',
-            category: 'Runtime package readiness',
-            path: '/preparedRuntimeExport/sourceFingerprint',
-            message:
-              'The prepared runtime package belongs to an older or different project revision.',
-            ownerPaths: ['/project', '/preparedRuntimeExport/sourceFingerprint'],
-          }),
-        ]);
-      }
-      const blocking = prepared.diagnostics.filter(
-        (item) => item.severity === 'error' && item.boundaries.includes('platform-export'),
-      );
-      if (blocking.length > 0) {
-        return failure(operationId, collectProjectValidationDiagnostics(blocking));
-      }
-      built = {
-        ok: true,
-        compiledProject: prepared.compiledProject,
-        packageOptions: prepared.packageOptions,
-        sourceFingerprint: prepared.sourceFingerprint,
-        diagnostics: prepared.diagnostics,
-      };
-    } else {
-      let exportProject = project;
-      if (
-        !request.checkOnly &&
-        targetRuntimeProfile.compileShadersBeforeExport &&
-        hasAuthoringShadersOrMaterials(project)
-      ) {
-        checkPlatformExportCancelled(operationId);
-        progress('compiling-shaders', 'Compiling required shader variants');
-        const shaderProject = buildShaderMaterialProject(project);
-        const capturedFingerprints = captureShaderCompileInputFingerprints(
-          project,
-          targetRuntimeProfile.shaderVariants,
-        );
-        const response = (await nativeTools.compileShaders(shaderProject.project, {
-          projectRoot,
-          outputRoot: path.join(projectRoot, '.noveltea', 'build'),
-          cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),
-          shaderVariants: targetRuntimeProfile.shaderVariants,
-        })) as {
-          success?: boolean;
-          diagnostics?: Array<{
-            severity: 'info' | 'warning' | 'error';
-            code?: string;
-            message: string;
-            path?: string;
-          }>;
-          outputs?: Array<{
-            shader: string;
-            stage: string;
-            variant: string;
-            runtimePath: string;
-            byteHash: string;
-            byteSize: number;
-          }>;
-        };
-        if (!response.success || response.diagnostics?.some((item) => item.severity === 'error')) {
-          const shaderDiagnostics = classifyProjectValidationDiagnostics(
-            (response.diagnostics ?? []).map((item) => ({
-              ...item,
-              path: item.path ?? '/shaders',
-              category: 'shader',
-            })),
-            { producer: 'shader-compile' },
-          );
-          return failure(operationId, collectProjectValidationDiagnostics(shaderDiagnostics));
-        }
-        exportProject = structuredClone(project);
-        for (const output of response.outputs ?? []) {
-          const record = exportProject.shaders[output.shader];
-          const shader = parseShaderData(record?.data);
-          if (!record || !shader) continue;
-          const stageIndex = shader.stages.findIndex((item) => item.stage === output.stage);
-          const stage = shader.stages[stageIndex];
-          if (!stage) continue;
-          const inputFingerprint = shaderCompileInputFingerprint(
-            project,
-            output.shader,
-            stageIndex,
-            output.variant,
-          );
-          const capturedFingerprint =
-            capturedFingerprints[`${output.shader}:${output.stage}:${output.variant}`];
-          const runtimePath = canonicalRuntimeShaderOutputPath(output.runtimePath);
-          if (
-            !inputFingerprint ||
-            inputFingerprint !== capturedFingerprint ||
-            !runtimePath ||
-            !/^sha256:[0-9a-f]{64}$/.test(output.byteHash) ||
-            !Number.isSafeInteger(output.byteSize) ||
-            output.byteSize < 0
-          ) {
-            return failure(operationId, [
-              createPlatformExportValidationDiagnostic({
-                code: 'platform-export.shader-output-stale-or-invalid',
-                severity: 'error',
-                path: `/shaders/${output.shader}`,
-                message: `Compiled output '${output.shader}:${output.stage}:${output.variant}' became stale or returned invalid integrity metadata.`,
-              }),
-            ]);
-          }
-          stage.compiled = {
-            ...stage.compiled,
-            [output.variant]: {
-              path: runtimePath,
-              byteHash: output.byteHash,
-              byteSize: output.byteSize,
-              compileInputFingerprint: capturedFingerprint,
-            },
-          };
-          record.data = shader;
-        }
-      }
-      progress('compiling-project', 'Compiling the project artifact');
-      checkPlatformExportCancelled(operationId);
-      built = buildCompiledRuntimeExport(exportProject, {
         projectRoot,
         profile: targetRuntimeProfile,
+        recoveryFingerprint: request.preparedRuntimeArtifact.recoveryFingerprint,
+        paths: nodeRuntimeArtifactPaths,
       });
-      if (!built.ok || !built.compiledProject) {
-        return failure(operationId, collectProjectValidationDiagnostics(built.diagnostics));
-      }
+      if (verified.status === 'rejected')
+        return failure(operationId, collectProjectValidationDiagnostics(verified.diagnostics));
+      artifact = verified.verified.artifact;
+      const blocking = artifact.diagnostics.filter(
+        (item) => item.severity === 'error' && item.boundaries.includes('platform-export'),
+      );
+      if (blocking.length > 0)
+        return failure(operationId, collectProjectValidationDiagnostics(blocking));
+    } else {
+      const prepared = await prepareRuntimeArtifact({
+        project,
+        projectRoot,
+        profile: targetRuntimeProfile,
+        intent: request.checkOnly ? 'platform-preflight' : 'platform-export',
+        shaderCompiler: nodeShaderCompilerAdapter(
+          (shaderProject, options) =>
+            nativeTools.compileShaders(shaderProject, options) as Promise<ShaderCompileResponse>,
+        ),
+        paths: nodeRuntimeArtifactPaths,
+        isCancelled: () => {
+          try {
+            checkPlatformExportCancelled(operationId);
+            return false;
+          } catch {
+            return true;
+          }
+        },
+        onStage: (stage) =>
+          progress(
+            stage,
+            stage === 'compiling-project'
+              ? 'Compiling the project artifact'
+              : 'Compiling required shader variants',
+          ),
+      });
+      if (prepared.status === 'cancelled') return cancelled(operationId);
+      if (prepared.status === 'blocked')
+        return failure(operationId, collectProjectValidationDiagnostics(prepared.diagnostics));
+      artifact = prepared.artifact;
     }
 
     const localState = request.localState ?? {};
@@ -597,12 +497,12 @@ export async function exportProjectToPlatform(
     try {
       progress('writing-package', 'Writing game.ntpkg');
       checkPlatformExportCancelled(operationId);
-      const packaged = (await nativeTools.exportPackage(built.compiledProject, packagePath, {
-        ...built.packageOptions,
+      const packaged = (await nativeTools.exportPackage(artifact.compiledProject, packagePath, {
+        ...artifact.packageOptions,
         shaderAssetRoot:
-          (built.packageOptions.shaderVariants?.length ?? 0) > 0
+          (artifact.packageOptions.shaderVariants?.length ?? 0) > 0
             ? path.join(projectRoot, '.noveltea', 'build')
-            : built.packageOptions.shaderAssetRoot,
+            : artifact.packageOptions.shaderAssetRoot,
       })) as PackageExportResponse;
       if (!packaged.success) {
         const packageDiagnostics = classifyProjectValidationDiagnostics(
@@ -616,8 +516,8 @@ export async function exportProjectToPlatform(
         .digest('hex');
 
       const settings = projectSettingsFromProject(project);
-      const runtimeDisplay = built.packageOptions.display;
-      const accessibility = built.packageOptions.accessibility;
+      const runtimeDisplay = artifact.packageOptions.display;
+      const accessibility = artifact.packageOptions.accessibility;
       const displayGeometry = runtimeDisplay
         ? deriveProjectDisplayGeometry(runtimeDisplay.reference_resolution)
         : null;
@@ -645,7 +545,7 @@ export async function exportProjectToPlatform(
         packagePath,
         iconSourcePath: resolvedIconPath,
         runtimePackageEvidence: {
-          sourceFingerprint: built.sourceFingerprint,
+          sourceFingerprint: artifact.sourceFingerprint,
           packageSha256,
         },
         identity: {

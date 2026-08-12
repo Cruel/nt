@@ -1,11 +1,11 @@
 import { validateProjectComfyUiWorkflows } from './comfyui-service';
 import type {
   PackageExportOptions,
-  ShaderCompileDiagnostic,
   ShaderCompileOptions,
   ToolDiagnostic,
 } from '../../shared/editor-tooling';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
+import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import {
   createProjectWorkspaceSnapshot,
@@ -113,18 +113,18 @@ export function listPlaybackTests(project: unknown) {
   return Promise.resolve({ ok: true, tests, diagnostics });
 }
 
-export function runPlaybackTest(project: unknown, testId: string) {
+export async function runPlaybackTest(project: unknown, testId: string) {
   if (isAuthoringProject(project)) {
-    const built = buildRuntimePlaybackSpecFromAuthoringTest(project, testId);
+    const built = await buildRuntimePlaybackSpecFromAuthoringTest(project, testId);
     if (!built.ok || !built.project || !built.spec)
-      return Promise.resolve({ ok: false, success: false, diagnostics: built.diagnostics });
+      return { ok: false, success: false, diagnostics: built.diagnostics };
     return invokeNovelTeaNativeOperation('run-test', { project: built.project, spec: built.spec });
   }
-  return Promise.resolve({
+  return {
     ok: false,
     success: false,
     error: 'Playback requires an authoring project.',
-  });
+  };
 }
 
 export function runPlaybackSpec(project: unknown, spec: unknown) {
@@ -165,12 +165,9 @@ function normalizePackageToolResponse(value: unknown): unknown {
 }
 
 function normalizeShaderToolResponse(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.diagnostics)) return value;
-  const rawDiagnostics = record.diagnostics as ShaderCompileDiagnostic[];
+  const response = parseShaderCompileResponse(value);
   const classified = classifyProjectValidationDiagnostics(
-    rawDiagnostics.map((diagnostic) => ({
+    response.diagnostics.map((diagnostic) => ({
       code: diagnostic.code,
       severity: diagnostic.severity,
       path: diagnostic.path ?? diagnostic.outputPath ?? diagnostic.sourcePath ?? '/shaders',
@@ -180,8 +177,8 @@ function normalizeShaderToolResponse(value: unknown): unknown {
     { producer: 'shader-compile' },
   );
   return {
-    ...record,
-    diagnostics: rawDiagnostics.map((diagnostic, index) => ({
+    ...response,
+    diagnostics: response.diagnostics.map((diagnostic, index) => ({
       ...diagnostic,
       ...classified[index],
     })),

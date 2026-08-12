@@ -49,7 +49,7 @@ beforeEach(() => {
 });
 
 describe('TestsEditor', () => {
-  it('renders typed test data and readiness diagnostics', () => {
+  it('renders typed test data and readiness diagnostics', async () => {
     const project = createAuthoringProject();
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
     useProjectStore.getState().loadProjectDocument({
@@ -63,9 +63,11 @@ describe('TestsEditor', () => {
     expect(screen.getByText('Smoke')).toBeInTheDocument();
     expect(screen.getByText('smoke')).toBeInTheDocument();
     expect(screen.getByText('not runnable')).toBeInTheDocument();
-    expect(
-      screen.getAllByText('Choose an entrypoint before this test can run.').length,
-    ).toBeGreaterThanOrEqual(1);
+    await waitFor(() =>
+      expect(
+        screen.getAllByText('Choose an entrypoint before this test can run.').length,
+      ).toBeGreaterThanOrEqual(1),
+    );
     expect(screen.getByText('Selected step')).toBeInTheDocument();
     expect(screen.getByText('Assertions')).toBeInTheDocument();
   });

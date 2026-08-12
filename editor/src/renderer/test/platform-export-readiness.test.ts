@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
-import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
+import { prepareRuntimeAssessmentForTest } from './runtime-artifact-test-helpers';
 import {
   defaultPlatformExportProfile,
   type ExportPlatform,
@@ -33,10 +33,10 @@ function project() {
   return value;
 }
 
-function readiness(target: ExportPlatform) {
+async function readiness(target: ExportPlatform) {
   const value = project();
   const profile = defaultPlatformExportProfile(target);
-  const built = buildCompiledRuntimeExport(value, {
+  const built = await prepareRuntimeAssessmentForTest(value, {
     projectRoot: '/project',
     profile: runtimeExportProfileForPlatform(value, target),
   });
@@ -64,10 +64,10 @@ function readiness(target: ExportPlatform) {
 describe('platform export readiness', () => {
   it.each(['linux', 'web', 'android'] as const)(
     'keeps runtime and common identity blockers in every %s target matrix row',
-    (target) => {
-      const { value, profile } = readiness(target);
+    async (target) => {
+      const { value, profile } = await readiness(target);
       value.entrypoint = null;
-      const runtime = buildCompiledRuntimeExport(value, {
+      const runtime = await prepareRuntimeAssessmentForTest(value, {
         projectRoot: '/project',
         profile: runtimeExportProfileForPlatform(value, target),
       });
@@ -96,8 +96,8 @@ describe('platform export readiness', () => {
     ['linux', '/settings/app/desktop/linuxDesktopId'],
     ['web', '/settings/app/web/manifestId'],
     ['android', '/settings/app/android/applicationId'],
-  ] as const)('selects only %s target metadata diagnostics', (target, selectedPath) => {
-    const base = readiness(target);
+  ] as const)('selects only %s target metadata diagnostics', async (target, selectedPath) => {
+    const base = await readiness(target);
     const diagnostics = [
       ['/settings/app/desktop/linuxDesktopId', 'desktop-target'],
       ['/settings/app/web/manifestId', 'web-target'],
@@ -138,8 +138,8 @@ describe('platform export readiness', () => {
     });
   });
 
-  it('preserves exact identity-warning contracts and requires confirmation', () => {
-    const base = readiness('linux');
+  it('preserves exact identity-warning contracts and requires confirmation', async () => {
+    const base = await readiness('linux');
     const result = evaluatePlatformExportReadiness({
       runtimeExport: base.built,
       commonIdentity: {
@@ -176,8 +176,8 @@ describe('platform export readiness', () => {
     ]);
   });
 
-  it('reports Android toolchain readiness without affecting Desktop or Web', () => {
-    const android = readiness('android');
+  it('reports Android toolchain readiness without affecting Desktop or Web', async () => {
+    const android = await readiness('android');
     const result = evaluatePlatformExportReadiness({
       runtimeExport: android.built,
       commonIdentity: {
@@ -198,7 +198,7 @@ describe('platform export readiness', () => {
       ]),
     );
     expect(result.groups.environment).toHaveLength(2);
-    expect(readiness('linux').result.groups.environment).toEqual([]);
-    expect(readiness('web').result.groups.environment).toEqual([]);
+    expect((await readiness('linux')).result.groups.environment).toEqual([]);
+    expect((await readiness('web')).result.groups.environment).toEqual([]);
   });
 });

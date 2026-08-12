@@ -11,7 +11,7 @@ import {
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
-import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
+import { prepareRuntimeArtifactForTest } from './runtime-artifact-test-helpers';
 import {
   defaultPlatformExportProfile,
   parseProjectPlatformExportSettings,
@@ -52,23 +52,18 @@ afterEach(() => {
   for (const root of temporaryRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-function prepared(project: ReturnType<typeof exportableProject>, projectRoot = '/project') {
+async function prepared(project: ReturnType<typeof exportableProject>, projectRoot = '/project') {
   const profile = parseProjectPlatformExportSettings(project.settings.platformExport).profiles[0]!;
   const runtimeProfile = runtimeExportProfileForPlatform(project, profile.target);
-  const built = buildCompiledRuntimeExport(project, {
+  const result = await prepareRuntimeArtifactForTest(project, {
     projectRoot,
     profile: runtimeProfile,
   });
-  expect(built.ok).toBe(true);
+  expect(result.status).toBe('prepared');
+  if (result.status !== 'prepared') throw new Error('Expected a Prepared Runtime Artifact.');
   return {
     profile,
-    runtime: {
-      sourceFingerprint: built.sourceFingerprint,
-      profile: runtimeProfile,
-      compiledProject: built.compiledProject,
-      packageOptions: built.packageOptions,
-      diagnostics: built.diagnostics,
-    },
+    runtime: result.artifact,
   };
 }
 
@@ -154,7 +149,7 @@ describe('platform export main-process trust boundary', () => {
 
   it('rejects a prepared package fingerprint from an older project revision', async () => {
     const project = exportableProject();
-    const preparation = prepared(project);
+    const preparation = await prepared(project);
     project.project.name = 'Changed after readiness';
     const result = await exportProjectToPlatform({
       operationId: 'stale-fingerprint',
@@ -162,23 +157,23 @@ describe('platform export main-process trust boundary', () => {
       projectRoot: '/project',
       profileId: preparation.profile.id,
       outputDirectory: '/dist',
-      preparedRuntimeExport: preparation.runtime,
+      preparedRuntimeArtifact: preparation.runtime,
     });
     expect(result.success).toBe(false);
     expect(result.diagnostics).toEqual([
       expect.objectContaining({
-        code: 'runtime-package-fingerprint-stale',
-        path: '/preparedRuntimeExport/sourceFingerprint',
-        ownerPaths: ['/preparedRuntimeExport/sourceFingerprint', '/project'],
+        code: 'runtime-artifact.evidence.rejected',
+        path: '/artifact/sourceFingerprint',
+        ownerPaths: ['/artifact/sourceFingerprint'],
         severity: 'error',
-        boundaries: ['platform-export'],
+        boundaries: ['runtime-package', 'platform-export'],
       }),
     ]);
   });
 
   it('preserves prepared blocker contracts across the IPC orchestration boundary', async () => {
     const project = exportableProject();
-    const preparation = prepared(project);
+    const preparation = await prepared(project);
     const blocker = createPlatformExportValidationDiagnostic({
       code: 'platform-export.contract-test',
       severity: 'error',
@@ -193,7 +188,7 @@ describe('platform export main-process trust boundary', () => {
       projectRoot: '/project',
       profileId: preparation.profile.id,
       outputDirectory: '/dist',
-      preparedRuntimeExport: {
+      preparedRuntimeArtifact: {
         ...preparation.runtime,
         diagnostics: [...preparation.runtime.diagnostics, blocker],
       },
@@ -203,7 +198,7 @@ describe('platform export main-process trust boundary', () => {
 
   it('requires signing configuration only when signing is explicitly requested', async () => {
     const project = exportableProject();
-    const preparation = prepared(project);
+    const preparation = await prepared(project);
     const result = await exportProjectToPlatform({
       operationId: 'signing-request',
       project,
@@ -211,7 +206,7 @@ describe('platform export main-process trust boundary', () => {
       profileId: preparation.profile.id,
       outputDirectory: '/dist',
       sign: true,
-      preparedRuntimeExport: preparation.runtime,
+      preparedRuntimeArtifact: preparation.runtime,
     });
 
     expect(result.success).toBe(false);
@@ -224,7 +219,7 @@ describe('platform export main-process trust boundary', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-platform-explicit-template-'));
     temporaryRoots.push(root);
     const project = exportableProject();
-    const preparation = prepared(project);
+    const preparation = await prepared(project);
     const templateToken = installLinuxTemplate(root, ['essl-100']);
 
     const result = await exportProjectToPlatform({
@@ -236,7 +231,7 @@ describe('platform export main-process trust boundary', () => {
       templateToken,
       allowUntrustedTemplate: true,
       checkOnly: true,
-      preparedRuntimeExport: preparation.runtime,
+      preparedRuntimeArtifact: preparation.runtime,
     });
 
     expect(result.success).toBe(false);
@@ -255,7 +250,7 @@ describe('platform export main-process trust boundary', () => {
     fs.mkdirSync(path.join(projectRoot, 'assets'), { recursive: true });
     fs.writeFileSync(path.join(projectRoot, 'assets/icon.png'), 'icon');
     const project = exportableProject();
-    const preparation = prepared(project, projectRoot);
+    const preparation = await prepared(project, projectRoot);
     const templateToken = installLinuxTemplate(root, ['glsl-120']);
     const outputDirectory = path.join(root, 'dist/game');
     fs.mkdirSync(path.dirname(outputDirectory), { recursive: true });
@@ -272,7 +267,7 @@ describe('platform export main-process trust boundary', () => {
         outputDirectory,
         templateToken,
         allowUntrustedTemplate: true,
-        preparedRuntimeExport: preparation.runtime,
+        preparedRuntimeArtifact: preparation.runtime,
       },
       undefined,
       {

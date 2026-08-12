@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +46,7 @@ import { parseInteractableData } from '../../../shared/project-schema/authoring-
 import {
   buildRuntimePlaybackSpecFromAuthoringTest,
   getAuthoringTestRunReadiness,
+  type TestRunReadiness,
 } from '../../../shared/project-schema/test-playback-project';
 import {
   captureScrollViewState,
@@ -203,10 +204,30 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
     () => (project && record && testId ? validateTestData(project, testId, record) : []),
     [project, record, testId],
   );
-  const readiness =
-    project && testId
-      ? getAuthoringTestRunReadiness(project, testId)
-      : { runnable: false, diagnostics: [] };
+  const [readiness, setReadiness] = useState<TestRunReadiness>({
+    runnable: false,
+    reason: 'not-runnable-invalid-test',
+    diagnostics: [],
+  });
+  useEffect(() => {
+    let current = true;
+    if (!project || !testId) {
+      setReadiness({
+        runnable: false,
+        reason: 'not-runnable-invalid-test',
+        diagnostics: [],
+      });
+      return () => {
+        current = false;
+      };
+    }
+    void getAuthoringTestRunReadiness(project, testId).then((next) => {
+      if (current) setReadiness(next);
+    });
+    return () => {
+      current = false;
+    };
+  }, [project, testId]);
   const diagnosticItems = useMemo(
     () =>
       [...diagnostics, ...readiness.diagnostics].map((item) => ({
@@ -455,20 +476,22 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
 
   async function runCurrentTest() {
     setBottomPanel('test-playback');
-    if (!readiness.runnable) {
+    const currentReadiness = await getAuthoringTestRunReadiness(activeProject, activeTestId);
+    setReadiness(currentReadiness);
+    if (!currentReadiness.runnable) {
       const report = {
         id: activeTestId,
         passed: false,
-        failures: readiness.diagnostics.map((item) => item.message),
-        diagnostics: readiness.diagnostics,
+        failures: currentReadiness.diagnostics.map((item) => item.message),
+        diagnostics: currentReadiness.diagnostics,
         observations: [],
       };
       setLastPlaybackReport(report);
-      setStatusMessage(readiness.diagnostics[0]?.message ?? 'Test is not runnable yet.');
+      setStatusMessage(currentReadiness.diagnostics[0]?.message ?? 'Test is not runnable yet.');
       addTimelineEntry({ source: 'playback', message: 'Test is not runnable yet', detail: report });
       return;
     }
-    const spec = buildRuntimePlaybackSpecFromAuthoringTest(activeProject, activeTestId);
+    const spec = await buildRuntimePlaybackSpecFromAuthoringTest(activeProject, activeTestId);
     if (!spec.ok || !spec.spec) {
       setLastPlaybackReport({
         id: activeTestId,

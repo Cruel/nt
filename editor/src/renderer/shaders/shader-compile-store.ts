@@ -6,6 +6,7 @@ import type {
   ShaderCompileResponse,
 } from '../../shared/editor-tooling';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import {
   canonicalRuntimeShaderOutputPath,
   parseShaderData,
@@ -35,21 +36,6 @@ interface ShaderCompileStoreState {
   clear: () => void;
 }
 
-function normalizeResponse(value: unknown): ShaderCompileResponse {
-  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const diagnostics = Array.isArray(record.diagnostics)
-    ? (record.diagnostics as ShaderCompileDiagnostic[])
-    : [];
-  const outputs = Array.isArray(record.outputs) ? (record.outputs as ShaderCompileOutput[]) : [];
-  return {
-    ok: record.ok === true,
-    success: record.success === true,
-    diagnostics,
-    outputs,
-    error: typeof record.error === 'string' ? record.error : undefined,
-  };
-}
-
 export const useShaderCompileStore = create<ShaderCompileStoreState>()((set, get) => ({
   compiling: false,
   lastOptions: null,
@@ -67,7 +53,7 @@ export const useShaderCompileStore = create<ShaderCompileStoreState>()((set, get
       error: null,
     });
     try {
-      const response = normalizeResponse(
+      const response = parseShaderCompileResponse(
         await window.noveltea.compileShaders(shaderProject, options),
       );
       const currentProject = evidence.currentProject();

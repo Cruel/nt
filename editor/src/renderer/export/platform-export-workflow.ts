@@ -9,6 +9,7 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
 import { editorProjectStateSchema } from '../../shared/project-schema/editor-project-state';
+import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
 import type {
   PlatformExportProfile,
   PlatformStageRequest,
@@ -26,10 +27,13 @@ import {
   type PackageExportWorkflowResult,
 } from './package-export-store';
 import {
-  prepareRuntimePackageExport,
   runPackageExportWorkflow,
   type RunPackageExportWorkflowOptions,
 } from './package-export-workflow';
+import {
+  rendererRuntimeArtifactPaths,
+  rendererShaderCompilerAdapter,
+} from './runtime-artifact-adapters';
 
 function platformStageDiagnostics(result: PlatformStageResult) {
   return collectProjectValidationDiagnostics(
@@ -180,63 +184,38 @@ export async function runProjectPlatformExportWorkflow(
         ],
       };
     } else {
-      const prepared = await prepareRuntimePackageExport(
-        {
-          project: request.project as AuthoringProject,
-          projectRoot: request.projectRoot,
-          profile: runtimeExportProfileForPlatform(
-            request.project as AuthoringProject,
-            profile.target,
-          ),
+      const runtimeProfile = runtimeExportProfileForPlatform(
+        request.project as AuthoringProject,
+        profile.target,
+      );
+      const prepared = await prepareRuntimeArtifact({
+        project: request.project as AuthoringProject,
+        projectRoot: request.projectRoot,
+        profile: runtimeProfile,
+        intent: 'platform-export',
+        shaderCompiler: rendererShaderCompilerAdapter,
+        paths: rendererRuntimeArtifactPaths,
+        onStage: (stage) => {
+          store.setStage(stage);
+          workspace.setStatusMessage(
+            stage === 'compiling-project'
+              ? 'Building current runtime package data'
+              : 'Compiling required shader variants',
+          );
         },
-        {
-          onCompilingProject: () => {
-            store.setStage('compiling-project');
-            workspace.setStatusMessage('Building current runtime package data');
-          },
-          onCompilingShaders: () => {
-            store.setStage('compiling-shaders');
-            workspace.setStatusMessage('Compiling required shader variants');
-          },
-        },
-      );
-      const shaderDiagnostics = classifyProjectValidationDiagnostics(
-        prepared.shaderDiagnostics.map((item) => ({
-          ...item,
-          path: item.path ?? item.outputPath ?? item.sourcePath ?? '/shaders',
-          category: 'shader',
-        })),
-        { producer: 'shader-compile' },
-      );
-      const diagnostics = collectProjectValidationDiagnostics(
-        prepared.built.diagnostics,
-        shaderDiagnostics,
-      );
-      if (
-        !prepared.built.ok ||
-        !prepared.built.compiledProject ||
-        shaderDiagnostics.some((item) => item.severity === 'error')
-      ) {
+      });
+      if (prepared.status !== 'prepared') {
         staged = {
           ok: false,
           success: false,
-          cancelled: false,
+          cancelled: prepared.status === 'cancelled',
           operationId: request.operationId ?? 'platform-export',
-          diagnostics,
+          diagnostics: prepared.diagnostics,
         };
       } else {
         staged = await window.noveltea.exportProjectToPlatform({
           ...request,
-          preparedRuntimeExport: {
-            sourceFingerprint: prepared.built.sourceFingerprint,
-            profile: runtimeExportProfileForPlatform(
-              request.project as AuthoringProject,
-              profile.target,
-            ),
-            compiledProject: prepared.built.compiledProject,
-            packageOptions: prepared.built.packageOptions,
-            diagnostics,
-          },
+          preparedRuntimeArtifact: prepared.artifact,
         });
       }
     }

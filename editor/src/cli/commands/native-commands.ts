@@ -1,12 +1,15 @@
 import path from 'node:path';
-import type { ShaderCompileResponse } from '../../shared/editor-tooling';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
 import {
   exportSettingsFromProject,
   selectedExportProfile,
 } from '../../shared/project-schema/authoring-export';
-import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
+import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import {
+  nodeRuntimeArtifactPaths,
+  nodeShaderCompilerAdapter,
+} from '../../main/services/node-runtime-artifact-adapters';
 import { cliDiagnostic } from '../contracts';
 import type { CliSemanticResult } from '../semantic-project';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
@@ -127,7 +130,10 @@ export const testRunCommand: CliCommandDefinition = {
       dryRun: false,
       mutation: false,
       async run(context) {
-        const built = buildRuntimePlaybackSpecFromAuthoringTest(context.snapshot.project, testId);
+        const built = await buildRuntimePlaybackSpecFromAuthoringTest(
+          context.snapshot.project,
+          testId,
+        );
         if (!built.ok || !built.project || !built.spec)
           return {
             ok: false,
@@ -215,47 +221,28 @@ export const packageExportCommand: CliCommandDefinition = {
               ),
             ],
           };
-        const shaderProject = buildShaderMaterialProject(context.snapshot.project);
-        let shaderOutputs: ShaderCompileResponse['outputs'] = [];
-        if (
-          profile.compileShadersBeforeExport &&
-          (Object.keys(context.snapshot.project.shaders).length > 0 ||
-            Object.keys(context.snapshot.project.materials).length > 0)
-        ) {
-          const compiled = await context.nativeTools.compileShaders(shaderProject.project, {
-            projectRoot: context.snapshot.projectRoot,
-            outputRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'build'),
-            cacheRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'cache'),
-            shaderVariants: profile.shaderVariants,
-          });
-          if (!compiled.success)
-            return nativeFailure('native.shader.compile', '/shaders', compiled);
-          shaderOutputs = compiled.outputs ?? [];
-        }
-        const prepared = buildCompiledRuntimeExport(context.snapshot.project, {
+        const prepared = await prepareRuntimeArtifact({
+          project: context.snapshot.project,
           projectRoot: context.snapshot.projectRoot,
           profile,
-          shaderOutputs,
+          intent: 'runtime-package-export',
+          shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) =>
+            context.nativeTools.compileShaders(shaderProject, options),
+          ),
+          paths: nodeRuntimeArtifactPaths,
         });
-        if (!prepared.ok || prepared.compiledProject === undefined)
+        if (prepared.status !== 'prepared')
           return {
             ok: false,
-            diagnostics: prepared.runtimeBlockers.map((item) =>
+            diagnostics: prepared.diagnostics.map((item) =>
               cliDiagnostic(item.code, item.path, item.message, item.severity),
             ),
           };
         return nativeSuccess(
           await context.nativeTools.exportPackage({
-            project: prepared.compiledProject,
+            project: prepared.artifact.compiledProject,
             outputPath: path.resolve(context.cwd, output),
-            options: {
-              ...prepared.packageOptions,
-              shaderAssetRoot:
-                prepared.packageOptions.shaderVariants &&
-                prepared.packageOptions.shaderVariants.length > 0
-                  ? path.join(context.snapshot.projectRoot, '.noveltea', 'build')
-                  : prepared.packageOptions.shaderAssetRoot,
-            },
+            options: prepared.artifact.packageOptions,
           }),
         );
       },

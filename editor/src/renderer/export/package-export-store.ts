@@ -9,7 +9,7 @@ import type { ExportProfileData } from '../../shared/project-schema/authoring-ex
 import type {
   ExportFileEntry,
   ExportManifestPreview,
-} from '../../shared/project-schema/compiled-runtime-export';
+} from '../../shared/runtime-artifact-preparation';
 import type {
   PlatformExportProfile,
   PlatformStageResult,

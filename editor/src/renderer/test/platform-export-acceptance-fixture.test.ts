@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
-import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
+import { prepareRuntimeAssessmentForTest } from './runtime-artifact-test-helpers';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   createPlatformExportAcceptanceFixture,
@@ -8,7 +8,7 @@ import {
 } from '../../shared/project-schema/platform-export-acceptance-fixture';
 
 describe('platform export acceptance fixture', () => {
-  it('is one parseable cross-platform input with every required feature class', () => {
+  it('is one parseable cross-platform input with every required feature class', async () => {
     const project = parseAuthoringProject(createPlatformExportAcceptanceFixture());
     expect(Object.values(project.assets).map((record) => record.data.kind)).toEqual(
       expect.arrayContaining(['image', 'font', 'audio', 'script']),
@@ -25,9 +25,9 @@ describe('platform export acceptance fixture', () => {
       ]),
     );
   });
-  it('publishes the complete compiled resource and execution contract', () => {
+  it('publishes the complete compiled resource and execution contract', async () => {
     const project = createPlatformExportAcceptanceFixture();
-    const result = buildCompiledRuntimeExport(project, {
+    const result = await prepareRuntimeAssessmentForTest(project, {
       projectRoot: '/fixture',
       profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false },
     });

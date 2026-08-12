@@ -1,4 +1,4 @@
-import type { CompiledRuntimeExportBuildResult } from '../../shared/project-schema/compiled-runtime-export';
+import type { RuntimeArtifactAssessment } from '../../shared/runtime-artifact-preparation';
 import type { LastSuccessfulPlatformExportIdentity } from '../../shared/project-schema/editor-project-state';
 import { applicationIdPattern } from '../../shared/project-schema/authoring-project-settings';
 import type { PlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
@@ -60,7 +60,7 @@ export interface PlatformExportReadinessResult {
 }
 
 export interface EvaluatePlatformExportReadinessOptions {
-  runtimeExport: CompiledRuntimeExportBuildResult;
+  runtimeExport: RuntimeArtifactAssessment;
   commonIdentity: PlatformExportCommonIdentity;
   profile: PlatformExportProfile;
   targetMetadata?: PlatformExportTargetMetadata;

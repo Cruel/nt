@@ -13,8 +13,10 @@ AuthoringProject V2
   -> canonical noveltea.compiled.project v1 gameplay JSON
 ```
 
-`buildCompiledRuntimeExport` is the single project-derived compilation and runtime-readiness result
-used by Play and `.ntpkg` export. It does not lower gameplay fields. It attaches package file entries,
+`prepareRuntimeArtifact` is the single host-neutral preparation interface used by Play, test
+playback, `.ntpkg`, platform export, and the CLI. It returns `prepared`, `blocked`, or `cancelled`;
+only `prepared` carries a current `noveltea.prepared-runtime-artifact` version-1 value. The module
+does not lower gameplay fields. It attaches package file entries,
 per-entry storage policy, required-seekable audio paths, display/platform options, shader/material
 metadata, required shader binaries, normalized diagnostics, and a content/recovery source fingerprint
 at their separate boundaries.
@@ -110,12 +112,25 @@ retain their stable code, canonical path, owner paths, severity, and boundary me
 surface can navigate directly to project settings, export profiles, editor-wide toolchain/signing
 settings, template selection, or output controls.
 
-The renderer prepares one runtime artifact for the current in-memory project revision and sends its
-source fingerprint, compiled project, package options, and normalized diagnostics across the IPC
-boundary. Main-process orchestration strictly parses that serialized request, reconstructs the
-current authoring project, recomputes the expected source fingerprint, and rejects stale or
-mismatched evidence instead of recompiling a second hidden runtime revision. The headless CLI keeps
-a single main-process compilation path because it has no renderer preparation stage.
+The renderer prepares one Prepared Runtime Artifact for the current in-memory Project revision and
+sends that exact current-version contract across IPC. Main-process orchestration strictly parses
+every field, verifies profile and source identity against the current Project, checks gameplay
+identity, re-derives the packaged asset inventory from Compiled Project resources plus current asset
+records, and verifies storage/seekability, shader-binary closure, manifest preview, and deterministic
+package options before exposing a distinct verified representation to package writing and staging.
+It rejects stale, malformed, omitted, substituted, or internally inconsistent evidence instead of
+compiling a second hidden runtime revision. This guards normal process coordination mistakes; it is
+not a security proof against a compromised renderer. The headless CLI enters the same preparation
+module through its native shader compiler and Node path adapters.
+
+Preparation owns required shader variants, captured input fingerprints, output-integrity checks,
+diagnostic classification, cancellation checkpoints, and detached application of verified output
+metadata. A successful shader compile must return exactly one valid output for every requested
+shader/stage/variant key; missing, duplicate, extra, malformed, or stale output evidence blocks
+preparation. Renderer and native/CLI adapters validate the complete native shader response before it
+enters preparation, then perform the shader compiler and filesystem effects. Play, test playback, and
+preflight intents prohibit those effects. Package writing, template resolution, signing, and target
+staging remain outside preparation.
 
 After the native package writer succeeds, main hashes the actual package bytes. Staging accepts only
 the matching source fingerprint and package SHA-256 evidence; a caller-supplied readiness boolean is

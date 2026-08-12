@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import type { PackageExportOptions } from '../editor-tooling';
-import { exportProfileSchema, type ExportProfileData } from './authoring-export';
+import {
+  preparedRuntimeArtifactSchema,
+  type PreparedRuntimeArtifact,
+} from './prepared-runtime-artifact';
 import type { ProjectValidationDiagnostic } from './project-validation';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
@@ -894,14 +896,6 @@ export interface PlatformStageRequest {
   };
 }
 
-export interface PreparedPlatformRuntimeExport {
-  sourceFingerprint: string;
-  recoveryFingerprint?: unknown;
-  profile: ExportProfileData;
-  compiledProject: unknown;
-  packageOptions: PackageExportOptions;
-  diagnostics: ProjectValidationDiagnostic[];
-}
 export interface PlatformStageResult {
   ok: boolean;
   success: boolean;
@@ -951,7 +945,7 @@ export interface ProjectPlatformExportRequest {
   allowUntrustedTemplate?: boolean;
   allowIdentityChange?: boolean;
   sign?: boolean;
-  preparedRuntimeExport?: PreparedPlatformRuntimeExport;
+  preparedRuntimeArtifact?: PreparedRuntimeArtifact;
   localState?: {
     androidSdk?: string;
     androidNdk?: string;
@@ -975,29 +969,6 @@ export interface ProjectPlatformExportRequest {
   };
 }
 
-const projectValidationDiagnosticSchema = z
-  .object({
-    severity: z.enum(['info', 'warning', 'error']),
-    code: z.string().min(1),
-    path: z.string(),
-    message: z.string(),
-    category: z.string().optional(),
-    boundaries: z.array(z.enum(['authoring', 'runtime-package', 'platform-export'])),
-    ownerPaths: z.array(z.string()),
-  })
-  .strict();
-
-const preparedPlatformRuntimeExportSchema = z
-  .object({
-    sourceFingerprint: z.string().regex(/^fnv1a:[0-9a-f]{8}$/),
-    recoveryFingerprint: z.unknown().optional(),
-    profile: exportProfileSchema,
-    compiledProject: z.unknown(),
-    packageOptions: z.object({}).passthrough(),
-    diagnostics: z.array(projectValidationDiagnosticSchema),
-  })
-  .strict();
-
 const projectPlatformExportRequestSchema = z
   .object({
     projectPath: z.string().min(1).optional(),
@@ -1012,7 +983,7 @@ const projectPlatformExportRequestSchema = z
     allowUntrustedTemplate: z.boolean().optional(),
     allowIdentityChange: z.boolean().optional(),
     sign: z.boolean().optional(),
-    preparedRuntimeExport: preparedPlatformRuntimeExportSchema.optional(),
+    preparedRuntimeArtifact: preparedRuntimeArtifactSchema.optional(),
     localState: z
       .object({
         androidSdk: z.string().optional(),

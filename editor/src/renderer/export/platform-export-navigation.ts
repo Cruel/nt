@@ -26,7 +26,8 @@ function nonContentTarget(path: string): WorkbenchNavigationRequest | null {
     return target(buildPlatformExportTab(), 'platformExport.outputDirectory');
   }
   if (
-    path.startsWith('/preparedRuntimeExport') ||
+    path.startsWith('/artifact') ||
+    path.startsWith('/preparedRuntimeArtifact') ||
     path.startsWith('/runtimePackageEvidence') ||
     path.startsWith('/packagePath')
   ) {

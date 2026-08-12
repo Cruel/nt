@@ -311,7 +311,7 @@ editor/src/renderer/editors/assets/AssetEditor.tsx
 editor/src/renderer/editors/assets/AssetPreview.tsx
 editor/src/renderer/editors/assets/asset-editor-utils.ts
 editor/src/renderer/commands/builtin-commands.ts
-editor/src/shared/project-schema/compiled-runtime-export.ts
+editor/src/shared/runtime-artifact-preparation.ts
 ```
 
 Primary engine files:

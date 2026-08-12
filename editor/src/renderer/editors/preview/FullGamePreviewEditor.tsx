@@ -57,7 +57,8 @@ import {
   type AuthoringProject,
   type AuthoringRecordBase,
 } from '../../../shared/project-schema/authoring-project';
-import { buildCompiledRuntimeExport } from '../../../shared/project-schema/compiled-runtime-export';
+import { prepareRuntimeArtifact } from '../../../shared/runtime-artifact-preparation';
+import { rendererRuntimeArtifactPaths } from '../../export/runtime-artifact-adapters';
 import {
   collectProjectValidationDiagnostics,
   type ProjectValidationDiagnostic,
@@ -409,10 +410,10 @@ function nextRecordedTestId(project: AuthoringProject | null) {
   return `${base}-${index}`;
 }
 
-function compiledProjectDiagnosticEntries(
+async function compiledProjectDiagnosticEntries(
   project: AuthoringProject | null,
   recoveryFingerprint: unknown,
-): {
+): Promise<{
   compiledProject: unknown;
   shaderMaterialMetadata: unknown;
   previewAssets: Array<{ sourcePath: string; runtimePath: string }>;
@@ -420,7 +421,7 @@ function compiledProjectDiagnosticEntries(
   blockers: ProjectValidationDiagnostic[];
   entries: Omit<RuntimeLogEntry, 'id'>[];
   ok: boolean;
-} {
+}> {
   if (!project) {
     return {
       ok: false,
@@ -438,11 +439,30 @@ function compiledProjectDiagnosticEntries(
       ],
     };
   }
-  const exported = buildCompiledRuntimeExport(project, {
+  const prepared = await prepareRuntimeArtifact({
+    project,
     projectRoot: null,
     profile: selectedExportProfile(project),
+    intent: 'play',
     recoveryFingerprint,
+    paths: rendererRuntimeArtifactPaths,
   });
+  if (prepared.status === 'cancelled') {
+    return {
+      ok: false,
+      compiledProject: null,
+      shaderMaterialMetadata: null,
+      previewAssets: [],
+      sourceFingerprint: null,
+      blockers: prepared.diagnostics,
+      entries: prepared.diagnostics.map((diagnostic) => ({
+        label: diagnostic.message,
+        detail: diagnostic.path,
+        severity: diagnostic.severity,
+      })),
+    };
+  }
+  const exported = prepared.assessment;
   const diagnostics = collectProjectValidationDiagnostics(exported.runtimeDiagnostics);
   const entries = diagnostics.slice(0, 6).map((diagnostic) => ({
     label: diagnostic.message,
@@ -450,7 +470,7 @@ function compiledProjectDiagnosticEntries(
     severity: diagnostic.severity,
   }));
   return {
-    ok: exported.ok,
+    ok: prepared.status === 'prepared',
     compiledProject: exported.compiledProject ?? null,
     shaderMaterialMetadata: exported.shaderMaterialMetadata ?? null,
     previewAssets: exported.fileEntries.map((entry) => ({
@@ -1974,10 +1994,31 @@ export function FullGamePreviewEditor() {
   const controlsRef = useRef<EnginePreviewControlsContext | null>(null);
   const bootstrappedReadyGenerationRef = useRef(0);
   const staleWarningFingerprintRef = useRef<string | null>(null);
-  const exportedCompiledProject = useMemo(
-    () => compiledProjectDiagnosticEntries(project, pendingInputEntries),
-    [project, pendingInputEntries],
-  );
+  const [exportedCompiledProject, setExportedCompiledProject] = useState<
+    Awaited<ReturnType<typeof compiledProjectDiagnosticEntries>>
+  >({
+    ok: false,
+    compiledProject: null,
+    shaderMaterialMetadata: null,
+    previewAssets: [],
+    sourceFingerprint: null,
+    blockers: [],
+    entries: [],
+  });
+  const [compiledProjectPreparationPending, setCompiledProjectPreparationPending] = useState(true);
+  useEffect(() => {
+    let current = true;
+    setCompiledProjectPreparationPending(true);
+    void compiledProjectDiagnosticEntries(project, pendingInputEntries).then((result) => {
+      if (current) {
+        setExportedCompiledProject(result);
+        setCompiledProjectPreparationPending(false);
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [project, pendingInputEntries]);
   const canReloadLatestProject =
     exportedCompiledProject.ok && !!exportedCompiledProject.compiledProject;
 
@@ -2182,6 +2223,7 @@ export function FullGamePreviewEditor() {
     if (
       !previewControls ||
       previewControls.connectionState !== 'ready' ||
+      compiledProjectPreparationPending ||
       previewReadyGeneration === 0 ||
       bootstrappedReadyGenerationRef.current >= previewReadyGeneration
     ) {
@@ -2207,6 +2249,7 @@ export function FullGamePreviewEditor() {
     };
   }, [
     loadCompiledProjectIntoPreview,
+    compiledProjectPreparationPending,
     previewControls,
     previewReadyGeneration,
     requestDebugSnapshot,

@@ -1,7 +1,10 @@
 import type { ToolDiagnostic } from '../editor-tooling';
 import { isAuthoringProject, type AuthoringProject } from './authoring-project';
 import { selectedExportProfile } from './authoring-export';
-import { buildCompiledRuntimeExport } from './compiled-runtime-export';
+import {
+  logicalRuntimeArtifactPaths,
+  prepareRuntimeArtifact,
+} from '../runtime-artifact-preparation';
 import { parseTestData, type TestData, type TestStepData } from './authoring-tests';
 
 export type TestRunReadinessReason =
@@ -90,16 +93,24 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   return null;
 }
 
-function compiledProjectForAuthoring(project: AuthoringProject): {
+async function compiledProjectForAuthoring(project: AuthoringProject): Promise<{
   project?: unknown;
   diagnostics: ToolDiagnostic[];
   ok: boolean;
-} {
-  const exported = buildCompiledRuntimeExport(project, {
+}> {
+  const prepared = await prepareRuntimeArtifact({
+    project,
     projectRoot: null,
     profile: selectedExportProfile(project),
+    intent: 'test-playback',
+    paths: logicalRuntimeArtifactPaths,
   });
-  return { project: exported.compiledProject, diagnostics: exported.diagnostics, ok: exported.ok };
+  if (prepared.status === 'cancelled') return { diagnostics: prepared.diagnostics, ok: false };
+  return {
+    project: prepared.assessment.compiledProject,
+    diagnostics: prepared.assessment.diagnostics,
+    ok: prepared.status === 'prepared',
+  };
 }
 
 export function buildRuntimePlaybackSpecFromTestData(
@@ -161,10 +172,10 @@ export function buildRuntimePlaybackSpecFromTestData(
   };
 }
 
-export function buildRuntimePlaybackSpecFromAuthoringTest(
+export async function buildRuntimePlaybackSpecFromAuthoringTest(
   project: AuthoringProject,
   testId: string,
-): RuntimePlaybackSpecBuildResult {
+): Promise<RuntimePlaybackSpecBuildResult> {
   const record = project.tests[testId];
   if (!record) {
     return {
@@ -180,7 +191,7 @@ export function buildRuntimePlaybackSpecFromAuthoringTest(
     };
   }
   const built = buildRuntimePlaybackSpecFromTestData(testId, data);
-  const compiledProject = compiledProjectForAuthoring(project);
+  const compiledProject = await compiledProjectForAuthoring(project);
   return {
     ...built,
     ok: built.ok && compiledProject.ok,
@@ -189,7 +200,10 @@ export function buildRuntimePlaybackSpecFromAuthoringTest(
   };
 }
 
-export function getAuthoringTestRunReadiness(project: unknown, testId: string): TestRunReadiness {
+export async function getAuthoringTestRunReadiness(
+  project: unknown,
+  testId: string,
+): Promise<TestRunReadiness> {
   if (!isAuthoringProject(project)) {
     return { runnable: true, reason: 'runnable', diagnostics: [] };
   }
@@ -230,7 +244,7 @@ export function getAuthoringTestRunReadiness(project: unknown, testId: string): 
       diagnostics: playback.diagnostics,
     };
   }
-  const compiledProject = compiledProjectForAuthoring(project);
+  const compiledProject = await compiledProjectForAuthoring(project);
   if (!compiledProject.ok) {
     return {
       runnable: false,

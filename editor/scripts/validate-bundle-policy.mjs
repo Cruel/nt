@@ -149,7 +149,7 @@ const toolFiles = (await listFiles(path.join(outputRoot, 'tools'))).filter((file
   filePath.endsWith('.mjs'),
 );
 const sharpRuntimeToolChunks = new Set([
-  'compiled-runtime-export.mjs',
+  'runtime-artifact-preparation.mjs',
   'materialize-android-export-fixture.mjs',
   'noveltea.mjs',
   'platform-deployment.mjs',

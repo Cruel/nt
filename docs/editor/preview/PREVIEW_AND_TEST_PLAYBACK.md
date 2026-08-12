@@ -2,9 +2,10 @@
 
 ## Shared Compiled Artifact
 
-Full-game preview and `.ntpkg` export use `buildCompiledRuntimeExport` as their single
-project-derived compilation and runtime-readiness path. Authoring-test playback uses the same
-compiled publication contract. The published value is canonical `noveltea.compiled.project` V2
+Full-game preview, authoring-test playback, and `.ntpkg` export use `prepareRuntimeArtifact` as their
+single project-derived compilation and runtime-readiness interface. Play and test-playback intents
+are effect-free; shader compiler effects are reserved for explicit export intents. The published
+value is canonical `noveltea.compiled.project` V2
 wire revision, schema version 3, plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 

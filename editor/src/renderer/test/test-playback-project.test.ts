@@ -20,7 +20,7 @@ import {
 } from '../../shared/project-schema/test-playback-project';
 
 describe('authoring test playback project adapter', () => {
-  it('serializes stable authoring inputs to the strict typed playback protocol', () => {
+  it('serializes stable authoring inputs to the strict typed playback protocol', async () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
     data.steps = [
@@ -60,7 +60,7 @@ describe('authoring test playback project adapter', () => {
     ];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    expect(buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke').spec).toMatchObject({
+    expect((await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke')).spec).toMatchObject({
       id: 'smoke',
       schema: 'noveltea.editor.playback',
       version: 2,
@@ -105,7 +105,7 @@ describe('authoring test playback project adapter', () => {
     });
   });
 
-  it('blocks assertions until they have a typed playback representation', () => {
+  it('blocks assertions until they have a typed playback representation', async () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
     data.steps = [
@@ -139,12 +139,12 @@ describe('authoring test playback project adapter', () => {
     ];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    const result = buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
+    const result = await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
     expect(result.ok).toBe(false);
     expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true);
   });
 
-  it('publishes the same compiled artifact for runnable playback', () => {
+  it('publishes the same compiled artifact for runnable playback', async () => {
     const project = createAuthoringProject();
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     project.entrypoint = { kind: 'scene', id: 'opening' };
@@ -152,17 +152,19 @@ describe('authoring test playback project adapter', () => {
     data.entrypoint = testSceneRef('opening');
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({
+    expect(await getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({
       runnable: true,
       reason: 'runnable',
     });
-    expect(buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke').project).toMatchObject({
+    expect(
+      (await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke')).project,
+    ).toMatchObject({
       schema: 'noveltea.compiled.project',
       entrypoint: { kind: 'scene', scene: { kind: 'scene', id: 'opening' } },
     });
   });
 
-  it('rejects ui-click rather than falling back to legacy UI playback', () => {
+  it('rejects ui-click rather than falling back to legacy UI playback', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     project.entrypoint = { kind: 'room', id: 'foyer' };
@@ -181,12 +183,12 @@ describe('authoring test playback project adapter', () => {
     ];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    const result = buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
+    const result = await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
 
     expect(result.ok).toBe(false);
     expect(result.runner).toBe('runtime');
     expect(result.diagnostics.some((item) => item.severity === 'error')).toBe(true);
     expect(result.project).toMatchObject({ schema: 'noveltea.compiled.project' });
-    expect(getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: false });
+    expect(await getAuthoringTestRunReadiness(project, 'smoke')).toMatchObject({ runnable: false });
   });
 });

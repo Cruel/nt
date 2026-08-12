@@ -31,9 +31,10 @@ import {
   type ExportShaderVariant,
 } from '../../shared/project-schema/authoring-export';
 import {
-  buildCompiledRuntimeExport,
+  prepareRuntimeArtifact,
   hasAuthoringShadersOrMaterials,
-} from '../../shared/project-schema/compiled-runtime-export';
+  type RuntimeArtifactAssessment,
+} from '../../shared/runtime-artifact-preparation';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import {
   classifyProjectValidationDiagnostics,
@@ -59,6 +60,7 @@ import {
 } from './platform-export-workflow';
 import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
 import { evaluatePlatformExportReadiness } from './platform-export-readiness';
+import { rendererRuntimeArtifactPaths } from './runtime-artifact-adapters';
 
 interface PackageExportDialogProps {
   open: boolean;
@@ -341,17 +343,36 @@ export function PackageExportDialog({
     platformSettings?.profiles[0] ??
     null;
   const activePlatformProfile = selectedPlatformProfile ?? defaultPlatformExportProfile('linux');
-  const previewProfile =
-    project && activeRuntimeProfile && mode === 'platform' && selectedPlatformProfile
-      ? runtimeExportProfileForPlatform(project, selectedPlatformProfile.target)
+  const selectedPlatformTarget = selectedPlatformProfile?.target;
+  const previewProfile = useMemo(() => {
+    if (!project || !activeRuntimeProfile) return null;
+    return mode === 'platform' && selectedPlatformTarget
+      ? runtimeExportProfileForPlatform(project, selectedPlatformTarget)
       : activeRuntimeProfile;
-  const preview = useMemo(
-    () =>
-      project && previewProfile
-        ? buildCompiledRuntimeExport(project, { projectRoot, profile: previewProfile })
-        : null,
-    [project, projectRoot, previewProfile],
-  );
+  }, [project, activeRuntimeProfile, mode, selectedPlatformTarget]);
+  const [preview, setPreview] = useState<RuntimeArtifactAssessment | null>(null);
+  useEffect(() => {
+    let current = true;
+    if (!project || !previewProfile) {
+      setPreview(null);
+      return () => {
+        current = false;
+      };
+    }
+    setPreview(null);
+    void prepareRuntimeArtifact({
+      project,
+      projectRoot,
+      profile: previewProfile,
+      intent: mode === 'platform' ? 'platform-preflight' : 'runtime-package-preflight',
+      paths: rendererRuntimeArtifactPaths,
+    }).then((result) => {
+      if (current && result.status !== 'cancelled') setPreview(result.assessment);
+    });
+    return () => {
+      current = false;
+    };
+  }, [mode, project, projectRoot, previewProfile]);
 
   useEffect(() => {
     if (!selectedPlatformProfile || !platformOutput) return;
@@ -523,52 +544,55 @@ export function PackageExportDialog({
     selectedTemplateToken ||
     (template ? `${template.descriptor.templateId}/${template.descriptor.buildId}` : '');
   const signingEnabled = Boolean(currentPlatformProfile.signingProfileId);
-  const readiness = evaluatePlatformExportReadiness({
-    runtimeExport: preview!,
-    commonIdentity: {
-      displayName: currentProjectSettings.app.displayName,
-      applicationId:
-        currentPlatformProfile.target === 'android'
-          ? (currentProjectSettings.app.android.applicationId ??
-            currentProjectSettings.app.applicationId)
-          : currentProjectSettings.app.applicationId,
-      saveNamespace: currentProjectSettings.app.saveNamespace,
-      versionName: currentProjectSettings.app.versionName,
-      iconSourcePath: iconSourcePath(currentProject, projectRoot),
-    },
-    profile: currentPlatformProfile,
-    templateState: { templateToken: effectiveTemplateToken, diagnostics: templateDiagnostics },
-    toolchainState: {
-      androidSdk: localState.androidSdk || undefined,
-      androidNdk: localState.androidNdk || undefined,
-      javaHome: localState.javaHome || undefined,
-      cmake: localState.cmake || undefined,
-    },
-    signingState: {
-      windows:
-        signingEnabled && localState.windowsSigningCommand && localState.windowsVerifyCommand
-          ? true
-          : undefined,
-      macos: signingEnabled && localState.macosSigningIdentity ? true : undefined,
-      android:
-        signingEnabled &&
-        localState.androidKeystorePath &&
-        localState.androidKeyAlias &&
-        localState.androidStorePasswordReference &&
-        localState.androidKeyPasswordReference
-          ? true
-          : undefined,
-    },
-    outputDirectory: platformOutput,
-    lastSuccessfulIdentity:
-      editorProjectStateFromProject(currentProject).lastSuccessfulPlatformExportIdentity,
-  });
-  const platformBlockers = readiness.blockers;
+  const readiness = preview
+    ? evaluatePlatformExportReadiness({
+        runtimeExport: preview,
+        commonIdentity: {
+          displayName: currentProjectSettings.app.displayName,
+          applicationId:
+            currentPlatformProfile.target === 'android'
+              ? (currentProjectSettings.app.android.applicationId ??
+                currentProjectSettings.app.applicationId)
+              : currentProjectSettings.app.applicationId,
+          saveNamespace: currentProjectSettings.app.saveNamespace,
+          versionName: currentProjectSettings.app.versionName,
+          iconSourcePath: iconSourcePath(currentProject, projectRoot),
+        },
+        profile: currentPlatformProfile,
+        templateState: { templateToken: effectiveTemplateToken, diagnostics: templateDiagnostics },
+        toolchainState: {
+          androidSdk: localState.androidSdk || undefined,
+          androidNdk: localState.androidNdk || undefined,
+          javaHome: localState.javaHome || undefined,
+          cmake: localState.cmake || undefined,
+        },
+        signingState: {
+          windows:
+            signingEnabled && localState.windowsSigningCommand && localState.windowsVerifyCommand
+              ? true
+              : undefined,
+          macos: signingEnabled && localState.macosSigningIdentity ? true : undefined,
+          android:
+            signingEnabled &&
+            localState.androidKeystorePath &&
+            localState.androidKeyAlias &&
+            localState.androidStorePasswordReference &&
+            localState.androidKeyPasswordReference
+              ? true
+              : undefined,
+        },
+        outputDirectory: platformOutput,
+        lastSuccessfulIdentity:
+          editorProjectStateFromProject(currentProject).lastSuccessfulPlatformExportIdentity,
+      })
+    : null;
+  const platformBlockers = readiness?.blockers ?? [];
+  const preflightPending = preview === null;
   const canExport =
     !running &&
     (mode === 'runtime'
-      ? blockingDiagnostics.length === 0 && outputPath.trim().length > 0
-      : readiness.ok && !!template);
+      ? preview !== null && blockingDiagnostics.length === 0 && outputPath.trim().length > 0
+      : readiness?.ok === true && !!template);
   const activeBlockers = mode === 'runtime' ? blockingDiagnostics : platformBlockers;
   const hasProjectSettingsBlocker = activeBlockers.some(
     (diagnostic) =>
@@ -577,15 +601,15 @@ export function PackageExportDialog({
       diagnostic.path.startsWith('/project/'),
   );
   const platformReadinessGroups = [
-    { title: 'Runtime package readiness', diagnostics: readiness.groups.runtimePackage },
-    { title: 'Common app identity readiness', diagnostics: readiness.groups.commonIdentity },
+    { title: 'Runtime package readiness', diagnostics: readiness?.groups.runtimePackage ?? [] },
+    { title: 'Common app identity readiness', diagnostics: readiness?.groups.commonIdentity ?? [] },
     {
       title: `${currentPlatformProfile.target} target metadata readiness`,
-      diagnostics: readiness.groups.targetMetadata,
+      diagnostics: readiness?.groups.targetMetadata ?? [],
     },
     {
       title: 'Template, toolchain, and signing readiness',
-      diagnostics: readiness.groups.environment,
+      diagnostics: readiness?.groups.environment ?? [],
     },
   ];
 
@@ -770,7 +794,7 @@ export function PackageExportDialog({
       if (result.success) onOpenChange(false);
       return;
     }
-    if (readiness.requiresIdentityConfirmation) {
+    if (readiness?.requiresIdentityConfirmation) {
       setIdentityConfirmationOpen(true);
       return;
     }
@@ -942,9 +966,11 @@ export function PackageExportDialog({
       <Button onClick={runExport} disabled={!canExport}>
         {running
           ? `Exporting: ${stage}`
-          : canExport
-            ? 'Export Project'
-            : 'Fix Errors Before Export'}
+          : preflightPending
+            ? 'Checking Readiness…'
+            : canExport
+              ? 'Export Project'
+              : 'Fix Errors Before Export'}
       </Button>
     </>
   );
@@ -1807,7 +1833,7 @@ export function PackageExportDialog({
             installations and save data are not migrated automatically.
           </DialogDescription>
           <div className="grid gap-2 py-3">
-            {readiness.identityChangeDiagnostics.map((item) => (
+            {(readiness?.identityChangeDiagnostics ?? []).map((item) => (
               <div key={item.code} className="rounded border p-3 text-sm">
                 {item.message}
               </div>

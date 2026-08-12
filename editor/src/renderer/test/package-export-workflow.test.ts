@@ -150,6 +150,18 @@ describe('package export workflow', () => {
       outputs: [
         {
           shader: 'basic',
+          stage: 'vertex',
+          variant: 'glsl-120',
+          sourcePath: '/project/.noveltea/build/basic.vs.sc',
+          runtimePath: 'project:/shaders/bgfx/glsl-120/basic.vs.bin',
+          outputPath: '/project/shaders/bgfx/glsl-120/basic.vs.bin',
+          cacheKey: 'basic-vertex-glsl-120',
+          byteHash: `sha256:${'b'.repeat(64)}`,
+          byteSize: 4,
+          cacheHit: false,
+        },
+        {
+          shader: 'basic',
           stage: 'fragment',
           variant: 'glsl-120',
           sourcePath: '/project/.noveltea/build/basic.fs.sc',
@@ -183,7 +195,10 @@ describe('package export workflow', () => {
       '/project/out.ntpkg',
       expect.objectContaining({
         shaderVariants: ['glsl-120'],
-        requiredShaderBinaryPaths: ['shaders/bgfx/glsl-120/basic.fs.bin'],
+        requiredShaderBinaryPaths: [
+          'shaders/bgfx/glsl-120/basic.fs.bin',
+          'shaders/bgfx/glsl-120/basic.vs.bin',
+        ],
         shaderMaterialMetadata: expect.objectContaining({
           shaders: expect.objectContaining({
             basic: expect.objectContaining({

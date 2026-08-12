@@ -1,27 +1,19 @@
-import { useShaderCompileStore } from '@/shaders/shader-compile-store';
-import { captureShaderCompileInputFingerprints } from '../../shared/project-schema/authoring-shaders';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import type {
-  PackageExportOptions,
-  PackageExportResponse,
-  ShaderCompileDiagnostic,
-  ToolDiagnostic,
-} from '../../shared/editor-tooling';
+import type { PackageExportResponse, ToolDiagnostic } from '../../shared/editor-tooling';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
-import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
-import {
-  buildCompiledRuntimeExport,
-  hasAuthoringShadersOrMaterials,
-  type CompiledRuntimeExportBuildResult,
-} from '../../shared/project-schema/compiled-runtime-export';
+import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
 import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import { type PackageExportWorkflowResult, usePackageExportStore } from './package-export-store';
+import {
+  rendererRuntimeArtifactPaths,
+  rendererShaderCompilerAdapter,
+} from './runtime-artifact-adapters';
 
 export interface RunPackageExportWorkflowOptions {
   project: AuthoringProject;
@@ -30,35 +22,8 @@ export interface RunPackageExportWorkflowOptions {
   profile: ExportProfileData;
 }
 
-export interface PreparedRuntimePackageExport {
-  built: CompiledRuntimeExportBuildResult;
-  validationDiagnostics: ProjectValidationDiagnostic[];
-  shaderDiagnostics: ShaderCompileDiagnostic[];
-  shaderOutputs: Awaited<ReturnType<typeof useShaderCompileStore.getState>>['outputs'];
-}
-
-export interface PrepareRuntimePackageExportCallbacks {
-  onCompilingProject?: () => void;
-  onCompilingShaders?: () => void;
-}
-
 function hasErrors(diagnostics: Array<{ severity: string }>) {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
-}
-
-function asProjectValidationDiagnostics(
-  diagnostics: ShaderCompileDiagnostic[],
-): ProjectValidationDiagnostic[] {
-  return classifyProjectValidationDiagnostics(
-    diagnostics.map((diagnostic) => ({
-      code: diagnostic.code,
-      severity: diagnostic.severity,
-      path: diagnostic.path ?? diagnostic.outputPath ?? diagnostic.sourcePath ?? '/',
-      message: diagnostic.message,
-      category: 'shader',
-    })),
-    { producer: 'shader-compile' },
-  );
 }
 
 function failureResult(
@@ -81,87 +46,6 @@ function failureResult(
     manifestPreview: null,
     ...partial,
   };
-}
-
-function defaultShaderCompileOptions(
-  projectRoot: string | null,
-  outputRoot: string | null,
-  shaderVariants: string[],
-) {
-  const root = projectRoot ?? '';
-  return {
-    projectRoot: root,
-    outputRoot: root ? `${root}/.noveltea/build` : '',
-    cacheRoot: root ? `${root}/.noveltea/cache` : '',
-    shaderVariants,
-  };
-}
-
-function packageOptionsWithShaderRoot(
-  options: PackageExportOptions,
-  projectRoot: string | null,
-): PackageExportOptions {
-  if (
-    options.shaderVariants &&
-    options.shaderVariants.length > 0 &&
-    !options.shaderAssetRoot &&
-    projectRoot
-  ) {
-    return { ...options, shaderAssetRoot: `${projectRoot}/.noveltea/build` };
-  }
-  return options;
-}
-
-export async function prepareRuntimePackageExport(
-  options: Pick<RunPackageExportWorkflowOptions, 'project' | 'projectRoot' | 'profile'>,
-  callbacks: PrepareRuntimePackageExportCallbacks = {},
-): Promise<PreparedRuntimePackageExport> {
-  callbacks.onCompilingProject?.();
-  let built = buildCompiledRuntimeExport(options.project, {
-    projectRoot: options.projectRoot,
-    profile: options.profile,
-  });
-  const validationDiagnostics = built.runtimeDiagnostics;
-  let shaderDiagnostics: ShaderCompileDiagnostic[] = [];
-  let shaderOutputs = useShaderCompileStore.getState().outputs;
-  if (
-    built.ok &&
-    built.compiledProject &&
-    options.profile.compileShadersBeforeExport &&
-    hasAuthoringShadersOrMaterials(options.project)
-  ) {
-    callbacks.onCompilingShaders?.();
-    const shaderProject = buildShaderMaterialProject(options.project);
-    const capturedFingerprints = captureShaderCompileInputFingerprints(
-      options.project,
-      options.profile.shaderVariants,
-    );
-    const response = await useShaderCompileStore.getState().runCompile(
-      shaderProject.project,
-      {
-        capturedFingerprints,
-        currentProject: () => options.project,
-      },
-      defaultShaderCompileOptions(
-        options.projectRoot,
-        options.projectRoot ? `${options.projectRoot}/.noveltea/build` : null,
-        options.profile.shaderVariants,
-      ),
-    );
-    shaderDiagnostics = response.diagnostics;
-    shaderOutputs = response.outputs;
-    if (response.success && !hasErrors(response.diagnostics)) {
-      const shaderAuthoringOutputs = useShaderCompileStore.getState().authoringOutputs;
-      callbacks.onCompilingProject?.();
-      built = buildCompiledRuntimeExport(options.project, {
-        projectRoot: options.projectRoot,
-        profile: options.profile,
-        shaderOutputs: response.outputs,
-        shaderAuthoringOutputs,
-      });
-    }
-  }
-  return { built, validationDiagnostics, shaderDiagnostics, shaderOutputs };
 }
 
 function normalizePackageResponse(value: unknown): PackageExportResponse {
@@ -189,30 +73,32 @@ export async function runPackageExportWorkflow(
   workspace.setLastExportResult(null);
   exportStore.setStage('compiling-project');
   workspace.setStatusMessage('Building runtime package data');
-  const prepared = await prepareRuntimePackageExport(options, {
-    onCompilingProject: () => {
-      exportStore.setStage('compiling-project');
-      workspace.setStatusMessage('Building runtime package data');
-    },
-    onCompilingShaders: () => {
-      exportStore.setStage('compiling-shaders');
-      workspace.setStatusMessage('Compiling shaders before export');
+  const prepared = await prepareRuntimeArtifact({
+    project: options.project,
+    projectRoot: options.projectRoot,
+    profile: options.profile,
+    intent: 'runtime-package-export',
+    shaderCompiler: rendererShaderCompilerAdapter,
+    paths: rendererRuntimeArtifactPaths,
+    onStage: (stage) => {
+      exportStore.setStage(stage);
+      workspace.setStatusMessage(
+        stage === 'compiling-project'
+          ? 'Building runtime package data'
+          : 'Compiling shaders before export',
+      );
     },
   });
-  const { built, validationDiagnostics, shaderDiagnostics, shaderOutputs } = prepared;
-  if (!built.ok || !built.compiledProject) {
-    const diagnostics = collectProjectValidationDiagnostics(
-      built.diagnostics,
-      asProjectValidationDiagnostics(shaderDiagnostics),
-    );
-    const result = failureResult('failed', options, built.diagnostics, {
-      validationDiagnostics,
-      shaderDiagnostics,
-      shaderOutputs,
-      fileEntries: built.fileEntries,
-      manifestPreview: built.manifestPreview,
+  if (prepared.status !== 'prepared') {
+    const diagnostics = prepared.diagnostics;
+    const assessment = prepared.status === 'blocked' ? prepared.assessment : null;
+    const result = failureResult('failed', options, diagnostics, {
+      validationDiagnostics: assessment?.runtimeDiagnostics ?? diagnostics,
+      shaderDiagnostics: prepared.status === 'blocked' ? prepared.shaderDiagnostics : [],
+      shaderOutputs: prepared.status === 'blocked' ? prepared.shaderOutputs : [],
+      fileEntries: assessment?.fileEntries ?? [],
+      manifestPreview: assessment?.manifestPreview ?? null,
     });
-    result.diagnostics = diagnostics;
     exportStore.finish(result);
     workspace.setLastExportResult(result);
     workspace.addTimelineEntry({
@@ -227,15 +113,18 @@ export async function runPackageExportWorkflow(
 
   exportStore.setStage('writing-package');
   workspace.setStatusMessage('Writing runtime package');
-  const packageOptions = packageOptionsWithShaderRoot(built.packageOptions, options.projectRoot);
   const response = normalizePackageResponse(
-    await window.noveltea.exportPackage(built.compiledProject, options.outputPath, packageOptions),
+    await window.noveltea.exportPackage(
+      prepared.artifact.compiledProject,
+      options.outputPath,
+      prepared.artifact.packageOptions,
+    ),
   );
   const publicationDiagnostics = classifyProjectValidationDiagnostics(response.diagnostics ?? [], {
     producer: 'package-publication',
   });
   const diagnostics = collectProjectValidationDiagnostics(
-    built.diagnostics,
+    prepared.artifact.diagnostics,
     publicationDiagnostics,
   );
   const runtimeDiagnostics = diagnostics.filter((diagnostic) =>
@@ -249,11 +138,11 @@ export async function runPackageExportWorkflow(
     profile: options.profile,
     outputPath: options.outputPath,
     diagnostics,
-    validationDiagnostics,
-    shaderDiagnostics,
-    shaderOutputs,
-    fileEntries: built.fileEntries,
-    manifestPreview: built.manifestPreview,
+    validationDiagnostics: prepared.assessment.runtimeDiagnostics,
+    shaderDiagnostics: prepared.shaderDiagnostics,
+    shaderOutputs: prepared.shaderOutputs,
+    fileEntries: prepared.artifact.fileEntries,
+    manifestPreview: prepared.artifact.manifestPreview,
     packageResponse: response,
     manifest: response.manifest,
     byteCount: response.byteCount,

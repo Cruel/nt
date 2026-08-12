@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vite-plus/test';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
-import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
+import { prepareRuntimeAssessmentForTest } from './runtime-artifact-test-helpers';
 import { serializeCompiledProjectWireV3 } from '../../shared/project-schema/compiled-project';
 import { minimalGoldenProject } from './fixtures/compiled-project-golden-projects';
 
 describe('compiled artifact publication', () => {
-  it('publishes the exact canonical gameplay bytes from the shared compiler', () => {
+  it('publishes the exact canonical gameplay bytes from the shared compiler', async () => {
     const project = minimalGoldenProject();
     const compiled = compileAuthoringProject(project);
     const published = publishCompiledArtifact(project);
@@ -20,15 +20,15 @@ describe('compiled artifact publication', () => {
     expect(published.canonicalJson).toBe(compiled.canonicalJson);
   });
 
-  it('publishes byte-equivalent gameplay for preview, playback, package, and CLI inputs', () => {
+  it('publishes byte-equivalent gameplay for preview, playback, package, and CLI inputs', async () => {
     const project = minimalGoldenProject();
     const published = publishCompiledArtifact(project);
-    const exported = buildCompiledRuntimeExport(project, {
+    const exported = await prepareRuntimeAssessmentForTest(project, {
       projectRoot: '/project',
       profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false },
     });
     expect(published.ok).toBe(true);
-    expect(exported.ok).toBe(true);
+    expect(exported.ready).toBe(true);
     if (!published.ok || !exported.compiledProject) return;
 
     const previewBytes = serializeCompiledProjectWireV3(exported.compiledProject);
@@ -41,7 +41,7 @@ describe('compiled artifact publication', () => {
     expect(cliBytes).toBe(previewBytes);
   });
 
-  it('does not publish an artifact when compiler diagnostics contain errors', () => {
+  it('does not publish an artifact when compiler diagnostics contain errors', async () => {
     const project = minimalGoldenProject();
     project.entrypoint = { kind: 'room', id: 'missing-room' };
     const published = publishCompiledArtifact(project);
