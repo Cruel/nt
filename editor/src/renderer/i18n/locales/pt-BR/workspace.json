@@ -440,6 +440,11 @@
     }
   },
   "platformExport": {
+    "templates": {
+      "downloadRequired": "Baixar modelo necessário",
+      "downloading": "Baixando modelo…",
+      "installArchive": "Instalar modelo…"
+    },
     "confirmations": {
       "replaceTemplate": "Esta identidade de modelo já está instalada. Substituí-la e verificá-la novamente?",
       "useUntrustedTemplate": "O modelo '{{templateId}}@{{buildId}}' tem origem local e pode conter código executável. Usá-lo nesta exportação?",

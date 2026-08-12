@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rename, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -66,6 +66,101 @@ function builderArguments(stageRoot) {
   throw new Error(`Unsupported packaging host: ${process.platform}`);
 }
 
+function requireInstallerText(text, expected, label) {
+  if (!text.includes(expected)) throw new Error(`${label} is missing '${expected}'.`);
+}
+
+async function verifyLinuxInstallerContracts(outputRoot, transactionRoot) {
+  const artifacts = await collectDistributableArtifacts(outputRoot, 'linux');
+  const deb = artifacts.find((artifact) => artifact.fileName.endsWith('.deb'));
+  const rpm = artifacts.find((artifact) => artifact.fileName.endsWith('.rpm'));
+  if (!deb || !rpm) throw new Error('Linux installer verification requires DEB and RPM artifacts.');
+
+  const debPath = path.join(outputRoot, deb.fileName);
+  const { stdout: debContents } = await runCommand('dpkg-deb', ['--contents', debPath], {
+    capture: true,
+    label: 'verify-deb-contents',
+  });
+  requireInstallerText(
+    debContents,
+    './opt/noveltea-editor/noveltea-editor',
+    'DEB application payload',
+  );
+  requireInstallerText(
+    debContents,
+    './opt/noveltea-editor/resources/bin/noveltea',
+    'DEB CLI payload',
+  );
+  if (debContents.includes('/opt/NovelTea Editor')) {
+    throw new Error('DEB payload uses the retired mixed-case installation directory.');
+  }
+
+  const debControlRoot = path.join(transactionRoot, 'deb-control');
+  await runCommand('dpkg-deb', ['--control', debPath, debControlRoot], {
+    label: 'extract-deb-control',
+  });
+  const debScripts = `${await readFile(path.join(debControlRoot, 'postinst'), 'utf8')}\n${await readFile(path.join(debControlRoot, 'postrm'), 'utf8')}`;
+
+  const rpmPath = path.join(outputRoot, rpm.fileName);
+  const { stdout: rpmContents } = await runCommand('rpm', ['-qpl', rpmPath], {
+    capture: true,
+    label: 'verify-rpm-contents',
+  });
+  requireInstallerText(
+    rpmContents,
+    '/opt/noveltea-editor/noveltea-editor',
+    'RPM application payload',
+  );
+  requireInstallerText(
+    rpmContents,
+    '/opt/noveltea-editor/resources/bin/noveltea',
+    'RPM CLI payload',
+  );
+  if (rpmContents.includes('/opt/NovelTea Editor')) {
+    throw new Error('RPM payload uses the retired mixed-case installation directory.');
+  }
+  const { stdout: rpmScripts } = await runCommand('rpm', ['-qp', '--scripts', rpmPath], {
+    capture: true,
+    label: 'verify-rpm-scripts',
+  });
+
+  for (const [command, target] of [
+    ['noveltea-editor', '/opt/noveltea-editor/noveltea-editor'],
+    ['noveltea', '/opt/noveltea-editor/resources/bin/noveltea'],
+  ]) {
+    for (const [kind, scripts] of [
+      ['DEB', debScripts],
+      ['RPM', rpmScripts],
+    ]) {
+      requireInstallerText(
+        scripts,
+        `install_alternative '${command}' '${target}'`,
+        `${kind} install script`,
+      );
+      requireInstallerText(
+        scripts,
+        `remove_alternative '${command}' '${target}'`,
+        `${kind} removal script`,
+      );
+    }
+  }
+}
+
+async function verifyWindowsInstallerContracts() {
+  const includePath = path.join(editorRoot, 'branding', 'windows', 'installer.nsh');
+  const include = await readFile(includePath, 'utf8');
+  for (const expected of [
+    '!macro customInstall',
+    '!macro customUnInstall',
+    '$INSTDIR\\resources\\bin',
+    'NovelTeaCliPathEntry',
+    'Another noveltea.exe is already available on PATH',
+    'WM_SETTINGCHANGE',
+  ]) {
+    requireInstallerText(include, expected, 'Windows installer include');
+  }
+}
+
 const { stageRoot, identity } = await createStage({ build, keepStage, releaseTag });
 if (mode === 'stage') process.exit(0);
 
@@ -91,6 +186,12 @@ try {
   });
   const transactionApplication = await findPackagedApplication(transactionOutput);
   await verifyPackagedEditor(transactionApplication);
+  if (mode === 'artifact' && process.platform === 'linux') {
+    await verifyLinuxInstallerContracts(transactionOutput, transactionRoot);
+  }
+  if (mode === 'artifact' && process.platform === 'win32') {
+    await verifyWindowsInstallerContracts();
+  }
   await mkdir(path.dirname(finalRoot), { recursive: true });
   await rm(finalRoot, { recursive: true, force: true });
   await rename(transactionOutput, finalRoot);

@@ -4,9 +4,19 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or branch to qualify before tagging
+        required: true
+        type: string
+      release_tag:
+        description: Proposed vMAJOR.MINOR.PATCH release tag
+        required: true
+        type: string
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
   cancel-in-progress: false
 
 env:
@@ -14,7 +24,8 @@ env:
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
   CMAKE_BUILD_PARALLEL_LEVEL: 2
   VCPKG_MAX_CONCURRENCY: 2
-  RELEASE_TAG: ${{ github.ref_name }}
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+  RELEASE_REF: ${{ github.event_name == 'push' && github.ref || inputs.ref }}
   EMSDK_VERSION: 6.0.0
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
   CCACHE_MAXSIZE: 500M
@@ -25,9 +36,28 @@ env:
   ANDROID_NDK_VERSION: "28.2.13676358"
 
 jobs:
+  release-metadata:
+    name: Release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Validate release identity
+        run: node .github/validate-release-version.mjs "$RELEASE_TAG"
+
   shader-assets:
     name: Shader assets
     runs-on: ubuntu-24.04
+    needs: release-metadata
     timeout-minutes: 45
     permissions:
       contents: read
@@ -38,7 +68,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Install system packages
         run: |
@@ -130,8 +160,81 @@ jobs:
       - name: Upload standalone NovelTea CLI release asset
         uses: actions/upload-artifact@v7
         with:
-          name: noveltea-cli-release-dist
+          name: noveltea-cli-linux-release-dist
           path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64
+          if-no-files-found: error
+
+  windows-cli:
+    name: Standalone CLI (windows-x64)
+    runs-on: windows-2025
+    needs: release-metadata
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Cache vcpkg SDK and binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+          key: windows-x64-cli-vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
+          restore-keys: windows-x64-cli-vcpkg-
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:VCPKG_ROOT/.git")) { git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT" }
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Verify LLVM release tools
+        shell: pwsh
+        run: |
+          clang --version
+          llvm-strip --version
+          dumpbin /? | Out-Null
+      - name: Build and certify Windows CLI
+        run: |
+          pnpm -C editor run noveltea:build
+          pnpm -C editor run noveltea:certify
+      - name: Stage standalone Windows CLI
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/release-cli | Out-Null
+          Copy-Item build/cli/windows/noveltea.exe "build/release-cli/noveltea-$env:RELEASE_TAG-windows-x64.exe"
+      - name: Upload Windows host CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-host-cli-windows-x64
+          path: build/cli/windows/noveltea.exe
+          if-no-files-found: error
+      - name: Attest standalone Windows CLI
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-windows-x64.exe
+      - name: Upload standalone Windows CLI release asset
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-cli-windows-release-dist
+          path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-windows-x64.exe
           if-no-files-found: error
 
   desktop-hosts:
@@ -170,7 +273,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Install Linux system packages
         if: runner.os == 'Linux'
@@ -387,7 +490,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Install system packages
         run: |
@@ -536,7 +639,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -733,7 +836,7 @@ jobs:
   desktop-editor:
     name: Desktop editor (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    needs: [web, desktop-hosts]
+    needs: [web, desktop-hosts, windows-cli]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -745,13 +848,22 @@ jobs:
         include:
           - platform: linux
             arch: x64
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
+            cli_artifact: noveltea-release-host-cli-linux-x64
+            cli_path: build/cli/linux
+            cli_executable: build/cli/linux/noveltea
+          - platform: windows
+            arch: x64
+            runner: windows-2025
+            cli_artifact: noveltea-release-host-cli-windows-x64
+            cli_path: build/cli/windows
+            cli_executable: build/cli/windows/noveltea.exe
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Install Linux system packages
         if: runner.os == 'Linux'
@@ -790,10 +902,11 @@ jobs:
       - name: Download NovelTea host CLI
         uses: actions/download-artifact@v7
         with:
-          name: noveltea-release-host-cli-linux-x64
-          path: build/cli/linux
+          name: ${{ matrix.cli_artifact }}
+          path: ${{ matrix.cli_path }}
 
       - name: Make NovelTea host CLI executable
+        if: runner.os == 'Linux'
         run: chmod +x build/cli/linux/noveltea
 
       - name: Smoke native development coordinator ownership
@@ -810,12 +923,24 @@ jobs:
       - name: Build and verify native editor artifacts
         shell: pwsh
         env:
-          NOVELTEA_CLI_PATH: ${{ github.workspace }}/build/cli/linux/noveltea
+          NOVELTEA_CLI_PATH: ${{ github.workspace }}/${{ matrix.cli_executable }}
         run: pnpm -C editor run artifact -- --release-tag "$env:RELEASE_TAG"
+
+      - name: Verify editor and standalone CLI byte identity
+        run: node .github/verify-editor-cli-identity.mjs editor/out/electron-builder/latest-artifact.json "${{ matrix.cli_executable }}"
 
       - name: Run permanent packaged-application smoke
         shell: pwsh
         run: pnpm -C editor run package:smoke
+
+      - name: Install, invoke, and remove Linux editor packages
+        if: runner.os == 'Linux'
+        run: .github/linux-editor-installer-smoke.sh
+
+      - name: Install, invoke, and remove Windows editor
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .github/windows-editor-installer-smoke.ps1
 
       - name: Stage editor distributables
         shell: pwsh
@@ -836,21 +961,19 @@ jobs:
         with:
           subject-path: dist/noveltea-editor-*
 
-  publish:
-    name: Publish GitHub Release
+  release-inventory:
+    name: Qualify exact release inventory
     runs-on: ubuntu-24.04
-    needs: [desktop-hosts, web, android, desktop-editor]
+    needs: [desktop-hosts, web, android, desktop-editor, windows-cli]
     timeout-minutes: 15
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_REF }}
 
       - name: Download release assets
         uses: actions/download-artifact@v7
@@ -868,6 +991,42 @@ jobs:
       - name: Generate checksums
         run: .github/package-release.sh checksums "$RELEASE_TAG"
 
+      - name: Verify exact release inventory
+        run: node .github/verify-release-inventory.mjs dist "$RELEASE_TAG"
+
+      - name: Upload qualified release
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-qualified-release
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push'
+    needs: release-inventory
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Download qualified release
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-qualified-release
+          path: dist
+
+      - name: Reverify exact release inventory
+        run: node .github/verify-release-inventory.mjs dist "$RELEASE_TAG" release-assets.txt
+
       - name: Attest complete player template set
         uses: actions/attest-build-provenance@v4
         with:
@@ -877,9 +1036,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mapfile -t assets < release-assets.txt
+          for index in "${!assets[@]}"; do
+            assets[$index]="dist/${assets[$index]}"
+          done
           args=(
             "$RELEASE_TAG"
-            dist/*
+            "${assets[@]}"
             --verify-tag
             --generate-notes
             --fail-on-no-commits

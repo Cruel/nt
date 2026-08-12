@@ -303,6 +303,7 @@ export function PackageExportDialog({
   const [templates, setTemplates] = useState<InstalledTemplate[]>([]);
   const [selectedTemplateToken, setSelectedTemplateToken] = useState('');
   const [templateDiagnostics, setTemplateDiagnostics] = useState<ProjectValidationDiagnostic[]>([]);
+  const [templateDownloadPending, setTemplateDownloadPending] = useState(false);
   const [operationId, setOperationId] = useState<string | null>(null);
   const [identityConfirmationOpen, setIdentityConfirmationOpen] = useState(false);
   const localState = usePreferencesStore((state) => state.exportPreferences);
@@ -335,6 +336,7 @@ export function PackageExportDialog({
       selected ? (localState.profileTemplateTokens[localProfileKey(selected.id)] ?? '') : '',
     );
     setTemplateDiagnostics([]);
+    setTemplateDownloadPending(false);
   }, [open, project, projectRoot]); // oxlint-disable-line react-hooks/exhaustive-deps
 
   const activeRuntimeProfile = runtimeProfile ?? (project ? selectedExportProfile(project) : null);
@@ -780,6 +782,77 @@ export function PackageExportDialog({
         { producer: 'template' },
       ),
     );
+  }
+
+  async function downloadTemplate() {
+    setTemplateDownloadPending(true);
+    try {
+      const downloaded = await window.noveltea.downloadPlayerTemplate({
+        platform: currentPlatformProfile.target,
+        architecture: currentPlatformProfile.architecture,
+        buildFlavor: currentPlatformProfile.buildFlavor,
+      });
+      if (!downloaded.success || !downloaded.template) {
+        setTemplateDiagnostics(
+          classifyProjectValidationDiagnostics(
+            downloaded.diagnostics.map((item) => ({
+              code: item.code,
+              severity: 'error' as const,
+              category: `template:${item.code}`,
+              path: item.path,
+              message: item.message,
+            })),
+            { producer: 'template' },
+          ),
+        );
+        return;
+      }
+      const installedTemplate = downloaded.template;
+      const token = `${installedTemplate.descriptor.templateId}/${installedTemplate.descriptor.buildId}`;
+      setTemplates((current) => [
+        ...current.filter(
+          (item) => `${item.descriptor.templateId}/${item.descriptor.buildId}` !== token,
+        ),
+        installedTemplate,
+      ]);
+      const resolved = await window.noveltea.resolvePlayerTemplate({
+        requirements: {
+          profile: currentPlatformProfile,
+          runtimePackageApi: 2,
+          playerConfigApi: 2,
+          shaderVariants: currentRuntimeProfile.shaderVariants,
+          graphicsBackends: [],
+          capabilities: currentPlatformProfile.capabilityOverrides,
+          requiredFeatures: [],
+        },
+      });
+      if (!resolved.success || !resolved.template) {
+        setTemplate(null);
+        setTemplateDiagnostics(
+          classifyProjectValidationDiagnostics(
+            resolved.diagnostics.map((item) => ({
+              code: item.code,
+              severity: 'error' as const,
+              category: `template:${item.code}`,
+              path: item.path,
+              message: item.message,
+            })),
+            { producer: 'template' },
+          ),
+        );
+        return;
+      }
+      const resolvedToken = resolved.token ?? token;
+      setTemplate(resolved.template);
+      setSelectedTemplateToken(resolvedToken);
+      setTemplateDiagnostics([]);
+      const key = localProfileKey(currentPlatformProfile.id);
+      setExportPreferences({
+        profileTemplateTokens: { ...localState.profileTemplateTokens, [key]: resolvedToken },
+      });
+    } finally {
+      setTemplateDownloadPending(false);
+    }
   }
 
   async function runExport() {
@@ -1644,16 +1717,33 @@ export function PackageExportDialog({
                   </Button>
                 </div>
                 <div id="platformExport.preflight.template" className="rounded border p-3 text-xs">
-                  <div className="mb-2 flex items-center gap-2">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span className="font-medium">Preflight</span>
+                    {!template ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="ml-auto h-7"
+                        disabled={templateDownloadPending}
+                        onClick={downloadTemplate}
+                      >
+                        {templateDownloadPending
+                          ? t('platformExport.templates.downloading')
+                          : t('platformExport.templates.downloadRequired')}
+                      </Button>
+                    ) : (
+                      <span className="ml-auto" />
+                    )}
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="ml-auto h-7"
+                      className="h-7"
+                      disabled={templateDownloadPending}
                       onClick={installTemplate}
                     >
-                      Install Template…
+                      {t('platformExport.templates.installArchive')}
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">

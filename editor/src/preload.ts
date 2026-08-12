@@ -67,6 +67,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.INSPECT_PLAYER_TEMPLATE, templateId, buildId),
   installPlayerTemplate: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE, request),
+  downloadPlayerTemplate: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.DOWNLOAD_PLAYER_TEMPLATE, request),
   removePlayerTemplate: (templateId, buildId) =>
     ipcRenderer.invoke(IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE, templateId, buildId),
   resolvePlayerTemplate: (request) =>

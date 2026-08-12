@@ -191,6 +191,7 @@ Object.defineProperty(window, 'noveltea', {
     listPlayerTemplates: vi.fn().mockResolvedValue([]),
     inspectPlayerTemplate: vi.fn().mockResolvedValue(null),
     installPlayerTemplate: vi.fn().mockResolvedValue({ success: false, diagnostics: [] }),
+    downloadPlayerTemplate: vi.fn().mockResolvedValue({ success: false, diagnostics: [] }),
     removePlayerTemplate: vi.fn().mockResolvedValue({ removed: false }),
     resolvePlayerTemplate: vi.fn().mockResolvedValue({ success: false, diagnostics: [] }),
     compileShaders: vi

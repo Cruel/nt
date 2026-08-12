@@ -737,6 +737,17 @@ export interface TemplateInstallResult {
   entry?: TemplateRegistryEntry;
   diagnostics: TemplateCompatibilityDiagnostic[];
 }
+export const templateDownloadRequestSchema = z
+  .object({
+    platform: z.enum(exportPlatformValues),
+    architecture: trimmedNonEmptyStringSchema,
+    buildFlavor: z.enum(exportBuildFlavorValues),
+  })
+  .strict();
+export type TemplateDownloadRequest = z.infer<typeof templateDownloadRequestSchema>;
+export interface TemplateDownloadResult extends TemplateInstallResult {
+  template?: InstalledTemplate;
+}
 export interface TemplateResolveRequest {
   requirements: TemplateCompatibilityRequirements;
 }
@@ -751,6 +762,7 @@ export const templateRegistryIndexSchema = z
     format: z.literal(TEMPLATE_REGISTRY_INDEX_FORMAT),
     formatVersion: z.literal(TEMPLATE_REGISTRY_INDEX_FORMAT_VERSION),
     generatedAt: z.string(),
+    release: z.string().regex(/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
     templates: z.array(
       z
         .object({

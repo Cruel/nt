@@ -474,6 +474,51 @@ describe('PackageExportDialog', () => {
     });
   });
 
+  it('downloads, verifies, and selects the release template when one is missing', async () => {
+    const installed = installedLinuxTemplateResult();
+    vi.mocked(window.noveltea.downloadPlayerTemplate).mockResolvedValue({
+      success: true,
+      entry: installed.template.entry,
+      template: installed.template,
+      diagnostics: [],
+    });
+    vi.mocked(window.noveltea.resolvePlayerTemplate)
+      .mockResolvedValueOnce({
+        success: false,
+        diagnostics: [
+          {
+            code: 'template-missing',
+            path: '/template',
+            message: 'No compatible template is installed.',
+          },
+        ],
+      })
+      .mockResolvedValueOnce(installed);
+
+    render(
+      <PackageExportDialog
+        open
+        onOpenChange={vi.fn()}
+        project={exportableProject()}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Playable Platform Export' }));
+    const download = await screen.findByRole('button', {
+      name: 'Download Required Template',
+    });
+    fireEvent.click(download);
+    await waitFor(() =>
+      expect(window.noveltea.downloadPlayerTemplate).toHaveBeenCalledWith({
+        platform: 'linux',
+        architecture: 'x64',
+        buildFlavor: 'release',
+      }),
+    );
+    expect(await screen.findByText('linux-x64@build-1')).toBeInTheDocument();
+  });
+
   it('requires explicit confirmation before staging an application identity change', async () => {
     const project = exportableProject();
     const app = projectSettingsFromProject(project).app;

@@ -31,9 +31,13 @@ The hand-authored agent-kit source remains canonical under `editor/agent-kit/`. 
 - pnpm's 24-hour minimum-release-age policy exempts only `scriptc@0.0.26`, `@scriptc/compiler@0.0.26`, and `@scriptc/runtime@0.0.26`; future scriptc versions must either age normally or receive a new explicit reviewed exemption
 - Node used to drive release builds/reference certification: exact `24.18.0`
 - `clang` available on `PATH` for scriptc native compilation
-- currently admitted standalone target: Linux x64
+- admitted standalone targets: Linux x64 and Windows x64
 
-`editor/scripts/build-noveltea-cli.mjs` verifies the installed scriptc version, builds the existing native tooling archive closure, produces the minified/no-sourcemap QuickJS package, stages the two private packages under `build/host-tools/scriptc/`, invokes scriptc with `--dynamic` and the generated FFI manifest, strips the resulting ELF, and removes the staging directory.
+`editor/scripts/build-noveltea-cli.mjs` verifies the installed scriptc version, builds the existing
+native tooling archive closure for the current admitted host, produces the minified/no-sourcemap
+QuickJS package, stages the two private packages under `build/host-tools/scriptc/`, invokes scriptc
+with `--dynamic` and the platform-specific FFI manifest, strips the resulting ELF or PE executable,
+and removes the staging directory.
 
 The final executable must not depend on Node, a separate shaderc executable, or any project-local JavaScript files at runtime.
 
@@ -48,9 +52,9 @@ the QuickJS island neither starts subprocesses nor loads Node native addons. Tem
 commands therefore remain Node-free at runtime while using installed host archive utilities through
 structured executable and argument requests.
 
-The currently admitted standalone release host remains Linux x64. macOS and Windows standalone
-artifacts must not be advertised until scriptc/native-link certification is added on those hosts;
-this does not restrict a certified Linux CLI from assembling compatible target templates.
+The admitted standalone release hosts are Linux x64 and Windows x64. macOS standalone artifacts
+must not be advertised until scriptc/native-link certification is added there. A certified CLI may
+assemble any compatible installed target template regardless of its host platform.
 
 ## Certification gate
 

@@ -81,6 +81,7 @@ import {
   resolvePlayerTemplate,
 } from './main/services/template-registry-service';
 import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
+import { downloadPlayerTemplateForRelease } from './main/services/template-download-service';
 import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
@@ -750,6 +751,9 @@ void app.whenReady().then(async () => {
   );
   ipcMain.handle(IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE, (_event, request) =>
     installPlayerTemplate(request),
+  );
+  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_PLAYER_TEMPLATE, (_event, request) =>
+    downloadPlayerTemplateForRelease(`v${app.getVersion()}`, request),
   );
   ipcMain.handle(
     IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE,

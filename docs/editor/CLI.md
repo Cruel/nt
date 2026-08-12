@@ -65,9 +65,9 @@ Generate a safe, secret-free skeleton with `platform config init`. Signing secre
 `env:NAME` references. The editor and CLI share the per-user template registry at
 `~/.noveltea/templates/v1`; `NOVELTEA_TEMPLATE_REGISTRY_ROOT` provides a hermetic override for CI.
 
-The Node reference/editor-hosted command and Linux x64 self-contained scriptc command are
-implemented. Other standalone host binaries remain subject to the cross-host certification gate in
-`SCRIPTC_COMPATIBILITY.md`.
+The Node reference/editor-hosted command and Linux x64 and Windows x64 self-contained scriptc
+commands are implemented. Every standalone host binary remains subject to the cross-host
+certification gate in `SCRIPTC_COMPATIBILITY.md`.
 
 The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations cross the existing NovelTea C ABI. `agent sync` embeds the checked-in agent-kit source texts as build-time package data and generates the schema portion only when that command runs.
 
@@ -99,4 +99,9 @@ The CLI does not require Electron or an open editor. If an editor is open, its w
 
 ## Build and release
 
-The exact scriptc version and native ABI are pinned and certified against the Node reference implementation. Tagged releases publish the certified Linux x64 standalone executable as `noveltea-<tag>-linux-x64`, include it in `SHA256SUMS`, and attest its build provenance. Release packages contain the standalone `noveltea` binary, not TypeScript source files, source maps containing first-party TypeScript, a Node installation, a sibling shaderc binary, or the retired editor helper executable. See `SCRIPTC_COMPATIBILITY.md` and `BUILD_AND_DISTRIBUTION.md`.
+The exact scriptc version and native ABI are pinned and certified against the Node reference
+implementation. Tagged releases publish `noveltea-<tag>-linux-x64` and
+`noveltea-<tag>-windows-x64.exe`, include both in `SHA256SUMS`, and attest their build provenance.
+Each host editor embeds that exact certified binary. Release packages contain no TypeScript source,
+first-party source maps, Node installation, sibling shaderc binary, or retired editor helper. See
+`SCRIPTC_COMPATIBILITY.md` and `BUILD_AND_DISTRIBUTION.md`.

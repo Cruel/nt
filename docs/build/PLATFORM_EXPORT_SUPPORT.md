@@ -18,8 +18,8 @@ templates. Web and Android rows remain forward contracts for their platform vert
 | Android debug/emulator | x86_64 | APK | OpenGL ES/Vulkan as declared by template; `essl-300` | Android JDK/SDK/NDK/Gradle required | min API 24; compile API 35 |
 
 The assembly-host column describes artifact mechanics, not standalone CLI release availability.
-The standalone CLI is currently certified on Linux x64; additional host binaries require their own
-scriptc/native-link certification before release.
+The standalone CLI is certified independently on Linux x64 and Windows x64; additional host
+binaries require their own scriptc/native-link certification before release.
 
 Current release automation uses Emscripten 6.0.0 and an Android set certified together: Gradle 8.9,
 Android Gradle Plugin 8.7.3, Java 17, API/target/compile SDK 35, build-tools 35.0.0,
@@ -39,3 +39,10 @@ Release CI audits ELF dependencies and runtime paths with `readelf`/`ldd`, PE im
 `dumpbin`, and Mach-O dependencies with `otool`. Template archives, symbols, canonical descriptors,
 CycloneDX SBOMs, collected notices, checksums, the release registry index, and GitHub provenance
 attestations are published as separate release assets.
+
+The required release inventory is Linux and Windows x64 CLI/editor artifacts plus all six platform
+rows above (including both Web threading modes and both Android testing/release ABIs). Manual
+workflow dispatch qualifies a proposed tag against the same matrix without publishing. Tag builds
+rebuild from the immutable tagged commit; final aggregation verifies the exact matrix, certification
+set, release metadata, checksums, and provenance inputs before atomically creating the GitHub
+Release. Partial releases are prohibited.

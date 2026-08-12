@@ -36,6 +36,7 @@ export const IPC_CHANNELS = {
   LIST_PLAYER_TEMPLATES: 'noveltea:list-player-templates',
   INSPECT_PLAYER_TEMPLATE: 'noveltea:inspect-player-template',
   INSTALL_PLAYER_TEMPLATE: 'noveltea:install-player-template',
+  DOWNLOAD_PLAYER_TEMPLATE: 'noveltea:download-player-template',
   REMOVE_PLAYER_TEMPLATE: 'noveltea:remove-player-template',
   RESOLVE_PLAYER_TEMPLATE: 'noveltea:resolve-player-template',
   COMPILE_SHADERS: 'noveltea:compile-shaders',

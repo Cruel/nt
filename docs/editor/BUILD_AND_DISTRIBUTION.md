@@ -117,6 +117,26 @@ statically linked native tooling inside `noveltea`. Packaged native operations r
 installation-relative CLI and do not depend on `PATH`. The profiler-enabled engine preview must exist at
 `build/web-editor-preview/apps/editor_preview`; `pnpm -C editor run engine:preview:build` produces it.
 
+Linux DEB and RPM packages install their application closure under `/opt/noveltea-editor` and expose
+both public commands through the ordinary system command path:
+
+```text
+/usr/bin/noveltea-editor -> /opt/noveltea-editor/noveltea-editor
+/usr/bin/noveltea        -> /opt/noveltea-editor/resources/bin/noveltea
+```
+
+The editor continues to invoke its installation-relative CLI so its native operations cannot select
+an unrelated `noveltea` from `PATH`. The public link exposes that same bundled, certified binary to
+terminal users. Package removal unregisters only these package-owned alternatives. AppImage remains
+portable and does not mutate `/usr/bin`; users choose its location or use desktop/AppImage integration.
+
+The Windows NSIS installer exposes its bundled `resources\\bin\\noveltea.exe` through the selected
+installation scope's `PATH`. Per-user installs update the user environment; per-machine installs
+update the machine environment. The installer records the exact entry it owns, broadcasts the
+environment change, and removes only that entry on uninstall. If another `noveltea.exe` is already
+available, interactive installation preserves it by default and offers an explicit choice to prefer
+the editor CLI; silent installation preserves the existing command.
+
 ## Packaging and Security
 
 `pnpm -C editor run package` creates and verifies an unpacked host application. `pnpm -C editor run artifact`
@@ -179,6 +199,19 @@ Artifacts are native-host only:
 Linux packaging requires the ordinary Electron desktop libraries plus `rpm` and `fakeroot`.
 Windows NSIS validation must run on Windows, and DMG/ZIP validation must run on Apple Silicon macOS.
 CI owns the targets unavailable on the current development host.
+
+Tagged and manually qualified releases require Linux x64 and Windows x64 editor artifacts. The
+standalone Linux and Windows CLIs are built and certified once per host; the exact same bytes are
+published independently and embedded in that host's editor. Release aggregation rejects a missing
+or unexpected CLI, editor, or player-template platform artifact before a GitHub Release can be
+created.
+
+The editor does not bundle player templates. When the selected export profile has no compatible
+installed template, the Export surface can explicitly download the one matching the running
+editor's release, target, architecture, and build flavor. It accepts only the official GitHub
+release hosts, cross-checks the registry entry with `SHA256SUMS`, streams with bounded size, verifies
+the archive and descriptor hashes, and installs through the transactional per-user template
+registry. Offline users can continue to use `noveltea platform template install <archive>`.
 
 The artifact transaction writes `editor/out/electron-builder/latest-artifact.json`, including the
 exact file names, sizes, and SHA-256 hashes. `cmake/PackageNovelTeaRelease.cmake` consumes that

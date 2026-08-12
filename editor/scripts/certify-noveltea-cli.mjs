@@ -20,8 +20,14 @@ import { fileURLToPath } from 'node:url';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
+const isWindows = process.platform === 'win32';
+const releasePlatform = isWindows ? 'windows' : 'linux';
+const releasePreset = isWindows ? 'windows-release' : 'linux-release';
+const releaseTriplet = isWindows ? 'x64-windows-static-noveltea' : 'x64-linux-noveltea';
+const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const nativeCli = path.resolve(
-  process.env.NOVELTEA_CLI_PATH ?? path.join(repositoryRoot, 'build', 'cli', 'linux', 'noveltea'),
+  process.env.NOVELTEA_CLI_PATH ??
+    path.join(repositoryRoot, 'build', 'cli', releasePlatform, executableName),
 );
 const nodeCli = path.join(editorRoot, 'dist-electron', 'tools', 'noveltea.mjs');
 const fixtureTool = path.join(
@@ -33,9 +39,9 @@ const fixtureTool = path.join(
 const bgfxInclude = path.join(
   repositoryRoot,
   'build',
-  'linux-release',
+  releasePreset,
   'vcpkg_installed',
-  'x64-linux-noveltea',
+  releaseTriplet,
   'include',
   'bgfx',
 );
@@ -627,20 +633,29 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
 }
 
 async function certifyRelocation(tempRoot) {
-  const relocated = path.join(tempRoot, 'relocated', 'bin', 'noveltea');
+  const relocated = path.join(tempRoot, 'relocated', 'bin', executableName);
   await mkdir(path.dirname(relocated), { recursive: true });
   await cp(nativeCli, relocated);
-  const env = {
-    HOME: path.join(tempRoot, 'relocated-home'),
-    LANG: 'C.UTF-8',
-    PATH: '/usr/bin:/bin',
-  };
+  const env = isWindows
+    ? {
+        ...process.env,
+        HOME: path.join(tempRoot, 'relocated-home'),
+        USERPROFILE: path.join(tempRoot, 'relocated-home'),
+      }
+    : {
+        HOME: path.join(tempRoot, 'relocated-home'),
+        LANG: 'C.UTF-8',
+        PATH: '/usr/bin:/bin',
+      };
   const result = requireSuccess('relocated CLI', run(relocated, ['--json', '--version'], { env }));
   const payload = JSON.parse(result.stdout);
   if (payload.version !== '1.0.0')
     fail(`Relocated CLI returned unexpected version '${payload.version}'.`);
 
-  const closure = requireSuccess('CLI ldd audit', run('ldd', [relocated], { env })).stdout;
+  const closure = isWindows
+    ? requireSuccess('CLI PE dependency audit', run('dumpbin', ['/dependents', relocated], { env }))
+        .stdout
+    : requireSuccess('CLI ldd audit', run('ldd', [relocated], { env })).stdout;
   if (/\b(?:node|shaderc)\b/i.test(closure))
     fail(`Standalone CLI has a forbidden runtime dependency:\n${closure}`);
 
@@ -662,9 +677,9 @@ async function certifyRelocation(tempRoot) {
 }
 
 async function main() {
-  if (process.platform !== 'linux' || process.arch !== 'x64')
+  if (!['linux', 'win32'].includes(process.platform) || process.arch !== 'x64')
     fail(
-      `CLI certification is currently admitted only on Linux x64; received ${process.platform}/${process.arch}.`,
+      `CLI certification is admitted on Linux and Windows x64; received ${process.platform}/${process.arch}.`,
     );
   if (!(await stat(nativeCli)).isFile()) fail(`NovelTea CLI is missing: ${nativeCli}`);
   if (!(await stat(path.join(bgfxInclude, 'bgfx_shader.sh'))).isFile())

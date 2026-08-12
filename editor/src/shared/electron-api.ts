@@ -70,6 +70,9 @@ interface NovelTeaElectronApiContract {
   installPlayerTemplate(
     request: import('./project-schema/platform-export-contracts').TemplateInstallRequest,
   ): Promise<import('./project-schema/platform-export-contracts').TemplateInstallResult>;
+  downloadPlayerTemplate(
+    request: import('./project-schema/platform-export-contracts').TemplateDownloadRequest,
+  ): Promise<import('./project-schema/platform-export-contracts').TemplateDownloadResult>;
   removePlayerTemplate(templateId: string, buildId: string): Promise<{ removed: boolean }>;
   resolvePlayerTemplate(
     request: import('./project-schema/platform-export-contracts').TemplateResolveRequest,

@@ -12,6 +12,7 @@ import {
   resolvePlayerTemplate,
   templateRootForToken,
 } from '../../main/services/template-registry-service';
+import { downloadPlayerTemplateForRelease } from '../../main/services/template-download-service';
 import { parsePlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 
 const roots: string[] = [];
@@ -83,6 +84,40 @@ const profile = parsePlatformExportProfile({
   desktop: { artifact: 'tar', executableName: 'game' },
 });
 describe('template registry service', () => {
+  it('pins official downloads to one exact release template', async () => {
+    const response = new Response(
+      JSON.stringify({
+        format: 'noveltea.template-registry-index',
+        formatVersion: 1,
+        generatedAt: '2026-08-12T00:00:00Z',
+        release: 'v1.0.0',
+        templates: [],
+      }),
+      { status: 200 },
+    );
+    Object.defineProperty(response, 'url', {
+      value:
+        'https://github.com/Cruel/nt/releases/download/v1.0.0/noveltea-player-template-registry.json',
+    });
+    const result = await downloadPlayerTemplateForRelease(
+      'v1.0.0',
+      { platform: 'linux', architecture: 'x64', buildFlavor: 'release' },
+      async () => response,
+    );
+    expect(result.success).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain('contains 0 templates');
+  });
+  it('rejects release metadata redirected away from approved GitHub hosts', async () => {
+    const response = new Response('{}', { status: 200 });
+    Object.defineProperty(response, 'url', { value: 'https://example.com/registry.json' });
+    const result = await downloadPlayerTemplateForRelease(
+      'v1.0.0',
+      { platform: 'linux', architecture: 'x64', buildFlavor: 'release' },
+      async () => response,
+    );
+    expect(result.success).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain('untrusted host');
+  });
   it('rejects template tokens that contain dot path segments', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-template-token-'));
     roots.push(root);

@@ -7,7 +7,17 @@ import { fileURLToPath } from 'node:url';
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
 const scriptcVersion = '0.0.26';
-const scriptcBinary = path.join(editorRoot, 'node_modules', '.bin', 'scriptc');
+const isWindows = process.platform === 'win32';
+const releasePlatform = isWindows ? 'windows' : 'linux';
+const releasePreset = isWindows ? 'windows-release' : 'linux-release';
+const releaseTriplet = isWindows ? 'x64-windows-static-noveltea' : 'x64-linux-noveltea';
+const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
+const scriptcBinary = path.join(
+  editorRoot,
+  'node_modules',
+  '.bin',
+  isWindows ? 'scriptc.CMD' : 'scriptc',
+);
 const scriptcRoot = path.join(
   repositoryRoot,
   'build',
@@ -61,9 +71,9 @@ if (process.versions.node !== '24.18.0')
   throw new Error(
     `NovelTea CLI release builds require Node 24.18.0; received ${process.versions.node}.`,
   );
-if (process.platform !== 'linux' || process.arch !== 'x64')
+if (!['linux', 'win32'].includes(process.platform) || process.arch !== 'x64')
   throw new Error(
-    `NovelTea CLI release builds currently support Linux x64 hosts only; received ${process.platform}/${process.arch}.`,
+    `NovelTea CLI release builds support Linux and Windows x64 hosts; received ${process.platform}/${process.arch}.`,
   );
 if (!process.env.VCPKG_ROOT)
   throw new Error('VCPKG_ROOT is required for the native tooling release build.');
@@ -90,6 +100,8 @@ const shadercProviderArguments = prebuiltShadercRoot
 
 async function stagePrebuiltShadercLinkClosure() {
   if (!prebuiltShadercRoot) return;
+  if (isWindows)
+    throw new Error('NOVELTEA_PREBUILT_SHADERC_ROOT is currently a Linux-only release input.');
   const archives = [
     'libnoveltea_bgfx_shaderc_embedded.a',
     'libfcpp.a',
@@ -100,7 +112,7 @@ async function stagePrebuiltShadercLinkClosure() {
     'libbimg.a',
     'libbx.a',
   ];
-  const linkDirectory = path.join(repositoryRoot, 'build', 'linux-release', 'tools', 'editor_tool');
+  const linkDirectory = path.join(repositoryRoot, 'build', releasePreset, 'tools', 'editor_tool');
   await mkdir(linkDirectory, { recursive: true });
   for (const archive of archives) {
     const source = path.join(prebuiltShadercRoot, 'lib', archive);
@@ -122,7 +134,7 @@ run(
   'cmake',
   [
     '--preset',
-    'linux-release',
+    releasePreset,
     '-DBUILD_TESTING=OFF',
     '-DNOVELTEA_COMPILE_SHADERS=OFF',
     '-DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF',
@@ -130,7 +142,7 @@ run(
   ],
   { env: buildEnv },
 );
-run('cmake', ['--build', '--preset', 'linux-release', '--target', 'noveltea_tooling_native'], {
+run('cmake', ['--build', '--preset', releasePreset, '--target', 'noveltea_tooling_native'], {
   env: buildEnv,
 });
 await stagePrebuiltShadercLinkClosure();
@@ -139,10 +151,10 @@ run('pnpm', ['exec', 'vp', 'pack'], { cwd: editorRoot, env: buildEnv });
 if (!existsSync(islandBundle))
   throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
 
-const buildRoot = path.join(repositoryRoot, 'build', 'linux-release');
+const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
 const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
 const engineRoot = path.join(buildRoot, 'engine');
-const vcpkgLibRoot = path.join(buildRoot, 'vcpkg_installed', 'x64-linux-noveltea', 'lib');
+const vcpkgLibRoot = path.join(buildRoot, 'vcpkg_installed', releaseTriplet, 'lib');
 const shadercBgfxRoot = path.join(
   buildRoot,
   '_deps',
@@ -172,40 +184,70 @@ function archive(...candidates) {
   return found;
 }
 
+function staticArchive(root, name) {
+  return archive(path.join(root, `${name}.lib`), path.join(root, `lib${name}.a`));
+}
+
 const libraries = [
-  archive(path.join(editorToolRoot, 'libnoveltea_tooling_native.a')),
-  archive(path.join(engineRoot, 'libnoveltea_presentation.a')),
-  archive(path.join(engineRoot, 'libnoveltea_script_lua.a')),
-  archive(path.join(engineRoot, 'libnoveltea_runtime.a')),
-  archive(path.join(vcpkgLibRoot, 'liblua.a')),
-  archive(path.join(editorToolRoot, 'libnoveltea_shader_tooling.a')),
-  archive(path.join(engineRoot, 'libnoveltea_content.a')),
-  archive(path.join(engineRoot, 'libnoveltea_domain.a')),
-  archive(path.join(editorToolRoot, 'libnoveltea_bgfx_shaderc_embedded.a')),
-  archive(path.join(editorToolRoot, 'libfcpp.a'), path.join(shadercBgfxRoot, 'libfcpp.a')),
-  archive(path.join(editorToolRoot, 'libglslang.a'), path.join(shadercBgfxRoot, 'libglslang.a')),
+  staticArchive(editorToolRoot, 'noveltea_tooling_native'),
+  staticArchive(engineRoot, 'noveltea_presentation'),
+  staticArchive(engineRoot, 'noveltea_script_lua'),
+  staticArchive(engineRoot, 'noveltea_runtime'),
+  staticArchive(vcpkgLibRoot, 'lua'),
+  staticArchive(editorToolRoot, 'noveltea_shader_tooling'),
+  staticArchive(engineRoot, 'noveltea_content'),
+  staticArchive(engineRoot, 'noveltea_domain'),
+  staticArchive(editorToolRoot, 'noveltea_bgfx_shaderc_embedded'),
   archive(
+    ...[editorToolRoot, shadercBgfxRoot].flatMap((root) => [
+      path.join(root, 'fcpp.lib'),
+      path.join(root, 'libfcpp.a'),
+    ]),
+  ),
+  archive(
+    ...[editorToolRoot, shadercBgfxRoot].flatMap((root) => [
+      path.join(root, 'glslang.lib'),
+      path.join(root, 'libglslang.a'),
+    ]),
+  ),
+  archive(
+    path.join(editorToolRoot, 'glsl-optimizer.lib'),
     path.join(editorToolRoot, 'libglsl-optimizer.a'),
+    path.join(shadercBgfxRoot, 'glsl-optimizer.lib'),
     path.join(shadercBgfxRoot, 'libglsl-optimizer.a'),
   ),
   archive(
+    path.join(editorToolRoot, 'spirv-opt.lib'),
     path.join(editorToolRoot, 'libspirv-opt.a'),
+    path.join(shadercBgfxRoot, 'spirv-opt.lib'),
     path.join(shadercBgfxRoot, 'libspirv-opt.a'),
   ),
   archive(
+    path.join(editorToolRoot, 'spirv-cross.lib'),
     path.join(editorToolRoot, 'libspirv-cross.a'),
+    path.join(shadercBgfxRoot, 'spirv-cross.lib'),
     path.join(shadercBgfxRoot, 'libspirv-cross.a'),
   ),
-  archive(path.join(vcpkgLibRoot, 'libbimg_decode.a')),
-  archive(path.join(vcpkgLibRoot, 'liblodepng.a')),
-  archive(path.join(vcpkgLibRoot, 'libtinyexr.a')),
-  archive(path.join(vcpkgLibRoot, 'libminiz.a')),
-  archive(path.join(editorToolRoot, 'libbimg.a'), path.join(shadercBimgRoot, 'libbimg.a')),
-  archive(path.join(editorToolRoot, 'libbx.a'), path.join(shadercBxRoot, 'libbx.a')),
+  staticArchive(vcpkgLibRoot, 'bimg_decode'),
+  staticArchive(vcpkgLibRoot, 'lodepng'),
+  staticArchive(vcpkgLibRoot, 'tinyexr'),
+  staticArchive(vcpkgLibRoot, 'miniz'),
+  archive(
+    ...[editorToolRoot, shadercBimgRoot].flatMap((root) => [
+      path.join(root, 'bimg.lib'),
+      path.join(root, 'libbimg.a'),
+    ]),
+  ),
+  archive(
+    ...[editorToolRoot, shadercBxRoot].flatMap((root) => [
+      path.join(root, 'bx.lib'),
+      path.join(root, 'libbx.a'),
+    ]),
+  ),
 ];
 
-const outputDirectory = path.join(repositoryRoot, 'build', 'cli', 'linux');
-const outputPath = path.join(outputDirectory, 'noveltea');
+const outputDirectory = path.join(repositoryRoot, 'build', 'cli', releasePlatform);
+const outputPath = path.join(outputDirectory, executableName);
 await mkdir(outputDirectory, { recursive: true });
 await rm(stageRoot, { recursive: true, force: true });
 await mkdir(islandPackageRoot, { recursive: true });
@@ -287,7 +329,9 @@ try {
           },
         ],
         libraries,
-        system_libraries: ['m', 'dl', 'rt', 'stdc++'],
+        system_libraries: isWindows
+          ? ['advapi32', 'bcrypt', 'ole32', 'shell32', 'user32', 'ws2_32']
+          : ['m', 'dl', 'rt', 'stdc++'],
       },
       null,
       2,
@@ -299,7 +343,7 @@ try {
     ['build', stagedHost, '--dynamic', '--ffi', ffiPath, '--out', outputPath, '--no-keep-c'],
     { cwd: stageRoot, env: buildEnv },
   );
-  run('strip', ['--strip-all', outputPath], { env: buildEnv });
+  run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', outputPath], { env: buildEnv });
 } finally {
   await rm(stageRoot, { recursive: true, force: true });
 }

@@ -19,6 +19,8 @@ const stageManifest = JSON.parse(readFileSync(path.join(stageRoot, 'stage-manife
 const applicationMetadata = JSON.parse(
   readFileSync(path.join(stageRoot, 'app', 'package.json'), 'utf8'),
 );
+const linuxMaintainerScriptsRoot = path.join(buildResourcesRoot, 'linux');
+const windowsInstallerInclude = path.join(buildResourcesRoot, 'windows', 'installer.nsh');
 
 if (
   applicationMetadata.productName !== 'NovelTea Editor' ||
@@ -79,7 +81,9 @@ const completeFusePolicy = {
 
 export default {
   appId: 'org.noveltea.editor',
-  productName: applicationMetadata.productName,
+  // Keep the human-facing product name in application metadata and desktop integration, while
+  // giving Linux packages a shell-safe /opt installation directory.
+  productName: process.platform === 'linux' ? 'noveltea-editor' : applicationMetadata.productName,
   executableName: 'noveltea-editor',
   electronVersion: stageManifest.runtime.electronVersion,
   artifactName: 'NovelTea-Editor-${version}-${os}-${arch}.${ext}',
@@ -140,6 +144,20 @@ export default {
     ],
     category: 'Development',
     syncDesktopName: true,
+    desktop: {
+      entry: {
+        Name: applicationMetadata.productName,
+        Comment: applicationMetadata.description,
+      },
+    },
+  },
+  deb: {
+    afterInstall: path.join(linuxMaintainerScriptsRoot, 'after-install.sh'),
+    afterRemove: path.join(linuxMaintainerScriptsRoot, 'after-remove.sh'),
+  },
+  rpm: {
+    afterInstall: path.join(linuxMaintainerScriptsRoot, 'after-install.sh'),
+    afterRemove: path.join(linuxMaintainerScriptsRoot, 'after-remove.sh'),
   },
   win: {
     icon: path.join(buildResourcesRoot, 'icon.svg'),
@@ -149,6 +167,7 @@ export default {
     oneClick: false,
     perMachine: false,
     allowToChangeInstallationDirectory: true,
+    include: windowsInstallerInclude,
   },
   mac: {
     icon: path.join(buildResourcesRoot, 'icon.svg'),
