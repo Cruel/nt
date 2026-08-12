@@ -25,6 +25,7 @@ The hand-authored agent-kit source remains canonical under `editor/agent-kit/`. 
 ## Build pin and admitted host
 
 - scriptc: exact `0.0.26`
+- pnpm's 24-hour minimum-release-age policy exempts only `scriptc@0.0.26`, `@scriptc/compiler@0.0.26`, and `@scriptc/runtime@0.0.26`; future scriptc versions must either age normally or receive a new explicit reviewed exemption
 - Node used to drive release builds/reference certification: exact `24.18.0`
 - `clang` available on `PATH` for scriptc native compilation
 - currently admitted standalone target: Linux x64

@@ -5,6 +5,11 @@ nodeLinker: isolated
 injectWorkspacePackages: true
 autoInstallPeers: false
 
+minimumReleaseAgeExclude:
+  - "scriptc@0.0.26"
+  - "@scriptc/compiler@0.0.26"
+  - "@scriptc/runtime@0.0.26"
+
 catalog:
   "@electron/fuses": 2.1.3
   electron: 43.1.1
