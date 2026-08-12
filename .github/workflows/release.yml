@@ -669,8 +669,8 @@ jobs:
           fixture_root="$RUNNER_TEMP/noveltea-android-release-fixture"
           pnpm -C editor run android:fixture -- --root "$fixture_root" --abi arm64-v8a --flavor release --artifact both
           export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUNNER_TEMP/noveltea-template-registry-arm64"
-          pnpm -C editor run noveltea -- --json platform template install "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-release.tar.gz" --force
-          pnpm -C editor run noveltea -- --project "$fixture_root" --json platform export \
+          "${{ github.workspace }}/build/cli/linux/noveltea" --json platform template install "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-release.tar.gz" --force
+          "${{ github.workspace }}/build/cli/linux/noveltea" --project "$fixture_root" --json platform export \
             --profile canonical-android-release \
             --output "${{ github.workspace }}/dist/android-release-fixture" \
             --config "$config" \
@@ -697,8 +697,8 @@ jobs:
           fixture_root="$RUNNER_TEMP/noveltea-android-debug-fixture"
           pnpm -C editor run android:fixture -- --root "$fixture_root" --abi x86_64 --flavor debug --artifact apk
           export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUNNER_TEMP/noveltea-template-registry-x64"
-          pnpm -C editor run noveltea -- --json platform template install "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-x86_64-debug.tar.gz" --force
-          pnpm -C editor run noveltea -- --project "$fixture_root" --json platform export \
+          "${{ github.workspace }}/build/cli/linux/noveltea" --json platform template install "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-x86_64-debug.tar.gz" --force
+          "${{ github.workspace }}/build/cli/linux/noveltea" --project "$fixture_root" --json platform export \
             --profile canonical-android-debug \
             --output "${{ github.workspace }}/dist/android-debug-fixture" \
             --config "$config" \

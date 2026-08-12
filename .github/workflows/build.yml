@@ -774,8 +774,8 @@ jobs:
               --abi x86_64 \
               --flavor debug
             export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUNNER_TEMP/noveltea-template-registry"
-            pnpm -C editor run noveltea -- --json platform template install "$template" --force
-            pnpm -C editor run noveltea -- --project "$fixture_root" --json platform export \
+            "${{ github.workspace }}/build/cli/linux/noveltea" --json platform template install "$template" --force
+            "${{ github.workspace }}/build/cli/linux/noveltea" --project "$fixture_root" --json platform export \
               --profile canonical-android-debug \
               --output "$output" \
               --config "$config" \

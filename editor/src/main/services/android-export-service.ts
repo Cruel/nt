@@ -1,5 +1,15 @@
 import { createHash } from 'node:crypto';
-import { cp, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
@@ -20,7 +30,7 @@ import { generateAppIcons } from './icon-generation-service';
 import { probeAndroidToolchain } from './android-toolchain-service';
 import { verifyTemplateToken } from './template-registry-service';
 import { inspectAndroidArtifacts } from './android-artifact-inspection-service';
-import { runPlatformProcess } from './platform-host-service';
+import { platformFileMode, runPlatformProcess } from './platform-host-service';
 
 const run = runPlatformProcess;
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
@@ -76,9 +86,19 @@ async function listFiles(root: string, prefix = ''): Promise<string[]> {
   return result.sort();
 }
 
-async function copyTree(source: string, destination: string) {
-  await listFiles(source);
-  await cp(source, destination, { recursive: true, force: false, errorOnExist: true });
+async function copyRegularFile(source: string, destination: string, exclusive = false) {
+  const [data, mode] = await Promise.all([readFile(source), platformFileMode(source, 0o644)]);
+  await mkdir(path.dirname(destination), { recursive: true });
+  await writeFile(destination, data, {
+    flag: exclusive ? 'wx' : 'w',
+    mode,
+  });
+  await chmod(destination, mode);
+}
+
+async function copyTree(source: string, destination: string, exclusive = false) {
+  for (const relative of await listFiles(source))
+    await copyRegularFile(path.join(source, relative), path.join(destination, relative), exclusive);
 }
 
 export async function publishAndroidArtifactSet(
@@ -109,7 +129,7 @@ async function trackedFiles(root: string): Promise<StagedFileEntry[]> {
   const files: StagedFileEntry[] = [];
   for (const relative of await listFiles(root)) {
     const data = await readFile(path.join(root, relative));
-    const info = await stat(path.join(root, relative));
+    const mode = await platformFileMode(path.join(root, relative), 0o644);
     const origin = relative.endsWith('game.ntpkg')
       ? ('runtime-package' as const)
       : relative.includes('/res/mipmap-') || relative.includes('/res/drawable/')
@@ -122,7 +142,7 @@ async function trackedFiles(root: string): Promise<StagedFileEntry[]> {
       origin,
       originId: `android:${relative}`,
       size: data.length,
-      mode: info.mode & 0o777,
+      mode,
       sha256: sha256(data),
     });
   }
@@ -256,7 +276,7 @@ export async function generateAndroidInputs(
     platforms: ['android'],
   });
   if (!icons.ok) throw new Error(icons.diagnostics.map((item) => item.message).join('; '));
-  await cp(path.join(iconRoot, 'android', 'res'), res, { recursive: true });
+  await copyTree(path.join(iconRoot, 'android', 'res'), res);
   await rm(iconRoot, { recursive: true, force: true });
   const files = await trackedFiles(generatedRoot);
   const exportManifest: PlatformExportManifest = {
@@ -357,7 +377,7 @@ export async function exportAndroidPlatform(
       };
     await rm(temp, { recursive: true, force: true });
     await mkdir(temp, { recursive: true });
-    await copyTree(templateRoot, project);
+    await copyTree(templateRoot, project, true);
     await mkdir(publish, { recursive: true });
     const generatedResult = await generateAndroidInputs(
       request,
@@ -482,7 +502,7 @@ export async function exportAndroidPlatform(
       );
       await lstat(source);
       const destination = path.join(publish, `${stem}.${kind}`);
-      await cp(source, destination);
+      await copyRegularFile(source, destination);
       artifacts.push({
         kind,
         path: path.join(path.resolve(request.outputDirectory), path.basename(destination)),

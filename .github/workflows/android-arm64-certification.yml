@@ -92,8 +92,8 @@ jobs:
             output="$RUNNER_TEMP/arm64-v${revision}"
             pnpm -C editor run android:fixture -- --root "$fixture_root" --revision "$revision" --abi arm64-v8a --flavor release --artifact both
             export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUNNER_TEMP/noveltea-template-registry"
-            pnpm -C editor run noveltea -- --json platform template install "$template" --force
-            pnpm -C editor run noveltea -- --project "$fixture_root" --json platform export --profile canonical-android-release --output "$output" --config "$config" --allow-untrusted-template
+            "${{ github.workspace }}/build/cli/linux/noveltea" --json platform template install "$template" --force
+            "${{ github.workspace }}/build/cli/linux/noveltea" --project "$fixture_root" --json platform export --profile canonical-android-release --output "$output" --config "$config" --allow-untrusted-template
           done
       - name: Derive debug-signed APK sets from exported AABs
         run: |
