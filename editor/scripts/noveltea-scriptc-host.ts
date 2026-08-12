@@ -114,6 +114,24 @@ function staticFastPath(argv: readonly string[]): HostResult | null {
     return null;
   }
 
+  if (!help && !version) {
+    const message = 'A command is required.';
+    if (json)
+      return [
+        2,
+        `${JSON.stringify({
+          success: false,
+          exitCode: 2,
+          diagnostics: [{ code: 'CLI_USAGE', severity: 'error', path: '/', message }],
+        })}\n`,
+        '',
+      ];
+    return [
+      2,
+      '',
+      `[error] CLI_USAGE /: ${message}\n${message}\n\n${NOVELTEA_CLI_HELP.trimEnd()}\n`,
+    ];
+  }
   if (help === version) return null;
   if (help) {
     const stdout = json
@@ -148,7 +166,8 @@ function emit(result: HostResult): void {
 async function main(): Promise<void> {
   let exitCode = 70;
   try {
-    const argv = process.argv.slice(2);
+    // scriptc's argv slice throws when the process has no user arguments.
+    const argv = process.argv.length > 2 ? process.argv.slice(2) : [];
     const fastPath = staticFastPath(argv) ?? staticNativePath(argv);
     if (fastPath !== null) {
       emit(fastPath);

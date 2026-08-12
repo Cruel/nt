@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import { createNovelTeaAgentKitPayload } from '../../cli/agent-kit';
 import { syncNovelTeaAgentKit } from '../../cli/agent-sync';
-import { NOVELTEA_CLI_WORKSPACE_DIAGNOSTIC_CODES } from '../../cli/contracts';
+import { NOVELTEA_CLI_HELP, NOVELTEA_CLI_WORKSPACE_DIAGNOSTIC_CODES } from '../../cli/contracts';
 import {
   PHASE_SIX_NODE_REFERENCE_COMMANDS,
   novelTeaNodeReferenceRunner,
@@ -95,6 +95,15 @@ describe('NovelTea headless CLI', () => {
       exitCode: 0,
       version: '1.0.0',
     });
+  });
+
+  it('reports a usage failure when invoked without a command', async () => {
+    const result = await runNovelTeaCli([], { cwd: '/missing' });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('[error] CLI_USAGE /: A command is required.');
+    expect(result.stderr).toContain(NOVELTEA_CLI_HELP.trimEnd());
   });
 
   it('publishes the fixed workspace/path diagnostic vocabulary', () => {

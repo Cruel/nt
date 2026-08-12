@@ -197,6 +197,7 @@ async function prepareWritingRecovery(root) {
 }
 
 const differentialCases = [
+  { name: 'no-command', args: () => [], project: false },
   { name: 'version', args: () => ['--json', '--version'], project: false },
   { name: 'help', args: () => ['--help'], project: false },
   { name: 'validate-explicit', args: (root) => ['--project', root, '--json', 'validate'] },
