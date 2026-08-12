@@ -115,6 +115,7 @@ if [ -n "$PROJECT_PATH" ]; then
   RUN_ROOT="$PROJECT_ROOT/build/run-desktop"
   EXPORT_ROOT="$RUN_ROOT/export"
   CONFIG_PATH="$RUN_ROOT/export-local-state.json"
+  TEMPLATE_REGISTRY_ROOT="$RUN_ROOT/templates"
   TEMPLATE_TAG="local-run-desktop"
   TEMPLATE_ARCHIVE="$PROJECT_ROOT/dist/noveltea-player-template-${TEMPLATE_TAG}-linux-x64-release.tar.gz"
 
@@ -143,15 +144,15 @@ if [ -n "$PROJECT_PATH" ]; then
     -DNOVELTEA_RELEASE_TAG="$TEMPLATE_TAG" \
     -P cmake/PackageNovelTeaPlayerTemplate.cmake
 
-  printf '%s\n' '{}' > "$CONFIG_PATH"
+  export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$TEMPLATE_REGISTRY_ROOT"
+  "$NOVELTEA_CLI" --json platform template install "$TEMPLATE_ARCHIVE" --force
+  "$NOVELTEA_CLI" --json platform config init "$CONFIG_PATH" --force
   echo "[run] compiling project through the canonical Linux exporter..."
-  pnpm -C editor run project:export -- \
-      --template "$TEMPLATE_ARCHIVE" \
-      --project "$PROJECT_PATH" \
+  "$NOVELTEA_CLI" --project "$PROJECT_PATH" --json platform export \
       --profile "$EXPORT_PROFILE_ID" \
       --output "$EXPORT_ROOT" \
       --config "$CONFIG_PATH" \
-      --json
+      --allow-untrusted-template
 
   PLAYER_CONFIG="$EXPORT_ROOT/bin/player.json"
   [ -f "$PLAYER_CONFIG" ] || { echo "[run] exported player config not found: $PLAYER_CONFIG" >&2; exit 1; }

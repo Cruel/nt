@@ -24,6 +24,14 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_export_package_json;
     if (operation == "shaderc")
         return &noveltea_tooling_shaderc_json;
+    if (operation == "image-inspect")
+        return &noveltea_tooling_image_inspect_json;
+    if (operation == "image-resize-png")
+        return &noveltea_tooling_image_resize_png_json;
+    if (operation == "file-mode")
+        return &noveltea_tooling_file_mode_json;
+    if (operation == "disk-space")
+        return &noveltea_tooling_disk_space_json;
     return nullptr;
 }
 

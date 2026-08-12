@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import type {
   PlatformDeploymentModel,
   PlatformStageDiagnostic,
@@ -10,8 +8,9 @@ import type {
 } from '../../shared/project-schema/platform-export-contracts';
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import type { AndroidToolchainProbeResult } from './android-toolchain-service';
+import { runPlatformProcess } from './platform-host-service';
 
-const run = promisify(execFile);
+const run = runPlatformProcess;
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 const diagnostic = (code: string, pathValue: string, message: string): PlatformStageDiagnostic =>
   createPlatformExportValidationDiagnostic({

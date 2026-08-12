@@ -64,7 +64,13 @@ async function main() {
   try {
     await writeFile(
       temporaryPath,
-      `${JSON.stringify({ androidSdk, javaHome })}\n`,
+      `${JSON.stringify({
+        format: 'noveltea.editor-export-local-state',
+        formatVersion: 1,
+        templateRoots: [],
+        toolchains: { androidSdk, javaHome },
+        signing: {},
+      })}\n`,
       'utf8',
     );
     await rename(temporaryPath, outputPath);

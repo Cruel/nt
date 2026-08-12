@@ -91,7 +91,9 @@ preview and runtime export, writes exact canonical bytes atomically, and does no
 package or platform application. Add `--json` for a machine-readable report. Exit codes `2`, `3`,
 `4`, and `5` distinguish argument, input, compiler, and output failures respectively.
 
-Export a saved editor project through the headless platform-export path with `pnpm project:export`.
+Export a saved editor project through `noveltea platform export`. Install the immutable player
+template first with `noveltea platform template install`, and generate local toolchain/signing
+configuration with `noveltea platform config init` or the Android environment helper below.
 Use `pnpm android:export-config -- --output <file>` to generate the Android exporter local-toolchain
 configuration from `ANDROID_SDK_ROOT`/`ANDROID_HOME` and `JAVA_HOME`. Shader compilation is provided
 by the standalone `noveltea` host CLI and no external `shaderc` executable is configured for export.
@@ -99,14 +101,14 @@ The current scriptc standalone host CLI is certified on Linux x64. Windows/macOS
 shader assets precompiled by the Linux shader-assets job (`NOVELTEA_COMPILE_SHADERS=OFF`) until those
 CLI hosts are admitted.
 For repository-local Android development, `scripts/run-android.sh` builds the native player with the
-checked-in `android/` Gradle project, compiles the selected NovelTea project into generated Android
-inputs under `build/run-android/generated`, and invokes the same Gradle project again in prebuilt-
-native packaging mode. It does not create or install a player-template archive. The script uses the
-shared Android acceptance fixture by default, installs the resulting APK, and starts logcat. Pass
-`--project path/to/project.json` to use another saved project and optionally `--profile <id>` to
-select its Android profile. Official editor exports and release certification continue to exercise
-immutable packaged player templates.
-Android CI invokes `pnpm android:fixture` and `pnpm project:export` directly for both fixture
+checked-in `android/` Gradle project, packages and installs an immutable player template in an
+isolated registry under `build/run-android`, and exports the selected Project through `noveltea
+platform export`. The script uses the shared Android acceptance fixture by default, installs the
+exported APK, and starts logcat. Pass `--project path/to/project.json` to use another saved Project
+and optionally `--profile <id>` to select its Android profile. Local templates require the explicit
+untrusted-template acknowledgement; release certification separately exercises immutable packaged
+player templates.
+Android CI invokes `pnpm android:fixture` and `noveltea platform export` directly for both fixture
 revisions so the public command path, rather than a private test-only entrypoint, is certified.
 
 For repository-local Web export testing, `scripts/run-web.sh` refreshes the repository `noveltea`

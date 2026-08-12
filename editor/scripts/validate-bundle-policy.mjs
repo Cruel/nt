@@ -151,9 +151,8 @@ const toolFiles = (await listFiles(path.join(outputRoot, 'tools'))).filter((file
 const sharpRuntimeToolChunks = new Set([
   'compiled-runtime-export.mjs',
   'materialize-android-export-fixture.mjs',
+  'noveltea.mjs',
   'platform-deployment.mjs',
-  'project-export.mjs',
-  'stage-android-project.mjs',
 ]);
 for (const toolFile of toolFiles) {
   const text = await fs.readFile(toolFile, 'utf8');

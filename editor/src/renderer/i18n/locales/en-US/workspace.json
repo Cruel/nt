@@ -399,6 +399,13 @@
       "manifestNotReady": "Manifest is not ready."
     }
   },
+  "platformExport": {
+    "confirmations": {
+      "replaceTemplate": "This template identity is already installed. Replace and re-verify it?",
+      "useUntrustedTemplate": "Template '{{templateId}}@{{buildId}}' is locally sourced and can contain executable code. Use it for this export?",
+      "replaceArtifacts": "One or more export-owned artifacts already exist. Replace the complete owned artifact set?"
+    }
+  },
   "roomComposition": {
     "title": "Room composition",
     "description": "Move and resize reference-space placements over the configured background fit.",

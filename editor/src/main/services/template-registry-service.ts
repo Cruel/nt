@@ -1,10 +1,8 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import {
   parseTemplateDescriptor,
   templateCompatibilityRequirementsSchema,
@@ -19,8 +17,9 @@ import {
   type TemplateResolveResult,
 } from '../../shared/project-schema/platform-export-contracts';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
+import { platformFileMode, runPlatformProcess } from './platform-host-service';
 
-const run = promisify(execFile);
+const run = runPlatformProcess;
 const descriptorFile = 'template.json';
 const recordFile = '.noveltea-template.json';
 const maxArchiveBytes = 2 * 1024 * 1024 * 1024;
@@ -155,7 +154,7 @@ async function verifyInstalled(root: string): Promise<{
     if (
       data.length !== item.size ||
       digest(data) !== item.sha256 ||
-      (info.mode & 0o777) !== item.mode
+      (await platformFileMode(path.join(root, item.path), info.mode & 0o777)) !== item.mode
     )
       throw new Error(`Installed template file '${item.path}' failed integrity verification.`);
   }
@@ -267,7 +266,7 @@ export async function installPlayerTemplate(
       if (
         data.length !== item.size ||
         digest(data) !== item.sha256 ||
-        (info.mode & 0o777) !== item.mode
+        (await platformFileMode(path.join(root, item.path), info.mode & 0o777)) !== item.mode
       )
         throw new Error(`Archive file '${item.path}' failed descriptor verification.`);
     }
@@ -293,6 +292,10 @@ export async function installPlayerTemplate(
     };
     await writeFile(path.join(root, recordFile), `${JSON.stringify(entry, null, 2)}\n`);
     const destination = templateRootForToken(`${descriptor.templateId}/${descriptor.buildId}`);
+    if (existsSync(destination) && !request.force)
+      throw new Error(
+        `Template '${descriptor.templateId}@${descriptor.buildId}' is already installed; use --force to replace it.`,
+      );
     const backup = `${destination}.previous`;
     await mkdir(path.dirname(destination), { recursive: true });
     await rm(backup, { recursive: true, force: true });
@@ -339,6 +342,7 @@ export async function resolvePlayerTemplate(
     buildFlavor: requirements.profile.buildFlavor,
   });
   const diagnostics: TemplateCompatibilityDiagnostic[] = [];
+  const compatible: InstalledTemplate[] = [];
   for (const template of candidates) {
     if (template.status === 'corrupted') {
       diagnostics.push(
@@ -351,22 +355,10 @@ export async function resolvePlayerTemplate(
       continue;
     }
     const compatibility = evaluateTemplateCompatibility(template.descriptor, requirements);
-    if (compatibility.compatible)
-      return {
-        success: true,
-        token: `${template.descriptor.templateId}/${template.descriptor.buildId}`,
-        template: { ...template, compatibility },
-        diagnostics:
-          template.status === 'untrusted'
-            ? [
-                issue(
-                  'template-untrusted',
-                  '/template',
-                  'Template is locally installed and has no official provenance.',
-                ),
-              ]
-            : [],
-      };
+    if (compatibility.compatible) {
+      compatible.push({ ...template, compatibility });
+      continue;
+    }
     diagnostics.push(...compatibility.diagnostics);
   }
   if (!candidates.length)
@@ -377,6 +369,36 @@ export async function resolvePlayerTemplate(
         'No installed template matches the selected target, architecture, and build flavor.',
       ),
     );
+  if (compatible.length === 1) {
+    const template = compatible[0]!;
+    return {
+      success: true,
+      token: `${template.descriptor.templateId}/${template.descriptor.buildId}`,
+      template,
+      diagnostics:
+        template.status === 'untrusted'
+          ? [
+              issue(
+                'template-untrusted',
+                '/template',
+                'Template is locally installed and has no official provenance.',
+              ),
+            ]
+          : [],
+    };
+  }
+  if (compatible.length > 1) {
+    const tokens = compatible
+      .map((template) => `${template.descriptor.templateId}@${template.descriptor.buildId}`)
+      .sort();
+    diagnostics.push(
+      issue(
+        'template-ambiguous',
+        '/template',
+        `Multiple compatible templates are installed; select one with --template: ${tokens.join(', ')}.`,
+      ),
+    );
+  }
   return { success: false, diagnostics };
 }
 export async function verifyTemplateToken(token: string) {

@@ -439,6 +439,13 @@
       "manifestNotReady": "O manifesto ainda não está pronto."
     }
   },
+  "platformExport": {
+    "confirmations": {
+      "replaceTemplate": "Esta identidade de modelo já está instalada. Substituí-la e verificá-la novamente?",
+      "useUntrustedTemplate": "O modelo '{{templateId}}@{{buildId}}' tem origem local e pode conter código executável. Usá-lo nesta exportação?",
+      "replaceArtifacts": "Um ou mais artefatos pertencentes à exportação já existem. Substituir o conjunto completo de artefatos?"
+    }
+  },
   "roomComposition": {
     "title": "Composição da sala",
     "description": "Mova e redimensione posicionamentos no espaço de referência sobre o ajuste de fundo configurado.",

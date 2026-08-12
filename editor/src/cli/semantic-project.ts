@@ -29,6 +29,7 @@ import { generateAuthoringRepairPlan, recordTarget } from '../renderer/project/a
 import { hasJsonAtPointer } from '../renderer/project/json-pointer';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import { cliDiagnostic, type NovelTeaCliDiagnostic } from './contracts';
+import type { NovelTeaCliExitCode } from './contracts';
 
 export interface CliOpenedProject {
   readonly snapshot: LoadedProjectWorkspaceSnapshot;
@@ -46,6 +47,8 @@ export interface CliSemanticResult {
   readonly ok: boolean;
   readonly diagnostics: readonly NovelTeaCliDiagnostic[];
   readonly fields?: Readonly<Record<string, unknown>>;
+  readonly humanSuccess?: string;
+  readonly exitCode?: NovelTeaCliExitCode;
 }
 
 function workspaceDiagnosticCode(message: string, fallback = 'WORKSPACE_SOURCE_READ'): string {

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { access, readFile, stat } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { runPlatformProcess } from './platform-host-service';
 
 export type AndroidToolName =
   | 'java'
@@ -46,23 +46,10 @@ export interface AndroidToolchainProbeRequest {
 }
 
 const executable = (name: string) => (process.platform === 'win32' ? `${name}.exe` : name);
-const runVersion = (command: string, args: string[]) =>
-  new Promise<string>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    let output = '';
-    child.stdout.on('data', (chunk) => {
-      output += String(chunk);
-    });
-    child.stderr.on('data', (chunk) => {
-      output += String(chunk);
-    });
-    child.once('error', reject);
-    child.once('close', (code) =>
-      code === 0
-        ? resolve(output.trim())
-        : reject(new Error(output.trim() || `Exited with status ${code}.`)),
-    );
-  });
+const runVersion = async (command: string, args: string[]) => {
+  const result = await runPlatformProcess(command, args);
+  return `${result.stdout}${result.stderr}`.trim();
+};
 
 export async function probeAndroidToolchain(
   request: AndroidToolchainProbeRequest,

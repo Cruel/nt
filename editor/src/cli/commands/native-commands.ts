@@ -218,8 +218,9 @@ export const packageExportCommand: CliCommandDefinition = {
         const shaderProject = buildShaderMaterialProject(context.snapshot.project);
         let shaderOutputs: ShaderCompileResponse['outputs'] = [];
         if (
-          Object.keys(context.snapshot.project.shaders).length > 0 ||
-          Object.keys(context.snapshot.project.materials).length > 0
+          profile.compileShadersBeforeExport &&
+          (Object.keys(context.snapshot.project.shaders).length > 0 ||
+            Object.keys(context.snapshot.project.materials).length > 0)
         ) {
           const compiled = await context.nativeTools.compileShaders(shaderProject.project, {
             projectRoot: context.snapshot.projectRoot,

@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import sharp, { type Metadata } from 'sharp';
+import { inspectPlatformImage, resizePlatformImageToPng } from './platform-host-service';
 
 export type IconPlatform = 'web' | 'linux' | 'android' | 'windows' | 'macos';
 
@@ -44,8 +46,30 @@ export interface IconGenerationResult {
   diagnostics: IconGenerationDiagnostic[];
 }
 
-const png = (input: string, size: number) =>
-  sharp(input, { failOn: 'error' }).resize(size, size, { fit: 'contain' }).png().toBuffer();
+interface ImageMetadata {
+  width?: number;
+  height?: number;
+  hasAlpha?: boolean;
+  space?: string;
+}
+
+async function png(input: string, size: number): Promise<Buffer> {
+  const temporaryRoot = path.join(os.tmpdir(), `noveltea-icon-${randomUUID()}`);
+  const outputPath = path.join(temporaryRoot, 'icon.png');
+  try {
+    await fs.mkdir(temporaryRoot, { recursive: true });
+    const native = resizePlatformImageToPng({ sourcePath: input, outputPath, size });
+    if (!native) throw new Error('Platform image processing is unavailable in this host.');
+    await native;
+    return await fs.readFile(outputPath);
+  } catch (error) {
+    throw new Error(
+      `Cannot generate ${size}x${size} PNG: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    await fs.rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
 
 async function write(root: string, relativePath: string, data: Buffer | string): Promise<string> {
   const output = path.join(root, relativePath);
@@ -98,29 +122,16 @@ async function safeAreaDiagnostic(
   platform: IconPlatform,
   inset: number,
 ): Promise<IconGenerationDiagnostic | null> {
-  const { data, info } = await sharp(source)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  let left = info.width;
-  let top = info.height;
-  let right = -1;
-  let bottom = -1;
-  for (let y = 0; y < info.height; y += 1)
-    for (let x = 0; x < info.width; x += 1) {
-      if (data[(y * info.width + x) * info.channels + 3] > 8) {
-        left = Math.min(left, x);
-        right = Math.max(right, x);
-        top = Math.min(top, y);
-        bottom = Math.max(bottom, y);
-      }
-    }
+  const native = inspectPlatformImage(source);
+  if (!native) throw new Error('Platform image inspection is unavailable in this host.');
+  const metadata = await native;
+  const bounds = metadata.alphaBounds;
   if (
-    right < 0 ||
-    (left >= info.width * inset &&
-      top >= info.height * inset &&
-      right < info.width * (1 - inset) &&
-      bottom < info.height * (1 - inset))
+    !bounds ||
+    (bounds.left >= metadata.width * inset &&
+      bounds.top >= metadata.height * inset &&
+      bounds.right < metadata.width * (1 - inset) &&
+      bounds.bottom < metadata.height * (1 - inset))
   )
     return null;
   return {
@@ -137,9 +148,11 @@ export async function generateAppIcons(
   const diagnostics: IconGenerationDiagnostic[] = [];
   const files: GeneratedIconFile[] = [];
   const platforms = new Set(request.platforms ?? ['web', 'linux', 'android', 'windows', 'macos']);
-  let metadata: Metadata;
+  let metadata: ImageMetadata;
   try {
-    metadata = await sharp(request.sourcePath, { failOn: 'error' }).metadata();
+    const native = inspectPlatformImage(request.sourcePath);
+    if (!native) throw new Error('Platform image inspection is unavailable in this host.');
+    metadata = await native;
   } catch (error) {
     return {
       ok: false,

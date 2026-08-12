@@ -153,7 +153,12 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
     (command[0] === 'shaders' && command[1] === 'compile') ||
     (command[0] === 'test' &&
       (command[1] === 'run' || command[1] === 'run-spec' || command[1] === 'run-ui-spec')) ||
-    (command[0] === 'package' && command[1] === 'export');
+    (command[0] === 'package' && command[1] === 'export') ||
+    (command[0] === 'platform' &&
+      (command[1] === 'profiles' ||
+        command[1] === 'export' ||
+        command[1] === 'template' ||
+        command[1] === 'config'));
   if (!knownPath)
     return {
       complete: true,
@@ -171,5 +176,8 @@ export function novelTeaCliCommandNeedsZod(command: readonly string[]): boolean 
   if (command[0] === 'shaders') return command[1] === 'compile';
   if (command[0] === 'test')
     return command[1] === 'run' || command[1] === 'run-spec' || command[1] === 'run-ui-spec';
-  return command[0] === 'package' && command[1] === 'export';
+  return (
+    (command[0] === 'package' && command[1] === 'export') ||
+    (command[0] === 'platform' && (command[1] === 'profiles' || command[1] === 'export'))
+  );
 }

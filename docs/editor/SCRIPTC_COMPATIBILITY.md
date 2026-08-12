@@ -14,7 +14,10 @@ The static host owns:
 - stdin ingestion;
 - process-liveness checks used by stale writer-lock reclamation;
 - the C ABI bridge to `noveltea_tooling_native`;
-- raw bgfx-compatible `shaderc` argument/exit-code forwarding without QuickJS initialization.
+- raw bgfx-compatible `shaderc` argument/exit-code forwarding without QuickJS initialization;
+- direct child-process execution for the shared TypeScript platform exporter;
+- native file-mode and available-disk-space inspection used by staging safety checks;
+- `bimg`-backed raster inspection, contain-resizing, and PNG encoding for standalone icon output.
 
 The native tooling archive continues to own shader compilation, raw bgfx shaderc forwarding, runtime/UI playback, and package writing. `noveltea_tooling_scriptc_invoke_to_file` is an adapter for scriptc format-1 FFI: request JSON crosses as borrowed strings, the existing `noveltea_tooling_*_json` API produces the response, and the adapter materializes that response into a private temporary file for the static host to read. Native business logic is not duplicated in the adapter.
 
@@ -38,11 +41,20 @@ The final executable must not depend on Node, a separate shaderc executable, or 
 
 The QuickJS island provides enough Node-compatible filesystem/path/crypto behavior for the current public authoring CLI, but its Node compatibility is not assumed to be exact for operating-system primitives. Process liveness therefore remains in the static host. Similar OS-level capabilities should be added to the host deliberately when needed rather than relying on an unverified island shim.
 
-Full Desktop/Web/Android platform publication is not part of the current public standalone migration. When it moves into `noveltea`, subprocess/toolchain execution and image/icon generation require explicit host services because scriptc 0.0.26's island cannot execute Node native addons such as `sharp`, and its island `child_process` execution surface is not suitable for that workflow.
+The self-contained artifact supports the `noveltea platform` command family through shared
+TypeScript orchestration. Electron uses Node process execution and Sharp. The standalone host runs
+processes in scriptc's static tier and performs image processing through the native `bimg` bridge;
+the QuickJS island neither starts subprocesses nor loads Node native addons. Template archive
+commands therefore remain Node-free at runtime while using installed host archive utilities through
+structured executable and argument requests.
+
+The currently admitted standalone release host remains Linux x64. macOS and Windows standalone
+artifacts must not be advertised until scriptc/native-link certification is added on those hosts;
+this does not restrict a certified Linux CLI from assembling compatible target templates.
 
 ## Certification gate
 
-`editor/scripts/certify-noveltea-cli.mjs` treats the Node bundle as the semantic reference and requires the standalone scriptc executable to match it on exit code, stdout, stderr, and project-tree state across discovery, validation, agent sync, usages, structural mutations, transaction/recovery cases, and failure paths. It separately certifies typed shader output, raw shaderc goldens, runtime/UI playback, package export, and relocation.
+`editor/scripts/certify-noveltea-cli.mjs` treats the Node bundle as the semantic reference and requires the standalone scriptc executable to match it on exit code, stdout, stderr, and project-tree state across discovery, validation, agent sync, usages, structural mutations, transaction/recovery cases, and failure paths. It separately certifies typed shader output, raw shaderc goldens, runtime/UI playback, package export, template registry/configuration, a real Web platform export, and relocation.
 
 A release is not admitted merely because scriptc can build it. The differential and native certification must pass.
 

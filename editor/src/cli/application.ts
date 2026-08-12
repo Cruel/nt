@@ -19,6 +19,11 @@ import {
 } from './contracts';
 import { openCliProject } from './semantic-project';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
+import {
+  unavailablePlatformTools,
+  type NovelTeaCliPlatformToolService,
+} from './platform-tool-service';
+import { runProjectIndependentPlatformCommand } from './platform-commands';
 import { CliCommandUsageError, parseCliCommand } from './commands';
 import type { NovelTeaAgentKitPayload } from './agent-kit';
 import { runNovelTeaAgentSyncCli } from './agent-sync-cli';
@@ -29,6 +34,8 @@ export interface RunNovelTeaCliOptions {
   readonly fileSystem?: ProjectWorkspaceFileSystem;
   readonly workspace?: ProjectWorkspaceService;
   readonly nativeTools?: NovelTeaCliNativeToolService;
+  readonly platformTools?: NovelTeaCliPlatformToolService;
+  readonly onPlatformProgress?: (stage: string, message: string) => void;
   readonly agentKitPayload?: NovelTeaAgentKitPayload;
   readonly stdinText?: string;
   readonly readStdinText?: () => string;
@@ -92,10 +99,53 @@ export async function runNovelTeaCli(
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const fileSystem = options.fileSystem ?? createNodeProjectWorkspaceFileSystem();
   const workspace = options.workspace ?? createNodeProjectWorkspaceService();
+  const platformTools = options.platformTools ?? unavailablePlatformTools;
   if (globals.command[0] === 'project' && globals.command[1] === 'create')
     return runNovelTeaProjectCreateCli(globals, fileSystem, workspace);
   if (globals.command[0] === 'agent' && globals.command[1] === 'sync')
     return runNovelTeaAgentSyncCli(globals, fileSystem, cwd, options.agentKitPayload);
+
+  try {
+    const independent = await runProjectIndependentPlatformCommand({
+      command: globals.command,
+      projectOption: globals.project,
+      cwd,
+      platformTools,
+    });
+    if (independent) {
+      if (!independent.ok)
+        return failure(
+          independent.exitCode ?? semanticExitCode(independent.diagnostics),
+          independent.diagnostics,
+          globals.json,
+          independent.fields,
+        );
+      return formatCliResult(
+        {
+          success: true,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+          diagnostics: independent.diagnostics,
+          ...independent.fields,
+        },
+        globals.json,
+        { success: independent.humanSuccess ?? `NovelTea ${globals.command.join(' ')} succeeded.` },
+      );
+    }
+  } catch (error) {
+    if (error instanceof CliCommandUsageError)
+      return novelTeaCliUsageFailure(error.message, globals.json);
+    return failure(
+      NOVELTEA_CLI_EXIT_CODES.native,
+      [
+        cliDiagnostic(
+          'native.platform',
+          '/',
+          error instanceof Error ? error.message : String(error),
+        ),
+      ],
+      globals.json,
+    );
+  }
 
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
   if (globals.command[0] === 'shaderc') {
@@ -185,14 +235,21 @@ export async function runNovelTeaCli(
       workspace,
       snapshot: opened.opened.snapshot,
       nativeTools,
+      platformTools,
+      onPlatformProgress: options.onPlatformProgress,
     });
 
     const diagnostics = [...opened.diagnostics, ...semantic.diagnostics];
     if (!semantic.ok)
-      return failure(semanticExitCode(diagnostics), diagnostics, globals.json, {
-        projectRoot: discovery.projectRoot,
-        ...semantic.fields,
-      });
+      return failure(
+        semantic.exitCode ?? semanticExitCode(diagnostics),
+        diagnostics,
+        globals.json,
+        {
+          projectRoot: discovery.projectRoot,
+          ...semantic.fields,
+        },
+      );
     return formatCliResult(
       {
         success: true,
@@ -202,7 +259,7 @@ export async function runNovelTeaCli(
         ...semantic.fields,
       },
       globals.json,
-      { success: `NovelTea ${globals.command.join(' ')} succeeded.` },
+      { success: semantic.humanSuccess ?? `NovelTea ${globals.command.join(' ')} succeeded.` },
     );
   } catch (error) {
     if (error instanceof CliCommandUsageError)

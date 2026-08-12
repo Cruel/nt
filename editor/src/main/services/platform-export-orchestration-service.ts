@@ -1,7 +1,9 @@
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { readFile, rm } from 'node:fs/promises';
-import { compileShaders, exportPackage, openProject } from './editor-tool-service';
+import { lstat, mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
+import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import {
   checkPlatformExportCancelled,
   clearPlatformExportCancellation,
@@ -48,8 +50,50 @@ import {
   type PlatformExportProgressEvent,
   type PlatformStageDiagnostic,
   type PlatformStageResult,
+  type TemplateResolveResult,
 } from '../../shared/project-schema/platform-export-contracts';
+import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
 import type { OpenProjectResponse, PackageExportResponse } from '../../shared/editor-tooling';
+
+async function openProjectForPlatformExport(projectPath: string): Promise<OpenProjectResponse> {
+  const opened = await createNodeProjectWorkspaceService().open(projectPath);
+  if (!opened.ok)
+    return {
+      ok: true,
+      success: false,
+      diagnostics: [...opened.diagnostics],
+      projectPath: opened.projectRoot,
+      projectFilePath: opened.manifestPath,
+    } as unknown as OpenProjectResponse;
+  return {
+    ok: true,
+    success: true,
+    diagnostics: [...opened.diagnostics],
+    contentProject: opened.contentProject,
+    editorState: opened.editorState,
+    projectPath: opened.snapshot.projectRoot,
+    projectFilePath: opened.snapshot.manifestPath,
+  } as unknown as OpenProjectResponse;
+}
+
+const defaultNativeTools = {
+  compileShaders(
+    shaderProject: unknown,
+    options?: Parameters<typeof invokeNovelTeaNativeOperation>[1],
+  ) {
+    return invokeNovelTeaNativeOperation('compile-shaders', {
+      shaderProject,
+      options: options ?? {},
+    });
+  },
+  exportPackage(project: unknown, outputPath: string, options?: unknown) {
+    return invokeNovelTeaNativeOperation('export-package', {
+      project,
+      outputPath,
+      options: options ?? {},
+    });
+  },
+};
 
 function failure(operationId: string, diagnostics: PlatformStageDiagnostic[]): PlatformStageResult {
   return { ok: false, success: false, cancelled: false, operationId, diagnostics };
@@ -105,9 +149,51 @@ function isSelectedTargetMetadataPath(
   return pathValue.startsWith('/settings/app/desktop');
 }
 
+function plannedPlatformArtifactPaths(
+  outputDirectory: string,
+  profile: ReturnType<typeof parseProjectPlatformExportSettings>['profiles'][number],
+): string[] {
+  const output = path.resolve(outputDirectory);
+  const paths = [output];
+  if (profile.target === 'web' || profile.target === 'windows') paths.push(`${output}.zip`);
+  if (profile.target === 'linux') {
+    paths.push(`${output}.tar.gz`);
+    if (profile.desktop.artifact === 'appimage') paths.push(`${output}.AppImage`);
+  }
+  if (profile.target === 'macos') {
+    const base = output.replace(/\.app$/i, '');
+    paths.push(`${base}.zip`, `${base}.dmg`, `${base}-signing-report.json`);
+  }
+  if (profile.includeDebugSymbols)
+    paths.push(`${output}-symbols.${profile.target === 'linux' ? 'tar.gz' : 'zip'}`);
+  return [...new Set(paths)];
+}
+
+async function publicationCollisions(
+  outputDirectory: string,
+  profile: ReturnType<typeof parseProjectPlatformExportSettings>['profiles'][number],
+): Promise<{ collisions: string[]; symlinks: string[] }> {
+  const collisions: string[] = [];
+  const symlinks: string[] = [];
+  for (const candidate of plannedPlatformArtifactPaths(outputDirectory, profile)) {
+    try {
+      const info = await lstat(candidate);
+      collisions.push(candidate);
+      if (info.isSymbolicLink()) symlinks.push(candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+  return { collisions, symlinks };
+}
+
 export async function exportProjectToPlatform(
   requestValue: ProjectPlatformExportRequest,
   onProgress: (event: PlatformExportProgressEvent) => void = () => undefined,
+  nativeTools: Readonly<{
+    compileShaders: typeof defaultNativeTools.compileShaders;
+    exportPackage: typeof defaultNativeTools.exportPackage;
+  }> = defaultNativeTools,
 ): Promise<PlatformStageResult> {
   let request: ProjectPlatformExportRequest;
   try {
@@ -135,7 +221,7 @@ export async function exportProjectToPlatform(
           projectPath: request.projectRoot ?? '',
         } as OpenProjectResponse)
       : request.projectPath
-        ? ((await openProject(request.projectPath)) as unknown as OpenProjectResponse)
+        ? await openProjectForPlatformExport(request.projectPath)
         : null;
     if (!loaded?.success || !loaded.contentProject || !loaded.projectPath) {
       return failure(
@@ -181,6 +267,22 @@ export async function exportProjectToPlatform(
           `Platform export profile '${request.profileId}' does not exist.`,
         ),
       ]);
+
+    const signingRequested = request.sign ?? false;
+    const signing = request.localState?.signing;
+    const signingConfigured =
+      (profile.target === 'windows' && Boolean(signing?.windows)) ||
+      (profile.target === 'macos' && Boolean(signing?.macos)) ||
+      (profile.target === 'android' && Boolean(signing?.android));
+    if (signingRequested && !signingConfigured) {
+      return failure(operationId, [
+        diagnostic(
+          'platform-signing-required',
+          '/sign',
+          `${profile.target} export cannot apply signing without a configured signing profile.`,
+        ),
+      ]);
+    }
 
     const validation = validateAuthoringProject(project);
     const validationErrors = validation.filter(
@@ -251,6 +353,7 @@ export async function exportProjectToPlatform(
     } else {
       let exportProject = project;
       if (
+        !request.checkOnly &&
         targetRuntimeProfile.compileShadersBeforeExport &&
         hasAuthoringShadersOrMaterials(project)
       ) {
@@ -261,7 +364,7 @@ export async function exportProjectToPlatform(
           project,
           targetRuntimeProfile.shaderVariants,
         );
-        const response = (await compileShaders(shaderProject.project, {
+        const response = (await nativeTools.compileShaders(shaderProject.project, {
           projectRoot,
           outputRoot: path.join(projectRoot, '.noveltea', 'build'),
           cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),
@@ -355,18 +458,18 @@ export async function exportProjectToPlatform(
     let androidSigning:
       | { keystorePath: string; keyAlias: string; storePassword: string; keyPassword: string }
       | undefined;
-    const signing = localState.signing;
-    if (profile.target === 'android' && signing?.android) {
+    const localSigning = localState.signing;
+    if (signingRequested && profile.target === 'android' && localSigning?.android) {
       try {
         androidSigning = {
-          keystorePath: signing.android.keystorePath,
-          keyAlias: signing.android.keyAlias,
+          keystorePath: localSigning.android.keystorePath,
+          keyAlias: localSigning.android.keyAlias,
           storePassword: resolveSigningSecret(
-            signing.android.storePasswordReference,
+            localSigning.android.storePasswordReference,
             'Android keystore password',
           ),
           keyPassword: resolveSigningSecret(
-            signing.android.keyPasswordReference,
+            localSigning.android.keyPasswordReference,
             'Android key password',
           ),
         };
@@ -395,20 +498,43 @@ export async function exportProjectToPlatform(
     };
     progress('resolving-template', 'Resolving and verifying the player template');
     checkPlatformExportCancelled(operationId);
-    const resolved = request.templateToken
-      ? { success: true, token: request.templateToken, diagnostics: [] }
-      : await resolvePlayerTemplate({
-          requirements: {
-            profile,
-            runtimePackageApi: 2,
-            playerConfigApi: 2,
-            shaderVariants: targetRuntimeProfile.shaderVariants,
-            graphicsBackends: [],
-            capabilities: profile.capabilityOverrides,
-            requiredFeatures: [],
-            host,
-          },
-        });
+    const templateRequirements = {
+      profile,
+      runtimePackageApi: 2,
+      playerConfigApi: 2,
+      shaderVariants: targetRuntimeProfile.shaderVariants,
+      graphicsBackends: [],
+      capabilities: profile.capabilityOverrides,
+      requiredFeatures: [],
+      host,
+    };
+    let resolved: TemplateResolveResult;
+    if (request.templateToken) {
+      const template = await verifyTemplateToken(request.templateToken);
+      const compatibility = evaluateTemplateCompatibility(
+        template.descriptor,
+        templateRequirements,
+      );
+      if (!compatibility.compatible)
+        return failure(
+          operationId,
+          compatibility.diagnostics.map((item) =>
+            diagnostic(item.code, `/template${item.path}`, item.message),
+          ),
+        );
+      resolved = {
+        success: true,
+        token: request.templateToken,
+        template: {
+          ...template,
+          status: template.entry.trust === 'official' ? 'installed' : 'untrusted',
+          compatibility,
+        },
+        diagnostics: [],
+      };
+    } else {
+      resolved = await resolvePlayerTemplate({ requirements: templateRequirements });
+    }
     if (!resolved.success || !resolved.token) {
       return failure(
         operationId,
@@ -416,12 +542,62 @@ export async function exportProjectToPlatform(
       );
     }
     const verifiedTemplate = resolved.template ?? (await verifyTemplateToken(resolved.token));
+    if (verifiedTemplate.entry.trust !== 'official' && !request.allowUntrustedTemplate) {
+      return failure(operationId, [
+        diagnostic(
+          'template-untrusted-acknowledgement-required',
+          '/template',
+          `Template '${verifiedTemplate.descriptor.templateId}@${verifiedTemplate.descriptor.buildId}' is locally sourced; pass --allow-untrusted-template to use it.`,
+        ),
+      ]);
+    }
 
-    const packagePath = `${path.resolve(request.outputDirectory)}.game.ntpkg`;
+    const publication = await publicationCollisions(request.outputDirectory, profile);
+    if (publication.symlinks.length > 0) {
+      return failure(operationId, [
+        diagnostic(
+          'platform-output-symlink-forbidden',
+          '/outputDirectory',
+          `Export refuses symbolic-link artifact paths: ${publication.symlinks.join(', ')}.`,
+        ),
+      ]);
+    }
+    if (publication.collisions.length > 0 && !request.force) {
+      return failure(operationId, [
+        diagnostic(
+          'platform-output-exists',
+          '/outputDirectory',
+          `Export would replace existing artifacts; pass --force to continue: ${publication.collisions.join(', ')}.`,
+        ),
+      ]);
+    }
+    if (request.checkOnly) {
+      return {
+        ok: true,
+        success: true,
+        cancelled: false,
+        operationId,
+        signingRequested,
+        signingApplied: false,
+        templateToken: resolved.token.replace('/', '@'),
+        outputDirectory: path.resolve(request.outputDirectory),
+        diagnostics: resolved.diagnostics.map((item) =>
+          createPlatformExportValidationDiagnostic({
+            severity: 'warning',
+            code: item.code,
+            path: item.path,
+            message: item.message,
+          }),
+        ),
+      };
+    }
+
+    const packageRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-platform-export-'));
+    const packagePath = path.join(packageRoot, 'game.ntpkg');
     try {
       progress('writing-package', 'Writing game.ntpkg');
       checkPlatformExportCancelled(operationId);
-      const packaged = (await exportPackage(built.compiledProject, packagePath, {
+      const packaged = (await nativeTools.exportPackage(built.compiledProject, packagePath, {
         ...built.packageOptions,
         shaderAssetRoot:
           (built.packageOptions.shaderVariants?.length ?? 0) > 0
@@ -501,16 +677,20 @@ export async function exportProjectToPlatform(
         capabilities: profile.capabilityOverrides,
         runtimePackageApi: 2,
         host,
-        windowsSigning: profile.target === 'windows' ? signing?.windows : undefined,
+        windowsSigning:
+          signingRequested && profile.target === 'windows' ? localSigning?.windows : undefined,
         macosSigning:
-          profile.target === 'macos' && signing?.macos
-            ? { identity: signing.macos.identity, entitlementsPath: signing.macos.entitlementsPath }
+          signingRequested && profile.target === 'macos' && localSigning?.macos
+            ? {
+                identity: localSigning.macos.identity,
+                entitlementsPath: localSigning.macos.entitlementsPath,
+              }
             : undefined,
         macosNotarization:
-          profile.target === 'macos' && signing?.macos?.notarizationCommand
+          signingRequested && profile.target === 'macos' && localSigning?.macos?.notarizationCommand
             ? {
-                command: signing.macos.notarizationCommand,
-                args: signing.macos.notarizationArgs ?? [],
+                command: localSigning.macos.notarizationCommand,
+                args: localSigning.macos.notarizationArgs ?? [],
               }
             : undefined,
         androidToolchain: request.localState,
@@ -526,9 +706,15 @@ export async function exportProjectToPlatform(
           : await stagePlatformExport(stageRequest);
       progress('finalizing', 'Finalizing platform artifacts');
       progress('verifying', 'Verifying generated artifacts and manifests');
-      return result;
+      return result.success
+        ? {
+            ...result,
+            signingRequested,
+            signingApplied: signingRequested,
+          }
+        : result;
     } finally {
-      await rm(packagePath, { force: true });
+      await rm(packageRoot, { recursive: true, force: true });
     }
   } catch (error) {
     if (error instanceof Error && error.message === 'NOVELTEA_EXPORT_CANCELLED')

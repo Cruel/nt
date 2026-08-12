@@ -80,6 +80,29 @@ typed playback/UI-test execution only.
 
 ## Platform Export
 
+The public headless entrypoint is `noveltea platform export`. `noveltea package export` remains the
+Runtime Package (`.ntpkg`) command and is not an alias for platform publication. Electron has no
+headless export, template-install, or low-level staging arguments; the editor UI and CLI invoke the
+same orchestration and template-registry services through their respective host adapters.
+
+Platform publication requires an explicit output path. It refuses every planned artifact collision
+unless replacement is acknowledged, refuses symlink publication paths even when replacement is
+acknowledged, and publishes through temporary/backup paths so failure or cancellation preserves the
+previous complete output. Template replacement and removal similarly require explicit force. A
+locally sourced template requires per-export acknowledgement in both the editor and CLI.
+
+`platform export` produces the normal packaged artifact by default. `--sign` applies configured
+platform signing and fails preflight when signing is unsupported or its configuration is incomplete.
+Signing configuration alone never activates signing. Results report whether signing was requested
+and applied. Store publication is not supported.
+
+When automatic template resolution finds more than one compatible installation it fails with the
+exact `<template-id>@<build-id>` choices; no lexical or inferred-version winner is selected.
+`platform export --check` performs a no-write preflight and never compiles shaders, creates caches,
+writes output, changes the registry, or updates successful-export identity. A completed publication
+records application ID and save namespace in ignored project editor state; a later identity change
+requires explicit acknowledgement.
+
 The editor composes platform readiness from four explicit groups: current runtime-package readiness,
 common application identity, selected-target metadata, and template/toolchain/signing environment.
 Only the selected Desktop, Web, or Android target contributes target-specific diagnostics. Blockers
@@ -99,7 +122,13 @@ the matching source fingerprint and package SHA-256 evidence; a caller-supplied 
 not trusted. Platform orchestration then verifies the player template, stages `player.json`, and
 performs the selected target export. Project open does not attempt old-format native import.
 
-Android player templates are prebuilt distribution inputs. Template production builds the
+Templates may carry a precompiled player or a platform build project. Desktop and Web templates
+normally carry precompiled players. Android uses the source-template form: it carries a Gradle
+project and structured Android descriptor while retaining precompiled native player libraries.
+The exporter runs its declared build workflow with an already installed compatible toolchain; it
+never installs SDKs or silently builds NovelTea itself.
+
+Android player templates are prebuilt native distribution inputs. Template production builds the
 ABI-specific native player once, then stores the resulting shared-library closure and system assets
 in the template archive. Project export does not require the NovelTea source tree,
 CMake, the Android NDK, or a C/C++ compiler. Template installation uses the host archive utility,

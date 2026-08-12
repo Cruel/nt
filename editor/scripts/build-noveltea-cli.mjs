@@ -36,6 +36,7 @@ const agentKitSourcePaths = [
 const islandBundle = path.join(editorRoot, 'dist-scriptc-island', 'noveltea-scriptc-island.cjs');
 const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
+const hostProcessSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-process.ts');
 const staticContractsSource = path.join(editorRoot, 'src', 'cli', 'static-contracts.ts');
 
 if (process.argv.length > 2)
@@ -180,7 +181,6 @@ const libraries = [
   archive(path.join(editorToolRoot, 'libnoveltea_shader_tooling.a')),
   archive(path.join(engineRoot, 'libnoveltea_content.a')),
   archive(path.join(engineRoot, 'libnoveltea_domain.a')),
-  archive(path.join(vcpkgLibRoot, 'libminiz.a')),
   archive(path.join(editorToolRoot, 'libnoveltea_bgfx_shaderc_embedded.a')),
   archive(path.join(editorToolRoot, 'libfcpp.a'), path.join(shadercBgfxRoot, 'libfcpp.a')),
   archive(path.join(editorToolRoot, 'libglslang.a'), path.join(shadercBgfxRoot, 'libglslang.a')),
@@ -196,6 +196,10 @@ const libraries = [
     path.join(editorToolRoot, 'libspirv-cross.a'),
     path.join(shadercBgfxRoot, 'libspirv-cross.a'),
   ),
+  archive(path.join(vcpkgLibRoot, 'libbimg_decode.a')),
+  archive(path.join(vcpkgLibRoot, 'liblodepng.a')),
+  archive(path.join(vcpkgLibRoot, 'libtinyexr.a')),
+  archive(path.join(vcpkgLibRoot, 'libminiz.a')),
   archive(path.join(editorToolRoot, 'libbimg.a'), path.join(shadercBimgRoot, 'libbimg.a')),
   archive(path.join(editorToolRoot, 'libbx.a'), path.join(shadercBxRoot, 'libbx.a')),
 ];
@@ -257,6 +261,7 @@ try {
   );
 
   const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');
+  const stagedHostProcess = path.join(stageRoot, 'noveltea-scriptc-process.ts');
   const stagedStaticContracts = path.join(stageRoot, 'static-contracts.ts');
   const stagedHostSource = (await readFile(hostSource, 'utf8'))
     .replace('../src/cli/static-contracts', './static-contracts')
@@ -265,6 +270,7 @@ try {
       '',
     );
   await cp(staticContractsSource, stagedStaticContracts);
+  await cp(hostProcessSource, stagedHostProcess);
   await writeFile(stagedHost, stagedHostSource);
   const ffiPath = path.join(stageRoot, 'ffi.json');
   await writeFile(

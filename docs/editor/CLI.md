@@ -26,6 +26,49 @@ noveltea agent sync [--fix]
 
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. `noveltea --help` is authoritative for the installed version's exact syntax.
 
+Platform publication is a separate command family from Runtime Package creation:
+
+```text
+noveltea platform profiles
+noveltea platform export --output <path> [--profile <id>] [--template <id>@<build>]
+                         [--config <file>] [--sign]
+                         [--check] [--force]
+                         [--allow-untrusted-template] [--allow-identity-change]
+noveltea platform template list
+noveltea platform template inspect <id>@<build>
+noveltea platform template install <archive> [--force]
+noveltea platform template remove <id>@<build> --force
+noveltea platform config init <path> [--force]
+```
+
+`platform profiles` prints the exact profile ID accepted by `platform export` and marks the
+project's selected profile. Omitting `--profile` uses that selected ID and fails when there is no
+valid selection. Template and config commands are installation-scoped and reject global
+`--project`; profiles and export use normal project discovery. Template identities use the exact
+copyable `<template-id>@<build-id>` form. Automatic resolution succeeds only when exactly one
+compatible installed template exists.
+
+`platform export --check` is write-free and evaluates the same profile, template, configuration,
+identity acknowledgement, and output-collision policy as publication. Existing export-owned
+artifacts require `--force`; symlink artifact paths are always refused. Locally sourced templates
+require `--allow-untrusted-template`. Human mode reports progress on stderr and the final result on
+stdout; `--json` preserves the single compact final-envelope contract without progress events.
+
+Platform export produces the normal packaged artifact by default. `--sign` applies the selected
+platform's configured signing workflow; it fails before publication when signing is unsupported or
+the configuration is incomplete. Supplying signing configuration without `--sign` does not activate
+signing. Results report whether signing was requested and applied. Publication/store upload is not
+supported.
+
+The optional `--config` file uses the one current `noveltea.editor-export-local-state` contract.
+Generate a safe, secret-free skeleton with `platform config init`. Signing secrets remain explicit
+`env:NAME` references. The editor and CLI share the per-user template registry at
+`~/.noveltea/templates/v1`; `NOVELTEA_TEMPLATE_REGISTRY_ROOT` provides a hermetic override for CI.
+
+The Node reference/editor-hosted command and Linux x64 self-contained scriptc command are
+implemented. Other standalone host binaries remain subject to the cross-host certification gate in
+`SCRIPTC_COMPATIBILITY.md`.
+
 The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations cross the existing NovelTea C ABI. `agent sync` embeds the checked-in agent-kit source texts as build-time package data and generates the schema portion only when that command runs.
 
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.

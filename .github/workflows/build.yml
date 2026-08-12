@@ -773,13 +773,13 @@ jobs:
               --revision "$revision" \
               --abi x86_64 \
               --flavor debug
-            pnpm -C editor run project:export -- \
-              --template "$template" \
-              --project "$fixture_root" \
+            export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUNNER_TEMP/noveltea-template-registry"
+            pnpm -C editor run noveltea -- --json platform template install "$template" --force
+            pnpm -C editor run noveltea -- --project "$fixture_root" --json platform export \
               --profile canonical-android-debug \
               --output "$output" \
               --config "$config" \
-              --json
+              --allow-untrusted-template
           done
 
       - name: Upload immutable debug template and export reports

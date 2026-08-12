@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import {
   chmod,
@@ -10,11 +9,9 @@ import {
   rename,
   rm,
   stat,
-  statfs,
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { gzipSync } from 'node:zlib';
 import * as ResEdit from 'resedit';
 import { generateAppIcons } from './icon-generation-service';
@@ -35,12 +32,13 @@ import {
 } from '../../shared/project-schema/target-path-portability';
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { templateRootForToken, verifyTemplateToken } from './template-registry-service';
+import { platformAvailableDiskSpace, runPlatformProcess } from './platform-host-service';
 
 const cancellations = new Set<string>();
 const descriptorName = 'template.json';
 const forbidden = /(^|\/)(?:sandbox|demo)(?:\/|$)/i;
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
-const run = promisify(execFile);
+const run = runPlatformProcess;
 const diagnostic = (code: string, pathValue: string, message: string): PlatformStageDiagnostic =>
   createPlatformExportValidationDiagnostic({
     severity: 'error',
@@ -253,27 +251,29 @@ async function finalizeMacosStage(
     throw new Error(
       `macOS template Mach-O inventory references unstaged files: ${missingMachO.map((item) => item.path).join(', ')}`,
     );
-  const unresolved = descriptor.macosMachO.flatMap((binary) =>
-    binary.dependencies
-      .filter(
-        (dependency) =>
-          !systemDependency(dependency) && !bundledNames.has(path.posix.basename(dependency)),
-      )
-      .map((dependency) => `${binary.path}: ${dependency}`),
-  );
+  const unresolved: string[] = [];
+  for (const binary of descriptor.macosMachO)
+    for (const dependency of binary.dependencies)
+      if (!systemDependency(dependency) && !bundledNames.has(path.posix.basename(dependency)))
+        unresolved.push(`${binary.path}: ${dependency}`);
   if (unresolved.length)
     throw new Error(
       `macOS player has unresolved or nonportable Mach-O dependencies: ${unresolved.join(', ')}`,
     );
-  const badRpath = descriptor.macosMachO
-    .flatMap((binary) => binary.rpaths.map((value) => ({ binary: binary.path, value })))
-    .find(
-      ({ value }) =>
-        value.startsWith('/') ||
-        value.includes('/build/') ||
-        value.includes('/Users/') ||
-        value.includes('/tmp/'),
+  let badRpath: { binary: string; value: string } | undefined;
+  for (const binary of descriptor.macosMachO) {
+    const value = binary.rpaths.find(
+      (candidate) =>
+        candidate.startsWith('/') ||
+        candidate.includes('/build/') ||
+        candidate.includes('/Users/') ||
+        candidate.includes('/tmp/'),
     );
+    if (value) {
+      badRpath = { binary: binary.path, value };
+      break;
+    }
+  }
   if (badRpath)
     throw new Error(
       `macOS template contains nonportable runtime path '${badRpath.value}' in '${badRpath.binary}'.`,
@@ -839,18 +839,19 @@ async function finalizeWebStage(
     theme_color: themeColor,
     background_color: backgroundColor,
     ...(request.identity.defaultLocale ? { lang: request.identity.defaultLocale } : {}),
-    icons: [192, 512].flatMap((size) =>
-      icon(size)
-        ? [
-            {
-              src: `${basePath}${icon(size)}`,
+    icons: [192, 512]
+      .map((size) => {
+        const iconPath = icon(size);
+        return iconPath
+          ? {
+              src: `${basePath}${iconPath}`,
               sizes: `${size}x${size}`,
               type: 'image/png',
               purpose: 'any maskable',
-            },
-          ]
-        : [],
-    ),
+            }
+          : null;
+      })
+      .filter((entry) => entry !== null),
   };
   files.push(
     await writeGenerated(
@@ -1131,8 +1132,10 @@ export async function stagePlatformExport(
       };
     let estimated = (await stat(request.packagePath)).size;
     for (const file of templateFiles) estimated += (await stat(safeRoot(templateRoot, file))).size;
-    const disk = await statfs(path.dirname(path.resolve(request.outputDirectory)));
-    if (Number(disk.bavail) * Number(disk.bsize) < estimated * 2)
+    const availableDiskSpace = await platformAvailableDiskSpace(
+      path.dirname(path.resolve(request.outputDirectory)),
+    );
+    if (availableDiskSpace !== null && availableDiskSpace < estimated * 2)
       return {
         ok: false,
         success: false,

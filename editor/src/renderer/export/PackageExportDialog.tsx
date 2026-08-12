@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -286,6 +287,7 @@ export function PackageExportDialog({
   initialMode = 'runtime',
   profileManagementOnly = false,
 }: PackageExportDialogProps) {
+  const { t } = useTranslation('workspace');
   const running = usePackageExportStore((state) => state.running);
   const stage = usePackageExportStore((state) => state.stage);
   const lastResult = usePackageExportStore((state) => state.lastResult);
@@ -699,10 +701,21 @@ export function PackageExportDialog({
   async function installTemplate() {
     const archivePath = await window.noveltea.selectTemplateArchivePath();
     if (!archivePath) return;
-    const installed = await window.noveltea.installPlayerTemplate({
+    let installed = await window.noveltea.installPlayerTemplate({
       archivePath,
       origin: archivePath,
     });
+    if (
+      !installed.success &&
+      installed.diagnostics.some((item) => item.message.includes('already installed')) &&
+      window.confirm(t('platformExport.confirmations.replaceTemplate'))
+    ) {
+      installed = await window.noveltea.installPlayerTemplate({
+        archivePath,
+        origin: archivePath,
+        force: true,
+      });
+    }
     if (!installed.success) {
       setTemplateDiagnostics(
         classifyProjectValidationDiagnostics(
@@ -765,6 +778,25 @@ export function PackageExportDialog({
   }
 
   async function runPlayablePlatformExport() {
+    const selectedTemplate =
+      template ??
+      templates.find(
+        (candidate) =>
+          `${candidate.descriptor.templateId}/${candidate.descriptor.buildId}` ===
+          selectedTemplateToken,
+      ) ??
+      null;
+    const allowUntrustedTemplate = selectedTemplate?.entry.trust !== 'official';
+    if (
+      allowUntrustedTemplate &&
+      !window.confirm(
+        t('platformExport.confirmations.useUntrustedTemplate', {
+          templateId: selectedTemplate?.descriptor.templateId ?? 'unknown',
+          buildId: selectedTemplate?.descriptor.buildId ?? 'unknown',
+        }),
+      )
+    )
+      return;
     const nextOperationId = `editor-${Date.now()}`;
     setOperationId(nextOperationId);
     const parseArguments = (value: string, label: string) => {
@@ -826,26 +858,36 @@ export function PackageExportDialog({
           }
         : {}),
     };
-    const result = await runProjectPlatformExportWorkflow(
-      {
-        operationId: nextOperationId,
-        project: currentProject,
-        projectRoot: projectRoot ?? undefined,
-        profileId: currentPlatformProfile.id,
-        templateToken:
-          selectedTemplateToken ||
-          `${template!.descriptor.templateId}/${template!.descriptor.buildId}`,
-        outputDirectory: platformOutput,
-        localState: {
-          androidSdk: localState.androidSdk || undefined,
-          androidNdk: localState.androidNdk || undefined,
-          javaHome: localState.javaHome || undefined,
-          cmake: localState.cmake || undefined,
-          ...(Object.keys(signing).length ? { signing } : {}),
-        },
+    const exportRequest = {
+      operationId: nextOperationId,
+      project: currentProject,
+      projectRoot: projectRoot ?? undefined,
+      profileId: currentPlatformProfile.id,
+      templateToken:
+        selectedTemplateToken ||
+        `${template!.descriptor.templateId}/${template!.descriptor.buildId}`,
+      outputDirectory: platformOutput,
+      sign: signingEnabled,
+      allowUntrustedTemplate,
+      localState: {
+        androidSdk: localState.androidSdk || undefined,
+        androidNdk: localState.androidNdk || undefined,
+        javaHome: localState.javaHome || undefined,
+        cmake: localState.cmake || undefined,
+        ...(Object.keys(signing).length ? { signing } : {}),
       },
-      currentPlatformProfile,
-    );
+    };
+    let result = await runProjectPlatformExportWorkflow(exportRequest, currentPlatformProfile);
+    if (
+      !result.success &&
+      result.diagnostics.some((item) => item.code === 'platform-output-exists') &&
+      window.confirm(t('platformExport.confirmations.replaceArtifacts'))
+    ) {
+      result = await runProjectPlatformExportWorkflow(
+        { ...exportRequest, operationId: `${nextOperationId}-force`, force: true },
+        currentPlatformProfile,
+      );
+    }
     setOperationId(null);
     if (result.success) onOpenChange(false);
   }

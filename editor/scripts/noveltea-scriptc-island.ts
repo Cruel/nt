@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { createNovelTeaAgentKitPayload } from '../src/cli/agent-kit';
 import { runNovelTeaCli } from '../src/cli/application';
 import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
+import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
+import { createNovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service-node';
+import { configurePlatformHostService } from '../src/main/services/platform-host-service';
 import { scriptcAgentKitSourceFiles } from './noveltea-scriptc-agent-kit-source';
 import {
   createNodeProjectWorkspaceFileSystem,
@@ -38,6 +41,37 @@ function createNativeTools(invoke: ScriptcHostInvoke): NovelTeaCliNativeToolServ
       return response.exitCode as number;
     },
   };
+}
+
+function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
+  const call = <T>(operation: string, request: unknown): T => {
+    const response = JSON.parse(invoke(operation, JSON.stringify(request))) as unknown;
+    if (
+      response &&
+      typeof response === 'object' &&
+      (response as { ok?: unknown }).ok === false &&
+      typeof (response as { error?: unknown }).error === 'string'
+    )
+      throw new Error((response as { error: string }).error);
+    return response as T;
+  };
+  configurePlatformHostService({
+    async runProcess(request) {
+      return call('run-process', request);
+    },
+    async inspectImage(sourcePath) {
+      return call('image-inspect', { sourcePath });
+    },
+    async resizeImageToPng(request) {
+      call('image-resize-png', request);
+    },
+    async fileMode(path) {
+      return call('file-mode', { path });
+    },
+    async availableDiskSpace(path) {
+      return call('disk-space', { path });
+    },
+  });
 }
 
 function result(exitCode: number, stdout = '', stderr = ''): string {
@@ -91,6 +125,9 @@ export async function runNovelTeaScriptcIsland(
 ): Promise<string> {
   const argv = JSON.parse(argvText) as string[];
   const nativeTools = createNativeTools(invokeHost);
+  configureScriptcPlatformHost(invokeHost);
+  const platformTools: NovelTeaCliPlatformToolService =
+    createNovelTeaCliPlatformToolService(nativeTools);
   const internal = await runInternalCommand(argv, nativeTools, invokeHost);
   if (internal !== null) return internal;
 
@@ -116,6 +153,7 @@ export async function runNovelTeaScriptcIsland(
     fileSystem,
     workspace,
     nativeTools,
+    platformTools,
     ...(needsAgentKit
       ? { agentKitPayload: createNovelTeaAgentKitPayload(scriptcAgentKitSourceFiles) }
       : {}),

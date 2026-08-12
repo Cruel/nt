@@ -725,6 +725,7 @@ export interface InstalledTemplate {
 }
 export interface TemplateInstallRequest {
   archivePath: string;
+  force?: boolean;
   archiveSha256?: string;
   origin?: string;
   officialProvenance?: { archiveSha256: string; descriptorSha256: string; source: string };
@@ -906,6 +907,9 @@ export interface PlatformStageResult {
   success: boolean;
   cancelled: boolean;
   operationId: string;
+  signingRequested?: boolean;
+  signingApplied?: boolean;
+  templateToken?: string;
   outputDirectory?: string;
   archivePath?: string;
   symbolArchivePath?: string;
@@ -942,6 +946,11 @@ export interface ProjectPlatformExportRequest {
   outputDirectory: string;
   operationId?: string;
   templateToken?: string;
+  checkOnly?: boolean;
+  force?: boolean;
+  allowUntrustedTemplate?: boolean;
+  allowIdentityChange?: boolean;
+  sign?: boolean;
   preparedRuntimeExport?: PreparedPlatformRuntimeExport;
   localState?: {
     androidSdk?: string;
@@ -998,6 +1007,11 @@ const projectPlatformExportRequestSchema = z
     outputDirectory: z.string().min(1),
     operationId: z.string().min(1).optional(),
     templateToken: z.string().min(1).optional(),
+    checkOnly: z.boolean().optional(),
+    force: z.boolean().optional(),
+    allowUntrustedTemplate: z.boolean().optional(),
+    allowIdentityChange: z.boolean().optional(),
+    sign: z.boolean().optional(),
     preparedRuntimeExport: preparedPlatformRuntimeExportSchema.optional(),
     localState: z
       .object({

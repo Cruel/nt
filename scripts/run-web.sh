@@ -70,6 +70,7 @@ RUN_ROOT="$PROJECT_ROOT/build/run-web"
 FIXTURE_ROOT="$RUN_ROOT/fixture"
 EXPORT_ROOT="$RUN_ROOT/export"
 CONFIG_PATH="$RUN_ROOT/export-local-state.json"
+TEMPLATE_REGISTRY_ROOT="$RUN_ROOT/templates"
 TEMPLATE_TAG="local-run-web"
 
 cd "$PROJECT_ROOT"
@@ -177,15 +178,15 @@ else
     -DNOVELTEA_RELEASE_TAG="$TEMPLATE_TAG" \
     -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
 
-  printf '%s\n' '{}' > "$CONFIG_PATH"
+  export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$TEMPLATE_REGISTRY_ROOT"
+  "$NOVELTEA_CLI" --json platform template install "$TEMPLATE_ARCHIVE" --force
+  "$NOVELTEA_CLI" --json platform config init "$CONFIG_PATH" --force
   echo "[run] exporting project through the canonical Web exporter..."
-  pnpm -C editor run project:export -- \
-      --template "$TEMPLATE_ARCHIVE" \
-      --project "$PROJECT_PATH" \
+  "$NOVELTEA_CLI" --project "$PROJECT_PATH" --json platform export \
       --profile "$EXPORT_PROFILE_ID" \
       --output "$EXPORT_ROOT" \
       --config "$CONFIG_PATH" \
-      --json
+      --allow-untrusted-template
 
   SERVE_ROOT="$EXPORT_ROOT"
   DEFAULT_QUERY=""

@@ -41,8 +41,6 @@
     "noveltea": "node scripts/run-noveltea-cli.mjs",
     "noveltea:build": "node scripts/build-noveltea-cli.mjs",
     "noveltea:certify": "node scripts/certify-noveltea-cli.mjs",
-    "project:export": "node scripts/run-project-export.mjs",
-    "android:stage-project": "node scripts/run-android-project-staging.mjs",
     "android:fixture": "node scripts/run-android-fixture.mjs",
     "web:fixture": "node scripts/run-android-fixture.mjs --target web",
     "goldens:compiled-project": "vp pack && node dist-electron/tools/generate-compiled-project-goldens.mjs",

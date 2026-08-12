@@ -1,4 +1,5 @@
 import type { NovelTeaCliNativeToolService } from '../native-tool-service';
+import type { NovelTeaCliPlatformToolService } from '../platform-tool-service';
 import type { CliSemanticResult } from '../semantic-project';
 import {
   isAuthoringCollectionKey,
@@ -24,6 +25,8 @@ export interface CliCommandContext {
   readonly workspace: ProjectWorkspaceService;
   readonly snapshot: LoadedProjectWorkspaceSnapshot;
   readonly nativeTools: NovelTeaCliNativeToolService;
+  readonly platformTools: NovelTeaCliPlatformToolService;
+  readonly onPlatformProgress?: (stage: string, message: string) => void;
 }
 
 export interface CliCommandInvocation {

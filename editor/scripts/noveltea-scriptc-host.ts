@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NOVELTEA_CLI_HELP, NOVELTEA_CLI_VERSION } from '../src/cli/static-contracts';
+import { runNovelTeaScriptcProcess } from './noveltea-scriptc-process';
 
 declare function nativeInvokeToFile(
   operation: string,
@@ -35,6 +36,7 @@ function processAlive(requestText: string): string {
 function invokeHost(operation: string, requestText: string): string {
   if (operation === 'process-alive') return processAlive(requestText);
   if (operation === 'read-stdin') return readFileSync(0, 'utf8');
+  if (operation === 'run-process') return runNovelTeaScriptcProcess(requestText);
 
   const responsePath = join(getNativeResponseRoot(), `${nativeCallSequence}.json`);
   nativeCallSequence += 1;

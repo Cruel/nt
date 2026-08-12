@@ -23,6 +23,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_native.hpp
     tooling_native_c.h
     tooling_native_scriptc.cpp
+    tooling_image.cpp
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp"
 )
 # This engine-owned source is reused by host tooling but remains part of the shipped runtime policy
@@ -48,7 +49,25 @@ target_link_libraries(noveltea_tooling_native PUBLIC
     noveltea_shader_tooling
     PRIVATE nlohmann_json::nlohmann_json)
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
-target_include_directories(noveltea_tooling_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(noveltea_tooling_native PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}" PRIVATE
+    "${NOVELTEA_EMBEDDED_SHADERC_INCLUDE_DIR}")
+if(TARGET bgfx::bimg)
+    target_link_libraries(noveltea_tooling_native PRIVATE bgfx::bimg)
+elseif(TARGET bimg::bimg)
+    target_link_libraries(noveltea_tooling_native PRIVATE bimg::bimg)
+elseif(TARGET bimg)
+    target_link_libraries(noveltea_tooling_native PRIVATE bimg)
+endif()
+if(TARGET bgfx::bimg_decode)
+    target_link_libraries(noveltea_tooling_native PRIVATE bgfx::bimg_decode)
+elseif(TARGET bimg_decode)
+    target_link_libraries(noveltea_tooling_native PRIVATE bimg_decode)
+endif()
+if(TARGET bgfx::bimg_encode)
+    target_link_libraries(noveltea_tooling_native PRIVATE bgfx::bimg_encode)
+elseif(TARGET bimg_encode)
+    target_link_libraries(noveltea_tooling_native PRIVATE bimg_encode)
+endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(noveltea_tooling_native PRIVATE

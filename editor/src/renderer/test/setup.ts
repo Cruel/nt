@@ -2,11 +2,13 @@ import '@testing-library/jest-dom';
 import { beforeEach, vi } from 'vite-plus/test';
 import { DEFAULT_EDITOR_LANGUAGE, editorI18n, initEditorI18n } from '@/i18n';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { configureSharpPlatformImageService } from '../../main/services/platform-image-sharp-service';
 import {
   emptyEditorProjectState,
   stripEditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 
+configureSharpPlatformImageService();
 await initEditorI18n({ language: DEFAULT_EDITOR_LANGUAGE });
 
 beforeEach(() => {

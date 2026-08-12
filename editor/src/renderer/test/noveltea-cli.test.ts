@@ -8,6 +8,8 @@ import {
   novelTeaNodeReferenceRunner,
 } from '../../cli/node-reference-runner';
 import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service';
+import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-service';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { createDefaultAuthoringRecord } from '../project/entity-operations';
 import {
   createAuthoringProject,
@@ -50,12 +52,55 @@ function options(
   value: ReturnType<typeof fixture>,
   cwd = root,
   nativeTools?: NovelTeaCliNativeToolService,
+  platformTools?: NovelTeaCliPlatformToolService,
 ) {
   return {
     cwd,
     fileSystem: value.fileSystem,
     workspace: value.workspace,
     ...(nativeTools ? { nativeTools } : {}),
+    ...(platformTools ? { platformTools } : {}),
+  };
+}
+
+function platformTools(
+  patch: Partial<NovelTeaCliPlatformToolService> = {},
+): NovelTeaCliPlatformToolService {
+  return {
+    async listTemplates() {
+      return [];
+    },
+    async inspectTemplate() {
+      return null;
+    },
+    async installTemplate() {
+      return { success: false, diagnostics: [] };
+    },
+    async removeTemplate() {
+      return { removed: false };
+    },
+    async exportProject(request) {
+      return {
+        ok: true,
+        success: true,
+        cancelled: false,
+        operationId: 'test-export',
+        templateToken: 'linux@build-1',
+        outputDirectory: request.outputDirectory,
+        artifacts: [],
+        diagnostics: [],
+      };
+    },
+    async initializeConfig() {
+      return {
+        format: 'noveltea.editor-export-local-state',
+        formatVersion: 1,
+        templateRoots: [],
+        toolchains: {},
+        signing: {},
+      };
+    },
+    ...patch,
   };
 }
 
@@ -78,6 +123,125 @@ function projectWithSourceReference() {
 }
 
 describe('NovelTea headless CLI', () => {
+  it('lists platform profiles with the copyable export id and selected marker', async () => {
+    const value = fixture();
+    const profile = defaultPlatformExportProfile('linux');
+    value.project.settings.platformExport = {
+      selectedProfileId: profile.id,
+      profiles: [profile],
+    };
+    const refreshed = fixture(value.project);
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'profiles'],
+      options(refreshed, root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      profiles: [
+        {
+          id: 'linux-release',
+          selected: true,
+          target: 'linux',
+          architecture: 'x64',
+        },
+      ],
+    });
+  });
+
+  it('exports the selected platform profile and forwards strict publication flags', async () => {
+    const project = validProject();
+    const profile = defaultPlatformExportProfile('linux');
+    project.settings.platformExport = { selectedProfileId: profile.id, profiles: [profile] };
+    const value = fixture(project);
+    let request: Parameters<NovelTeaCliPlatformToolService['exportProject']>[0] | undefined;
+    const result = await runNovelTeaCli(
+      [
+        '--json',
+        'platform',
+        'export',
+        '--output',
+        'dist/game',
+        '--check',
+        '--force',
+        '--sign',
+        '--allow-untrusted-template',
+      ],
+      options(
+        value,
+        root,
+        undefined,
+        platformTools({
+          async exportProject(value) {
+            request = value;
+            return {
+              ok: true,
+              success: true,
+              cancelled: false,
+              operationId: 'checked',
+              templateToken: 'linux@build-1',
+              outputDirectory: value.outputDirectory,
+              diagnostics: [],
+            };
+          },
+        }),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(request).toMatchObject({
+      profileId: 'linux-release',
+      outputDirectory: '/projects/headless/dist/game',
+      checkOnly: true,
+      force: true,
+      sign: true,
+      allowUntrustedTemplate: true,
+    });
+  });
+
+  it('rejects the removed platform completion option', async () => {
+    const project = validProject();
+    const profile = defaultPlatformExportProfile('linux');
+    project.settings.platformExport = { selectedProfileId: profile.id, profiles: [profile] };
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'export', '--output', 'dist/game', '--completion', 'published'],
+      options(fixture(project), root, undefined, platformTools()),
+    );
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(result.stdout).diagnostics[0].message).toContain("'--completion'");
+  });
+
+  it('does not silently choose the first platform profile when no selection is configured', async () => {
+    const project = validProject();
+    const profile = defaultPlatformExportProfile('linux');
+    project.settings.platformExport = { selectedProfileId: null, profiles: [profile] };
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'export', '--output', 'dist/game'],
+      options(fixture(project), root, undefined, platformTools()),
+    );
+
+    expect(result.exitCode).toBe(4);
+    expect(JSON.parse(result.stdout).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'platform.profile_missing' })]),
+    );
+  });
+
+  it('keeps template commands project-independent and rejects --project', async () => {
+    const tools = platformTools();
+    const listed = await runNovelTeaCli(['--json', 'platform', 'template', 'list'], {
+      cwd: '/missing',
+      platformTools: tools,
+    });
+    expect(listed.exitCode).toBe(0);
+    expect(JSON.parse(listed.stdout)).toMatchObject({ templates: [] });
+
+    const rejected = await runNovelTeaCli(['--project', root, 'platform', 'template', 'list'], {
+      cwd: '/missing',
+      platformTools: tools,
+    });
+    expect(rejected.exitCode).toBe(2);
+  });
+
   it('keeps help/version project-independent and documents direct file editing', async () => {
     const help = await runNovelTeaCli(['--help'], { cwd: '/missing' });
     expect(help.exitCode).toBe(0);

@@ -306,8 +306,6 @@ export default defineConfig({
       entry: {
         noveltea: 'scripts/noveltea.ts',
         'project-compile': 'scripts/compile-project.ts',
-        'project-export': 'scripts/export-project.ts',
-        'stage-android-project': 'scripts/stage-android-project.ts',
         'materialize-android-export-fixture': 'scripts/materialize-android-export-fixture.ts',
         'generate-compiled-project-goldens': 'scripts/generate-compiled-project-goldens.ts',
       },
@@ -322,7 +320,7 @@ export default defineConfig({
       deps: {
         ...commonNodePack.deps,
         neverBundle: [...electronRuntimeExternals, 'noveltea-scriptc-agent-kit-source'],
-        onlyBundle: ['saxes', 'xmlchars', 'zod'],
+        onlyBundle: ['pe-library', 'resedit', 'saxes', 'xmlchars', 'zod'],
       },
       entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },
       format: 'cjs',

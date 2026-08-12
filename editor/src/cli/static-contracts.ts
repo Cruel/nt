@@ -19,6 +19,15 @@ Commands:
   test run-spec
   test run-ui-spec
   package export --output <path> [--profile <profile-id>]
+  platform profiles
+  platform export --output <path> [--profile <id>] [--template <id>@<build>] [--config <file>]
+                  [--sign] [--check] [--force]
+                  [--allow-untrusted-template] [--allow-identity-change]
+  platform template list
+  platform template inspect <id>@<build>
+  platform template install <archive> [--force]
+  platform template remove <id>@<build> --force
+  platform config init <path> [--force]
 
 Global options:
   --project <project-directory>  Use this project root instead of upward project.json discovery.

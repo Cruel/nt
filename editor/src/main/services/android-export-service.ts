@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto';
 import { cp, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
-import { execFile } from 'node:child_process';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import {
@@ -22,8 +20,9 @@ import { generateAppIcons } from './icon-generation-service';
 import { probeAndroidToolchain } from './android-toolchain-service';
 import { verifyTemplateToken } from './template-registry-service';
 import { inspectAndroidArtifacts } from './android-artifact-inspection-service';
+import { runPlatformProcess } from './platform-host-service';
 
-const run = promisify(execFile);
+const run = runPlatformProcess;
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 const errorDiagnostic = (
   code: string,

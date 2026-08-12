@@ -121,35 +121,39 @@ if [ -z "${JAVA_HOME:-}" ]; then
     JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")"
   fi
 fi
-echo "[run] compiling the project and staging Android inputs..."
-STAGE_JSON="$(pnpm -C editor run android:stage-project -- \
-  --project "$PROJECT_PATH" \
+TEMPLATE_TAG="local-run-android"
+echo "[run] packaging and installing the immutable Android player template..."
+cmake \
+  -DNOVELTEA_RELEASE_TAG="$TEMPLATE_TAG" \
+  -DNOVELTEA_ANDROID_ABI="$ANDROID_ABI" \
+  -DNOVELTEA_ANDROID_FLAVOR="$FLAVOR" \
+  -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
+TEMPLATE_ARCHIVE="$(find "$PROJECT_ROOT/dist" -maxdepth 1 -name "noveltea-player-template-${TEMPLATE_TAG}-android-${ANDROID_ABI}-${FLAVOR}.*" -print -quit)"
+[ -n "$TEMPLATE_ARCHIVE" ] || { echo "[run] packaged Android template was not found" >&2; exit 1; }
+export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUN_ROOT/templates"
+"$NOVELTEA_CLI" --json platform template install "$TEMPLATE_ARCHIVE" --force
+CONFIG_PATH="$RUN_ROOT/export-local-state.json"
+pnpm android:export-config -- --output "$CONFIG_PATH"
+EXPORT_ROOT="$RUN_ROOT/export"
+rm -rf "$EXPORT_ROOT"
+echo "[run] exporting the project through noveltea platform export..."
+"$NOVELTEA_CLI" --project "$PROJECT_PATH" --json platform export \
   --profile "$PROFILE_ID" \
-  --output "$GENERATED_ROOT")"
-STAGE_RESULT="$(printf '%s\n' "$STAGE_JSON" | tail -n 1)"
-PROPERTIES_PATH="$(node -e 'console.log(JSON.parse(process.argv[1]).propertiesPath)' "$STAGE_RESULT")"
-PKG="${PKG:-$(node -e 'console.log(JSON.parse(process.argv[1]).applicationId)' "$STAGE_RESULT")}"
-
-echo "[run] packaging the staged project with the checked-in Android Gradle project..."
-cd "$PROJECT_ROOT/android"
-./gradlew \
-  "${GRADLE_ARGS[@]}" \
-  -PnovelteaCompileShaders=OFF \
-  -PnovelteaPrebuiltShaderAssetRoot="$SHADER_ASSET_SOURCE" \
-  -PnovelteaPrebuiltNativeRoot="$PREBUILT_NATIVE_ROOT" \
-  -PnovelteaGeneratedRoot="$GENERATED_ROOT" \
-  -PnovelteaGeneratedProperties="$PROPERTIES_PATH"
-
-if [ "$RELEASE" = "1" ]; then
-  DEFAULT_APK="$PROJECT_ROOT/android/app/build/outputs/apk/release/app-release.apk"
-else
-  DEFAULT_APK="$PROJECT_ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
-fi
+  --output "$EXPORT_ROOT" \
+  --config "$CONFIG_PATH" \
+  --allow-untrusted-template
+DEFAULT_APK="$(find "$EXPORT_ROOT" -name '*.apk' -print -quit)"
 APK="${APK:-$DEFAULT_APK}"
 
 if [ ! -f "$APK" ]; then
   echo "[run] APK not found: $APK" >&2
   exit 1
+fi
+
+if [ -z "${PKG:-}" ]; then
+  AAPT2="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}/build-tools/35.0.0/aapt2"
+  [ -x "$AAPT2" ] || { echo "[run] aapt2 is required to inspect the exported APK" >&2; exit 1; }
+  PKG="$($AAPT2 dump packagename "$APK")"
 fi
 
 if [[ "$APK" == *-unsigned.apk ]]; then

@@ -20,6 +20,7 @@ import {
   THUMBNAIL_PROTOCOL_CHARACTERIZATION_SCHEME,
 } from './main/package-smoke';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
+import { configureSharpPlatformImageService } from './main/services/platform-image-sharp-service';
 import {
   cancelComfyUiJob,
   checkComfyUiConnection,
@@ -69,7 +70,6 @@ import {
 } from './main/services/project-file-service';
 import {
   cancelPlatformExport,
-  redactPlatformStageResult,
   stagePlatformExport,
 } from './main/services/platform-staging-service';
 import {
@@ -80,10 +80,8 @@ import {
   removePlayerTemplate,
   resolvePlayerTemplate,
 } from './main/services/template-registry-service';
-import { parseExportCommandArguments, runExportCommand } from './cli/export-command';
 import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
 import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
-import { createPlatformExportValidationDiagnostic } from './shared/project-schema/project-validation';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type {
@@ -117,6 +115,8 @@ import {
   resolveEditorCacheRoot,
   resolveSystemCachePath,
 } from './main/services/image-thumbnail-cache-paths';
+
+configureSharpPlatformImageService();
 
 const USER_DATA_DIRECTORY_NAME = 'noveltea-editor';
 
@@ -518,69 +518,8 @@ void app.whenReady().then(async () => {
   if (!isDev) registerPackagedEditorProtocol();
   configureTemplateRegistryRoot(
     process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
-      path.join(app.getPath('userData'), 'player-templates', 'v1'),
+      path.join(app.getPath('home'), '.noveltea', 'templates', 'v1'),
   );
-  if (process.argv.includes('--install-player-template')) {
-    void (async () => {
-      const index = process.argv.indexOf('--template');
-      const archivePath = index >= 0 ? process.argv[index + 1] : undefined;
-      if (!archivePath) {
-        process.stderr.write(
-          'Usage: NovelTea Editor --install-player-template --template <archive>\n',
-        );
-        app.exit(64);
-        return;
-      }
-      const result = await installPlayerTemplate({ archivePath, origin: 'headless-cli' });
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-      app.exit(result.success ? 0 : 1);
-    })();
-    return;
-  }
-  if (process.argv.includes('--export-project')) {
-    void (async () => {
-      try {
-        const command = await runExportCommand(parseExportCommandArguments(process.argv.slice(2)));
-        process.stdout.write(command.output);
-        app.exit(command.exitCode);
-      } catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-        app.exit(64);
-      }
-    })();
-    return;
-  }
-  if (process.argv.includes('--stage-platform-export')) {
-    let input = '';
-    process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk: string) => {
-      input += chunk;
-    });
-    process.stdin.on('end', () => {
-      void (async () => {
-        try {
-          const result = await stagePlatformExport(
-            JSON.parse(input || '{}') as PlatformStageRequest,
-          );
-          process.stdout.write(`${JSON.stringify(redactPlatformStageResult(result), null, 2)}\n`);
-          app.exit(result.success ? 0 : 1);
-        } catch (error) {
-          const diagnostic = createPlatformExportValidationDiagnostic({
-            severity: 'error',
-            code: 'invalid-request',
-            path: '/',
-            message: error instanceof Error ? error.message : String(error),
-          });
-          process.stdout.write(
-            `${JSON.stringify({ ok: false, success: false, diagnostics: [diagnostic] }, null, 2)}\n`,
-          );
-          app.exit(1);
-        }
-      })();
-    });
-    process.stdin.resume();
-    return;
-  }
   installApplicationMenu();
 
   ipcMain.handle(IPC_CHANNELS.GET_APP_INFO, () => getAppInfoPayload());

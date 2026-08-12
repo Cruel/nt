@@ -12,6 +12,7 @@ import {
   testRunSpecCommand,
   testRunUiSpecCommand,
 } from './native-commands';
+import { platformExportCommand, platformProfilesCommand } from '../platform-commands';
 
 const commands: readonly CliCommandDefinition[] = Object.freeze([
   shadersCompileCommand,
@@ -19,6 +20,8 @@ const commands: readonly CliCommandDefinition[] = Object.freeze([
   testRunSpecCommand,
   testRunUiSpecCommand,
   packageExportCommand,
+  platformProfilesCommand,
+  platformExportCommand,
   entityCreateCommand,
   entityRenameCommand,
   entityDeleteCommand,

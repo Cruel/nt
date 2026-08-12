@@ -3,7 +3,9 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import { runExportCommand } from '../../cli/export-command';
+import { runNovelTeaCli } from '../../cli/application';
+import { createInProcessNovelTeaCliNativeToolService } from '../../cli/native-tool-service';
+import { createNodeNovelTeaCliPlatformToolService } from '../../cli/platform-tool-service-node';
 import { materializePlatformExportAcceptanceFixture } from '../../main/services/platform-export-acceptance-fixture-service';
 import {
   configureTemplateRegistryRoot,
@@ -42,6 +44,7 @@ suite('canonical platform export integration', () => {
         origin: 'canonical-integration',
       });
       expect(installed.success, JSON.stringify(installed.diagnostics, null, 2)).toBe(true);
+      expect(installed.entry).toBeDefined();
 
       const fixture = await materializePlatformExportAcceptanceFixture({
         root: path.join(root, 'Project ü space'),
@@ -75,28 +78,53 @@ suite('canonical platform export integration', () => {
       let configPath: string | undefined;
       if (target === 'android') {
         const localConfig = {
-          androidSdk: process.env.ANDROID_SDK_ROOT,
-          androidNdk: process.env.ANDROID_NDK_ROOT,
-          javaHome: process.env.JAVA_HOME,
-          cmake: process.env.ANDROID_CMAKE_ROOT,
+          format: 'noveltea.editor-export-local-state',
+          formatVersion: 1,
+          templateRoots: [],
+          toolchains: {
+            androidSdk: process.env.ANDROID_SDK_ROOT,
+            androidNdk: process.env.ANDROID_NDK_ROOT,
+            javaHome: process.env.JAVA_HOME,
+            cmake: process.env.ANDROID_CMAKE_ROOT,
+          },
+          signing: {},
         };
         configPath = path.join(root, 'export-local-state.json');
         await writeFile(configPath, `${JSON.stringify(localConfig)}\n`);
       }
-      const command = await runExportCommand({
-        projectPath: fixture.projectPath,
-        profileId: fixture.profile.id,
-        outputDirectory,
-        configPath,
-        json: true,
-      });
-      expect(command.exitCode, command.output).toBe(0);
-      expect(command.result.success, JSON.stringify(command.result.diagnostics, null, 2)).toBe(
+      const templateId = `${installed.entry!.templateId}@${installed.entry!.buildId}`;
+      const command = await runNovelTeaCli(
+        [
+          '--project',
+          fixture.projectPath,
+          '--json',
+          'platform',
+          'export',
+          '--profile',
+          fixture.profile.id,
+          '--template',
+          templateId,
+          '--allow-untrusted-template',
+          '--output',
+          outputDirectory,
+          ...(configPath ? ['--config', configPath] : []),
+        ],
+        {
+          nativeTools: createInProcessNovelTeaCliNativeToolService(),
+          platformTools: createNodeNovelTeaCliPlatformToolService(),
+        },
+      );
+      expect(command.exitCode, command.stderr || command.stdout).toBe(0);
+      expect(command.envelope.success, JSON.stringify(command.envelope.diagnostics, null, 2)).toBe(
         true,
       );
-      const packageEntry = command.result.manifest?.files.find(
-        (entry) => entry.origin === 'runtime-package',
-      );
+      const manifest = command.envelope.manifest as
+        | { files: Array<{ origin: string; sha256: string }> }
+        | undefined;
+      const deployment = command.envelope.deployment as
+        | { templateId?: string; buildId?: string }
+        | undefined;
+      const packageEntry = manifest?.files.find((entry) => entry.origin === 'runtime-package');
       expect(packageEntry?.sha256).toMatch(/^[0-9a-f]{64}$/);
 
       const evidence = {
@@ -111,9 +139,9 @@ suite('canonical platform export integration', () => {
         profileSha256: fixture.profileSha256,
         projectSha256: fixture.projectSha256,
         runtimePackageSha256: packageEntry!.sha256,
-        templateId: command.result.deployment?.templateId,
-        templateBuildId: command.result.deployment?.buildId,
-        outputManifestSha256: sha256(Buffer.from(JSON.stringify(command.result.manifest))),
+        templateId: deployment?.templateId,
+        templateBuildId: deployment?.buildId,
+        outputManifestSha256: sha256(Buffer.from(JSON.stringify(manifest))),
       };
       const evidencePath =
         process.env.NOVELTEA_CANONICAL_EVIDENCE_OUTPUT ??

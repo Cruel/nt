@@ -522,6 +522,110 @@ async function certifyNativeOperations(tempRoot, pristine) {
     fail('Package export did not produce the requested output file.');
 }
 
+async function certifyPlatformHost(tempRoot, projectRoot) {
+  const source = path.join(tempRoot, 'platform-template-source');
+  const archive = path.join(tempRoot, 'platform-template.tar.gz');
+  const registry = path.join(tempRoot, 'platform-template-registry');
+  await mkdir(path.join(source, 'licenses'), { recursive: true });
+  const inputs = [
+    ['licenses/NOTICE.txt', Buffer.from('NovelTea platform host certification\n'), 'notice'],
+    ['player.js', Buffer.from('globalThis.Module = globalThis.Module || {};\n'), 'player'],
+    ['player.wasm', Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]), 'player'],
+    ['player.data', Buffer.from('certification-data\n'), 'system-asset'],
+  ];
+  const inventory = [];
+  for (const [relative, data, role] of inputs) {
+    const filePath = path.join(source, relative);
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, data);
+    inventory.push({
+      path: relative,
+      size: data.length,
+      mode: (await stat(filePath)).mode & 0o777,
+      sha256: sha256(data),
+      role,
+    });
+  }
+  await writeJson(path.join(source, 'template.json'), {
+    format: 'noveltea.player-template',
+    formatVersion: 1,
+    templateId: 'certification-web-template',
+    buildId: 'build-1',
+    engineVersion: '1.0.0',
+    platform: 'web',
+    architecture: 'wasm32',
+    minimumPlatformVersion: 'certification',
+    graphicsBackends: ['webgl2'],
+    shaderVariants: ['essl-100'],
+    runtimePackageApi: { minimum: 2, maximum: 2 },
+    playerConfigApi: { minimum: 2, maximum: 2 },
+    compiledFeatures: ['lua', 'web-threads'],
+    capabilities: [],
+    buildFlavor: 'debug',
+    packageAccessModes: ['web-fetch'],
+    files: inventory,
+    runtimeDependencies: [{ path: 'licenses/NOTICE.txt', kind: 'notice' }],
+    artifacts: {
+      archive: path.basename(archive),
+      symbols: 'symbols.tar.gz',
+      sbom: 'licenses/NOTICE.txt',
+      notices: 'licenses/NOTICE.txt',
+    },
+    provenance: { provider: 'local', source: 'certification' },
+    host: { assembly: 'any', requiresToolchain: false, tools: [] },
+  });
+  requireSuccess(
+    'platform template archive creation',
+    run('cmake', ['-E', 'tar', 'czf', archive, '.'], { cwd: source }),
+  );
+  const env = { ...process.env, NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry };
+  requireSuccess(
+    'standalone template install',
+    runNative(['--json', 'platform', 'template', 'install', archive, '--force'], {
+      cwd: tempRoot,
+      env,
+    }),
+  );
+  const listed = requireSuccess(
+    'standalone template list',
+    runNative(['--json', 'platform', 'template', 'list'], { cwd: tempRoot, env }),
+  );
+  const templates = JSON.parse(listed.stdout).templates;
+  if (!Array.isArray(templates) || templates[0]?.id !== 'certification-web-template@build-1')
+    fail('Standalone template registry did not return the installed template identity.');
+  const config = path.join(tempRoot, 'platform-export-config.json');
+  requireSuccess(
+    'standalone platform config',
+    runNative(['--json', 'platform', 'config', 'init', config], { cwd: tempRoot, env }),
+  );
+  if (!(await stat(config)).isFile()) fail('Standalone platform config was not created.');
+  const output = path.join(tempRoot, 'standalone-web-export');
+  const exported = requireSuccess(
+    'standalone platform export',
+    runNative(
+      [
+        '--project',
+        projectRoot,
+        '--json',
+        'platform',
+        'export',
+        '--output',
+        output,
+        '--template',
+        'certification-web-template@build-1',
+        '--allow-untrusted-template',
+      ],
+      { cwd: projectRoot, env },
+    ),
+  );
+  const exportPayload = JSON.parse(exported.stdout);
+  if (exportPayload.signingRequested !== false || exportPayload.signingApplied !== false)
+    fail('Standalone platform export reported unexpected signing.');
+  for (const required of ['index.html', 'manifest.webmanifest', 'player.json'])
+    if (!(await stat(path.join(output, required))).isFile())
+      fail(`Standalone platform export is missing '${required}'.`);
+}
+
 async function certifyRelocation(tempRoot) {
   const relocated = path.join(tempRoot, 'relocated', 'bin', 'noveltea');
   await mkdir(path.dirname(relocated), { recursive: true });
@@ -577,6 +681,7 @@ async function main() {
     await certifyTypedShaders(tempRoot);
     await certifyRawShaderc(tempRoot);
     await certifyNativeOperations(tempRoot, pristine);
+    await certifyPlatformHost(tempRoot, pristine);
     const closure = await certifyRelocation(tempRoot);
     const binarySize = (await stat(nativeCli)).size;
     process.stdout.write(
@@ -585,7 +690,16 @@ async function main() {
         differentialCases: differentialCases.length,
         typedShaderVariants: Object.keys(typedFragmentGoldens),
         rawShaderVariants: Object.keys(rawShaderGoldens),
-        nativeOperations: ['shader-compile', 'raw-shaderc', 'test', 'ui-test', 'package-export'],
+        nativeOperations: [
+          'shader-compile',
+          'raw-shaderc',
+          'test',
+          'ui-test',
+          'package-export',
+          'platform-template-registry',
+          'platform-config',
+          'platform-export',
+        ],
         relocation: true,
         sourceLeakageAudit: true,
         binarySize,
