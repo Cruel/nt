@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 # CI coverage split:
-# - shader-assets compiles the shared glsl-120, essl-100, and essl-300 shader tree.
+# - shader-assets compiles the shared glsl-120, essl-100, essl-300, and metal shader tree.
 # - Platform jobs consume the artifact with local shader compilation disabled.
 # - Linux builds and certifies the host CLI consumed by Android export and Electron packaging.
 
@@ -89,13 +89,13 @@ jobs:
             -DNOVELTEA_SHADERC_EXECUTABLE="$SHADERC" \
             -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
-            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300;metal' \
             -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="$BGFX_SHADER_INCLUDE" \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
           cmake \
             -DNOVELTEA_VERIFY_ONLY=ON \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/generated-assets/shaders" \
-            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300;metal' \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
 
       - name: Upload shader assets
@@ -272,7 +272,7 @@ jobs:
             -DNOVELTEA_CLI_EXECUTABLE="${{ github.workspace }}/build/cli/linux/noveltea" \
             -DNOVELTEA_SHADER_SOURCE_DIR="${{ github.workspace }}/engine/shaders/bgfx" \
             -DNOVELTEA_SHADER_OUTPUT_ROOT="${{ github.workspace }}/build/cli-shader-assets" \
-            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300' \
+            '-DNOVELTEA_SHADER_VARIANTS=glsl-120;essl-100;essl-300;metal' \
             -DNOVELTEA_BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/build/linux-release/vcpkg_installed/x64-linux-noveltea/include/bgfx" \
             -P "${{ github.workspace }}/cmake/CompileNovelTeaShaders.cmake"
           diff --recursive --brief \

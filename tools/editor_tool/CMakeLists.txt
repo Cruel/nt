@@ -17,6 +17,10 @@ target_compile_definitions(noveltea_shader_tooling PRIVATE
     NOVELTEA_HAS_EMBEDDED_SHADERC=1
     BX_CONFIG_DEBUG=$<CONFIG:Debug>
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+if(MSVC)
+    # bx requires the standards-conforming C++ language-version macro under MSVC.
+    target_compile_options(noveltea_shader_tooling PRIVATE /Zc:__cplusplus /Zc:preprocessor)
+endif()
 
 add_library(noveltea_tooling_native STATIC
     tooling_native.cpp
@@ -75,3 +79,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     )
 endif()
 noveltea_apply_policy_warnings(noveltea_tooling_native)
+
+add_executable(noveltea-tooling-bridge tooling_bridge.cpp)
+target_link_libraries(noveltea-tooling-bridge PRIVATE noveltea_tooling_native)
+noveltea_apply_policy_warnings(noveltea-tooling-bridge)

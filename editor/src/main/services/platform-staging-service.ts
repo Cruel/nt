@@ -32,7 +32,11 @@ import {
 } from '../../shared/project-schema/target-path-portability';
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { templateRootForToken, verifyTemplateToken } from './template-registry-service';
-import { platformAvailableDiskSpace, runPlatformProcess } from './platform-host-service';
+import {
+  platformAvailableDiskSpace,
+  platformFileMode,
+  runPlatformProcess,
+} from './platform-host-service';
 
 const cancellations = new Set<string>();
 const descriptorName = 'template.json';
@@ -80,20 +84,22 @@ async function copyFileTracked(
   target: string,
   origin: StagedFileOrigin,
   originId: string,
+  declaredMode?: number,
 ): Promise<StagedFileEntry> {
   const info = await lstat(source);
   if (!info.isFile() || info.isSymbolicLink())
     throw new Error(`Export input '${source}' is not a regular file.`);
   const data = await readFile(source);
+  const mode = declaredMode ?? (await platformFileMode(source, info.mode & 0o777));
   const destination = safeRoot(stage, target);
   await mkdir(path.dirname(destination), { recursive: true });
-  await writeFile(destination, data, { mode: info.mode & 0o777 });
+  await writeFile(destination, data, { mode });
   return {
     path: target.split(path.sep).join('/'),
     origin,
     originId,
     size: data.length,
-    mode: info.mode & 0o777,
+    mode,
     sha256: sha256(data),
   };
 }
@@ -981,7 +987,7 @@ export async function stagePlatformExport(
       ? `${request.outputDirectory.replace(/\.app$/i, '')}.dmg`
       : undefined;
   const dmgTemp = dmgPath
-    ? `${dmgPath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+    ? `${dmgPath.replace(/\.dmg$/i, '')}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}.dmg`
     : undefined;
   const dmgBackup = dmgPath
     ? `${dmgPath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
@@ -1164,8 +1170,12 @@ export async function stagePlatformExport(
             : ('system-asset' as const),
       ]),
     );
+    const descriptorFiles = new Map(descriptor.files.map((item) => [item.path, item]));
     for (const file of templateFiles) {
       checkPlatformExportCancelled(request.operationId);
+      const descriptorFile = descriptorFiles.get(file);
+      if (!descriptorFile)
+        throw new Error(`Verified template file '${file}' is missing from its descriptor.`);
       files.push(
         await copyFileTracked(
           safeRoot(templateRoot, file),
@@ -1173,6 +1183,7 @@ export async function stagePlatformExport(
           file,
           classifyTemplate(file, dependencyKinds),
           `template:${descriptor.templateId}`,
+          descriptorFile.mode,
         ),
       );
     }

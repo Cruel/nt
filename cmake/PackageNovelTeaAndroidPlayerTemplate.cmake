@@ -54,6 +54,7 @@ endif()
 set(symbol_stage "${root}/build/package/${template_id}-symbols")
 file(REMOVE_RECURSE "${symbol_stage}")
 file(MAKE_DIRECTORY "${symbol_stage}/${NOVELTEA_ANDROID_ABI}")
+file(WRITE "${symbol_stage}/BUILD_ID" "${NOVELTEA_RELEASE_TAG}-${template_id}\n")
 file(COPY_FILE "${symbol_input}" "${symbol_stage}/${NOVELTEA_ANDROID_ABI}/libnoveltea-player.so")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E tar cf
     "${root}/dist/noveltea-player-symbols-${NOVELTEA_RELEASE_TAG}-${template_id}.zip"

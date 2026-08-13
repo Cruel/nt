@@ -24,4 +24,5 @@ set(NOVELTEA_SHADER_VARIANT_DATA
     glsl-120 linux   120
     essl-100 asm.js  100_es
     essl-300 android 300_es
+    metal     osx     metal
 )

@@ -20,7 +20,7 @@ export const exportProfileSchema = z
     compileShadersBeforeExport: z.boolean().default(true),
     shaderVariants: z
       .array(z.enum(exportShaderVariantValues))
-      .default(['glsl-120', 'essl-100', 'essl-300']),
+      .default(['glsl-120', 'essl-100', 'essl-300', 'metal']),
     includeAllProjectAssets: z.boolean().default(false),
     includeOnlyReferencedAssets: z.boolean().default(true),
     includeTests: z.boolean().default(false),
@@ -68,7 +68,7 @@ export function defaultExportProfile(
     stripEditorData: true,
     stripShaderSources: true,
     compileShadersBeforeExport: true,
-    shaderVariants: ['glsl-120', 'essl-100', 'essl-300'],
+    shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
     includeAllProjectAssets: false,
     includeOnlyReferencedAssets: true,
     includeTests: false,
@@ -121,8 +121,9 @@ export function runtimeExportProfileForPlatform(
   target: 'windows' | 'linux' | 'macos' | 'web' | 'android',
 ): ExportProfileData {
   const profile = selectedExportProfile(project);
-  if (target !== 'android' && target !== 'web') return profile;
-  const requiredVariant = target === 'web' ? 'essl-100' : 'essl-300';
+  if (target !== 'android' && target !== 'web' && target !== 'macos') return profile;
+  const requiredVariant =
+    target === 'web' ? 'essl-100' : target === 'android' ? 'essl-300' : 'metal';
   const shaderVariants = profile.shaderVariants.filter((variant) => variant === requiredVariant);
   return {
     ...profile,

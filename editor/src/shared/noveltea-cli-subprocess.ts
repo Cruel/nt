@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -67,6 +67,31 @@ export async function invokeNovelTeaNativeOperation(
   let inputFile: Awaited<ReturnType<typeof open>> | undefined;
   try {
     await writeFile(inputPath, input, { encoding: 'utf8', mode: 0o600 });
+    const bridge = process.env.NOVELTEA_NATIVE_TOOL_BRIDGE;
+    if (bridge) {
+      const responsePath = path.join(inputRoot, 'response.json');
+      const result = await new Promise<{ code: number | null; stderr: string }>(
+        (resolve, reject) => {
+          const child = spawn(bridge, [command, inputPath, responsePath], {
+            stdio: ['ignore', 'ignore', 'pipe'],
+          });
+          let stderr = '';
+          child.stderr?.setEncoding('utf8');
+          child.stderr?.on('data', (chunk: string) => {
+            stderr += chunk;
+          });
+          child.on('error', reject);
+          child.on('close', (code) => resolve({ code, stderr }));
+        },
+      );
+      if (result.code !== 0)
+        throw new Error(
+          result.stderr ||
+            `NovelTea native tooling bridge failed with exit code ${result.code ?? 'unknown'}.`,
+        );
+      const response = await readFile(responsePath, 'utf8');
+      return JSON.parse(response) as unknown;
+    }
     inputFile = await open(inputPath, 'r');
     return await new Promise((resolve, reject) => {
       // Use a private regular file so the standalone native bridge receives a seekable, portable

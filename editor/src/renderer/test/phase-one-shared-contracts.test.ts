@@ -40,7 +40,7 @@ const hash = `sha256:${'a'.repeat(64)}`;
 
 describe('Phase 1 shared contracts', () => {
   it('keeps focused limits and shader variants closed and in native parity', () => {
-    expect(shaderVariantValues).toEqual(['glsl-120', 'essl-100', 'essl-300']);
+    expect(shaderVariantValues).toEqual(['glsl-120', 'essl-100', 'essl-300', 'metal']);
     expect(FOCUSED_PREVIEW_RESOURCE_LIMITS).toEqual({
       maxResourceBytes: 134_217_728,
       maxTotalResourceBytes: 536_870_912,

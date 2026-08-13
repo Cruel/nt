@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import certificationContract from '../../shared/project-schema/platform-certification-contract.json';
 
 const roots: string[] = [];
 const script = path.resolve(process.cwd(), '../scripts/platform-certification.mjs');
@@ -11,36 +12,8 @@ const fixture = path.resolve(
   'src/shared/project-schema/platform-export-acceptance-fixture.ts',
 );
 const checks = [
-  'artifact-claims',
-  'descriptor-file-roles',
-  'runtime-closure',
-  'grouped-transaction-rollback',
-  'fixture-launch',
-  'input',
-  'rendering',
-  'rmlui',
-  'lua',
-  'fonts',
-  'images',
-  'audio',
-  'navigation',
-  'save-reload',
-  'clean-shutdown',
-  'fatal-startup-diagnostics',
-  'compatible-update',
-  'incompatible-api-rejected',
-  'debug-release-separation',
-  'development-surfaces-absent',
-  'symbols-build-id',
-  'third-party-notices',
-  'sbom',
-  'reproducibility',
-  'web-root-path',
-  'web-subdirectory-path',
-  'web-persistence',
-  'web-two-games-one-origin',
-  'web-service-worker-update',
-  'web-system-assets',
+  ...certificationContract.universalChecks,
+  ...certificationContract.targetChecks.web,
 ] as const;
 
 afterEach(() => {
@@ -120,11 +93,6 @@ function setup() {
     exercised: {
       packageApis: [2],
       playerConfigApis: [2],
-      capabilities: ['network.client'],
-      artifactFormats: ['directory', 'zip'],
-      graphicsBackends: ['webgl2'],
-      shaderVariants: ['essl-300'],
-      compiledFeatures: [],
       packageAccessModes: ['web-fetch'],
     },
     evidence,
@@ -198,5 +166,18 @@ describe('platform certification CLI fail-closed behavior', () => {
     const result = run(['verify', '--archive', value.archive, '--report', value.reportPath]);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('hash mismatch');
+  });
+
+  it('rejects obsolete exhaustive-exercise fields during report reverification', () => {
+    const value = setup();
+    expect(run(value.createArgs).status).toBe(0);
+    const report = JSON.parse(readFileSync(value.reportPath, 'utf8')) as {
+      exercised: Record<string, unknown>;
+    };
+    report.exercised.capabilities = [];
+    writeFileSync(value.reportPath, JSON.stringify(report));
+    const result = run(['verify', '--archive', value.archive, '--report', value.reportPath]);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('exercised fields must be exactly');
   });
 });

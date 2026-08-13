@@ -745,19 +745,27 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.OPEN_PROJECT,
     (arguments_) => openProjectArgumentsSchema.parse(arguments_),
-    async (projectPath: string) =>
-      activeProjectSessions.attachToSuccessfulResult(
-        rememberPreviewProjectRoot(await openProject(projectPath)),
-      ),
+    async (projectPath: string) => {
+      const activationGeneration = activeProjectSessions.beginProjectActivation();
+      const result = await activeProjectSessions.attachToSuccessfulResult(
+        await openProject(projectPath),
+        activationGeneration,
+      );
+      return rememberPreviewProjectRoot(result);
+    },
   );
 
   guardedIpc.handle(
     IPC_CHANNELS.CREATE_PROJECT,
     (arguments_) => createProjectArgumentsSchema.parse(arguments_),
-    async (request: CreateProjectRequest) =>
-      activeProjectSessions.attachToSuccessfulResult(
-        rememberPreviewProjectRoot(await createProject(request)),
-      ),
+    async (request: CreateProjectRequest) => {
+      const activationGeneration = activeProjectSessions.beginProjectActivation();
+      const result = await activeProjectSessions.attachToSuccessfulResult(
+        await createProject(request),
+        activationGeneration,
+      );
+      return rememberPreviewProjectRoot(result);
+    },
   );
 
   guardedIpc.handle(

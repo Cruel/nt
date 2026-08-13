@@ -33,11 +33,18 @@ export interface PlatformHostService {
   runProcess(request: PlatformProcessRequest): Promise<PlatformProcessResult>;
   inspectImage?(sourcePath: string): Promise<PlatformImageMetadata>;
   resizeImageToPng?(request: PlatformImageRequest): Promise<void>;
-  fileMode?(path: string): Promise<number>;
+  fileMode?(path: string, fallback: number): Promise<number>;
   availableDiskSpace?(path: string): Promise<number>;
 }
 
 const nodeExecFile = promisify(execFile);
+const nodeFileMode: NonNullable<PlatformHostService['fileMode']> = async (filePath, fallback) => {
+  // Windows does not preserve POSIX permission bits when extracting archives.
+  // Descriptor modes remain authoritative there; native POSIX hosts can verify
+  // the actual filesystem mode.
+  if (process.platform === 'win32') return fallback;
+  return (await lstat(filePath)).mode & 0o777;
+};
 
 const nodeHost: PlatformHostService = {
   async runProcess(request) {
@@ -50,9 +57,7 @@ const nodeHost: PlatformHostService = {
     });
     return { stdout: result.stdout, stderr: result.stderr };
   },
-  async fileMode(filePath) {
-    return (await lstat(filePath)).mode & 0o777;
-  },
+  fileMode: nodeFileMode,
   async availableDiskSpace(filePath) {
     const disk = await statfs(filePath);
     return Number(disk.bavail) * Number(disk.bsize);
@@ -67,6 +72,16 @@ export function configurePlatformHostService(host: PlatformHostService): void {
 
 export function resetPlatformHostService(): void {
   configuredHost = nodeHost;
+}
+
+export function configurePlatformFileModeService(
+  fileMode: NonNullable<PlatformHostService['fileMode']>,
+): void {
+  configuredHost = { ...configuredHost, fileMode };
+}
+
+export function resetPlatformFileModeService(): void {
+  configuredHost = { ...configuredHost, fileMode: nodeFileMode };
 }
 
 export function configurePlatformImageService(
@@ -92,7 +107,7 @@ export function resizePlatformImageToPng(request: PlatformImageRequest): Promise
 }
 
 export async function platformFileMode(filePath: string, fallback: number): Promise<number> {
-  return configuredHost.fileMode ? configuredHost.fileMode(filePath) : fallback;
+  return configuredHost.fileMode ? configuredHost.fileMode(filePath, fallback) : fallback;
 }
 
 export async function platformAvailableDiskSpace(filePath: string): Promise<number | null> {

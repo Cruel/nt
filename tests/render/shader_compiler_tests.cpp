@@ -128,6 +128,11 @@ TEST_CASE("shader compiler maps supported NovelTea shader variants")
     CHECK(android->platform == "android");
     CHECK(android->profile == "300_es");
 
+    const auto metal = noveltea::shader_compile_variant_from_name("metal");
+    REQUIRE(metal);
+    CHECK(metal->platform == "osx");
+    CHECK(metal->profile == "metal");
+
     CHECK_FALSE(noveltea::shader_compile_variant_from_name("spirv"));
 }
 

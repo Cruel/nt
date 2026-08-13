@@ -256,9 +256,6 @@ release certification. Their owner path is the report/evidence/check path emitte
 
 `certification-report-invalid`, `certification-template-mismatch`,
 `certification-package-api-unexercised`, `certification-player-config-api-unexercised`,
-`certification-capability-unexercised`, `certification-graphics-backend-unexercised`,
-`certification-shader-variant-unexercised`, `certification-compiled-feature-unexercised`,
-`certification-package-access-unexercised`, `certification-artifact-unexercised`,
 `certification-evidence-duplicate`, `certification-evidence-artifact-reused`,
 `certification-evidence-target-mismatch`, `certification-evidence-missing`,
 `certification-check-not-passed`, and `certification-host-gap`.

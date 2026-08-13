@@ -218,7 +218,12 @@ thead, tbody, tfoot {
     }
 
     function isClosedShaderVariant(value) {
-      return value === 'glsl-120' || value === 'essl-100' || value === 'essl-300';
+      return (
+        value === 'glsl-120' ||
+        value === 'essl-100' ||
+        value === 'essl-300' ||
+        value === 'metal'
+      );
     }
 
     function focusedDiagnosticScopeKey(document) {

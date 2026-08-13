@@ -136,9 +136,13 @@ tests, caches, type-only packages, private keys, and checkout-path leaks.
 The standalone `noveltea` CLI must be built for the release-admitted host or supplied by
 `NOVELTEA_CLI_PATH`. Normal staging refreshes the repository CLI automatically and copies it to
 `resources/bin/noveltea`; that directory contains no `noveltea-editor-tool` compatibility frontend
-and no sibling bgfx `shaderc` executable. Shader compilation and raw shaderc forwarding use the
-statically linked native tooling inside `noveltea`. Packaged native operations resolve the
-installation-relative CLI and do not depend on `PATH`. The profiler-enabled engine preview must exist at
+and no sibling bgfx `shaderc` executable. Linux builds use the native host toolchain. Windows CLI
+builds use a dedicated MinGW GNU native-tooling/vcpkg closure plus ScriptC's
+`x86_64-windows-gnu` Zig target; the ordinary Windows desktop player/editor remains an independent
+MSVC build. CLI certification rejects MinGW runtime DLL dependencies so the published executable
+remains relocatable. Shader compilation and raw shaderc forwarding use the statically linked native
+tooling inside `noveltea`. Packaged native operations resolve the installation-relative CLI and do
+not depend on `PATH`. The profiler-enabled engine preview must exist at
 `build/web-editor-preview/apps/editor_preview`; `pnpm -C editor run engine:preview:build` produces it.
 
 Linux DEB and RPM packages install their application closure under `/opt/noveltea-editor` and expose
@@ -222,7 +226,12 @@ Artifacts are native-host only:
 
 Linux packaging requires the ordinary Electron desktop libraries plus `rpm` and `fakeroot`.
 Windows NSIS validation must run on Windows, and DMG/ZIP validation must run on Apple Silicon macOS.
-CI owns the targets unavailable on the current development host.
+CI owns the targets unavailable on the current development host. Desktop release certification also
+builds the host-native `noveltea-tooling-bridge`; the canonical export fixture uses that bridge to
+exercise the real native shader/package operations without assuming a Linux CLI can execute on
+Windows or macOS. Native-player smoke tests may set `NOVELTEA_PLAYER_HEADLESS_ERRORS=1` so startup
+failures are reported on stderr instead of blocking CI behind a modal error dialog; shipped players
+retain the normal dialog behavior when that variable is absent.
 
 Tagged and manually qualified releases require Linux x64 and Windows x64 editor artifacts. The
 standalone Linux and Windows CLIs are built and certified once per host; the exact same bytes are

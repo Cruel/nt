@@ -150,11 +150,10 @@ async function verifyInstalled(root: string): Promise<{
     throw new Error('Installed template file inventory differs from the descriptor.');
   for (const item of declared) {
     const data = await readFile(path.join(root, item.path));
-    const info = await lstat(path.join(root, item.path));
     if (
       data.length !== item.size ||
       digest(data) !== item.sha256 ||
-      (await platformFileMode(path.join(root, item.path), info.mode & 0o777)) !== item.mode
+      (await platformFileMode(path.join(root, item.path), item.mode)) !== item.mode
     )
       throw new Error(`Installed template file '${item.path}' failed integrity verification.`);
   }
@@ -259,14 +258,13 @@ export async function installPlayerTemplate(
     let expanded = descriptorData.length;
     for (const item of declared) {
       const data = await readFile(path.join(root, item.path));
-      const info = await lstat(path.join(root, item.path));
       expanded += data.length;
       if (expanded > maxExpandedBytes)
         throw new Error('Expanded template exceeds the 4 GiB limit.');
       if (
         data.length !== item.size ||
         digest(data) !== item.sha256 ||
-        (await platformFileMode(path.join(root, item.path), info.mode & 0o777)) !== item.mode
+        (await platformFileMode(path.join(root, item.path), item.mode)) !== item.mode
       )
         throw new Error(`Archive file '${item.path}' failed descriptor verification.`);
     }

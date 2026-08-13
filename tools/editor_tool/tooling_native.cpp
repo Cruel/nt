@@ -27,6 +27,13 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace bgfx {
 int compileShader(int argc, const char* argv[]);
 }
@@ -35,6 +42,32 @@ namespace {
 
 using namespace noveltea::core;
 using namespace noveltea::core::editor;
+
+std::string filesystem_path_to_utf8(const std::filesystem::path& path)
+{
+    const auto encoded = path.generic_u8string();
+    return std::string(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+}
+
+std::filesystem::path filesystem_path_from_utf8(std::string_view value)
+{
+#if defined(_WIN32)
+    if (value.empty())
+        return {};
+    const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                             static_cast<int>(value.size()), nullptr, 0);
+    if (required <= 0)
+        return {};
+    std::wstring wide(static_cast<std::size_t>(required), L'\0');
+    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                            static_cast<int>(value.size()), wide.data(), required);
+    if (written != required)
+        return {};
+    return std::filesystem::path(std::move(wide));
+#else
+    return std::filesystem::path(value);
+#endif
+}
 
 class HeadlessPresentationRuntime final : public noveltea::runtime::PresentationRuntimePort {
 public:
@@ -277,8 +310,8 @@ nlohmann::json shader_compile_diagnostics_to_json(
                           {"shader", diagnostic.shader.string()},
                           {"stage", std::string(noveltea::to_string(diagnostic.stage))},
                           {"variant", diagnostic.variant},
-                          {"sourcePath", diagnostic.source_path.generic_string()},
-                          {"outputPath", diagnostic.output_path.generic_string()},
+                          {"sourcePath", filesystem_path_to_utf8(diagnostic.source_path)},
+                          {"outputPath", filesystem_path_to_utf8(diagnostic.output_path)},
                           {"commandLine", diagnostic.command_line},
                           {"exitCode", diagnostic.exit_code},
                           {"message", diagnostic.message}});
@@ -294,8 +327,8 @@ shader_compile_outputs_to_json(const std::vector<noveltea::ShaderCompileOutput>&
         result.push_back({{"shader", output.shader.string()},
                           {"stage", std::string(noveltea::to_string(output.stage))},
                           {"variant", output.variant},
-                          {"sourcePath", output.source_path.generic_string()},
-                          {"outputPath", output.output_path.generic_string()},
+                          {"sourcePath", filesystem_path_to_utf8(output.source_path)},
+                          {"outputPath", filesystem_path_to_utf8(output.output_path)},
                           {"runtimePath", output.runtime_path},
                           {"cacheKey", output.cache_key},
                           {"byteHash", output.byte_hash},
@@ -354,7 +387,8 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
         if (!content) {
             diagnostics.push_back(
                 {.code = "export.asset_read_failed",
-                 .message = "Could not read export asset '" + entry.source.string() + "'.",
+                 .message =
+                     "Could not read export asset '" + filesystem_path_to_utf8(entry.source) + "'.",
                  .severity = ErrorSeverity::Error,
                  .source_path = entry.package_path});
             continue;
@@ -514,9 +548,12 @@ noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::
     if (!json.is_object())
         return options;
 
-    options.project_root = json_access::value_or(json, "projectRoot", std::string{});
-    options.output_root = json_access::value_or(json, "outputRoot", std::string{});
-    options.cache_root = json_access::value_or(json, "cacheRoot", std::string{});
+    options.project_root =
+        filesystem_path_from_utf8(json_access::value_or(json, "projectRoot", std::string{}));
+    options.output_root =
+        filesystem_path_from_utf8(json_access::value_or(json, "outputRoot", std::string{}));
+    options.cache_root =
+        filesystem_path_from_utf8(json_access::value_or(json, "cacheRoot", std::string{}));
     options.force_rebuild = json_access::value_or(json, "forceRebuild", false);
 
     std::vector<std::string> variant_names;
@@ -582,7 +619,8 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     if (auto platform = json.find("platform"); platform != json.end() && platform->is_object()) {
         options.platform = *platform;
     }
-    options.shader_asset_root = json_access::value_or(json, "shaderAssetRoot", std::string{});
+    options.shader_asset_root =
+        filesystem_path_from_utf8(json_access::value_or(json, "shaderAssetRoot", std::string{}));
     if (auto metadata = json.find("shaderMaterialMetadata"); metadata != json.end()) {
         options.shader_material_metadata = *metadata;
     }
@@ -614,7 +652,8 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
             if (!root.is_object())
                 continue;
             PackageExportAssetRoot asset_root;
-            asset_root.root = json_access::value_or(root, "root", std::string{});
+            asset_root.root =
+                filesystem_path_from_utf8(json_access::value_or(root, "root", std::string{}));
             asset_root.package_prefix = json_access::value_or(root, "packagePrefix", std::string{});
             options.asset_roots.push_back(std::move(asset_root));
         }
@@ -624,7 +663,8 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
             if (!entry.is_object())
                 continue;
             PackageExportFileEntry file_entry;
-            file_entry.source = json_access::value_or(entry, "source", std::string{});
+            file_entry.source =
+                filesystem_path_from_utf8(json_access::value_or(entry, "source", std::string{}));
             file_entry.package_path = json_access::value_or(entry, "packagePath", std::string{});
             const auto storage = json_access::value_or(entry, "storage", std::string("auto"));
             if (storage == "stored")
@@ -681,7 +721,8 @@ nlohmann::json run_command(std::string_view command, const nlohmann::json& reque
         if (!certified)
             return fail("Compiled project export readiness failed.",
                         compiled_diagnostics_to_json(certified.error()));
-        auto result = ProjectPackageWriter::write_to_file(*project, output, options);
+        auto result =
+            ProjectPackageWriter::write_to_file(*project, filesystem_path_from_utf8(output), options);
         return ok({{"success", result.success},
                    {"diagnostics", export_diagnostics_to_json(result.diagnostics)},
                    {"manifest", result.manifest},

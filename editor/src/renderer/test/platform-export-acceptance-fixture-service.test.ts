@@ -63,6 +63,30 @@ describe('platform export acceptance fixture materializer', () => {
     expect(secondProject.settings.app.android.versionCode).toBe(2);
   });
 
+  it('materializes distinct threaded and single-threaded Web profiles', async () => {
+    const threadedRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-fixture-web-threads-'));
+    const singleRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-fixture-web-single-'));
+    roots.push(threadedRoot, singleRoot);
+    const threaded = await materializePlatformExportAcceptanceFixture({
+      root: threadedRoot,
+      target: 'web',
+      fontSourcePath,
+    });
+    const single = await materializePlatformExportAcceptanceFixture({
+      root: singleRoot,
+      target: 'web',
+      webThreaded: false,
+      fontSourcePath,
+    });
+    expect(threaded.profile.target).toBe('web');
+    expect(single.profile.target).toBe('web');
+    if (threaded.profile.target === 'web' && single.profile.target === 'web') {
+      expect(threaded.profile.web.threaded).toBe(true);
+      expect(single.profile.web.threaded).toBe(false);
+      expect(threaded.profileSha256).not.toBe(single.profileSha256);
+    }
+  });
+
   it('materializes a configured nested Web deployment profile', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-fixture-web-nested-'));
     roots.push(root);

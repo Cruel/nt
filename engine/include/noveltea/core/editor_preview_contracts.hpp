@@ -20,6 +20,7 @@ enum class EditorPreviewShaderVariant : std::uint8_t {
     Glsl120,
     Essl100,
     Essl300,
+    Metal,
 };
 
 struct FocusedEditorDocumentLimits {

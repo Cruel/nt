@@ -30,14 +30,16 @@ The hand-authored agent-kit source remains canonical under `editor/agent-kit/`. 
 - scriptc: exact `0.0.26`
 - pnpm's 24-hour minimum-release-age policy exempts only `scriptc@0.0.26`, `@scriptc/compiler@0.0.26`, and `@scriptc/runtime@0.0.26`; future scriptc versions must either age normally or receive a new explicit reviewed exemption
 - Node used to drive release builds/reference certification: exact `24.18.0`
-- `clang` available on `PATH` for scriptc native compilation
+- Linux release builds require host `clang`; Windows release builds require MinGW `gcc`/`g++` plus Zig 0.16.0 and target ScriptC as `x86_64-windows-gnu`
 - admitted standalone targets: Linux x64 and Windows x64
 
-`editor/scripts/build-noveltea-cli.mjs` verifies the installed scriptc version, builds the existing
-native tooling archive closure for the current admitted host, produces the minified/no-sourcemap
-QuickJS package, stages the two private packages under `build/host-tools/scriptc/`, invokes scriptc
-with `--dynamic` and the platform-specific FFI manifest, strips the resulting ELF or PE executable,
-and removes the staging directory.
+`editor/scripts/build-noveltea-cli.mjs` verifies the installed scriptc version, builds the native
+tooling archive closure for the current admitted host, produces the minified/no-sourcemap QuickJS
+package, stages the two private packages under `build/host-tools/scriptc/`, invokes scriptc with
+`--dynamic` and the platform-specific FFI manifest, strips the resulting ELF or PE executable, and
+removes the staging directory. Windows deliberately uses the dedicated `windows-cli-gnu` CMake
+preset and `x64-mingw-static-noveltea` target triplet so every FFI archive shares ScriptC's supported
+GNU ABI instead of mixing MSVC objects into the Zig/MinGW final link.
 
 The final executable must not depend on Node, a separate shaderc executable, or any project-local JavaScript files at runtime.
 

@@ -477,7 +477,7 @@ describe('NovelTea headless CLI', () => {
       projectRoot: root,
       outputRoot: `${root}/.noveltea/build`,
       cacheRoot: `${root}/.noveltea/cache`,
-      shaderVariants: ['glsl-120', 'essl-100', 'essl-300'],
+      shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
     });
 
     const failed = await runNovelTeaCli(

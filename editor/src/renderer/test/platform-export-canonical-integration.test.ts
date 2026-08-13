@@ -4,14 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
-import { createInProcessNovelTeaCliNativeToolService } from '../../cli/native-tool-service';
 import { createNodeNovelTeaCliPlatformToolService } from '../../cli/platform-tool-service-node';
 import { materializePlatformExportAcceptanceFixture } from '../../main/services/platform-export-acceptance-fixture-service';
 import {
   configureTemplateRegistryRoot,
   installPlayerTemplate,
 } from '../../main/services/template-registry-service';
-import type { ExportPlatform } from '../../shared/project-schema/platform-export-contracts';
+import {
+  PLAYER_CONFIG_FORMAT_VERSION,
+  type ExportPlatform,
+} from '../../shared/project-schema/platform-export-contracts';
 
 const target = process.env.NOVELTEA_CANONICAL_EXPORT_TARGET as ExportPlatform | undefined;
 const archive = process.env.NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE;
@@ -68,6 +70,7 @@ suite('canonical platform export integration', () => {
           | 'both'
           | undefined,
         webBasePath: process.env.NOVELTEA_WEB_BASE_PATH,
+        webThreaded: process.env.NOVELTEA_WEB_THREADED !== 'false',
         fontSourcePath: path.resolve(
           process.cwd(),
           '../engine/assets/system/fonts/LiberationSans.ttf',
@@ -82,7 +85,7 @@ suite('canonical platform export integration', () => {
           formatVersion: 1,
           templateRoots: [],
           toolchains: {
-            androidSdk: process.env.ANDROID_SDK_ROOT,
+            androidSdk: process.env.ANDROID_SDK_ROOT ?? process.env.ANDROID_HOME,
             androidNdk: process.env.ANDROID_NDK_ROOT,
             javaHome: process.env.JAVA_HOME,
             cmake: process.env.ANDROID_CMAKE_ROOT,
@@ -96,7 +99,7 @@ suite('canonical platform export integration', () => {
       const command = await runNovelTeaCli(
         [
           '--project',
-          fixture.projectPath,
+          fixture.projectRoot,
           '--json',
           'platform',
           'export',
@@ -110,7 +113,6 @@ suite('canonical platform export integration', () => {
           ...(configPath ? ['--config', configPath] : []),
         ],
         {
-          nativeTools: createInProcessNovelTeaCliNativeToolService(),
           platformTools: createNodeNovelTeaCliPlatformToolService(),
         },
       );
@@ -122,10 +124,11 @@ suite('canonical platform export integration', () => {
         | { files: Array<{ origin: string; sha256: string }> }
         | undefined;
       const deployment = command.envelope.deployment as
-        | { templateId?: string; buildId?: string }
+        | { templateId?: string; buildId?: string; runtimePackageApi?: number }
         | undefined;
       const packageEntry = manifest?.files.find((entry) => entry.origin === 'runtime-package');
       expect(packageEntry?.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(deployment?.runtimePackageApi).toBeTypeOf('number');
 
       const evidence = {
         format: 'noveltea-canonical-export-fixture',
@@ -139,6 +142,11 @@ suite('canonical platform export integration', () => {
         profileSha256: fixture.profileSha256,
         projectSha256: fixture.projectSha256,
         runtimePackageSha256: packageEntry!.sha256,
+        runtimePackageApi: deployment!.runtimePackageApi!,
+        playerConfigApi: PLAYER_CONFIG_FORMAT_VERSION,
+        packageAccessMode: fixture.profile.packageAccess,
+        webBasePath: fixture.profile.target === 'web' ? fixture.profile.web.basePath : undefined,
+        webThreaded: fixture.profile.target === 'web' ? fixture.profile.web.threaded : undefined,
         templateId: deployment?.templateId,
         templateBuildId: deployment?.buildId,
         outputManifestSha256: sha256(Buffer.from(JSON.stringify(manifest))),

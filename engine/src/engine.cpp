@@ -295,6 +295,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/quad.vs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/quad.vs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/quad.vs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/quad.vs.bin"),
     };
 
     ShaderStageDefinition fragment;
@@ -303,6 +304,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/quad.fs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/quad.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/quad.fs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/quad.fs.bin"),
     };
 
     ShaderDefinition shader;
@@ -335,6 +337,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.vs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.vs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.vs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/postprocess_tint.vs.bin"),
     };
 
     ShaderStageDefinition postprocess_fragment;
@@ -343,6 +346,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.fs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.fs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/postprocess_tint.fs.bin"),
     };
 
     ShaderDefinition postprocess_shader;
@@ -387,6 +391,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.vs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.vs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/rmlui_noise_panel.vs.bin"),
     };
 
     ShaderStageDefinition noise_fragment;
@@ -395,6 +400,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.fs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/rmlui_noise_panel.fs.bin"),
     };
 
     ShaderDefinition rmlui_noise_shader;
@@ -421,6 +427,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/text.vs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/text.vs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/text.vs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/text.vs.bin"),
     };
 
     ShaderStageDefinition text_fragment;
@@ -429,6 +436,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/text.fs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/text.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/text.fs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/text.fs.bin"),
     };
 
     ShaderStageDefinition glow_fragment;
@@ -437,6 +445,7 @@ ShaderMaterialProject make_demo_shader_materials()
         system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/active_text_glow.fs.bin"),
         system_binary("essl-100", "system:/shaders/bgfx/essl-100/active_text_glow.fs.bin"),
         system_binary("essl-300", "system:/shaders/bgfx/essl-300/active_text_glow.fs.bin"),
+        system_binary("metal", "system:/shaders/bgfx/metal/active_text_glow.fs.bin"),
     };
 
     ShaderDefinition active_text_shader;
@@ -1381,6 +1390,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     RendererConfig rcfg;
     rcfg.native_display = handles.display;
     rcfg.native_window = handles.window;
+    rcfg.native_window_type = handles.type;
     rcfg.presentation = m_presentation;
     rcfg.bar_color_rgba = m_presentation_settings.bar_color_rgba;
     rcfg.vsync = config.vsync;

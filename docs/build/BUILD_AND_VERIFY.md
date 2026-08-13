@@ -97,9 +97,10 @@ configuration with `noveltea platform config init` or the Android environment he
 Use `pnpm android:export-config -- --output <file>` to generate the Android exporter local-toolchain
 configuration from `ANDROID_SDK_ROOT`/`ANDROID_HOME` and `JAVA_HOME`. Shader compilation is provided
 by the standalone `noveltea` host CLI and no external `shaderc` executable is configured for export.
-The current scriptc standalone host CLI is certified on Linux x64. Windows/macOS player jobs consume
-shader assets precompiled by the Linux shader-assets job (`NOVELTEA_COMPILE_SHADERS=OFF`) until those
-CLI hosts are admitted.
+The ScriptC standalone host CLI is certified on Linux x64 and Windows x64. The Windows CLI builds its
+native tooling/FFI closure with the MinGW GNU ABI and ScriptC targets `x86_64-windows-gnu`; this is
+separate from the MSVC-built Windows desktop player/editor. Platform player jobs still consume shader
+assets precompiled once by the Linux shader-assets job (`NOVELTEA_COMPILE_SHADERS=OFF`).
 For repository-local Android development, `scripts/run-android.sh` builds the native player with the
 checked-in `android/` Gradle project, packages and installs an immutable player template in an
 isolated registry under `build/run-android`, and exports the selected Project through `noveltea
@@ -146,10 +147,10 @@ pnpm artifact
 ```
 
 The default development command builds the threaded `web-release` sandbox preview. Staging and
-packaging build and bundle the standalone `noveltea` CLI under `resources/bin/noveltea`; the current
-release-admitted editor/CLI host is Linux x64. `NOVELTEA_CLI_PATH` may supply an already-built CLI to
-distribution staging. Windows/macOS player builds remain supported, but Windows/macOS editor/CLI
-release artifacts are not admitted until their scriptc/native certification gate passes. See
+packaging build and bundle the standalone `noveltea` CLI under `resources/bin/noveltea`; Linux x64
+and Windows x64 are release-admitted editor/CLI hosts. `NOVELTEA_CLI_PATH` may supply an already-built
+CLI to distribution staging. macOS player builds remain supported, but a macOS editor/CLI release is
+not part of the current exact release inventory. See
 [Editor Build and Distribution](../editor/BUILD_AND_DISTRIBUTION.md) for stage layout, manifest,
 ASAR/native-module policy, fuse verification, package smoke, release collection, and signing inputs.
 
@@ -203,8 +204,8 @@ xvfb-run -a build/linux-sanitize/tests/noveltea_ui_backend_tests
 
 Shipped C++ targets always compile without C++ exceptions and compiler RTTI. There is no supported
 exception-enabled or RTTI-enabled build mode. Desktop target dependencies use NovelTea policy triplets.
-The standalone Linux host `noveltea` CLI embeds the bgfx shader compiler and remains outside player
-link/package graphs; build and export paths do not require a separate `shaderc` executable.
+The standalone Linux and Windows `noveltea` CLIs embed the bgfx shader compiler and remain outside
+player link/package graphs; build and export paths do not require a separate `shaderc` executable.
 
 The default `pnpm run web:smoke` command remains an alias for the debug structural Web smoke. Use `web-profile` plus `pnpm run web:smoke:profile` for optimized RmlUi/bgfx perf-counter measurement; that path compiles render perf counters in, enables them at runtime with `renderPerf=1`, disables ImGui with `noImgui=1`, and treats FPS as informational only.
 

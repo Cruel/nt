@@ -114,7 +114,7 @@ private:
     void fulfill_deferred_autosave();
 
     const core::CompiledProject& m_project;
-    [[maybe_unused]] core::TypedSaveSlotStore& m_saves;
+    core::TypedSaveSlotStore& m_saves;
     const core::SaveStateCodecPort& m_save_codec;
     core::CheckpointGenerationState m_generations;
     core::CheckpointReadinessStatus m_readiness;

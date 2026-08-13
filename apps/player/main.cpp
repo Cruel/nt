@@ -9,6 +9,7 @@
 #include <noveltea/engine_tooling.hpp>
 #include <noveltea/platform.hpp>
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cctype>
@@ -19,6 +20,13 @@
 #include <span>
 #include <string>
 #include <string_view>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -31,6 +39,41 @@ extern "C" void noveltea_web_report_loading_progress(std::uint32_t operation, st
 #endif
 
 namespace {
+
+#if !defined(__EMSCRIPTEN__) && !defined(SDL_PLATFORM_ANDROID)
+std::filesystem::path filesystem_path_from_utf8(std::string_view value)
+{
+#if defined(_WIN32)
+    if (value.empty())
+        return {};
+    const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                             static_cast<int>(value.size()), nullptr, 0);
+    if (required <= 0)
+        return {};
+    std::wstring wide(static_cast<std::size_t>(required), L'\0');
+    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                            static_cast<int>(value.size()), wide.data(), required);
+    if (written != required)
+        return {};
+    return std::filesystem::path(std::move(wide));
+#else
+    return std::filesystem::path(value);
+#endif
+}
+#endif
+
+std::span<const std::string> supported_player_capabilities()
+{
+#if defined(SDL_PLATFORM_ANDROID) || defined(NOVELTEA_PLATFORM_ANDROID) || defined(__ANDROID__)
+    static const std::array<std::string, 7> capabilities = {
+        "network.client", "external-url",  "gamepad", "vibration",
+        "microphone",     "notifications", "billing"};
+#else
+    static const std::array<std::string, 5> capabilities = {
+        "network.client", "external-url", "clipboard.read", "clipboard.write", "gamepad"};
+#endif
+    return capabilities;
+}
 
 noveltea::assets::AssetMemoryTarget runtime_asset_memory_target() noexcept
 {
@@ -194,7 +237,7 @@ std::filesystem::path executable_base()
     return "";
 #else
     const char* base = SDL_GetBasePath();
-    return base ? std::filesystem::path(base) : std::filesystem::path();
+    return base ? filesystem_path_from_utf8(base) : std::filesystem::path();
 #endif
 }
 
@@ -203,7 +246,7 @@ std::filesystem::path config_path(int argc, char** argv)
 #if !defined(NDEBUG)
     for (int i = 1; i + 1 < argc; ++i)
         if (std::string_view(argv[i]) == "--player-config")
-            return argv[i + 1];
+            return filesystem_path_from_utf8(argv[i + 1]);
 #else
     (void)argc;
     (void)argv;
@@ -319,7 +362,9 @@ int fail_startup(const noveltea::core::PlayerBootstrapResult& result)
                            diagnostic.message.c_str());
     }
 #endif
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NovelTea Player", message.c_str(), nullptr);
+    const char* headless_errors = std::getenv("NOVELTEA_PLAYER_HEADLESS_ERRORS");
+    if (!(headless_errors && std::string_view(headless_errors) == "1"))
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NovelTea Player", message.c_str(), nullptr);
     return 2;
 }
 
@@ -346,7 +391,8 @@ int main(int argc, char** argv)
         return fail_startup(packaged_config);
     }
     auto materialized = noveltea::core::materialize_packaged_player(
-        app_roots / "bootstrap", "noveltea/bootstrap", read_packaged_asset);
+        app_roots / "bootstrap", "noveltea/bootstrap", read_packaged_asset,
+        supported_player_capabilities());
     bootstrap = std::move(materialized.bootstrap);
     path = std::move(materialized.config_path);
 #else
@@ -371,11 +417,11 @@ int main(int argc, char** argv)
         const auto package_span = std::span<const std::byte>(
             reinterpret_cast<const std::byte*>(g_web_package_bytes->data()),
             g_web_package_bytes->size());
-        bootstrap =
-            noveltea::core::verify_player_config_and_package_view(config_text, package_span);
+        bootstrap = noveltea::core::verify_player_config_and_package_view(
+            config_text, package_span, supported_player_capabilities());
     }
 #else
-    bootstrap = noveltea::core::load_and_verify_player(path);
+    bootstrap = noveltea::core::load_and_verify_player(path, supported_player_capabilities());
 #endif
 #endif
     if (!bootstrap.success())

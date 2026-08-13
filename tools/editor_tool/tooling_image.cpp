@@ -3,7 +3,7 @@
 #include <bimg/decode.h>
 #include <bimg/encode.h>
 #include <bx/allocator.h>
-#include <bx/file.h>
+#include <bx/readerwriter.h>
 
 #include <nlohmann/json.hpp>
 
@@ -19,7 +19,54 @@
 #include <string_view>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace {
+
+std::string filesystem_path_to_utf8(const std::filesystem::path& path)
+{
+    const auto encoded = path.generic_u8string();
+    return std::string(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+}
+
+std::filesystem::path filesystem_path_from_utf8(std::string_view value)
+{
+#if defined(_WIN32)
+    if (value.empty())
+        return {};
+    const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                             static_cast<int>(value.size()), nullptr, 0);
+    if (required <= 0)
+        return {};
+    std::wstring wide(static_cast<std::size_t>(required), L'\0');
+    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                            static_cast<int>(value.size()), wide.data(), required);
+    if (written != required)
+        return {};
+    return std::filesystem::path(std::move(wide));
+#else
+    return std::filesystem::path(value);
+#endif
+}
+
+class VectorWriter final : public bx::WriterI {
+public:
+    int32_t write(const void* data, int32_t size, bx::Error*) override
+    {
+        if (size <= 0)
+            return 0;
+        const auto* bytes = static_cast<const std::uint8_t*>(data);
+        value.insert(value.end(), bytes, bytes + size);
+        return size;
+    }
+
+    std::vector<std::uint8_t> value;
+};
 
 struct DecodedImage {
     bx::DefaultAllocator allocator;
@@ -57,7 +104,7 @@ bool decode_image(const std::filesystem::path& path, DecodedImage& decoded, std:
 {
     auto bytes = read_bytes(path);
     if (!bytes) {
-        error = "Cannot read image source '" + path.string() + "'.";
+        error = "Cannot read image source '" + filesystem_path_to_utf8(path) + "'.";
         return false;
     }
     decoded.container = bimg::imageParse(&decoded.allocator, bytes->data(),
@@ -69,7 +116,7 @@ bool decode_image(const std::filesystem::path& path, DecodedImage& decoded, std:
         !bimg::imageGetRawData(*decoded.container, 0, 0, decoded.container->m_data,
                                decoded.container->m_size, decoded.mip) ||
         decoded.mip.m_format != bimg::TextureFormat::RGBA8) {
-        error = "bimg cannot decode image source '" + path.string() + "' as RGBA8.";
+        error = "bimg cannot decode image source '" + filesystem_path_to_utf8(path) + "' as RGBA8.";
         return false;
     }
     return true;
@@ -82,7 +129,7 @@ nlohmann::json inspect_image(const nlohmann::json& request)
         return {{"ok", false}, {"error", "Image inspection requires sourcePath."}};
     DecodedImage decoded;
     std::string error;
-    if (!decode_image(source, decoded, error))
+    if (!decode_image(filesystem_path_from_utf8(source), decoded, error))
         return {{"ok", false}, {"error", std::move(error)}};
 
     const auto width = static_cast<std::uint32_t>(decoded.mip.m_width);
@@ -143,7 +190,7 @@ nlohmann::json resize_image(const nlohmann::json& request)
         return {{"ok", false}, {"error", "Image resize requires sourcePath, outputPath, and a size up to 4096."}};
     DecodedImage decoded;
     std::string error;
-    if (!decode_image(source, decoded, error))
+    if (!decode_image(filesystem_path_from_utf8(source), decoded, error))
         return {{"ok", false}, {"error", std::move(error)}};
 
     const auto source_width = static_cast<std::uint32_t>(decoded.mip.m_width);
@@ -168,21 +215,25 @@ nlohmann::json resize_image(const nlohmann::json& request)
         }
     }
 
-    const std::filesystem::path output_path(output);
+    const std::filesystem::path output_path = filesystem_path_from_utf8(output);
     std::error_code filesystem_error;
     if (output_path.has_parent_path())
         std::filesystem::create_directories(output_path.parent_path(), filesystem_error);
     if (filesystem_error)
         return {{"ok", false}, {"error", "Cannot create image output directory: " + filesystem_error.message()}};
-    bx::FileWriter writer;
+    VectorWriter writer;
     bx::Error write_error;
-    if (!writer.open(bx::FilePath(output.c_str()), false, &write_error))
-        return {{"ok", false}, {"error", "Cannot open PNG output '" + output + "'."}};
     const auto written = bimg::imageWritePng(&writer, size, size, size * 4u, pixels.data(),
                                               bimg::TextureFormat::RGBA8, false, &write_error);
-    writer.close();
     if (!write_error.isOk() || written <= 0)
         return {{"ok", false}, {"error", "bimg failed to encode PNG output '" + output + "'."}};
+    std::ofstream output_file(output_path, std::ios::binary | std::ios::trunc);
+    if (!output_file)
+        return {{"ok", false}, {"error", "Cannot open PNG output '" + output + "'."}};
+    output_file.write(reinterpret_cast<const char*>(writer.value.data()),
+                      static_cast<std::streamsize>(writer.value.size()));
+    if (!output_file)
+        return {{"ok", false}, {"error", "Cannot write PNG output '" + output + "'."}};
     return {{"ok", true}};
 }
 
@@ -241,7 +292,9 @@ noveltea_tooling_file_mode_json(const std::uint8_t* request, std::uint64_t reque
     } else {
         std::error_code error;
         const auto permissions =
-            std::filesystem::status(parsed["path"].get<std::string>(), error).permissions();
+            std::filesystem::status(
+                filesystem_path_from_utf8(parsed["path"].get<std::string>()), error)
+                .permissions();
         if (error)
             result = {{"ok", false}, {"error", "Cannot inspect file mode: " + error.message()}};
         else
@@ -269,7 +322,8 @@ noveltea_tooling_disk_space_json(const std::uint8_t* request, std::uint64_t requ
         result = {{"ok", false}, {"error", "Disk-space request requires path."}};
     } else {
         std::error_code error;
-        const auto info = std::filesystem::space(parsed["path"].get<std::string>(), error);
+        const auto info = std::filesystem::space(
+            filesystem_path_from_utf8(parsed["path"].get<std::string>()), error);
         if (error)
             result = {{"ok", false},
                       {"error", "Cannot inspect available disk space: " + error.message()}};

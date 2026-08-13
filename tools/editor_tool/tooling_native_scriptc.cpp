@@ -2,10 +2,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -35,9 +41,29 @@ NativeOperation operation_for(std::string_view operation)
     return nullptr;
 }
 
+std::filesystem::path filesystem_path_from_utf8(std::string_view value)
+{
+#if defined(_WIN32)
+    if (value.empty())
+        return {};
+    const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                             static_cast<int>(value.size()), nullptr, 0);
+    if (required <= 0)
+        return {};
+    std::wstring wide(static_cast<std::size_t>(required), L'\0');
+    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                            static_cast<int>(value.size()), wide.data(), required);
+    if (written != required)
+        return {};
+    return std::filesystem::path(std::move(wide));
+#else
+    return std::filesystem::path(value);
+#endif
+}
+
 void write_text(std::string_view path, std::string_view text)
 {
-    std::ofstream output(std::string(path), std::ios::binary | std::ios::trunc);
+    std::ofstream output(filesystem_path_from_utf8(path), std::ios::binary | std::ios::trunc);
     output.write(text.data(), static_cast<std::streamsize>(text.size()));
 }
 

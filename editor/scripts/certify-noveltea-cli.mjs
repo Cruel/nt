@@ -25,8 +25,8 @@ const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
-const releasePreset = isWindows ? 'windows-release' : 'linux-release';
-const releaseTriplet = isWindows ? 'x64-windows-static-noveltea' : 'x64-linux-noveltea';
+const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
+const releaseTriplet = isWindows ? 'x64-mingw-static-noveltea' : 'x64-linux-noveltea';
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const nativeCli = path.resolve(
   process.env.NOVELTEA_CLI_PATH ??
@@ -53,12 +53,14 @@ const typedFragmentGoldens = Object.freeze({
   'glsl-120': '0c6e9745c2d8c970e6712ff589ded92984997585b0292d44fe3d2ffb1edb79d8',
   'essl-100': '60761370f25ccc732c1589d57bdb72be60aee25331676834c8739bbc1ce7087a',
   'essl-300': 'c832f9615c10dce13576a4843cb3f4b9314072ca474aeb5abb0dbae8defb02d3',
+  metal: '7e0b1c86f64928f0b9c60fc2a849f831d81351af713d8b7a7872cb97fe9fa917',
 });
 
 const rawShaderGoldens = Object.freeze({
   'glsl-120': 'd82504c243210381b4163788cb4c1923859efc47bab8b6733294b5095e0e00e9',
   'essl-100': '4625d9a1ff2acd5f3b0cb3f5f9dcc7eb4c8ec8f05179c78e9f64d0ef16e51b81',
   'essl-300': 'ad8bad426f71f58d1b481dd078b06b2cc07cb68303e12a4e7f664530c5bf4578',
+  metal: 'e95a26f5c321473cada296c5e0b936a8cf26d88e9412ae3dd73e7c61f0a7cf82',
 });
 
 function fail(message) {
@@ -79,6 +81,12 @@ function run(command, args, options = {}) {
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
   };
+}
+
+function runPnpm(args, options = {}) {
+  const pnpmEntrypoint = process.env.npm_execpath;
+  if (pnpmEntrypoint) return run(process.execPath, [pnpmEntrypoint, ...args], options);
+  return run(isWindows ? 'pnpm.cmd' : 'pnpm', args, options);
 }
 
 function requireSuccess(label, result) {
@@ -418,11 +426,16 @@ async function runDifferential(tempRoot) {
     const scriptcResult = runNative(args, { cwd: test.cwd?.(caseRoot) ?? cwd });
     const scriptcTree = test.project === false ? '' : await treeSnapshot(caseRoot);
 
-    for (const field of ['status', 'stdout', 'stderr']) {
-      if (scriptcResult[field] !== nodeResult[field])
-        fail(
-          `Node/scriptc differential '${test.name}' differs in ${field}.\nNode: ${String(nodeResult[field])}\nscriptc: ${String(scriptcResult[field])}`,
-        );
+    if (
+      scriptcResult.status !== nodeResult.status ||
+      scriptcResult.stdout !== nodeResult.stdout ||
+      scriptcResult.stderr !== nodeResult.stderr
+    ) {
+      fail(
+        `Node/scriptc differential '${test.name}' differs.\n` +
+          `Node: status=${nodeResult.status}\nstdout:\n${nodeResult.stdout}\nstderr:\n${nodeResult.stderr}\n` +
+          `scriptc: status=${scriptcResult.status}\nstdout:\n${scriptcResult.stdout}\nstderr:\n${scriptcResult.stderr}`,
+      );
     }
     if (scriptcTree !== nodeTree)
       fail(`Node/scriptc differential '${test.name}' produced different filesystem state.`);
@@ -440,7 +453,7 @@ async function certifyTypedShaders(tempRoot) {
   );
   const payload = JSON.parse(result.stdout);
   const outputs = payload.native?.outputs;
-  if (!Array.isArray(outputs) || outputs.length !== 6)
+  if (!Array.isArray(outputs) || outputs.length !== 8)
     fail(
       `Typed shader compile returned ${Array.isArray(outputs) ? outputs.length : 'invalid'} outputs.`,
     );
@@ -463,6 +476,7 @@ async function certifyRawShaderc(tempRoot) {
     ['glsl-120', 'linux', '120'],
     ['essl-100', 'asm.js', '100_es'],
     ['essl-300', 'android', '300_es'],
+    ['metal', 'osx', 'metal'],
   ];
   for (const [variant, platform, profile] of variants) {
     const output = path.join(tempRoot, `${variant}.bin`);
@@ -659,7 +673,10 @@ async function certifyRelocation(tempRoot) {
     ? requireSuccess('CLI PE dependency audit', run('dumpbin', ['/dependents', relocated], { env }))
         .stdout
     : requireSuccess('CLI ldd audit', run('ldd', [relocated], { env })).stdout;
-  if (/\b(?:node|shaderc)\b/i.test(closure))
+  const forbiddenRuntimeDependency = isWindows
+    ? /\b(?:node|shaderc)\b|libstdc\+\+|libgcc_s|libwinpthread/i
+    : /\b(?:node|shaderc)\b/i;
+  if (forbiddenRuntimeDependency.test(closure))
     fail(`Standalone CLI has a forbidden runtime dependency:\n${closure}`);
 
   const binary = await readFile(relocated);
@@ -690,7 +707,7 @@ async function main() {
 
   requireSuccess(
     'Node-reference bundle build',
-    run('pnpm', ['exec', 'vp', 'pack'], { cwd: editorRoot }),
+    runPnpm(['exec', 'vp', 'pack'], { cwd: editorRoot }),
   );
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-cli-certification-'));

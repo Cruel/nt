@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import certificationContract from './platform-certification-contract.json';
 import {
   exportPlatformValues,
   templateDescriptorSchema,
@@ -74,13 +75,8 @@ export const platformCertificationReportSchema = z
     exercised: z
       .object({
         packageApis: z.array(z.number().int().nonnegative()),
-        capabilities: z.array(z.string()),
         playerConfigApis: z.array(z.number().int().nonnegative()),
-        artifactFormats: z.array(z.string()),
-        graphicsBackends: z.array(z.string()),
-        shaderVariants: z.array(z.string()),
-        compiledFeatures: z.array(z.string()),
-        packageAccessModes: z.array(z.string()),
+        packageAccessModes: z.array(z.string()).min(1),
       })
       .strict(),
     evidence: z.array(evidenceSchema),
@@ -101,77 +97,32 @@ export interface CertificationResult {
   diagnostics: CertificationDiagnostic[];
 }
 
-const universalChecks = [
-  'artifact-claims',
-  'descriptor-file-roles',
-  'runtime-closure',
-  'grouped-transaction-rollback',
-  'fixture-launch',
-  'input',
-  'rendering',
-  'rmlui',
-  'lua',
-  'fonts',
-  'images',
-  'audio',
-  'navigation',
-  'save-reload',
-  'clean-shutdown',
-  'fatal-startup-diagnostics',
-  'compatible-update',
-  'incompatible-api-rejected',
-  'debug-release-separation',
-  'development-surfaces-absent',
-  'symbols-build-id',
-  'third-party-notices',
-  'sbom',
-  'reproducibility',
-] as const;
-
-const targetChecks: Record<(typeof exportPlatformValues)[number], readonly string[]> = {
-  web: [
-    'web-root-path',
-    'web-subdirectory-path',
-    'web-persistence',
-    'web-two-games-one-origin',
-    'web-service-worker-update',
-  ],
-  windows: [
-    'windows-native-launch',
-    'windows-dependency-closure',
-    'windows-resource-metadata',
-    'windows-authenticode-policy',
-  ],
-  linux: [
-    'linux-x11-launch',
-    'linux-wayland-launch',
-    'linux-dependency-closure',
-    'linux-rpath',
-    'linux-desktop-integration',
-    'linux-appimage-launch',
-  ],
-  macos: [
-    'macos-launchservices-launch',
-    'macos-install-name-closure',
-    'macos-entitlements',
-    'macos-privacy-strings',
-    'macos-signing-policy',
-  ],
-  android: [
-    'android-system-assets',
-    'android-install-launch',
-    'android-abi-closure',
-    'android-signature-policy',
-    'android-page-alignment',
-  ],
+type CertificationContract = {
+  formatVersion: number;
+  universalChecks: string[];
+  targetChecks: Record<(typeof exportPlatformValues)[number], string[]>;
+  conditionalChecks: Array<{
+    platform: (typeof exportPlatformValues)[number];
+    artifactKind: string;
+    check: string;
+  }>;
 };
 
-function descriptorArtifactFormats(descriptor: TemplateDescriptor): string[] {
-  if (descriptor.platform === 'android') return descriptor.android?.artifactKinds ?? [];
-  if (descriptor.platform === 'web') return ['directory', 'zip'];
-  if (descriptor.platform === 'macos') return ['app-bundle', 'zip', 'dmg'];
-  if (descriptor.platform === 'linux') return ['directory', 'tar.gz', 'appimage'];
-  return ['directory', 'zip'];
+const contract = certificationContract as CertificationContract;
+
+export function requiredPlatformCertificationChecks(descriptor: TemplateDescriptor): string[] {
+  const checks = [...contract.universalChecks, ...contract.targetChecks[descriptor.platform]];
+  if (descriptor.platform === 'android') {
+    const artifactKinds = descriptor.android?.artifactKinds ?? [];
+    for (const conditional of contract.conditionalChecks) {
+      if (
+        conditional.platform === 'android' &&
+        artifactKinds.includes(conditional.artifactKind as (typeof artifactKinds)[number])
+      )
+        checks.push(conditional.check);
+    }
+  }
+  return [...new Set(checks)];
 }
 
 export function certifyTemplateDescriptor(
@@ -225,49 +176,13 @@ export function certifyTemplateDescriptor(
         path: '/exercised/playerConfigApis',
         message: `Descriptor player config API ${api} was not exercised.`,
       });
-  for (const capability of descriptor.capabilities)
-    if (!report.exercised.capabilities.includes(capability))
+  for (const mode of report.exercised.packageAccessModes)
+    if (!descriptor.packageAccessModes.some((declaredMode) => declaredMode === mode))
       diagnostics.push({
-        code: 'certification-capability-unexercised',
-        path: '/exercised/capabilities',
-        message: `Descriptor capability '${capability}' was not exercised.`,
-      });
-  for (const backend of descriptor.graphicsBackends)
-    if (!report.exercised.graphicsBackends.includes(backend))
-      diagnostics.push({
-        code: 'certification-graphics-backend-unexercised',
-        path: '/exercised/graphicsBackends',
-        message: `Descriptor graphics backend '${backend}' was not exercised.`,
-      });
-  for (const variant of descriptor.shaderVariants)
-    if (!report.exercised.shaderVariants.includes(variant))
-      diagnostics.push({
-        code: 'certification-shader-variant-unexercised',
-        path: '/exercised/shaderVariants',
-        message: `Descriptor shader variant '${variant}' was not exercised.`,
-      });
-  for (const feature of descriptor.compiledFeatures)
-    if (!report.exercised.compiledFeatures.includes(feature))
-      diagnostics.push({
-        code: 'certification-compiled-feature-unexercised',
-        path: '/exercised/compiledFeatures',
-        message: `Descriptor compiled feature '${feature}' was not exercised.`,
-      });
-  for (const mode of descriptor.packageAccessModes)
-    if (!report.exercised.packageAccessModes.includes(mode))
-      diagnostics.push({
-        code: 'certification-package-access-unexercised',
+        code: 'certification-report-invalid',
         path: '/exercised/packageAccessModes',
-        message: `Descriptor package access mode '${mode}' was not exercised.`,
+        message: `Exercised package access mode '${mode}' is not declared by the template.`,
       });
-  for (const format of descriptorArtifactFormats(descriptor))
-    if (!report.exercised.artifactFormats.includes(format))
-      diagnostics.push({
-        code: 'certification-artifact-unexercised',
-        path: '/exercised/artifactFormats',
-        message: `Claimed artifact format '${format}' was not exercised.`,
-      });
-
   const evidence = new Map<string, (typeof report.evidence)[number]>();
   const artifactOwners = new Map<string, string>();
   for (const item of report.evidence) {
@@ -293,12 +208,7 @@ export function certifyTemplateDescriptor(
         message: `Evidence '${item.check}' does not match target '${descriptor.platform}'.`,
       });
   }
-  const required = [
-    ...universalChecks,
-    ...targetChecks[descriptor.platform],
-    `${descriptor.platform}-system-assets`,
-  ];
-  for (const check of new Set(required)) {
+  for (const check of requiredPlatformCertificationChecks(descriptor)) {
     const item = evidence.get(check);
     if (!item)
       diagnostics.push({

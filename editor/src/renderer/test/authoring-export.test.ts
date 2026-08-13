@@ -19,7 +19,7 @@ describe('authoring export settings', () => {
       includeChecksums: true,
       stripShaderSources: true,
       compileShadersBeforeExport: true,
-      shaderVariants: ['glsl-120', 'essl-100', 'essl-300'],
+      shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
       includeTests: false,
     });
     expect(defaultExportSettings(project).selectedProfileId).toBe('runtime-default');
@@ -31,7 +31,7 @@ describe('authoring export settings', () => {
     expect(normalizeExportProfile({ label: '', shaderVariants: [] }, project)).toMatchObject({
       id: 'runtime-default',
       label: 'Runtime Package',
-      shaderVariants: ['glsl-120', 'essl-100', 'essl-300'],
+      shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
     });
   });
 
@@ -53,5 +53,6 @@ describe('authoring export settings', () => {
     expect(runtimeExportProfileForPlatform(project, 'android').shaderVariants).toEqual([
       'essl-300',
     ]);
+    expect(runtimeExportProfileForPlatform(project, 'macos').shaderVariants).toEqual(['metal']);
   });
 });

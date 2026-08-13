@@ -3,6 +3,7 @@ import {
   certifyTemplateDescriptor,
   PLATFORM_CERTIFICATION_FORMAT,
   PLATFORM_CERTIFICATION_FORMAT_VERSION,
+  requiredPlatformCertificationChecks,
   type PlatformCertificationReport,
 } from '../../shared/project-schema/platform-export-certification';
 import { parseTemplateDescriptor } from '../../shared/project-schema/platform-export-contracts';
@@ -36,38 +37,7 @@ const descriptor = parseTemplateDescriptor({
   provenance: { provider: 'local', source: 'test' },
 });
 
-const checks = [
-  'artifact-claims',
-  'descriptor-file-roles',
-  'runtime-closure',
-  'grouped-transaction-rollback',
-  'fixture-launch',
-  'input',
-  'rendering',
-  'rmlui',
-  'lua',
-  'fonts',
-  'images',
-  'audio',
-  'navigation',
-  'save-reload',
-  'clean-shutdown',
-  'fatal-startup-diagnostics',
-  'compatible-update',
-  'incompatible-api-rejected',
-  'debug-release-separation',
-  'development-surfaces-absent',
-  'symbols-build-id',
-  'third-party-notices',
-  'sbom',
-  'reproducibility',
-  'web-root-path',
-  'web-subdirectory-path',
-  'web-persistence',
-  'web-two-games-one-origin',
-  'web-service-worker-update',
-  'web-system-assets',
-];
+const checks = requiredPlatformCertificationChecks(descriptor);
 const report = (): PlatformCertificationReport => ({
   format: PLATFORM_CERTIFICATION_FORMAT,
   formatVersion: PLATFORM_CERTIFICATION_FORMAT_VERSION,
@@ -100,11 +70,6 @@ const report = (): PlatformCertificationReport => ({
   exercised: {
     packageApis: [2],
     playerConfigApis: [2],
-    capabilities: ['network.client'],
-    artifactFormats: ['directory', 'zip'],
-    graphicsBackends: ['webgl2'],
-    shaderVariants: ['essl-300'],
-    compiledFeatures: [],
     packageAccessModes: ['web-fetch'],
   },
   evidence: checks.map((check, index) => ({
@@ -135,18 +100,45 @@ describe('platform export certification gate', () => {
       certified: true,
       diagnostics: [],
     }));
-  it('rejects an unexercised claim and a skipped launch check', () => {
+  it('rejects an unexercised package API and a failed required release check', () => {
     const value = report();
-    value.exercised.capabilities = [];
-    value.evidence.find((item) => item.check === 'fixture-launch')!.status = 'skipped';
+    value.exercised.packageApis = [];
+    value.evidence.find((item) => item.check === 'canonical-export')!.status = 'failed';
     const result = certifyTemplateDescriptor(descriptor, value);
     expect(result.certified).toBe(false);
     expect(result.diagnostics.map((item) => item.code)).toEqual(
       expect.arrayContaining([
-        'certification-capability-unexercised',
+        'certification-package-api-unexercised',
         'certification-check-not-passed',
       ]),
     );
+  });
+  it('does not encode exhaustive runtime feature declarations as platform exercise evidence', () => {
+    expect(Object.keys(report().exercised).sort()).toEqual([
+      'packageAccessModes',
+      'packageApis',
+      'playerConfigApis',
+    ]);
+  });
+  it('rejects a package access mode that the certified template does not declare', () => {
+    const value = report();
+    value.exercised.packageAccessModes = ['sidecar'];
+    expect(certifyTemplateDescriptor(descriptor, value).diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'certification-report-invalid' }),
+    );
+  });
+  it('requires bundletool evidence only for Android templates that publish AABs', () => {
+    const androidWithAab = {
+      ...descriptor,
+      platform: 'android',
+      android: { artifactKinds: ['apk', 'aab'] },
+    } as unknown as Parameters<typeof requiredPlatformCertificationChecks>[0];
+    const androidApkOnly = {
+      ...androidWithAab,
+      android: { artifactKinds: ['apk'] },
+    } as Parameters<typeof requiredPlatformCertificationChecks>[0];
+    expect(requiredPlatformCertificationChecks(androidWithAab)).toContain('android-bundletool');
+    expect(requiredPlatformCertificationChecks(androidApkOnly)).not.toContain('android-bundletool');
   });
   it('treats documented host gaps as non-certified rather than silently green', () => {
     const value = report();

@@ -12,8 +12,8 @@ const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const scriptcVersion = '0.0.26';
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
-const releasePreset = isWindows ? 'windows-release' : 'linux-release';
-const releaseTriplet = isWindows ? 'x64-windows-static-noveltea' : 'x64-linux-noveltea';
+const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
+const releaseTriplet = isWindows ? 'x64-mingw-static-noveltea' : 'x64-linux-noveltea';
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'dist', 'main.js');
 const vitePlusEntrypoint = path.join(editorRoot, 'node_modules', 'vite-plus', 'bin', 'vp');
@@ -82,10 +82,25 @@ if (!existsSync(scriptcEntrypoint))
 if (!existsSync(vitePlusEntrypoint))
   throw new Error('Vite+ is not installed. Run pnpm install first.');
 
-const clangCheck = spawnSync('clang', ['--version'], { encoding: 'utf8' });
-if (clangCheck.error?.code === 'ENOENT' || clangCheck.status !== 0)
-  throw new Error('NovelTea CLI release builds require clang on PATH for scriptc.');
-if (clangCheck.error) throw clangCheck.error;
+if (isWindows) {
+  for (const compiler of ['gcc', 'g++']) {
+    const check = spawnSync(compiler, ['--version'], { encoding: 'utf8' });
+    if (check.error?.code === 'ENOENT' || check.status !== 0)
+      throw new Error(`NovelTea Windows CLI release builds require MinGW ${compiler} on PATH.`);
+    if (check.error) throw check.error;
+    const targetCheck = spawnSync(compiler, ['-dumpmachine'], { encoding: 'utf8' });
+    if (targetCheck.error) throw targetCheck.error;
+    if (targetCheck.status !== 0 || !/mingw/i.test(targetCheck.stdout.trim()))
+      throw new Error(
+        `NovelTea Windows CLI release builds require a MinGW GNU compiler; ${compiler} targets '${targetCheck.stdout.trim() || 'unknown'}'.`,
+      );
+  }
+} else {
+  const clangCheck = spawnSync('clang', ['--version'], { encoding: 'utf8' });
+  if (clangCheck.error?.code === 'ENOENT' || clangCheck.status !== 0)
+    throw new Error('NovelTea Linux CLI release builds require clang on PATH for ScriptC.');
+  if (clangCheck.error) throw clangCheck.error;
+}
 
 const versionCheck = spawnSync(process.execPath, [scriptcEntrypoint, '--version'], {
   cwd: editorRoot,
@@ -98,6 +113,19 @@ if (versionCheck.status !== 0 || versionCheck.stdout.trim() !== scriptcVersion)
   );
 
 const buildEnv = { ...process.env, NODE_ENV: 'production' };
+const scriptcBuildEnv = isWindows
+  ? {
+      ...buildEnv,
+      SCRIPTC_CC: 'zigcc',
+      SCRIPTC_TARGET: 'x86_64-windows-gnu',
+    }
+  : buildEnv;
+if (isWindows) {
+  const zigCheck = spawnSync('zig', ['version'], { encoding: 'utf8' });
+  if (zigCheck.error?.code === 'ENOENT' || zigCheck.status !== 0)
+    throw new Error('NovelTea Windows CLI release builds require Zig on PATH for ScriptC.');
+  if (zigCheck.error) throw zigCheck.error;
+}
 const prebuiltShadercRoot = process.env.NOVELTEA_PREBUILT_SHADERC_ROOT;
 const shadercProviderArguments = prebuiltShadercRoot
   ? [`-DNOVELTEA_PREBUILT_SHADERC_ROOT=${prebuiltShadercRoot}`]
@@ -140,7 +168,10 @@ run(
   [
     '--preset',
     releasePreset,
+    '-G',
+    'Ninja',
     '-DBUILD_TESTING=OFF',
+    '-DNOVELTEA_BUILD_HOST_TOOLS=ON',
     '-DNOVELTEA_COMPILE_SHADERS=OFF',
     '-DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF',
     ...shadercProviderArguments,
@@ -192,6 +223,24 @@ function archive(...candidates) {
 function staticArchive(root, name) {
   return archive(path.join(root, `${name}.lib`), path.join(root, `lib${name}.a`));
 }
+
+function compilerLibrary(command, argument, label) {
+  const result = spawnSync(command, [argument], { encoding: 'utf8' });
+  if (result.error) throw result.error;
+  const candidate = result.stdout.trim();
+  if (result.status !== 0 || !candidate || candidate === label || !existsSync(candidate))
+    throw new Error(`MinGW ${label} archive is unavailable from ${command} ${argument}.`);
+  return candidate;
+}
+
+const windowsGnuRuntimeLibraries = isWindows
+  ? [
+      compilerLibrary('g++', '-print-file-name=libstdc++.a', 'libstdc++.a'),
+      compilerLibrary('gcc', '-print-libgcc-file-name', 'libgcc.a'),
+      compilerLibrary('gcc', '-print-file-name=libgcc_eh.a', 'libgcc_eh.a'),
+      compilerLibrary('gcc', '-print-file-name=libwinpthread.a', 'libwinpthread.a'),
+    ]
+  : [];
 
 const libraries = [
   staticArchive(editorToolRoot, 'noveltea_tooling_native'),
@@ -249,6 +298,7 @@ const libraries = [
       path.join(root, 'libbx.a'),
     ]),
   ),
+  ...windowsGnuRuntimeLibraries,
 ];
 
 const outputDirectory = path.join(repositoryRoot, 'build', 'cli', releasePlatform);
@@ -314,7 +364,7 @@ try {
   const stagedHostSource = (await readFile(hostSource, 'utf8'))
     .replace('../src/cli/static-contracts', './static-contracts')
     .replace(
-      '      // @ts-expect-error The private island package is materialized only during release staging.\n',
+      '      // @ts-expect-error The private island package is materialized only during release staging.',
       '',
     );
   const stagedStaticContractsSource = (await readFile(staticContractsSource, 'utf8')).replace(
@@ -366,7 +416,7 @@ try {
       outputPath,
       '--no-keep-c',
     ],
-    { cwd: stageRoot, env: buildEnv },
+    { cwd: stageRoot, env: scriptcBuildEnv },
   );
   run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', outputPath], { env: buildEnv });
 } finally {

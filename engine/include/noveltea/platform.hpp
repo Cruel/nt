@@ -17,9 +17,15 @@ struct PlatformConfig {
     bool vsync = true;
 };
 
+enum class NativeWindowHandleType : std::uint8_t {
+    Default,
+    Wayland,
+};
+
 struct NativeWindowHandles {
     void* display = nullptr;
     void* window = nullptr;
+    NativeWindowHandleType type = NativeWindowHandleType::Default;
 };
 
 class Platform {

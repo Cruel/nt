@@ -32,6 +32,13 @@ bool compileShader(const char* varying, const char* comment, char* shader, std::
 #include <system_error>
 #include <utility>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 namespace noveltea {
 namespace {
 
@@ -59,6 +66,32 @@ constexpr std::uint64_t fnv_prime = 1099511628211ull;
 [[nodiscard]] std::string shaderc_stage_type(ShaderStage stage)
 {
     return stage == ShaderStage::Vertex ? "vertex" : "fragment";
+}
+
+[[nodiscard]] std::string path_utf8(const std::filesystem::path& path)
+{
+    const auto encoded = path.generic_u8string();
+    return std::string(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+}
+
+[[nodiscard]] std::filesystem::path path_from_utf8(std::string_view value)
+{
+#if defined(_WIN32)
+    if (value.empty())
+        return {};
+    const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                             static_cast<int>(value.size()), nullptr, 0);
+    if (required <= 0)
+        return {};
+    std::wstring wide(static_cast<std::size_t>(required), L'\0');
+    const int written = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                            static_cast<int>(value.size()), wide.data(), required);
+    if (written != required)
+        return {};
+    return std::filesystem::path(std::move(wide));
+#else
+    return std::filesystem::path(value);
+#endif
 }
 
 [[nodiscard]] std::string hash_hex(std::string_view value)
@@ -109,7 +142,7 @@ constexpr std::uint64_t fnv_prime = 1099511628211ull;
         return options.project_root / source.substr(std::string_view("project:/").size());
     if (starts_with(source, "system:/"))
         return options.project_root / source.substr(std::string_view("system:/").size());
-    return std::filesystem::path(source);
+    return path_from_utf8(source);
 }
 
 [[nodiscard]] std::string shell_quote(const std::string& value)
@@ -191,6 +224,82 @@ materialize_embedded_bgfx_resources(const std::filesystem::path& cache_root)
     return root;
 }
 
+#if defined(_WIN32)
+[[nodiscard]] bool shader_include_candidate(const std::filesystem::path& path)
+{
+    const auto extension = path.extension().generic_string();
+    return extension == ".sc" || extension == ".glsl" || extension == ".vert" ||
+           extension == ".frag" || extension == ".vs" || extension == ".fs" ||
+           extension == ".sh" || extension == ".inc";
+}
+
+[[nodiscard]] bool copy_shader_include_tree(const std::filesystem::path& source_root,
+                                            const std::filesystem::path& destination_root)
+{
+    std::error_code root_error;
+    if (!std::filesystem::is_directory(source_root, root_error) || root_error)
+        return true;
+
+    std::error_code iteration_error;
+    std::filesystem::recursive_directory_iterator iterator(
+        source_root, std::filesystem::directory_options::skip_permission_denied, iteration_error);
+    const std::filesystem::recursive_directory_iterator end;
+    while (!iteration_error && iterator != end) {
+        const auto entry = *iterator;
+        std::error_code type_error;
+        if (entry.is_regular_file(type_error) && !type_error && shader_include_candidate(entry.path())) {
+            std::error_code relative_error;
+            const auto relative = std::filesystem::relative(entry.path(), source_root, relative_error);
+            if (relative_error)
+                return false;
+            const auto destination = destination_root / relative;
+            std::error_code directory_error;
+            std::filesystem::create_directories(destination.parent_path(), directory_error);
+            if (directory_error)
+                return false;
+            std::error_code copy_error;
+            std::filesystem::copy_file(entry.path(), destination,
+                                       std::filesystem::copy_options::overwrite_existing, copy_error);
+            if (copy_error)
+                return false;
+        }
+        iterator.increment(iteration_error);
+    }
+    return !iteration_error;
+}
+
+struct ScopedDirectoryCleanup {
+    std::filesystem::path path;
+    ~ScopedDirectoryCleanup()
+    {
+        std::error_code error;
+        std::filesystem::remove_all(path, error);
+    }
+};
+
+[[nodiscard]] std::optional<std::filesystem::path>
+narrow_shaderc_stage_path(const std::filesystem::path& native_path)
+{
+    const auto utf8 = path_utf8(native_path);
+    if (std::all_of(utf8.begin(), utf8.end(), [](unsigned char ch) { return ch < 0x80; }))
+        return native_path;
+
+    const DWORD required = GetShortPathNameW(native_path.c_str(), nullptr, 0);
+    if (required == 0)
+        return std::nullopt;
+    std::wstring short_path(static_cast<std::size_t>(required), L'\0');
+    const DWORD written = GetShortPathNameW(native_path.c_str(), short_path.data(), required);
+    if (written == 0 || written >= required)
+        return std::nullopt;
+    short_path.resize(static_cast<std::size_t>(written));
+    const std::filesystem::path alias(std::move(short_path));
+    const auto alias_utf8 = path_utf8(alias);
+    if (!std::all_of(alias_utf8.begin(), alias_utf8.end(), [](unsigned char ch) { return ch < 0x80; }))
+        return std::nullopt;
+    return alias;
+}
+#endif
+
 [[nodiscard]] ProcessResult run_embedded_shaderc(const std::vector<std::string>& args,
                                                  ShaderStage stage,
                                                  const ShaderCompileVariant& variant,
@@ -222,10 +331,46 @@ materialize_embedded_bgfx_resources(const std::filesystem::path& cache_root)
     native_options.shaderType = stage == ShaderStage::Vertex ? 'v' : 'f';
     native_options.platform = variant.platform;
     native_options.profile = variant.profile;
-    native_options.inputFilePath = source_path.string();
-    native_options.outputFilePath = output_path.string();
-    native_options.includeDirs = {source_path.parent_path().string(), project_root.string(),
-                                  include_root.string()};
+#if defined(_WIN32)
+    const auto stage_key = hash_hex(path_utf8(source_path) + ":" + variant.name + ":" +
+                                    std::string(to_string(stage)));
+    const auto stage_root =
+        std::filesystem::temp_directory_path() / "noveltea-shaderc" / stage_key;
+    ScopedDirectoryCleanup stage_cleanup{stage_root};
+    std::error_code reset_error;
+    std::filesystem::remove_all(stage_root, reset_error);
+    std::error_code stage_error;
+    std::filesystem::create_directories(stage_root, stage_error);
+    if (stage_error)
+        return {.exit_code = -1, .output = "failed to create narrow shaderc staging directory"};
+
+    const auto staged_source_root = stage_root / "source";
+    const auto staged_project_root = stage_root / "project";
+    const auto staged_include_root = stage_root / "include";
+    if (!copy_shader_include_tree(source_path.parent_path(), staged_source_root) ||
+        !copy_shader_include_tree(project_root, staged_project_root) ||
+        !copy_shader_include_tree(include_root, staged_include_root)) {
+        return {.exit_code = -1, .output = "failed to stage shader include inputs"};
+    }
+    const auto staged_input = staged_source_root / "input.sc";
+    if (!write_text_file_if_changed(staged_input, normalized_source))
+        return {.exit_code = -1, .output = "failed to stage shader source"};
+
+    const auto narrow_root = narrow_shaderc_stage_path(stage_root);
+    if (!narrow_root)
+        return {.exit_code = -1,
+                .output = "Windows temporary path cannot be represented safely for embedded shaderc"};
+    native_options.inputFilePath = path_utf8(*narrow_root / "source" / "input.sc");
+    native_options.outputFilePath = path_utf8(*narrow_root / "output.bin");
+    native_options.includeDirs = {path_utf8(*narrow_root / "source"),
+                                  path_utf8(*narrow_root / "project"),
+                                  path_utf8(*narrow_root / "include")};
+#else
+    native_options.inputFilePath = path_utf8(source_path);
+    native_options.outputFilePath = path_utf8(output_path);
+    native_options.includeDirs = {path_utf8(source_path.parent_path()), path_utf8(project_root),
+                                  path_utf8(include_root)};
+#endif
 
     std::string comment = "// shaderc command line:\n//";
     for (const auto& arg : args) {
@@ -455,7 +600,7 @@ source_path_for_stage(const ShaderDefinition& shader, const ShaderStageDefinitio
         add_diagnostic(diagnostics, ShaderCompileSeverity::Error,
                        ShaderCompileDiagnosticCode::MissingSource, shader.id, stage.stage, {},
                        source_path, {}, {}, 0,
-                       "Shader source file does not exist: '" + source_path.string() + "'.");
+                       "Shader source file does not exist: '" + path_utf8(source_path) + "'.");
         return std::nullopt;
     }
     return source_path;
@@ -507,6 +652,8 @@ std::optional<ShaderCompileVariant> shader_compile_variant_from_name(std::string
         return ShaderCompileVariant{.name = "essl-100", .platform = "asm.js", .profile = "100_es"};
     if (name == "essl-300")
         return ShaderCompileVariant{.name = "essl-300", .platform = "android", .profile = "300_es"};
+    if (name == "metal")
+        return ShaderCompileVariant{.name = "metal", .platform = "osx", .profile = "metal"};
     return std::nullopt;
 }
 
@@ -556,7 +703,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                 add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
                                ShaderCompileDiagnosticCode::SourceReadFailed, shader.id,
                                stage.stage, {}, *source_path, {}, {}, 0,
-                               "Failed to read shader source file: '" + source_path->string() +
+                               "Failed to read shader source file: '" + path_utf8(*source_path) +
                                    "'.");
                 continue;
             }
@@ -594,7 +741,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                             {"shader", shader.id.string()},
                             {"stage", to_string(stage.stage)},
                             {"variant", variant.name},
-                            {"source", source_path->generic_string()},
+                            {"source", path_utf8(*source_path)},
                             {"byteHash", metadata->byte_hash},
                             {"byteSize", metadata->byte_size},
                         });
@@ -629,9 +776,9 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                 const std::vector<std::string> args = {
                     "shaderc",
                     "-f",
-                    source_path->string(),
+                    path_utf8(*source_path),
                     "-o",
-                    output_path.string(),
+                    path_utf8(output_path),
                     "--type",
                     shaderc_stage_type(stage.stage),
                     "--platform",
@@ -639,14 +786,14 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     "--profile",
                     variant.profile,
                     "--varyingdef",
-                    varying_path.string(),
+                    path_utf8(varying_path),
                     "-i",
-                    source_path->parent_path().string(),
+                    path_utf8(source_path->parent_path()),
                     "-i",
-                    options.project_root.string(),
+                    path_utf8(options.project_root),
                     "-i",
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
-                    embedded_include_root->string(),
+                    path_utf8(*embedded_include_root),
 #else
                     std::string{},
 #endif
@@ -690,7 +837,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     {"shader", shader.id.string()},
                     {"stage", to_string(stage.stage)},
                     {"variant", variant.name},
-                    {"source", source_path->generic_string()},
+                    {"source", path_utf8(*source_path)},
                     {"byteHash", metadata->byte_hash},
                     {"byteSize", metadata->byte_size},
                 });

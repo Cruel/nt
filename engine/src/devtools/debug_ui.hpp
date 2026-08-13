@@ -40,14 +40,16 @@ public:
     void log_printf(const char* fmt, ...);
 
 private:
-    [[maybe_unused]] bool m_initialized = false;
     bool m_visible = true;
+#if defined(NOVELTEA_HAS_IMGUI)
+    bool m_initialized = false;
     std::string m_ini_path;
-    [[maybe_unused]] float m_web_ini_sync_timer = 0.0f;
-    [[maybe_unused]] char m_log_buffer[4096] = {};
-    [[maybe_unused]] int m_log_len = 0;
-    [[maybe_unused]] void* m_bgfx_backend = nullptr;
-    [[maybe_unused]] const assets::AssetManager* m_assets = nullptr;
+    float m_web_ini_sync_timer = 0.0f;
+    char m_log_buffer[4096] = {};
+    int m_log_len = 0;
+    void* m_bgfx_backend = nullptr;
+    const assets::AssetManager* m_assets = nullptr;
+#endif
 };
 
 } // namespace noveltea

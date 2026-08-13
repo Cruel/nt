@@ -71,7 +71,18 @@ for (const descriptorName of descriptorNames) {
       `${descriptor.templateId}@${descriptor.buildId} requires exactly one certification report; found ${matches.length}.`,
     );
   }
-  requireFile(matches[0]);
+  const reportName = matches[0];
+  requireFile(reportName);
+  requireFile(`noveltea-certification-results-${descriptor.templateId}.json`);
+  const report = JSON.parse(readFileSync(path.join(directory, reportName), 'utf8'));
+  for (const evidence of report.evidence ?? []) {
+    if (path.basename(evidence.artifact) !== evidence.artifact) {
+      throw new Error(
+        `${reportName} references non-top-level certification evidence '${evidence.artifact}'.`,
+      );
+    }
+    requireFile(evidence.artifact);
+  }
 }
 
 for (const name of [
@@ -88,10 +99,15 @@ for (const name of [
 if (present.has('SHA256SUMS')) required.add('SHA256SUMS');
 
 for (const name of names) {
+  const certificationArtifact =
+    name.startsWith('noveltea-platform-certification-') ||
+    name.startsWith('noveltea-certification-results-') ||
+    name.startsWith('noveltea-certification-evidence-');
   if (
-    /^(?:noveltea-(?:editor|player-template|player-symbols)-|noveltea-v.*-(?:linux|windows|macos)-)/.test(
-      name,
-    ) &&
+    (certificationArtifact ||
+      /^(?:noveltea-(?:editor|player-template|player-symbols)-|noveltea-v.*-(?:linux|windows|macos)-)/.test(
+        name,
+      )) &&
     !required.has(name)
   ) {
     throw new Error(`Unexpected release artifact: ${name}`);

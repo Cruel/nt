@@ -58,18 +58,28 @@ describe('active Project session lifecycle', () => {
     temporaryRoots.push(creationParent);
     const service = new ActiveProjectSessionService();
 
-    const opened = await service.attachToSuccessfulResult(await openProject(projectA));
+    const openedActivation = service.beginProjectActivation();
+    const opened = await service.attachToSuccessfulResult(
+      await openProject(projectA),
+      openedActivation,
+    );
+    const createdActivation = service.beginProjectActivation();
     const created = await service.attachToSuccessfulResult(
       await createProject({
         projectName: 'created',
         projectDirectory: path.join(creationParent, 'workspace'),
       }),
+      createdActivation,
     );
-    const failed = await service.attachToSuccessfulResult({
-      ok: false,
-      success: false,
-      projectFilePath: path.join(projectB, 'project.json'),
-    });
+    const failedActivation = service.beginProjectActivation();
+    const failed = await service.attachToSuccessfulResult(
+      {
+        ok: false,
+        success: false,
+        projectFilePath: path.join(projectB, 'project.json'),
+      },
+      failedActivation,
+    );
 
     expect(opened.projectSessionId).toBeDefined();
     expect(created.projectSessionId).not.toBe(opened.projectSessionId);
@@ -90,6 +100,61 @@ describe('active Project session lifecycle', () => {
     ).rejects.toThrow();
 
     expect(service.currentSessionId()).toBe(sessionA);
+  });
+
+  it('does not reactivate a Project when close revokes an in-flight lifecycle activation', async () => {
+    const project = await createWorkspace('close-in-flight');
+    const projectFilePath = path.join(project, 'project.json');
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const originalRealpath = fs.realpath.bind(fs);
+    let entered!: () => void;
+    let release!: () => void;
+    const enteredGate = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const activationGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(fs, 'realpath').mockImplementation(async (value) => {
+      if (path.resolve(String(value)) === projectFilePath) {
+        entered();
+        await activationGate;
+      }
+      return originalRealpath(value);
+    });
+
+    const pending = service.attachToSuccessfulResult(
+      { success: true, projectFilePath },
+      activation,
+    );
+    await enteredGate;
+    service.closeActiveProject();
+    release();
+
+    await expect(pending).rejects.toThrow('Project activation was superseded.');
+    expect(service.currentSessionId()).toBeNull();
+  });
+
+  it('allows only the newest concurrent Project activation to publish authority', async () => {
+    const projectA = await createWorkspace('activation-a');
+    const projectB = await createWorkspace('activation-b');
+    const service = new ActiveProjectSessionService();
+    const activationA = service.beginProjectActivation();
+    const activationB = service.beginProjectActivation();
+
+    const resultB = await service.attachToSuccessfulResult(
+      { success: true, projectFilePath: path.join(projectB, 'project.json') },
+      activationB,
+    );
+    await expect(
+      service.attachToSuccessfulResult(
+        { success: true, projectFilePath: path.join(projectA, 'project.json') },
+        activationA,
+      ),
+    ).rejects.toThrow('Project activation was superseded.');
+
+    expect(service.currentSessionId()).toBe(resultB.projectSessionId);
   });
 
   it('rejects random, prior-Project, closed, and disposed sessions before filesystem access', async () => {

@@ -12,8 +12,10 @@ if(NOVELTEA_ENABLE_SANITIZERS)
         add_compile_options(/fsanitize=address /Oy-)
         add_link_options(/fsanitize=address)
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
-        add_link_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+        # NovelTea intentionally disables C++ RTTI. UBSan's vptr check requires RTTI/typeinfo
+        # and otherwise emits unresolved typeinfo references into sanitized first-party objects.
+        add_compile_options(-fsanitize=address,undefined -fno-sanitize=vptr -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address,undefined -fno-sanitize=vptr -fno-omit-frame-pointer)
     else()
         message(FATAL_ERROR "Sanitizer mode is unsupported by ${CMAKE_CXX_COMPILER_ID}")
     endif()

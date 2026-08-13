@@ -232,7 +232,7 @@ export async function validateCliProject(
           projectRoot: snapshot.projectRoot,
           outputRoot: path.join(snapshot.projectRoot, '.noveltea', 'build'),
           cacheRoot: path.join(snapshot.projectRoot, '.noveltea', 'cache'),
-          shaderVariants: ['glsl-120', 'essl-100', 'essl-300'],
+          shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
         });
         diagnostics.push(
           ...(response.diagnostics ?? []).map((item) =>

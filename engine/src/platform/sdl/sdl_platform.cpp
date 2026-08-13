@@ -1,6 +1,9 @@
 #include "noveltea/platform.hpp"
 
 #include <SDL3/SDL.h>
+#if defined(__APPLE__)
+#include <SDL3/SDL_metal.h>
+#endif
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -24,6 +27,10 @@ struct WebPointerEventScale {
 
 struct PlatformState {
     SDL_Window* window = nullptr;
+#if defined(__APPLE__)
+    SDL_MetalView metal_view = nullptr;
+    void* metal_layer = nullptr;
+#endif
     std::vector<SDL_Event> events;
     std::string canvas_selector;
 #if defined(__EMSCRIPTEN__)
@@ -158,6 +165,9 @@ bool Platform::initialize(const PlatformConfig& config)
 #endif
 
     Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_EVENTS;
+#if defined(_WIN32) || defined(__APPLE__)
+    std::fprintf(stderr, "[platform] starting SDL initialization\n");
+#endif
     if (!SDL_Init(flags)) {
         std::fprintf(stderr, "[platform] SDL_Init failed: %s\n", SDL_GetError());
         return false;
@@ -165,6 +175,42 @@ bool Platform::initialize(const PlatformConfig& config)
 
     m_surface = make_host_surface_metrics(config.width, config.height, config.width, config.height);
 
+#if defined(_WIN32) || defined(__APPLE__)
+    // bgfx owns the native graphics context. Tell SDL which API the native window must support,
+    // while keeping context creation and lifetime outside SDL.
+    const SDL_PropertiesID window_properties = SDL_CreateProperties();
+    if (window_properties == 0) {
+        std::fprintf(stderr, "[platform] SDL_CreateProperties failed: %s\n", SDL_GetError());
+        SDL_Quit();
+        return false;
+    }
+    const bool properties_ok =
+        SDL_SetStringProperty(window_properties, SDL_PROP_WINDOW_CREATE_TITLE_STRING,
+                              config.title) &&
+        SDL_SetNumberProperty(window_properties, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER,
+                              m_surface.logical_size.width) &&
+        SDL_SetNumberProperty(window_properties, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER,
+                              m_surface.logical_size.height) &&
+        SDL_SetBooleanProperty(window_properties, SDL_PROP_WINDOW_CREATE_RESIZABLE_BOOLEAN,
+                               config.resizable) &&
+        SDL_SetBooleanProperty(window_properties,
+                               SDL_PROP_WINDOW_CREATE_EXTERNAL_GRAPHICS_CONTEXT_BOOLEAN, true)
+#if defined(__APPLE__)
+        && SDL_SetBooleanProperty(window_properties, SDL_PROP_WINDOW_CREATE_METAL_BOOLEAN, true)
+#endif
+        ;
+    if (!properties_ok) {
+        std::fprintf(stderr, "[platform] SDL window property setup failed: %s\n", SDL_GetError());
+        SDL_DestroyProperties(window_properties);
+        SDL_Quit();
+        return false;
+    }
+#if defined(_WIN32) || defined(__APPLE__)
+    std::fprintf(stderr, "[platform] creating SDL window with external graphics context\n");
+#endif
+    m_state->window = SDL_CreateWindowWithProperties(window_properties);
+    SDL_DestroyProperties(window_properties);
+#else
     SDL_WindowFlags win_flags = config.resizable ? SDL_WINDOW_RESIZABLE : 0;
 #if defined(__EMSCRIPTEN__)
     // The browser shell owns CSS size, DPR, and retained drawing-buffer capacity. Letting SDL's
@@ -173,11 +219,37 @@ bool Platform::initialize(const PlatformConfig& config)
 #endif
     m_state->window = SDL_CreateWindow(config.title, m_surface.logical_size.width,
                                        m_surface.logical_size.height, win_flags);
+#endif
     if (!m_state->window) {
         std::fprintf(stderr, "[platform] SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
         return false;
     }
+
+#if defined(_WIN32)
+    std::fprintf(stderr, "[platform] SDL window created; bgfx owns WGL setup\n");
+#elif defined(__APPLE__)
+    std::fprintf(stderr, "[platform] SDL window created; creating Metal view\n");
+    m_state->metal_view = SDL_Metal_CreateView(m_state->window);
+    if (!m_state->metal_view) {
+        std::fprintf(stderr, "[platform] SDL_Metal_CreateView failed: %s\n", SDL_GetError());
+        SDL_DestroyWindow(m_state->window);
+        m_state->window = nullptr;
+        SDL_Quit();
+        return false;
+    }
+    m_state->metal_layer = SDL_Metal_GetLayer(m_state->metal_view);
+    if (!m_state->metal_layer) {
+        std::fprintf(stderr, "[platform] SDL_Metal_GetLayer failed\n");
+        SDL_Metal_DestroyView(m_state->metal_view);
+        m_state->metal_view = nullptr;
+        SDL_DestroyWindow(m_state->window);
+        m_state->window = nullptr;
+        SDL_Quit();
+        return false;
+    }
+    std::fprintf(stderr, "[platform] Metal layer ready: %p\n", m_state->metal_layer);
+#endif
 
     m_last_tick = SDL_GetTicks();
     m_quit = false;
@@ -309,8 +381,30 @@ NativeWindowHandles Platform::native_window_handles() const
         return handles;
     }
 
-    std::fprintf(stderr, "[platform] X11 native handles unavailable. Try running "
-                         "with SDL_VIDEODRIVER=x11.\n");
+    handles.display =
+        SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, nullptr);
+    handles.window =
+        SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, nullptr);
+    if (handles.display && handles.window) {
+        handles.type = NativeWindowHandleType::Wayland;
+        return handles;
+    }
+
+    std::fprintf(stderr,
+                 "[platform] Linux native window handles unavailable for X11 and Wayland.\n");
+#elif defined(_WIN32)
+    SDL_PropertiesID props = SDL_GetWindowProperties(m_state->window);
+    handles.window = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+    if (!handles.window)
+        std::fprintf(stderr, "[platform] Win32 HWND unavailable\n");
+    else
+        std::fprintf(stderr, "[platform] Win32 HWND ready: %p\n", handles.window);
+#elif defined(__APPLE__)
+    handles.window = m_state->metal_layer;
+    if (!handles.window)
+        std::fprintf(stderr, "[platform] CAMetalLayer unavailable\n");
+    else
+        std::fprintf(stderr, "[platform] CAMetalLayer ready: %p\n", handles.window);
 #else
     handles.window = m_state->window;
 #endif
@@ -323,6 +417,13 @@ void Platform::shutdown()
     if (!m_state->window)
         return;
 
+#if defined(__APPLE__)
+    if (m_state->metal_view) {
+        SDL_Metal_DestroyView(m_state->metal_view);
+        m_state->metal_view = nullptr;
+        m_state->metal_layer = nullptr;
+    }
+#endif
     SDL_DestroyWindow(m_state->window);
     m_state->window = nullptr;
     SDL_Quit();

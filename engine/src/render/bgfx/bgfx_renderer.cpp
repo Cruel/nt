@@ -382,12 +382,20 @@ bool Renderer::initialize(const RendererConfig& config)
     bgfx::PlatformData pd{};
     pd.ndt = config.native_display;
     pd.nwh = config.native_window;
+    pd.type = config.native_window_type == NativeWindowHandleType::Wayland
+                  ? bgfx::NativeWindowHandleType::Wayland
+                  : bgfx::NativeWindowHandleType::Default;
 
     bgfx::Init init;
-#if defined(NOVELTEA_PLATFORM_DESKTOP)
+#if defined(__APPLE__) && defined(NOVELTEA_PLATFORM_DESKTOP)
+    init.type = bgfx::RendererType::Metal;
+    constexpr const char* requested_renderer = "Metal";
+#elif defined(NOVELTEA_PLATFORM_DESKTOP)
     init.type = bgfx::RendererType::OpenGL;
+    constexpr const char* requested_renderer = "OpenGL";
 #else
     init.type = bgfx::RendererType::Count; // auto-detect (Android: GLES, Web: GLES/WebGL)
+    constexpr const char* requested_renderer = "auto";
 #endif
     init.platformData = pd;
     init.callback = &s_renderer_callback;
@@ -400,10 +408,13 @@ bool Renderer::initialize(const RendererConfig& config)
     // matching the upstream GL3 renderer's normal-backbuffer final pass.
     init.resolution.reset = (config.vsync ? BGFX_RESET_VSYNC : 0);
 
+    SDL_Log("[renderer] starting bgfx::init requested=%s window=%p display=%p", requested_renderer,
+            config.native_window, config.native_display);
     if (!bgfx::init(init)) {
         std::fprintf(stderr, "[renderer] bgfx::init failed\n");
         return false;
     }
+    SDL_Log("[renderer] bgfx core initialized: %s", renderer_name());
 
     m_presentation = presentation;
     m_backbuffer_size = backbuffer_size;
@@ -417,12 +428,15 @@ bool Renderer::initialize(const RendererConfig& config)
                        1.0f, 0);
 
     create_2d();
+    SDL_Log("[renderer] 2d resources initialized");
     if (!prepare_ordinary_world_surface()) {
         std::fprintf(stderr, "[renderer] failed to create ordinary world color target\n");
         shutdown();
         return false;
     }
+    SDL_Log("[renderer] ordinary world surface initialized");
     create_text();
+    SDL_Log("[renderer] text resources initialized");
 
     SDL_Log("[renderer] bgfx initialized: %s %s", renderer_name(),
             format_presentation_metrics(m_presentation).c_str());

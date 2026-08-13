@@ -336,7 +336,7 @@ export const templateDescriptorSchema = z
     graphicsBackends: z
       .array(z.enum(['direct3d11', 'metal', 'opengl', 'opengles', 'webgl2', 'vulkan']))
       .min(1),
-    shaderVariants: z.array(z.enum(['glsl-120', 'essl-100', 'essl-300'])).min(1),
+    shaderVariants: z.array(z.enum(['glsl-120', 'essl-100', 'essl-300', 'metal'])).min(1),
     runtimePackageApi: runtimePackageApiRangeSchema,
     playerConfigApi: runtimePackageApiRangeSchema,
     compiledFeatures: z
@@ -672,7 +672,7 @@ export const templateCompatibilityRequirementsSchema = z
     profile: platformExportProfileSchema,
     runtimePackageApi: z.number().int().nonnegative(),
     playerConfigApi: z.number().int().nonnegative().default(PLAYER_CONFIG_FORMAT_VERSION),
-    shaderVariants: z.array(z.enum(['glsl-120', 'essl-100', 'essl-300'])).default([]),
+    shaderVariants: z.array(z.enum(['glsl-120', 'essl-100', 'essl-300', 'metal'])).default([]),
     graphicsBackends: z
       .array(z.enum(['direct3d11', 'metal', 'opengl', 'opengles', 'webgl2', 'vulkan']))
       .default([]),

@@ -1,0 +1,41 @@
+{
+  "formatVersion": 1,
+  "universalChecks": [
+    "artifact-claims",
+    "descriptor-file-integrity",
+    "runtime-closure",
+    "template-install-integrity",
+    "canonical-export",
+    "runtime-package-integrity",
+    "symbols-build-id",
+    "third-party-notices",
+    "sbom"
+  ],
+  "targetChecks": {
+    "web": ["web-browser-launch", "web-root-path", "web-subdirectory-path"],
+    "windows": ["windows-native-launch", "windows-dependency-closure", "windows-resource-metadata"],
+    "linux": [
+      "linux-native-launch",
+      "linux-x11-launch",
+      "linux-wayland-launch",
+      "linux-dependency-closure",
+      "linux-rpath",
+      "linux-desktop-integration",
+      "linux-appimage-launch"
+    ],
+    "macos": ["macos-native-launch", "macos-launchservices-launch", "macos-install-name-closure"],
+    "android": [
+      "android-artifact-inspection",
+      "android-abi-closure",
+      "android-signature-policy",
+      "android-page-alignment"
+    ]
+  },
+  "conditionalChecks": [
+    {
+      "platform": "android",
+      "artifactKind": "aab",
+      "check": "android-bundletool"
+    }
+  ]
+}

@@ -148,11 +148,12 @@ ABI-specific native player once, then stores the resulting shared-library closur
 in the template archive. Project export does not require the NovelTea source tree,
 CMake, the Android NDK, or a C/C++ compiler. Template installation uses the host archive utility,
 and Gradle only merges generated game inputs and resources, packages the prebuilt libraries, and
-signs the requested APK or AAB. Release CI performs one narrow `llvm-readelf` assertion that the
-template libraries retain at least 16 KiB `LOAD` alignment. Architecture and dependency behavior are
-covered by the actual Android build and install/launch certification rather than duplicate ELF
-metadata reports. Per-project export verifies the APK/AAB native-library and ABI closure while
-retaining final ZIP-alignment, manifest, bootstrap, and signing checks.
+signs the requested APK or AAB. Release CI records a narrow `llvm-readelf` certification artifact
+showing that the template libraries retain at least 16 KiB `PT_LOAD` alignment. Per-project release
+qualification verifies APK/AAB bootstrap/package integrity, native-library and ABI closure,
+ZIP alignment, manifest data, signing policy, and pinned-bundletool handling where applicable.
+Actual arm64 device install/launch is a separate `Android arm64 16 KiB certification` workflow and
+is not claimed by the ordinary release platform report unless that device workflow itself ran.
 
 Changing the effective application ID or save namespace after a previous successful platform export
 shows a warning and requires an explicit confirmation before staging. Cancellation performs no

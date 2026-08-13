@@ -61,7 +61,11 @@ void main()
     } else {
         mat2 rotation = mat2(v.x, -v.y, v.y, v.x);
         vec2 delta = rotation * (v_texcoord0 - p);
+#if BGFX_SHADER_LANGUAGE_GLSL
         t = 0.5 + atan(-delta.x, delta.y) / (2.0 * PI);
+#else
+        t = 0.5 + atan2(-delta.x, delta.y) / (2.0 * PI);
+#endif
     }
 
     if (kind == GRADIENT_REPEATING_LINEAR || kind == GRADIENT_REPEATING_RADIAL || kind == GRADIENT_REPEATING_CONIC) {

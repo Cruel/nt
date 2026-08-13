@@ -378,7 +378,7 @@ TextFontAssetLoader::finalize_font_source_on_owner(assets::FontAssetRequest requ
                                                    PreparedFontSource prepared) noexcept
 {
     const std::uint64_t source_bytes = prepared.total_source_bytes();
-    FontFamilySourceBytes sources;
+    FontFamilySourceBytes sources{};
     sources.regular = std::move(prepared.regular);
     sources.bold = std::move(prepared.bold);
     sources.italic = std::move(prepared.italic);

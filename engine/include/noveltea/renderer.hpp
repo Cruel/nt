@@ -1,5 +1,6 @@
 #pragma once
 
+#include "noveltea/platform.hpp"
 #include "noveltea/render/quad_batch.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/rasterization_policy.hpp"
@@ -64,6 +65,7 @@ class BgfxTypedAssetLoader;
 struct RendererConfig {
     void* native_display = nullptr;
     void* native_window = nullptr;
+    NativeWindowHandleType native_window_type = NativeWindowHandleType::Default;
     PresentationMetrics presentation{};
     std::uint32_t bar_color_rgba = 0x000000ff;
     bool vsync = true;

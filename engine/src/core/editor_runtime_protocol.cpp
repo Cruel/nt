@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -273,6 +274,8 @@ std::string_view editor_shader_variant_name(EditorPreviewShaderVariant variant) 
         return "essl-100";
     case EditorPreviewShaderVariant::Essl300:
         return "essl-300";
+    case EditorPreviewShaderVariant::Metal:
+        return "metal";
     }
     return {};
 }
@@ -1465,6 +1468,8 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
                 result.active_shader_variant = EditorPreviewShaderVariant::Essl100;
             else if (*value == "essl-300")
                 result.active_shader_variant = EditorPreviewShaderVariant::Essl300;
+            else if (*value == "metal")
+                result.active_shader_variant = EditorPreviewShaderVariant::Metal;
             else
                 diagnostics.push_back(error("editor_preview.invalid_shader_variant",
                                             "Shader preview active variant is unsupported.",
@@ -1687,6 +1692,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                         entry.shader_variant = EditorPreviewShaderVariant::Essl100;
                     else if (*variant == "essl-300")
                         entry.shader_variant = EditorPreviewShaderVariant::Essl300;
+                    else if (*variant == "metal")
+                        entry.shader_variant = EditorPreviewShaderVariant::Metal;
                     else
                         diagnostics.push_back(error("editor_preview.invalid_shader_variant",
                                                     "Shader variant is unsupported.",

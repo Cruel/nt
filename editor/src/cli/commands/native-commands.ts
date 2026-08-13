@@ -15,7 +15,7 @@ import type { CliSemanticResult } from '../semantic-project';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
 import { CliCommandUsageError } from './types';
 
-const shaderVariantIds = new Set(['glsl-120', 'essl-100', 'essl-300']);
+const shaderVariantIds = new Set(['glsl-120', 'essl-100', 'essl-300', 'metal']);
 
 function nativeFailure(code: string, pathValue: string, response: unknown): CliSemanticResult {
   const record =
@@ -110,7 +110,9 @@ export const shadersCompileCommand: CliCommandDefinition = {
           outputRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'build'),
           cacheRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'cache'),
           shaderVariants:
-            variants.length > 0 ? [...new Set(variants)] : ['glsl-120', 'essl-100', 'essl-300'],
+            variants.length > 0
+              ? [...new Set(variants)]
+              : ['glsl-120', 'essl-100', 'essl-300', 'metal'],
           forceRebuild,
         });
         const result = nativeSuccess(response);

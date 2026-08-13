@@ -13,19 +13,30 @@ import {
   templateRootForToken,
 } from '../../main/services/template-registry-service';
 import { downloadPlayerTemplateForRelease } from '../../main/services/template-download-service';
+import {
+  configurePlatformFileModeService,
+  resetPlatformFileModeService,
+} from '../../main/services/platform-host-service';
 import { parsePlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 
 const roots: string[] = [];
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 afterEach(() => {
+  resetPlatformFileModeService();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
-function archiveFixture(kind: 'tar' | 'zip' = 'tar') {
+function configureModeFallbackHost() {
+  configurePlatformFileModeService(async (_filePath, fallback) => fallback);
+}
+function archiveFixture(
+  kind: 'tar' | 'zip' = 'tar',
+  modes: { stored?: number; declared?: number } = {},
+) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-template-'));
   roots.push(root);
   const content = path.join(root, 'content');
   fs.mkdirSync(path.join(content, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(content, 'bin/player'), 'player', { mode: 0o755 });
+  fs.writeFileSync(path.join(content, 'bin/player'), 'player', { mode: modes.stored ?? 0o755 });
   const player = fs.readFileSync(path.join(content, 'bin/player'));
   const descriptor = {
     format: 'noveltea.player-template',
@@ -48,7 +59,7 @@ function archiveFixture(kind: 'tar' | 'zip' = 'tar') {
       {
         path: 'bin/player',
         size: player.length,
-        mode: fs.statSync(path.join(content, 'bin/player')).mode & 0o777,
+        mode: modes.declared ?? fs.statSync(path.join(content, 'bin/player')).mode & 0o777,
         sha256: hash(player),
       },
     ],
@@ -133,6 +144,15 @@ describe('template registry service', () => {
       'Invalid installed-template token',
     );
     expect(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8')).toBe('keep');
+  });
+  it('uses descriptor modes when the host filesystem cannot preserve POSIX permissions', async () => {
+    const { archive } = archiveFixture('tar', { stored: 0o644, declared: 0o755 });
+    configureModeFallbackHost();
+    const installed = await installPlayerTemplate({
+      archivePath: archive,
+      origin: 'mode-fallback',
+    });
+    expect(installed.success, JSON.stringify(installed.diagnostics)).toBe(true);
   });
   it('installs, discovers, resolves, and removes verified local templates', async () => {
     const { archive } = archiveFixture();

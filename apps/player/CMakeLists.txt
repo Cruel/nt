@@ -12,6 +12,16 @@ target_link_libraries(noveltea-player PRIVATE
 )
 noveltea_attach_runtime_assets(noveltea-player)
 target_compile_definitions(noveltea-player PRIVATE NOVELTEA_PLAYER_BUILD=1)
+if(MSVC)
+    # Release templates publish a build-matched PDB alongside the player archive.
+    # Keep optimizations while asking MSVC/link.exe to retain program-database symbols.
+    target_compile_options(noveltea-player PRIVATE "$<$<CONFIG:Release>:/Zi>")
+    target_link_options(noveltea-player PRIVATE "$<$<CONFIG:Release>:/DEBUG>")
+    set_target_properties(noveltea-player PROPERTIES
+        PDB_NAME "noveltea-player"
+        PDB_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    )
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     target_link_options(noveltea-player PRIVATE
         "LINKER:-z,max-page-size=16384"
@@ -60,10 +70,13 @@ endif()
 noveltea_apply_runtime_compiler_policy(noveltea-player)
 noveltea_apply_policy_warnings(noveltea-player)
 
-set(NOVELTEA_PLAYER_BUILD_ID "${NOVELTEA_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_BUILD_TYPE}")
-file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/player-build.json" CONTENT
-"{\n  \"format\": \"noveltea.player-template-build\",\n  \"formatVersion\": 1,\n  \"engineVersion\": \"${NOVELTEA_VERSION}\",\n  \"buildId\": \"${NOVELTEA_PLAYER_BUILD_ID}\",\n  \"buildFlavor\": \"$<IF:$<CONFIG:Debug>,debug,release>\"\n}\n")
+set(NOVELTEA_PLAYER_BUILD_CONFIGURATION "$<CONFIG>")
+set(NOVELTEA_PLAYER_BUILD_FLAVOR "$<IF:$<CONFIG:Debug>,debug,release>")
+set(NOVELTEA_PLAYER_BUILD_ID "${NOVELTEA_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-${NOVELTEA_PLAYER_BUILD_CONFIGURATION}")
+set(NOVELTEA_PLAYER_BUILD_METADATA "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/player-build.json")
+file(GENERATE OUTPUT "${NOVELTEA_PLAYER_BUILD_METADATA}" CONTENT
+"{\n  \"format\": \"noveltea.player-template-build\",\n  \"formatVersion\": 1,\n  \"engineVersion\": \"${NOVELTEA_VERSION}\",\n  \"buildId\": \"${NOVELTEA_PLAYER_BUILD_ID}\",\n  \"buildFlavor\": \"${NOVELTEA_PLAYER_BUILD_FLAVOR}\"\n}\n")
 add_custom_command(TARGET noveltea-player POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_BINARY_DIR}/player-build.json"
+        "${NOVELTEA_PLAYER_BUILD_METADATA}"
         "$<TARGET_FILE_DIR:noveltea-player>/player-build.json")

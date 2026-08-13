@@ -18,6 +18,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createContext, Script } from 'node:vm';
 import * as ResEdit from 'resedit';
 import { installPlayerTemplate } from '../../main/services/template-registry-service';
+import {
+  configurePlatformFileModeService,
+  resetPlatformFileModeService,
+} from '../../main/services/platform-host-service';
 
 const roots: string[] = [];
 const linuxTemplateArchive = process.env.NOVELTEA_LINUX_TEMPLATE_ARCHIVE;
@@ -26,6 +30,32 @@ const linuxAppImageTool = process.env.NOVELTEA_LINUX_APPIMAGE_TOOL;
 const macosTemplateArchive = process.env.NOVELTEA_MACOS_TEMPLATE_ARCHIVE;
 const macosRuntimePackage = process.env.NOVELTEA_MACOS_RUNTIME_PACKAGE;
 const sha256 = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
+
+function writeNativeSmokeEvidence(
+  target: 'windows' | 'linux' | 'macos',
+  checks: string[],
+  detail: string,
+) {
+  const output = process.env.NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT;
+  if (!output) return;
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(
+    output,
+    `${JSON.stringify(
+      {
+        format: 'noveltea-platform-native-smoke',
+        formatVersion: 1,
+        target,
+        status: 'passed',
+        checks,
+        detail,
+        test: 'editor/src/renderer/test/platform-staging-service.test.ts',
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
 
 interface WebPlayerSurfaceMetrics {
   logicalWidth: number;
@@ -62,8 +92,12 @@ function loadWebPlayerSurfaceMetricsResolver(index: string): ResolveWebPlayerSur
 }
 
 afterEach(() => {
+  resetPlatformFileModeService();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
+function configureModeFallbackHost() {
+  configurePlatformFileModeService(async (_filePath, fallback) => fallback);
+}
 async function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-stage-'));
   roots.push(root);
@@ -74,7 +108,7 @@ async function fixture() {
   fs.writeFileSync(path.join(templateRoot, 'bin/player'), 'player', { mode: 0o755 });
   const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
   const player = fs.readFileSync(path.join(templateRoot, 'bin/player'));
-  const mode = fs.statSync(path.join(templateRoot, 'bin/player')).mode & 0o777;
+  const mode = 0o755;
   const descriptor = {
     format: TEMPLATE_DESCRIPTOR_FORMAT,
     formatVersion: 1,
@@ -215,7 +249,11 @@ describe('platform staging service', () => {
       JSON.parse(fs.readFileSync(path.join(request.outputDirectory, 'bin/player.json'), 'utf8'))
         .package.path,
     ).toBe('game.ntpkg');
-    expect(fs.statSync(path.join(request.outputDirectory, 'game')).mode & 0o111).not.toBe(0);
+    expect(
+      (first.manifest?.files.find((entry) => entry.path === 'game')?.mode ?? 0) & 0o111,
+    ).not.toBe(0);
+    if (process.platform !== 'win32')
+      expect(fs.statSync(path.join(request.outputDirectory, 'game')).mode & 0o111).not.toBe(0);
     expect(fs.existsSync(`${request.outputDirectory}.tar.gz`)).toBe(true);
     expect(
       fs.existsSync(
@@ -227,6 +265,19 @@ describe('platform staging service', () => {
         path.join(request.outputDirectory, 'share/icons/hicolor/512x512/apps/com.example.game.png'),
       ),
     ).toBe(true);
+  });
+
+  it('preserves verified template modes when the host filesystem cannot represent them', async () => {
+    const { request, templateRoot } = await fixture();
+    fs.chmodSync(path.join(templateRoot, 'bin/player'), 0o644);
+    configureModeFallbackHost();
+    const result = await stagePlatformExport(request);
+    expect(result.success, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(
+      (result.manifest?.files.find((entry) => entry.path === 'game')?.mode ?? 0) & 0o111,
+    ).not.toBe(0);
+    if (process.platform !== 'win32')
+      expect(fs.statSync(path.join(request.outputDirectory, 'game')).mode & 0o111).not.toBe(0);
   });
 
   it('rejects sandbox content without touching previous output', async () => {
@@ -509,7 +560,7 @@ describe('platform staging service', () => {
       platform: 'windows',
       architecture: 'x64',
       minimumPlatformVersion: '10',
-      graphicsBackends: ['direct3d11'],
+      graphicsBackends: ['opengl'],
       shaderVariants: ['glsl-120'],
       runtimePackageApi: { minimum: 2, maximum: 2 },
       playerConfigApi: { minimum: 2, maximum: 2 },
@@ -1011,7 +1062,22 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
       const child = spawn(executable, [], {
         cwd: unrelatedWorkingDirectory,
         windowsHide: false,
-        stdio: 'ignore',
+        env: { ...process.env, NOVELTEA_PLAYER_HEADLESS_ERRORS: '1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      let spawnError: Error | undefined;
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
+      child.stdout?.on('data', (chunk: string) => {
+        stdout += chunk;
+      });
+      child.stderr?.on('data', (chunk: string) => {
+        stderr += chunk;
+      });
+      child.on('error', (error) => {
+        spawnError = error;
       });
       const logPath = path.join(
         process.env.APPDATA!,
@@ -1028,12 +1094,13 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
             log = fs.readFileSync(logPath, 'utf8');
             if (log.includes('NovelTea player starting')) break;
           }
-          if (child.exitCode !== null) break;
+          if (child.exitCode !== null || spawnError) break;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
-        expect(log).toContain('NovelTea player starting Tea Game 茶 1.0.0');
-        expect(log).not.toContain('Engine initialization failed');
-        expect(child.exitCode).toBeNull();
+        const launchDiagnostics = `exit=${child.exitCode}\nspawnError=${spawnError?.message ?? ''}\nstdout=${stdout}\nstderr=${stderr}`;
+        expect(log, launchDiagnostics).toContain('NovelTea player starting Tea Game 茶 1.0.0');
+        expect(log, launchDiagnostics).not.toContain('Engine initialization failed');
+        expect(child.exitCode, launchDiagnostics).toBeNull();
       } finally {
         if (child.exitCode === null) {
           child.kill();
@@ -1047,6 +1114,19 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
           force: true,
         });
       }
+      const windowsMetadata = JSON.parse(
+        fs.readFileSync(path.join(outputDirectory, 'WINDOWS_METADATA.json'), 'utf8'),
+      );
+      expect(windowsMetadata.resourceMutationComplete).toBe(true);
+      const outputExe = ResEdit.NtExecutable.from(fs.readFileSync(executable));
+      const resources = ResEdit.NtExecutableResource.from(outputExe);
+      expect(outputExe.newHeader.optionalHeader.subsystem).toBe(2);
+      expect(resources.getResourceEntriesAsString(24, 1)[0]?.[1]).toContain('longPathAware');
+      writeNativeSmokeEvidence(
+        'windows',
+        ['windows-native-launch', 'windows-resource-metadata'],
+        'Finalized Windows portable export launched from an unrelated working directory and its PE resource metadata was verified.',
+      );
     }, 30_000);
   },
 );
@@ -1164,7 +1244,7 @@ describe.runIf(
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
       expect(stderr, `exit=${child.exitCode}`).toContain('[engine] entering main loop');
-      expect(stderr).toContain('[engine] loaded runtime project: project:/game.ntpkg');
+      expect(stderr).toContain('[engine] loaded compiled project: project:/game.ntpkg');
       expect(stderr).not.toContain('asset not found while reading system:/');
       expect(stderr).not.toContain('Engine initialization failed');
       expect(child.exitCode).toBeNull();
@@ -1202,7 +1282,7 @@ describe.runIf(
       expect(appImageStderr, `exit=${appImageChild.exitCode}`).toContain(
         '[engine] entering main loop',
       );
-      expect(appImageStderr).toContain('[engine] loaded runtime project: project:/game.ntpkg');
+      expect(appImageStderr).toContain('[engine] loaded compiled project: project:/game.ntpkg');
       expect(appImageStderr).not.toContain('asset not found while reading system:/');
       expect(appImageStderr).not.toContain('Engine initialization failed');
       expect(appImageChild.exitCode).toBeNull();
@@ -1215,6 +1295,21 @@ describe.runIf(
         ]);
       }
     }
+    const wayland = process.env.SDL_VIDEODRIVER === 'wayland';
+    writeNativeSmokeEvidence(
+      'linux',
+      wayland
+        ? ['linux-wayland-launch']
+        : [
+            'linux-native-launch',
+            'linux-x11-launch',
+            'linux-desktop-integration',
+            'linux-appimage-launch',
+          ],
+      wayland
+        ? 'Finalized Linux export launched successfully through Wayland.'
+        : 'Finalized Linux directory and AppImage exports launched through X11 and desktop integration metadata was verified.',
+    );
   }, 60_000);
 });
 
@@ -1301,7 +1396,8 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
       expect(spawnSync('plutil', ['-lint', plist]).status).toBe(0);
       const dependencies = spawnSync('otool', ['-L', executable], { encoding: 'utf8' });
       expect(dependencies.status, dependencies.stderr).toBe(0);
-      expect(dependencies.stdout).not.toMatch(/\/Users\/|\/tmp\/|\/build\//);
+      const dependencyInstallNames = dependencies.stdout.split(/\r?\n/).slice(1).join('\n');
+      expect(dependencyInstallNames).not.toMatch(/\/Users\/|\/tmp\/|\/build\//);
       const launch = spawnSync('open', ['-n', outputDirectory], { encoding: 'utf8' });
       expect(launch.status, launch.stderr).toBe(0);
       let launchedByBundle = false;
@@ -1337,11 +1433,16 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
         )
           await new Promise((resolve) => setTimeout(resolve, 250));
         expect(stderr, `exit=${child.exitCode}`).toContain('[engine] entering main loop');
-        expect(stderr).toContain('[engine] loaded runtime project: project:/game.ntpkg');
+        expect(stderr).toContain('[engine] loaded compiled project: project:/game.ntpkg');
         expect(stderr).not.toContain('Engine initialization failed');
       } finally {
         if (child.exitCode === null) child.kill();
       }
+      writeNativeSmokeEvidence(
+        'macos',
+        ['macos-native-launch', 'macos-launchservices-launch'],
+        'Finalized unsigned macOS app bundle launched both through LaunchServices and by its contained executable.',
+      );
     }, 30_000);
   },
 );

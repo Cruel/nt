@@ -10,20 +10,29 @@ const FORMAT = 'noveltea-platform-certification';
 const RESULTS_FORMAT = 'noveltea-platform-certification-results';
 const VERSION = 1;
 const FIXTURE_ID = 'platform-export-acceptance';
-const universalChecks = [
-  'artifact-claims', 'descriptor-file-roles', 'runtime-closure', 'grouped-transaction-rollback',
-  'fixture-launch', 'input', 'rendering', 'rmlui', 'lua', 'fonts', 'images', 'audio', 'navigation',
-  'save-reload', 'clean-shutdown', 'fatal-startup-diagnostics', 'compatible-update',
-  'incompatible-api-rejected', 'debug-release-separation', 'development-surfaces-absent',
-  'symbols-build-id', 'third-party-notices', 'sbom', 'reproducibility',
-];
-const targetChecks = {
-  web: ['web-root-path', 'web-subdirectory-path', 'web-persistence', 'web-two-games-one-origin', 'web-service-worker-update'],
-  windows: ['windows-native-launch', 'windows-dependency-closure', 'windows-resource-metadata', 'windows-authenticode-policy'],
-  linux: ['linux-x11-launch', 'linux-wayland-launch', 'linux-dependency-closure', 'linux-rpath', 'linux-desktop-integration', 'linux-appimage-launch'],
-  macos: ['macos-launchservices-launch', 'macos-install-name-closure', 'macos-entitlements', 'macos-privacy-strings', 'macos-signing-policy'],
-  android: ['android-system-assets', 'android-install-launch', 'android-abi-closure', 'android-signature-policy', 'android-page-alignment'],
-};
+const contract = JSON.parse(
+  await readFile(
+    new URL('../editor/src/shared/project-schema/platform-certification-contract.json', import.meta.url),
+    'utf8',
+  ),
+);
+if (contract.formatVersion !== 1)
+  throw new Error(`Unsupported platform certification contract version ${contract.formatVersion}.`);
+
+function requiredChecks(descriptor) {
+  const checks = [...contract.universalChecks, ...(contract.targetChecks[descriptor.platform] ?? [])];
+  if (descriptor.platform === 'android') {
+    const artifactKinds = descriptor.android?.artifactKinds ?? [];
+    for (const conditional of contract.conditionalChecks ?? []) {
+      if (
+        conditional.platform === 'android' &&
+        artifactKinds.includes(conditional.artifactKind)
+      )
+        checks.push(conditional.check);
+    }
+  }
+  return [...new Set(checks)];
+}
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -76,14 +85,6 @@ async function descriptorFromArchive(archive) {
   }
 }
 
-function expectedArtifactFormats(descriptor) {
-  if (descriptor.platform === 'android') return descriptor.android?.artifactKinds ?? [];
-  if (descriptor.platform === 'web') return ['directory', 'zip'];
-  if (descriptor.platform === 'macos') return ['app-bundle', 'zip', 'dmg'];
-  if (descriptor.platform === 'linux') return ['directory', 'tar.gz', 'appimage'];
-  return ['directory', 'zip'];
-}
-
 function validate(descriptor, report) {
   const errors = [];
   const requireEqual = (label, actual, expected) => {
@@ -105,14 +106,24 @@ function validate(descriptor, report) {
     if (!report.environment?.[field]) errors.push(`environment.${field} is required.`);
   }
   const exercised = report.exercised ?? {};
+  const expectedExercisedKeys = ['packageAccessModes', 'packageApis', 'playerConfigApis'];
+  const exercisedKeys = Object.keys(exercised).sort();
+  if (
+    exercisedKeys.length !== expectedExercisedKeys.length ||
+    exercisedKeys.some((key, index) => key !== expectedExercisedKeys[index])
+  )
+    errors.push(`exercised fields must be exactly: ${expectedExercisedKeys.join(', ')}.`);
+  for (const field of expectedExercisedKeys)
+    if (!Array.isArray(exercised[field])) errors.push(`exercised.${field} must be an array.`);
+  if (!Array.isArray(exercised.packageAccessModes) || exercised.packageAccessModes.length === 0)
+    errors.push('At least one canonical package access mode must be recorded.');
   const contains = (field, value) => Array.isArray(exercised[field]) && exercised[field].includes(value);
   for (let api = descriptor.runtimePackageApi.minimum; api <= descriptor.runtimePackageApi.maximum; api += 1) if (!contains('packageApis', api)) errors.push(`Package API ${api} was not exercised.`);
   for (let api = descriptor.playerConfigApi.minimum; api <= descriptor.playerConfigApi.maximum; api += 1) if (!contains('playerConfigApis', api)) errors.push(`Player config API ${api} was not exercised.`);
-  for (const [field, values] of [
-    ['capabilities', descriptor.capabilities], ['graphicsBackends', descriptor.graphicsBackends],
-    ['shaderVariants', descriptor.shaderVariants], ['compiledFeatures', descriptor.compiledFeatures],
-    ['packageAccessModes', descriptor.packageAccessModes], ['artifactFormats', expectedArtifactFormats(descriptor)],
-  ]) for (const value of values ?? []) if (!contains(field, value)) errors.push(`${field} '${value}' was not exercised.`);
+  for (const mode of exercised.packageAccessModes ?? []) {
+    if (!descriptor.packageAccessModes.includes(mode))
+      errors.push(`Exercised package access mode '${mode}' is not declared by the template.`);
+  }
   const evidenceItems = report.evidence ?? [];
   const evidence = new Map();
   const artifactOwners = new Map();
@@ -134,7 +145,7 @@ function validate(descriptor, report) {
       errors.push(`Evidence '${item.check}' does not identify a complete target environment.`);
     }
   }
-  for (const check of new Set([...universalChecks, ...(targetChecks[descriptor.platform] ?? []), `${descriptor.platform}-system-assets`])) {
+  for (const check of requiredChecks(descriptor)) {
     const item = evidence.get(check);
     if (!item) errors.push(`Missing evidence '${check}'.`);
     else if (item.status !== 'passed') errors.push(`Evidence '${check}' is ${item.status}.`);
@@ -149,7 +160,8 @@ async function create(options) {
   const archive = path.resolve(options.archive);
   const fixture = path.resolve(options.fixture);
   const outputPath = path.resolve(options.output);
-  const evidenceInput = JSON.parse(await readFile(path.resolve(options.results), 'utf8'));
+  const resultsPath = path.resolve(options.results);
+  const evidenceInput = JSON.parse(await readFile(resultsPath, 'utf8'));
   if (evidenceInput.format !== RESULTS_FORMAT || evidenceInput.formatVersion !== VERSION) {
     throw new Error(`Results input must use ${RESULTS_FORMAT} version ${VERSION}.`);
   }
@@ -159,10 +171,26 @@ async function create(options) {
   for (const field of ['fixtureRevision', 'runtimePackageSha256', 'profileSha256', 'environment', 'exercised']) {
     if (!evidenceInput[field]) throw new Error(`Results input requires '${field}'.`);
   }
+  const exercisedKeys = Object.keys(evidenceInput.exercised).sort();
+  const expectedExercisedKeys = ['packageAccessModes', 'packageApis', 'playerConfigApis'];
+  if (
+    exercisedKeys.length !== expectedExercisedKeys.length ||
+    exercisedKeys.some((key, index) => key !== expectedExercisedKeys[index])
+  ) {
+    throw new Error(
+      `Results input exercised fields must be exactly: ${expectedExercisedKeys.join(', ')}.`,
+    );
+  }
+  for (const field of expectedExercisedKeys) {
+    if (!Array.isArray(evidenceInput.exercised[field]))
+      throw new Error(`Results input exercised.${field} must be an array.`);
+  }
+  if (evidenceInput.exercised.packageAccessModes.length === 0)
+    throw new Error('Results input must record the package access mode exercised by canonical export.');
   const { descriptor, descriptorSha256 } = await descriptorFromArchive(archive);
   const evidence = [];
   for (const item of evidenceInput.evidence) {
-    const artifact = path.resolve(item.artifact);
+    const artifact = path.resolve(path.dirname(resultsPath), item.artifact);
     if (!(await stat(artifact)).isFile()) throw new Error(`Evidence artifact '${artifact}' is not a file.`);
     evidence.push({
       ...item,

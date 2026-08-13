@@ -134,11 +134,13 @@ const authoringManifestEntrySchema = z
       });
   });
 
+const shaderResourceIdPattern = /^shader:.+:(vertex|fragment):(glsl-120|essl-100|essl-300|metal)$/;
+
 const shaderManifestEntrySchema = strict({
   ...manifestBase,
   fetchProjectRelativePath: safeProjectRelativePathSchema,
   logicalPath: projectLogicalPathSchema,
-  resourceId: z.string().regex(/^shader:.+:(vertex|fragment):(glsl-120|essl-100|essl-300)$/),
+  resourceId: z.string().regex(shaderResourceIdPattern),
   sourceKind: z.literal('shader-compiled-output'),
   shaderId: z.string().min(1),
   shaderStage: z.enum(['vertex', 'fragment']),
@@ -194,7 +196,7 @@ export const nativePreviewResourceManifestEntrySchema = z.union([
     }),
   strict({
     ...nativeBase,
-    resourceId: z.string().regex(/^shader:.+:(vertex|fragment):(glsl-120|essl-100|essl-300)$/),
+    resourceId: z.string().regex(shaderResourceIdPattern),
     sourceKind: z.literal('shader-compiled-output'),
     shaderId: z.string().min(1),
     shaderStage: z.enum(['vertex', 'fragment']),

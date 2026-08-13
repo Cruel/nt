@@ -148,6 +148,8 @@ ShaderMaterialProject make_builtin_hotspot_material_project()
                                           "." + std::string(suffix) + ".bin"),
             system_binary("essl-300", "system:/shaders/bgfx/essl-300/" + std::string(program) +
                                           "." + std::string(suffix) + ".bin"),
+            system_binary("metal", "system:/shaders/bgfx/metal/" + std::string(program) + "." +
+                                       std::string(suffix) + ".bin"),
         };
         return result;
     };

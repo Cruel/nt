@@ -24,11 +24,21 @@ class TextSourceReadFailure extends Error {
 
 export class ActiveProjectSessionService {
   private active: { id: string; root: string } | null = null;
+  private projectActivationGeneration = 0;
 
-  async activateProjectFile(projectFilePath: string): Promise<string> {
+  beginProjectActivation(): number {
+    this.projectActivationGeneration += 1;
+    return this.projectActivationGeneration;
+  }
+
+  async activateProjectFile(
+    projectFilePath: string,
+    expectedActivationGeneration?: number,
+  ): Promise<string> {
     const canonicalProjectFile = await fs.realpath(path.resolve(projectFilePath));
     const projectFileStat = await fs.stat(canonicalProjectFile);
     if (!projectFileStat.isFile()) throw new Error('Project manifest is not a regular file.');
+    this.assertProjectActivationCurrent(expectedActivationGeneration);
     const canonicalRoot = path.dirname(canonicalProjectFile);
     if (this.active?.root === canonicalRoot) return this.active.id;
     this.active = { id: randomUUID(), root: canonicalRoot };
@@ -41,21 +51,35 @@ export class ActiveProjectSessionService {
 
   async attachToSuccessfulResult<
     Result extends { ok?: boolean; success?: boolean; projectFilePath?: string },
-  >(result: Result): Promise<Result & { projectSessionId?: string }> {
+  >(result: Result, activationGeneration: number): Promise<Result & { projectSessionId?: string }> {
     if (result.success !== true || result.ok === false) return result;
     if (!result.projectFilePath) {
       throw new Error('Successful Project lifecycle result omitted the Project manifest path.');
     }
-    const projectSessionId = await this.activateProjectFile(result.projectFilePath);
+    const projectSessionId = await this.activateProjectFile(
+      result.projectFilePath,
+      activationGeneration,
+    );
+    this.assertProjectActivationCurrent(activationGeneration);
     return { ...result, projectSessionId };
   }
 
   closeActiveProject(): void {
+    this.projectActivationGeneration += 1;
     this.active = null;
   }
 
   dispose(): void {
     this.closeActiveProject();
+  }
+
+  private assertProjectActivationCurrent(expectedActivationGeneration?: number): void {
+    if (
+      expectedActivationGeneration !== undefined &&
+      expectedActivationGeneration !== this.projectActivationGeneration
+    ) {
+      throw new Error('Project activation was superseded.');
+    }
   }
 
   async read(request: ReadProjectTextSourcesRequest): Promise<ReadProjectTextSourcesResponse> {

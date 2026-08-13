@@ -43,6 +43,8 @@ std::string_view shader_variant_name(core::editor::EditorPreviewShaderVariant va
         return "essl-100";
     case core::editor::EditorPreviewShaderVariant::Essl300:
         return "essl-300";
+    case core::editor::EditorPreviewShaderVariant::Metal:
+        return "metal";
     }
     return {};
 }

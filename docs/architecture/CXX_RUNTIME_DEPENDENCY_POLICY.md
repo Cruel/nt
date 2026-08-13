@@ -31,10 +31,10 @@ receive the policy directly on their CMake targets.
 ## Platform build policy
 
 - Linux uses `x64-linux-noveltea` for target libraries and `x64-linux` for host tools.
-- Windows uses `x64-windows-static-noveltea` for target libraries and `x64-windows` for host tools.
+- Windows desktop player/editor builds use `x64-windows-static-noveltea` for target libraries and `x64-windows` for host tools. The standalone Windows CLI is a separate GNU-ABI artifact: its native FFI closure uses `x64-mingw-static-noveltea` with `x64-mingw-static-host`, then ScriptC/Zig links the final `x86_64-windows-gnu` executable.
 - macOS arm64 uses `arm64-osx-noveltea` for target libraries and `arm64-osx` for host tools.
 - Web and Android apply `-fno-exceptions -fno-rtti` to every source-built C++ dependency target.
-- MSVC target libraries use `/GR- /EHs-c- /D_HAS_EXCEPTIONS=0`.
+- MSVC desktop target libraries use `/GR- /EHs-c- /D_HAS_EXCEPTIONS=0`; the Windows CLI GNU triplet applies the corresponding `-fno-exceptions -fno-rtti` dependency policy.
 
 The host `noveltea` CLI statically links the pinned bgfx shaderc source closure, including its
 SPIRV-Cross/glslang compiler stack. That build-host/editor tooling may use the normal host exception

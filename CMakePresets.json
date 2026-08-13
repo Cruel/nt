@@ -121,6 +121,29 @@
             }
         },
         {
+            "name": "windows-cli-gnu",
+            "displayName": "Windows GNU CLI",
+            "description": "Release host-tooling build for the standalone Windows CLI using the MinGW GNU ABI",
+            "binaryDir": "${sourceDir}/build/windows-cli-gnu",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++",
+                "VCPKG_MANIFEST_DIR": "${sourceDir}",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/windows-cli-gnu/vcpkg_installed",
+                "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
+                "VCPKG_TARGET_TRIPLET": "x64-mingw-static-noveltea",
+                "VCPKG_HOST_TRIPLET": "x64-mingw-static-host",
+                "NOVELTEA_ENABLE_THREADS": "ON",
+                "NOVELTEA_JOB_WORKER_COUNT": "0",
+                "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
+            }
+        },
+        {
             "name": "macos-release",
             "displayName": "macOS Release",
             "description": "Release build for macOS desktop",
@@ -264,6 +287,10 @@
         {
             "name": "windows-release",
             "configurePreset": "windows-release"
+        },
+        {
+            "name": "windows-cli-gnu",
+            "configurePreset": "windows-cli-gnu"
         },
         {
             "name": "macos-release",

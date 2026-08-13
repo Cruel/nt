@@ -66,6 +66,8 @@ const char* shader_variant_for_renderer(bgfx::RendererType::Enum renderer, bool 
         return "glsl-120";
     case bgfx::RendererType::OpenGLES:
         return web_platform ? "essl-100" : "essl-300";
+    case bgfx::RendererType::Metal:
+        return "metal";
     default:
         return "";
     }

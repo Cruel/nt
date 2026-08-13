@@ -22,6 +22,7 @@ export interface MaterializePlatformExportAcceptanceFixtureOptions {
   androidAbi?: 'arm64-v8a' | 'x86_64';
   androidArtifact?: 'apk' | 'aab' | 'both';
   webBasePath?: string;
+  webThreaded?: boolean;
   contentRevision?: number;
   fontSourcePath: string;
 }
@@ -76,7 +77,7 @@ function profileFor(
       capabilityOverrides: [],
       web: {
         artifact: 'directory-zip',
-        threaded: true,
+        threaded: options.webThreaded ?? true,
         pwa: true,
         display: 'standalone',
         basePath: options.webBasePath ?? '/',
@@ -160,7 +161,9 @@ export async function materializePlatformExportAcceptanceFixture(
             ? ['essl-100']
             : options.target === 'android'
               ? ['essl-300']
-              : ['glsl-120'],
+              : options.target === 'macos'
+                ? ['metal']
+                : ['glsl-120'],
         includeAllProjectAssets: false,
         includeOnlyReferencedAssets: true,
         includeTests: false,
