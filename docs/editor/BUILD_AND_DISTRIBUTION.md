@@ -24,10 +24,11 @@ CMake reads `VERSION` before `project()`: `NOVELTEA_VERSION` retains the complet
 while the numeric `MAJOR.MINOR.PATCH` core is supplied to CMake's `project(VERSION ...)` field. Vite+
 uses the same shared parser as release tooling and injects the value into editor and Node/ScriptC CLI
 bundles, while ScriptC release staging embeds it into the standalone host. Release editor staging
-writes the canonical product version into packaged application metadata. Ordinary local staging
-uses a derived development build identity instead: `1.0.0` becomes `1.0.0-dev.<revision>`, and an
-existing prerelease such as `1.1.0-rc.1` becomes `1.1.0-rc.1.dev.<revision>`. These development
-versions are derived from `VERSION`; they are not independently authored product versions. Editor
+writes the canonical product version into packaged application metadata. Non-release staging,
+including ordinary local and CI builds, uses a derived development build identity instead: `1.0.0`
+becomes `1.0.0-dev.<revision>`, and an existing prerelease such as `1.1.0-rc.1` becomes
+`1.1.0-rc.1.dev.<revision>`. These development versions are derived from `VERSION`; they are not
+independently authored product versions. Editor
 runtime product-version reporting and release-matched template downloads use the injected canonical
 product version rather than Electron's staged package version.
 

@@ -76,7 +76,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang ninja-build cmake pkg-config curl zip unzip tar git
+          sudo apt-get install -y build-essential clang ninja-build cmake pkg-config curl zip unzip tar git libx11-dev libgl1-mesa-dev
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -215,11 +215,13 @@ jobs:
         run: |
           clang --version
           llvm-strip --version
-          dumpbin /? | Out-Null
-      - name: Build and certify Windows CLI
-        run: |
-          pnpm -C editor run noveltea:build
-          pnpm -C editor run noveltea:certify
+          Get-Command dumpbin | Out-Null
+      - name: Build Windows CLI
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
+        run: pnpm -C editor run noveltea:build
+      - name: Certify Windows CLI
+        run: pnpm -C editor run noveltea:certify
       - name: Stage standalone Windows CLI
         shell: pwsh
         run: |

@@ -15,12 +15,8 @@ const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-release' : 'linux-release';
 const releaseTriplet = isWindows ? 'x64-windows-static-noveltea' : 'x64-linux-noveltea';
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
-const scriptcBinary = path.join(
-  editorRoot,
-  'node_modules',
-  '.bin',
-  isWindows ? 'scriptc.CMD' : 'scriptc',
-);
+const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'dist', 'main.js');
+const vitePlusEntrypoint = path.join(editorRoot, 'node_modules', 'vite-plus', 'bin', 'vp');
 const scriptcRoot = path.join(
   repositoryRoot,
   'build',
@@ -81,15 +77,20 @@ if (!['linux', 'win32'].includes(process.platform) || process.arch !== 'x64')
   );
 if (!process.env.VCPKG_ROOT)
   throw new Error('VCPKG_ROOT is required for the native tooling release build.');
-if (!existsSync(scriptcBinary))
+if (!existsSync(scriptcEntrypoint))
   throw new Error(`Pinned scriptc ${scriptcVersion} is not installed. Run pnpm install first.`);
+if (!existsSync(vitePlusEntrypoint))
+  throw new Error('Vite+ is not installed. Run pnpm install first.');
 
 const clangCheck = spawnSync('clang', ['--version'], { encoding: 'utf8' });
 if (clangCheck.error?.code === 'ENOENT' || clangCheck.status !== 0)
   throw new Error('NovelTea CLI release builds require clang on PATH for scriptc.');
 if (clangCheck.error) throw clangCheck.error;
 
-const versionCheck = spawnSync(scriptcBinary, ['--version'], { cwd: editorRoot, encoding: 'utf8' });
+const versionCheck = spawnSync(process.execPath, [scriptcEntrypoint, '--version'], {
+  cwd: editorRoot,
+  encoding: 'utf8',
+});
 if (versionCheck.error) throw versionCheck.error;
 if (versionCheck.status !== 0 || versionCheck.stdout.trim() !== scriptcVersion)
   throw new Error(
@@ -151,7 +152,7 @@ run('cmake', ['--build', '--preset', releasePreset, '--target', 'noveltea_toolin
 });
 await stagePrebuiltShadercLinkClosure();
 
-run('pnpm', ['exec', 'vp', 'pack'], { cwd: editorRoot, env: buildEnv });
+run(process.execPath, [vitePlusEntrypoint, 'pack'], { cwd: editorRoot, env: buildEnv });
 if (!existsSync(islandBundle))
   throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
 
@@ -353,8 +354,18 @@ try {
   );
 
   run(
-    scriptcBinary,
-    ['build', stagedHost, '--dynamic', '--ffi', ffiPath, '--out', outputPath, '--no-keep-c'],
+    process.execPath,
+    [
+      scriptcEntrypoint,
+      'build',
+      stagedHost,
+      '--dynamic',
+      '--ffi',
+      ffiPath,
+      '--out',
+      outputPath,
+      '--no-keep-c',
+    ],
     { cwd: stageRoot, env: buildEnv },
   );
   run(isWindows ? 'llvm-strip' : 'strip', ['--strip-all', outputPath], { env: buildEnv });

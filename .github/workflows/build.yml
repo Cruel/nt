@@ -866,7 +866,6 @@ jobs:
     needs: [linux, web]
     timeout-minutes: 90
     env:
-      NOVELTEA_RELEASE_TAG: 0.0.0-ci.${{ github.sha }}
       NOVELTEA_CLI_PATH: ${{ github.workspace }}/build/cli/linux/noveltea
 
     steps:

@@ -317,9 +317,6 @@ export async function resolveBuildIdentity(explicitReleaseTag) {
   const revision = await getGitRevision();
   const release = normalizeReleaseTag(explicitReleaseTag ?? process.env.NOVELTEA_RELEASE_TAG);
   if (release) return { ...release, revision };
-  if (process.env.CI === 'true') {
-    throw new Error('CI distribution builds require --release-tag or NOVELTEA_RELEASE_TAG.');
-  }
   return {
     releaseTag: null,
     version: novelTeaDevelopmentVersion(productVersion, revision),
