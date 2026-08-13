@@ -123,9 +123,13 @@ import {
   createProjectArgumentsSchema,
   installEditorNavigationPolicy,
   noArgumentsSchema,
+  openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
   selectDirectoryArgumentsSchema,
+  selectPackageOutputPathArgumentsSchema,
+  setNativeWindowFrameArgumentsSchema,
+  showItemInFolderArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
 
 configureSharpPlatformImageService();
@@ -377,10 +381,6 @@ function setWindowZoom(window: BrowserWindow, zoomFactor: number) {
   return nextZoomFactor;
 }
 
-function getEventWindow(event: Electron.IpcMainInvokeEvent) {
-  return BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
-}
-
 function installWindowShortcuts(window: BrowserWindow) {
   window.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown' || input.alt) return;
@@ -552,9 +552,17 @@ void app.whenReady().then(async () => {
     documentPolicy: editorDocumentPolicy,
   });
 
-  ipcMain.handle(IPC_CHANNELS.GET_APP_INFO, () => getAppInfoPayload());
+  guardedIpc.handle(
+    IPC_CHANNELS.GET_APP_INFO,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => getAppInfoPayload(),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY, () => getDefaultProjectDirectory());
+  guardedIpc.handle(
+    IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => getDefaultProjectDirectory(),
+  );
 
   guardedIpc.handle(
     IPC_CHANNELS.SELECT_DIRECTORY,
@@ -570,23 +578,28 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY, async () => {
-    if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Open NovelTea Project',
-      properties: ['openFile'],
-      filters: [
-        { name: 'NovelTea Project', extensions: ['json', 'game'] },
-        { name: 'JSON Files', extensions: ['json'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-    });
-    return result.canceled ? null : (result.filePaths[0] ?? null);
-  });
+  guardedIpc.handle(
+    IPC_CHANNELS.SELECT_PROJECT_DIRECTORY,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    async () => {
+      if (!mainWindow) return null;
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Open NovelTea Project',
+        properties: ['openFile'],
+        filters: [
+          { name: 'NovelTea Project', extensions: ['json', 'game'] },
+          { name: 'JSON Files', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH,
-    async (_event: Electron.IpcMainInvokeEvent, defaultPath: string | null = null) => {
+    (arguments_) => selectPackageOutputPathArgumentsSchema.parse(arguments_),
+    async (defaultPath: string | null) => {
       if (!mainWindow) return null;
       const result = await dialog.showSaveDialog(mainWindow, {
         title: 'Export NovelTea Package',
@@ -601,24 +614,27 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.SELECT_TEMPLATE_ARCHIVE_PATH, async () => {
-    if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Install NovelTea Player Template',
-      properties: ['openFile'],
-      filters: [
-        { name: 'Template archives', extensions: ['zip', 'tar', 'gz', 'tgz', 'xz'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-    });
-    return result.canceled ? null : (result.filePaths[0] ?? null);
-  });
-
-  ipcMain.handle(
-    IPC_CHANNELS.SHOW_ITEM_IN_FOLDER,
-    (_event: Electron.IpcMainInvokeEvent, itemPath: string) => {
-      if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
+  guardedIpc.handle(
+    IPC_CHANNELS.SELECT_TEMPLATE_ARCHIVE_PATH,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    async () => {
+      if (!mainWindow) return null;
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Install NovelTea Player Template',
+        properties: ['openFile'],
+        filters: [
+          { name: 'Template archives', extensions: ['zip', 'tar', 'gz', 'tgz', 'xz'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
     },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.SHOW_ITEM_IN_FOLDER,
+    (arguments_) => showItemInFolderArgumentsSchema.parse(arguments_),
+    (itemPath: string) => shell.showItemInFolder(itemPath),
   );
 
   ipcMain.handle(
@@ -639,63 +655,82 @@ void app.whenReady().then(async () => {
     }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.OPEN_EXTERNAL,
-    async (_event: Electron.IpcMainInvokeEvent, url: string) => {
-      if (typeof url === 'string' && (url.startsWith('https:') || url.startsWith('http:'))) {
-        await shell.openExternal(url);
+    (arguments_) => openExternalArgumentsSchema.parse(arguments_),
+    async (url: string) => shell.openExternal(url),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.ZOOM_IN,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () =>
+      mainWindow
+        ? setWindowZoom(mainWindow, mainWindow.webContents.getZoomFactor() + ZOOM_STEP)
+        : 1,
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.ZOOM_OUT,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () =>
+      mainWindow
+        ? setWindowZoom(mainWindow, mainWindow.webContents.getZoomFactor() - ZOOM_STEP)
+        : 1,
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.RESET_ZOOM,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => (mainWindow ? setWindowZoom(mainWindow, 1) : 1),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.MINIMIZE_APP_WINDOW,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => mainWindow?.minimize(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.TOGGLE_MAXIMIZE_APP_WINDOW,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => {
+      const window = mainWindow;
+      if (!window) return false;
+      if (window.isMaximized()) {
+        window.unmaximize();
+      } else {
+        window.maximize();
       }
+      return window.isMaximized();
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.ZOOM_IN, (event: Electron.IpcMainInvokeEvent) => {
-    const window = getEventWindow(event);
-    return window ? setWindowZoom(window, window.webContents.getZoomFactor() + ZOOM_STEP) : 1;
-  });
+  guardedIpc.handle(
+    IPC_CHANNELS.REQUEST_APP_WINDOW_EXIT,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => mainWindow?.close(),
+  );
 
-  ipcMain.handle(IPC_CHANNELS.ZOOM_OUT, (event: Electron.IpcMainInvokeEvent) => {
-    const window = getEventWindow(event);
-    return window ? setWindowZoom(window, window.webContents.getZoomFactor() - ZOOM_STEP) : 1;
-  });
+  guardedIpc.handle(
+    IPC_CHANNELS.COMPLETE_APP_WINDOW_EXIT,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => {
+      appWindowExitConfirmed = true;
+      mainWindow?.close();
+    },
+  );
 
-  ipcMain.handle(IPC_CHANNELS.RESET_ZOOM, (event: Electron.IpcMainInvokeEvent) => {
-    const window = getEventWindow(event);
-    return window ? setWindowZoom(window, 1) : 1;
-  });
+  guardedIpc.handle(
+    IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => mainWindow?.isMaximized() ?? false,
+  );
 
-  ipcMain.handle(IPC_CHANNELS.MINIMIZE_APP_WINDOW, (event: Electron.IpcMainInvokeEvent) => {
-    const window = getEventWindow(event);
-    window?.minimize();
-  });
-
-  ipcMain.handle(IPC_CHANNELS.TOGGLE_MAXIMIZE_APP_WINDOW, (event: Electron.IpcMainInvokeEvent) => {
-    const window = getEventWindow(event);
-    if (!window) return false;
-    if (window.isMaximized()) {
-      window.unmaximize();
-    } else {
-      window.maximize();
-    }
-    return window.isMaximized();
-  });
-
-  ipcMain.handle(IPC_CHANNELS.REQUEST_APP_WINDOW_EXIT, (event: Electron.IpcMainInvokeEvent) => {
-    getEventWindow(event)?.close();
-  });
-
-  ipcMain.handle(IPC_CHANNELS.COMPLETE_APP_WINDOW_EXIT, (event: Electron.IpcMainInvokeEvent) => {
-    const window = getEventWindow(event);
-    appWindowExitConfirmed = true;
-    window?.close();
-  });
-
-  ipcMain.handle(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED, (event: Electron.IpcMainInvokeEvent) => {
-    return getEventWindow(event)?.isMaximized() ?? false;
-  });
-
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME,
-    (_event: Electron.IpcMainInvokeEvent, nativeFrame: boolean) => {
+    (arguments_) => setNativeWindowFrameArgumentsSchema.parse(arguments_),
+    (nativeFrame: boolean) => {
       writeNativeWindowFrameSetting(nativeFrame);
       currentNativeWindowFrame = nativeFrame;
       currentFramelessWindow = !nativeFrame;

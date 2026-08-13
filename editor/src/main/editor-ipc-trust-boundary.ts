@@ -5,6 +5,7 @@ import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
 const MAX_DIALOG_TITLE_LENGTH = 512;
 const MAX_DIALOG_PATH_LENGTH = 32_768;
+const MAX_EXTERNAL_URL_LENGTH = 2_048;
 const MAX_PROJECT_SESSION_ID_LENGTH = 256;
 const MAX_PROJECT_NAME_LENGTH = 512;
 const MAX_TEXT_SOURCE_READ_KEY_LENGTH = 1_024;
@@ -183,6 +184,28 @@ export const selectDirectoryArgumentsSchema = z.tuple([
 ]);
 
 export const noArgumentsSchema = z.tuple([]);
+
+export const selectPackageOutputPathArgumentsSchema = z.tuple([
+  z.string().min(1).max(MAX_DIALOG_PATH_LENGTH).nullable(),
+]);
+
+export const showItemInFolderArgumentsSchema = z.tuple([
+  z.string().min(1).max(MAX_DIALOG_PATH_LENGTH),
+]);
+
+export const openExternalArgumentsSchema = z.tuple([
+  z
+    .string()
+    .min(1)
+    .max(MAX_EXTERNAL_URL_LENGTH)
+    .refine((value) => {
+      if (value !== value.trim() || !/^https?:\/\//u.test(value)) return false;
+      const url = parseEditorUrl(value);
+      return !!url && (url.protocol === 'http:' || url.protocol === 'https:') && !!url.hostname;
+    }),
+]);
+
+export const setNativeWindowFrameArgumentsSchema = z.tuple([z.boolean()]);
 
 export const openProjectArgumentsSchema = z.tuple([z.string().min(1).max(MAX_PROJECT_PATH_LENGTH)]);
 

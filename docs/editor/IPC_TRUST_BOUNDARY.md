@@ -36,15 +36,21 @@ Parsing failure rejects with the stable `invalid-request` boundary code before i
 Strict objects reject unknown keys, tuples reject missing or additional positional arguments, and
 scalar fields must carry explicit bounds appropriate to the capability.
 
-`selectDirectory` is the representative guarded channel in the initial boundary slice. Its preload
-contract always supplies one strict options object; the main parser bounds its title and path and
-rejects malformed fields, unknown fields, missing options, and extra arguments. Other existing invoke
-channels are not described as guarded until they are migrated through the registrar with their own
-runtime parsers. The active-Project close capability also uses the registrar with an exact
-no-argument tuple so only the trusted editor frame can revoke the main-owned Project session.
-Project text-source reads use a strict bounded request object through the same registrar before the
-active-session service can resolve a path. Project open and saved-Project creation likewise use
-strict bounded path/request tuples before a successful result may establish Project authority.
+Application, window, dialog, and shell capabilities now use the guarded registrar. App information,
+the default Project directory, zoom/window lifecycle state, and the Project/template selection dialogs
+use exact no-argument tuples. Directory selection keeps its strict bounded options object; package
+output selection accepts exactly one bounded path-or-null value; item reveal accepts exactly one
+bounded path; native-frame changes accept exactly one boolean. External opening accepts exactly one
+bounded absolute HTTP(S) URL and rejects malformed values and other schemes before `shell.openExternal`
+runs. Window handlers operate on the main-owned editor window after sender authorization rather than
+selecting a window from renderer-supplied event identity.
+
+The active-Project close capability also uses the registrar with an exact no-argument tuple so only
+the trusted editor frame can revoke the main-owned Project session. Project text-source reads use a
+strict bounded request object through the same registrar before the active-session service can resolve
+a path. Project open and saved-Project creation likewise use strict bounded path/request tuples before
+a successful result may establish Project authority. Existing invoke channels are not described as
+guarded until they are migrated through the registrar with their own runtime parsers.
 
 ## Editor document navigation
 
@@ -62,8 +68,9 @@ Rejected top-level navigation never changes the approved document or origin.
 
 Focused tests in `editor/src/renderer/test/editor-ipc-trust-boundary.test.ts` use the guarded registrar
 and navigation policy as public seams. They cover valid packaged and configured-development calls,
-different or stale senders, child and remote frames, wrong origins, malformed requests, extra
-arguments, blocked navigation and redirects, denied window creation, and absence of downstream
-service calls after rejection. The packaged smoke also invokes the representative channel with an
+different or stale senders, child and remote frames, wrong origins, malformed requests, bounded app,
+window, dialog, path, and external-URL contracts, extra arguments, blocked navigation and redirects,
+denied window creation, and absence of downstream service calls after rejection. The packaged smoke
+also invokes the representative channel with an
 invalid request and verifies the renderer-visible `EditorIpcBoundaryError` contract through real
 Electron IPC.

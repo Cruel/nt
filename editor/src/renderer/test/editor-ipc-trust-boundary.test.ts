@@ -4,8 +4,13 @@ import {
   createGuardedIpcRegistrar,
   createProjectArgumentsSchema,
   installEditorNavigationPolicy,
+  noArgumentsSchema,
+  openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
+  selectPackageOutputPathArgumentsSchema,
+  setNativeWindowFrameArgumentsSchema,
+  showItemInFolderArgumentsSchema,
   type EditorIpcEvent,
   type EditorIpcMain,
   type EditorWebContents,
@@ -177,6 +182,97 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(service).not.toHaveBeenCalled();
+  });
+
+  it('strictly admits bounded app, window, dialog, and shell requests before side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const noArgumentService = vi.fn(() => 'app-info');
+    const revealService = vi.fn((itemPath: string) => itemPath);
+    const externalService = vi.fn((url: string) => url);
+    const packageDialogService = vi.fn((defaultPath: string | null) => defaultPath);
+    const frameService = vi.fn((nativeFrame: boolean) => nativeFrame);
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+
+    registrar.handle(
+      'app-info',
+      (arguments_) => noArgumentsSchema.parse(arguments_),
+      noArgumentService,
+    );
+    registrar.handle(
+      'show-item',
+      (arguments_) => showItemInFolderArgumentsSchema.parse(arguments_),
+      revealService,
+    );
+    registrar.handle(
+      'open-external',
+      (arguments_) => openExternalArgumentsSchema.parse(arguments_),
+      externalService,
+    );
+    registrar.handle(
+      'package-dialog',
+      (arguments_) => selectPackageOutputPathArgumentsSchema.parse(arguments_),
+      packageDialogService,
+    );
+    registrar.handle(
+      'set-frame',
+      (arguments_) => setNativeWindowFrameArgumentsSchema.parse(arguments_),
+      frameService,
+    );
+
+    await expect(ipcMain.invoke('app-info', harness.event)).resolves.toBe('app-info');
+    await expect(
+      ipcMain.invoke('show-item', harness.event, '/projects/story/image.png'),
+    ).resolves.toBe('/projects/story/image.png');
+    await expect(
+      ipcMain.invoke('open-external', harness.event, 'https://example.com/docs'),
+    ).resolves.toBe('https://example.com/docs');
+    await expect(ipcMain.invoke('package-dialog', harness.event, null)).resolves.toBeNull();
+    await expect(ipcMain.invoke('set-frame', harness.event, true)).resolves.toBe(true);
+
+    for (const [channel, arguments_] of [
+      ['app-info', [NaN]],
+      ['app-info', [Number.POSITIVE_INFINITY]],
+      ['show-item', ['']],
+      ['show-item', ['x'.repeat(32_769)]],
+      ['show-item', ['/projects/story/image.png', 'extra']],
+      ['open-external', ['not a url']],
+      ['open-external', ['file:///tmp/secret.txt']],
+      ['open-external', ['javascript:alert(1)']],
+      ['open-external', ['mailto:user@example.com']],
+      ['open-external', ['https://example.com/', 'extra']],
+      ['package-dialog', []],
+      ['package-dialog', ['x'.repeat(32_769)]],
+      ['set-frame', [1]],
+      ['set-frame', [true, false]],
+    ] as const) {
+      noArgumentService.mockClear();
+      revealService.mockClear();
+      externalService.mockClear();
+      packageDialogService.mockClear();
+      frameService.mockClear();
+
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(noArgumentService).not.toHaveBeenCalled();
+      expect(revealService).not.toHaveBeenCalled();
+      expect(externalService).not.toHaveBeenCalled();
+      expect(packageDialogService).not.toHaveBeenCalled();
+      expect(frameService).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(
+      ipcMain.invoke('open-external', other.event, 'https://example.com/docs'),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(externalService).not.toHaveBeenCalled();
   });
 
   it('accepts the owning live packaged top-level frame and parses before calling the service', async () => {
