@@ -24,6 +24,8 @@ Use these documents as the main references for editor work:
 - `docs/editor/TECH_STACK.md` describes the editor technology direction.
 - `docs/editor/IMAGE_THUMBNAIL_CACHE.md` describes direct image-asset thumbnail cache ownership,
   requests, lifecycle, clearing, and full-source exceptions.
+- `docs/editor/IPC_TRUST_BOUNDARY.md` owns renderer-to-main sender authorization, runtime argument
+  admission, approved editor documents, and navigation denial.
 - `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` describes the workbench milestone direction.
 - the editor agent guide describes tab-state preservation and preview host ownership.
 - `docs/editor/LOCALIZATION.md` describes localization status and conventions.
@@ -40,6 +42,13 @@ Use these documents as the main references for editor work:
 When a task materially changes one of these areas, update the relevant document or explicitly report why no documentation change was needed.
 
 ## Editor-Wide Practices
+
+### Main-process IPC
+
+Register new or migrated privileged preload invocations through the guarded main-process registrar
+described in `docs/editor/IPC_TRUST_BOUNDARY.md`. Authenticate the owning live top-level editor frame
+before parsing, and parse the exact argument tuple from unknown before invoking a service. Do not add
+another direct `ipcMain.handle` registration for a privileged channel.
 
 ### Workbench Navigation and Deep Links
 

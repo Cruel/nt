@@ -1,11 +1,20 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { NovelTeaElectronApi } from './shared/electron-api';
 import { IPC_CHANNELS } from './shared/ipc-channels';
+import { normalizeEditorIpcBoundaryError } from './shared/editor-ipc-boundary';
+
+async function invokeGuarded<Result>(channel: string, ...arguments_: unknown[]): Promise<Result> {
+  try {
+    return await ipcRenderer.invoke(channel, ...arguments_);
+  } catch (error) {
+    throw normalizeEditorIpcBoundaryError(error);
+  }
+}
 
 const api: NovelTeaElectronApi = {
   getAppInfo: () => ipcRenderer.invoke(IPC_CHANNELS.GET_APP_INFO),
   getDefaultProjectDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY),
-  selectDirectory: (options = {}) => ipcRenderer.invoke(IPC_CHANNELS.SELECT_DIRECTORY, options),
+  selectDirectory: (options = {}) => invokeGuarded(IPC_CHANNELS.SELECT_DIRECTORY, options),
   selectProjectDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY),
   selectPackageOutputPath: (defaultPath: string | null = null) =>
     ipcRenderer.invoke(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, defaultPath),

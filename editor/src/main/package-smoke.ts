@@ -321,6 +321,19 @@ export async function runPackageSmoke(
     checks.renderer = renderer.hasRoot && renderer.title.length > 0;
     checks.preload = renderer.hasPreloadApi;
     checks.packagedProtocol = renderer.url.startsWith('noveltea-editor://');
+    const boundaryFailure = (await window.webContents.executeJavaScript(
+      `window.noveltea.selectDirectory({ unexpected: true }).then(
+        () => null,
+        (error) => ({ name: error?.name, code: error?.code, message: error?.message })
+      )`,
+      true,
+    )) as { name?: string; code?: string; message?: string } | null;
+    checks.ipcInvalidRequest = boundaryFailure?.message === 'invalid-request';
+    if (!checks.ipcInvalidRequest) {
+      throw new Error(
+        `Unexpected renderer-visible IPC boundary failure: ${JSON.stringify(boundaryFailure)}`,
+      );
+    }
 
     const packagedDocument = await net.fetch('noveltea-editor://app/index.html');
     checks.packagedProtocolHeaders =

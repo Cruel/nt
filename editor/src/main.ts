@@ -117,6 +117,12 @@ import {
   resolveEditorCacheRoot,
   resolveSystemCachePath,
 } from './main/services/image-thumbnail-cache-paths';
+import {
+  createEditorDocumentPolicy,
+  createGuardedIpcRegistrar,
+  installEditorNavigationPolicy,
+  selectDirectoryArgumentsSchema,
+} from './main/editor-ipc-trust-boundary';
 
 configureSharpPlatformImageService();
 
@@ -190,6 +196,7 @@ imageThumbnailService.cache.onEpochChanged((cacheEpoch) => {
 
 const DEV_SERVER_URL = process.env.NOVELTEA_EDITOR_DEV_SERVER_URL?.trim() || undefined;
 const isDev = !!DEV_SERVER_URL;
+const editorDocumentPolicy = createEditorDocumentPolicy(DEV_SERVER_URL);
 const EDITOR_SCHEME = 'noveltea-editor';
 const ZOOM_STEP = 0.1;
 const MIN_ZOOM_FACTOR = 0.5;
@@ -487,7 +494,21 @@ function createWindow(): BrowserWindow {
     saveEditorWindowBounds(mainWindow!);
   });
 
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  const navigationOwner = mainWindow;
+  installEditorNavigationPolicy(
+    {
+      onWillNavigate: (listener) => {
+        navigationOwner.webContents.on('will-navigate', listener);
+      },
+      onWillRedirect: (listener) => {
+        navigationOwner.webContents.on('will-redirect', listener);
+      },
+      setWindowOpenHandler: (handler) => {
+        navigationOwner.webContents.setWindowOpenHandler(handler);
+      },
+    },
+    editorDocumentPolicy,
+  );
   mainWindow.on('close', (event) => {
     if (appWindowExitConfirmed || mainWindow?.webContents.isDestroyed()) return;
     event.preventDefault();
@@ -524,16 +545,24 @@ void app.whenReady().then(async () => {
   );
   installApplicationMenu();
 
+  const guardedIpc = createGuardedIpcRegistrar({
+    ipcMain: {
+      handle: (channel, handler) => {
+        ipcMain.handle(channel, (event, ...arguments_) => handler(event, ...arguments_));
+      },
+    },
+    getOwner: () => mainWindow,
+    documentPolicy: editorDocumentPolicy,
+  });
+
   ipcMain.handle(IPC_CHANNELS.GET_APP_INFO, () => getAppInfoPayload());
 
   ipcMain.handle(IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY, () => getDefaultProjectDirectory());
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SELECT_DIRECTORY,
-    async (
-      _event: Electron.IpcMainInvokeEvent,
-      options: { title?: string; defaultPath?: string | null } = {},
-    ) => {
+    (arguments_) => selectDirectoryArgumentsSchema.parse(arguments_),
+    async (options) => {
       if (!mainWindow) return null;
       const result = await dialog.showOpenDialog(mainWindow, {
         title: options.title ?? 'Select Directory',
