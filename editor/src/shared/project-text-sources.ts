@@ -7,7 +7,7 @@ export const PROJECT_TEXT_SOURCE_LIMITS = Object.freeze({
 export type Sha256Digest = `sha256:${string}`;
 
 export interface ReadProjectTextSourcesRequest {
-  projectReadSessionId: string;
+  projectSessionId: string;
   entries: readonly {
     readKey: string;
     projectRelativePath: string;

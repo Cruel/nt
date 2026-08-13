@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { ProjectTextSourceReadSessionService } from '../../main/services/project-text-source-service';
+import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { AuthoringDependencyGraphService } from '../project/authoring-dependency-graph-service';
 import { buildAuthoringDependencyGraph } from '../../shared/authoring-dependency-graph';
 import type { ProjectMutationPublication } from '../../shared/authoring-dependency-contracts';
@@ -30,11 +30,12 @@ describe('Phase 5 project text source reads', () => {
     const bytes = Buffer.from('\ufeffreturn "room"', 'utf8');
     await fs.writeFile(path.join(root, 'assets', 'script.lua'), bytes);
     const hash = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
-    const service = new ProjectTextSourceReadSessionService();
-    const session = service.assignProjectFile(path.join(root, 'game.json'));
+    await fs.writeFile(path.join(root, 'project.json'), '{}\n');
+    const service = new ActiveProjectSessionService();
+    const session = await service.activateProjectFile(path.join(root, 'project.json'));
 
     const response = await service.read({
-      projectReadSessionId: session,
+      projectSessionId: session,
       entries: [
         { readKey: 'good', projectRelativePath: 'assets/script.lua', expectedContentHash: hash },
         {
@@ -54,7 +55,7 @@ describe('Phase 5 project text source reads', () => {
     expect(response.entries[1]).toMatchObject({ status: 'unavailable', code: 'hash-mismatch' });
     expect(
       await service.read({
-        projectReadSessionId: 'stale',
+        projectSessionId: 'stale',
         entries: response.entries.flatMap(() => []),
       }),
     ).toEqual({ entries: [] });
@@ -71,7 +72,7 @@ describe('Phase 5 incremental authoring graph service', () => {
       data: defaultRoomData('Foyer'),
     };
     const service = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => null,
+      getProjectSessionId: () => null,
       readProjectTextSources: async () => ({ entries: [] }),
     });
     const load = publication(null, project, 1, 'load', ['/']);
@@ -103,7 +104,7 @@ describe('Phase 5 incremental authoring graph service', () => {
       data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return "custom"' } },
     };
     const service = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => null,
+      getProjectSessionId: () => null,
       getScriptSourcePaths: () => ({ bootstrap: 'scripts/custom/bootstrap.lua' }),
       readProjectTextSources: async () => ({ entries: [] }),
     });
@@ -134,7 +135,7 @@ describe('Phase 5 incremental authoring graph service', () => {
       })),
     }));
     const service = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: reads,
     });
     const first = await service.publish(publication(null, project, 1, 'load', ['/']));
@@ -154,7 +155,7 @@ describe('Phase 5 incremental authoring graph service', () => {
       publication(project, changed, 2, 'command', ['/scripts/one/label']),
     );
     const fresh = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => ({
         entries: request.entries.map((entry) => ({
           status: 'ready' as const,
@@ -180,7 +181,7 @@ describe('Phase 5 incremental authoring graph service', () => {
       release = resolve;
     });
     const service = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => {
         await gate;
         return {
@@ -212,7 +213,7 @@ describe('Phase 5 incremental authoring graph service', () => {
     expect(second?.projectRevision).toBe(3);
     expect(third?.projectRevision).toBe(3);
     const fresh = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => ({
         entries: request.entries.map((entry) => ({
           status: 'ready' as const,
@@ -234,7 +235,7 @@ describe('Phase 5 incremental authoring graph service', () => {
     const hash = `sha256:${createHash('sha256').update(text).digest('hex')}` as const;
     const project = sourceProject(text, hash);
     const service = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => ({
         entries: request.entries.map((entry) => ({
           status: 'ready' as const,
@@ -254,7 +255,7 @@ describe('Phase 5 incremental authoring graph service', () => {
       publication(project, changed, 2, 'command', ['/scripts/one']),
     );
     const fresh = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => ({
         entries: request.entries.map((entry) => ({
           status: 'ready' as const,
@@ -284,7 +285,7 @@ describe('Phase 5 incremental authoring graph service', () => {
       release = resolve;
     });
     const service = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => {
         const expectedHash = request.entries[0]?.expectedContentHash;
         if (expectedHash === nextHash) await gate;
@@ -321,7 +322,7 @@ describe('Phase 5 incremental authoring graph service', () => {
     const [, latest] = await Promise.all([secondPromise, thirdPromise]);
 
     const fresh = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => ({
         entries: request.entries.map((entry) => ({
           status: 'ready' as const,
@@ -343,7 +344,7 @@ describe('Phase 5 incremental authoring graph service', () => {
     let currentText = text;
     let currentHash = hash;
     const service = new AuthoringDependencyGraphService({
-      getProjectReadSessionId: () => 'session',
+      getProjectSessionId: () => 'session',
       readProjectTextSources: async (request) => ({
         entries: request.entries.map((entry) => ({
           status: 'ready' as const,
@@ -408,7 +409,7 @@ describe('Phase 5 incremental authoring graph service', () => {
         publication(previous, project, revision, 'command', [pathValue]),
       );
       const fresh = new AuthoringDependencyGraphService({
-        getProjectReadSessionId: () => 'session',
+        getProjectSessionId: () => 'session',
         readProjectTextSources: async (request) => ({
           entries: request.entries.map((entry) => ({
             status: 'ready' as const,

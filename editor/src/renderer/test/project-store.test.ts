@@ -4,6 +4,19 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { toJsonValue } from '@/project/json-value';
 
 describe('project store selectors', () => {
+  it('stores and clears the opaque active Project session id', () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: createAuthoringProject(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opaque-session',
+    });
+
+    expect(useProjectStore.getState().projectSessionId).toBe('opaque-session');
+    useProjectStore.getState().clearProject();
+    expect(useProjectStore.getState().projectSessionId).toBeNull();
+  });
+
   it('derives dirty state from the saved document baseline', () => {
     expect(selectProjectDirty({ document: { room: {} }, savedDocument: { room: {} } })).toBe(false);
     expect(

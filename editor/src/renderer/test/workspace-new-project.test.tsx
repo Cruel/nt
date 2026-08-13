@@ -141,12 +141,14 @@ beforeEach(() => {
     success: true,
     projectPath: '/home/test/Documents/NovelTea/my-story',
     projectFilePath: '/home/test/Documents/NovelTea/my-story/project.json',
+    projectSessionId: 'created-project-session',
   });
   vi.mocked(window.noveltea.openProject).mockResolvedValue({
     ok: true,
     success: true,
     projectPath: '/home/test/Documents/NovelTea/my-story',
     projectFilePath: '/home/test/Documents/NovelTea/my-story/project.json',
+    projectSessionId: 'opened-project-session',
     contentProject: stripEditorProjectState(
       createAuthoringProject({ id: 'my-story', name: 'My Story' }),
     ),
@@ -497,6 +499,7 @@ describe('WorkspacePage new project modal', () => {
     await waitFor(() =>
       expect(useWorkspaceStore.getState().statusMessage).toBe('Unsupported project schema'),
     );
+    expect(window.noveltea.closeActiveProject).toHaveBeenCalledOnce();
     expect(useProjectStore.getState().document).toBeNull();
     expect(useWorkspaceStore.getState().project).toBeNull();
     expect(useWorkbenchStore.getState().tabsById).toEqual({});
@@ -733,6 +736,7 @@ describe('WorkspacePage new project modal', () => {
     });
 
     await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
+    expect(window.noveltea.closeActiveProject).toHaveBeenCalledOnce();
     expect(useComfyUiStore.getState().status).toMatchObject({
       state: 'ready',
       message: 'ComfyUI ready',
@@ -868,6 +872,7 @@ describe('WorkspacePage new project modal', () => {
 
     await waitFor(() => expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled());
     expect(useProjectStore.getState().document).not.toBeNull();
+    expect(window.noveltea.closeActiveProject).not.toHaveBeenCalled();
     expect(window.noveltea.stopProjectWorkspaceWatcher).not.toHaveBeenCalled();
     expect(useWorkspaceStore.getState().statusMessage).toBe('External project content changed.');
     expect(useBottomPanelStore.getState()).toMatchObject({
@@ -1029,6 +1034,7 @@ describe('WorkspacePage new project modal', () => {
         '/home/test/Documents/NovelTea/my-story/project.json',
       ),
     );
+    expect(useProjectStore.getState().projectSessionId).toBe('opened-project-session');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

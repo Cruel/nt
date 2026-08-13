@@ -46,8 +46,9 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, nativeFrame),
   getEnginePreviewSession: () => ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION),
   reloadEnginePreview: () => ipcRenderer.invoke(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW),
-  createProject: (request) => ipcRenderer.invoke(IPC_CHANNELS.CREATE_PROJECT, request),
-  openProject: (projectPath: string) => ipcRenderer.invoke(IPC_CHANNELS.OPEN_PROJECT, projectPath),
+  createProject: (request) => invokeGuarded(IPC_CHANNELS.CREATE_PROJECT, request),
+  openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
+  closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
   validateProject: (project: unknown) => ipcRenderer.invoke(IPC_CHANNELS.VALIDATE_PROJECT, project),
   listPlaybackTests: (project: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_PLAYBACK_TESTS, project),
@@ -181,7 +182,7 @@ const api: NovelTeaElectronApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.EDITOR_CACHE_EPOCH_EVENT, listener);
   },
   readProjectTextSources: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES, request),
+    invokeGuarded(IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES, request),
   checkComfyUiConnection: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CHECK_CONNECTION, config),
   getComfyUiQueue: (config) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),

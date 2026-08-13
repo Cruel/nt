@@ -40,7 +40,11 @@ scalar fields must carry explicit bounds appropriate to the capability.
 contract always supplies one strict options object; the main parser bounds its title and path and
 rejects malformed fields, unknown fields, missing options, and extra arguments. Other existing invoke
 channels are not described as guarded until they are migrated through the registrar with their own
-runtime parsers.
+runtime parsers. The active-Project close capability also uses the registrar with an exact
+no-argument tuple so only the trusted editor frame can revoke the main-owned Project session.
+Project text-source reads use a strict bounded request object through the same registrar before the
+active-session service can resolve a path. Project open and saved-Project creation likewise use
+strict bounded path/request tuples before a successful result may establish Project authority.
 
 ## Editor document navigation
 

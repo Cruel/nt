@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
+  createProjectArgumentsSchema,
   installEditorNavigationPolicy,
+  openProjectArgumentsSchema,
+  readProjectTextSourcesArgumentsSchema,
   type EditorIpcEvent,
   type EditorIpcMain,
   type EditorWebContents,
@@ -13,6 +16,7 @@ import {
   normalizeEditorIpcBoundaryError,
 } from '../../shared/editor-ipc-boundary';
 import { selectDirectoryArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
+import type { ReadProjectTextSourcesRequest } from '../../shared/project-text-sources';
 
 class FakeIpcMain implements EditorIpcMain {
   private readonly handlers = new Map<
@@ -67,6 +71,114 @@ function rejectionCode(error: unknown) {
 }
 
 describe('guarded editor IPC registrar', () => {
+  it('strictly admits Project open and creation lifecycle arguments', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const openService = vi.fn((projectPath: string) => projectPath);
+    const createService = vi.fn((request: { projectName: string; projectDirectory: string }) =>
+      structuredClone(request),
+    );
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'open-project',
+      (arguments_) => openProjectArgumentsSchema.parse(arguments_),
+      openService,
+    );
+    registrar.handle(
+      'create-project',
+      (arguments_) => createProjectArgumentsSchema.parse(arguments_),
+      createService,
+    );
+
+    await expect(ipcMain.invoke('open-project', harness.event, '/projects/story')).resolves.toBe(
+      '/projects/story',
+    );
+    await expect(
+      ipcMain.invoke('create-project', harness.event, {
+        projectName: 'Story',
+        projectDirectory: '/projects/story',
+      }),
+    ).resolves.toEqual({ projectName: 'Story', projectDirectory: '/projects/story' });
+
+    for (const [channel, arguments_] of [
+      ['open-project', []],
+      ['open-project', ['/projects/story', 'extra']],
+      ['create-project', [{ projectName: 'Story', projectDirectory: '/projects/story', extra: 1 }]],
+      ['create-project', [{ projectName: '', projectDirectory: '/projects/story' }]],
+    ] as const) {
+      openService.mockClear();
+      createService.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(openService).not.toHaveBeenCalled();
+      expect(createService).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(ipcMain.invoke('open-project', other.event, '/projects/story')).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(openService).not.toHaveBeenCalled();
+  });
+
+  it('strictly admits bounded Project text-source requests before calling the service', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const service = vi.fn((_request: ReadProjectTextSourcesRequest) => ({ entries: [] }));
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'read-project-text-sources',
+      (arguments_) => readProjectTextSourcesArgumentsSchema.parse(arguments_),
+      service,
+    );
+    const request = {
+      projectSessionId: 'opaque-session',
+      entries: [
+        {
+          readKey: 'source',
+          projectRelativePath: 'assets/source.lua',
+          expectedContentHash: `sha256:${'a'.repeat(64)}`,
+        },
+      ],
+    };
+
+    await expect(
+      ipcMain.invoke('read-project-text-sources', harness.event, request),
+    ).resolves.toEqual({ entries: [] });
+    expect(service).toHaveBeenCalledWith(request);
+
+    for (const arguments_ of [
+      [{ ...request, unexpected: true }],
+      [{ ...request, entries: [{ ...request.entries[0], unexpected: true }] }],
+      [request, 'extra'],
+    ]) {
+      service.mockClear();
+      await expect(
+        ipcMain.invoke('read-project-text-sources', harness.event, ...arguments_),
+      ).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(service).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(
+      ipcMain.invoke('read-project-text-sources', other.event, request),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(service).not.toHaveBeenCalled();
+  });
+
   it('accepts the owning live packaged top-level frame and parses before calling the service', async () => {
     const ipcMain = new FakeIpcMain();
     const harness = trustedHarness();

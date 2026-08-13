@@ -23,7 +23,7 @@ export interface OpenProjectResponse {
   error?: string;
   projectPath: string;
   projectFilePath: string;
-  projectReadSessionId?: string;
+  projectSessionId?: string;
 }
 
 export interface SaveProjectEditorMetadataResponse {
@@ -166,7 +166,7 @@ export interface SaveProjectResponse {
   success: boolean;
   projectPath?: string;
   projectFilePath?: string;
-  projectReadSessionId?: string;
+  projectSessionId?: string;
   workspaceRevision?: string;
   fileRevisions?: Record<string, `sha256:${string}`>;
   contentProject?: unknown;

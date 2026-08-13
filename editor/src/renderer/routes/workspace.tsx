@@ -366,7 +366,7 @@ export function WorkspacePage() {
     editorState: EditorProjectState,
     projectPathValue: string | null,
     projectFilePathValue: string | null,
-    projectReadSessionId: string | null,
+    projectSessionId: string | null,
     workspaceRevision: string | null | undefined,
     fileRevisions: Record<string, `sha256:${string}`> | undefined,
     scriptSourcePaths: Record<string, string> | undefined,
@@ -380,7 +380,7 @@ export function WorkspacePage() {
       savedDocument,
       projectPath: projectPathValue,
       projectFilePath: projectFilePathValue,
-      projectReadSessionId,
+      projectSessionId,
       workspaceRevision,
       fileRevisions,
       scriptSourcePaths,
@@ -603,6 +603,7 @@ export function WorkspacePage() {
 
   async function closeProject() {
     if (!(await flushProjectEditorMetadata('close-project'))) return;
+    await window.noveltea.closeActiveProject();
     refreshRecentProjectEntry(project, projectPath, projectFilePath);
     await cancelAndClearComfyUiProjectJobs(projectFilePath);
     if (projectFilePath) await window.noveltea.purgeProjectTrash(projectFilePath);
@@ -638,6 +639,7 @@ export function WorkspacePage() {
       if (!(await flushProjectEditorMetadata('switch-project'))) return;
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0)
         saveLocalEditorSessionSnapshot(projectFilePath ?? null);
+      await window.noveltea.closeActiveProject();
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
       const loaded = await window.noveltea.openProject(dir);
       if (!loaded.success || !loaded.contentProject || !loaded.editorState) {
@@ -689,7 +691,7 @@ export function WorkspacePage() {
         reconstructed.editorState,
         loaded.projectPath,
         loaded.projectFilePath,
-        loaded.projectReadSessionId ?? null,
+        loaded.projectSessionId ?? null,
         loaded.workspaceRevision,
         loaded.fileRevisions,
         loaded.scriptSourcePaths,

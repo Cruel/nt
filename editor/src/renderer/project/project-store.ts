@@ -25,7 +25,7 @@ interface ProjectStoreState {
   lastMutationPublication: ProjectMutationPublication<StructurallyAdmittedAuthoringProject> | null;
   projectPath: string | null;
   projectFilePath: string | null;
-  projectReadSessionId: string | null;
+  projectSessionId: string | null;
   workspaceRevision: string | null;
   fileRevisions: Readonly<Record<string, `sha256:${string}`>>;
   scriptSourcePaths: Readonly<Record<string, string>>;
@@ -73,7 +73,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   lastMutationPublication: null,
   projectPath: null,
   projectFilePath: null,
-  projectReadSessionId: null,
+  projectSessionId: null,
   workspaceRevision: null,
   fileRevisions: {},
   scriptSourcePaths: {},
@@ -85,7 +85,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     savedDocument,
     projectPath,
     projectFilePath,
-    projectReadSessionId = null,
+    projectSessionId = null,
     workspaceRevision = `sha256:${'0'.repeat(64)}`,
     fileRevisions = {},
     scriptSourcePaths = {},
@@ -110,7 +110,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       }),
       projectPath,
       projectFilePath,
-      projectReadSessionId,
+      projectSessionId,
       workspaceRevision,
       fileRevisions,
       scriptSourcePaths,
@@ -141,7 +141,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       }),
       projectPath: null,
       projectFilePath: null,
-      projectReadSessionId: null,
+      projectSessionId: null,
       workspaceRevision: null,
       fileRevisions: {},
       scriptSourcePaths: {},
@@ -161,7 +161,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       lastMutationPublication: null,
       projectPath: null,
       projectFilePath: null,
-      projectReadSessionId: null,
+      projectSessionId: null,
       workspaceRevision: null,
       fileRevisions: {},
       scriptSourcePaths: {},

@@ -52,7 +52,7 @@ import {
   stopProjectWorkspaceWatcher,
 } from './main/services/project-workspace-watcher-service';
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
-import { ProjectTextSourceReadSessionService } from './main/services/project-text-source-service';
+import { ActiveProjectSessionService } from './main/services/active-project-session-service';
 import {
   compileShaders,
   exportPackage,
@@ -120,7 +120,11 @@ import {
 import {
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
+  createProjectArgumentsSchema,
   installEditorNavigationPolicy,
+  noArgumentsSchema,
+  openProjectArgumentsSchema,
+  readProjectTextSourcesArgumentsSchema,
   selectDirectoryArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
 
@@ -276,28 +280,16 @@ interface EditorWindowSettings {
   maximized?: boolean;
 }
 
-function rememberPreviewProjectRoot(
-  result: { projectFilePath?: string; success?: boolean; ok?: boolean } | null | undefined,
-) {
+function rememberPreviewProjectRoot<
+  Result extends { projectFilePath?: string; success?: boolean; ok?: boolean } | null | undefined,
+>(result: Result): Result {
   if (result && result.success !== false && result.ok !== false && result.projectFilePath) {
     enginePreviewServer.setProjectFilePath(result.projectFilePath);
   }
   return result;
 }
 
-const projectTextSourceReads = new ProjectTextSourceReadSessionService();
-
-function rememberProjectReadSession<
-  T extends { success?: boolean; ok?: boolean; projectFilePath?: string; projectPath?: string },
->(response: T | null | undefined): (T & { projectReadSessionId?: string }) | null | undefined {
-  if (!response || response.success === false || response.ok === false) return response;
-  const projectFilePath = response.projectFilePath ?? response.projectPath;
-  if (!projectFilePath) return response;
-  return {
-    ...response,
-    projectReadSessionId: projectTextSourceReads.assignProjectFile(projectFilePath),
-  };
-}
+const activeProjectSessions = new ActiveProjectSessionService();
 
 function getEditorWindowSettingsPath() {
   return path.join(app.getPath('userData'), 'editor-window-settings.json');
@@ -492,6 +484,11 @@ function createWindow(): BrowserWindow {
   mainWindow.on('close', () => {
     if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
     saveEditorWindowBounds(mainWindow!);
+  });
+  const sessionOwner = mainWindow;
+  mainWindow.on('closed', () => {
+    activeProjectSessions.dispose();
+    if (mainWindow === sessionOwner) mainWindow = null;
   });
 
   const navigationOwner = mainWindow;
@@ -710,16 +707,28 @@ void app.whenReady().then(async () => {
 
   ipcMain.handle(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, () => enginePreviewServer.reload());
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.OPEN_PROJECT,
-    async (_event: Electron.IpcMainInvokeEvent, projectPath: string) =>
-      rememberProjectReadSession(rememberPreviewProjectRoot(await openProject(projectPath))),
+    (arguments_) => openProjectArgumentsSchema.parse(arguments_),
+    async (projectPath: string) =>
+      activeProjectSessions.attachToSuccessfulResult(
+        rememberPreviewProjectRoot(await openProject(projectPath)),
+      ),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.CREATE_PROJECT,
-    async (_event: Electron.IpcMainInvokeEvent, request: CreateProjectRequest) =>
-      rememberProjectReadSession(rememberPreviewProjectRoot(await createProject(request))),
+    (arguments_) => createProjectArgumentsSchema.parse(arguments_),
+    async (request: CreateProjectRequest) =>
+      activeProjectSessions.attachToSuccessfulResult(
+        rememberPreviewProjectRoot(await createProject(request)),
+      ),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.CLOSE_ACTIVE_PROJECT,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => activeProjectSessions.closeActiveProject(),
   );
 
   ipcMain.handle(
@@ -810,16 +819,14 @@ void app.whenReady().then(async () => {
       scriptSourcePaths: Record<string, string>,
       commitOptions: import('./shared/editor-tooling').ProjectWorkspaceCommitOptions | undefined,
     ) =>
-      rememberProjectReadSession(
-        rememberPreviewProjectRoot(
-          await saveProjectContent(
-            projectFilePath,
-            expectedWorkspaceRevision,
-            contentProject,
-            editorState,
-            scriptSourcePaths,
-            commitOptions,
-          ),
+      rememberPreviewProjectRoot(
+        await saveProjectContent(
+          projectFilePath,
+          expectedWorkspaceRevision,
+          contentProject,
+          editorState,
+          scriptSourcePaths,
+          commitOptions,
         ),
       ),
   );
@@ -940,10 +947,10 @@ void app.whenReady().then(async () => {
 
   ipcMain.handle(IPC_CHANNELS.CLEAR_EDITOR_CACHE, () => imageThumbnailService.clearEditorCache());
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES,
-    (_event: Electron.IpcMainInvokeEvent, request: ReadProjectTextSourcesRequest) =>
-      projectTextSourceReads.read(request),
+    (arguments_) => readProjectTextSourcesArgumentsSchema.parse(arguments_),
+    (request: ReadProjectTextSourcesRequest) => activeProjectSessions.read(request),
   );
 
   ipcMain.handle(
@@ -1052,6 +1059,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  activeProjectSessions.dispose();
   void stopProjectWorkspaceWatcher();
   void enginePreviewServer.stop();
 });

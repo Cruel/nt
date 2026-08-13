@@ -1,9 +1,17 @@
 import { z } from 'zod';
 import { EDITOR_IPC_FAILURE, EditorIpcBoundaryError } from '../shared/editor-ipc-boundary';
+import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
 const MAX_DIALOG_TITLE_LENGTH = 512;
 const MAX_DIALOG_PATH_LENGTH = 32_768;
+const MAX_PROJECT_SESSION_ID_LENGTH = 256;
+const MAX_PROJECT_NAME_LENGTH = 512;
+const MAX_TEXT_SOURCE_READ_KEY_LENGTH = 1_024;
+const MAX_PROJECT_PATH_LENGTH = 32_768;
+const sha256DigestSchema = z.custom<`sha256:${string}`>(
+  (value) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value),
+);
 
 export interface EditorFrame {
   detached: boolean;
@@ -170,6 +178,38 @@ export const selectDirectoryArgumentsSchema = z.tuple([
     .object({
       title: z.string().min(1).max(MAX_DIALOG_TITLE_LENGTH).optional(),
       defaultPath: z.string().min(1).max(MAX_DIALOG_PATH_LENGTH).nullable().optional(),
+    })
+    .strict(),
+]);
+
+export const noArgumentsSchema = z.tuple([]);
+
+export const openProjectArgumentsSchema = z.tuple([z.string().min(1).max(MAX_PROJECT_PATH_LENGTH)]);
+
+export const createProjectArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectName: z.string().min(1).max(MAX_PROJECT_NAME_LENGTH),
+      projectDirectory: z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
+    })
+    .strict(),
+]);
+
+export const readProjectTextSourcesArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
+      entries: z
+        .array(
+          z
+            .object({
+              readKey: z.string().min(1).max(MAX_TEXT_SOURCE_READ_KEY_LENGTH),
+              projectRelativePath: z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
+              expectedContentHash: sha256DigestSchema,
+            })
+            .strict(),
+        )
+        .max(PROJECT_TEXT_SOURCE_LIMITS.maxEntries),
     })
     .strict(),
 ]);

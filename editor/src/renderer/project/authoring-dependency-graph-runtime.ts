@@ -3,7 +3,7 @@ import { useProjectStore } from './project-store';
 import { useSyncExternalStore } from 'react';
 
 export const authoringDependencyGraphService = new AuthoringDependencyGraphService({
-  getProjectReadSessionId: () => useProjectStore.getState().projectReadSessionId,
+  getProjectSessionId: () => useProjectStore.getState().projectSessionId,
   getScriptSourcePaths: () => useProjectStore.getState().scriptSourcePaths,
   readProjectTextSources: (request) => window.noveltea.readProjectTextSources(request),
 });

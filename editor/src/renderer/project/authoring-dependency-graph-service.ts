@@ -76,7 +76,7 @@ export interface AuthoringDependencyGraphServiceOptions {
   readProjectTextSources(
     request: ReadProjectTextSourcesRequest,
   ): Promise<ReadProjectTextSourcesResponse>;
-  getProjectReadSessionId(): string | null;
+  getProjectSessionId(): string | null;
   /** Workspace-v1 owns Script Module file paths outside the assembled project schema. */
   getScriptSourcePaths?(): Readonly<Record<string, string>>;
 }
@@ -634,7 +634,7 @@ export class AuthoringDependencyGraphService {
       groups.clear();
     }
     if (groups.size > 0) {
-      const sessionId = this.options.getProjectReadSessionId();
+      const sessionId = this.options.getProjectSessionId();
       if (!sessionId) {
         for (const group of groups.values())
           for (const assetId of group.assetIds)
@@ -650,7 +650,7 @@ export class AuthoringDependencyGraphService {
       } else {
         const sorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
         const request: ReadProjectTextSourcesRequest = {
-          projectReadSessionId: sessionId,
+          projectSessionId: sessionId,
           entries: sorted.map(([key, group], index) => ({
             readKey: `r${index}:${key.length}`,
             projectRelativePath: group.path,

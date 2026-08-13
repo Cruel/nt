@@ -217,6 +217,7 @@ Object.defineProperty(window, 'noveltea', {
       projectFilePath: '/mock/project-copy/game.json',
       diagnostics: [],
     }),
+    closeActiveProject: vi.fn().mockResolvedValue(undefined),
     importAssets: vi.fn().mockResolvedValue({ success: true, assets: [], diagnostics: [] }),
     reimportAsset: vi.fn().mockResolvedValue({ success: true, asset: null, diagnostics: [] }),
     auditProjectAssets: vi.fn().mockResolvedValue({

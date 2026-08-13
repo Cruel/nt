@@ -34,6 +34,8 @@ Use these documents as the main references for editor work:
 - `docs/editor/project/PROJECT_EXPLORER.md` describes project explorer behavior.
 - `docs/editor/project/PROJECT_SETTINGS.md` describes project settings behavior.
 - `docs/editor/project/PROJECT_WORKSPACE_FORMAT.md` is the tracked workspace-v1 filesystem contract.
+- `docs/editor/project/ACTIVE_PROJECT_SESSION.md` owns the main-process active-Project authority and
+  renderer session-capability lifecycle.
 - `docs/editor/project/PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md` owns watcher, revision, rebase, and conflict-resolution behavior.
 - `docs/editor/CLI.md` is the permanent public `noveltea` command/protocol contract.
 - `docs/editor/AGENT_KIT.md` owns generated agent-kit versioning and sync behavior.
@@ -74,6 +76,11 @@ Clickable diagnostics should open or focus the relevant tab, scroll to the close
 Do not duplicate diagnostic card markup across editors when adding new diagnostic surfaces. Prefer a shared diagnostic list/card component that accepts severity, message, path/detail, and an optional navigation target.
 
 ### Project Save and Structural Persistence
+
+Project-scoped privileged operations use the one main-owned active Project session described in
+`docs/editor/project/ACTIVE_PROJECT_SESSION.md`. Renderer state carries its opaque
+`projectSessionId`; Project close/switch and window/application teardown revoke it. Do not restore
+path-nominated Project authority or a text-read-specific session alias.
 
 `Ctrl+S` saves only the active tab's logical save unit. Resolve ownership through
 `project/save-unit-registry.ts`; never replace this with a full working-document write. Save All

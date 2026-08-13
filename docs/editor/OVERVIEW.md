@@ -75,6 +75,8 @@ Direct image-asset thumbnails are not rendered-preview sessions. See
   auto-commit commands, persistence targets, filesystem coordination, and unsafe-rebase policies.
 - `docs/editor/project/PROJECT_WORKSPACE_FORMAT.md` — current segmented workspace-v1 tracked source,
   local editor state, canonical paths, and cutover rules.
+- `docs/editor/project/ACTIVE_PROJECT_SESSION.md` — main-owned active-Project authority, opaque
+  session lifecycle, revocation, and Project text-source reads.
 - `docs/editor/project/PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md` — workspace watcher, revisions,
   three-way external reconciliation, conflict resolution, and transaction recovery.
 - `docs/editor/project/AUTHORING_DEPENDENCY_GRAPH.md` — pure structural graph ownership,

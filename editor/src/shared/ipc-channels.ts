@@ -23,6 +23,7 @@ export const IPC_CHANNELS = {
   RELOAD_ENGINE_PREVIEW: 'noveltea:reload-engine-preview',
   OPEN_PROJECT: 'noveltea:open-project',
   CREATE_PROJECT: 'noveltea:create-project',
+  CLOSE_ACTIVE_PROJECT: 'noveltea:close-active-project',
   VALIDATE_PROJECT: 'noveltea:validate-project',
   LIST_PLAYBACK_TESTS: 'noveltea:list-playback-tests',
   RUN_PLAYBACK_TEST: 'noveltea:run-playback-test',

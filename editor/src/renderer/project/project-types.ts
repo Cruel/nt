@@ -3,7 +3,7 @@ export interface ProjectLoadPayload {
   savedDocument?: unknown;
   projectPath: string | null;
   projectFilePath: string | null;
-  projectReadSessionId?: string | null;
+  projectSessionId?: string | null;
   workspaceRevision?: string | null;
   fileRevisions?: Record<string, `sha256:${string}`>;
   scriptSourcePaths?: Record<string, string>;
