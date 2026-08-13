@@ -1,0 +1,1 @@
+export const NOVELTEA_VERSION = __NOVELTEA_VERSION__;

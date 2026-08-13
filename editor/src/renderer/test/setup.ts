@@ -2,6 +2,7 @@ import '@testing-library/jest-dom';
 import { beforeEach, vi } from 'vite-plus/test';
 import { DEFAULT_EDITOR_LANGUAGE, editorI18n, initEditorI18n } from '@/i18n';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { NOVELTEA_VERSION } from '../../shared/product-version';
 import { configureSharpPlatformImageService } from '../../main/services/platform-image-sharp-service';
 import {
   emptyEditorProjectState,
@@ -68,7 +69,7 @@ Object.defineProperty(window, 'matchMedia', {
 Object.defineProperty(window, 'noveltea', {
   value: {
     getAppInfo: vi.fn().mockResolvedValue({
-      version: '1.0.0',
+      version: NOVELTEA_VERSION,
       electronVersion: '42.0.0',
       platform: 'linux',
       arch: 'x64',
@@ -109,7 +110,7 @@ Object.defineProperty(window, 'noveltea', {
     isAppWindowMaximized: vi.fn().mockResolvedValue(false),
     setNativeWindowFrame: vi.fn().mockImplementation((nativeFrame: boolean) =>
       Promise.resolve({
-        version: '1.0.0',
+        version: NOVELTEA_VERSION,
         electronVersion: '42.0.0',
         platform: 'linux',
         arch: 'x64',

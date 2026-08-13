@@ -12,6 +12,7 @@ import http from 'node:http';
 import path from 'node:path';
 import sharp from 'sharp';
 import type { CreateRaw } from 'sharp';
+import { NOVELTEA_VERSION } from '../shared/product-version';
 import type { EnginePreviewServer } from './engine-preview-server';
 
 export const PACKAGE_SMOKE_FLAG = '--noveltea-package-smoke';
@@ -51,7 +52,7 @@ async function characterizeNovelTeaCli(cliPath: string): Promise<boolean> {
             stderr === '' &&
             payload.success === true &&
             payload.exitCode === 0 &&
-            payload.version === '1.0.0',
+            payload.version === NOVELTEA_VERSION,
         );
       } catch {
         resolve(false);

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { NOVELTEA_VERSION } from '../../shared/product-version';
 import { buildComfyUiWorkflowsTab, buildSettingsTab } from '@/workbench/editor-registry';
 import {
   clearWorkbenchRevealTargets,
@@ -106,7 +107,7 @@ describe('CommandPaletteDialog', () => {
 
   it('keeps reset settings enabled when only the native frame differs from its platform default', async () => {
     vi.mocked(window.noveltea.getAppInfo).mockResolvedValueOnce({
-      version: '1.0.0',
+      version: NOVELTEA_VERSION,
       electronVersion: '42.0.0',
       platform: 'linux',
       arch: 'x64',

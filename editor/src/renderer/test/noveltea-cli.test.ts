@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import { createNovelTeaAgentKitPayload } from '../../cli/agent-kit';
 import { syncNovelTeaAgentKit } from '../../cli/agent-sync';
-import { NOVELTEA_CLI_HELP, NOVELTEA_CLI_WORKSPACE_DIAGNOSTIC_CODES } from '../../cli/contracts';
+import {
+  NOVELTEA_CLI_HELP,
+  NOVELTEA_CLI_VERSION,
+  NOVELTEA_CLI_WORKSPACE_DIAGNOSTIC_CODES,
+} from '../../cli/contracts';
 import {
   PHASE_SIX_NODE_REFERENCE_COMMANDS,
   novelTeaNodeReferenceRunner,
@@ -257,7 +261,7 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(version.stdout)).toMatchObject({
       success: true,
       exitCode: 0,
-      version: '1.0.0',
+      version: NOVELTEA_CLI_VERSION,
     });
   });
 

@@ -21,8 +21,15 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import {
+  novelTeaDevelopmentVersion,
+  readNovelTeaVersion,
+} from '../../scripts/noveltea-version.mjs';
+
 export const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const repositoryRoot = path.resolve(editorRoot, '..');
+const { version: productVersion, releaseTag: productReleaseTag } =
+  readNovelTeaVersion(repositoryRoot);
 export const distributionRoot = path.join(editorRoot, 'out', 'electron-builder');
 export const previewSourceRoot = path.join(
   repositoryRoot,
@@ -178,7 +185,7 @@ export async function verifyStandaloneNovelTeaCli(cliPath) {
   if (
     payload?.success !== true ||
     payload?.exitCode !== 0 ||
-    payload?.version !== '1.0.0' ||
+    payload?.version !== productVersion ||
     result.stderr !== ''
   ) {
     throw new Error(
@@ -298,16 +305,12 @@ function normalizeReleaseTag(input) {
   if (!input) return null;
   const tag = input.trim();
   if (!tag) return null;
-  const match = /^v?(\d+)\.(\d+)\.(\d+)([-+][0-9A-Za-z.-]+)?$/.exec(tag);
-  if (!match) {
+  if (tag !== productReleaseTag) {
     throw new Error(
-      `Invalid release tag ${JSON.stringify(tag)}. Expected vMAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH.`,
+      `Release tag ${JSON.stringify(tag)} does not match VERSION ${JSON.stringify(productVersion)}; expected ${productReleaseTag}.`,
     );
   }
-  return {
-    releaseTag: tag,
-    version: `${match[1]}.${match[2]}.${match[3]}${match[4] ?? ''}`,
-  };
+  return { releaseTag: productReleaseTag, version: productVersion };
 }
 
 export async function resolveBuildIdentity(explicitReleaseTag) {
@@ -317,8 +320,11 @@ export async function resolveBuildIdentity(explicitReleaseTag) {
   if (process.env.CI === 'true') {
     throw new Error('CI distribution builds require --release-tag or NOVELTEA_RELEASE_TAG.');
   }
-  const suffix = /^[0-9a-f]{7,}$/i.test(revision) ? revision.slice(0, 12) : 'unknown';
-  return { releaseTag: null, version: `0.0.0-dev.${suffix}`, revision };
+  return {
+    releaseTag: null,
+    version: novelTeaDevelopmentVersion(productVersion, revision),
+    revision,
+  };
 }
 
 async function getElectronMetadata() {

@@ -60,9 +60,9 @@ endif()
 noveltea_apply_runtime_compiler_policy(noveltea-player)
 noveltea_apply_policy_warnings(noveltea-player)
 
-set(NOVELTEA_PLAYER_BUILD_ID "${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_BUILD_TYPE}")
+set(NOVELTEA_PLAYER_BUILD_ID "${NOVELTEA_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-${CMAKE_BUILD_TYPE}")
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/player-build.json" CONTENT
-"{\n  \"format\": \"noveltea.player-template-build\",\n  \"formatVersion\": 1,\n  \"engineVersion\": \"${PROJECT_VERSION}\",\n  \"buildId\": \"${NOVELTEA_PLAYER_BUILD_ID}\",\n  \"buildFlavor\": \"$<IF:$<CONFIG:Debug>,debug,release>\"\n}\n")
+"{\n  \"format\": \"noveltea.player-template-build\",\n  \"formatVersion\": 1,\n  \"engineVersion\": \"${NOVELTEA_VERSION}\",\n  \"buildId\": \"${NOVELTEA_PLAYER_BUILD_ID}\",\n  \"buildFlavor\": \"$<IF:$<CONFIG:Debug>,debug,release>\"\n}\n")
 add_custom_command(TARGET noveltea-player POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_BINARY_DIR}/player-build.json"

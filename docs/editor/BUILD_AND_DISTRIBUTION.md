@@ -14,6 +14,29 @@ pnpm install --frozen-lockfile
 Do not create an editor-local workspace or lockfile. The editor package remains
 `noveltea-editor` under the root workspace.
 
+## Product Version and Release Identity
+
+The repository-root `VERSION` file is the sole authored NovelTea product version. It uses
+`MAJOR.MINOR.PATCH[-prerelease]`. Do not duplicate the product version in `editor/package.json`,
+`vcpkg.json`, CMake source, CLI source, tests, or release-workflow inputs.
+
+CMake reads `VERSION` before `project()`: `NOVELTEA_VERSION` retains the complete product version,
+while the numeric `MAJOR.MINOR.PATCH` core is supplied to CMake's `project(VERSION ...)` field. Vite+
+uses the same shared parser as release tooling and injects the value into editor and Node/ScriptC CLI
+bundles, while ScriptC release staging embeds it into the standalone host. Release editor staging
+writes the canonical product version into packaged application metadata. Ordinary local staging
+uses a derived development build identity instead: `1.0.0` becomes `1.0.0-dev.<revision>`, and an
+existing prerelease such as `1.1.0-rc.1` becomes `1.1.0-rc.1.dev.<revision>`. These development
+versions are derived from `VERSION`; they are not independently authored product versions. Editor
+runtime product-version reporting and release-matched template downloads use the injected canonical
+product version rather than Electron's staged package version.
+
+A manual `Release` workflow run uses GitHub's built-in **Use workflow from** selection as the source
+revision and derives `v<VERSION>` automatically. It builds and qualifies the complete release
+inventory but does not publish a GitHub Release. A pushed `v*` tag is authoritative external release
+identity: `.github/validate-release-version.mjs` requires the pushed tag to equal `v<VERSION>` before
+release work proceeds, and only a successful tag-triggered run reaches publication.
+
 ## Stable Commands
 
 Run these from the `editor/` directory:

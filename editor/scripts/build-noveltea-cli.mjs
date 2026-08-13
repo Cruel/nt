@@ -4,8 +4,11 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
+const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const scriptcVersion = '0.0.26';
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
@@ -48,6 +51,7 @@ const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-isl
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
 const hostProcessSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-process.ts');
 const staticContractsSource = path.join(editorRoot, 'src', 'cli', 'static-contracts.ts');
+const productVersionSource = path.join(editorRoot, 'src', 'shared', 'product-version.ts');
 
 if (process.argv.length > 2)
   throw new Error(
@@ -260,7 +264,7 @@ try {
     `${JSON.stringify(
       {
         name: 'noveltea-scriptc-island',
-        version: '1.0.0',
+        version: productVersion,
         private: true,
         main: 'index.cjs',
         types: 'index.d.ts',
@@ -284,7 +288,7 @@ try {
     `${JSON.stringify(
       {
         name: 'noveltea-scriptc-agent-kit-source',
-        version: '1.0.0',
+        version: productVersion,
         private: true,
         main: 'index.cjs',
         types: 'index.d.ts',
@@ -305,13 +309,23 @@ try {
   const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');
   const stagedHostProcess = path.join(stageRoot, 'noveltea-scriptc-process.ts');
   const stagedStaticContracts = path.join(stageRoot, 'static-contracts.ts');
+  const stagedProductVersion = path.join(stageRoot, 'product-version.ts');
   const stagedHostSource = (await readFile(hostSource, 'utf8'))
     .replace('../src/cli/static-contracts', './static-contracts')
     .replace(
       '      // @ts-expect-error The private island package is materialized only during release staging.\n',
       '',
     );
-  await cp(staticContractsSource, stagedStaticContracts);
+  const stagedStaticContractsSource = (await readFile(staticContractsSource, 'utf8')).replace(
+    '../shared/product-version',
+    './product-version',
+  );
+  const stagedProductVersionSource = (await readFile(productVersionSource, 'utf8')).replace(
+    '__NOVELTEA_VERSION__',
+    JSON.stringify(productVersion),
+  );
+  await writeFile(stagedStaticContracts, stagedStaticContractsSource);
+  await writeFile(stagedProductVersion, stagedProductVersionSource);
   await cp(hostProcessSource, stagedHostProcess);
   await writeFile(stagedHost, stagedHostSource);
   const ffiPath = path.join(stageRoot, 'ffi.json');

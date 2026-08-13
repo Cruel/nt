@@ -12,6 +12,7 @@ import type {
   ComfyUiWorkflowActiveEntry,
   ComfyUiWorkflowRole,
 } from '../../shared/comfyui-workflows';
+import { NOVELTEA_VERSION } from '../../shared/product-version';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({ value, themeId }: { value: string; themeId?: string }) => (
@@ -177,7 +178,7 @@ describe('SettingsPage code editor theme selector', () => {
 
   it('confirms before resetting every settings category', async () => {
     vi.mocked(window.noveltea.getAppInfo).mockResolvedValue({
-      version: '1.0.0',
+      version: NOVELTEA_VERSION,
       electronVersion: '42.0.0',
       platform: 'linux',
       arch: 'x64',

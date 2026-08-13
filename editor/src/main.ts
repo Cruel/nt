@@ -12,6 +12,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { IPC_CHANNELS } from './shared/ipc-channels';
+import { NOVELTEA_VERSION } from './shared/product-version';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import {
   PACKAGE_SMOKE_FLAG,
@@ -351,7 +352,7 @@ function saveEditorWindowBounds(window: BrowserWindow) {
 
 function getAppInfoPayload() {
   return {
-    version: app.getVersion(),
+    version: NOVELTEA_VERSION,
     electronVersion: process.versions.electron,
     platform: process.platform,
     arch: process.arch,
@@ -753,7 +754,7 @@ void app.whenReady().then(async () => {
     installPlayerTemplate(request),
   );
   ipcMain.handle(IPC_CHANNELS.DOWNLOAD_PLAYER_TEMPLATE, (_event, request) =>
-    downloadPlayerTemplateForRelease(`v${app.getVersion()}`, request),
+    downloadPlayerTemplateForRelease(`v${NOVELTEA_VERSION}`, request),
   );
   ipcMain.handle(
     IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE,

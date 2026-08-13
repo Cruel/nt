@@ -6,8 +6,11 @@ import tailwindcss from '@tailwindcss/vite';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
+import { readNovelTeaVersion } from '../scripts/noveltea-version.mjs';
 
 const editorRoot = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(editorRoot, '..');
+const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const nodeRuntimeExternals = [
   ...new Set(builtinModules.flatMap((moduleName) => [moduleName, `node:${moduleName}`])),
 ];
@@ -31,6 +34,9 @@ function shouldBundleNodeDependency(id: string): boolean {
 const commonNodePack = {
   platform: 'node' as const,
   target: 'node24.18',
+  define: {
+    __NOVELTEA_VERSION__: JSON.stringify(productVersion),
+  },
   sourcemap: !productionBuild,
   hash: false,
   treeshake: true,
@@ -42,6 +48,9 @@ const commonNodePack = {
 
 export default defineConfig({
   base: './',
+  define: {
+    __NOVELTEA_VERSION__: JSON.stringify(productVersion),
+  },
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',

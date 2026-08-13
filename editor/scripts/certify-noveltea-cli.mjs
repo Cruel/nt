@@ -18,8 +18,11 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
+const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-release' : 'linux-release';
@@ -557,7 +560,7 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
     formatVersion: 1,
     templateId: 'certification-web-template',
     buildId: 'build-1',
-    engineVersion: '1.0.0',
+    engineVersion: productVersion,
     platform: 'web',
     architecture: 'wasm32',
     minimumPlatformVersion: 'certification',
@@ -649,7 +652,7 @@ async function certifyRelocation(tempRoot) {
       };
   const result = requireSuccess('relocated CLI', run(relocated, ['--json', '--version'], { env }));
   const payload = JSON.parse(result.stdout);
-  if (payload.version !== '1.0.0')
+  if (payload.version !== productVersion)
     fail(`Relocated CLI returned unexpected version '${payload.version}'.`);
 
   const closure = isWindows
