@@ -68,7 +68,7 @@ export const useShaderCompileStore = create<ShaderCompileStoreState>()((set, get
         const stageIndex = shader?.stages.findIndex((stage) => stage.stage === output.stage) ?? -1;
         const currentFingerprint =
           currentProject && stageIndex >= 0
-            ? shaderCompileInputFingerprint(
+            ? await shaderCompileInputFingerprint(
                 currentProject,
                 output.shader,
                 stageIndex,

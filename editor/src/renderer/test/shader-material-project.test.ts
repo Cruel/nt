@@ -14,7 +14,7 @@ import {
   shaderPreviewRevision,
 } from '../../shared/project-schema/shader-material-project';
 
-function projectWithShaderMaterial() {
+async function projectWithShaderMaterial() {
   const project = createAuthoringProject();
   project.assets['noise-fs'] = {
     id: 'noise-fs',
@@ -77,7 +77,7 @@ function projectWithShaderMaterial() {
       ],
     },
   };
-  const fingerprint = shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+  const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
   if (!fingerprint) throw new Error('Expected Shader compile fingerprint fixture.');
   const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
   shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
@@ -149,11 +149,11 @@ describe('buildShaderMaterialProject', () => {
     });
   });
 
-  it('converts authoring shader and material records into runtime helper shape', () => {
-    const project = projectWithShaderMaterial();
+  it('converts authoring shader and material records into runtime helper shape', async () => {
+    const project = await projectWithShaderMaterial();
     const authoredOutput = (project.shaders.noise.data as ReturnType<typeof defaultShaderData>)
       .stages[1]!.compiled['glsl-120']!;
-    const result = buildShaderMaterialProject(project);
+    const result = await buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
     expect(result.project.schema).toBe('noveltea.shader-materials.v2');
     expect(result.project.shaders.noise).toMatchObject({
@@ -190,8 +190,8 @@ describe('buildShaderMaterialProject', () => {
     });
   });
 
-  it('preserves declared roles independently from role bindings', () => {
-    const project = projectWithShaderMaterial();
+  it('preserves declared roles independently from role bindings', async () => {
+    const project = await projectWithShaderMaterial();
     project.shaders.vertex = {
       id: 'vertex',
       label: 'Vertex',
@@ -208,11 +208,11 @@ describe('buildShaderMaterialProject', () => {
       ],
     };
     const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
-    const fingerprint = shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+    const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
     if (!fingerprint) throw new Error('Expected updated Shader compile fingerprint fixture.');
     shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
 
-    const result = buildShaderMaterialProject(project);
+    const result = await buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
     expect(result.project.shaders.noise.roles).toEqual(['engine-2d', 'active-text']);
     expect(result.project.shaders.noise.role_bindings).toEqual({
@@ -220,14 +220,14 @@ describe('buildShaderMaterialProject', () => {
     });
   });
 
-  it('emits postprocess scope with world as the authored default', () => {
-    const project = projectWithShaderMaterial();
+  it('emits postprocess scope with world as the authored default', async () => {
+    const project = await projectWithShaderMaterial();
     project.shaders.noise.data = {
       ...project.shaders.noise.data,
       roles: ['postprocess'],
     };
     const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
-    const fingerprint = shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+    const fingerprint = await shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
     if (!fingerprint) throw new Error('Expected updated Shader compile fingerprint fixture.');
     shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
     project.materials.panel.data = {
@@ -235,7 +235,7 @@ describe('buildShaderMaterialProject', () => {
       role: 'postprocess',
     };
 
-    let result = buildShaderMaterialProject(project);
+    let result = await buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
     expect(result.project.materials.panel).toMatchObject({
       role: 'postprocess',
@@ -246,15 +246,15 @@ describe('buildShaderMaterialProject', () => {
       ...project.materials.panel.data,
       postprocessScope: 'full-game-viewport',
     };
-    result = buildShaderMaterialProject(project);
+    result = await buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
     expect(result.project.materials.panel).toMatchObject({
       postprocess_scope: 'full-game-viewport',
     });
   });
 
-  it('validates and flattens authored material inheritance into the runtime manifest', () => {
-    const project = projectWithShaderMaterial();
+  it('validates and flattens authored material inheritance into the runtime manifest', async () => {
+    const project = await projectWithShaderMaterial();
     project.materials.base = {
       id: 'base',
       label: 'Base',
@@ -279,7 +279,7 @@ describe('buildShaderMaterialProject', () => {
       },
     };
 
-    const built = buildShaderMaterialProject(project);
+    const built = await buildShaderMaterialProject(project);
     expect(built.diagnostics).toEqual([]);
     expect(built.project.materials.child).toMatchObject({
       shader: 'noise',
@@ -295,16 +295,16 @@ describe('buildShaderMaterialProject', () => {
       baseMaterialId: 'child',
     };
     expect(
-      buildShaderMaterialProject(project).diagnostics.some((item) =>
+      (await buildShaderMaterialProject(project)).diagnostics.some((item) =>
         item.message.includes('cycle'),
       ),
     ).toBe(true);
   });
 
-  it('builds shader square preview data with internal template references', () => {
-    const project = projectWithShaderMaterial();
+  it('builds shader square preview data with internal template references', async () => {
+    const project = await projectWithShaderMaterial();
     expect(shaderPreviewRevision(project, 'noise')).toContain('noise');
-    expect(buildShaderPreviewDocumentData(project, 'noise')).toMatchObject({
+    expect(await buildShaderPreviewDocumentData(project, 'noise')).toMatchObject({
       schema: 'noveltea.shader-preview.v1',
       shaderId: 'noise',
       previewMaterialId: 'editor/preview/shader/noise',

@@ -234,10 +234,10 @@ function compilerDiagnosticsFor(
 }
 
 function shaderMaterialMetadataWithOutputs(
-  metadata: ReturnType<typeof buildShaderMaterialProject>['project'],
+  metadata: Awaited<ReturnType<typeof buildShaderMaterialProject>>['project'],
   outputs: readonly VerifiedShaderCompiledOutput[],
 ): {
-  metadata: ReturnType<typeof buildShaderMaterialProject>['project'];
+  metadata: Awaited<ReturnType<typeof buildShaderMaterialProject>>['project'];
   diagnostics: ProjectValidationDiagnostic[];
 } {
   if (outputs.length === 0) return { metadata, diagnostics: [] };
@@ -329,10 +329,10 @@ export function hasAuthoringShadersOrMaterials(project: AuthoringProject) {
   return Object.keys(project.shaders).length > 0 || Object.keys(project.materials).length > 0;
 }
 
-function assembleRuntimeArtifact(
+async function assembleRuntimeArtifact(
   project: AuthoringProject,
   options: RuntimeArtifactAssemblyOptions,
-): RuntimeArtifactAssessment {
+): Promise<RuntimeArtifactAssessment> {
   const authoringDiagnostics = validateAuthoringProject(project);
   const runtimeProject = runtimeCompilationProject(project);
   const published = publishCompiledArtifact(runtimeProject);
@@ -388,7 +388,7 @@ function assembleRuntimeArtifact(
     ];
   });
 
-  const shaderBuild = buildShaderMaterialProject(project);
+  const shaderBuild = await buildShaderMaterialProject(project);
   const shaderAuthoringOutputs = options.shaderAuthoringOutputs ?? [];
   const preparedShaderMetadata = shaderMaterialMetadataWithOutputs(
     shaderBuild.project,
@@ -517,15 +517,15 @@ function shaderExecutionDiagnostics(
   );
 }
 
-function validateShaderOutputs(
+async function validateShaderOutputs(
   project: AuthoringProject,
   outputs: readonly ShaderCompileOutput[],
   capturedFingerprints: Readonly<Record<string, `sha256:${string}`>>,
-): {
+): Promise<{
   outputs: ShaderCompileOutput[];
   authoringOutputs: VerifiedShaderCompiledOutput[];
   diagnostics: ProjectValidationDiagnostic[];
-} {
+}> {
   const accepted: ShaderCompileOutput[] = [];
   const authoringOutputs: VerifiedShaderCompiledOutput[] = [];
   const diagnostics: ProjectValidationDiagnostic[] = [];
@@ -561,7 +561,7 @@ function validateShaderOutputs(
     const stageIndex = shader?.stages.findIndex((stage) => stage.stage === output.stage) ?? -1;
     const current =
       stageIndex >= 0
-        ? shaderCompileInputFingerprint(project, output.shader, stageIndex, output.variant)
+        ? await shaderCompileInputFingerprint(project, output.shader, stageIndex, output.variant)
         : null;
     const runtimePath = canonicalRuntimeShaderOutputPath(output.runtimePath);
     if (
@@ -636,7 +636,7 @@ export async function prepareRuntimeArtifact(
   const cancelled = () => options.isCancelled?.() === true;
   if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
   options.onStage?.('compiling-project');
-  let assessment = assembleRuntimeArtifact(options.project, {
+  let assessment = await assembleRuntimeArtifact(options.project, {
     projectRoot: options.projectRoot,
     profile: options.profile,
     recoveryFingerprint: options.recoveryFingerprint,
@@ -665,8 +665,8 @@ export async function prepareRuntimeArtifact(
     } else {
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
       options.onStage?.('compiling-shaders');
-      const shaderProject = buildShaderMaterialProject(options.project);
-      const captured = captureShaderCompileInputFingerprints(
+      const shaderProject = await buildShaderMaterialProject(options.project);
+      const captured = await captureShaderCompileInputFingerprints(
         options.project,
         options.profile.shaderVariants,
       );
@@ -677,7 +677,7 @@ export async function prepareRuntimeArtifact(
         shaderVariants: options.profile.shaderVariants,
       });
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
-      const verified = validateShaderOutputs(options.project, response.outputs ?? [], captured);
+      const verified = await validateShaderOutputs(options.project, response.outputs ?? [], captured);
       shaderOutputs = verified.outputs;
       shaderDiagnostics = collectProjectValidationDiagnostics(
         shaderExecutionDiagnostics(response.diagnostics ?? []),
@@ -698,7 +698,7 @@ export async function prepareRuntimeArtifact(
       );
       if (response.success && !shaderDiagnostics.some((item) => item.severity === 'error')) {
         options.onStage?.('compiling-project');
-        assessment = assembleRuntimeArtifact(options.project, {
+        assessment = await assembleRuntimeArtifact(options.project, {
           projectRoot: options.projectRoot,
           profile: options.profile,
           recoveryFingerprint: options.recoveryFingerprint,
@@ -876,10 +876,10 @@ function rejectedEvidence(message: string, path: string): VerifyPreparedRuntimeA
   };
 }
 
-export function verifyPreparedRuntimeArtifact(
+export async function verifyPreparedRuntimeArtifact(
   value: unknown,
   options: VerifyPreparedRuntimeArtifactOptions,
-): VerifyPreparedRuntimeArtifactResult {
+): Promise<VerifyPreparedRuntimeArtifactResult> {
   const parsed = preparedRuntimeArtifactSchema.safeParse(value);
   if (!parsed.success)
     return rejectedEvidence('Prepared Runtime Artifact is malformed or unsupported.', '/artifact');
@@ -941,7 +941,7 @@ export function verifyPreparedRuntimeArtifact(
       '/artifact/fileEntries',
     );
 
-  const currentShaderMetadata = buildShaderMaterialProject(options.project).project;
+  const currentShaderMetadata = (await buildShaderMaterialProject(options.project)).project;
   const currentHasShaderMetadata = hasShaderMaterialMetadata(currentShaderMetadata);
   if (currentHasShaderMetadata !== (artifact.shaderMaterialMetadata !== undefined))
     return rejectedEvidence(

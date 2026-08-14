@@ -3,7 +3,6 @@ import {
   NodeProjectWorkspaceFileSystem,
   NodeProjectWorkspaceProcessLiveness,
 } from '../../shared/project-workspace/node-project-workspace-file-system';
-import { sha256PrefixedBytes } from '../../shared/sha256';
 import {
   PROJECT_WORKSPACE_ABSENT_REVISION,
   ProjectWorkspaceTransactionService,
@@ -27,8 +26,7 @@ async function revisionAt(
   absolutePath: string,
 ): Promise<ProjectWorkspaceExpectedRevision> {
   try {
-    const bytes = await fileSystem.readBytes(absolutePath);
-    return sha256PrefixedBytes(bytes);
+    return (await fileSystem.readFileRevision(absolutePath)).contentHash;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT')
       return PROJECT_WORKSPACE_ABSENT_REVISION;
@@ -79,7 +77,7 @@ export async function moveProjectAssetFileTransaction(
   const destination = slashPath(destinationRelativePath);
   const sourceAbsolute = fileSystem.joinPath(projectRoot, source);
   const bytes = await fileSystem.readBytes(sourceAbsolute);
-  const sourceExpectedRevision = sha256PrefixedBytes(bytes);
+  const sourceExpectedRevision = (await fileSystem.readFileRevision(sourceAbsolute)).contentHash;
   await transactionService(fileSystem).commit(projectRoot, {
     operationLabel,
     targets: [

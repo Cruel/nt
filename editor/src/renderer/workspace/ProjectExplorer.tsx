@@ -905,14 +905,17 @@ function ExplorerContextMenu({
     }
   }
 
-  function findNodeUsages() {
+  async function findNodeUsages() {
     if (!node.entityId) return;
     const target = referenceTargetFromEntity({ collection, entityId: node.entityId });
     const record = activeProject[collection][node.entityId];
     const aliases =
       collection === 'assets' && record ? parseAssetData(record.data)?.aliases : undefined;
     const searchResults = searchProjectWorkspaceSnapshot(
-      createProjectWorkspaceSnapshot(activeProject, useProjectStore.getState().scriptSourcePaths),
+      await createProjectWorkspaceSnapshot(
+        activeProject,
+        useProjectStore.getState().scriptSourcePaths,
+      ),
       {
         referencesTo: [target],
         aliases,
@@ -1391,10 +1394,24 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       showTagFilter,
     ],
   );
-  const workspaceSnapshot = useMemo(
-    () => (project ? createProjectWorkspaceSnapshot(project, scriptSourcePaths) : null),
-    [project, scriptSourcePaths],
-  );
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<
+    Awaited<ReturnType<typeof createProjectWorkspaceSnapshot>> | null
+  >(null);
+  useEffect(() => {
+    let active = true;
+    if (!project) {
+      setWorkspaceSnapshot(null);
+      return () => {
+        active = false;
+      };
+    }
+    void createProjectWorkspaceSnapshot(project, scriptSourcePaths).then((snapshot) => {
+      if (active) setWorkspaceSnapshot(snapshot);
+    });
+    return () => {
+      active = false;
+    };
+  }, [project, scriptSourcePaths]);
   const activeFilterTags = useMemo(
     () => (showTagFilter ? filterTags : []),
     [filterTags, showTagFilter],

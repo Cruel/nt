@@ -513,12 +513,12 @@ describe('Prepared Runtime Artifact module', () => {
       schemaVersion: PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION,
     });
     expect(
-      verifyPreparedRuntimeArtifact(prepared.artifact, {
+      (await verifyPreparedRuntimeArtifact(prepared.artifact, {
         project,
         projectRoot: '/project',
         profile,
         paths: rendererRuntimeArtifactPaths,
-      }).status,
+      })).status,
     ).toBe('verified');
   });
 
@@ -532,28 +532,28 @@ describe('Prepared Runtime Artifact module', () => {
     expect(prepared.status).toBe('prepared');
     if (prepared.status !== 'prepared') return;
     expect(
-      verifyPreparedRuntimeArtifact(
+      (await verifyPreparedRuntimeArtifact(
         { ...prepared.artifact, schemaVersion: 0 },
         { project, projectRoot: '/project', profile, paths: rendererRuntimeArtifactPaths },
-      ).status,
+      )).status,
     ).toBe('rejected');
     expect(
-      verifyPreparedRuntimeArtifact(
+      (await verifyPreparedRuntimeArtifact(
         {
           ...prepared.artifact,
           packageOptions: { ...prepared.artifact.packageOptions, fileEntries: [] },
         },
         { project, projectRoot: '/project', profile, paths: rendererRuntimeArtifactPaths },
-      ).status,
+      )).status,
     ).toBe('rejected');
     expect(
-      verifyPreparedRuntimeArtifact(
+      (await verifyPreparedRuntimeArtifact(
         {
           ...prepared.artifact,
           packageOptions: { ...prepared.artifact.packageOptions, kind: 'editable' },
         },
         { project, projectRoot: '/project', profile, paths: rendererRuntimeArtifactPaths },
-      ).status,
+      )).status,
     ).toBe('rejected');
   });
 
@@ -575,7 +575,7 @@ describe('Prepared Runtime Artifact module', () => {
       });
 
     expect(
-      verify({
+      (await verify({
         ...prepared.artifact,
         fileEntries: [],
         packageOptions: { ...prepared.artifact.packageOptions, fileEntries: [] },
@@ -584,7 +584,7 @@ describe('Prepared Runtime Artifact module', () => {
           assetCount: 0,
           entryCount: 1,
         },
-      }).status,
+      })).status,
     ).toBe('rejected');
 
     const substituted = prepared.artifact.fileEntries.map((entry) => ({
@@ -592,7 +592,7 @@ describe('Prepared Runtime Artifact module', () => {
       source: '/project/assets/images/other.png',
     }));
     expect(
-      verify({
+      (await verify({
         ...prepared.artifact,
         fileEntries: substituted,
         packageOptions: {
@@ -603,7 +603,7 @@ describe('Prepared Runtime Artifact module', () => {
             storage,
           })),
         },
-      }).status,
+      })).status,
     ).toBe('rejected');
   });
 
@@ -626,12 +626,12 @@ describe('Prepared Runtime Artifact module', () => {
     if (prepared.status !== 'prepared') return;
 
     expect(
-      verifyPreparedRuntimeArtifact(prepared.artifact, {
+      (await verifyPreparedRuntimeArtifact(prepared.artifact, {
         project,
         projectRoot: '/project',
         profile,
         paths: rendererRuntimeArtifactPaths,
-      }).status,
+      })).status,
     ).toBe('rejected');
   });
 });

@@ -1,5 +1,5 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
-import { sha256PrefixedUtf8 } from '../../shared/sha256';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -11,6 +11,8 @@ import {
 } from '../../shared/project-workspace';
 
 const root = '/project';
+const sha256PrefixedUtf8 = (value: string): `sha256:${string}` =>
+  `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
 
 function workspaceFiles(project = createAuthoringProject({ id: 'transactions', name: 'Before' })) {
   return Object.fromEntries(

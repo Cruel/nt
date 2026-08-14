@@ -587,7 +587,7 @@ describe('main-process image thumbnail service', () => {
 
     await fs.rm(fixture.cacheRoot, { recursive: true, force: true });
     const escapedService = new ImageThumbnailService(fixture.cacheRoot);
-    const key = createImageThumbnailDerivativeKey(request.source, 'list', {
+    const key = await createImageThumbnailDerivativeKey(request.source, 'list', {
       sharpVersion: sharp.versions.sharp,
       vipsVersion: sharp.versions.vips,
     });
@@ -684,7 +684,7 @@ describe('main-process image thumbnail service', () => {
     );
     expect((await promoted).ok).toBe(true);
     expect(maximumPipelines).toBeLessThanOrEqual(2);
-    const promotedKey = createImageThumbnailDerivativeKey(generated[3]!, 'list', {
+    const promotedKey = await createImageThumbnailDerivativeKey(generated[3]!, 'list', {
       sharpVersion: sharp.versions.sharp,
       vipsVersion: sharp.versions.vips,
     });
@@ -855,7 +855,7 @@ describe('main-process image thumbnail service', () => {
       },
       variant: { kind: 'profile' as const, profile: 'list' as const },
     };
-    const key = createImageThumbnailDerivativeKey(request.source, 'list', {
+    const key = await createImageThumbnailDerivativeKey(request.source, 'list', {
       sharpVersion: sharp.versions.sharp,
       vipsVersion: sharp.versions.vips,
     });

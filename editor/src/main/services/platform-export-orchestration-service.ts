@@ -306,7 +306,7 @@ export async function exportProjectToPlatform(
     let artifact: PreparedRuntimeArtifact;
     if (request.preparedRuntimeArtifact) {
       progress('compiling-project', 'Verifying the prepared current-revision runtime artifact');
-      const verified = verifyPreparedRuntimeArtifact(request.preparedRuntimeArtifact, {
+      const verified = await verifyPreparedRuntimeArtifact(request.preparedRuntimeArtifact, {
         project,
         projectRoot,
         profile: targetRuntimeProfile,

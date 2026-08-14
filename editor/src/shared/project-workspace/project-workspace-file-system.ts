@@ -9,6 +9,8 @@ export interface ProjectWorkspaceFileSystem {
   readText(path: string): Promise<string>;
   /** Exact on-disk bytes; revisions must never be derived from decoded text. */
   readBytes(path: string): Promise<Uint8Array>;
+  /** Exact on-disk SHA-256 revision and byte size for authoritative workspace files. */
+  readFileRevision(path: string): Promise<Readonly<{ contentHash: `sha256:${string}`; byteSize: number }>>;
   writeTextAtomic(path: string, text: string): Promise<void>;
   writeBytesAtomic(path: string, bytes: Uint8Array): Promise<void>;
   movePathAtomic(from: string, to: string): Promise<void>;

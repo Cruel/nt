@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { authoringLocalizationSchema } from '../shared/project-schema/authoring-localization';
@@ -11,7 +12,6 @@ import {
   editorRecordMetadataStateSchema,
   editorTagsStateSchema,
 } from '../shared/project-schema/editor-project-state';
-import { sha256PrefixedUtf8 } from '../shared/sha256';
 import {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
@@ -130,7 +130,7 @@ export function createNovelTeaAgentKitPayload(
   const hashes = Object.fromEntries(
     Object.entries(sortedFiles).map(([relativePath, text]) => [
       relativePath,
-      sha256PrefixedUtf8(text),
+      `sha256:${createHash('sha256').update(text, 'utf8').digest('hex')}`,
     ]),
   );
   const manifest = {

@@ -1833,16 +1833,16 @@ export function enumerateAuthoringDependencyContributionKeys(
   return Object.freeze(keys.sort());
 }
 
-export function deriveAuthoringDependencyContribution(
+export async function deriveAuthoringDependencyContribution(
   project: AuthoringProject,
   contributionKey: string,
   luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
-): AuthoringDependencyGraphContribution | null {
+): Promise<AuthoringDependencyGraphContribution | null> {
   const selectedKeys = new Set([contributionKey]);
   const descriptors = collectAuthoringLuaSources(project, selectedKeys);
   const analyses =
     luaAnalysis.mode === 'enabled'
-      ? (analyzeAuthoringSources(project, luaAnalysis.sources, undefined, selectedKeys).get(
+      ? ((await analyzeAuthoringSources(project, luaAnalysis.sources, undefined, selectedKeys)).get(
           contributionKey,
         ) ?? [])
       : [];
@@ -2311,11 +2311,11 @@ export function reprojectAuthoringDependencyContributionFromCachedSources(
   );
 }
 
-export function buildAuthoringDependencyGraphContributionSet(
+export async function buildAuthoringDependencyGraphContributionSet(
   project: AuthoringProject,
   luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
   recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
-): AuthoringDependencyGraphContributionSet {
+): Promise<AuthoringDependencyGraphContributionSet> {
   const descriptorsByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
   for (const descriptor of collectAuthoringLuaSources(project)) {
     const list = descriptorsByKey.get(descriptor.contributionKey) ?? [];
@@ -2324,7 +2324,7 @@ export function buildAuthoringDependencyGraphContributionSet(
   }
   const analyses =
     luaAnalysis.mode === 'enabled'
-      ? analyzeAuthoringSources(project, luaAnalysis.sources)
+      ? await analyzeAuthoringSources(project, luaAnalysis.sources)
       : new Map<
           string,
           readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
@@ -2346,13 +2346,13 @@ export function buildAuthoringDependencyGraphContributionSet(
   );
 }
 
-export function buildAuthoringDependencyGraph(
+export async function buildAuthoringDependencyGraph(
   project: AuthoringProject,
   luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
   recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
-): AuthoringDependencyGraph {
+): Promise<AuthoringDependencyGraph> {
   return assembleAuthoringDependencyGraph(
-    buildAuthoringDependencyGraphContributionSet(project, luaAnalysis, recognizers),
+    await buildAuthoringDependencyGraphContributionSet(project, luaAnalysis, recognizers),
   );
 }
 

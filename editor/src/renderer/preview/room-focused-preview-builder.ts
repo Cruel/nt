@@ -719,14 +719,14 @@ function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocume
   return { assets, materials };
 }
 
-function resourceManifest(
+async function resourceManifest(
   project: AuthoringProject,
   assetIds: Set<string>,
   alphaCoverageAssetIds: Set<string>,
   shaderIds: Set<string>,
   variant: ShaderVariant,
   diagnostics: Diagnostic[],
-): PreviewResourceManifestEntry[] {
+): Promise<PreviewResourceManifestEntry[]> {
   const resources: PreviewResourceManifestEntry[] = [];
   for (const assetId of [...assetIds].sort()) {
     const data = parseAssetData(project.assets[assetId]?.data);
@@ -771,7 +771,7 @@ function resourceManifest(
         );
         continue;
       }
-      if (!shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output)) {
+      if (!(await shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output))) {
         diagnostics.push(
           diagnostic(
             `/shaders/${shaderId}/data/stages/${stageIndex}/compiled/${variant}`,
@@ -809,9 +809,9 @@ function resourceManifest(
   return resources.sort((a, b) => a.resourceId.localeCompare(b.resourceId));
 }
 
-export function buildFocusedRoomPreview(
+export async function buildFocusedRoomPreview(
   options: BuildFocusedRoomPreviewOptions,
-): FocusedRoomPreviewBuildResult {
+): Promise<FocusedRoomPreviewBuildResult> {
   const { project, roomId, graph, sourceAnalysis, activeShaderVariant } = options;
   const diagnostics: Diagnostic[] = [];
   const record = project.rooms[roomId];
@@ -1053,7 +1053,7 @@ export function buildFocusedRoomPreview(
     if (built.value) data.shaderMaterials.materials[materialId] = built.value;
   }
   for (const shaderId of [...materialClosure.shaderIds].sort()) {
-    const built = buildShaderDefinition(project, shaderId);
+    const built = await buildShaderDefinition(project, shaderId);
     diagnostics.push(
       ...built.diagnostics.map((item) => ({
         severity: item.severity === 'info' ? ('warning' as const) : item.severity,
@@ -1064,7 +1064,7 @@ export function buildFocusedRoomPreview(
     );
     if (built.value) data.shaderMaterials.shaders[shaderId] = built.value;
   }
-  const resources = resourceManifest(
+  const resources = await resourceManifest(
     project,
     visual.assets,
     new Set(

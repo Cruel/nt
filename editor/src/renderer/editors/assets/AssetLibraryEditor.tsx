@@ -169,10 +169,24 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
         (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
       );
   }, [project]);
-  const workspaceSnapshot = useMemo(
-    () => (project ? createProjectWorkspaceSnapshot(project, scriptSourcePaths) : null),
-    [project, scriptSourcePaths],
-  );
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<
+    Awaited<ReturnType<typeof createProjectWorkspaceSnapshot>> | null
+  >(null);
+  useEffect(() => {
+    let active = true;
+    if (!project) {
+      setWorkspaceSnapshot(null);
+      return () => {
+        active = false;
+      };
+    }
+    void createProjectWorkspaceSnapshot(project, scriptSourcePaths).then((snapshot) => {
+      if (active) setWorkspaceSnapshot(snapshot);
+    });
+    return () => {
+      active = false;
+    };
+  }, [project, scriptSourcePaths]);
   const assets = useMemo(() => {
     if (!project || !workspaceSnapshot) return [];
     const response = searchProjectWorkspaceSnapshot(workspaceSnapshot, {

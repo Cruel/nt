@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -98,6 +98,22 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
     : [];
   const localUniforms = new Map(data.uniforms.map((item) => [item.name, item]));
   const localTextures = new Map(data.textures.map((item) => [item.sampler, item]));
+  const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (!project || !materialId) {
+      setPreviewData(null);
+      return () => {
+        active = false;
+      };
+    }
+    void buildMaterialPreviewDocumentData(project, materialId).then((next) => {
+      if (active) setPreviewData(next);
+    });
+    return () => {
+      active = false;
+    };
+  }, [project, materialId]);
 
   if (!materialId || !record || !project)
     return <div className="p-4 text-sm text-muted-foreground">Material record not found.</div>;
@@ -106,12 +122,14 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
   const activeProject = project;
 
   const revision = materialPreviewRevision(activeProject, activeMaterialId);
-  const previewDocument = {
-    kind: 'material-preview' as const,
-    recordId: activeMaterialId,
-    revision,
-    data: buildMaterialPreviewDocumentData(activeProject, activeMaterialId),
-  };
+  const previewDocument = previewData
+    ? {
+        kind: 'material-preview' as const,
+        recordId: activeMaterialId,
+        revision,
+        data: previewData,
+      }
+    : undefined;
   function commit(next: MaterialData, label = 'Update material') {
     updateMaterial(activeMaterialId, next, label);
   }
@@ -431,12 +449,14 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
           className="min-h-[420px] overflow-hidden rounded border bg-muted/20"
           data-workbench-anchor="material.preview"
         >
-          <DerivedPreviewPane
-            ownerTabId={tab.id}
-            previewMode="material"
-            previewDocument={previewDocument}
-            resetBeforeLoad
-          />
+          {previewDocument ? (
+            <DerivedPreviewPane
+              ownerTabId={tab.id}
+              previewMode="material"
+              previewDocument={previewDocument}
+              resetBeforeLoad
+            />
+          ) : null}
         </aside>
       </div>
     </div>

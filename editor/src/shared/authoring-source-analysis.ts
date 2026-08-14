@@ -38,7 +38,7 @@ import {
   type AuthoringLuaExecutionSurface,
   type RegisteredAuthoringLuaSource,
 } from './project-schema/authoring-lua-source-registry';
-import { sha256PrefixedUtf8 } from './sha256';
+import { sha256PrefixedUtf8 } from './web-crypto';
 import {
   authoringAssetPath as assetPath,
   declaredLayoutDependencyByResolvedPath,
@@ -857,7 +857,7 @@ function nestedStringRegions(region: RawRegion, parentOrdinal: number): RawRegio
   return result;
 }
 
-export function analyzeAuthoringSourceContent(input: {
+export async function analyzeAuthoringSourceContent(input: {
   sourceUrl: string;
   text: string;
   kind: 'lua' | 'rml';
@@ -866,10 +866,10 @@ export function analyzeAuthoringSourceContent(input: {
     maxSourceBytes: number;
     maxEmbeddedListenerDepth: number;
   };
-}): AuthoringSourceContentArtifact {
-  const contentHash = input.contentHash ?? sha256(input.text);
+}): Promise<AuthoringSourceContentArtifact> {
+  const contentHash = input.contentHash ?? (await sha256(input.text));
   const limits = input.limits ?? LUA_REFERENCE_ANALYSIS_LIMITS;
-  const fingerprint = sha256(
+  const fingerprint = await sha256(
     JSON.stringify([AUTHORING_SOURCE_ANALYZER_VERSION, input.kind, input.sourceUrl, contentHash]),
   );
   if (utf8.encode(input.text).byteLength > limits.maxSourceBytes)
@@ -962,10 +962,10 @@ export function analyzeAuthoringSourceContent(input: {
   };
 }
 
-export function bindAuthoringSourceOwner(
+export async function bindAuthoringSourceOwner(
   descriptor: AuthoringLuaSourceDescriptor,
   artifacts: readonly AuthoringSourceContentArtifact[],
-): AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic> {
+): Promise<AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>> {
   const regions: EmbeddedLuaSourceRegion[] = [];
   const literals: AuthoringLiteralOccurrence[] = [];
   const diagnostics: AuthoringDependencyGraphDiagnostic[] = [];
@@ -1001,7 +1001,7 @@ export function bindAuthoringSourceOwner(
     semanticOwnerKey: descriptor.contributionKey,
     analyzerVersion: AUTHORING_SOURCE_ANALYZER_VERSION,
     sourceContentFingerprints: artifacts.map((artifact) => artifact.sourceContentFingerprint),
-    ownerProjectionFingerprint: sha256(
+    ownerProjectionFingerprint: await sha256(
       JSON.stringify([
         AUTHORING_SOURCE_ANALYZER_VERSION,
         descriptor.executionSurface,
@@ -1041,7 +1041,7 @@ export function collectAuthoringSourceRequirements(
   return Object.freeze([...ids].sort());
 }
 
-export function analyzeAuthoringSources(
+export async function analyzeAuthoringSources(
   project: AuthoringProject,
   snapshot: LuaSourceSnapshot,
   limits: {
@@ -1050,9 +1050,8 @@ export function analyzeAuthoringSources(
   contributionKeys?: ReadonlySet<AuthoringDependencyContributionKey>,
   persistentCache?: AuthoringSourceAnalysisCache,
   sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
-): ReadonlyMap<
-  string,
-  readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
+): Promise<
+  ReadonlyMap<string, readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]>
 > {
   let bytes = 0;
   let occurrences = 0;
@@ -1069,14 +1068,14 @@ export function analyzeAuthoringSources(
   const ownerOccurrenceCounts = new Map<string, number>();
   const descriptors = sourceDescriptors ?? collectAuthoringLuaSources(project, contributionKeys);
 
-  const diagnosticContentArtifact = (
+  const diagnosticContentArtifact = async (
     descriptor: AuthoringLuaSourceDescriptor,
     code: string,
     message: string,
     sourceUrl = descriptor.sourceUrl,
-  ): AuthoringSourceContentArtifact => ({
+  ): Promise<AuthoringSourceContentArtifact> => ({
     analyzerVersion: AUTHORING_SOURCE_ANALYZER_VERSION,
-    sourceContentFingerprint: sha256(
+    sourceContentFingerprint: await sha256(
       JSON.stringify([AUTHORING_SOURCE_ANALYZER_VERSION, code, sourceUrl]),
     ),
     regions: [],
@@ -1085,7 +1084,7 @@ export function analyzeAuthoringSources(
     complete: false,
   });
 
-  const appendDiagnostic = (
+  const appendDiagnostic = async (
     descriptor: AuthoringLuaSourceDescriptor,
     code: string,
     message: string,
@@ -1094,14 +1093,18 @@ export function analyzeAuthoringSources(
     if (blockedOwners.has(descriptor.contributionKey)) return;
     const list = output.get(descriptor.contributionKey) ?? [];
     list.push(
-      bindAuthoringSourceOwner(descriptor, [
-        diagnosticContentArtifact(descriptor, code, message, sourceUrl),
+      await bindAuthoringSourceOwner(descriptor, [
+        await diagnosticContentArtifact(descriptor, code, message, sourceUrl),
       ]),
     );
     output.set(descriptor.contributionKey, list);
   };
 
-  const blockOwner = (descriptor: AuthoringLuaSourceDescriptor, code: string, message: string) => {
+  const blockOwner = async (
+    descriptor: AuthoringLuaSourceDescriptor,
+    code: string,
+    message: string,
+  ) => {
     if (blockedOwners.has(descriptor.contributionKey)) return;
     const prior = output.get(descriptor.contributionKey) ?? [];
     const priorOccurrences = prior.reduce(
@@ -1111,17 +1114,19 @@ export function analyzeAuthoringSources(
     occurrences -= priorOccurrences;
     ownerOccurrenceCounts.delete(descriptor.contributionKey);
     output.set(descriptor.contributionKey, [
-      bindAuthoringSourceOwner(descriptor, [diagnosticContentArtifact(descriptor, code, message)]),
+      await bindAuthoringSourceOwner(descriptor, [
+        await diagnosticContentArtifact(descriptor, code, message),
+      ]),
     ]);
     blockedOwners.add(descriptor.contributionKey);
   };
 
-  const addBound = (
+  const addBound = async (
     descriptor: AuthoringLuaSourceDescriptor,
     artifact: AuthoringSourceContentArtifact,
   ) => {
     if (blockedOwners.has(descriptor.contributionKey)) return false;
-    const candidate = bindAuthoringSourceOwner(descriptor, [artifact]);
+    const candidate = await bindAuthoringSourceOwner(descriptor, [artifact]);
     const bound =
       persistentCache?.ownerProjections.get(candidate.ownerProjectionFingerprint) ?? candidate;
     persistentCache?.ownerProjections.set(candidate.ownerProjectionFingerprint, bound);
@@ -1131,7 +1136,7 @@ export function analyzeAuthoringSources(
       currentOccurrences + bound.literalOccurrences.length >
       limits.maxLiteralOccurrencesPerSemanticOwner
     ) {
-      blockOwner(
+      await blockOwner(
         descriptor,
         'authoring.lua.owner_occurrence_limit',
         'Semantic owner exceeds the fixed literal-occurrence analysis limit.',
@@ -1143,7 +1148,7 @@ export function analyzeAuthoringSources(
       occurrences + bound.literalOccurrences.length > limits.maxSnapshotLiteralOccurrences
     ) {
       occurrenceBudgetExhausted = true;
-      blockOwner(
+      await blockOwner(
         descriptor,
         'authoring.lua.snapshot_occurrence_limit',
         'Complete source snapshot exceeded the fixed literal-occurrence limit.',
@@ -1160,7 +1165,7 @@ export function analyzeAuthoringSources(
     return true;
   };
 
-  const countSourceBytes = (
+  const countSourceBytes = async (
     descriptor: AuthoringLuaSourceDescriptor,
     text: string,
     physicalKey: string,
@@ -1169,7 +1174,7 @@ export function analyzeAuthoringSources(
     const sourceBytes = utf8.encode(text).byteLength;
     if (byteBudgetExhausted || bytes + sourceBytes > limits.maxSnapshotBytes) {
       byteBudgetExhausted = true;
-      blockOwner(
+      await blockOwner(
         descriptor,
         'authoring.lua.snapshot_byte_limit',
         'Complete source snapshot exceeded the fixed source-byte limit.',
@@ -1181,7 +1186,7 @@ export function analyzeAuthoringSources(
     return true;
   };
 
-  const artifactFor = (
+  const artifactFor = async (
     sourceUrl: string,
     text: string,
     kind: 'lua' | 'rml',
@@ -1191,11 +1196,11 @@ export function analyzeAuthoringSources(
       AUTHORING_SOURCE_ANALYZER_VERSION,
       kind,
       sourceUrl,
-      hash ?? sha256(text),
+      hash ?? (await sha256(text)),
     ]);
     let artifact = cache.get(key);
     if (!artifact) {
-      artifact = analyzeAuthoringSourceContent({
+      artifact = await analyzeAuthoringSourceContent({
         sourceUrl,
         text,
         kind,
@@ -1224,7 +1229,7 @@ export function analyzeAuthoringSources(
         physicalKey = `asset:${entry.projectRelativePath}:${entry.contentHash}`;
       } else {
         const supplied = entry.diagnostic as Partial<AuthoringDependencyGraphDiagnostic>;
-        appendDiagnostic(
+        await appendDiagnostic(
           descriptor,
           supplied.code ?? 'authoring.lua.source_unavailable',
           supplied.message ??
@@ -1233,9 +1238,9 @@ export function analyzeAuthoringSources(
       }
     }
     if (text === undefined) continue;
-    if (!countSourceBytes(descriptor, text, physicalKey)) continue;
-    const artifact = artifactFor(descriptor.sourceUrl, text, descriptor.sourceKind, hash);
-    if (!addBound(descriptor, artifact)) continue;
+    if (!(await countSourceBytes(descriptor, text, physicalKey))) continue;
+    const artifact = await artifactFor(descriptor.sourceUrl, text, descriptor.sourceKind, hash);
+    if (!(await addBound(descriptor, artifact))) continue;
 
     if (descriptor.sourceKind !== 'rml' || !descriptor.layoutId) continue;
     const queue: {
@@ -1281,7 +1286,7 @@ export function analyzeAuthoringSources(
           : null;
         const entry = assetId ? snapshot.entriesByAssetId.get(assetId) : undefined;
         if (!resolved || !assetId || entry?.status !== 'ready') {
-          appendDiagnostic(
+          await appendDiagnostic(
             descriptor,
             'authoring.lua.external_source_unresolved',
             `RML ${reference.kind} '${reference.value}' does not resolve to exactly one declared dependency.`,
@@ -1296,7 +1301,7 @@ export function analyzeAuthoringSources(
             container.depth >= limits.maxTemplateDepth ||
             templateCount >= limits.maxTemplatesPerLayout
           ) {
-            appendDiagnostic(
+            await appendDiagnostic(
               descriptor,
               'authoring.lua.template_limit',
               'RML template traversal reached a fixed depth/count limit.',
@@ -1308,7 +1313,7 @@ export function analyzeAuthoringSources(
           templateCount += 1;
           for (const name of extractTemplateNames(entry.text)) {
             if (templateNames.has(name)) {
-              appendDiagnostic(
+              await appendDiagnostic(
                 descriptor,
                 'authoring.lua.template_name_duplicate',
                 `Duplicate RML template name '${name}'.`,
@@ -1322,14 +1327,14 @@ export function analyzeAuthoringSources(
             sourceUrl: `project:/${entry.projectRelativePath}`,
             sourceAssetId: assetId,
           };
-          if (!countSourceBytes(childDescriptor, entry.text, resolvedPhysicalKey)) break;
-          const childArtifact = artifactFor(
+          if (!(await countSourceBytes(childDescriptor, entry.text, resolvedPhysicalKey))) break;
+          const childArtifact = await artifactFor(
             childDescriptor.sourceUrl,
             entry.text,
             'rml',
             entry.contentHash,
           );
-          if (!addBound(childDescriptor, childArtifact)) break;
+          if (!(await addBound(childDescriptor, childArtifact))) break;
           queue.push({
             text: entry.text,
             assetId,
@@ -1347,15 +1352,15 @@ export function analyzeAuthoringSources(
             sourceAssetId: assetId,
             sourceKind: 'lua',
           };
-          if (!countSourceBytes(childDescriptor, entry.text, resolvedPhysicalKey)) break;
-          const childArtifact = artifactFor(
+          if (!(await countSourceBytes(childDescriptor, entry.text, resolvedPhysicalKey))) break;
+          const childArtifact = await artifactFor(
             childDescriptor.sourceUrl,
             entry.text,
             'lua',
             entry.contentHash,
           );
           if (
-            !addBound(childDescriptor, {
+            !(await addBound(childDescriptor, {
               ...childArtifact,
               regions: childArtifact.regions.map((region) => ({
                 ...region,
@@ -1365,7 +1370,7 @@ export function analyzeAuthoringSources(
                 ...literal,
                 sourceKind: 'rml-script-src',
               })),
-            })
+            }))
           )
             break;
         }
@@ -1374,7 +1379,7 @@ export function analyzeAuthoringSources(
     }
     for (const name of [...templateUses].sort())
       if (!templateNames.has(name))
-        appendDiagnostic(
+        await appendDiagnostic(
           descriptor,
           'authoring.lua.template_name_missing',
           `Unknown RML template name '${name}'.`,

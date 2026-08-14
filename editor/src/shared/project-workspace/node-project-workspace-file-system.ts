@@ -1,4 +1,5 @@
-import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { createReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   ProjectWorkspaceFileSystemAdapter,
@@ -45,6 +46,18 @@ const nodeProjectWorkspaceFileSystemOperations: ProjectWorkspaceFileSystemOperat
 export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAdapter {
   constructor() {
     super(nodeProjectWorkspaceFileSystemOperations);
+  }
+
+  override async readFileRevision(
+    value: string,
+  ): Promise<Readonly<{ contentHash: `sha256:${string}`; byteSize: number }>> {
+    const hash = createHash('sha256');
+    let byteSize = 0;
+    for await (const chunk of createReadStream(value)) {
+      byteSize += chunk.length;
+      hash.update(chunk);
+    }
+    return { contentHash: `sha256:${hash.digest('hex')}`, byteSize };
   }
 }
 

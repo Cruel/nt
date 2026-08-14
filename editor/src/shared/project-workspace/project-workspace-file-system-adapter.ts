@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
+import { sha256PrefixedBytes } from '../web-crypto';
 
 export type ProjectWorkspaceFileSystemOperationResult<T> = T | Promise<T>;
 
@@ -60,6 +61,13 @@ export class ProjectWorkspaceFileSystemAdapter implements ProjectWorkspaceFileSy
 
   async readBytes(value: string): Promise<Uint8Array> {
     return await this.operations.readBytes(value);
+  }
+
+  async readFileRevision(
+    value: string,
+  ): Promise<Readonly<{ contentHash: `sha256:${string}`; byteSize: number }>> {
+    const bytes = await this.readBytes(value);
+    return { contentHash: await sha256PrefixedBytes(bytes), byteSize: bytes.byteLength };
   }
 
   async listDirectory(value: string): Promise<readonly string[]> {

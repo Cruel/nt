@@ -43,7 +43,7 @@ import {
   SHADER_MATERIAL_SCHEMA,
 } from '../../shared/project-schema/shader-material-project';
 import type { ShaderVariant } from '../../shared/shader-variants';
-import { sha256PrefixedUtf8 } from '../../shared/sha256';
+import { sha256PrefixedUtf8 } from '../../shared/web-crypto';
 import { buildFocusedRoomPreview } from './room-focused-preview-builder';
 
 export interface FocusedPreviewBuildContext<TInputs> {
@@ -63,7 +63,7 @@ export interface FocusedPreviewAdapter<TInputs = unknown> {
   inputSchema: z.ZodType<TInputs>;
   topologyDependent: boolean;
   owningPath(root: PreviewRootKey): string;
-  build(context: FocusedPreviewBuildContext<TInputs>): FocusedRecordPreviewDocument;
+  build(context: FocusedPreviewBuildContext<TInputs>): Promise<FocusedRecordPreviewDocument>;
 }
 
 function canonicalize(value: unknown): unknown {
@@ -76,7 +76,9 @@ function canonicalize(value: unknown): unknown {
   );
 }
 
-export function canonicalFocusedPreviewInputRevision(value: unknown): `sha256:${string}` {
+export async function canonicalFocusedPreviewInputRevision(
+  value: unknown,
+): Promise<`sha256:${string}`> {
   return sha256PrefixedUtf8(JSON.stringify(canonicalize(value)));
 }
 
@@ -114,22 +116,22 @@ function runtimeShaderPath(path: string): string {
   return normalized;
 }
 
-function shaderManifestEntries(
+async function shaderManifestEntries(
   project: AuthoringProject,
   shaderId: string,
   variant: ShaderVariant,
   usageRole: string,
-): PreviewResourceManifestEntry[] {
+): Promise<PreviewResourceManifestEntry[]> {
   const shader = parseShaderData(project.shaders[shaderId]?.data);
   if (!shader) throw new Error(`Focused preview Shader '${shaderId}' is missing or invalid.`);
-  return shader.stages
-    .map((stage, stageIndex): PreviewResourceManifestEntry => {
+  const entries: PreviewResourceManifestEntry[] = [];
+  for (const [stageIndex, stage] of shader.stages.entries()) {
       const output = stage.compiled[variant];
       if (!output || !hasCompleteShaderCompiledOutputMetadata(output))
         throw new Error(
           `Shader '${shaderId}' ${stage.stage} output for '${variant}' is missing complete compile metadata. Recompile the Shader.`,
         );
-      if (!shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output))
+      if (!(await shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output)))
         throw new Error(
           `Shader '${shaderId}' ${stage.stage} output for '${variant}' is stale. Recompile the Shader.`,
         );
@@ -137,7 +139,7 @@ function shaderManifestEntries(
       const fetchProjectRelativePath = compiledShaderFetchProjectRelativePath(logicalPath);
       if (!fetchProjectRelativePath)
         throw new Error(`Compiled Shader output path '${output.path}' cannot be staged.`);
-      return {
+      entries.push({
         resourceId: `shader:${shaderId}:${stage.stage}:${variant}`,
         sourceKind: 'shader-compiled-output',
         shaderId,
@@ -149,9 +151,9 @@ function shaderManifestEntries(
         contentHash: output.byteHash as `sha256:${string}`,
         byteSize: output.byteSize,
         kind: 'shader-binary',
-      };
-    })
-    .sort((left, right) => left.resourceId.localeCompare(right.resourceId));
+      });
+  }
+  return entries.sort((left, right) => left.resourceId.localeCompare(right.resourceId));
 }
 
 function canonicalManifest(
@@ -176,18 +178,18 @@ function canonicalManifest(
   return [...byId.values()].sort((left, right) => left.resourceId.localeCompare(right.resourceId));
 }
 
-function materialProjection(
+async function materialProjection(
   project: AuthoringProject,
   initialMaterialIds: readonly string[],
   variant: ShaderVariant,
-): {
+): Promise<{
   shaderMaterials: {
     schema: typeof SHADER_MATERIAL_SCHEMA;
     shaders: Record<string, unknown>;
     materials: Record<string, unknown>;
   };
   resources: PreviewResourceManifestEntry[];
-} {
+}> {
   const materialIds = new Set<string>();
   const pending = [...initialMaterialIds];
   while (pending.length > 0) {
@@ -219,11 +221,11 @@ function materialProjection(
 
   const shaders: Record<string, unknown> = {};
   for (const shaderId of [...shaderIds].sort()) {
-    const definition = buildShaderDefinition(project, shaderId);
+    const definition = await buildShaderDefinition(project, shaderId);
     if (!definition.value || definition.diagnostics.some((item) => item.severity === 'error'))
       throw new Error(`Focused preview Shader '${shaderId}' could not be built.`);
     shaders[shaderId] = definition.value;
-    resources.push(...shaderManifestEntries(project, shaderId, variant, 'material-shader'));
+    resources.push(...(await shaderManifestEntries(project, shaderId, variant, 'material-shader')));
   }
   return {
     shaderMaterials: { schema: SHADER_MATERIAL_SCHEMA, shaders, materials },
@@ -242,14 +244,14 @@ function layoutSourceComponent(
   return { kind: 'asset' as const, logicalPath: `project:/${asset.source.path}` };
 }
 
-function finishDocument(
+async function finishDocument(
   input: Omit<FocusedRecordPreviewDocument, 'revision' | 'resourceRevision'>,
-) {
+): Promise<FocusedRecordPreviewDocument> {
   const resources = canonicalManifest(input.resources);
-  const resourceRevision = sha256PrefixedUtf8(
+  const resourceRevision = await sha256PrefixedUtf8(
     JSON.stringify(canonicalize(projectNativeManifest(resources))),
   );
-  const revision = sha256PrefixedUtf8(
+  const revision = await sha256PrefixedUtf8(
     JSON.stringify(
       canonicalize({
         kind: input.kind,
@@ -273,7 +275,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
   inputSchema: layoutPreviewInputsSchema,
   topologyDependent: false,
   owningPath: (root) => `/layouts/${root.recordId}`,
-  build: (context) => {
+  build: async (context) => {
     const layout = parseLayoutData(context.project.layouts[context.root.recordId]?.data);
     if (!layout) throw new Error(`Layout '${context.root.recordId}' is missing or invalid.`);
     const settings = projectSettingsFromProject(context.project);
@@ -296,7 +298,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
     ] as const)
       for (const ref of refs ?? [])
         resources.push(assetManifestEntry(context.project, ref.$ref.id, name));
-    const material = materialProjection(
+    const material = await materialProjection(
       context.project,
       layout.dependencies.materials.map((ref) => ref.$ref.id),
       context.hostCapabilities.activeShaderVariant,
@@ -351,11 +353,11 @@ const shaderAdapter: FocusedPreviewAdapter<z.infer<typeof shaderPreviewInputsSch
   inputSchema: shaderPreviewInputsSchema,
   topologyDependent: false,
   owningPath: (root) => `/shaders/${root.recordId}`,
-  build: (context) => {
-    const definition = buildShaderDefinition(context.project, context.root.recordId);
+  build: async (context) => {
+    const definition = await buildShaderDefinition(context.project, context.root.recordId);
     if (!definition.value || definition.diagnostics.some((item) => item.severity === 'error'))
       throw new Error(`Focused preview Shader '${context.root.recordId}' could not be built.`);
-    const resources = shaderManifestEntries(
+    const resources = await shaderManifestEntries(
       context.project,
       context.root.recordId,
       context.hostCapabilities.activeShaderVariant,
@@ -391,9 +393,9 @@ const roomAdapter: FocusedPreviewAdapter<z.infer<typeof roomPreviewInputsSchema>
   inputSchema: roomPreviewInputsSchema,
   topologyDependent: true,
   owningPath: (root) => `/rooms/${root.recordId}`,
-  build: (context) => {
+  build: async (context) => {
     if (!context.graph) throw new Error('Room preview requires a current dependency graph.');
-    const built = buildFocusedRoomPreview({
+    const built = await buildFocusedRoomPreview({
       project: context.project,
       roomId: context.root.recordId,
       inputs: context.inputs,

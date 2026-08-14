@@ -76,13 +76,13 @@ function snapshotFileRevisions(snapshot: LoadedProjectWorkspaceSnapshot) {
   ) as Record<string, `sha256:${string}`>;
 }
 
-function filesForSaveUnits(
+async function filesForSaveUnits(
   before: LoadedProjectWorkspaceSnapshot,
   project: Parameters<typeof createProjectWorkspaceSnapshot>[0],
   scriptSourcePaths: Readonly<Record<string, string>>,
   saveUnitIds: readonly string[],
-): string[] {
-  const after = createProjectWorkspaceSnapshot(project, scriptSourcePaths);
+): Promise<string[]> {
+  const after = await createProjectWorkspaceSnapshot(project, scriptSourcePaths);
   const files = new Set<string>();
   for (const saveUnitId of saveUnitIds) {
     for (const file of before.saveUnitFileOwnership[saveUnitId]?.files ?? []) files.add(file);
@@ -126,13 +126,13 @@ function replaceAtPointer(root: Record<string, unknown>, pointer: string, source
   else delete current[key];
 }
 
-function scopedCandidate(
+async function scopedCandidate(
   before: LoadedProjectWorkspaceSnapshot,
   candidate: Parameters<typeof createProjectWorkspaceSnapshot>[0],
   scriptSourcePaths: Readonly<Record<string, string>>,
   saveUnitIds: readonly string[],
 ) {
-  const after = createProjectWorkspaceSnapshot(candidate, scriptSourcePaths);
+  const after = await createProjectWorkspaceSnapshot(candidate, scriptSourcePaths);
   const merged = structuredClone(before.project) as unknown as Record<string, unknown>;
   for (const saveUnitId of saveUnitIds) {
     const paths = new Set([
@@ -251,7 +251,7 @@ async function writeWorkspaceProject(
       : commitOptions && !commitOptions.structural && commitOptions.affectedPaths?.length
         ? candidateAtPaths(opened.snapshot, candidate.data, commitOptions.affectedPaths)
         : commitOptions && !commitOptions.structural
-          ? scopedCandidate(
+          ? await scopedCandidate(
               opened.snapshot,
               candidate.data,
               sourcePaths,
@@ -334,7 +334,7 @@ async function writeWorkspaceProject(
         )
       : commitOptions.structural
         ? undefined
-        : filesForSaveUnits(
+        : await filesForSaveUnits(
             opened.snapshot,
             projectForWrite,
             sourcePaths,

@@ -15,7 +15,7 @@ import type {
   CommandRequest,
   CommandTransactionRequest,
 } from '@/commands/command-types';
-import { buildAuthoringDependencyGraph } from '../../shared/authoring-dependency-graph';
+import { buildAuthoringStructuralDependencyGraph } from '../../shared/authoring-dependency-graph';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
 import type { JsonValue } from '@/project/json-value';
 
@@ -42,7 +42,7 @@ function withCurrentGraph(state: CommandBusState): CommandBusState {
       projectInstanceId,
       projectRevision,
       graphRevision: projectRevision,
-      graph: buildAuthoringDependencyGraph(project.data),
+      graph: buildAuthoringStructuralDependencyGraph(project.data),
     },
   };
 }

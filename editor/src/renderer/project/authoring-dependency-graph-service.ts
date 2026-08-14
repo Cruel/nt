@@ -46,7 +46,7 @@ import {
   type ReadProjectTextSourcesRequest,
   type ReadProjectTextSourcesResponse,
 } from '../../shared/project-text-sources';
-import { sha256PrefixedUtf8 } from '../../shared/sha256';
+import { sha256PrefixedUtf8 } from '../../shared/web-crypto';
 
 export type AuthoringDependencyGraphServiceState =
   | { kind: 'empty' }
@@ -414,7 +414,7 @@ export class AuthoringDependencyGraphService {
     instance: string,
     revision: number,
   ) {
-    const workspace = createProjectWorkspaceSnapshot(
+    const workspace = await createProjectWorkspaceSnapshot(
       project,
       this.options.getScriptSourcePaths?.() ?? {},
     );
@@ -426,7 +426,7 @@ export class AuthoringDependencyGraphService {
       ...(this.stateValue as Extract<AuthoringDependencyGraphServiceState, { kind: 'updating' }>),
       phase: 'deriving',
     };
-    const analyses = analyzeProjectWorkspaceSources(
+    const analyses = await analyzeProjectWorkspaceSources(
       workspace,
       snapshot,
       undefined,
@@ -460,7 +460,7 @@ export class AuthoringDependencyGraphService {
     revision: number,
     impact: Extract<ReturnType<typeof classifyAuthoringGraphMutation>, { kind: 'incremental' }>,
   ) {
-    const workspace = createProjectWorkspaceSnapshot(
+    const workspace = await createProjectWorkspaceSnapshot(
       project,
       this.options.getScriptSourcePaths?.() ?? {},
     );
@@ -469,7 +469,7 @@ export class AuthoringDependencyGraphService {
     if (sourceOwners.size > 0) {
       sourceSnapshot = await this.resolveSources(token, project, instance, revision, sourceOwners);
       if (!sourceSnapshot) return null;
-      const next = analyzeProjectWorkspaceSources(
+      const next = await analyzeProjectWorkspaceSources(
         workspace,
         sourceSnapshot,
         undefined,
@@ -500,7 +500,7 @@ export class AuthoringDependencyGraphService {
               key,
               this.analysesByOwner.get(key) ?? [],
             )
-          : deriveAuthoringDependencyContribution(project, key, { mode: 'disabled' });
+          : await deriveAuthoringDependencyContribution(project, key, { mode: 'disabled' });
       if (contribution) replacements.push(contribution);
       else {
         removed.push(key);
@@ -524,7 +524,7 @@ export class AuthoringDependencyGraphService {
     revision: number,
     owners: ReadonlySet<string>,
   ): Promise<LuaSourceSnapshot<AuthoringDependencyGraphDiagnostic> | null> {
-    const workspace = createProjectWorkspaceSnapshot(
+    const workspace = await createProjectWorkspaceSnapshot(
       project,
       this.options.getScriptSourcePaths?.() ?? {},
     );
@@ -545,7 +545,7 @@ export class AuthoringDependencyGraphService {
     const admittedPhysical = new Set<string>();
     for (const descriptor of collectProjectWorkspaceLuaSources(workspace, owners)) {
       let text = descriptor.inlineText;
-      let contentHash = text === undefined ? undefined : sha256PrefixedUtf8(text);
+      let contentHash = text === undefined ? undefined : await sha256PrefixedUtf8(text);
       let physicalKey =
         text === undefined
           ? undefined
@@ -575,12 +575,12 @@ export class AuthoringDependencyGraphService {
       ]);
       const artifact =
         this.analysisCache.contentArtifacts.get(cacheKey) ??
-        analyzeAuthoringSourceContent({
+        (await analyzeAuthoringSourceContent({
           sourceUrl: descriptor.sourceUrl,
           text,
           kind: descriptor.sourceKind,
           contentHash,
-        });
+        }));
       this.analysisCache.contentArtifacts.set(cacheKey, artifact);
       admittedOccurrences += artifact.literalOccurrences.length;
     }

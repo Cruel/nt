@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { AuthoringProject, AuthoringRecordBase, ReferenceTarget } from './authoring-project';
 import { parseAssetData } from './authoring-assets';
-import { sha256PrefixedUtf8 } from '../sha256';
+import { sha256PrefixedUtf8 } from '../web-crypto';
 
 export const shaderRoleValues = [
   'engine-2d',
@@ -257,12 +257,12 @@ function canonicalizeFingerprintValue(value: unknown): unknown {
   );
 }
 
-export function shaderCompileInputFingerprint(
+export async function shaderCompileInputFingerprint(
   project: AuthoringProject,
   shaderId: string,
   stageIndex: number,
   variant: string,
-): `sha256:${string}` | null {
+): Promise<`sha256:${string}` | null> {
   const record = project.shaders[shaderId];
   const shader = parseShaderData(record?.data);
   const stage = shader?.stages[stageIndex];
@@ -293,33 +293,34 @@ export function shaderCompileInputFingerprint(
   return sha256PrefixedUtf8(JSON.stringify(canonicalizeFingerprintValue(shaderInput)));
 }
 
-export function captureShaderCompileInputFingerprints(
+export async function captureShaderCompileInputFingerprints(
   project: AuthoringProject,
   variants: readonly string[],
-): Record<string, `sha256:${string}`> {
+): Promise<Record<string, `sha256:${string}`>> {
   const fingerprints: Record<string, `sha256:${string}`> = {};
   for (const shaderId of Object.keys(project.shaders)) {
     const shader = parseShaderData(project.shaders[shaderId]?.data);
-    shader?.stages.forEach((stage, stageIndex) => {
+    if (!shader) continue;
+    for (const [stageIndex, stage] of shader.stages.entries()) {
       for (const variant of variants) {
-        const fingerprint = shaderCompileInputFingerprint(project, shaderId, stageIndex, variant);
+        const fingerprint = await shaderCompileInputFingerprint(project, shaderId, stageIndex, variant);
         if (fingerprint) fingerprints[`${shaderId}:${stage.stage}:${variant}`] = fingerprint;
       }
-    });
+    }
   }
   return fingerprints;
 }
 
-export function shaderCompiledOutputIsFresh(
+export async function shaderCompiledOutputIsFresh(
   project: AuthoringProject,
   shaderId: string,
   stageIndex: number,
   variant: string,
   output: ShaderCompiledOutput,
-): boolean {
+): Promise<boolean> {
   return (
     output.compileInputFingerprint ===
-    shaderCompileInputFingerprint(project, shaderId, stageIndex, variant)
+    (await shaderCompileInputFingerprint(project, shaderId, stageIndex, variant))
   );
 }
 

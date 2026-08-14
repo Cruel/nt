@@ -1,3 +1,4 @@
+import { sha256PrefixedBytes } from '../web-crypto';
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 
 function normalize(value: string): string {
@@ -67,6 +68,13 @@ export class InMemoryProjectWorkspaceFileSystem implements ProjectWorkspaceFileS
     const bytes = this.files.get(normalize(value));
     if (bytes === undefined) throw new Error(`ENOENT: ${value}`);
     return bytes.slice();
+  }
+
+  async readFileRevision(
+    value: string,
+  ): Promise<Readonly<{ contentHash: `sha256:${string}`; byteSize: number }>> {
+    const bytes = await this.readBytes(value);
+    return { contentHash: await sha256PrefixedBytes(bytes), byteSize: bytes.byteLength };
   }
 
   async writeTextAtomic(value: string, text: string): Promise<void> {

@@ -35,26 +35,26 @@ import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { sha256HexBytes, sha256HexUtf8 } from '../../shared/sha256';
+import { sha256HexBytes, sha256HexUtf8 } from '../../shared/web-crypto';
 import type { AuthoringSourceReferenceRecognizer } from '../../shared/authoring-source-references';
 
 const hash = (digit: string) => `sha256:${digit.repeat(64)}` as const;
 
 describe('authoring Lua lexer', () => {
-  it('computes browser-safe SHA-256 fingerprints over exact UTF-8 bytes', () => {
-    expect(sha256HexUtf8('')).toBe(
+  it('computes browser-safe SHA-256 fingerprints over exact UTF-8 bytes', async () => {
+    expect(await sha256HexUtf8('')).toBe(
       'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     );
-    expect(sha256HexUtf8('abc')).toBe(
+    expect(await sha256HexUtf8('abc')).toBe(
       'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
     );
   });
 
-  it('hashes block boundaries and large binary inputs without input-sized padding', () => {
+  it('hashes block boundaries and large binary inputs without input-sized padding', async () => {
     for (const size of [55, 56, 63, 64, 65, 1024 * 1024 + 17]) {
       const bytes = new Uint8Array(size);
       for (let index = 0; index < bytes.length; index += 1) bytes[index] = index & 0xff;
-      expect(sha256HexBytes(bytes)).toBe(createHash('sha256').update(bytes).digest('hex'));
+      expect(await sha256HexBytes(bytes)).toBe(createHash('sha256').update(bytes).digest('hex'));
     }
   });
 
@@ -80,7 +80,7 @@ layout-main]=]
     expect(result.literals[0]?.decodedValue).toBe('room-main');
   });
 
-  it('decodes Lua escape forms and diagnoses malformed lexical constructs', () => {
+  it('decodes Lua escape forms and diagnoses malformed lexical constructs', async () => {
     const decoded = lexLuaStringLiterals(
       String.raw`local value = "a\z` + '   \n\t' + String.raw`b\u{1f642}\255\x21"`,
     );
@@ -89,7 +89,7 @@ layout-main]=]
     const escapedNewline = lexLuaStringLiterals('local value = "a\\\r\nb"');
     expect(escapedNewline.complete).toBe(true);
     expect(escapedNewline.literals[0]?.decodedValue).toBe('a\nb');
-    const malformed = analyzeAuthoringSourceContent({
+    const malformed = await analyzeAuthoringSourceContent({
       sourceUrl: 'authoring:inline-lua',
       kind: 'lua',
       text: String.raw`local value = "bad\q"`,
@@ -100,7 +100,7 @@ layout-main]=]
         (diagnostic) => diagnostic.code === 'authoring.lua.lexical_incomplete',
       ),
     ).toBe(true);
-    const surrogate = analyzeAuthoringSourceContent({
+    const surrogate = await analyzeAuthoringSourceContent({
       sourceUrl: 'authoring:inline-lua',
       kind: 'lua',
       text: String.raw`local value = "\u{d800}"`,
@@ -115,8 +115,8 @@ layout-main]=]
 });
 
 describe('RML Lua extraction', () => {
-  it('uses decoded event attributes and original raw script bytes', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('uses decoded event attributes and original raw script bytes', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'authoring:/layouts/hud/data/rml/sourceText',
       kind: 'rml',
       text: `<rml><body><button onclick="open(&quot;room-main&quot;)">Go</button><script>local x = '<tag>&quot;'</script></body></rml>`,
@@ -134,8 +134,8 @@ describe('RML Lua extraction', () => {
     ]);
   });
 
-  it('reports event-attribute source evidence at physical file coordinates', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('reports event-attribute source evidence at physical file coordinates', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'project:/ui/layout.rml',
       kind: 'rml',
       text: `<rml>\n  <button onclick="open('room-main')">Go</button>\n</rml>`,
@@ -150,8 +150,8 @@ describe('RML Lua extraction', () => {
     );
   });
 
-  it('recognizes direct listener/load strings with parent provenance', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('recognizes direct listener/load strings with parent provenance', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'authoring:/startupHook/source',
       kind: 'lua',
       text: `element:AddEventListener('click', "open('room-main')")\nload("return 'asset-main'")`,
@@ -167,8 +167,8 @@ describe('RML Lua extraction', () => {
     ).toBe(true);
   });
 
-  it('rejects non-direct listener/load expressions and bounds nested recognition depth', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('rejects non-direct listener/load expressions and bounds nested recognition depth', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'authoring:inline-lua',
       kind: 'lua',
       text: `
@@ -188,8 +188,8 @@ describe('RML Lua extraction', () => {
     ).toHaveLength(2);
   });
 
-  it('warns for malformed raw-text containers without suppressing prior regions', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('warns for malformed raw-text containers without suppressing prior regions', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'asset:rml',
       kind: 'rml',
       text: `<rml><button onclick="go('room-main')"/><script>local x = '<'`,
@@ -203,8 +203,8 @@ describe('RML Lua extraction', () => {
     ).toBe(true);
   });
 
-  it('masks only real RML raw-text elements and ignores tag-like attribute/comment text', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('masks only real RML raw-text elements and ignores tag-like attribute/comment text', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'project:/ui/layout.rml',
       kind: 'rml',
       text: `<rml><!-- <script>ignored()</script> --><body data-note="&lt;script&gt;ignored()&lt;/script&gt;"><script>local value = 'room-main'</script></body></rml>`,
@@ -218,10 +218,10 @@ describe('RML Lua extraction', () => {
     ]);
   });
 
-  it('preserves raw script bytes across XML-looking text, CDATA text, styles, and adjacent scripts', () => {
+  it('preserves raw script bytes across XML-looking text, CDATA text, styles, and adjacent scripts', async () => {
     const first = `local a = '<node>&value'\nlocal b = '<![CDATA['\n-- <fake-tag>`;
     const second = `local c = 'second'`;
-    const artifact = analyzeAuthoringSourceContent({
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'project:/ui/raw.rml',
       kind: 'rml',
       text: `<rml><body><script>${first}</script><style>.x::before { content: "<tag>&"; }</style><script>${second}</script></body></rml>`,
@@ -239,8 +239,8 @@ describe('RML Lua extraction', () => {
     ]);
   });
 
-  it('treats an empty src attribute as external rather than inline script content', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('treats an empty src attribute as external rather than inline script content', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'project:/ui/external.rml',
       kind: 'rml',
       text: `<rml><body><script src="">local value = 'must-not-index'</script></body></rml>`,
@@ -430,8 +430,8 @@ describe('typed source registry and graph evidence', () => {
     );
   });
 
-  it('keeps content artifacts owner-neutral and cheaply rebinds provenance', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('keeps content artifacts owner-neutral and cheaply rebinds provenance', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'project:/scripts/main.lua',
       kind: 'lua',
       text: `'shared'`,
@@ -442,7 +442,7 @@ describe('typed source registry and graph evidence', () => {
       (source) =>
         source.contributionKey === `record:${JSON.stringify(['record', 'scripts', 'main'])}`,
     )!;
-    const rebound = bindAuthoringSourceOwner(descriptor, [artifact]);
+    const rebound = await bindAuthoringSourceOwner(descriptor, [artifact]);
     expect(artifact.literalOccurrences[0]).not.toHaveProperty('sourcePath');
     expect(rebound.literalOccurrences[0]?.sourcePath).toBe('/scripts/main/data/source/asset/$ref');
     project.scripts.renamed = {
@@ -454,24 +454,24 @@ describe('typed source registry and graph evidence', () => {
       (source) =>
         source.contributionKey === `record:${JSON.stringify(['record', 'scripts', 'renamed'])}`,
     )!;
-    const renamed = bindAuthoringSourceOwner(renamedDescriptor, [artifact]);
+    const renamed = await bindAuthoringSourceOwner(renamedDescriptor, [artifact]);
     expect(renamed.sourceContentFingerprints).toEqual(rebound.sourceContentFingerprints);
     expect(renamed.ownerProjectionFingerprint).not.toBe(rebound.ownerProjectionFingerprint);
     expect(renamed.literalOccurrences[0]?.sourcePath).toBe(
       '/scripts/renamed/data/source/asset/$ref',
     );
-    const changedArtifact = analyzeAuthoringSourceContent({
+    const changedArtifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'project:/scripts/main.lua',
       kind: 'lua',
       text: `'changed'`,
       contentHash: hash('2'),
     });
     expect(
-      bindAuthoringSourceOwner(renamedDescriptor, [changedArtifact]).ownerProjectionFingerprint,
+      (await bindAuthoringSourceOwner(renamedDescriptor, [changedArtifact])).ownerProjectionFingerprint,
     ).not.toBe(renamed.ownerProjectionFingerprint);
   });
 
-  it('adds ambiguous lexical tooling evidence only in enabled mode', () => {
+  it('adds ambiguous lexical tooling evidence only in enabled mode', async () => {
     const project = fixture();
     const snapshot: LuaSourceSnapshot = {
       entriesByAssetId: new Map([
@@ -488,8 +488,8 @@ describe('typed source registry and graph evidence', () => {
         ],
       ]),
     };
-    const disabled = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
-    const enabled = buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
+    const disabled = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
+    const enabled = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
     expect(
       [...disabled.edgesById.values()].some((edge) => edge.role === 'lua-possible-reference'),
     ).toBe(false);
@@ -509,7 +509,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('allows a future recognizer to promote one occurrence without changing graph algorithms', () => {
+  it('allows a future recognizer to promote one occurrence without changing graph algorithms', async () => {
     const project = fixture();
     project.startupHook = { source: `local target = 'shared'` };
     const sources: LuaSourceSnapshot = {
@@ -542,8 +542,8 @@ describe('typed source registry and graph evidence', () => {
             }
           : null,
     };
-    const lexical = buildAuthoringDependencyGraph(project, { mode: 'enabled', sources });
-    const recognized = buildAuthoringDependencyGraph(project, { mode: 'enabled', sources }, [
+    const lexical = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources });
+    const recognized = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources }, [
       recognizer,
     ]);
     expect(
@@ -572,7 +572,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('keeps lexical Lua candidates validation-only across source kinds', () => {
+  it('keeps lexical Lua candidates validation-only across source kinds', async () => {
     const project = fixture();
     const layout = defaultLayoutData('HUD');
     layout.rml.sourceText = `<rml><body><button onclick="open('shared')"/></body></rml>`;
@@ -585,7 +585,7 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       extends: null,
     } as never;
-    const graph = buildAuthoringDependencyGraph(project, {
+    const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
       sources: {
         entriesByAssetId: new Map([
@@ -617,7 +617,7 @@ describe('typed source registry and graph evidence', () => {
     }
   });
 
-  it('retains unrelated owner evidence when another source is malformed', () => {
+  it('retains unrelated owner evidence when another source is malformed', async () => {
     const project = fixture();
     const layout = defaultLayoutData('HUD');
     layout.rml.sourceText = `<rml><body><button onclick="open('shared')"/><script>local broken = "unterminated</script></body></rml>`;
@@ -644,7 +644,7 @@ describe('typed source registry and graph evidence', () => {
         ],
       ]),
     };
-    const graph = buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
+    const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
     expect(
       [...graph.edgesById.values()].some(
         (edge) =>
@@ -662,7 +662,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('excludes Room placement and exit IDs from generic lexical projection', () => {
+  it('excludes Room placement and exit IDs from generic lexical projection', async () => {
     const project = createAuthoringProject();
     const target = defaultRoomData('Target');
     project.rooms.target = {
@@ -709,7 +709,7 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       extends: null,
     } as never;
-    const graph = buildAuthoringDependencyGraph(project, {
+    const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
       sources: { entriesByAssetId: new Map() },
     });
@@ -718,16 +718,16 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(false);
   });
 
-  it('uses deterministic contribution keys and graph ordering', () => {
+  it('uses deterministic contribution keys and graph ordering', async () => {
     const project = fixture();
     const keys = enumerateAuthoringDependencyContributionKeys(project);
     expect(keys).toEqual([...keys].sort());
-    const left = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
-    const right = buildAuthoringDependencyGraph(structuredClone(project), { mode: 'disabled' });
+    const left = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
+    const right = await buildAuthoringDependencyGraph(structuredClone(project), { mode: 'disabled' });
     expect([...left.edgesById.keys()]).toEqual([...right.edgesById.keys()]);
   });
 
-  it('resolves declared external scripts and a cycle-safe transitive template closure', () => {
+  it('resolves declared external scripts and a cycle-safe transitive template closure', async () => {
     const project = fixture();
     const asset = (
       id: string,
@@ -815,7 +815,7 @@ describe('typed source registry and graph evidence', () => {
         ],
       ]),
     };
-    const analyses = analyzeAuthoringSources(project, snapshot).get(
+    const analyses = (await analyzeAuthoringSources(project, snapshot)).get(
       `record:${JSON.stringify(['record', 'layouts', 'hud'])}`,
     )!;
     expect(analyses.flatMap((item) => item.sourceAssetIds).sort()).toEqual([
@@ -835,7 +835,7 @@ describe('typed source registry and graph evidence', () => {
         .sort((left, right) => left.localeCompare(right)),
     ).toEqual(['base-template', 'hud-script', 'nested-template']);
     expect(analyses.flatMap((item) => item.diagnostics)).toEqual([]);
-    const graph = buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
+    const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
     expect(
       [...graph.edgesById.values()].some(
         (edge) =>
@@ -849,7 +849,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('diagnoses unsafe external URIs and bounded template traversal deterministically', () => {
+  it('diagnoses unsafe external URIs and bounded template traversal deterministically', async () => {
     const project = fixture();
     project.assets.panel = {
       id: 'panel',
@@ -874,7 +874,7 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       extends: null,
     } as never;
-    const analyses = analyzeAuthoringSources(
+    const analyses = (await analyzeAuthoringSources(
       project,
       {
         entriesByAssetId: new Map([
@@ -907,7 +907,7 @@ describe('typed source registry and graph evidence', () => {
         maxTemplatesPerLayout: 0,
       },
       new Set([`record:${JSON.stringify(['record', 'layouts', 'hud'])}`]),
-    ).get(`record:${JSON.stringify(['record', 'layouts', 'hud'])}`)!;
+    )).get(`record:${JSON.stringify(['record', 'layouts', 'hud'])}`)!;
     const diagnosticCodes = analyses
       .flatMap((analysis) => analysis.diagnostics)
       .map((diagnostic) => diagnostic.code)
@@ -917,7 +917,7 @@ describe('typed source registry and graph evidence', () => {
     expect(diagnosticCodes).toContain('authoring.lua.template_name_missing');
   });
 
-  it('collapses repeated mentions into one edge with sorted occurrence evidence', () => {
+  it('collapses repeated mentions into one edge with sorted occurrence evidence', async () => {
     const project = createAuthoringProject();
     project.rooms.shared = {
       id: 'shared',
@@ -936,7 +936,7 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       extends: null,
     } as never;
-    const graph = buildAuthoringDependencyGraph(project, {
+    const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
       sources: { entriesByAssetId: new Map() },
     });
@@ -958,7 +958,7 @@ describe('typed source registry and graph evidence', () => {
     expect(occurrences).toHaveLength(2);
   });
 
-  it('indexes only exact source, localization, and property derivation dependencies', () => {
+  it('indexes only exact source, localization, and property derivation dependencies', async () => {
     const project = fixture();
     const addAsset = (
       id: string,
@@ -1105,7 +1105,7 @@ describe('typed source registry and graph evidence', () => {
         ],
       ]),
     };
-    const contributionSet = buildAuthoringDependencyGraphContributionSet(project, {
+    const contributionSet = await buildAuthoringDependencyGraphContributionSet(project, {
       mode: 'enabled',
       sources: snapshot,
     });
@@ -1156,7 +1156,7 @@ describe('typed source registry and graph evidence', () => {
     expect(contributionSet.contributionKeysByDerivationKey.get(localizationKey)).toContain(roomKey);
   });
 
-  it('reprojects cached literals after symbol-only changes and derives the same owner contribution', () => {
+  it('reprojects cached literals after symbol-only changes and derives the same owner contribution', async () => {
     const project = fixture();
     const snapshot: LuaSourceSnapshot = {
       entriesByAssetId: new Map([
@@ -1174,7 +1174,7 @@ describe('typed source registry and graph evidence', () => {
       ]),
     };
     const key = `record:${JSON.stringify(['record', 'scripts', 'main'])}`;
-    const analyses = analyzeAuthoringSources(project, snapshot, undefined, new Set([key])).get(
+    const analyses = (await analyzeAuthoringSources(project, snapshot, undefined, new Set([key]))).get(
       key,
     )!;
     const occurrence = analyses.flatMap((analysis) => analysis.literalOccurrences)[0]!;
@@ -1200,10 +1200,10 @@ describe('typed source registry and graph evidence', () => {
       key,
       analyses,
     );
-    const full = buildAuthoringDependencyGraphContributionSet(project, {
+    const full = (await buildAuthoringDependencyGraphContributionSet(project, {
       mode: 'enabled',
       sources: snapshot,
-    }).byKey.get(key);
+    })).byKey.get(key);
     expect(selected).toEqual(full);
     expect(selected?.edges.some((edge) => edge.role === 'lua-possible-reference')).toBe(true);
     delete project.rooms.later;
@@ -1214,13 +1214,13 @@ describe('typed source registry and graph evidence', () => {
     )!;
     expect(afterDelete.edges.some((edge) => edge.role === 'lua-possible-reference')).toBe(false);
     expect(analyses.flatMap((analysis) => analysis.sourceContentFingerprints)).toEqual(
-      analyzeAuthoringSources(project, snapshot, undefined, new Set([key]))
+      (await analyzeAuthoringSources(project, snapshot, undefined, new Set([key])))
         .get(key)!
         .flatMap((analysis) => analysis.sourceContentFingerprints),
     );
   });
 
-  it('keeps explicit fallbacks tooling-only and out of compiled gameplay bytes', () => {
+  it('keeps explicit fallbacks tooling-only and out of compiled gameplay bytes', async () => {
     const project = fixture();
     const layout = defaultLayoutData('HUD');
     layout.script.additionalDependencies = {
@@ -1233,7 +1233,7 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       extends: null,
     } as never;
-    const graph = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
+    const graph = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
     const fallback = [...graph.edgesById.values()].find(
       (edge) => edge.role === 'lua-explicit-reference',
     )!;
@@ -1251,7 +1251,7 @@ describe('typed source registry and graph evidence', () => {
     if (before.ok && after.ok) expect(before.canonicalJson).toBe(after.canonicalJson);
   });
 
-  it('uses the shared fallback-owner registry for validation and graph evidence', () => {
+  it('uses the shared fallback-owner registry for validation and graph evidence', async () => {
     const project = createAuthoringProject();
     project.rooms.target = {
       id: 'target',
@@ -1307,7 +1307,7 @@ describe('typed source registry and graph evidence', () => {
           diagnostic.path.includes('/rooms/supported/'),
       ),
     ).toBe(false);
-    const graph = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
+    const graph = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
     const fallbackEdges = [...graph.edgesById.values()].filter(
       (edge) => edge.role === 'lua-explicit-reference',
     );
@@ -1319,7 +1319,7 @@ describe('typed source registry and graph evidence', () => {
     });
   });
 
-  it('projects property-value fallbacks into correlated definition and owner edges', () => {
+  it('projects property-value fallbacks into correlated definition and owner edges', async () => {
     const project = fixture();
     project.rooms.shared.properties = { mood: 'calm' } as never;
     const layout = defaultLayoutData('HUD');
@@ -1340,7 +1340,7 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       extends: null,
     } as never;
-    const graph = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
+    const graph = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
     const propertyEdges = [...graph.edgesById.values()].filter(
       (edge) =>
         edge.role === 'lua-explicit-reference' &&
@@ -1353,7 +1353,7 @@ describe('typed source registry and graph evidence', () => {
       'record',
     ]);
     expect(propertyEdges.every((edge) => edge.facets.includes('preview-ui'))).toBe(true);
-    const analyses = analyzeAuthoringSources(
+    const analyses = await analyzeAuthoringSources(
       project,
       {
         entriesByAssetId: new Map([
@@ -1385,7 +1385,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('uses the resolved inheritance chain without materializing property-value nodes', () => {
+  it('uses the resolved inheritance chain without materializing property-value nodes', async () => {
     const project = fixture();
     project.properties.mood = {
       id: 'mood',
@@ -1431,7 +1431,7 @@ describe('typed source registry and graph evidence', () => {
       extends: null,
     } as never;
 
-    const graph = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
+    const graph = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
     expect([...graph.nodesByKey.keys()].some((key) => key.includes('property-value'))).toBe(false);
     const ownerEdge = [...graph.edgesById.values()].find(
       (edge) =>
@@ -1454,7 +1454,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(false);
   });
 
-  it('enforces per-owner and aggregate occurrence budgets without partial owner snapshots', () => {
+  it('enforces per-owner and aggregate occurrence budgets without partial owner snapshots', async () => {
     const ownerProject = createAuthoringProject();
     ownerProject.scripts.main = {
       id: 'main',
@@ -1467,14 +1467,14 @@ describe('typed source registry and graph evidence', () => {
       extends: null,
     } as never;
     const ownerKey = `record:${JSON.stringify(['record', 'scripts', 'main'])}`;
-    const ownerLimited = analyzeAuthoringSources(
+    const ownerLimited = (await analyzeAuthoringSources(
       ownerProject,
       { entriesByAssetId: new Map() },
       {
         ...LUA_REFERENCE_ANALYSIS_LIMITS,
         maxLiteralOccurrencesPerSemanticOwner: 1,
       },
-    ).get(ownerKey)!;
+    )).get(ownerKey)!;
     expect(ownerLimited.flatMap((analysis) => analysis.literalOccurrences)).toEqual([]);
     expect(
       ownerLimited
@@ -1494,7 +1494,7 @@ describe('typed source registry and graph evidence', () => {
         properties: {},
         extends: null,
       } as never;
-    const aggregate = analyzeAuthoringSources(
+    const aggregate = await analyzeAuthoringSources(
       aggregateProject,
       { entriesByAssetId: new Map() },
       {
@@ -1518,7 +1518,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('counts one shared physical source once across semantic owners', () => {
+  it('counts one shared physical source once across semantic owners', async () => {
     const project = createAuthoringProject();
     project.assets.shared = {
       id: 'shared',
@@ -1556,7 +1556,7 @@ describe('typed source registry and graph evidence', () => {
       extends: null,
     } as never;
     const text = `'shared'`;
-    const analyses = analyzeAuthoringSources(
+    const analyses = await analyzeAuthoringSources(
       project,
       {
         entriesByAssetId: new Map([
@@ -1591,8 +1591,8 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(false);
   });
 
-  it('marks a source incomplete when its individual byte limit is exceeded', () => {
-    const artifact = analyzeAuthoringSourceContent({
+  it('marks a source incomplete when its individual byte limit is exceeded', async () => {
+    const artifact = await analyzeAuthoringSourceContent({
       sourceUrl: 'authoring:inline-lua',
       kind: 'lua',
       text: `'too large'`,
@@ -1603,7 +1603,7 @@ describe('typed source registry and graph evidence', () => {
     expect(artifact.diagnostics[0]?.code).toBe('authoring.lua.source_limit');
   });
 
-  it('records the enabled representative full-graph benchmark', () => {
+  it('records the enabled representative full-graph benchmark', async () => {
     const project = fixture();
     for (let index = 0; index < 300; index += 1)
       project.rooms[`room-${index}`] = {
@@ -1632,7 +1632,7 @@ describe('typed source registry and graph evidence', () => {
       ]),
     };
     const started = performance.now();
-    const graph = buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
+    const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
     const elapsedMs = performance.now() - started;
     console.info(
       `AUTHORING_ENABLED_GRAPH_BENCHMARK rooms=300 nodes=${graph.nodesByKey.size} edges=${graph.edgesById.size} elapsedMs=${elapsedMs.toFixed(2)}`,

@@ -62,9 +62,9 @@ export async function openProject(projectPath: string) {
   };
 }
 
-export function validateProject(project: unknown) {
+export async function validateProject(project: unknown) {
   const compiled = isAuthoringProject(project)
-    ? publishProjectWorkspaceSnapshot(createProjectWorkspaceSnapshot(project))
+    ? publishProjectWorkspaceSnapshot(await createProjectWorkspaceSnapshot(project))
     : publishCompiledArtifact(project);
   const diagnostics = classifyProjectValidationDiagnostics(
     compiled.diagnostics.map((item) => ({

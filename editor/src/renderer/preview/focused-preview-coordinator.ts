@@ -147,11 +147,11 @@ export class FocusedPreviewFreshnessCoordinator {
     );
   }
 
-  private build(state: FocusedPreviewDesiredState): {
+  private async build(state: FocusedPreviewDesiredState): Promise<{
     document: FocusedRecordPreviewDocument;
     inputRevision: string;
     activeShaderVariant: string;
-  } | null {
+  } | null> {
     const adapter = focusedPreviewAdapterFor(state.root.kind);
     if (
       adapter.topologyDependent &&
@@ -164,9 +164,9 @@ export class FocusedPreviewFreshnessCoordinator {
     const activeShaderVariant = state.lease.activeShaderVariant();
     if (!activeShaderVariant) return null;
     const hostCapabilities: FocusedPreviewHostCapabilities = { activeShaderVariant };
-    const inputRevision = canonicalFocusedPreviewInputRevision({ inputs, hostCapabilities });
+    const inputRevision = await canonicalFocusedPreviewInputRevision({ inputs, hostCapabilities });
     return {
-      document: adapter.build({
+      document: await adapter.build({
         project: state.project,
         projectInstanceId: state.projectInstanceId,
         projectRevision: state.projectRevision,
@@ -203,9 +203,9 @@ export class FocusedPreviewFreshnessCoordinator {
     const replay =
       this.lastApplied?.leaseId === state.lease.leaseId &&
       this.lastApplied.transportGeneration !== transportGeneration;
-    let built: ReturnType<FocusedPreviewFreshnessCoordinator['build']>;
+    let built: Awaited<ReturnType<FocusedPreviewFreshnessCoordinator['build']>>;
     try {
-      built = this.build(state);
+      built = await this.build(state);
     } catch (error) {
       state.reportBuildFailure?.(
         error instanceof Error ? error.message : 'Focused preview document construction failed.',

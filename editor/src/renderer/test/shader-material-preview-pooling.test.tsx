@@ -249,7 +249,7 @@ function resetPreviewControllerState() {
   previewControllers.nextResetPromise = null;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetPreviewControllerState();
   useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
@@ -258,19 +258,19 @@ beforeEach(() => {
   const project = createAuthoringProject();
   const shaderData = defaultShaderData('Noise');
   project.shaders.noise = { id: 'noise', label: 'Noise', data: shaderData };
-  shaderData.stages.forEach((stage, stageIndex) => {
+  for (const [stageIndex, stage] of shaderData.stages.entries()) {
     stage.compiled['glsl-120'] = {
       path: `project:/shaders/bgfx/glsl-120/noise_${stage.stage}.bin`,
       byteHash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' as const,
       byteSize: 1024,
-      compileInputFingerprint: shaderCompileInputFingerprint(
+      compileInputFingerprint: (await shaderCompileInputFingerprint(
         project,
         'noise',
         stageIndex,
         'glsl-120',
-      )!,
+      ))!,
     };
-  });
+  }
   project.materials.panel = {
     id: 'panel',
     label: 'Panel',

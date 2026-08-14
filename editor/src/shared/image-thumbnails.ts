@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { sha256HexUtf8 } from './sha256';
+import { sha256HexUtf8 } from './web-crypto';
 
 export const IMAGE_THUMBNAIL_PROFILES = {
   list: { width: 96, height: 72, fit: 'cover' },
@@ -252,10 +252,10 @@ export function serializeImageThumbnailDerivativeIdentity(
   ]);
 }
 
-export function createImageThumbnailDerivativeKey(
+export async function createImageThumbnailDerivativeKey(
   source: Parameters<typeof serializeImageThumbnailDerivativeIdentity>[0],
   profile: ImageThumbnailProfile,
   versions: ImageThumbnailGeneratorIdentity,
-): string {
+): Promise<string> {
   return sha256HexUtf8(serializeImageThumbnailDerivativeIdentity(source, profile, versions));
 }

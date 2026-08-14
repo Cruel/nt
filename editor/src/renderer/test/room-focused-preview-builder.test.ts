@@ -60,7 +60,7 @@ function fixture() {
   return project;
 }
 
-function build(project = fixture()) {
+async function build(project = fixture()) {
   const graph = buildAuthoringStructuralDependencyGraph(project);
   return buildFocusedRoomPreview({
     project,
@@ -77,23 +77,23 @@ function build(project = fixture()) {
   });
 }
 
-function fixtureWithRoomMaterial() {
+async function fixtureWithRoomMaterial() {
   const project = fixture();
   const shader = defaultShaderData('Room Shader');
   project.shaders.room = { id: 'room', label: 'Room Shader', data: shader };
-  shader.stages.forEach((stage, stageIndex) => {
+  for (const [stageIndex, stage] of shader.stages.entries()) {
     stage.compiled['glsl-120'] = {
       path: `project:/shaders/bgfx/glsl-120/room.${stage.stage}.bin`,
       byteHash: `sha256:${String(stageIndex + 1).repeat(64)}` as `sha256:${string}`,
       byteSize: 16 + stageIndex,
-      compileInputFingerprint: shaderCompileInputFingerprint(
+      compileInputFingerprint: (await shaderCompileInputFingerprint(
         project,
         'room',
         stageIndex,
         'glsl-120',
-      )!,
+      ))!,
     };
-  });
+  }
   project.materials.room = {
     id: 'room',
     label: 'Room Material',
@@ -106,8 +106,8 @@ function fixtureWithRoomMaterial() {
 }
 
 describe('graph-driven Room v2 builder', () => {
-  it('includes incoming persistent Character and Interactable placement relationships', () => {
-    const result = build();
+  it('includes incoming persistent Character and Interactable placement relationships', async () => {
+    const result = await build();
     expect(result.data.room).toMatchObject({
       roomId: 'bedroom',
       recordLabel: 'Bedroom record',
@@ -144,16 +144,16 @@ describe('graph-driven Room v2 builder', () => {
     ]);
   });
 
-  it('is independent of unrelated collection insertion order', () => {
+  it('is independent of unrelated collection insertion order', async () => {
     const left = fixture();
     const right = structuredClone(left);
     right.rooms = Object.fromEntries(Object.entries(right.rooms).reverse());
     right.characters = Object.fromEntries(Object.entries(right.characters).reverse());
     right.interactables = Object.fromEntries(Object.entries(right.interactables).reverse());
-    expect(build(right)).toEqual(build(left));
+    expect(await build(right)).toEqual(await build(left));
   });
 
-  it('does not pull target Room visual data through exits', () => {
+  it('does not pull target Room visual data through exits', async () => {
     const project = fixture();
     const hall = defaultRoomData('Hall');
     hall.description = { markup: 'plain', source: { kind: 'inline', text: 'Target-only text' } };
@@ -170,17 +170,17 @@ describe('graph-driven Room v2 builder', () => {
       },
     ];
     project.rooms.bedroom!.data = bedroom;
-    const result = build(project);
+    const result = await build(project);
     expect(result.data.ui.exits[0]).toMatchObject({ targetRoomId: 'hall', label: 'Hall' });
     expect(JSON.stringify(result.data)).not.toContain('Target-only text');
   });
 
-  it('fails closed when the current graph omits the requested Room root', () => {
+  it('fails closed when the current graph omits the requested Room root', async () => {
     const project = fixture();
     const graph = buildAuthoringStructuralDependencyGraph(project);
     const nodesByKey = new Map(graph.nodesByKey);
     nodesByKey.delete(serializeAuthoringDependencyNodeKey(recordNodeKey('rooms', 'bedroom')));
-    expect(() =>
+    await expect(
       buildFocusedRoomPreview({
         project,
         roomId: 'bedroom',
@@ -194,12 +194,12 @@ describe('graph-driven Room v2 builder', () => {
         sourceAnalysis: [],
         activeShaderVariant: 'glsl-120',
       }),
-    ).toThrow(/absent from the current dependency graph snapshot/);
+    ).rejects.toThrow(/absent from the current dependency graph snapshot/);
   });
 
-  it('uses canonical shader fetch paths and rejects stale compiled outputs', () => {
-    const project = fixtureWithRoomMaterial();
-    const fresh = build(project);
+  it('uses canonical shader fetch paths and rejects stale compiled outputs', async () => {
+    const project = await fixtureWithRoomMaterial();
+    const fresh = await build(project);
     expect(
       fresh.resources
         .filter((resource) => resource.sourceKind === 'shader-compiled-output')
@@ -219,7 +219,7 @@ describe('graph-driven Room v2 builder', () => {
     ]);
 
     project.shaders.room!.data.stages[1]!.sourceText = 'changed after compilation';
-    const stale = build(project);
+    const stale = await build(project);
     expect(stale.diagnostics).toContainEqual(
       expect.objectContaining({
         severity: 'error',

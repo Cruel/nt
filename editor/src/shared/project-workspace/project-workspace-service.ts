@@ -50,7 +50,7 @@ import {
 } from '../project-schema/project-validation';
 import { parseAssetData } from '../project-schema/authoring-assets';
 import type { LuaSourceSnapshot } from '../project-schema/authoring-lua-analysis';
-import { sha256PrefixedBytes, sha256PrefixedUtf8 } from '../sha256';
+import { sha256PrefixedUtf8 } from '../web-crypto';
 import {
   EDITOR_LOCAL_STATE_SCHEMA,
   EDITOR_LOCAL_STATE_SCHEMA_VERSION,
@@ -389,7 +389,7 @@ export function assetSourcePaths(project: AuthoringProject): string[] {
   return [...paths].sort(compareProjectWorkspaceUnicodeCodePoints);
 }
 
-function aggregateRevision(revisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>) {
+async function aggregateRevision(revisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>) {
   // Keep the revision projection explicit and iterative so ordering and captured values are easy
   // to audit across CLI hosts.
   const pairs: [string, string][] = [];
@@ -406,11 +406,7 @@ async function readWorkspaceFileRevision(
   try {
     const absolute = fileSystem.joinPath(projectRoot, file);
     await assertProjectWorkspacePathContained(fileSystem, projectRoot, absolute);
-    const bytes = await fileSystem.readBytes(absolute);
-    return {
-      contentHash: sha256PrefixedBytes(bytes),
-      byteSize: bytes.byteLength,
-    };
+    return await fileSystem.readFileRevision(absolute);
   } catch {
     return null;
   }
@@ -642,12 +638,12 @@ export function projectWorkspaceLocalStateFile(
   });
 }
 
-export function createProjectWorkspaceSnapshot(
+export async function createProjectWorkspaceSnapshot(
   project: AuthoringProject,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
-): ProjectWorkspaceSnapshot {
+): Promise<ProjectWorkspaceSnapshot> {
   const trackedProject = stripLocalEditorProjectState(project);
-  const hash = sha256PrefixedUtf8(canonicalJson(trackedProject, authoringProjectSchema));
+  const hash = await sha256PrefixedUtf8(canonicalJson(trackedProject, authoringProjectSchema));
   return Object.freeze({
     snapshotKind: 'working-copy',
     projectRoot: null,
@@ -1088,7 +1084,7 @@ export class ProjectWorkspaceService {
               return fail(`Authoritative source file '${file}' is missing.`, `/${file}`);
             fileRevisions[file] = revision;
           }
-          const workspaceRevision = aggregateRevision(fileRevisions);
+          const workspaceRevision = await aggregateRevision(fileRevisions);
           const contentProject = stripEditorProjectState(decoded.data);
           const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
             snapshotKind: 'loaded',
@@ -1200,12 +1196,14 @@ export class ProjectWorkspaceService {
   publishCompiledArtifact(snapshot: ProjectWorkspaceSnapshot): CompiledArtifactPublicationResult {
     return publishCompiledArtifact(snapshot.project);
   }
-  buildDependencyGraph(snapshot: ProjectWorkspaceSnapshot): AuthoringDependencyGraph {
+  buildDependencyGraph(snapshot: ProjectWorkspaceSnapshot): Promise<AuthoringDependencyGraph> {
     return buildAuthoringDependencyGraph(snapshot.project);
   }
-  buildDependencyGraphWithSources(snapshot: ProjectWorkspaceSnapshot): AuthoringDependencyGraph {
+  async buildDependencyGraphWithSources(
+    snapshot: ProjectWorkspaceSnapshot,
+  ): Promise<AuthoringDependencyGraph> {
     const sources: LuaSourceSnapshot = { entriesByAssetId: new Map() };
-    const analyses = this.analyzeSources(snapshot, sources);
+    const analyses = await this.analyzeSources(snapshot, sources);
     const descriptorsByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
     for (const descriptor of snapshot.externalSourceDescriptors) {
       const values = descriptorsByKey.get(descriptor.contributionKey) ?? [];

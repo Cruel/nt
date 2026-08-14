@@ -99,7 +99,7 @@ export const shadersCompileCommand: CliCommandDefinition = {
       dryRun: false,
       mutation: false,
       async run(context) {
-        const shaderProject = buildShaderMaterialProject(context.snapshot.project);
+        const shaderProject = await buildShaderMaterialProject(context.snapshot.project);
         const schemaDiagnostics = shaderProject.diagnostics.map((item) =>
           cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
         );

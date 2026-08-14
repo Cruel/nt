@@ -1,4 +1,4 @@
-import { sha256PrefixedBytes } from '../sha256';
+import { sha256PrefixedBytes } from '../web-crypto';
 import {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
@@ -163,7 +163,7 @@ async function revisionAt(
 ): Promise<ProjectWorkspaceExpectedRevision> {
   if ((await fileSystem.inspect(absolutePath)) === 'missing')
     return PROJECT_WORKSPACE_ABSENT_REVISION;
-  return sha256PrefixedBytes(await fileSystem.readBytes(absolutePath));
+  return (await fileSystem.readFileRevision(absolutePath)).contentHash;
 }
 
 export class ProjectWorkspaceTransactionService {
@@ -274,7 +274,9 @@ export class ProjectWorkspaceTransactionService {
                   operation: target.operation,
                   beforeRevision,
                   afterRevision:
-                    target.operation === 'write' ? sha256PrefixedBytes(target.bytes!) : 'absent',
+                    target.operation === 'write'
+                      ? await sha256PrefixedBytes(target.bytes!)
+                      : 'absent',
                   beforeBlob,
                   afterBlob,
                 });
@@ -698,7 +700,7 @@ export class ProjectWorkspaceTransactionService {
       const bytes = await this.fileSystem.readBytes(
         this.absolute(projectRoot, `${directory}/${blob}`),
       );
-      if (sha256PrefixedBytes(bytes) !== revision) throw this.recoveryConflict(target.path);
+      if ((await sha256PrefixedBytes(bytes)) !== revision) throw this.recoveryConflict(target.path);
       await this.fileSystem.writeBytesAtomic(absolute, bytes);
     }
   }

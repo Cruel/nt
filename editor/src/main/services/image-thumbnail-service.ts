@@ -282,7 +282,7 @@ export class ImageThumbnailService {
           thumbnailRequest.variant.profile,
           sourceKind,
         );
-        const key = createImageThumbnailDerivativeKey(
+        const key = await createImageThumbnailDerivativeKey(
           { ...source, contentHash: source.contentHash },
           profile.profile,
           {
@@ -357,7 +357,7 @@ export class ImageThumbnailService {
       request.variant.profile,
       sourceKind,
     );
-    const key = createImageThumbnailDerivativeKey(
+    const key = await createImageThumbnailDerivativeKey(
       { ...request.source, contentHash: request.source.contentHash! },
       profile.profile,
       { sharpVersion: sharp.versions.sharp, vipsVersion: sharp.versions.vips },

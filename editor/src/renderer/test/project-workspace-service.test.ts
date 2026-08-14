@@ -388,7 +388,7 @@ describe('ProjectWorkspaceService', () => {
     );
   });
 
-  it('does not replace asset-backed source identities with workspace companion paths', () => {
+  it('does not replace asset-backed source identities with workspace companion paths', async () => {
     const project = createAuthoringProject();
     project.assets.script = {
       id: 'script',
@@ -428,7 +428,7 @@ describe('ProjectWorkspaceService', () => {
     };
     project.layouts.hud = { id: 'hud', label: 'HUD', data: layout } as never;
 
-    const snapshot = createProjectWorkspaceSnapshot(project, {
+    const snapshot = await createProjectWorkspaceSnapshot(project, {
       bootstrap: 'scripts/custom/bootstrap.lua',
     });
     expect(snapshot.externalSourceDescriptors).toContainEqual(
@@ -447,9 +447,9 @@ describe('ProjectWorkspaceService', () => {
     );
   });
 
-  it('keeps ignored editor-local state out of working workspace identity', () => {
+  it('keeps ignored editor-local state out of working workspace identity', async () => {
     const project = createAuthoringProject({ id: 'identity', name: 'Identity' });
-    const baseline = createProjectWorkspaceSnapshot(project);
+    const baseline = await createProjectWorkspaceSnapshot(project);
 
     const localOnly = structuredClone(project);
     localOnly.editor.bottomPanel.visible = false;
@@ -465,13 +465,13 @@ describe('ProjectWorkspaceService', () => {
         },
       },
     };
-    expect(createProjectWorkspaceSnapshot(localOnly).workspaceRevision).toBe(
+    expect((await createProjectWorkspaceSnapshot(localOnly)).workspaceRevision).toBe(
       baseline.workspaceRevision,
     );
 
     const tracked = structuredClone(project);
     tracked.editor.tags.records.story = { name: 'Story', color: 'tag-slate' };
-    expect(createProjectWorkspaceSnapshot(tracked).workspaceRevision).not.toBe(
+    expect((await createProjectWorkspaceSnapshot(tracked)).workspaceRevision).not.toBe(
       baseline.workspaceRevision,
     );
   });

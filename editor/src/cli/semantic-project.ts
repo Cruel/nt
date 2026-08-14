@@ -97,15 +97,15 @@ export async function openCliProject(
   };
 }
 
-function graphSnapshot(
+async function graphSnapshot(
   workspace: ProjectWorkspaceService,
   snapshot: LoadedProjectWorkspaceSnapshot,
-): AuthoringDependencyGraphSnapshot {
+): Promise<AuthoringDependencyGraphSnapshot> {
   return {
     projectInstanceId: 'noveltea-cli',
     projectRevision: 1,
     graphRevision: 1,
-    graph: workspace.buildDependencyGraphWithSources(snapshot),
+    graph: await workspace.buildDependencyGraphWithSources(snapshot),
   };
 }
 
@@ -163,12 +163,12 @@ function sourceUsageFields(usage: SemanticGraphUsage) {
   };
 }
 
-export function usagesForEntity(
+export async function usagesForEntity(
   workspace: ProjectWorkspaceService,
   snapshot: LoadedProjectWorkspaceSnapshot,
   collectionValue: string,
   id: string,
-): CliSemanticResult {
+): Promise<CliSemanticResult> {
   const collection = validateCollection(collectionValue);
   if (!collection)
     return {
@@ -188,7 +188,7 @@ export function usagesForEntity(
         ),
       ],
     };
-  const graph = graphSnapshot(workspace, snapshot);
+  const graph = await graphSnapshot(workspace, snapshot);
   const usages = semanticUsagesForTarget(graph, target(collection, id));
   return {
     ok: true,
@@ -208,7 +208,7 @@ export async function validateCliProject(
       cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
     );
   diagnostics.push(
-    ...workspace.buildDependencyGraphWithSources(snapshot).diagnostics.map((item) =>
+    ...(await workspace.buildDependencyGraphWithSources(snapshot)).diagnostics.map((item) =>
       cliDiagnostic(item.code, item.path, item.message, item.severity, {
         sourceUrl: item.sourceUrl,
         line: item.line,
@@ -220,7 +220,7 @@ export async function validateCliProject(
     Object.keys(snapshot.project.shaders).length > 0 ||
     Object.keys(snapshot.project.materials).length > 0;
   if (hasShaders && !diagnostics.some((item) => item.severity === 'error')) {
-    const shaderProject = buildShaderMaterialProject(snapshot.project);
+    const shaderProject = await buildShaderMaterialProject(snapshot.project);
     diagnostics.push(
       ...shaderProject.diagnostics.map((item) =>
         cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
@@ -345,7 +345,7 @@ export async function renameEntity(
         cliDiagnostic('CLI_USAGE', '/collection', `Unknown collection '${collectionValue}'.`),
       ],
     };
-  const graph = graphSnapshot(workspace, snapshot);
+  const graph = await graphSnapshot(workspace, snapshot);
   const usages = semanticUsagesForTarget(graph, target(collection, fromId));
   const exactManual = usages.filter(
     (usage) => usage.sourceReferenceClassification === 'exact-manual',
@@ -498,7 +498,7 @@ export async function deleteEntity(
         ),
       ],
     };
-  const graph = graphSnapshot(workspace, snapshot);
+  const graph = await graphSnapshot(workspace, snapshot);
   const usages = semanticUsagesForTarget(graph, target(collection, id));
   const exactSource = usages.filter(
     (usage) =>

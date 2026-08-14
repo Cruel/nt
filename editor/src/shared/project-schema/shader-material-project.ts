@@ -155,15 +155,15 @@ function diagnostic(
   return { severity, path, message, category: 'shader-material-project' };
 }
 
-export function buildShaderMaterialProject(
+export async function buildShaderMaterialProject(
   project: AuthoringProject,
-): ShaderMaterialProjectBuildResult {
+): Promise<ShaderMaterialProjectBuildResult> {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const shaders: Record<string, RuntimeShaderDefinition> = {};
   const materials: Record<string, RuntimeMaterialDefinition> = {};
 
   for (const shaderId of Object.keys(project.shaders)) {
-    const shader = buildShaderDefinition(project, shaderId);
+    const shader = await buildShaderDefinition(project, shaderId);
     diagnostics.push(...shader.diagnostics);
     if (shader.value) shaders[shaderId] = shader.value;
   }
@@ -177,10 +177,10 @@ export function buildShaderMaterialProject(
   return { project: { schema: SHADER_MATERIAL_SCHEMA, shaders, materials }, diagnostics };
 }
 
-export function buildShaderDefinition(
+export async function buildShaderDefinition(
   project: AuthoringProject,
   shaderId: string,
-): { value: RuntimeShaderDefinition | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
+): Promise<{ value: RuntimeShaderDefinition | null; diagnostics: ShaderMaterialProjectDiagnostic[] }> {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const record = project.shaders[shaderId];
   const data = parseShaderData(record?.data);
@@ -191,11 +191,11 @@ export function buildShaderDefinition(
     };
 
   const stages: Record<string, unknown> = {};
-  data.stages.forEach((stage, index) => {
-    const converted = shaderStageToRuntime(project, shaderId, stage, index);
+  for (const [index, stage] of data.stages.entries()) {
+    const converted = await shaderStageToRuntime(project, shaderId, stage, index);
     diagnostics.push(...converted.diagnostics);
     if (converted.value) stages[stage.stage] = converted.value;
-  });
+  }
 
   const uniforms: Record<string, unknown> = {};
   for (const uniform of data.uniforms) uniforms[uniform.name] = uniformToRuntime(uniform);
@@ -229,12 +229,12 @@ export function buildShaderDefinition(
   return { value: runtime.success ? runtime.data : null, diagnostics };
 }
 
-function shaderStageToRuntime(
+async function shaderStageToRuntime(
   project: AuthoringProject,
   shaderId: string,
   stage: ShaderStageData,
   index: number,
-): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
+): Promise<{ value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] }> {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const base = `/shaders/${shaderId}/data/stages/${index}`;
   const value: Record<string, unknown> = {};
@@ -256,9 +256,9 @@ function shaderStageToRuntime(
   } else if (stage.sourceText !== undefined) {
     value.source_text = stage.sourceText;
   }
-  const compiled = Object.fromEntries(
-    Object.entries(stage.compiled ?? {}).flatMap(([variant, output]) => {
-      const fresh = shaderCompiledOutputIsFresh(project, shaderId, index, variant, output);
+  const compiledEntries: [string, unknown][] = [];
+  for (const [variant, output] of Object.entries(stage.compiled ?? {})) {
+      const fresh = await shaderCompiledOutputIsFresh(project, shaderId, index, variant, output);
       if (!fresh)
         diagnostics.push(
           diagnostic(
@@ -266,20 +266,17 @@ function shaderStageToRuntime(
             `Compiled Shader output for '${variant}' is stale. Recompile the Shader.`,
           ),
         );
-      return fresh
-        ? [
-            [
-              variant,
-              {
-                runtimePath: output.path,
-                byteHash: output.byteHash,
-                byteSize: output.byteSize,
-              },
-            ],
-          ]
-        : [];
-    }),
-  );
+      if (fresh)
+        compiledEntries.push([
+          variant,
+          {
+            runtimePath: output.path,
+            byteHash: output.byteHash,
+            byteSize: output.byteSize,
+          },
+        ]);
+  }
+  const compiled = Object.fromEntries(compiledEntries);
   if (Object.keys(compiled).length > 0) value.compiled = compiled;
   return { value, diagnostics };
 }
@@ -399,11 +396,11 @@ export function materialPreviewRevision(project: AuthoringProject, materialId: s
   });
 }
 
-export function buildMaterialPreviewDocumentData(
+export async function buildMaterialPreviewDocumentData(
   project: AuthoringProject,
   materialId: string,
-): Record<string, unknown> {
-  const runtime = buildShaderMaterialProject(project);
+): Promise<Record<string, unknown>> {
+  const runtime = await buildShaderMaterialProject(project);
   const material = parseMaterialData(project.materials[materialId]?.data);
   return {
     shaderMaterials: runtime.project,
@@ -419,11 +416,11 @@ export function shaderPreviewRevision(project: AuthoringProject, shaderId: strin
   return JSON.stringify({ shaderId, shader: shader.data });
 }
 
-export function buildShaderPreviewDocumentData(
+export async function buildShaderPreviewDocumentData(
   project: AuthoringProject,
   shaderId: string,
-): Record<string, unknown> {
-  const runtime = buildShaderMaterialProject(project);
+): Promise<Record<string, unknown>> {
+  const runtime = await buildShaderMaterialProject(project);
   return {
     schema: SHADER_PREVIEW_SCHEMA,
     shaderMaterials: runtime.project,
