@@ -76,7 +76,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang ninja-build cmake pkg-config curl zip unzip tar git libx11-dev libgl1-mesa-dev
+          sudo apt-get install -y build-essential clang ninja-build cmake pkg-config curl zip unzip tar git autoconf automake autoconf-archive libtool libltdl-dev bison flex libx11-dev libgl1-mesa-dev
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
