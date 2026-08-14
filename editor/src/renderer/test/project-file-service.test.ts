@@ -112,6 +112,37 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.readFileSync(path.join(root, 'editor.json'), 'utf8')).toBe(beforeEditor);
   });
 
+  it('does not write project content when active-session authority is lost before commit', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Authority', projectDirectory: root });
+    const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const before = fs.readFileSync(path.join(root, 'project.json'), 'utf8');
+    const candidate = structuredClone(opened.snapshot.project);
+    candidate.project.name = 'Must Not Commit';
+    let authorityChecks = 0;
+
+    const result = await saveProjectContent(
+      root,
+      opened.snapshot.workspaceRevision,
+      candidate,
+      opened.editorState,
+      {},
+      undefined,
+      () => {
+        authorityChecks += 1;
+        if (authorityChecks > 1) throw new Error('Project session is stale or unknown.');
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Project session is stale or unknown.');
+    expect(authorityChecks).toBe(2);
+    expect(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).toBe(before);
+  });
+
   it('persists a scoped Room record save to its segmented record file', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Room Save', projectDirectory: root });
@@ -691,6 +722,33 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.existsSync(path.join(outside, 'state.json'))).toBe(false);
   });
 
+  it('does not persist editor metadata after active-session authority is revoked', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Metadata authority', projectDirectory: root });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const localStatePath = path.join(root, '.noveltea/editor/state.json');
+    const before = fs.existsSync(localStatePath) ? fs.readFileSync(localStatePath, 'utf8') : null;
+
+    const result = await saveProjectEditorMetadata(
+      root,
+      opened.snapshot.workspaceRevision,
+      emptyEditorProjectState(),
+      {},
+      () => {
+        throw new Error('Project session is stale or unknown.');
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Project session is stale or unknown.');
+    expect(fs.existsSync(localStatePath) ? fs.readFileSync(localStatePath, 'utf8') : null).toBe(
+      before,
+    );
+  });
+
   it('preserves user-owned AGENTS.md and unrelated .gitignore content through Save As', async () => {
     const source = tempProjectRoot();
     const destination = tempRoot();
@@ -705,13 +763,7 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     dialogs.destination = destination;
-    const result = await saveProjectCopyAs(
-      {} as never,
-      opened.snapshot.project,
-      null,
-      path.join(source, 'project.json'),
-      [],
-    );
+    const result = await saveProjectCopyAs({} as never, source, opened.snapshot.project, []);
     expect(result.success).toBe(true);
     expect(fs.readFileSync(path.join(destination, 'AGENTS.md'), 'utf8')).toBe(
       fs.readFileSync(path.join(source, 'AGENTS.md'), 'utf8'),
@@ -724,6 +776,32 @@ describe('project-file-service workspace-v1', () => {
         path: '/.gitignore',
       }),
     );
+  });
+
+  it('does not write a Save As destination after active-session authority is revoked', async () => {
+    const source = tempProjectRoot();
+    const destination = tempRoot();
+    await createProject({ projectName: 'Source', projectDirectory: source });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(source);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    dialogs.destination = destination;
+
+    const result = await saveProjectCopyAs(
+      {} as never,
+      source,
+      opened.snapshot.project,
+      [],
+      {},
+      () => {
+        throw new Error('Project session is stale or unknown.');
+      },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Project session is stale or unknown.');
+    expect(fs.readdirSync(destination)).toEqual([]);
   });
 
   it('rejects Save As destinations containing stale canonical project source', async () => {
@@ -749,13 +827,7 @@ describe('project-file-service workspace-v1', () => {
     fs.writeFileSync(path.join(destination, 'README.md'), 'keep me\n');
     dialogs.destination = destination;
 
-    const result = await saveProjectCopyAs(
-      {} as never,
-      opened.snapshot.project,
-      null,
-      path.join(source, 'project.json'),
-      [],
-    );
+    const result = await saveProjectCopyAs({} as never, source, opened.snapshot.project, []);
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('already contains NovelTea project state');
@@ -795,13 +867,7 @@ describe('project-file-service workspace-v1', () => {
     fs.writeFileSync(path.join(destination, 'README.md'), 'keep me\n');
     dialogs.destination = destination;
 
-    const result = await saveProjectCopyAs(
-      {} as never,
-      project,
-      null,
-      path.join(source, 'project.json'),
-      [],
-    );
+    const result = await saveProjectCopyAs({} as never, source, project, []);
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("asset destination 'assets/logo.bin' already exists");
@@ -849,13 +915,7 @@ describe('project-file-service workspace-v1', () => {
     fs.writeFileSync(path.join(source, 'workflows', 'sample.json'), '{}');
     fs.symlinkSync(outside, path.join(destination, escapedDirectory));
     dialogs.destination = destination;
-    const result = await saveProjectCopyAs(
-      {} as never,
-      project,
-      null,
-      path.join(source, 'project.json'),
-      [],
-    );
+    const result = await saveProjectCopyAs({} as never, source, project, []);
     expect(result.success).toBe(false);
     expect(fs.readdirSync(outside)).toEqual([]);
   });

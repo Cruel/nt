@@ -28,7 +28,10 @@ type LoadProjectDocumentInput = Parameters<
 >[0];
 
 async function loadProjectDocumentWithGraph(input: LoadProjectDocumentInput) {
-  useProjectStore.getState().loadProjectDocument(input);
+  useProjectStore.getState().loadProjectDocument({
+    ...input,
+    projectSessionId: input.projectSessionId ?? 'test-project-session',
+  });
   await publishCurrentGraph();
 }
 

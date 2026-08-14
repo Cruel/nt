@@ -181,6 +181,7 @@ describe('WorkspacePage new project modal', () => {
       savedDocument: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
       workspaceRevision: initialRevision,
     });
     useWorkspaceStore.setState({
@@ -191,7 +192,9 @@ describe('WorkspacePage new project modal', () => {
 
     render(<WorkspacePage />);
     await waitFor(() =>
-      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith('/mock/project'),
+      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith(
+        'opened-project-session',
+      ),
     );
     vi.mocked(window.noveltea.auditProjectAssets).mockClear();
     const beforeDocument = useProjectStore.getState().document;
@@ -201,8 +204,7 @@ describe('WorkspacePage new project modal', () => {
 
     act(() => {
       callback?.({
-        projectRoot: '/mock/project',
-        manifestPath: '/mock/project/project.json',
+        projectSessionId: 'opened-project-session',
         changedPaths: ['assets/images/logo.png'],
         authoringChangedPaths: [],
         assetChangedPaths: ['assets/images/logo.png'],
@@ -236,6 +238,7 @@ describe('WorkspacePage new project modal', () => {
       savedDocument: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
       workspaceRevision: revision,
     });
     useWorkspaceStore.setState({
@@ -246,7 +249,9 @@ describe('WorkspacePage new project modal', () => {
 
     render(<WorkspacePage />);
     await waitFor(() =>
-      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith('/mock/project'),
+      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith(
+        'opened-project-session',
+      ),
     );
     const beforeDocument = useProjectStore.getState().document;
     const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
@@ -254,8 +259,7 @@ describe('WorkspacePage new project modal', () => {
 
     act(() => {
       callback?.({
-        projectRoot: '/mock/project',
-        manifestPath: '/mock/project/project.json',
+        projectSessionId: 'opened-project-session',
         changedPaths: ['assets/images/missing.png'],
         authoringChangedPaths: [],
         assetChangedPaths: ['assets/images/missing.png'],
@@ -301,6 +305,7 @@ describe('WorkspacePage new project modal', () => {
       savedDocument: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
       workspaceRevision: revision,
       fileRevisions: { 'records/rooms/hall.json': revision },
     });
@@ -312,15 +317,16 @@ describe('WorkspacePage new project modal', () => {
 
     render(<WorkspacePage />);
     await waitFor(() =>
-      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith('/mock/project'),
+      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith(
+        'opened-project-session',
+      ),
     );
     const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
     expect(callback).toBeDefined();
 
     act(() => {
       callback?.({
-        projectRoot: '/mock/project',
-        manifestPath: '/mock/project/project.json',
+        projectSessionId: 'opened-project-session',
         changedPaths: ['records/rooms/hall.json'],
         authoringChangedPaths: ['records/rooms/hall.json'],
         assetChangedPaths: [],
@@ -352,8 +358,7 @@ describe('WorkspacePage new project modal', () => {
 
     act(() => {
       callback?.({
-        projectRoot: '/mock/project',
-        manifestPath: '/mock/project/project.json',
+        projectSessionId: 'opened-project-session',
         changedPaths: ['records/rooms/hall.json'],
         authoringChangedPaths: ['records/rooms/hall.json'],
         assetChangedPaths: [],
@@ -395,6 +400,7 @@ describe('WorkspacePage new project modal', () => {
       savedDocument: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
       workspaceRevision: initialRevision,
       fileRevisions: { 'records/rooms/hall.json': initialRevision },
     });
@@ -406,15 +412,16 @@ describe('WorkspacePage new project modal', () => {
 
     render(<WorkspacePage />);
     await waitFor(() =>
-      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith('/mock/project'),
+      expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalledWith(
+        'opened-project-session',
+      ),
     );
     const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
     expect(callback).toBeDefined();
 
     act(() => {
       callback?.({
-        projectRoot: '/mock/project',
-        manifestPath: '/mock/project/project.json',
+        projectSessionId: 'opened-project-session',
         changedPaths: ['records/rooms/hall.json'],
         authoringChangedPaths: ['records/rooms/hall.json'],
         assetChangedPaths: [],
@@ -583,6 +590,7 @@ describe('WorkspacePage new project modal', () => {
         savedDocument: project,
         projectPath: '/mock/project',
         projectFilePath: '/mock/project/project.json',
+        projectSessionId: 'opened-project-session',
       });
       useWorkspaceStore.setState({
         project,
@@ -626,6 +634,7 @@ describe('WorkspacePage new project modal', () => {
       document: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       project,
@@ -660,7 +669,7 @@ describe('WorkspacePage new project modal', () => {
     await waitFor(() => expect(window.noveltea.saveProjectContent).toHaveBeenCalled());
     expect(apply).toHaveBeenCalledOnce();
     expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[0]).toBe(
-      '/mock/project/project.json',
+      'opened-project-session',
     );
     expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
       project: { name: 'Saved Draft Title' },
@@ -749,6 +758,7 @@ describe('WorkspacePage new project modal', () => {
       document: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
@@ -772,7 +782,7 @@ describe('WorkspacePage new project modal', () => {
 
     await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
     expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
-      '/mock/project/project.json',
+      'opened-project-session',
       expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
       expect.objectContaining({
         recovery: expect.objectContaining({
@@ -843,6 +853,7 @@ describe('WorkspacePage new project modal', () => {
       document: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
@@ -887,6 +898,7 @@ describe('WorkspacePage new project modal', () => {
       document: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
@@ -921,6 +933,7 @@ describe('WorkspacePage new project modal', () => {
         document: project,
         projectPath: '/mock/project',
         projectFilePath: '/mock/project/project.json',
+        projectSessionId: 'opened-project-session',
       });
       useWorkspaceStore.setState({
         projectPath: '/mock/project',
@@ -961,7 +974,7 @@ describe('WorkspacePage new project modal', () => {
         expect(afterMetadataFlush.savedDocument.project.name).toBe('My Story');
       }
       expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
-        '/mock/project/project.json',
+        'opened-project-session',
         expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
         expect.objectContaining({
           recovery: expect.objectContaining({

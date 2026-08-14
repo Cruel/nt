@@ -268,6 +268,7 @@ export function WorkspacePage() {
   const projectContentSnapshot = project ? canonicalProjectPersistenceContentJson(project) : null;
   const projectPath = useProjectStore((state) => state.projectPath);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const projectDirty = useProjectStore(selectProjectDirty);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
@@ -487,13 +488,15 @@ export function WorkspacePage() {
     await flushStructuralCommandPersistence();
     const latestProject = useProjectStore.getState().document;
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+    const latestProjectSessionId = useProjectStore.getState().projectSessionId;
     const workspaceRevision = useProjectStore.getState().workspaceRevision;
     const fileRevisions = useProjectStore.getState().fileRevisions;
     saveLocalEditorSessionSnapshot(latestProjectFilePath ?? null);
-    if (!latestProject || !latestProjectFilePath || !workspaceRevision) return true;
+    if (!latestProject || !latestProjectFilePath || !latestProjectSessionId || !workspaceRevision)
+      return true;
     const editorState = buildEditorProjectStateSnapshot();
     const result = await window.noveltea.saveProjectEditorMetadata(
-      latestProjectFilePath,
+      latestProjectSessionId,
       workspaceRevision,
       editorState,
       { ...fileRevisions },
@@ -603,12 +606,12 @@ export function WorkspacePage() {
 
   async function closeProject() {
     if (!(await flushProjectEditorMetadata('close-project'))) return;
+    if (projectSessionId) await window.noveltea.stopProjectWorkspaceWatcher(projectSessionId);
     await window.noveltea.closeActiveProject();
     refreshRecentProjectEntry(project, projectPath, projectFilePath);
     await cancelAndClearComfyUiProjectJobs(projectFilePath);
     if (projectFilePath) await window.noveltea.purgeProjectTrash(projectFilePath);
     if (projectFilePath) clearAssetTrashProject(projectFilePath);
-    await window.noveltea.stopProjectWorkspaceWatcher();
     clearLocalEditorSessionSnapshot();
     setLastProjectPath(null);
     clearProjectDocument();
@@ -799,18 +802,17 @@ export function WorkspacePage() {
       lastAssetAuditProjectFilePath.current = currentProjectFilePath;
     }
     const currentProject = useProjectStore.getState().document;
-    if (!projectFilePath || !projectPath || !currentProject) {
-      void window.noveltea.stopProjectWorkspaceWatcher();
+    if (!projectFilePath || !projectPath || !projectSessionId || !currentProject) {
       setUntrackedAssetFiles([]);
       setUntrackedAssetDialogOpen(false);
       return;
     }
-    void window.noveltea.startProjectWorkspaceWatcher(projectPath);
+    void window.noveltea.startProjectWorkspaceWatcher(projectSessionId);
     void runAssetAudit(currentProject);
     return () => {
-      void window.noveltea.stopProjectWorkspaceWatcher();
+      void window.noveltea.stopProjectWorkspaceWatcher(projectSessionId);
     };
-  }, [projectFilePath, projectPath, runAssetAudit]);
+  }, [projectFilePath, projectPath, projectSessionId, runAssetAudit]);
 
   useEffect(
     () =>
@@ -818,15 +820,14 @@ export function WorkspacePage() {
         const latestProject = useProjectStore.getState().document;
         const latestSavedProject = useProjectStore.getState().savedDocument;
         const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-        const latestProjectRoot = useProjectStore.getState().projectPath;
+        const latestProjectSessionId = useProjectStore.getState().projectSessionId;
         if (
           !latestProject ||
           !latestSavedProject ||
           !latestProjectFilePath ||
-          !latestProjectRoot ||
-          event.projectRoot !== latestProjectRoot ||
-          event.manifestPath !== latestProjectFilePath ||
-          latestProjectFilePathRef.current !== event.manifestPath
+          !latestProjectSessionId ||
+          event.projectSessionId !== latestProjectSessionId ||
+          latestProjectFilePathRef.current !== latestProjectFilePath
         )
           return;
         const candidate = event.candidate;

@@ -49,6 +49,34 @@ export class ActiveProjectSessionService {
     return this.active?.id ?? null;
   }
 
+  requireActiveProjectRoot(projectSessionId: string): string {
+    const active = this.active;
+    if (!active || projectSessionId !== active.id) {
+      throw new Error('Project session is stale or unknown.');
+    }
+    return active.root;
+  }
+
+  isCurrent(projectSessionId: string): boolean {
+    return this.active?.id === projectSessionId;
+  }
+
+  async refreshActiveProject(projectSessionId: string, projectFilePath: string): Promise<string> {
+    const active = this.active;
+    if (!active || projectSessionId !== active.id) {
+      throw new Error('Project session is stale or unknown.');
+    }
+    const canonicalProjectFile = await fs.realpath(path.resolve(projectFilePath));
+    const projectFileStat = await fs.stat(canonicalProjectFile);
+    if (!projectFileStat.isFile()) throw new Error('Project manifest is not a regular file.');
+    const canonicalRoot = path.dirname(canonicalProjectFile);
+    if (canonicalRoot !== active.root) {
+      throw new Error('Project result does not belong to the active Project session.');
+    }
+    if (this.active !== active) throw new Error('Project session is stale or unknown.');
+    return active.id;
+  }
+
   async attachToSuccessfulResult<
     Result extends { ok?: boolean; success?: boolean; projectFilePath?: string },
   >(result: Result, activationGeneration: number): Promise<Result & { projectSessionId?: string }> {
@@ -61,6 +89,17 @@ export class ActiveProjectSessionService {
       activationGeneration,
     );
     this.assertProjectActivationCurrent(activationGeneration);
+    return { ...result, projectSessionId };
+  }
+
+  async refreshSuccessfulSessionResult<
+    Result extends { ok?: boolean; success?: boolean; projectFilePath?: string },
+  >(projectSessionId: string, result: Result): Promise<Result & { projectSessionId?: string }> {
+    if (result.success !== true || result.ok === false) return result;
+    if (!result.projectFilePath) {
+      throw new Error('Successful Project persistence result omitted the Project manifest path.');
+    }
+    await this.refreshActiveProject(projectSessionId, result.projectFilePath);
     return { ...result, projectSessionId };
   }
 

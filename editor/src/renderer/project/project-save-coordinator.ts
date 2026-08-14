@@ -290,8 +290,15 @@ async function commitSelectedSaveUnits(
   const projectState = useProjectStore.getState();
   const currentDocument = projectState.document;
   const projectFilePath = projectState.projectFilePath;
+  const projectSessionId = projectState.projectSessionId;
   const workspaceRevision = projectState.workspaceRevision;
-  if (!currentDocument || !projectState.savedDocument || !projectFilePath || !workspaceRevision) {
+  if (
+    !currentDocument ||
+    !projectState.savedDocument ||
+    !projectFilePath ||
+    !projectSessionId ||
+    !workspaceRevision
+  ) {
     return {
       success: false,
       status: 'failed',
@@ -318,7 +325,7 @@ async function commitSelectedSaveUnits(
   ).map((patch) => patch.path);
   useProjectStore.getState().setSaving(true);
   const response = await window.noveltea.saveProjectContent(
-    projectFilePath,
+    projectSessionId,
     workspaceRevision,
     candidateContent,
     editorStateForWrite,
@@ -917,10 +924,18 @@ export async function saveProjectAsCopy(): Promise<ProjectSaveCoordinatorResult>
     copyContent,
     editorStateForContentCandidate(snapshot, copyContent, snapshot.recovery),
   );
+  if (!projectState.projectSessionId) {
+    return {
+      success: false,
+      status: 'failed',
+      diagnostics: [],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
+    };
+  }
   const response = await window.noveltea.saveProjectCopyAs(
+    projectState.projectSessionId,
     copyDocument,
-    projectState.projectFilePath,
-    projectState.projectFilePath,
     projectAssetPaths(projectState.document),
     projectState.scriptSourcePaths,
   );

@@ -86,7 +86,7 @@ const api: NovelTeaElectronApi = {
   compileShaders: (shaderProject: unknown, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, shaderProject, options),
   saveProjectContent: (
-    projectFilePath: string,
+    projectSessionId: string,
     expectedWorkspaceRevision: string,
     contentProject: unknown,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
@@ -95,7 +95,7 @@ const api: NovelTeaElectronApi = {
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_CONTENT,
-      projectFilePath,
+      projectSessionId,
       expectedWorkspaceRevision,
       contentProject,
       editorState,
@@ -103,30 +103,28 @@ const api: NovelTeaElectronApi = {
       commitOptions,
     ),
   saveProjectEditorMetadata: (
-    projectFilePath: string,
+    projectSessionId: string,
     expectedWorkspaceRevision: string,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
     expectedFileRevisions: Record<string, `sha256:${string}`> = {},
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
-      projectFilePath,
+      projectSessionId,
       expectedWorkspaceRevision,
       editorState,
       expectedFileRevisions,
     ),
   saveProjectCopyAs: (
+    projectSessionId: string,
     project: unknown,
-    defaultPath: string | null = null,
-    currentProjectFilePath: string | null = null,
     workingProjectAssetPaths: string[] = [],
     scriptSourcePaths: Record<string, string> = {},
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
+      projectSessionId,
       project,
-      defaultPath,
-      currentProjectFilePath,
       workingProjectAssetPaths,
       scriptSourcePaths,
     ),
@@ -152,10 +150,10 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES, projectFilePath, moves),
   purgeProjectTrash: (projectFilePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.PURGE_PROJECT_TRASH, projectFilePath),
-  startProjectWorkspaceWatcher: (projectRoot: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER, projectRoot),
-  stopProjectWorkspaceWatcher: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER),
+  startProjectWorkspaceWatcher: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER, projectSessionId),
+  stopProjectWorkspaceWatcher: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER, projectSessionId),
   onProjectWorkspaceChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>
       callback(event as never);

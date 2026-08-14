@@ -83,7 +83,7 @@ interface NovelTeaElectronApiContract {
     options?: ShaderCompileOptions,
   ): Promise<ShaderCompileResponse>;
   saveProjectContent(
-    projectFilePath: string,
+    projectSessionId: string,
     expectedWorkspaceRevision: string,
     contentProject: unknown,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
@@ -91,15 +91,14 @@ interface NovelTeaElectronApiContract {
     commitOptions?: import('./editor-tooling').ProjectWorkspaceCommitOptions,
   ): Promise<SaveProjectResponse>;
   saveProjectEditorMetadata(
-    projectFilePath: string,
+    projectSessionId: string,
     expectedWorkspaceRevision: string,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
     expectedFileRevisions?: Record<string, `sha256:${string}`>,
   ): Promise<SaveProjectEditorMetadataResponse>;
   saveProjectCopyAs(
+    projectSessionId: string,
     project: unknown,
-    defaultPath?: string | null,
-    currentProjectFilePath?: string | null,
     workingProjectAssetPaths?: string[],
     scriptSourcePaths?: Record<string, string>,
   ): Promise<SaveProjectResponse>;
@@ -122,8 +121,10 @@ interface NovelTeaElectronApiContract {
     moves: ProjectAssetTrashMove[],
   ): Promise<ProjectAssetFileOperationResponse>;
   purgeProjectTrash(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
-  startProjectWorkspaceWatcher(projectRoot: string): Promise<ProjectAssetFileOperationResponse>;
-  stopProjectWorkspaceWatcher(): Promise<ProjectAssetFileOperationResponse>;
+  startProjectWorkspaceWatcher(
+    projectSessionId: string,
+  ): Promise<ProjectAssetFileOperationResponse>;
+  stopProjectWorkspaceWatcher(projectSessionId: string): Promise<ProjectAssetFileOperationResponse>;
   onProjectWorkspaceChanged(callback: (event: ProjectWorkspaceWatchEvent) => void): () => void;
   resolveProjectAssetUrl(
     projectFilePath: string,

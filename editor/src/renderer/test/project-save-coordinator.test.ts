@@ -73,6 +73,7 @@ function loadProject(
     savedDocument: saved,
     projectPath: '/mock/project',
     projectFilePath: '/mock/project/game.json',
+    projectSessionId: 'test-project-session',
     workspaceRevision,
     fileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
   });
@@ -206,6 +207,7 @@ describe('project save coordinator', () => {
       savedDocument,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'test-project-session',
       workspaceRevision,
       fileRevisions: { 'editor.json': roomFileRevision },
     });
@@ -369,10 +371,10 @@ describe('project save coordinator', () => {
     const resolved = await saveConflictingSaveUnitKeepMine('record:rooms:foyer');
     expect(resolved.success).toBe(true);
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    const [projectFilePath, expectedRevision, candidate, , , commitOptions] = vi.mocked(
+    const [projectSessionId, expectedRevision, candidate, , , commitOptions] = vi.mocked(
       window.noveltea.saveProjectContent,
     ).mock.calls[0]!;
-    expect(projectFilePath).toBe('/mock/project/game.json');
+    expect(projectSessionId).toBe('test-project-session');
     expect(expectedRevision).toBe(workspaceRevision);
     expect(candidate).toMatchObject({ rooms: { foyer: { label: 'Local Foyer' } } });
     expect(commitOptions?.expectedFileRevisions).toEqual({
@@ -722,17 +724,15 @@ describe('project save coordinator', () => {
     const result = await saveProjectAsCopy();
 
     expect(result.success).toBe(true);
-    const [copy, defaultPath, currentPath, workingAssetPaths] = vi.mocked(
-      window.noveltea.saveProjectCopyAs,
-    ).mock.calls[0]!;
+    const [projectSessionId, copy, workingAssetPaths] = vi.mocked(window.noveltea.saveProjectCopyAs)
+      .mock.calls[0]!;
+    expect(projectSessionId).toBe('test-project-session');
     expect(copy).toMatchObject({
       rooms: { foyer: { label: 'Foyer' } },
       editor: {
         recovery: { saveUnitsById: { 'record:rooms:foyer': expect.any(Object) } },
       },
     });
-    expect(defaultPath).toBe('/mock/project/game.json');
-    expect(currentPath).toBe('/mock/project/game.json');
     expect(workingAssetPaths).toEqual(['assets/images/cover.png']);
     expect(useProjectStore.getState().projectFilePath).toBe('/mock/project/game.json');
     expect(useProjectStore.getState().document).toMatchObject({

@@ -20,6 +20,30 @@ Closing the active Project uses the same guarded capability. Window destruction 
 shutdown also revoke the session, including teardown paths that do not complete renderer cleanup.
 Save As remains a copy operation and does not change the active Project identity.
 
+## Project-scoped persistence and watching
+
+Project content saves, editor-recovery metadata writes, Save As source selection, and Project
+workspace watcher start/stop requests carry `projectSessionId` instead of a renderer-selected Project
+root or manifest path. The main process resolves the canonical root from the current session and
+rejects random, stale, closed, or prior-Project ids before Project filesystem work begins. Content and
+metadata persistence re-check that authority at the write boundary so a Project switch or close that
+wins while validation or reconciliation is in flight cannot redirect or complete the old write.
+
+A successful content save is reopened and refreshed against the same main-owned canonical root before
+its authoritative result is exposed to the renderer. Successful metadata persistence likewise
+refreshes that same authority before returning. A refresh that resolves to another root, a missing or
+non-file manifest, or a session that became stale fails without rotating authority. Save As is the
+explicit exception for choosing a new destination: the native directory dialog selects only the copy
+destination, while the source root, default directory, assets, workflows, scripts, and agent bootstrap
+are derived from the active session. Save As never changes the active Project identity.
+
+The Project workspace watcher is admitted and torn down by session id. Watch batches retain the
+main-owned root internally but publish only the session id plus Project-relative changed paths and the
+assembled candidate. A successful assembled candidate refreshes the same active authority before the
+event is sent; malformed or failed candidates do not mutate authority. The renderer accepts an event
+only when its `projectSessionId` is still current, so a delayed Project A batch cannot reconcile into
+Project B. Closing the active Project force-stops its watcher in main before revoking the session.
+
 ## Project-scoped reads
 
 Project text-source requests carry `projectSessionId` and Project-relative source entries. The main
@@ -42,5 +66,8 @@ name as an alias or secondary reader.
 ## Verification
 
 `editor/src/renderer/test/active-project-session.test.ts` uses real temporary Project Workspaces to
-cover canonical activation, same-root refresh, root rotation, activation failure, close and teardown
-revocation, Project A-to-B isolation before filesystem access, and the retained text-source rules.
+cover canonical activation, same-root refresh, rejected cross-root refresh, root rotation, activation
+failure, close and teardown revocation, Project A-to-B isolation before filesystem access, and the
+retained text-source rules. Persistence and watcher tests additionally cover authority loss before a
+write, Save As revocation after destination selection, session-tagged reconciliation, and watcher
+routing.

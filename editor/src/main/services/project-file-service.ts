@@ -223,6 +223,7 @@ async function writeWorkspaceProject(
   expectedWorkspaceRevision: string,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
   commitOptions?: ProjectWorkspaceCommitOptions,
+  assertAuthority?: () => void,
 ): Promise<{
   workspaceRevision: string;
   fileRevisions: Record<string, `sha256:${string}`>;
@@ -361,6 +362,7 @@ async function writeWorkspaceProject(
       'WORKSPACE_REVISION_CONFLICT',
       'A structural command target changed outside the editor.',
     );
+  assertAuthority?.();
   const written = await workspace.write(
     projectRoot,
     expectedWorkspaceRevision,
@@ -651,21 +653,25 @@ export async function saveProject(
 }
 
 export async function saveProjectEditorMetadata(
-  projectFilePath: string,
+  projectRoot: string,
   expectedWorkspaceRevision: string,
   editorState: EditorProjectState,
   expectedFileRevisions: Record<string, `sha256:${string}`> = {},
+  assertAuthority?: () => void,
 ): Promise<SaveProjectEditorMetadataResponse> {
-  if (!projectFilePath || typeof projectFilePath !== 'string') {
+  if (!projectRoot || typeof projectRoot !== 'string') {
     return {
       ok: false,
       success: false,
       diagnostics: [],
-      error: 'Editor metadata save requires a project file path.',
+      error: 'Editor metadata save requires an active project root.',
     };
   }
   try {
-    const root = projectPathFromFile(projectFilePath);
+    const root =
+      path.basename(projectRoot) === 'project.json'
+        ? projectPathFromFile(projectRoot)
+        : path.resolve(projectRoot);
     const workspace = workspaceService();
     const opened = await workspace.open(root);
     if (!opened.ok)
@@ -691,6 +697,7 @@ export async function saveProjectEditorMetadata(
     // Local recovery/session metadata is outside canonical workspace content. Persist it against the
     // renderer's known baseline without adopting any tracked-file revisions that may have changed on
     // disk before the workspace watcher has reconciled them.
+    assertAuthority?.();
     await workspace.writeEditorLocalState(root, expectedWorkspaceRevision, normalizedEditor.data);
     return {
       ok: true,
@@ -711,23 +718,27 @@ export async function saveProjectEditorMetadata(
 }
 
 export async function saveProjectContent(
-  projectFilePath: string,
+  projectRoot: string,
   expectedWorkspaceRevision: string,
   contentProject: unknown,
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
   commitOptions?: ProjectWorkspaceCommitOptions,
+  assertAuthority?: () => void,
 ): Promise<SaveProjectResponse> {
-  if (!projectFilePath || typeof projectFilePath !== 'string') {
+  if (!projectRoot || typeof projectRoot !== 'string') {
     return {
       ok: false,
       success: false,
-      error: 'Project content save requires a project file path.',
+      error: 'Project content save requires an active project root.',
     };
   }
   try {
-    const absolute = path.resolve(projectFilePath);
-    const root = projectPathFromFile(absolute);
+    const root =
+      path.basename(projectRoot) === 'project.json'
+        ? projectPathFromFile(projectRoot)
+        : path.resolve(projectRoot);
+    const absolute = path.join(root, 'project.json');
     const opened = await workspaceService().open(root);
     if (!opened.ok)
       throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
@@ -771,6 +782,7 @@ export async function saveProjectContent(
       };
     }
 
+    assertAuthority?.();
     const written = await writeWorkspaceProject(
       root,
       content,
@@ -778,6 +790,7 @@ export async function saveProjectContent(
       expectedWorkspaceRevision,
       scriptSourcePaths,
       commitOptions,
+      assertAuthority,
     );
     return {
       ok: true,
@@ -807,49 +820,49 @@ export async function saveProjectContent(
 
 export async function saveProjectCopyAs(
   owner: BrowserWindow | null,
+  sourceProjectRoot: string,
   project: unknown,
-  defaultPath: string | null = null,
-  currentProjectFilePath: string | null = null,
   workingProjectAssetPaths: readonly string[] = [],
   scriptSourcePaths: Readonly<Record<string, string>> = {},
+  assertAuthority?: () => void,
 ): Promise<SaveProjectResponse> {
   if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
+  const sourceRoot = path.resolve(sourceProjectRoot);
+  const sourceManifestPath = path.join(sourceRoot, 'project.json');
   const result = await dialog.showOpenDialog(owner, {
     title: 'Save NovelTea Project Copy',
-    defaultPath: defaultPath ? projectPathFromFile(defaultPath) : undefined,
+    defaultPath: sourceRoot,
     properties: ['openDirectory', 'createDirectory'],
   });
   const selectedRoot = result.filePaths[0];
   if (result.canceled || !selectedRoot) {
     return { ok: false, success: false, error: 'Save canceled.' };
   }
-  const root = path.resolve(selectedRoot);
-  if (!(await confirmNonEmptyDestination(owner, root))) {
-    return { ok: false, success: false, error: 'Save canceled.' };
-  }
   let diagnostics: ToolDiagnostic[] = [];
   try {
+    assertAuthority?.();
+    const root = path.resolve(selectedRoot);
+    if (!(await confirmNonEmptyDestination(owner, root))) {
+      return { ok: false, success: false, error: 'Save canceled.' };
+    }
     await assertSaveAsDestinationHasNoWorkspace(root);
-    diagnostics = currentProjectFilePath
-      ? await copyProjectAssets(
-          project,
-          currentProjectFilePath,
-          path.join(root, 'project.json'),
-          workingProjectAssetPaths,
-        )
-      : [];
+    diagnostics = await copyProjectAssets(
+      project,
+      sourceManifestPath,
+      path.join(root, 'project.json'),
+      workingProjectAssetPaths,
+    );
     const manifestPath = path.join(root, 'project.json');
-    if (currentProjectFilePath) await copyProjectWorkflows(currentProjectFilePath, manifestPath);
+    await copyProjectWorkflows(sourceManifestPath, manifestPath);
     const normalized = projectWithCurrentEditorState(project);
     const editor = parseEditorProjectState((normalized as Record<string, unknown>).editor);
-    const sourcePaths = currentProjectFilePath
-      ? await workspaceService().open(projectPathFromFile(currentProjectFilePath))
-      : null;
+    assertAuthority?.();
+    const sourcePaths = await workspaceService().open(sourceRoot);
     for (const [relativePath, text] of Object.entries(
       projectWorkspaceFiles(
         normalized as Parameters<typeof projectWorkspaceFiles>[0],
         editor,
-        sourcePaths?.ok
+        sourcePaths.ok
           ? { ...sourcePaths.snapshot.scriptSourcePaths, ...scriptSourcePaths }
           : scriptSourcePaths,
       ),
@@ -873,15 +886,13 @@ export async function saveProjectCopyAs(
         path: '/.gitignore',
         message: 'Add a .noveltea ignore rule to the existing .gitignore file.',
       });
-    if (currentProjectFilePath) {
-      const sourceAgents = path.join(projectPathFromFile(currentProjectFilePath), 'AGENTS.md');
-      if ((await fsPort.inspect(sourceAgents)) === 'file')
-        await writeContainedText(
-          root,
-          path.join(root, 'AGENTS.md'),
-          await fsPort.readText(sourceAgents),
-        );
-    }
+    const sourceAgents = path.join(sourceRoot, 'AGENTS.md');
+    if ((await fsPort.inspect(sourceAgents)) === 'file')
+      await writeContainedText(
+        root,
+        path.join(root, 'AGENTS.md'),
+        await fsPort.readText(sourceAgents),
+      );
     for (const directory of ['records', 'scripts', 'assets']) {
       const target = path.join(root, directory);
       await assertContained(root, target);

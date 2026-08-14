@@ -226,6 +226,7 @@ describe('package export workflow', () => {
       document: project,
       projectPath: '/project',
       projectFilePath: '/project/game.json',
+      projectSessionId: 'test-project-session',
     });
     let progress:
       | ((event: {
@@ -327,6 +328,7 @@ describe('package export workflow', () => {
       document: project,
       projectPath: '/project',
       projectFilePath: '/project/game.json',
+      projectSessionId: 'test-project-session',
     });
     vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue({
       ok: true,
@@ -349,7 +351,7 @@ describe('package export workflow', () => {
 
     expect(result.success).toBe(true);
     expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
-      '/project/game.json',
+      'test-project-session',
       expect.any(String),
       expect.objectContaining({
         lastSuccessfulPlatformExportIdentity: expect.objectContaining({

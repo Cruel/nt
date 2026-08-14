@@ -771,7 +771,10 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.CLOSE_ACTIVE_PROJECT,
     (arguments_) => noArgumentsSchema.parse(arguments_),
-    () => activeProjectSessions.closeActiveProject(),
+    async () => {
+      await stopProjectWorkspaceWatcher();
+      activeProjectSessions.closeActiveProject();
+    },
   );
 
   ipcMain.handle(
@@ -855,60 +858,104 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.SAVE_PROJECT_CONTENT,
     async (
       _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
+      projectSessionId: string,
       expectedWorkspaceRevision: string,
       contentProject: unknown,
       editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
       scriptSourcePaths: Record<string, string>,
       commitOptions: import('./shared/editor-tooling').ProjectWorkspaceCommitOptions | undefined,
-    ) =>
-      rememberPreviewProjectRoot(
-        await saveProjectContent(
-          projectFilePath,
+    ) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        const result = await saveProjectContent(
+          projectRoot,
           expectedWorkspaceRevision,
           contentProject,
           editorState,
           scriptSourcePaths,
           commitOptions,
-        ),
-      ),
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+        const refreshed = await activeProjectSessions.refreshSuccessfulSessionResult(
+          projectSessionId,
+          result,
+        );
+        return rememberPreviewProjectRoot(refreshed);
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
   ipcMain.handle(
     IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
-    (
+    async (
       _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
+      projectSessionId: string,
       expectedWorkspaceRevision: string,
       editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
       expectedFileRevisions: Record<string, `sha256:${string}`> | undefined,
-    ) =>
-      saveProjectEditorMetadata(
-        projectFilePath,
-        expectedWorkspaceRevision,
-        editorState,
-        expectedFileRevisions,
-      ),
+    ) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        const result = await saveProjectEditorMetadata(
+          projectRoot,
+          expectedWorkspaceRevision,
+          editorState,
+          expectedFileRevisions,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+        if (result.success) {
+          await activeProjectSessions.refreshActiveProject(
+            projectSessionId,
+            path.join(projectRoot, 'project.json'),
+          );
+        }
+        return result;
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
   ipcMain.handle(
     IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
     async (
       _event: Electron.IpcMainInvokeEvent,
+      projectSessionId: string,
       project: unknown,
-      defaultPath: string | null,
-      currentProjectFilePath: string | null,
       workingProjectAssetPaths: string[],
       scriptSourcePaths: Record<string, string>,
-    ) =>
-      saveProjectCopyAs(
-        mainWindow,
-        project,
-        defaultPath,
-        currentProjectFilePath,
-        workingProjectAssetPaths,
-        scriptSourcePaths,
-      ),
+    ) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await saveProjectCopyAs(
+          mainWindow,
+          projectRoot,
+          project,
+          workingProjectAssetPaths,
+          scriptSourcePaths,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
   ipcMain.handle(
@@ -964,11 +1011,49 @@ void app.whenReady().then(async () => {
 
   ipcMain.handle(
     IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER,
-    (_event: Electron.IpcMainInvokeEvent, projectRoot: string) =>
-      startProjectWorkspaceWatcher(mainWindow, projectRoot),
+    (_event: Electron.IpcMainInvokeEvent, projectSessionId: string) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return startProjectWorkspaceWatcher(
+          mainWindow,
+          projectSessionId,
+          projectRoot,
+          (sessionId) => activeProjectSessions.isCurrent(sessionId),
+          async (sessionId, projectFilePath) => {
+            await activeProjectSessions.refreshActiveProject(sessionId, projectFilePath);
+          },
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Project session is stale or unknown.';
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [{ severity: 'error' as const, path: '/project.json', message }],
+          error: message,
+        };
+      }
+    },
   );
 
-  ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER, () => stopProjectWorkspaceWatcher());
+  ipcMain.handle(
+    IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER,
+    (_event: Electron.IpcMainInvokeEvent, projectSessionId: string) => {
+      try {
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return stopProjectWorkspaceWatcher(projectSessionId);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Project session is stale or unknown.';
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [{ severity: 'error' as const, path: '/project.json', message }],
+          error: message,
+        };
+      }
+    },
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,

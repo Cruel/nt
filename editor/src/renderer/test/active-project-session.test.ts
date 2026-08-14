@@ -102,6 +102,26 @@ describe('active Project session lifecycle', () => {
     expect(service.currentSessionId()).toBe(sessionA);
   });
 
+  it('refreshes only the active Project root and preserves authority on rejected refreshes', async () => {
+    const projectA = await createWorkspace('refresh-a');
+    const projectB = await createWorkspace('refresh-b');
+    const service = new ActiveProjectSessionService();
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+
+    expect(service.requireActiveProjectRoot(sessionA)).toBe(await fs.realpath(projectA));
+    expect(await service.refreshActiveProject(sessionA, path.join(projectA, 'project.json'))).toBe(
+      sessionA,
+    );
+    await expect(
+      service.refreshActiveProject('stale-session', path.join(projectB, 'project.json')),
+    ).rejects.toThrow('Project session is stale or unknown.');
+    await expect(
+      service.refreshActiveProject(sessionA, path.join(projectB, 'project.json')),
+    ).rejects.toThrow('Project result does not belong to the active Project session.');
+    expect(service.currentSessionId()).toBe(sessionA);
+    expect(service.requireActiveProjectRoot(sessionA)).toBe(await fs.realpath(projectA));
+  });
+
   it('does not reactivate a Project when close revokes an in-flight lifecycle activation', async () => {
     const project = await createWorkspace('close-in-flight');
     const projectFilePath = path.join(project, 'project.json');

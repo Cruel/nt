@@ -555,6 +555,7 @@ export async function persistAutoCommitPlan(
     !projectState.document ||
     !projectState.savedDocument ||
     !projectState.projectFilePath ||
+    !projectState.projectSessionId ||
     !projectState.workspaceRevision
   ) {
     return {
@@ -590,7 +591,7 @@ export async function persistAutoCommitPlan(
   if (plan.persistenceTarget === 'editor-metadata') {
     const editorState: EditorProjectState = { ...snapshot, recovery: remappedRecovery };
     const response = await window.noveltea.saveProjectEditorMetadata(
-      projectState.projectFilePath,
+      projectState.projectSessionId,
       projectState.workspaceRevision,
       editorState,
       { ...projectState.fileRevisions },
@@ -663,7 +664,7 @@ export async function persistAutoCommitPlan(
     delete scriptSourcePaths[match[1]];
   }
   const response = await window.noveltea.saveProjectContent(
-    projectState.projectFilePath,
+    projectState.projectSessionId,
     projectState.workspaceRevision,
     candidateContent,
     editorState,
