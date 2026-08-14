@@ -1039,6 +1039,7 @@ jobs:
         shell: pwsh
         env:
           NOVELTEA_EDITOR_DEV_DISABLE_GPU: ${{ runner.os == 'Linux' && '1' || '0' }}
+          NOVELTEA_EDITOR_DEV_NO_SANDBOX: ${{ runner.os == 'Linux' && '1' || '0' }}
         run: |
           if ("${{ runner.os }}" -eq "Linux") {
             xvfb-run -a pnpm -C editor exec node scripts/dev-editor.mjs --smoke-timeout 5000

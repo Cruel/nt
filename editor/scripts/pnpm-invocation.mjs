@@ -15,8 +15,14 @@ export function resolvePnpmInvocation(
       args: [pnpmEntrypoint, ...args],
     };
   }
+  if (platform === 'win32') {
+    return {
+      command: environment.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', 'pnpm.cmd', ...args],
+    };
+  }
   return {
-    command: platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+    command: 'pnpm',
     args,
   };
 }
