@@ -180,7 +180,10 @@ export async function buildShaderMaterialProject(
 export async function buildShaderDefinition(
   project: AuthoringProject,
   shaderId: string,
-): Promise<{ value: RuntimeShaderDefinition | null; diagnostics: ShaderMaterialProjectDiagnostic[] }> {
+): Promise<{
+  value: RuntimeShaderDefinition | null;
+  diagnostics: ShaderMaterialProjectDiagnostic[];
+}> {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const record = project.shaders[shaderId];
   const data = parseShaderData(record?.data);
@@ -234,7 +237,10 @@ async function shaderStageToRuntime(
   shaderId: string,
   stage: ShaderStageData,
   index: number,
-): Promise<{ value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] }> {
+): Promise<{
+  value: Record<string, unknown> | null;
+  diagnostics: ShaderMaterialProjectDiagnostic[];
+}> {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const base = `/shaders/${shaderId}/data/stages/${index}`;
   const value: Record<string, unknown> = {};
@@ -258,23 +264,23 @@ async function shaderStageToRuntime(
   }
   const compiledEntries: [string, unknown][] = [];
   for (const [variant, output] of Object.entries(stage.compiled ?? {})) {
-      const fresh = await shaderCompiledOutputIsFresh(project, shaderId, index, variant, output);
-      if (!fresh)
-        diagnostics.push(
-          diagnostic(
-            `${base}/compiled/${variant}`,
-            `Compiled Shader output for '${variant}' is stale. Recompile the Shader.`,
-          ),
-        );
-      if (fresh)
-        compiledEntries.push([
-          variant,
-          {
-            runtimePath: output.path,
-            byteHash: output.byteHash,
-            byteSize: output.byteSize,
-          },
-        ]);
+    const fresh = await shaderCompiledOutputIsFresh(project, shaderId, index, variant, output);
+    if (!fresh)
+      diagnostics.push(
+        diagnostic(
+          `${base}/compiled/${variant}`,
+          `Compiled Shader output for '${variant}' is stale. Recompile the Shader.`,
+        ),
+      );
+    if (fresh)
+      compiledEntries.push([
+        variant,
+        {
+          runtimePath: output.path,
+          byteHash: output.byteHash,
+          byteSize: output.byteSize,
+        },
+      ]);
   }
   const compiled = Object.fromEntries(compiledEntries);
   if (Object.keys(compiled).length > 0) value.compiled = compiled;

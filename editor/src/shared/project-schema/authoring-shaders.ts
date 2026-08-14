@@ -303,7 +303,12 @@ export async function captureShaderCompileInputFingerprints(
     if (!shader) continue;
     for (const [stageIndex, stage] of shader.stages.entries()) {
       for (const variant of variants) {
-        const fingerprint = await shaderCompileInputFingerprint(project, shaderId, stageIndex, variant);
+        const fingerprint = await shaderCompileInputFingerprint(
+          project,
+          shaderId,
+          stageIndex,
+          variant,
+        );
         if (fingerprint) fingerprints[`${shaderId}:${stage.stage}:${variant}`] = fingerprint;
       }
     }

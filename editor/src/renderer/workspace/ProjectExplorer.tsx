@@ -1394,9 +1394,9 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       showTagFilter,
     ],
   );
-  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<
-    Awaited<ReturnType<typeof createProjectWorkspaceSnapshot>> | null
-  >(null);
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<Awaited<
+    ReturnType<typeof createProjectWorkspaceSnapshot>
+  > | null>(null);
   useEffect(() => {
     let active = true;
     if (!project) {

@@ -1051,7 +1051,10 @@ export async function analyzeAuthoringSources(
   persistentCache?: AuthoringSourceAnalysisCache,
   sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
 ): Promise<
-  ReadonlyMap<string, readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]>
+  ReadonlyMap<
+    string,
+    readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
+  >
 > {
   let bytes = 0;
   let occurrences = 0;

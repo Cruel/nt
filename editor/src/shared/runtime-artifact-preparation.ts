@@ -677,7 +677,11 @@ export async function prepareRuntimeArtifact(
         shaderVariants: options.profile.shaderVariants,
       });
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
-      const verified = await validateShaderOutputs(options.project, response.outputs ?? [], captured);
+      const verified = await validateShaderOutputs(
+        options.project,
+        response.outputs ?? [],
+        captured,
+      );
       shaderOutputs = verified.outputs;
       shaderDiagnostics = collectProjectValidationDiagnostics(
         shaderExecutionDiagnostics(response.diagnostics ?? []),

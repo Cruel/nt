@@ -126,32 +126,32 @@ async function shaderManifestEntries(
   if (!shader) throw new Error(`Focused preview Shader '${shaderId}' is missing or invalid.`);
   const entries: PreviewResourceManifestEntry[] = [];
   for (const [stageIndex, stage] of shader.stages.entries()) {
-      const output = stage.compiled[variant];
-      if (!output || !hasCompleteShaderCompiledOutputMetadata(output))
-        throw new Error(
-          `Shader '${shaderId}' ${stage.stage} output for '${variant}' is missing complete compile metadata. Recompile the Shader.`,
-        );
-      if (!(await shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output)))
-        throw new Error(
-          `Shader '${shaderId}' ${stage.stage} output for '${variant}' is stale. Recompile the Shader.`,
-        );
-      const logicalPath = runtimeShaderPath(output.path);
-      const fetchProjectRelativePath = compiledShaderFetchProjectRelativePath(logicalPath);
-      if (!fetchProjectRelativePath)
-        throw new Error(`Compiled Shader output path '${output.path}' cannot be staged.`);
-      entries.push({
-        resourceId: `shader:${shaderId}:${stage.stage}:${variant}`,
-        sourceKind: 'shader-compiled-output',
-        shaderId,
-        shaderStage: stage.stage as ShaderStage,
-        shaderVariant: variant,
-        usageRoles: [usageRole],
-        fetchProjectRelativePath,
-        logicalPath,
-        contentHash: output.byteHash as `sha256:${string}`,
-        byteSize: output.byteSize,
-        kind: 'shader-binary',
-      });
+    const output = stage.compiled[variant];
+    if (!output || !hasCompleteShaderCompiledOutputMetadata(output))
+      throw new Error(
+        `Shader '${shaderId}' ${stage.stage} output for '${variant}' is missing complete compile metadata. Recompile the Shader.`,
+      );
+    if (!(await shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output)))
+      throw new Error(
+        `Shader '${shaderId}' ${stage.stage} output for '${variant}' is stale. Recompile the Shader.`,
+      );
+    const logicalPath = runtimeShaderPath(output.path);
+    const fetchProjectRelativePath = compiledShaderFetchProjectRelativePath(logicalPath);
+    if (!fetchProjectRelativePath)
+      throw new Error(`Compiled Shader output path '${output.path}' cannot be staged.`);
+    entries.push({
+      resourceId: `shader:${shaderId}:${stage.stage}:${variant}`,
+      sourceKind: 'shader-compiled-output',
+      shaderId,
+      shaderStage: stage.stage as ShaderStage,
+      shaderVariant: variant,
+      usageRoles: [usageRole],
+      fetchProjectRelativePath,
+      logicalPath,
+      contentHash: output.byteHash as `sha256:${string}`,
+      byteSize: output.byteSize,
+      kind: 'shader-binary',
+    });
   }
   return entries.sort((left, right) => left.resourceId.localeCompare(right.resourceId));
 }

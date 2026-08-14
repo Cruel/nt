@@ -467,7 +467,8 @@ describe('typed source registry and graph evidence', () => {
       contentHash: hash('2'),
     });
     expect(
-      (await bindAuthoringSourceOwner(renamedDescriptor, [changedArtifact])).ownerProjectionFingerprint,
+      (await bindAuthoringSourceOwner(renamedDescriptor, [changedArtifact]))
+        .ownerProjectionFingerprint,
     ).not.toBe(renamed.ownerProjectionFingerprint);
   });
 
@@ -489,7 +490,10 @@ describe('typed source registry and graph evidence', () => {
       ]),
     };
     const disabled = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
-    const enabled = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
+    const enabled = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: snapshot,
+    });
     expect(
       [...disabled.edgesById.values()].some((edge) => edge.role === 'lua-possible-reference'),
     ).toBe(false);
@@ -644,7 +648,10 @@ describe('typed source registry and graph evidence', () => {
         ],
       ]),
     };
-    const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: snapshot,
+    });
     expect(
       [...graph.edgesById.values()].some(
         (edge) =>
@@ -723,7 +730,9 @@ describe('typed source registry and graph evidence', () => {
     const keys = enumerateAuthoringDependencyContributionKeys(project);
     expect(keys).toEqual([...keys].sort());
     const left = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
-    const right = await buildAuthoringDependencyGraph(structuredClone(project), { mode: 'disabled' });
+    const right = await buildAuthoringDependencyGraph(structuredClone(project), {
+      mode: 'disabled',
+    });
     expect([...left.edgesById.keys()]).toEqual([...right.edgesById.keys()]);
   });
 
@@ -835,7 +844,10 @@ describe('typed source registry and graph evidence', () => {
         .sort((left, right) => left.localeCompare(right)),
     ).toEqual(['base-template', 'hud-script', 'nested-template']);
     expect(analyses.flatMap((item) => item.diagnostics)).toEqual([]);
-    const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: snapshot,
+    });
     expect(
       [...graph.edgesById.values()].some(
         (edge) =>
@@ -874,40 +886,42 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       extends: null,
     } as never;
-    const analyses = (await analyzeAuthoringSources(
-      project,
-      {
-        entriesByAssetId: new Map([
-          [
-            'script-file',
-            {
-              status: 'ready',
-              assetId: 'script-file',
-              projectRelativePath: 'scripts/main.lua',
-              contentHash: hash('1'),
-              text: `'shared'`,
-              hadUtf8Bom: false,
-            },
-          ],
-          [
-            'panel',
-            {
-              status: 'ready',
-              assetId: 'panel',
-              projectRelativePath: 'panel.rml',
-              contentHash: hash('8'),
-              text: `<template name="panel"><script>local x = 'shared'</script></template>`,
-              hadUtf8Bom: false,
-            },
-          ],
-        ]),
-      },
-      {
-        ...LUA_REFERENCE_ANALYSIS_LIMITS,
-        maxTemplatesPerLayout: 0,
-      },
-      new Set([`record:${JSON.stringify(['record', 'layouts', 'hud'])}`]),
-    )).get(`record:${JSON.stringify(['record', 'layouts', 'hud'])}`)!;
+    const analyses = (
+      await analyzeAuthoringSources(
+        project,
+        {
+          entriesByAssetId: new Map([
+            [
+              'script-file',
+              {
+                status: 'ready',
+                assetId: 'script-file',
+                projectRelativePath: 'scripts/main.lua',
+                contentHash: hash('1'),
+                text: `'shared'`,
+                hadUtf8Bom: false,
+              },
+            ],
+            [
+              'panel',
+              {
+                status: 'ready',
+                assetId: 'panel',
+                projectRelativePath: 'panel.rml',
+                contentHash: hash('8'),
+                text: `<template name="panel"><script>local x = 'shared'</script></template>`,
+                hadUtf8Bom: false,
+              },
+            ],
+          ]),
+        },
+        {
+          ...LUA_REFERENCE_ANALYSIS_LIMITS,
+          maxTemplatesPerLayout: 0,
+        },
+        new Set([`record:${JSON.stringify(['record', 'layouts', 'hud'])}`]),
+      )
+    ).get(`record:${JSON.stringify(['record', 'layouts', 'hud'])}`)!;
     const diagnosticCodes = analyses
       .flatMap((analysis) => analysis.diagnostics)
       .map((diagnostic) => diagnostic.code)
@@ -1174,9 +1188,9 @@ describe('typed source registry and graph evidence', () => {
       ]),
     };
     const key = `record:${JSON.stringify(['record', 'scripts', 'main'])}`;
-    const analyses = (await analyzeAuthoringSources(project, snapshot, undefined, new Set([key]))).get(
-      key,
-    )!;
+    const analyses = (
+      await analyzeAuthoringSources(project, snapshot, undefined, new Set([key]))
+    ).get(key)!;
     const occurrence = analyses.flatMap((analysis) => analysis.literalOccurrences)[0]!;
     expect(projectAuthoringLiteralEvidence(project, occurrence)).toBeNull();
     const before = reprojectAuthoringDependencyContributionFromCachedSources(
@@ -1200,10 +1214,12 @@ describe('typed source registry and graph evidence', () => {
       key,
       analyses,
     );
-    const full = (await buildAuthoringDependencyGraphContributionSet(project, {
-      mode: 'enabled',
-      sources: snapshot,
-    })).byKey.get(key);
+    const full = (
+      await buildAuthoringDependencyGraphContributionSet(project, {
+        mode: 'enabled',
+        sources: snapshot,
+      })
+    ).byKey.get(key);
     expect(selected).toEqual(full);
     expect(selected?.edges.some((edge) => edge.role === 'lua-possible-reference')).toBe(true);
     delete project.rooms.later;
@@ -1467,14 +1483,16 @@ describe('typed source registry and graph evidence', () => {
       extends: null,
     } as never;
     const ownerKey = `record:${JSON.stringify(['record', 'scripts', 'main'])}`;
-    const ownerLimited = (await analyzeAuthoringSources(
-      ownerProject,
-      { entriesByAssetId: new Map() },
-      {
-        ...LUA_REFERENCE_ANALYSIS_LIMITS,
-        maxLiteralOccurrencesPerSemanticOwner: 1,
-      },
-    )).get(ownerKey)!;
+    const ownerLimited = (
+      await analyzeAuthoringSources(
+        ownerProject,
+        { entriesByAssetId: new Map() },
+        {
+          ...LUA_REFERENCE_ANALYSIS_LIMITS,
+          maxLiteralOccurrencesPerSemanticOwner: 1,
+        },
+      )
+    ).get(ownerKey)!;
     expect(ownerLimited.flatMap((analysis) => analysis.literalOccurrences)).toEqual([]);
     expect(
       ownerLimited
@@ -1632,7 +1650,10 @@ describe('typed source registry and graph evidence', () => {
       ]),
     };
     const started = performance.now();
-    const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources: snapshot });
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: snapshot,
+    });
     const elapsedMs = performance.now() - started;
     console.info(
       `AUTHORING_ENABLED_GRAPH_BENCHMARK rooms=300 nodes=${graph.nodesByKey.size} edges=${graph.edgesById.size} elapsedMs=${elapsedMs.toFixed(2)}`,

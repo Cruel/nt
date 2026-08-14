@@ -389,7 +389,9 @@ export function assetSourcePaths(project: AuthoringProject): string[] {
   return [...paths].sort(compareProjectWorkspaceUnicodeCodePoints);
 }
 
-async function aggregateRevision(revisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>) {
+async function aggregateRevision(
+  revisions: Readonly<Record<string, ProjectWorkspaceFileRevision>>,
+) {
   // Keep the revision projection explicit and iterative so ordering and captured values are easy
   // to audit across CLI hosts.
   const pairs: [string, string][] = [];

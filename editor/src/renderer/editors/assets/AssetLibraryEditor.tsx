@@ -169,9 +169,9 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
         (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
       );
   }, [project]);
-  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<
-    Awaited<ReturnType<typeof createProjectWorkspaceSnapshot>> | null
-  >(null);
+  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<Awaited<
+    ReturnType<typeof createProjectWorkspaceSnapshot>
+  > | null>(null);
   useEffect(() => {
     let active = true;
     if (!project) {
