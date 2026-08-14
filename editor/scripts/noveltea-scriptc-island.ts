@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createNovelTeaAgentKitPayload } from '../src/cli/agent-kit';
 import { runNovelTeaCli } from '../src/cli/application';
 import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
@@ -11,6 +11,11 @@ import {
   ProjectWorkspaceService,
   ProjectWorkspaceTransactionService,
 } from '../src/shared/project-workspace';
+import { configureSha256BytesImplementation } from '../src/shared/web-crypto';
+
+configureSha256BytesImplementation(async (bytes) =>
+  createHash('sha256').update(bytes).digest('hex'),
+);
 
 export type ScriptcHostInvoke = (operation: string, requestText: string) => string;
 
