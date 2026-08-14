@@ -513,14 +513,14 @@ function assetTransitionFor(
 
 async function trashStagedAssetsAfterFailure(
   commandId: string,
-  projectFilePath: string,
+  projectSessionId: string,
   plan: AutoCommitPlan,
 ): Promise<ToolDiagnostic[]> {
   const paths = plan.filesystemOperations.flatMap((operation) =>
     operation.kind === 'staged-project-assets' ? operation.projectRelativePaths : [],
   );
   if (paths.length === 0) return [];
-  const result = await window.noveltea.trashProjectAssetFiles(projectFilePath, paths);
+  const result = await window.noveltea.trashProjectAssetFiles(projectSessionId, paths);
   if (result.moved?.length) filesystemStateByCommandId.set(commandId, result.moved);
   if (result.ok && result.moved?.length === paths.length) return [];
   return fileOperationFailure(
@@ -681,7 +681,7 @@ export async function persistAutoCommitPlan(
   if (!response.success) {
     const cleanupDiagnostics =
       direction === 'forward'
-        ? await trashStagedAssetsAfterFailure(commandId, projectState.projectFilePath, plan)
+        ? await trashStagedAssetsAfterFailure(commandId, projectState.projectSessionId, plan)
         : [];
     return {
       status: 'failed',

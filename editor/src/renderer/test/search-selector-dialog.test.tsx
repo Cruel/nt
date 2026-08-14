@@ -104,6 +104,7 @@ describe('SearchSelectorDialog', () => {
       document: { project: { schema: 'noveltea.authoring.project', version: 2 } },
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     const imageItems: SelectorItem[] = [
       {
@@ -117,6 +118,7 @@ describe('SearchSelectorDialog', () => {
           kind: 'image',
           label: 'Logo',
           source: {
+            assetId: 'logo',
             projectRelativePath: 'assets/images/logo.png',
             contentHash: `sha256:${'b'.repeat(64)}`,
             width: 1920,
@@ -142,7 +144,8 @@ describe('SearchSelectorDialog', () => {
     await waitFor(() => expect(window.noveltea.requestImageThumbnail).toHaveBeenCalled());
     expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
       source: {
-        projectFilePath: '/mock/project/project.json',
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        assetId: 'logo',
         projectRelativePath: 'assets/images/logo.png',
         contentHash: `sha256:${'b'.repeat(64)}`,
         width: 1920,

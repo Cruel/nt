@@ -20,7 +20,10 @@ import {
   parseImageThumbnailRequest,
   resolveImageThumbnailProfile,
 } from '../../shared/image-thumbnails';
-import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
+import {
+  isSafeProjectAssetPath,
+  type AssetData,
+} from '../../shared/project-schema/authoring-assets';
 import { createImageThumbnailUrl } from '../image-thumbnail-protocol';
 import { EditorCacheService } from './editor-cache-service';
 import {
@@ -47,6 +50,10 @@ export type ImageThumbnailServiceInstrumentation = {
 export type ImageThumbnailServiceOptions = {
   generationTimeoutMs?: number;
   instrumentation?: ImageThumbnailServiceInstrumentation;
+  resolveProjectAsset?: (source: ImageThumbnailRequest['source']) => {
+    root: string;
+    data: AssetData;
+  };
 };
 
 type PreparedHashlessRequest =
@@ -72,6 +79,26 @@ function failure(
     retryable: ['cache_cleared', 'generation_timeout', 'cache_write_failed'].includes(errorCode),
     cacheEpoch,
   };
+}
+
+function sourceAuthorizationFailure(
+  cacheEpoch: number,
+  error: unknown,
+): ImageThumbnailResult | null {
+  const code = error instanceof Error ? error.message : '';
+  if (code === 'stale_project_session') {
+    return failure(cacheEpoch, 'stale_project_session', 'Project session is stale or unknown.');
+  }
+  if (code === 'unauthorized_asset') {
+    return failure(cacheEpoch, 'unauthorized_asset', 'Thumbnail source is not the admitted Asset.');
+  }
+  if (code === 'unsafe_source_path') {
+    return failure(cacheEpoch, 'unsafe_source_path', 'Unsafe thumbnail source path.');
+  }
+  if (errnoCode(error) === 'ENOENT' || errnoCode(error) === 'ENOTDIR') {
+    return failure(cacheEpoch, 'source_missing', 'Thumbnail source is missing.');
+  }
+  return null;
 }
 
 function validateSvg(bytes: Buffer): void {
@@ -136,6 +163,10 @@ export class ImageThumbnailService {
   readonly #prewarmSignatures = new Set<string>();
   readonly #generationTimeoutMs: number;
   readonly #instrumentation?: ImageThumbnailServiceInstrumentation;
+  readonly #resolveProjectAsset?: (source: ImageThumbnailRequest['source']) => {
+    root: string;
+    data: AssetData;
+  };
   #prewarmAdmissionTail: Promise<void> = Promise.resolve();
   #activeProjectGeneration: string | null = null;
   #active = 0;
@@ -146,6 +177,7 @@ export class ImageThumbnailService {
     this.imageCacheRoot = resolveImageThumbnailCacheRoot(editorCacheRoot);
     this.#generationTimeoutMs = options.generationTimeoutMs ?? GENERATION_TIMEOUT_MS;
     this.#instrumentation = options.instrumentation;
+    this.#resolveProjectAsset = options.resolveProjectAsset;
   }
 
   async removeObsoleteCacheVersions(): Promise<void> {
@@ -175,7 +207,8 @@ export class ImageThumbnailService {
     }
     if (!request.source.contentHash) {
       const provisional = JSON.stringify([
-        request.source.projectFilePath,
+        request.source.projectSessionId,
+        request.source.assetId,
         request.source.projectRelativePath,
         request.source.width,
         request.source.height,
@@ -251,7 +284,8 @@ export class ImageThumbnailService {
           continue;
         }
         const signature = JSON.stringify([
-          source.projectFilePath,
+          source.projectSessionId,
+          source.assetId,
           source.projectRelativePath,
           source.contentHash,
           source.width,
@@ -461,10 +495,40 @@ export class ImageThumbnailService {
     return canceled;
   }
 
+  #authorizeSource(request: ImageThumbnailRequest): { root: string; data: AssetData } {
+    let authorization: { root: string; data: AssetData };
+    try {
+      const resolved = this.#resolveProjectAsset?.(request.source);
+      if (!resolved) throw new Error('stale_project_session');
+      authorization = resolved;
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes('stale or unknown')) throw new Error('stale_project_session');
+        if (error.message.includes('not admitted')) throw new Error('unauthorized_asset');
+      }
+      throw error;
+    }
+    const { data } = authorization;
+    if (
+      data.kind !== 'image' ||
+      !data.imageMetadata ||
+      data.source.path !== request.source.projectRelativePath ||
+      data.imageMetadata.width !== request.source.width ||
+      data.imageMetadata.height !== request.source.height ||
+      data.imageMetadata.orientation !== request.source.orientation ||
+      (data.sampling ?? 'linear') !== (request.source.sampling ?? 'linear') ||
+      (request.source.contentHash !== undefined && data.contentHash !== request.source.contentHash)
+    ) {
+      throw new Error('unauthorized_asset');
+    }
+    return authorization;
+  }
+
   async #resolveSource(request: ImageThumbnailRequest): Promise<string> {
     if (!isSafeProjectAssetPath(request.source.projectRelativePath))
       throw new Error('unsafe_source_path');
-    const projectRoot = path.dirname(path.resolve(request.source.projectFilePath));
+    const authorization = this.#authorizeSource(request);
+    const projectRoot = authorization.root;
     const sourcePath = path.resolve(projectRoot, request.source.projectRelativePath);
     if (!isStrictlyContainedPath(projectRoot, sourcePath)) throw new Error('unsafe_source_path');
     const [rootRealPath, sourceRealPath, stat] = await Promise.all([
@@ -475,6 +539,8 @@ export class ImageThumbnailService {
     if (!stat.isFile() || !isStrictlyContainedPath(rootRealPath, sourceRealPath)) {
       throw new Error('unsafe_source_path');
     }
+    const currentAuthorization = this.#authorizeSource(request);
+    if (currentAuthorization.root !== projectRoot) throw new Error('stale_project_session');
     return sourceRealPath;
   }
 
@@ -485,13 +551,10 @@ export class ImageThumbnailService {
       await this.#resolveSource(request);
       return null;
     } catch (error) {
-      if (error instanceof Error && error.message === 'unsafe_source_path') {
-        return failure(this.cache.epoch, 'unsafe_source_path', 'Unsafe thumbnail source path.');
-      }
-      if (errnoCode(error) === 'ENOENT' || errnoCode(error) === 'ENOTDIR') {
-        return failure(this.cache.epoch, 'source_missing', 'Thumbnail source is missing.');
-      }
-      return failure(this.cache.epoch, 'source_missing', 'Thumbnail source is unavailable.');
+      return (
+        sourceAuthorizationFailure(this.cache.epoch, error) ??
+        failure(this.cache.epoch, 'source_missing', 'Thumbnail source is unavailable.')
+      );
     }
   }
 
@@ -516,18 +579,8 @@ export class ImageThumbnailService {
         },
       };
     } catch (error) {
-      if (error instanceof Error && error.message === 'unsafe_source_path') {
-        return {
-          ok: false,
-          result: failure(epoch, 'unsafe_source_path', 'Unsafe thumbnail source path.'),
-        };
-      }
-      if (errnoCode(error) === 'ENOENT' || errnoCode(error) === 'ENOTDIR') {
-        return {
-          ok: false,
-          result: failure(epoch, 'source_missing', 'Thumbnail source is missing.'),
-        };
-      }
+      const authorityFailure = sourceAuthorizationFailure(epoch, error);
+      if (authorityFailure) return { ok: false, result: authorityFailure };
       return {
         ok: false,
         result: failure(epoch, 'decode_failed', 'Image source could not be read.'),
@@ -541,6 +594,10 @@ export class ImageThumbnailService {
   ): Promise<ImageThumbnailResult | null> {
     try {
       await this.#resolveSource(request);
+    } catch (error) {
+      return sourceAuthorizationFailure(this.cache.epoch, error);
+    }
+    try {
       const target = resolveImageThumbnailCachePath(this.imageCacheRoot, key);
       const [rootRealPath, targetRealPath, stat, targetEntry] = await Promise.all([
         fs.realpath(this.imageCacheRoot),
@@ -580,17 +637,7 @@ export class ImageThumbnailService {
         sourceLimited: profile.sourceLimited,
         cacheEpoch: this.cache.epoch,
       };
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        ['unsafe_source_path', 'source_missing'].includes(error.message)
-      ) {
-        return failure(
-          this.cache.epoch,
-          error.message as ImageThumbnailErrorCode,
-          'Thumbnail source is unavailable.',
-        );
-      }
+    } catch {
       return null;
     }
   }
@@ -792,8 +839,8 @@ export class ImageThumbnailService {
       const code = error instanceof Error ? error.message : '';
       if (code === 'svg_external_resource')
         return failure(epoch, 'svg_external_resource', 'SVG contains an external resource.');
-      if (code === 'unsafe_source_path')
-        return failure(epoch, 'unsafe_source_path', 'Unsafe thumbnail source path.');
+      const authorityFailure = sourceAuthorizationFailure(epoch, error);
+      if (authorityFailure) return authorityFailure;
       if (
         code === 'cache_write_failed' ||
         stage === 'cache' ||

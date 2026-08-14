@@ -20,7 +20,8 @@ import {
 
 const hash = `sha256:${'a'.repeat(64)}`;
 const source = {
-  projectFilePath: '/projects/a/project.json',
+  projectSessionId: '11111111-1111-4111-8111-111111111111',
+  assetId: 'hero',
   projectRelativePath: 'assets/images/hero.png',
   contentHash: hash,
   width: 1600,

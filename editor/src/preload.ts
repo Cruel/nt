@@ -128,28 +128,28 @@ const api: NovelTeaElectronApi = {
       workingProjectAssetPaths,
       scriptSourcePaths,
     ),
-  importAssets: (projectFilePath: string, options = {}) =>
-    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_ASSETS, projectFilePath, options),
-  reimportAsset: (projectFilePath: string, projectRelativePath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.REIMPORT_ASSET, projectFilePath, projectRelativePath),
-  auditProjectAssets: (projectFilePath: string, project: unknown) =>
-    ipcRenderer.invoke(IPC_CHANNELS.AUDIT_PROJECT_ASSETS, projectFilePath, project),
-  importUntrackedProjectAssets: (projectFilePath: string, projectRelativePaths: string[]) =>
+  importAssets: (projectSessionId: string, options = {}) =>
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_ASSETS, projectSessionId, options),
+  reimportAsset: (projectSessionId: string, projectRelativePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.REIMPORT_ASSET, projectSessionId, projectRelativePath),
+  auditProjectAssets: (projectSessionId: string, project: unknown) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUDIT_PROJECT_ASSETS, projectSessionId, project),
+  importUntrackedProjectAssets: (projectSessionId: string, projectRelativePaths: string[]) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS,
-      projectFilePath,
+      projectSessionId,
       projectRelativePaths,
     ),
-  trashProjectAssetFiles: (projectFilePath: string, projectRelativePaths: string[]) =>
+  trashProjectAssetFiles: (projectSessionId: string, projectRelativePaths: string[]) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,
-      projectFilePath,
+      projectSessionId,
       projectRelativePaths,
     ),
-  restoreProjectAssetFiles: (projectFilePath: string, moves) =>
-    ipcRenderer.invoke(IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES, projectFilePath, moves),
-  purgeProjectTrash: (projectFilePath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PURGE_PROJECT_TRASH, projectFilePath),
+  restoreProjectAssetFiles: (projectSessionId: string, moves) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES, projectSessionId, moves),
+  purgeProjectTrash: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PURGE_PROJECT_TRASH, projectSessionId),
   startProjectWorkspaceWatcher: (projectSessionId: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER, projectSessionId),
   stopProjectWorkspaceWatcher: (projectSessionId: string) =>

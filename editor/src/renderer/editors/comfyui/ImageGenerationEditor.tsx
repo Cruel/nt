@@ -135,6 +135,7 @@ function optionalText(value: string) {
 export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const comfyUiConfig = useComfyUiStore((state) => state.config);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
@@ -641,8 +642,8 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   }
 
   async function removeRevision(revision: GeneratedImageRevision) {
-    if (!revision.assetAddedAt && projectFilePath) {
-      const result = await window.noveltea.trashProjectAssetFiles(projectFilePath, [
+    if (!revision.assetAddedAt && projectSessionId) {
+      const result = await window.noveltea.trashProjectAssetFiles(projectSessionId, [
         revision.projectRelativePath,
       ]);
       if (!result.success) {

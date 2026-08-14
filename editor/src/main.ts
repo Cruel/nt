@@ -84,7 +84,6 @@ import {
 import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
 import { downloadPlayerTemplateForRelease } from './main/services/template-download-service';
 import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
-import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type {
   ComfyUiEditImageRequest,
@@ -118,14 +117,23 @@ import {
   resolveSystemCachePath,
 } from './main/services/image-thumbnail-cache-paths';
 import {
+  auditProjectAssetsArgumentsSchema,
+  cancelImageThumbnailPrewarmArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
   createProjectArgumentsSchema,
+  imageThumbnailArgumentsSchema,
+  imageThumbnailPrewarmArgumentsSchema,
+  importAssetsArgumentsSchema,
   installEditorNavigationPolicy,
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  projectAssetPathsArgumentsSchema,
+  projectSessionArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
+  reimportAssetArgumentsSchema,
+  restoreProjectAssetFilesArgumentsSchema,
   selectDirectoryArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
@@ -189,10 +197,20 @@ const enginePreviewServer = new EnginePreviewServer();
 const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
+const activeProjectSessions = new ActiveProjectSessionService();
 const imageThumbnailService = new ImageThumbnailService(
   packageSmokeCacheRoot
     ? path.resolve(packageSmokeCacheRoot)
     : resolveEditorCacheRoot(resolveSystemCachePath(app.getPath('home'))),
+  {
+    resolveProjectAsset: (source) => {
+      const { root, asset } = activeProjectSessions.requireActiveAsset(
+        source.projectSessionId,
+        source.assetId,
+      );
+      return { root, data: asset.data };
+    },
+  },
 );
 imageThumbnailService.cache.onEpochChanged((cacheEpoch) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -292,8 +310,6 @@ function rememberPreviewProjectRoot<
   }
   return result;
 }
-
-const activeProjectSessions = new ActiveProjectSessionService();
 
 function getEditorWindowSettingsPath() {
   return path.join(app.getPath('userData'), 'editor-window-settings.json');
@@ -958,55 +974,156 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.IMPORT_ASSETS,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, options: unknown) =>
-      importAssets(mainWindow, projectFilePath, options as AssetImportOptions),
+    (arguments_) => importAssetsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, options) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await importAssets(mainWindow, path.join(projectRoot, 'project.json'), options, () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          assets: [],
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.REIMPORT_ASSET,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
-      reimportAsset(mainWindow, projectFilePath, projectRelativePath),
+    (arguments_) => reimportAssetArgumentsSchema.parse(arguments_),
+    async (projectSessionId, projectRelativePath) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await reimportAsset(
+          mainWindow,
+          path.join(projectRoot, 'project.json'),
+          projectRelativePath,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.AUDIT_PROJECT_ASSETS,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, project: unknown) =>
-      auditProjectAssets(projectFilePath, project),
+    (arguments_) => auditProjectAssetsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, project) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await auditProjectAssets(path.join(projectRoot, 'project.json'), project, () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Project session is stale or unknown.';
+        return {
+          ok: false,
+          success: false,
+          untrackedFiles: [],
+          skippedUnstableFiles: [],
+          diagnostics: [{ severity: 'error' as const, path: '/assets', message }],
+          error: message,
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
-      projectRelativePaths: string[],
-    ) => importUntrackedProjectAssets(projectFilePath, projectRelativePaths),
+    (arguments_) => projectAssetPathsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, projectRelativePaths) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await importUntrackedProjectAssets(
+          path.join(projectRoot, 'project.json'),
+          projectRelativePaths,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
-      projectRelativePaths: string[],
-    ) => trashProjectAssetFiles(projectFilePath, projectRelativePaths),
+    (arguments_) => projectAssetPathsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, projectRelativePaths) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await trashProjectAssetFiles(
+          path.join(projectRoot, 'project.json'),
+          projectRelativePaths,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
-      moves: Parameters<typeof restoreProjectAssetFiles>[1],
-    ) => restoreProjectAssetFiles(projectFilePath, moves),
+    (arguments_) => restoreProjectAssetFilesArgumentsSchema.parse(arguments_),
+    async (projectSessionId, moves) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await restoreProjectAssetFiles(path.join(projectRoot, 'project.json'), moves, () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.PURGE_PROJECT_TRASH,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string) =>
-      purgeProjectTrash(projectFilePath),
+    (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
+    async (projectSessionId) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await purgeProjectTrash(path.join(projectRoot, 'project.json'), () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
   ipcMain.handle(
@@ -1019,8 +1136,8 @@ void app.whenReady().then(async () => {
           projectSessionId,
           projectRoot,
           (sessionId) => activeProjectSessions.isCurrent(sessionId),
-          async (sessionId, projectFilePath) => {
-            await activeProjectSessions.refreshActiveProject(sessionId, projectFilePath);
+          async (sessionId, projectFilePath, project) => {
+            await activeProjectSessions.refreshActiveProject(sessionId, projectFilePath, project);
           },
         );
       } catch (error) {
@@ -1061,16 +1178,22 @@ void app.whenReady().then(async () => {
       resolveProjectAssetUrl(projectFilePath, projectRelativePath),
   );
 
-  ipcMain.handle(IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL, (_event, request: unknown) =>
-    imageThumbnailService.request(request, 'interactive'),
+  guardedIpc.handle(
+    IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL,
+    (arguments_) => imageThumbnailArgumentsSchema.parse(arguments_),
+    (request) => imageThumbnailService.request(request, 'interactive'),
   );
 
-  ipcMain.handle(IPC_CHANNELS.PREWARM_IMAGE_THUMBNAILS, (_event, request: unknown) =>
-    imageThumbnailService.prewarm(request),
+  guardedIpc.handle(
+    IPC_CHANNELS.PREWARM_IMAGE_THUMBNAILS,
+    (arguments_) => imageThumbnailPrewarmArgumentsSchema.parse(arguments_),
+    (request) => imageThumbnailService.prewarm(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.CANCEL_IMAGE_THUMBNAIL_PREWARM, (_event, request: unknown) =>
-    imageThumbnailService.cancelPrewarm(request),
+  guardedIpc.handle(
+    IPC_CHANNELS.CANCEL_IMAGE_THUMBNAIL_PREWARM,
+    (arguments_) => cancelImageThumbnailPrewarmArgumentsSchema.parse(arguments_),
+    (request) => imageThumbnailService.cancelPrewarm(request),
   );
 
   ipcMain.handle(IPC_CHANNELS.CLEAR_EDITOR_CACHE, () => imageThumbnailService.clearEditorCache());

@@ -72,6 +72,7 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
     const imageSource =
       data.kind === 'image' && data.imageMetadata
         ? {
+            assetId,
             projectRelativePath: data.source.path,
             contentHash: data.contentHash,
             width: data.imageMetadata.width,

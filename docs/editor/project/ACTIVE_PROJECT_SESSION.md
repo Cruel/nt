@@ -44,6 +44,22 @@ event is sent; malformed or failed candidates do not mutate authority. The rende
 only when its `projectSessionId` is still current, so a delayed Project A batch cannot reconcile into
 Project B. Closing the active Project force-stops its watcher in main before revoking the session.
 
+## Project-scoped Asset authority
+
+The active session also owns the admitted Asset snapshot from the last successful main-owned Project
+lifecycle result. Asset import, reimport, audit, untracked-file admission, trash, restore, and purge
+requests carry `projectSessionId`; renderer-selected Project roots and manifest paths are not accepted.
+Main derives the Project root from the session and re-checks authority at dialog/filesystem mutation
+boundaries so a close or switch cannot redirect an in-flight Asset operation.
+
+Successful Project content publication and successful external reconciliation refresh the admitted
+Asset identities and source metadata before their results become current. A malformed candidate or
+failed refresh leaves the previous snapshot unchanged. Image-thumbnail requests additionally name an
+Asset id. Main verifies that the id is an admitted image Asset and that its Project-relative source,
+content revision when supplied, intrinsic dimensions, orientation, and sampling agree with the active
+snapshot before source filesystem access. Session authority is re-checked after asynchronous path
+resolution, so Project A thumbnail work cannot continue reading after Project B replaces it.
+
 ## Project-scoped reads
 
 Project text-source requests carry `projectSessionId` and Project-relative source entries. The main
@@ -68,6 +84,6 @@ name as an alias or secondary reader.
 `editor/src/renderer/test/active-project-session.test.ts` uses real temporary Project Workspaces to
 cover canonical activation, same-root refresh, rejected cross-root refresh, root rotation, activation
 failure, close and teardown revocation, Project A-to-B isolation before filesystem access, and the
-retained text-source rules. Persistence and watcher tests additionally cover authority loss before a
-write, Save As revocation after destination selection, session-tagged reconciliation, and watcher
-routing.
+retained text-source rules. Persistence, Asset, thumbnail, and watcher tests additionally cover
+authority loss before mutation/source access, Save As revocation after destination selection,
+session-tagged reconciliation, admitted-Asset matching, and watcher routing.

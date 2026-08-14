@@ -156,7 +156,11 @@ async function flushWatcher(
   owner: BrowserWindow,
   watcher: ActiveWatcher,
   isSessionCurrent: (projectSessionId: string) => boolean,
-  refreshSession: (projectSessionId: string, projectFilePath: string) => Promise<void>,
+  refreshSession: (
+    projectSessionId: string,
+    projectFilePath: string,
+    project?: AuthoringProject,
+  ) => Promise<void>,
 ) {
   if (activeWatcher !== watcher || !isSessionCurrent(watcher.projectSessionId)) return;
   watcher.timer = null;
@@ -174,7 +178,7 @@ async function flushWatcher(
   const candidate = assembled.candidate;
   if (candidate.success) {
     try {
-      await refreshSession(watcher.projectSessionId, manifestPath);
+      await refreshSession(watcher.projectSessionId, manifestPath, assembled.project ?? undefined);
     } catch {
       return;
     }
@@ -201,7 +205,11 @@ function scheduleWatcher(
   watcher: ActiveWatcher,
   filePath: string,
   isSessionCurrent: (projectSessionId: string) => boolean,
-  refreshSession: (projectSessionId: string, projectFilePath: string) => Promise<void>,
+  refreshSession: (
+    projectSessionId: string,
+    projectFilePath: string,
+    project?: AuthoringProject,
+  ) => Promise<void>,
 ) {
   if (activeWatcher !== watcher || !isSessionCurrent(watcher.projectSessionId)) return;
   const relative = projectRelative(watcher.projectRoot, filePath);
@@ -224,7 +232,11 @@ export async function startProjectWorkspaceWatcher(
   projectSessionId: string,
   projectRootValue: string,
   isSessionCurrent: (projectSessionId: string) => boolean,
-  refreshSession: (projectSessionId: string, projectFilePath: string) => Promise<void>,
+  refreshSession: (
+    projectSessionId: string,
+    projectFilePath: string,
+    project?: AuthoringProject,
+  ) => Promise<void>,
 ): Promise<ProjectAssetFileOperationResponse> {
   if (!owner || !projectSessionId || !projectRootValue || !isSessionCurrent(projectSessionId))
     return staleWatcherResponse();

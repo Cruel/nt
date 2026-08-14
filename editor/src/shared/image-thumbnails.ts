@@ -14,7 +14,8 @@ export type ImageThumbnailOrientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type ImageThumbnailSampling = 'linear' | 'nearest';
 
 export interface ImageThumbnailSource {
-  projectFilePath: string;
+  projectSessionId: string;
+  assetId: string;
   projectRelativePath: string;
   contentHash?: string;
   width: number;
@@ -35,6 +36,8 @@ export interface ImageThumbnailRequest {
 
 export type ImageThumbnailErrorCode =
   | 'invalid_request'
+  | 'stale_project_session'
+  | 'unauthorized_asset'
   | 'unsafe_source_path'
   | 'source_missing'
   | 'source_revision_mismatch'
@@ -95,10 +98,12 @@ export type ClearEditorCacheResult =
 
 const canonicalContentHashSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const boundedPathSchema = z.string().min(1).max(32_768);
+const boundedAssetIdSchema = z.string().min(1).max(256);
 
 export const imageThumbnailSourceSchema = z
   .object({
-    projectFilePath: boundedPathSchema,
+    projectSessionId: z.string().uuid(),
+    assetId: boundedAssetIdSchema,
     projectRelativePath: boundedPathSchema,
     contentHash: canonicalContentHashSchema.optional(),
     width: z.number().int().min(1).max(65_535),

@@ -149,6 +149,7 @@ describe('RoomEditor', () => {
       document: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     renderEditor();
 
@@ -157,7 +158,8 @@ describe('RoomEditor', () => {
     await waitFor(() =>
       expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
         source: {
-          projectFilePath: '/mock/project/project.json',
+          projectSessionId: '11111111-1111-4111-8111-111111111111',
+          assetId: 'foyer-background',
           projectRelativePath: 'assets/images/foyer.png',
           width: 1920,
           height: 1080,

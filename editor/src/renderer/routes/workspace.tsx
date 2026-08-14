@@ -326,8 +326,8 @@ export function WorkspacePage() {
   }
 
   useEffect(() => {
-    imageThumbnailPrewarmRef.current?.publish(authoringProjectForEditor(project), projectFilePath);
-  }, [project, projectFilePath]);
+    imageThumbnailPrewarmRef.current?.publish(authoringProjectForEditor(project), projectSessionId);
+  }, [project, projectSessionId]);
 
   useEffect(
     () => () => {
@@ -575,9 +575,10 @@ export function WorkspacePage() {
   const runAssetAudit = useCallback(
     async (projectOverride: unknown = useProjectStore.getState().document) => {
       const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-      if (!latestProjectFilePath || !projectOverride) return;
+      const latestProjectSessionId = useProjectStore.getState().projectSessionId;
+      if (!latestProjectFilePath || !latestProjectSessionId || !projectOverride) return;
       const result = await window.noveltea.auditProjectAssets(
-        latestProjectFilePath,
+        latestProjectSessionId,
         projectOverride,
       );
       if (!result.success) {
@@ -587,6 +588,7 @@ export function WorkspacePage() {
       }
       if (
         latestProjectFilePath !== latestProjectFilePathRef.current ||
+        latestProjectSessionId !== useProjectStore.getState().projectSessionId ||
         !useProjectStore.getState().document
       )
         return;
@@ -607,10 +609,10 @@ export function WorkspacePage() {
   async function closeProject() {
     if (!(await flushProjectEditorMetadata('close-project'))) return;
     if (projectSessionId) await window.noveltea.stopProjectWorkspaceWatcher(projectSessionId);
+    if (projectSessionId) await window.noveltea.purgeProjectTrash(projectSessionId);
     await window.noveltea.closeActiveProject();
     refreshRecentProjectEntry(project, projectPath, projectFilePath);
     await cancelAndClearComfyUiProjectJobs(projectFilePath);
-    if (projectFilePath) await window.noveltea.purgeProjectTrash(projectFilePath);
     if (projectFilePath) clearAssetTrashProject(projectFilePath);
     clearLocalEditorSessionSnapshot();
     setLastProjectPath(null);
@@ -1403,11 +1405,11 @@ export function WorkspacePage() {
 
   useEffect(() => {
     const authoringProject = authoringProjectForEditor(project);
-    if (!projectFilePath || !authoringProject) return;
+    if (!projectFilePath || !projectSessionId || !authoringProject) return;
     for (const [assetId, entry] of Object.entries(deletedAssetTrash)) {
       if (entry.projectFilePath !== projectFilePath || !authoringProject.assets[assetId]) continue;
       void window.noveltea
-        .restoreProjectAssetFiles(projectFilePath, [entry.move])
+        .restoreProjectAssetFiles(projectSessionId, [entry.move])
         .then((result) => {
           if (result.success) forgetDeletedAsset(assetId);
           else
@@ -1416,7 +1418,14 @@ export function WorkspacePage() {
             );
         });
     }
-  }, [deletedAssetTrash, forgetDeletedAsset, project, projectFilePath, setStatusMessage]);
+  }, [
+    deletedAssetTrash,
+    forgetDeletedAsset,
+    project,
+    projectFilePath,
+    projectSessionId,
+    setStatusMessage,
+  ]);
 
   useEffect(() => {
     if (!project) {
@@ -1456,10 +1465,10 @@ export function WorkspacePage() {
   }
 
   async function importUntrackedAssets(projectRelativePaths: string[]) {
-    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-    if (!latestProjectFilePath || projectRelativePaths.length === 0) return;
+    const latestProjectSessionId = useProjectStore.getState().projectSessionId;
+    if (!latestProjectSessionId || projectRelativePaths.length === 0) return;
     const result = await window.noveltea.importUntrackedProjectAssets(
-      latestProjectFilePath,
+      latestProjectSessionId,
       projectRelativePaths,
     );
     if (!result.success || !result.assets?.length) {
@@ -1488,10 +1497,10 @@ export function WorkspacePage() {
   }
 
   async function trashUntrackedAssets(projectRelativePaths: string[]) {
-    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-    if (!latestProjectFilePath || projectRelativePaths.length === 0) return;
+    const latestProjectSessionId = useProjectStore.getState().projectSessionId;
+    if (!latestProjectSessionId || projectRelativePaths.length === 0) return;
     const result = await window.noveltea.trashProjectAssetFiles(
-      latestProjectFilePath,
+      latestProjectSessionId,
       projectRelativePaths,
     );
     if (!result.success) {
@@ -1526,7 +1535,7 @@ export function WorkspacePage() {
 
   async function importAssets() {
     if (!project) return;
-    if (!projectFilePath) {
+    if (!projectFilePath || !projectSessionId) {
       const message = 'Save the project before importing assets.';
       setStatusMessage(message);
       setAlert({ title: 'Asset import unavailable', message });
@@ -1534,7 +1543,7 @@ export function WorkspacePage() {
     }
     setBusy(true);
     try {
-      const result = await window.noveltea.importAssets(projectFilePath, { allowMultiple: true });
+      const result = await window.noveltea.importAssets(projectSessionId, { allowMultiple: true });
       if (!result.success || result.assets.length === 0) {
         const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset import canceled.';
         setStatusMessage(message);
@@ -1555,7 +1564,7 @@ export function WorkspacePage() {
       const failure = command.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
       if (failure) {
         await window.noveltea.trashProjectAssetFiles(
-          projectFilePath,
+          projectSessionId,
           result.assets.map((asset) => asset.projectRelativePath),
         );
         setStatusMessage(failure.message);

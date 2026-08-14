@@ -69,13 +69,15 @@ describe('AssetLibraryEditor', () => {
       document: project(),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     render(<AssetLibraryEditor tab={tab} />);
 
     await waitFor(() =>
       expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
         source: {
-          projectFilePath: '/mock/project/game.json',
+          projectSessionId: '11111111-1111-4111-8111-111111111111',
+          assetId: 'logo',
           projectRelativePath: 'assets/images/logo.png',
           contentHash: `sha256:${'b'.repeat(64)}`,
           width: 256,

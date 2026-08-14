@@ -39,6 +39,7 @@ function lookupAsset(project: unknown, assetId: string | undefined) {
 export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const openTab = useWorkbenchStore((state) => state.openTab);
@@ -161,11 +162,11 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   }
 
   async function reimport() {
-    if (!projectFilePath) {
+    if (!projectFilePath || !projectSessionId) {
       setMessage('Save the project before reimporting assets.');
       return;
     }
-    const result = await window.noveltea.reimportAsset(projectFilePath, assetData.source.path);
+    const result = await window.noveltea.reimportAsset(projectSessionId, assetData.source.path);
     if (!result.success || !result.asset) {
       setMessage(result.error ?? result.diagnostics[0]?.message ?? 'Asset reimport failed.');
       return;

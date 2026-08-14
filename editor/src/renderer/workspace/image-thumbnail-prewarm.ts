@@ -7,17 +7,17 @@ import {
 
 export class ImageThumbnailPrewarmCoordinator {
   #generation: string | null = null;
-  #projectFilePath: string | null = null;
+  #projectSessionId: string | null = null;
   readonly #signatures = new Map<string, string>();
 
-  publish(project: AuthoringProject | null, projectFilePath: string | null): void {
-    if (!project || !projectFilePath) {
+  publish(project: AuthoringProject | null, projectSessionId: string | null): void {
+    if (!project || !projectSessionId) {
       this.cancel();
       return;
     }
-    if (this.#projectFilePath !== projectFilePath) {
+    if (this.#projectSessionId !== projectSessionId) {
       this.cancel();
-      this.#projectFilePath = projectFilePath;
+      this.#projectSessionId = projectSessionId;
       this.#generation = `${Date.now()}:${globalThis.crypto.randomUUID()}`;
     }
 
@@ -43,7 +43,8 @@ export class ImageThumbnailPrewarmCoordinator {
       if (this.#signatures.get(assetId) === signature) continue;
       this.#signatures.set(assetId, signature);
       sources.push({
-        projectFilePath,
+        projectSessionId,
+        assetId,
         projectRelativePath: data.source.path,
         contentHash: data.contentHash,
         width: data.imageMetadata.width,
@@ -80,7 +81,7 @@ export class ImageThumbnailPrewarmCoordinator {
         .catch(() => undefined);
     }
     this.#generation = null;
-    this.#projectFilePath = null;
+    this.#projectSessionId = null;
     this.#signatures.clear();
   }
 }

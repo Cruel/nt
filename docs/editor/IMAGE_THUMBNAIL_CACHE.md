@@ -76,11 +76,17 @@ Interactive work has priority over queued prewarm work.
 
 ## Lifecycle and prewarming
 
-Project open publishes the editor document without waiting for thumbnail work. The renderer submits
-`list`-profile prewarm batches for admitted image revisions, replaces ownership when the active project
-generation changes, and incrementally schedules imported, generated, and explicitly reimported
-revisions. Prewarming generates cache files only; it does not create browser `Image` objects or hold
-decoded thumbnails in renderer memory.
+Project open publishes the editor document without waiting for thumbnail work. Thumbnail and prewarm
+requests carry the active `projectSessionId`, Asset id, Project-relative source identity, and bounded
+presentation metadata. Main resolves the Asset from the session-owned admitted snapshot rather than
+accepting a renderer Project root. It rejects stale sessions, unknown Assets, or source/revision/
+intrinsic-metadata mismatches before source bytes are read, then retains the existing realpath,
+regular-file, and containment checks. Authority is re-checked after asynchronous path admission.
+
+The renderer submits `list`-profile prewarm batches for admitted image revisions, replaces ownership
+when the active Project session changes, and incrementally schedules imported, generated, and
+explicitly reimported revisions. Prewarming generates cache files only; it does not create browser
+`Image` objects or hold decoded thumbnails in renderer memory.
 
 Assets-page cards request `card` derivatives only after the shared visibility service admits them.
 Command Palette and ordinary selector surfaces request `list`; the larger Room image selector and
@@ -95,8 +101,9 @@ Explicit reimport owns content-hash publication and therefore thumbnail invalida
 
 The request contract reports stable error codes:
 
-`invalid_request`, `unsafe_source_path`, `source_missing`, `source_revision_mismatch`,
-`source_metadata_invalid`, `unsupported_image`, `svg_external_resource`, `decode_failed`,
+`invalid_request`, `stale_project_session`, `unauthorized_asset`, `unsafe_source_path`,
+`source_missing`, `source_revision_mismatch`, `source_metadata_invalid`, `unsupported_image`,
+`svg_external_resource`, `decode_failed`,
 `encode_failed`, `generation_timeout`, `cache_write_failed`, and `cache_cleared`.
 
 Cache-clear, timeout, and cache-write failures are retryable. Missing, corrupt, unsafe, unsupported,

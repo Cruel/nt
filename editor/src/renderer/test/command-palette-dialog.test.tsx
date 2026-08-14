@@ -38,6 +38,7 @@ describe('CommandPaletteDialog', () => {
       document: project,
       projectPath: '/mock',
       projectFilePath: '/mock/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
 
     render(
@@ -48,7 +49,8 @@ describe('CommandPaletteDialog', () => {
     await waitFor(() => expect(screen.getByAltText('Logo')).toBeInTheDocument());
     expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
       source: {
-        projectFilePath: '/mock/project.json',
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        assetId: 'logo',
         projectRelativePath: 'assets/images/logo.png',
         width: 256,
         height: 256,

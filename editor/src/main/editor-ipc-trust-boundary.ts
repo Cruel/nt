@@ -1,5 +1,11 @@
 import { z } from 'zod';
 import { EDITOR_IPC_FAILURE, EditorIpcBoundaryError } from '../shared/editor-ipc-boundary';
+import {
+  imageThumbnailPrewarmRequestSchema,
+  imageThumbnailRequestSchema,
+  cancelImageThumbnailPrewarmRequestSchema,
+} from '../shared/image-thumbnails';
+import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
@@ -10,6 +16,7 @@ const MAX_PROJECT_SESSION_ID_LENGTH = 256;
 const MAX_PROJECT_NAME_LENGTH = 512;
 const MAX_TEXT_SOURCE_READ_KEY_LENGTH = 1_024;
 const MAX_PROJECT_PATH_LENGTH = 32_768;
+const MAX_ASSET_OPERATION_PATHS = 10_000;
 const sha256DigestSchema = z.custom<`sha256:${string}`>(
   (value) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value),
 );
@@ -235,4 +242,48 @@ export const readProjectTextSourcesArgumentsSchema = z.tuple([
         .max(PROJECT_TEXT_SOURCE_LIMITS.maxEntries),
     })
     .strict(),
+]);
+
+const projectSessionIdSchema = z.string().uuid().max(MAX_PROJECT_SESSION_ID_LENGTH);
+const projectRelativePathSchema = z.string().min(1).max(MAX_PROJECT_PATH_LENGTH);
+
+export const importAssetsArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.object({ allowMultiple: z.boolean().optional() }).strict(),
+]);
+
+export const reimportAssetArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  projectRelativePathSchema,
+]);
+
+export const auditProjectAssetsArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  authoringProjectSchema,
+]);
+
+export const projectAssetPathsArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
+]);
+
+export const restoreProjectAssetFilesArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z
+    .array(
+      z
+        .object({
+          projectRelativePath: projectRelativePathSchema,
+          trashRelativePath: projectRelativePathSchema,
+        })
+        .strict(),
+    )
+    .max(MAX_ASSET_OPERATION_PATHS),
+]);
+
+export const projectSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
+export const imageThumbnailArgumentsSchema = z.tuple([imageThumbnailRequestSchema]);
+export const imageThumbnailPrewarmArgumentsSchema = z.tuple([imageThumbnailPrewarmRequestSchema]);
+export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([
+  cancelImageThumbnailPrewarmRequestSchema,
 ]);

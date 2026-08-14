@@ -102,25 +102,31 @@ interface NovelTeaElectronApiContract {
     workingProjectAssetPaths?: string[],
     scriptSourcePaths?: Record<string, string>,
   ): Promise<SaveProjectResponse>;
-  importAssets(projectFilePath: string, options?: AssetImportOptions): Promise<AssetImportResponse>;
+  importAssets(
+    projectSessionId: string,
+    options?: AssetImportOptions,
+  ): Promise<AssetImportResponse>;
   reimportAsset(
-    projectFilePath: string,
+    projectSessionId: string,
     projectRelativePath: string,
   ): Promise<AssetReimportResponse>;
-  auditProjectAssets(projectFilePath: string, project: unknown): Promise<ProjectAssetAuditResponse>;
+  auditProjectAssets(
+    projectSessionId: string,
+    project: unknown,
+  ): Promise<ProjectAssetAuditResponse>;
   importUntrackedProjectAssets(
-    projectFilePath: string,
+    projectSessionId: string,
     projectRelativePaths: string[],
   ): Promise<ProjectAssetFileOperationResponse>;
   trashProjectAssetFiles(
-    projectFilePath: string,
+    projectSessionId: string,
     projectRelativePaths: string[],
   ): Promise<ProjectAssetFileOperationResponse>;
   restoreProjectAssetFiles(
-    projectFilePath: string,
+    projectSessionId: string,
     moves: ProjectAssetTrashMove[],
   ): Promise<ProjectAssetFileOperationResponse>;
-  purgeProjectTrash(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
+  purgeProjectTrash(projectSessionId: string): Promise<ProjectAssetFileOperationResponse>;
   startProjectWorkspaceWatcher(
     projectSessionId: string,
   ): Promise<ProjectAssetFileOperationResponse>;

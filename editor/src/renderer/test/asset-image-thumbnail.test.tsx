@@ -4,7 +4,10 @@ import { useProjectStore } from '@/project/project-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import type { EditorCacheEpochEvent, ImageThumbnailResult } from '../../shared/image-thumbnails';
 
+const projectSessionId = '11111111-1111-4111-8111-111111111111';
+
 const source = {
+  assetId: 'hero',
   projectRelativePath: 'assets/images/hero.png',
   contentHash: `sha256:${'b'.repeat(64)}`,
   width: 1600,
@@ -32,6 +35,7 @@ describe('AssetImageThumbnail', () => {
       document: { project: { schema: 'noveltea.authoring.project', version: 2 } },
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
+      projectSessionId,
     });
     vi.mocked(window.noveltea.requestImageThumbnail).mockReset();
   });
@@ -95,7 +99,7 @@ describe('AssetImageThumbnail', () => {
 
     await waitFor(() =>
       expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
-        source: { ...source, projectFilePath: '/mock/project/project.json' },
+        source: { ...source, projectSessionId },
         variant: { kind: 'profile', profile: 'wide' },
       }),
     );
@@ -116,7 +120,8 @@ describe('AssetImageThumbnail', () => {
     );
     expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
       source: {
-        projectFilePath: '/mock/project/project.json',
+        projectSessionId,
+        assetId: source.assetId,
         projectRelativePath: source.projectRelativePath,
         width: source.width,
         height: source.height,

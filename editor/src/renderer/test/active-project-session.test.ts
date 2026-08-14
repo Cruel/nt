@@ -7,6 +7,7 @@ import { ActiveProjectSessionService } from '../../main/services/active-project-
 import { openProject } from '../../main/services/editor-tool-service';
 import { createProject } from '../../main/services/project-file-service';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../../shared/project-text-sources';
+import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const temporaryRoots: string[] = [];
 
@@ -100,6 +101,50 @@ describe('active Project session lifecycle', () => {
     ).rejects.toThrow();
 
     expect(service.currentSessionId()).toBe(sessionA);
+  });
+
+  it('refreshes admitted Asset metadata atomically and preserves it after a malformed candidate', async () => {
+    const project = await createWorkspace('asset-snapshot');
+    const projectFilePath = path.join(project, 'project.json');
+    const opened = await openProject(project);
+    if (!opened.success || !opened.contentProject) throw new Error('Project fixture open failed.');
+    const contentProject = parseAuthoringProject(opened.contentProject);
+    contentProject.assets.logo = {
+      id: 'logo',
+      label: 'Logo',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/logo.png' },
+        aliases: [],
+        extension: '.png',
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 320, height: 180, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const service = new ActiveProjectSessionService();
+    const projectSessionId = await service.activateProjectFile(
+      projectFilePath,
+      undefined,
+      contentProject,
+    );
+
+    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.data.contentHash).toBe(
+      `sha256:${'a'.repeat(64)}`,
+    );
+
+    const refreshedProject = structuredClone(contentProject);
+    refreshedProject.assets.logo!.data.contentHash = `sha256:${'b'.repeat(64)}`;
+    await service.refreshActiveProject(projectSessionId, projectFilePath, refreshedProject);
+    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.data.contentHash).toBe(
+      `sha256:${'b'.repeat(64)}`,
+    );
+
+    await expect(
+      service.refreshActiveProject(projectSessionId, projectFilePath, { assets: null }),
+    ).rejects.toThrow();
+    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.data.contentHash).toBe(
+      `sha256:${'b'.repeat(64)}`,
+    );
   });
 
   it('refreshes only the active Project root and preserves authority on rejected refreshes', async () => {

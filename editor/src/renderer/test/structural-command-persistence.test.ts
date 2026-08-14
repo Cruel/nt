@@ -638,7 +638,7 @@ describe('structural command persistence', () => {
     });
     await flushStructuralCommandPersistence();
 
-    expect(window.noveltea.trashProjectAssetFiles).toHaveBeenCalledWith('/mock/project/game.json', [
+    expect(window.noveltea.trashProjectAssetFiles).toHaveBeenCalledWith('test-project-session', [
       asset.projectRelativePath,
     ]);
     expect(useProjectStore.getState().document).toMatchObject({ assets: {} });
