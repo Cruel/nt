@@ -9,6 +9,7 @@ import {
   editorRoot,
   findPackagedApplication,
   runCommand,
+  runPnpmCommand,
   writeJson,
 } from './editor-distribution-lib.mjs';
 import { verifyPackagedEditor } from './verify-packaged-editor.mjs';
@@ -174,7 +175,7 @@ const finalRoot = path.join(
 );
 
 try {
-  await runCommand('pnpm', builderArguments(stageRoot), {
+  await runPnpmCommand(builderArguments(stageRoot), {
     cwd: editorRoot,
     label: mode === 'dir' ? 'package' : 'artifact',
     env: {
