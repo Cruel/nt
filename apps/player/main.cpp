@@ -300,7 +300,11 @@ std::filesystem::path writable_base(const std::string& save_namespace)
     char* path = SDL_GetPrefPath("NovelTea", save_namespace.c_str());
     if (!path)
         return {};
-    std::filesystem::path result(path);
+#if defined(_WIN32)
+    const auto result = filesystem_path_from_utf8(path);
+#else
+    const auto result = std::filesystem::path(path);
+#endif
     SDL_free(path);
     return result;
 #endif

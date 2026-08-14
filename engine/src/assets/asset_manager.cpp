@@ -20,6 +20,12 @@
 namespace noveltea::assets {
 namespace {
 
+std::string filesystem_path_to_utf8(const std::filesystem::path& path)
+{
+    const auto encoded = path.generic_u8string();
+    return std::string(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+}
+
 bool valid_namespace(std::string_view value)
 {
     if (value.empty())
@@ -530,9 +536,9 @@ AssetResult<AssetEntryMetadata> DirectoryAssetSource::stat(const AssetPath& path
             error ? asset_source_error_code::open_failed : asset_source_error_code::not_found;
         return source_fail<AssetEntryMetadata>(
             code,
-            error ? "directory source could not inspect '" + physical.string() +
+            error ? "directory source could not inspect '" + filesystem_path_to_utf8(physical) +
                         "': " + error.message()
-                  : "directory source has no file at '" + physical.string() + "'",
+                  : "directory source has no file at '" + filesystem_path_to_utf8(physical) + "'",
             path, describe());
     }
     const auto size = std::filesystem::file_size(physical, error);
@@ -559,9 +565,10 @@ AssetResult<AssetReaderPtr> DirectoryAssetSource::open(const AssetPath& path) co
         return {std::nullopt, std::move(metadata.error)};
     auto reader = std::make_unique<FileReader>(physical, path, describe());
     if (!reader->valid()) {
-        return source_fail<AssetReaderPtr>(
-            asset_source_error_code::open_failed,
-            "directory source could not open '" + physical.string() + "'", path, describe());
+        return source_fail<AssetReaderPtr>(asset_source_error_code::open_failed,
+                                           "directory source could not open '" +
+                                               filesystem_path_to_utf8(physical) + "'",
+                                           path, describe());
     }
     return {std::move(reader), {}};
 }
@@ -580,7 +587,8 @@ AssetResult<AssetBlob> DirectoryAssetSource::read_binary(const AssetPath& path) 
         const bool exists = std::filesystem::is_regular_file(physical, error);
         return source_fail<AssetBlob>(!error && !exists ? asset_source_error_code::not_found
                                                         : asset_source_error_code::open_failed,
-                                      "directory source could not open '" + physical.string() + "'",
+                                      "directory source could not open '" +
+                                          filesystem_path_to_utf8(physical) + "'",
                                       path, describe());
     }
     AssetBlob result;
@@ -589,9 +597,10 @@ AssetResult<AssetBlob> DirectoryAssetSource::read_binary(const AssetPath& path) 
     result.native_path = physical;
     result.bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
     if (in.bad()) {
-        return source_fail<AssetBlob>(
-            asset_source_error_code::read_failed,
-            "directory source failed while reading '" + physical.string() + "'", path, describe());
+        return source_fail<AssetBlob>(asset_source_error_code::read_failed,
+                                      "directory source failed while reading '" +
+                                          filesystem_path_to_utf8(physical) + "'",
+                                      path, describe());
     }
     return {std::move(result), {}};
 }
@@ -607,7 +616,7 @@ bool DirectoryAssetSource::exists(const AssetPath& path) const
 std::string DirectoryAssetSource::describe() const
 {
     return std::string(writable() ? "directory writable:" : "directory read-only:") +
-           m_root.string();
+           filesystem_path_to_utf8(m_root);
 }
 
 SdlPackagedAssetSource::SdlPackagedAssetSource(std::string internal_prefix)

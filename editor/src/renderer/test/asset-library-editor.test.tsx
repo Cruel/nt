@@ -111,6 +111,7 @@ describe('AssetLibraryEditor', () => {
     });
     render(<AssetLibraryEditor tab={tab} />);
 
+    await screen.findByText('Logo');
     fireEvent.change(screen.getByLabelText('Asset type'), { target: { value: 'audio' } });
     expect(screen.getByText('Click')).toBeInTheDocument();
     expect(screen.queryByText('Logo')).not.toBeInTheDocument();
@@ -121,20 +122,21 @@ describe('AssetLibraryEditor', () => {
     expect(screen.queryByText('Click')).not.toBeInTheDocument();
   });
 
-  it('restores filters after the active-only editor remounts', () => {
+  it('restores filters after the active-only editor remounts', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
     const view = render(<AssetLibraryEditor tab={tab} />);
+    await screen.findByText('Logo');
     fireEvent.change(screen.getByLabelText('Asset type'), { target: { value: 'audio' } });
     captureWorkbenchTabState(tab.id);
     view.unmount();
 
     render(<AssetLibraryEditor tab={tab} />);
     expect(screen.getByLabelText('Asset type')).toHaveValue('audio');
-    expect(screen.getByText('Click')).toBeInTheDocument();
+    expect(await screen.findByText('Click')).toBeInTheDocument();
     expect(screen.queryByText('Logo')).not.toBeInTheDocument();
   });
 
@@ -146,7 +148,7 @@ describe('AssetLibraryEditor', () => {
     });
     render(<AssetLibraryEditor tab={tab} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit name for Logo' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit name for Logo' }));
     const input = screen.getByRole('textbox', { name: 'Edit name for Logo' });
     fireEvent.change(input, { target: { value: 'Brand Logo' } });
     fireEvent.keyDown(input, { key: 'Enter' });

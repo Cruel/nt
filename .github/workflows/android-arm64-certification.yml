@@ -65,9 +65,9 @@ jobs:
             build/linux-release/_deps/noveltea_bgfx_shaderc_source-build
             build/linux-release/tools/editor_tool/CMakeFiles/noveltea_bgfx_shaderc_embedded.dir
             build/linux-release/tools/editor_tool/libnoveltea_bgfx_shaderc_embedded.a
-          key: ${{ runner.os }}-x64-arm64-cert-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
+          key: ubuntu-24.04-x64-arm64-cert-shader-host-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**', 'cmake/NovelTeaEmbeddedShaderc.cmake', 'engine/src/render/embedded_bgfx_resources.hpp.in') }}
           restore-keys: |
-            ${{ runner.os }}-x64-arm64-cert-shader-host-
+            ubuntu-24.04-x64-arm64-cert-shader-host-
 
       - name: Build NovelTea host CLI
         run: |

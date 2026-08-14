@@ -1001,7 +1001,7 @@ function ExplorerContextMenu({
           <button
             className={itemClass}
             onClick={() => {
-              findNodeUsages();
+              void findNodeUsages();
               onClose();
             }}
           >

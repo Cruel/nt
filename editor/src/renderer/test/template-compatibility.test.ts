@@ -14,7 +14,7 @@ const descriptor = parseTemplateDescriptor({
   engineVersion: '1',
   platform: 'linux',
   architecture: 'x64',
-  minimumPlatformVersion: 'glibc 2.35',
+  minimumPlatformVersion: 'glibc 2.39',
   graphicsBackends: ['opengl'],
   shaderVariants: ['glsl-120'],
   runtimePackageApi: { minimum: 2, maximum: 2 },

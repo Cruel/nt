@@ -332,7 +332,7 @@ export default defineConfig({
         onlyBundle: ['pe-library', 'resedit', 'saxes', 'xmlchars', 'zod'],
       },
       entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },
-      format: 'cjs',
+      format: 'esm',
       outDir: 'dist-scriptc-island',
       fixedExtension: true,
       clean: true,

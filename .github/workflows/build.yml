@@ -171,9 +171,9 @@ jobs:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-          key: ${{ runner.os }}-x64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
+          key: ubuntu-24.04-x64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
-            ${{ runner.os }}-x64-vcpkg-common-
+            ubuntu-24.04-x64-vcpkg-common-
 
       - name: Cache vcpkg installed
         uses: actions/cache@v5
@@ -181,9 +181,9 @@ jobs:
           path: |
             build/linux-debug/vcpkg_installed
             build/linux-release/vcpkg_installed
-          key: ${{ runner.os }}-x64-vcpkg-installed-linux-debug-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
+          key: ubuntu-24.04-x64-vcpkg-installed-linux-debug-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
-            ${{ runner.os }}-x64-vcpkg-installed-linux-debug-
+            ubuntu-24.04-x64-vcpkg-installed-linux-debug-
 
       - name: Cache embedded shaderc host-tool build
         uses: actions/cache@v5
@@ -323,17 +323,17 @@ jobs:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-          key: ${{ runner.os }}-x64-vcpkg-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
+          key: ubuntu-24.04-x64-vcpkg-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
-            ${{ runner.os }}-x64-vcpkg-sanitize-
+            ubuntu-24.04-x64-vcpkg-sanitize-
 
       - name: Cache sanitizer vcpkg installed tree
         uses: actions/cache@v5
         with:
           path: build/linux-sanitize/vcpkg_installed
-          key: ${{ runner.os }}-x64-vcpkg-installed-linux-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
+          key: ubuntu-24.04-x64-vcpkg-installed-linux-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
-            ${{ runner.os }}-x64-vcpkg-installed-linux-sanitize-
+            ubuntu-24.04-x64-vcpkg-installed-linux-sanitize-
 
       - name: Cache sanitizer embedded shaderc build
         uses: actions/cache@v5

@@ -77,9 +77,9 @@ Do not add a second version registry or an Electron/Vite integration framework.
 
 `editor/scripts/dev-editor.mjs` is the sole owner of Electron development processes. It selects a
 stable loopback renderer origin at `http://localhost:5174`, starts the Vite+ renderer and pack
-watchers, waits for renderer/main/preload
-and engine-preview readiness, then launches the workspace Electron executable with
-`NOVELTEA_EDITOR_DEV_SERVER_URL`.
+watchers through the active pnpm entrypoint (with the platform-specific pnpm launcher as a fallback),
+waits for renderer/main/preload and engine-preview readiness, then launches the workspace Electron
+executable with `NOVELTEA_EDITOR_DEV_SERVER_URL`.
 
 The stable hostname and port are part of the editor settings contract because Chromium local
 storage is origin-scoped. `NOVELTEA_EDITOR_DEV_PORT` and `--port` remain available for isolated

@@ -7,6 +7,14 @@
 
 using namespace noveltea::assets;
 
+TEST_CASE("DirectoryAssetSource describes Unicode roots as UTF-8")
+{
+    const auto root =
+        std::filesystem::temp_directory_path() / std::filesystem::path(u8"noveltea-雪-source-test");
+    DirectoryAssetSource source(root);
+    CHECK(source.describe().find("noveltea-\xE9\x9B\xAA-source-test") != std::string::npos);
+}
+
 TEST_CASE("DirectoryAssetSource reads files and exposes native metadata")
 {
     const auto root = std::filesystem::temp_directory_path() / "noveltea-directory-source-test";

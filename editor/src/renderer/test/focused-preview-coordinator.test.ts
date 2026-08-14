@@ -38,8 +38,7 @@ async function runNextFrame() {
   const frame = frames.shift();
   if (!frame) throw new Error('Expected a scheduled animation frame.');
   frame(0);
-  await Promise.resolve();
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function createLease(

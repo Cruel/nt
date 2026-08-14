@@ -197,83 +197,88 @@ export class FocusedPreviewFreshnessCoordinator {
     if (this.inFlight || this.disposed) return;
     const state = this.desired;
     if (!state || !this.pending) return;
-    const desiredGeneration = this.desiredGeneration;
-    this.pending = false;
-    const transportGeneration = state.lease.transportGeneration();
-    const replay =
-      this.lastApplied?.leaseId === state.lease.leaseId &&
-      this.lastApplied.transportGeneration !== transportGeneration;
-    let built: Awaited<ReturnType<FocusedPreviewFreshnessCoordinator['build']>>;
-    try {
-      built = await this.build(state);
-    } catch (error) {
-      state.reportBuildFailure?.(
-        error instanceof Error ? error.message : 'Focused preview document construction failed.',
-      );
-      return;
-    }
-    if (!built) {
-      this.pending = true;
-      return;
-    }
-    const { document, inputRevision, activeShaderVariant } = built;
-    const contentKey = this.contentKey(document, activeShaderVariant);
-    if (state.lease.committedContentKey() === contentKey) {
-      this.lastApplied = {
-        leaseId: state.lease.leaseId,
-        revision: document.revision,
-        transportGeneration,
-        projectInstanceId: state.projectInstanceId,
-        projectRevision: state.projectRevision,
-        rootKeyText: this.rootKeyText(state),
-        inputRevision,
-        activeShaderVariant,
-      };
-      state.lease.reveal();
-      return;
-    }
-    const impactedResult = replay || this.impacted(state, inputRevision, activeShaderVariant);
-    if (!impactedResult) return;
-    if (
-      !replay &&
-      this.lastApplied?.leaseId === state.lease.leaseId &&
-      this.lastApplied.revision === document.revision
-    )
-      return;
 
     this.inFlight = true;
-    const sequence = state.lease.nextFocusedApplySequence();
-    this.currentApplySequence = sequence;
     try {
-      await state.lease.send((controller) =>
-        controller.applyFocusedEditorDocument(document, sequence),
-      );
+      const desiredGeneration = this.desiredGeneration;
+      this.pending = false;
+      const transportGeneration = state.lease.transportGeneration();
+      const replay =
+        this.lastApplied?.leaseId === state.lease.leaseId &&
+        this.lastApplied.transportGeneration !== transportGeneration;
+      let built: Awaited<ReturnType<FocusedPreviewFreshnessCoordinator['build']>>;
+      try {
+        built = await this.build(state);
+      } catch (error) {
+        state.reportBuildFailure?.(
+          error instanceof Error ? error.message : 'Focused preview document construction failed.',
+        );
+        return;
+      }
+      if (this.disposed || this.desired !== state || desiredGeneration !== this.desiredGeneration)
+        return;
+      if (!built) {
+        this.pending = true;
+        return;
+      }
+      const { document, inputRevision, activeShaderVariant } = built;
+      const contentKey = this.contentKey(document, activeShaderVariant);
+      if (state.lease.committedContentKey() === contentKey) {
+        this.lastApplied = {
+          leaseId: state.lease.leaseId,
+          revision: document.revision,
+          transportGeneration,
+          projectInstanceId: state.projectInstanceId,
+          projectRevision: state.projectRevision,
+          rootKeyText: this.rootKeyText(state),
+          inputRevision,
+          activeShaderVariant,
+        };
+        state.lease.reveal();
+        return;
+      }
+      const impactedResult = replay || this.impacted(state, inputRevision, activeShaderVariant);
+      if (!impactedResult) return;
       if (
-        this.desired?.lease.leaseId !== state.lease.leaseId ||
-        sequence !== this.currentApplySequence ||
-        desiredGeneration !== this.desiredGeneration
+        !replay &&
+        this.lastApplied?.leaseId === state.lease.leaseId &&
+        this.lastApplied.revision === document.revision
       )
         return;
-      this.lastApplied = {
-        leaseId: state.lease.leaseId,
-        revision: document.revision,
-        transportGeneration,
-        projectInstanceId: state.projectInstanceId,
-        projectRevision: state.projectRevision,
-        rootKeyText: this.rootKeyText(state),
-        inputRevision,
-        activeShaderVariant,
-      };
-      state.lease.commitContent(contentKey);
-      state.lease.reveal();
-    } catch (error) {
-      if (
-        this.desired?.lease.leaseId === state.lease.leaseId &&
-        desiredGeneration === this.desiredGeneration
-      ) {
-        state.reportBuildFailure?.(
-          error instanceof Error ? error.message : 'Focused preview application failed.',
+
+      const sequence = state.lease.nextFocusedApplySequence();
+      this.currentApplySequence = sequence;
+      try {
+        await state.lease.send((controller) =>
+          controller.applyFocusedEditorDocument(document, sequence),
         );
+        if (
+          this.desired?.lease.leaseId !== state.lease.leaseId ||
+          sequence !== this.currentApplySequence ||
+          desiredGeneration !== this.desiredGeneration
+        )
+          return;
+        this.lastApplied = {
+          leaseId: state.lease.leaseId,
+          revision: document.revision,
+          transportGeneration,
+          projectInstanceId: state.projectInstanceId,
+          projectRevision: state.projectRevision,
+          rootKeyText: this.rootKeyText(state),
+          inputRevision,
+          activeShaderVariant,
+        };
+        state.lease.commitContent(contentKey);
+        state.lease.reveal();
+      } catch (error) {
+        if (
+          this.desired?.lease.leaseId === state.lease.leaseId &&
+          desiredGeneration === this.desiredGeneration
+        ) {
+          state.reportBuildFailure?.(
+            error instanceof Error ? error.message : 'Focused preview application failed.',
+          );
+        }
       }
     } finally {
       this.inFlight = false;

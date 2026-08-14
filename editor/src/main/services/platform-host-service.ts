@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { lstat, statfs } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
+import * as fsPromises from 'node:fs/promises';
 import { promisify } from 'node:util';
 
 export interface PlatformProcessRequest {
@@ -59,7 +60,7 @@ const nodeHost: PlatformHostService = {
   },
   fileMode: nodeFileMode,
   async availableDiskSpace(filePath) {
-    const disk = await statfs(filePath);
+    const disk = await fsPromises.statfs(filePath);
     return Number(disk.bavail) * Number(disk.bsize);
   },
 };

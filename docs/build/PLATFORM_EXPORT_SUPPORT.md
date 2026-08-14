@@ -12,7 +12,7 @@ separate certification workflow as described below.
 | Target | Architecture / ABI | Initial artifact | Graphics and shaders | Assembly host | Compatibility floor |
 | --- | --- | --- | --- | --- | --- |
 | Windows | x64 | Portable ZIP | OpenGL; `glsl-120` | Any host for template assembly; Windows tooling for resource/signing work | Windows 10 1809 |
-| Linux | x64 | tar archive; AppImage optional | OpenGL; `glsl-120` | Any host for template assembly; Linux for AppImage/tool-assisted audits | Ubuntu 22.04 / glibc 2.35 |
+| Linux | x64 | tar archive; AppImage optional | OpenGL; `glsl-120` | Any host for template assembly; Linux for AppImage/tool-assisted audits | Ubuntu 24.04 / glibc 2.39 |
 | macOS | arm64 | `.app` bundle | Metal; `metal` | macOS required for signing/notarization | macOS 13 |
 | Web | wasm32; threaded canonical, single-threaded compatibility artifact | Deployment directory/ZIP | WebGL 2; `essl-100` | Any host with an installed matching template | Supported browser floor provisional; threaded Web requires `SharedArrayBuffer` plus COOP/COEP cross-origin isolation |
 | Android release | arm64-v8a | APK/AAB | OpenGL ES/Vulkan as declared by template; `essl-300` | Template assembly may be host-independent; APK/AAB generation requires Android tooling | min API 24; compile API 35 |

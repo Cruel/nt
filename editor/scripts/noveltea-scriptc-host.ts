@@ -15,6 +15,10 @@ type HostResult = readonly [exitCode: number, stdout: string, stderr: string];
 let nativeCallSequence = 0;
 let nativeResponseRoot: string | null = null;
 
+function trace(message: string): void {
+  if (process.env.NOVELTEA_CLI_TRACE === '1') process.stderr.write(`[scriptc-host] ${message}\n`);
+}
+
 function getNativeResponseRoot(): string {
   if (nativeResponseRoot === null)
     nativeResponseRoot = mkdtempSync(join(tmpdir(), 'noveltea-scriptc-'));
@@ -175,11 +179,14 @@ async function main(): Promise<void> {
       emit(fastPath);
       exitCode = fastPath[0];
     } else {
+      trace('dynamic island import starting');
       // @ts-expect-error The private island package is materialized only during release staging.
       const { runNovelTeaScriptcIsland } = await import('noveltea-scriptc-island');
-      const response = JSON.parse(
-        await runNovelTeaScriptcIsland(JSON.stringify(argv), invokeHost),
-      ) as [number, string, string];
+      trace('dynamic island import completed');
+      trace('dynamic island invocation starting');
+      const responseText = await runNovelTeaScriptcIsland(JSON.stringify(argv), invokeHost);
+      trace('dynamic island invocation completed');
+      const response = JSON.parse(responseText) as [number, string, string];
       emit(response);
       exitCode = response[0];
     }

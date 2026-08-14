@@ -200,8 +200,8 @@ importers:
         specifier: 6.0.0
         version: 6.0.0
       scriptc:
-        specifier: 0.0.26
-        version: 0.0.26
+        specifier: 0.0.30
+        version: 0.0.30
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -1299,11 +1299,11 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
-  '@scriptc/compiler@0.0.26':
-    resolution: {integrity: sha512-JCLQbW5ZLTDOwlSbUwfA8ZYcsHUb1SJzzpAwNFNPOlf+mw8kvTMKFnQaDzCD+bK/eOAzLhn2U6jO95fiYsNJxQ==}
+  '@scriptc/compiler@0.0.30':
+    resolution: {integrity: sha512-cqDfQvR4ARkSAVLJ84Z+f1hb1zyKqHeatx6VVTEYqWteea3dbs1kCwu0q1tlg8n2RyijC1yPWpgRMwGhQ/sDcg==}
 
-  '@scriptc/runtime@0.0.26':
-    resolution: {integrity: sha512-M035p4yYbnxTkgIt+hKVO4ekWc0iAicMXpsBEgxmpr2fAUHgM7UI/r8V9nHtzAXb8rB2kQEe/l6nbzSeUmIgSg==}
+  '@scriptc/runtime@0.0.30':
+    resolution: {integrity: sha512-G9YZmJJtKoXOQUwxpkn4SAhqAQXF1XjY17gujtpoMiceoMYNI0tQ6EHt7Idl79TAkh1wUl2LydN4ZZNL87/iAQ==}
 
   '@sindresorhus/is@4.6.0':
     resolution: {integrity: sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw==}
@@ -3361,8 +3361,8 @@ packages:
     resolution: {integrity: sha512-34R7HTnG0XIJcBSn5XhDd7nNFPRcXYRZrBB2O2jdKqYODldSzBAqzsWoZYYvduky73toYS/ESqxPvkDf/F0XMg==}
     engines: {node: '>=10'}
 
-  scriptc@0.0.26:
-    resolution: {integrity: sha512-UqqmtrdYV0cS7lA/hOfx+DLhWwglHjxSwKXUqUez6l2TnFo8D12dSickGp0oo7dPxBhVcvrLHIG8aOZ0PunmqQ==}
+  scriptc@0.0.30:
+    resolution: {integrity: sha512-ptiYcVqISk3kH3Zt8AeRCURat9LbWoWS1xpZpsGvTiLHsPX27FqThTikIkFeHwwzA1SpVp7mePTIhQU3VvUvOw==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -4659,13 +4659,13 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@scriptc/compiler@0.0.26':
+  '@scriptc/compiler@0.0.30':
     dependencies:
-      '@scriptc/runtime': 0.0.26
+      '@scriptc/runtime': 0.0.30
       typescript: 7.0.2
       typescript5: typescript@5.9.3
 
-  '@scriptc/runtime@0.0.26': {}
+  '@scriptc/runtime@0.0.30': {}
 
   '@sindresorhus/is@4.6.0': {}
 
@@ -6600,9 +6600,9 @@ snapshots:
   type-fest@0.13.1:
     optional: true
 
-  scriptc@0.0.26:
+  scriptc@0.0.30:
     dependencies:
-      '@scriptc/compiler': 0.0.26
+      '@scriptc/compiler': 0.0.30
 
   typescript@5.9.3: {}
 

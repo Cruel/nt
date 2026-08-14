@@ -101,6 +101,28 @@ function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+async function verifyWindowsPeStackReserve() {
+  if (!isWindows) return null;
+  const binary = await readFile(nativeCli);
+  if (binary.length < 0x40) fail('Standalone CLI is too small to contain a PE header.');
+  const peOffset = binary.readUInt32LE(0x3c);
+  const optionalHeaderOffset = peOffset + 24;
+  if (optionalHeaderOffset + 80 > binary.length)
+    fail('Standalone CLI has a truncated PE optional header.');
+  if (binary.toString('ascii', peOffset, peOffset + 4) !== 'PE\0\0')
+    fail('Standalone CLI is not a valid PE image.');
+  const magic = binary.readUInt16LE(optionalHeaderOffset);
+  if (magic !== 0x20b)
+    fail(`Standalone CLI is not PE32+ (optional header magic 0x${magic.toString(16)}).`);
+  const stackReserveBytes = Number(binary.readBigUInt64LE(optionalHeaderOffset + 72));
+  if (!Number.isSafeInteger(stackReserveBytes) || stackReserveBytes < 8 * 1024 * 1024)
+    fail(
+      `Standalone CLI PE stack reserve is ${stackReserveBytes} bytes; at least 8388608 is required for ScriptC's dynamic island.`,
+    );
+  console.log(`[certification] Windows PE stack reserve: ${stackReserveBytes} bytes`);
+  return stackReserveBytes;
+}
+
 async function writeJson(filePath, value) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
@@ -431,10 +453,17 @@ async function runDifferential(tempRoot) {
       scriptcResult.stdout !== nodeResult.stdout ||
       scriptcResult.stderr !== nodeResult.stderr
     ) {
+      await resetCase(pristine, caseRoot);
+      await test.prepare?.(caseRoot);
+      const traced = runNative(args, {
+        cwd: test.cwd?.(caseRoot) ?? cwd,
+        env: { ...process.env, NOVELTEA_CLI_TRACE: '1' },
+      });
       fail(
         `Node/scriptc differential '${test.name}' differs.\n` +
           `Node: status=${nodeResult.status}\nstdout:\n${nodeResult.stdout}\nstderr:\n${nodeResult.stderr}\n` +
-          `scriptc: status=${scriptcResult.status}\nstdout:\n${scriptcResult.stdout}\nstderr:\n${scriptcResult.stderr}`,
+          `scriptc: status=${scriptcResult.status}\nstdout:\n${scriptcResult.stdout}\nstderr:\n${scriptcResult.stderr}\n` +
+          `scriptc traced retry: status=${traced.status}\nstdout:\n${traced.stdout}\nstderr:\n${traced.stderr}`,
       );
     }
     if (scriptcTree !== nodeTree)
@@ -705,6 +734,8 @@ async function main() {
   if (!(await stat(path.join(bgfxInclude, 'bgfx_shader.sh'))).isFile())
     fail(`bgfx shader include is missing: ${bgfxInclude}`);
 
+  const windowsPeStackReserve = await verifyWindowsPeStackReserve();
+
   requireSuccess(
     'Node-reference bundle build',
     runPnpm(['exec', 'vp', 'pack'], { cwd: editorRoot }),
@@ -738,6 +769,7 @@ async function main() {
         relocation: true,
         sourceLeakageAudit: true,
         binarySize,
+        windowsPeStackReserve,
         linkedClosure: closure,
       })}\n`,
     );

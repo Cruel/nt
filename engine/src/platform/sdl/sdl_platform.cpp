@@ -251,6 +251,9 @@ bool Platform::initialize(const PlatformConfig& config)
     std::fprintf(stderr, "[platform] Metal layer ready: %p\n", m_state->metal_layer);
 #endif
 
+#if defined(_WIN32) || defined(__APPLE__)
+    std::fprintf(stderr, "[platform] initializing timing state\n");
+#endif
     m_last_tick = SDL_GetTicks();
     m_quit = false;
 
@@ -266,7 +269,15 @@ bool Platform::initialize(const PlatformConfig& config)
     }
 #endif
 
+#if defined(_WIN32) || defined(__APPLE__)
+    std::fprintf(stderr, "[platform] refreshing initial surface metrics\n");
+#endif
     refresh_surface_metrics();
+#if defined(_WIN32) || defined(__APPLE__)
+    std::fprintf(stderr, "[platform] initialization complete logical=%dx%d framebuffer=%dx%d\n",
+                 m_surface.logical_size.width, m_surface.logical_size.height,
+                 m_surface.framebuffer_size.width, m_surface.framebuffer_size.height);
+#endif
 
     std::printf("[platform] initialized: %s logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
                 config.title, m_surface.logical_size.width, m_surface.logical_size.height,
@@ -330,8 +341,20 @@ void Platform::refresh_surface_metrics()
     int logical_height = m_surface.logical_size.height;
     int framebuffer_width = m_surface.framebuffer_size.width;
     int framebuffer_height = m_surface.framebuffer_size.height;
+#if defined(_WIN32)
+    std::fprintf(stderr, "[platform] querying Win32 logical window size\n");
+#endif
     SDL_GetWindowSize(m_state->window, &logical_width, &logical_height);
+#if defined(_WIN32)
+    std::fprintf(stderr, "[platform] Win32 logical window size ready: %dx%d\n", logical_width,
+                 logical_height);
+    std::fprintf(stderr, "[platform] querying Win32 pixel window size\n");
+#endif
     SDL_GetWindowSizeInPixels(m_state->window, &framebuffer_width, &framebuffer_height);
+#if defined(_WIN32)
+    std::fprintf(stderr, "[platform] Win32 pixel window size ready: %dx%d\n", framebuffer_width,
+                 framebuffer_height);
+#endif
 
 #if defined(SDL_PLATFORM_ANDROID)
     const float display_scale = SDL_GetWindowDisplayScale(m_state->window);

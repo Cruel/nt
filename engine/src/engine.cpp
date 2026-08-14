@@ -796,8 +796,14 @@ core::Result<void, core::Diagnostics> Engine::Impl::clear_authored_preview_envir
 
 void Engine::Impl::configure_assets(const EngineConfig& engine_config)
 {
+#if defined(_WIN32)
+    std::fprintf(stderr, "[assets] copying runtime package state\n");
+#endif
     m_runtime_package_source = engine_config.runtime_package_source;
     m_runtime_package_logical_path = engine_config.compiled_project;
+#if defined(_WIN32)
+    std::fprintf(stderr, "[assets] resolving asset roots\n");
+#endif
     const auto system_root = engine_config.system_asset_root.empty()
                                  ? default_system_asset_root()
                                  : engine_config.system_asset_root;
@@ -807,14 +813,29 @@ void Engine::Impl::configure_assets(const EngineConfig& engine_config)
     const auto cache_root = engine_config.cache_asset_root.empty() ? default_cache_asset_root()
                                                                    : engine_config.cache_asset_root;
 
+#if defined(_WIN32)
+    std::fprintf(stderr, "[assets] mounting system root\n");
+#endif
     mount_default_source(m_assets, "system", engine_config.system_asset_root, system_root, false);
+#if defined(_WIN32)
+    std::fprintf(stderr, "[assets] mounting project root\n");
+#endif
     mount_default_source(m_assets, "project", engine_config.project_asset_root, project_root,
                          false);
+#if defined(_WIN32)
+    std::fprintf(stderr, "[assets] mounting cache root\n");
+#endif
     m_assets.mount_directory("cache", cache_root, true);
 
+#if defined(_WIN32)
+    std::fprintf(stderr, "[assets] describing mounted roots\n");
+#endif
     for (const auto& mount : m_assets.describe_mounts()) {
         SDL_Log("[assets] %s", mount.c_str());
     }
+#if defined(_WIN32)
+    std::fprintf(stderr, "[assets] mounted roots described\n");
+#endif
 
 #if defined(NOVELTEA_PLATFORM_ANDROID)
     auto smoke = m_assets.read_binary("system:/shaders/bgfx/essl-300/triangle.vs.bin");
@@ -1327,8 +1348,15 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         return false;
     }
     platform_initialized = true;
+#if defined(_WIN32)
+    std::fprintf(stderr, "[engine] platform initialization returned successfully\n");
+    std::fprintf(stderr, "[engine] configuring asset mounts\n");
+#endif
 
     configure_assets(engine_config);
+#if defined(_WIN32)
+    std::fprintf(stderr, "[engine] asset mounts configured\n");
+#endif
 
     auto memory_policy = engine_config.asset_memory_policy;
     if (!memory_policy) {
@@ -1376,7 +1404,13 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
             static_cast<unsigned long long>(budget.temporary_bytes),
             budget.prefetch_allowance_percent);
 
+#if defined(_WIN32)
+    std::fprintf(stderr, "[engine] resolving native window handles\n");
+#endif
     const NativeWindowHandles handles = m_platform.native_window_handles();
+#if defined(_WIN32)
+    std::fprintf(stderr, "[engine] native window handle resolution returned\n");
+#endif
     auto initial_presentation =
         make_presentation_metrics(m_platform.surface(), m_presentation_settings);
     if (!initial_presentation) {

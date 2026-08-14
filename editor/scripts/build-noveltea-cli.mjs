@@ -9,7 +9,7 @@ import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
-const scriptcVersion = '0.0.26';
+const scriptcVersion = '0.0.30';
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
@@ -42,7 +42,7 @@ const agentKitSourcePaths = [
   'docs/TESTS.md',
   'skill/SKILL.md',
 ];
-const islandBundle = path.join(editorRoot, 'dist-scriptc-island', 'noveltea-scriptc-island.cjs');
+const islandBundle = path.join(editorRoot, 'dist-scriptc-island', 'noveltea-scriptc-island.mjs');
 const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
 const hostProcessSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-process.ts');
@@ -309,7 +309,7 @@ await mkdir(islandPackageRoot, { recursive: true });
 await mkdir(agentKitSourcePackageRoot, { recursive: true });
 
 try {
-  await cp(islandBundle, path.join(islandPackageRoot, 'index.cjs'));
+  await cp(islandBundle, path.join(islandPackageRoot, 'index.mjs'));
   await writeFile(
     path.join(islandPackageRoot, 'package.json'),
     `${JSON.stringify(
@@ -317,7 +317,7 @@ try {
         name: 'noveltea-scriptc-island',
         version: productVersion,
         private: true,
-        main: 'index.cjs',
+        main: 'index.mjs',
         types: 'index.d.ts',
       },
       null,
@@ -341,7 +341,7 @@ try {
         name: 'noveltea-scriptc-agent-kit-source',
         version: productVersion,
         private: true,
-        main: 'index.cjs',
+        main: 'index.mjs',
         types: 'index.d.ts',
       },
       null,
@@ -349,8 +349,8 @@ try {
     )}\n`,
   );
   await writeFile(
-    path.join(agentKitSourcePackageRoot, 'index.cjs'),
-    `exports.scriptcAgentKitSourceFiles = Object.freeze(${JSON.stringify(agentKitSourceFiles)});\n`,
+    path.join(agentKitSourcePackageRoot, 'index.mjs'),
+    `export const scriptcAgentKitSourceFiles = Object.freeze(${JSON.stringify(agentKitSourceFiles)});\n`,
   );
   await writeFile(
     path.join(agentKitSourcePackageRoot, 'index.d.ts'),

@@ -77,7 +77,9 @@ describe('Phase 5 incremental authoring graph service', () => {
     });
     const load = publication(null, project, 1, 'load', ['/']);
     const first = await service.publish(load);
-    expect(first?.graph).toEqual(buildAuthoringDependencyGraph(project, { mode: 'disabled' }));
+    expect(first?.graph).toEqual(
+      await buildAuthoringDependencyGraph(project, { mode: 'disabled' }),
+    );
 
     const changed = structuredClone(project) as StructurallyAdmittedAuthoringProject;
     changed.rooms.foyer.description = 'After';

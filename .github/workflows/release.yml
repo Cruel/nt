@@ -99,9 +99,9 @@ jobs:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-          key: ${{ runner.os }}-x64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
+          key: ubuntu-24.04-x64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
-            ${{ runner.os }}-x64-vcpkg-common-
+            ubuntu-24.04-x64-vcpkg-common-
 
       - name: Cache host CLI dependencies and embedded shaderc
         uses: actions/cache@v5
@@ -271,7 +271,7 @@ jobs:
         include:
           - platform: linux
             arch: x64
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             preset: linux-release
             triplet: x64-linux-noveltea
             host_triplet: x64-linux
@@ -310,17 +310,17 @@ jobs:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-          key: ${{ runner.os }}-${{ matrix.arch }}-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
+          key: ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-vcpkg-common-
+            ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-common-
 
       - name: Cache vcpkg installed
         uses: actions/cache@v5
         with:
           path: build/${{ matrix.preset }}/vcpkg_installed
-          key: ${{ runner.os }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
+          key: ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-
+            ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-
 
       - name: Bootstrap vcpkg
         shell: pwsh
@@ -397,7 +397,7 @@ jobs:
           cmake \
             "-DNOVELTEA_PLAYER=${{ github.workspace }}/build/${{ matrix.preset }}/apps/player/noveltea-player" \
             "-DNOVELTEA_AUDIT_REPORT=${{ github.workspace }}/dist/noveltea-dependency-audit-${{ matrix.platform }}-${{ matrix.arch }}.json" \
-            "-DNOVELTEA_MAX_GLIBC_VERSION=2.35" \
+            "-DNOVELTEA_MAX_GLIBC_VERSION=2.39" \
             -P cmake/AuditNovelTeaPlayerDependencies.cmake
 
       - name: Audit non-Linux player dependency closure
@@ -974,7 +974,7 @@ jobs:
         include:
           - platform: linux
             arch: x64
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             cli_artifact: noveltea-release-host-cli-linux-x64
             cli_path: build/cli/linux
             cli_executable: build/cli/linux/noveltea

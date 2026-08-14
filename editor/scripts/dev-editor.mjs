@@ -16,6 +16,7 @@ import {
   repositoryRoot,
   requiredPreviewFiles,
 } from './editor-distribution-lib.mjs';
+import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
 
 const argumentsList = process.argv.slice(2);
 let buildPreview = false;
@@ -91,6 +92,11 @@ function spawnOwned(label, command, args, options = {}) {
     }
   });
   return child;
+}
+
+function spawnPnpmOwned(label, args, options = {}) {
+  const invocation = resolvePnpmInvocation(args);
+  return spawnOwned(label, invocation.command, invocation.args, options);
 }
 
 function processGroupExists(pid) {
@@ -242,12 +248,9 @@ function observePackerOutput(chunk) {
 }
 
 function startPacker() {
-  const child = spawnOwned(
-    'packer',
-    'pnpm',
-    ['exec', 'vp', 'pack', '--watch', '--logLevel', 'info'],
-    { cwd: editorRoot },
-  );
+  const child = spawnPnpmOwned('packer', ['exec', 'vp', 'pack', '--watch', '--logLevel', 'info'], {
+    cwd: editorRoot,
+  });
   packerChild = child;
   child.stdout?.on('data', observePackerOutput);
   child.stderr?.on('data', observePackerOutput);
@@ -404,7 +407,7 @@ async function main() {
 
   if (buildPreview) {
     log('preview', 'Building the engine preview.');
-    const previewBuilder = spawnOwned('preview', 'pnpm', ['run', 'engine:preview:build'], {
+    const previewBuilder = spawnPnpmOwned('preview', ['run', 'engine:preview:build'], {
       cwd: editorRoot,
     });
     const previewCode = await new Promise((resolve) => previewBuilder.once('exit', resolve));
@@ -427,9 +430,8 @@ async function main() {
   log('coordinator', `Renderer URL: ${rendererUrl}`);
   log('coordinator', `Repository root: ${repositoryRoot}`);
 
-  const renderer = spawnOwned(
+  const renderer = spawnPnpmOwned(
     'renderer',
-    'pnpm',
     [
       'exec',
       'vp',
