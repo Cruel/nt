@@ -21,7 +21,10 @@ There are two Emscripten HTML hosts:
 
 There are two communication layers:
 
-- Electron IPC: used for privileged preview setup and editor-tooling helper calls.
+- Electron IPC: used for privileged preview setup and editor-tooling helper calls. Preview-session
+  creation/reload is guarded by the owning editor-frame boundary and the current opaque
+  `projectSessionId`; main derives the Project manifest from that session rather than accepting a
+  renderer-selected Project root.
 - MessageChannel: used for live editor-to-engine commands and engine-to-editor
   events.
 

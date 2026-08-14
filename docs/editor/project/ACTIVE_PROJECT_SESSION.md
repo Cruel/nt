@@ -60,6 +60,27 @@ content revision when supplied, intrinsic dimensions, orientation, and sampling 
 snapshot before source filesystem access. Session authority is re-checked after asynchronous path
 resolution, so Project A thumbnail work cannot continue reading after Project B replaces it.
 
+## Preview, validation, playback, and shader boundaries
+
+Preview-session access, preview reload, exported-package preview admission, and Project shader
+compilation are privileged renderer-to-main capabilities. Their IPC handlers use the shared guarded
+registrar and strict bounded runtime argument parsers. Preview and shader requests carry the opaque
+`projectSessionId`; main rejects a stale or prior-Project session before mutating preview state,
+starting a compiler/tool operation, or resolving Project filesystem paths.
+
+The engine preview server receives its Project manifest path only after main resolves the current
+session's canonical root. Shader compilation similarly derives `projectRoot`, `.noveltea/build`, and
+`.noveltea/cache` in main. The renderer can select compile controls such as the requested shader
+variants, but it cannot nominate a Project root, output root, or cache root through the preload
+contract.
+
+Project validation and playback requests that operate only on supplied in-memory data do not require
+filesystem authority, but they still cross the same guarded IPC boundary. Their authoring/compiled
+Project payloads and playback specs are admitted through current strict schemas with bounded ids,
+arrays, numeric controls, and argument counts before the validation or native playback service is
+called. Extra fields and alternate request shapes are rejected rather than treated as compatibility
+forms.
+
 ## Project-scoped reads
 
 Project text-source requests carry `projectSessionId` and Project-relative source entries. The main

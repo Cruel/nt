@@ -142,6 +142,7 @@ describe('package export workflow', () => {
       document: project,
       projectPath: '/project',
       projectFilePath: '/project/game.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     vi.mocked(window.noveltea.compileShaders).mockResolvedValue({
       ok: true,

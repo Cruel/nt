@@ -100,11 +100,7 @@ import type {
   ComfyUiWorkflowLibraryListRequest,
   ComfyUiWorkflowRenameRequest,
 } from './shared/comfyui-workflows';
-import type {
-  CreateProjectRequest,
-  PackageExportOptions,
-  ShaderCompileOptions,
-} from './shared/editor-tooling';
+import type { CreateProjectRequest, PackageExportOptions } from './shared/editor-tooling';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 import {
@@ -119,25 +115,32 @@ import {
 import {
   auditProjectAssetsArgumentsSchema,
   cancelImageThumbnailPrewarmArgumentsSchema,
+  compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
   createProjectArgumentsSchema,
   imageThumbnailArgumentsSchema,
   imageThumbnailPrewarmArgumentsSchema,
   importAssetsArgumentsSchema,
+  listPlaybackTestsArgumentsSchema,
   installEditorNavigationPolicy,
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  previewExportedPackageArgumentsSchema,
+  previewSessionArgumentsSchema,
   projectAssetPathsArgumentsSchema,
   projectSessionArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
   reimportAssetArgumentsSchema,
+  runPlaybackSpecArgumentsSchema,
+  runPlaybackTestArgumentsSchema,
   restoreProjectAssetFilesArgumentsSchema,
   selectDirectoryArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
+  validateProjectArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
 
 configureSharpPlatformImageService();
@@ -653,22 +656,26 @@ void app.whenReady().then(async () => {
     (itemPath: string) => shell.showItemInFolder(itemPath),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE,
-    (_event: Electron.IpcMainInvokeEvent, packagePath: string) => ({
-      ok: false,
-      success: false,
-      packagePath,
-      diagnostics: [
-        {
-          severity: 'warning',
-          category: 'preview',
-          path: packagePath || '/',
-          message: 'Preview from exported package is not wired to the engine preview server yet.',
-        },
-      ],
-      error: 'Preview from exported package is not wired to the engine preview server yet.',
-    }),
+    (arguments_) => previewExportedPackageArgumentsSchema.parse(arguments_),
+    (projectSessionId, packagePath) => {
+      activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return {
+        ok: false,
+        success: false,
+        packagePath,
+        diagnostics: [
+          {
+            severity: 'warning' as const,
+            category: 'preview',
+            path: packagePath,
+            message: 'Preview from exported package is not wired to the engine preview server yet.',
+          },
+        ],
+        error: 'Preview from exported package is not wired to the engine preview server yet.',
+      };
+    },
   );
 
   guardedIpc.handle(
@@ -754,9 +761,25 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, () => enginePreviewServer.getSession());
+  guardedIpc.handle(
+    IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION,
+    (arguments_) => previewSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.json'));
+      return enginePreviewServer.getSession();
+    },
+  );
 
-  ipcMain.handle(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, () => enginePreviewServer.reload());
+  guardedIpc.handle(
+    IPC_CHANNELS.RELOAD_ENGINE_PREVIEW,
+    (arguments_) => previewSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.json'));
+      return enginePreviewServer.reload();
+    },
+  );
 
   guardedIpc.handle(
     IPC_CHANNELS.OPEN_PROJECT,
@@ -793,32 +816,34 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.VALIDATE_PROJECT,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown) => validateProject(project),
+    (arguments_) => validateProjectArgumentsSchema.parse(arguments_),
+    (project) => validateProject(project),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.LIST_PLAYBACK_TESTS,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown) => listPlaybackTests(project),
+    (arguments_) => listPlaybackTestsArgumentsSchema.parse(arguments_),
+    (project) => listPlaybackTests(project),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RUN_PLAYBACK_TEST,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, testId: string) =>
-      runPlaybackTest(project, testId),
+    (arguments_) => runPlaybackTestArgumentsSchema.parse(arguments_),
+    (project, testId) => runPlaybackTest(project, testId),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RUN_PLAYBACK_SPEC,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, spec: unknown) =>
-      runPlaybackSpec(project, spec),
+    (arguments_) => runPlaybackSpecArgumentsSchema.parse(arguments_),
+    (project, spec) => runPlaybackSpec(project, spec),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, spec: unknown) =>
-      runUiPlaybackSpec(project, spec),
+    (arguments_) => runPlaybackSpecArgumentsSchema.parse(arguments_),
+    (project, spec) => runUiPlaybackSpec(project, spec),
   );
 
   ipcMain.handle(
@@ -864,10 +889,18 @@ void app.whenReady().then(async () => {
     resolvePlayerTemplate(request),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMPILE_SHADERS,
-    (_event: Electron.IpcMainInvokeEvent, shaderProject: unknown, options: unknown) =>
-      compileShaders(shaderProject, options as ShaderCompileOptions),
+    (arguments_) => compileShadersArgumentsSchema.parse(arguments_),
+    (projectSessionId, shaderProject, options) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return compileShaders(shaderProject, {
+        ...options,
+        projectRoot,
+        outputRoot: path.join(projectRoot, '.noveltea', 'build'),
+        cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),
+      });
+    },
   );
 
   ipcMain.handle(

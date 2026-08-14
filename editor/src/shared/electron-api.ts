@@ -21,7 +21,10 @@ interface NovelTeaElectronApiContract {
   selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>;
   selectTemplateArchivePath(): Promise<string | null>;
   showItemInFolder(path: string): Promise<void>;
-  previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>;
+  previewExportedPackage(
+    projectSessionId: string,
+    packagePath: string,
+  ): Promise<PackagePreviewResponse>;
   openExternal(url: string): Promise<void>;
   zoomIn(): Promise<number>;
   zoomOut(): Promise<number>;
@@ -34,8 +37,8 @@ interface NovelTeaElectronApiContract {
   onEditorShortcut(callback: (command: EditorShortcutCommand) => void): () => void;
   isAppWindowMaximized(): Promise<boolean>;
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
-  getEnginePreviewSession(): Promise<EnginePreviewSession>;
-  reloadEnginePreview(): Promise<EnginePreviewSession>;
+  getEnginePreviewSession(projectSessionId: string): Promise<EnginePreviewSession>;
+  reloadEnginePreview(projectSessionId: string): Promise<EnginePreviewSession>;
   createProject(request: CreateProjectRequest): Promise<SaveProjectResponse>;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
   closeActiveProject(): Promise<void>;
@@ -79,8 +82,9 @@ interface NovelTeaElectronApiContract {
     request: import('./project-schema/platform-export-contracts').TemplateResolveRequest,
   ): Promise<import('./project-schema/platform-export-contracts').TemplateResolveResult>;
   compileShaders(
+    projectSessionId: string,
     shaderProject: unknown,
-    options?: ShaderCompileOptions,
+    options?: Pick<ShaderCompileOptions, 'forceRebuild' | 'shaderVariants'>,
   ): Promise<ShaderCompileResponse>;
   saveProjectContent(
     projectSessionId: string,

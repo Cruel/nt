@@ -20,8 +20,8 @@ const api: NovelTeaElectronApi = {
     invokeGuarded(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, defaultPath),
   selectTemplateArchivePath: () => invokeGuarded(IPC_CHANNELS.SELECT_TEMPLATE_ARCHIVE_PATH),
   showItemInFolder: (path: string) => invokeGuarded(IPC_CHANNELS.SHOW_ITEM_IN_FOLDER, path),
-  previewExportedPackage: (packagePath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE, packagePath),
+  previewExportedPackage: (projectSessionId: string, packagePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE, projectSessionId, packagePath),
   openExternal: (url: string) => invokeGuarded(IPC_CHANNELS.OPEN_EXTERNAL, url),
   zoomIn: () => invokeGuarded(IPC_CHANNELS.ZOOM_IN),
   zoomOut: () => invokeGuarded(IPC_CHANNELS.ZOOM_OUT),
@@ -44,8 +44,10 @@ const api: NovelTeaElectronApi = {
   isAppWindowMaximized: () => invokeGuarded(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED),
   setNativeWindowFrame: (nativeFrame: boolean) =>
     invokeGuarded(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, nativeFrame),
-  getEnginePreviewSession: () => ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION),
-  reloadEnginePreview: () => ipcRenderer.invoke(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW),
+  getEnginePreviewSession: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, projectSessionId),
+  reloadEnginePreview: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, projectSessionId),
   createProject: (request) => invokeGuarded(IPC_CHANNELS.CREATE_PROJECT, request),
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
@@ -83,8 +85,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE, templateId, buildId),
   resolvePlayerTemplate: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, request),
-  compileShaders: (shaderProject: unknown, options = {}) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, shaderProject, options),
+  compileShaders: (projectSessionId: string, shaderProject: unknown, options = {}) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, projectSessionId, shaderProject, options),
   saveProjectContent: (
     projectSessionId: string,
     expectedWorkspaceRevision: string,

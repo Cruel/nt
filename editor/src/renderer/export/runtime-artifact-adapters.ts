@@ -4,6 +4,7 @@ import type {
   RuntimeArtifactPathAdapter,
   RuntimeArtifactShaderCompilerAdapter,
 } from '../../shared/runtime-artifact-preparation';
+import { useProjectStore } from '../project/project-store';
 import { useShaderCompileStore } from '../shaders/shader-compile-store';
 
 export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
@@ -28,8 +29,14 @@ export const rendererShaderCompilerAdapter: RuntimeArtifactShaderCompilerAdapter
       error: null,
     });
     try {
+      const projectSessionId = useProjectStore.getState().projectSessionId;
+      if (!projectSessionId)
+        throw new Error('Shader compilation requires an active Project session.');
       const response = parseShaderCompileResponse(
-        await window.noveltea.compileShaders(shaderProject, options),
+        await window.noveltea.compileShaders(projectSessionId, shaderProject, {
+          forceRebuild: options.forceRebuild,
+          shaderVariants: options.shaderVariants,
+        }),
       );
       useShaderCompileStore.getState().setResult(response, options);
       return response;

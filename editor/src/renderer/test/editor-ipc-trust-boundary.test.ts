@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import {
+  compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
   createProjectArgumentsSchema,
@@ -7,6 +8,7 @@ import {
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  previewSessionArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
@@ -182,6 +184,67 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(service).not.toHaveBeenCalled();
+  });
+
+  it('guards preview and shader requests before active-Project side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const previewService = vi.fn((projectSessionId: string) => projectSessionId);
+    const shaderService = vi.fn(
+      (projectSessionId: string, _shaderProject: unknown, _options: unknown) => projectSessionId,
+    );
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'preview-session',
+      (arguments_) => previewSessionArgumentsSchema.parse(arguments_),
+      previewService,
+    );
+    registrar.handle(
+      'compile-shaders',
+      (arguments_) => compileShadersArgumentsSchema.parse(arguments_),
+      shaderService,
+    );
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const shaderProject = { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} };
+
+    await expect(ipcMain.invoke('preview-session', harness.event, sessionId)).resolves.toBe(
+      sessionId,
+    );
+    await expect(
+      ipcMain.invoke('compile-shaders', harness.event, sessionId, shaderProject, {
+        forceRebuild: true,
+        shaderVariants: ['glsl-120'],
+      }),
+    ).resolves.toBe(sessionId);
+
+    for (const [channel, arguments_] of [
+      ['preview-session', []],
+      ['preview-session', [sessionId, 'extra']],
+      ['compile-shaders', [sessionId, shaderProject, { projectRoot: '/alternate' }]],
+      ['compile-shaders', [sessionId, { ...shaderProject, extra: true }, {}]],
+      ['compile-shaders', [sessionId, shaderProject, { shaderVariants: ['x'.repeat(257)] }]],
+      ['compile-shaders', [sessionId, shaderProject, {}, 'extra']],
+    ] as const) {
+      previewService.mockClear();
+      shaderService.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(previewService).not.toHaveBeenCalled();
+      expect(shaderService).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(
+      ipcMain.invoke('compile-shaders', other.event, sessionId, shaderProject, {}),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(shaderService).not.toHaveBeenCalled();
   });
 
   it('strictly admits bounded app, window, dialog, and shell requests before side effects', async () => {

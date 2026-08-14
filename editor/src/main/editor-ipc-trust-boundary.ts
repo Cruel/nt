@@ -6,6 +6,8 @@ import {
   cancelImageThumbnailPrewarmRequestSchema,
 } from '../shared/image-thumbnails';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
+import { compiledProjectWireV3Schema } from '../shared/project-schema/compiled-project';
+import { shaderMaterialProjectWireSchema } from '../shared/project-schema/shader-material-project';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
@@ -17,6 +19,10 @@ const MAX_PROJECT_NAME_LENGTH = 512;
 const MAX_TEXT_SOURCE_READ_KEY_LENGTH = 1_024;
 const MAX_PROJECT_PATH_LENGTH = 32_768;
 const MAX_ASSET_OPERATION_PATHS = 10_000;
+const MAX_PLAYBACK_TEST_ID_LENGTH = 1_024;
+const MAX_PLAYBACK_STEPS = 100_000;
+const MAX_SHADER_VARIANTS = 256;
+const MAX_SHADER_VARIANT_LENGTH = 256;
 const sha256DigestSchema = z.custom<`sha256:${string}`>(
   (value) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value),
 );
@@ -286,4 +292,118 @@ export const imageThumbnailArgumentsSchema = z.tuple([imageThumbnailRequestSchem
 export const imageThumbnailPrewarmArgumentsSchema = z.tuple([imageThumbnailPrewarmRequestSchema]);
 export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([
   cancelImageThumbnailPrewarmRequestSchema,
+]);
+
+const playbackSubjectSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('character'),
+      id: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('interactable'),
+      id: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+    })
+    .strict(),
+]);
+const playbackInputSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('advance-time'),
+      microseconds: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    })
+    .strict(),
+  z.object({ type: z.literal('continue') }).strict(),
+  z
+    .object({
+      type: z.literal('select-subjects'),
+      subjects: z.array(playbackSubjectSchema).max(10_000),
+    })
+    .strict(),
+  z.object({ type: z.literal('clear-selection') }).strict(),
+  z
+    .object({
+      type: z.literal('invoke-interaction'),
+      verb: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+      operands: z.array(playbackSubjectSchema).max(64),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('activate-hotspot'),
+      hotspot: z.discriminatedUnion('kind', [
+        z
+          .object({
+            kind: z.literal('room-hotspot'),
+            room: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+            hotspotId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal('interactable-hotspot'),
+            interactable: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+            hotspotId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+          })
+          .strict(),
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('load'),
+      slot: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('autosave') }).strict(),
+        z
+          .object({
+            kind: z.literal('manual'),
+            number: z.number().int().nonnegative().max(0xffff_ffff),
+          })
+          .strict(),
+      ]),
+    })
+    .strict(),
+]);
+const playbackSpecSchema = z
+  .object({
+    schema: z.literal('noveltea.editor.playback'),
+    version: z.literal(2),
+    id: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+    steps: z
+      .array(
+        z.object({ index: z.number().int().nonnegative(), input: playbackInputSchema }).strict(),
+      )
+      .max(MAX_PLAYBACK_STEPS),
+  })
+  .strict();
+
+export const validateProjectArgumentsSchema = z.tuple([authoringProjectSchema]);
+export const listPlaybackTestsArgumentsSchema = z.tuple([authoringProjectSchema]);
+export const runPlaybackTestArgumentsSchema = z.tuple([
+  authoringProjectSchema,
+  z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+]);
+export const runPlaybackSpecArgumentsSchema = z.tuple([
+  compiledProjectWireV3Schema,
+  playbackSpecSchema,
+]);
+export const previewSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
+export const previewExportedPackageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
+]);
+export const compileShadersArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  shaderMaterialProjectWireSchema,
+  z
+    .object({
+      forceRebuild: z.boolean().optional(),
+      shaderVariants: z
+        .array(z.string().min(1).max(MAX_SHADER_VARIANT_LENGTH))
+        .max(MAX_SHADER_VARIANTS)
+        .optional(),
+    })
+    .strict(),
 ]);
