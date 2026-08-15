@@ -28,7 +28,7 @@ import {
   type ComfyUiWorkflowListResponse,
 } from '../../shared/comfyui-workflows';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import { projectOriginalAssetBoundaryCode } from '../../shared/project-asset-url';
+import { projectOriginalAssetBoundaryCode } from '../../shared/project-original-asset';
 import {
   PROJECT_TRUST_FAILURE,
   type ProjectTrustFailureCode,
@@ -1043,9 +1043,13 @@ export function isLoopbackAddress(address: string): boolean {
   );
 }
 
-export async function resolveLoopbackUploadTarget(
-  config: ComfyUiConfig,
-): Promise<LoopbackUploadTarget> {
+interface ValidatedLoopbackUploadTarget {
+  url: URL;
+  hostname: string;
+  literalFamily: 0 | 4 | 6;
+}
+
+function validateLoopbackUploadTarget(config: ComfyUiConfig): ValidatedLoopbackUploadTarget {
   let base: URL;
   try {
     base = new URL(normalizeComfyUiServerUrl(config.serverUrl));
@@ -1057,27 +1061,48 @@ export async function resolveLoopbackUploadTarget(
   if (base.username || base.password)
     remoteUploadDenied('ComfyUI source upload URL cannot contain credentials.');
   const hostname = stripIpv6Brackets(base.hostname);
-  const literalFamily = net.isIP(hostname);
-  let candidates: Array<{ address: string; family: 4 | 6 }>;
+  const literalFamily = net.isIP(hostname) as 0 | 4 | 6;
   if (literalFamily) {
     if (!isLoopbackAddress(hostname))
       remoteUploadDenied('ComfyUI source upload target must be loopback.');
-    candidates = [{ address: hostname, family: literalFamily as 4 | 6 }];
-  } else {
-    if (hostname.toLowerCase() !== 'localhost')
-      remoteUploadDenied(
-        'ComfyUI source upload hostname must be localhost or a loopback IP literal.',
-      );
-    const resolved = await lookup(hostname, { all: true, verbatim: true });
-    if (!resolved.length || resolved.some((entry) => !isLoopbackAddress(entry.address)))
-      remoteUploadDenied('ComfyUI localhost resolution is ambiguous or non-loopback.');
-    candidates = resolved.map((entry) => ({
-      address: entry.address,
-      family: entry.family as 4 | 6,
-    }));
+  } else if (hostname.toLowerCase() !== 'localhost') {
+    remoteUploadDenied(
+      'ComfyUI source upload hostname must be localhost or a loopback IP literal.',
+    );
   }
-  const selected = candidates[0]!;
-  return { url: new URL('/upload/image', base), ...selected };
+  return { url: new URL('/upload/image', base), hostname, literalFamily };
+}
+
+async function resolveValidatedLoopbackUploadTarget(
+  validated: ValidatedLoopbackUploadTarget,
+): Promise<LoopbackUploadTarget> {
+  if (validated.literalFamily) {
+    return {
+      url: validated.url,
+      address: validated.hostname,
+      family: validated.literalFamily,
+    };
+  }
+  let resolved: Array<{ address: string; family: number }>;
+  try {
+    resolved = await lookup(validated.hostname, { all: true, verbatim: true });
+  } catch {
+    remoteUploadDenied('ComfyUI localhost could not be resolved safely.');
+  }
+  if (!resolved.length || resolved.some((entry) => !isLoopbackAddress(entry.address)))
+    remoteUploadDenied('ComfyUI localhost resolution is ambiguous or non-loopback.');
+  const selected = resolved[0]!;
+  return {
+    url: validated.url,
+    address: selected.address,
+    family: selected.family as 4 | 6,
+  };
+}
+
+export async function resolveLoopbackUploadTarget(
+  config: ComfyUiConfig,
+): Promise<LoopbackUploadTarget> {
+  return resolveValidatedLoopbackUploadTarget(validateLoopbackUploadTarget(config));
 }
 
 export async function readBoundedComfyUiSourceImage(
@@ -1096,29 +1121,24 @@ export async function readBoundedComfyUiSourceImage(
       `ComfyUI source image rejected: ${resolved}.`,
     );
   }
-  const expectedRevision = sessions.requireActiveAsset(projectSessionId, sourceAssetId).asset.data
-    .contentHash;
-  const chunks: Buffer[] = [];
+  const bytes = Buffer.allocUnsafe(resolved.size);
   const hash = createHash('sha256');
   let total = 0;
   try {
-    for await (const chunk of resolved.handle.createReadStream({ autoClose: false, start: 0 })) {
-      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      total += bytes.byteLength;
-      if (total > COMFYUI_IPC_LIMITS.sourceUploadBytes)
-        throw new ComfyUiBoundaryFailure(
-          PROJECT_TRUST_FAILURE.SOURCE_TOO_LARGE,
-          'ComfyUI source image exceeds the 32 MiB upload limit.',
-        );
-      hash.update(bytes);
-      chunks.push(bytes);
+    while (total < resolved.size) {
+      const read = await resolved.handle.read(bytes, total, resolved.size - total, total);
+      if (read.bytesRead === 0) break;
+      hash.update(bytes.subarray(total, total + read.bytesRead));
+      total += read.bytesRead;
     }
-    if (total !== resolved.size)
+    const growthProbe = Buffer.allocUnsafe(1);
+    const extra = await resolved.handle.read(growthProbe, 0, 1, resolved.size);
+    if (total !== resolved.size || extra.bytesRead !== 0)
       throw new ComfyUiBoundaryFailure(
         PROJECT_TRUST_FAILURE.SOURCE_REVISION_MISMATCH,
         'ComfyUI source image changed while buffering.',
       );
-    if (`sha256:${hash.digest('hex')}` !== expectedRevision)
+    if (`sha256:${hash.digest('hex')}` !== resolved.contentHash)
       throw new ComfyUiBoundaryFailure(
         PROJECT_TRUST_FAILURE.SOURCE_REVISION_MISMATCH,
         'ComfyUI source image revision changed while buffering.',
@@ -1128,7 +1148,7 @@ export async function readBoundedComfyUiSourceImage(
         PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
         'Project session is stale or unknown.',
       );
-    return { bytes: Buffer.concat(chunks, total), mimeType: resolved.mimeType };
+    return { bytes, mimeType: resolved.mimeType };
   } finally {
     await resolved.handle.close().catch(() => undefined);
   }
@@ -1145,7 +1165,7 @@ function sourceUploadName(sourceAssetId: string, mimeType: string): string {
   return `${safeId}${extension}`;
 }
 
-export async function postLoopbackComfyUiImage(
+async function postLoopbackComfyUiImage(
   config: ComfyUiConfig,
   target: LoopbackUploadTarget,
   bytes: Buffer,
@@ -1159,7 +1179,7 @@ export async function postLoopbackComfyUiImage(
   const suffix = Buffer.from(
     `\r\n--${boundary}\r\nContent-Disposition: form-data; name="overwrite"\r\n\r\ntrue\r\n--${boundary}--\r\n`,
   );
-  const body = Buffer.concat([prefix, bytes, suffix]);
+  const contentLength = prefix.byteLength + bytes.byteLength + suffix.byteLength;
   return new Promise<string>((resolve, reject) => {
     const request = http.request(
       {
@@ -1172,7 +1192,7 @@ export async function postLoopbackComfyUiImage(
         headers: {
           Host: target.url.host,
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          'Content-Length': body.byteLength,
+          'Content-Length': contentLength,
         },
         timeout: config.requestTimeoutMs,
       },
@@ -1232,7 +1252,9 @@ export async function postLoopbackComfyUiImage(
     });
     request.on('timeout', () => request.destroy(new Error('ComfyUI source upload timed out.')));
     request.on('error', reject);
-    request.end(body);
+    request.write(prefix);
+    request.write(bytes);
+    request.end(suffix);
   });
 }
 
@@ -1242,13 +1264,19 @@ export async function uploadComfyUiSourceImage(
   config: ComfyUiConfig,
   sourceAssetId: string,
 ): Promise<string> {
-  const target = await resolveLoopbackUploadTarget(config);
+  const validatedTarget = validateLoopbackUploadTarget(config);
   if (!sessions.isCurrent(projectSessionId))
     throw new ComfyUiBoundaryFailure(
       PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
       'Project session is stale or unknown.',
     );
   const source = await readBoundedComfyUiSourceImage(sessions, projectSessionId, sourceAssetId);
+  if (!sessions.isCurrent(projectSessionId))
+    throw new ComfyUiBoundaryFailure(
+      PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+      'Project session is stale or unknown.',
+    );
+  const target = await resolveValidatedLoopbackUploadTarget(validatedTarget);
   if (!sessions.isCurrent(projectSessionId))
     throw new ComfyUiBoundaryFailure(
       PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,

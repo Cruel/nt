@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { ToolDiagnostic } from './editor-tooling';
 import type { ComfyUiWorkflowId, ComfyUiWorkflowRole } from './comfyui-workflows';
 
 export type ComfyUiConnectionState = 'disabled' | 'unchecked' | 'checking' | 'ready' | 'error';
@@ -38,7 +37,7 @@ export const comfyUiWorkflowLabelSchema = utf8BoundedStringSchema(
   1,
 );
 export const comfyUiPromptSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.promptBytes);
-export const comfyUiServerUrlSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.serverUrlBytes, 1)
+const comfyUiServerUrlSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.serverUrlBytes, 1)
   .url()
   .refine((value) => {
     const protocol = new URL(value).protocol;
@@ -100,27 +99,6 @@ export interface ComfyUiQueueProgress {
   queueNumber?: number;
   createdAt?: string;
   updatedAt?: string;
-}
-
-export interface ComfyUiGenerateImageRequest {
-  workflowId: string;
-  prompt: string;
-  negativePrompt?: string;
-  width?: number;
-  height?: number;
-  seed?: number;
-  steps?: number;
-  cfg?: number;
-  outputName?: string;
-}
-
-export interface ComfyUiGenerateImageResponse {
-  ok: boolean;
-  success: boolean;
-  promptId?: string;
-  assets: unknown[];
-  diagnostics: ToolDiagnostic[];
-  error?: string;
 }
 
 export function defaultComfyUiConfig(): ComfyUiConfig {

@@ -125,14 +125,17 @@ assets into the newly active Project.
 
 Image-edit requests identify their source only by current `projectSessionId` and admitted image Asset id. Main resolves
 and revalidates the Asset through the active Project authority, including canonical containment, contained-only symlinks,
-regular-file identity, admitted byte size, and SHA-256 revision. The source upload ceiling is 32 MiB and is enforced both
-before opening the upload buffer and while streaming bytes into it.
+regular-file identity, admitted byte size, and SHA-256 revision. The source upload ceiling is 32 MiB; main allocates at
+most the admitted source size, reads exactly that many bytes with a one-byte growth probe, and rechecks the revision
+before network upload.
 
 Source-image upload is intentionally narrower than ordinary ComfyUI communication: it accepts loopback HTTP only.
 Literal `127.0.0.0/8`, `::1`, IPv4-mapped loopback, and `localhost` are accepted; credentials, HTTPS, arbitrary hostnames,
-and non-loopback addresses are rejected. `localhost` is resolved before upload and every returned address must be
-loopback. The upload socket then connects directly to the verified address and rechecks its remote address, so DNS
-rebinding cannot redirect source bytes off-machine. Redirect responses are rejected rather than followed. Renderer
+and non-loopback addresses are rejected. URL/scheme/host validation occurs before source access; `localhost` DNS lookup
+is deferred until after the active source Asset has been admitted, and every returned address must be loopback. The
+upload socket then connects directly to the verified address and rechecks its remote address, so DNS rebinding cannot
+redirect source bytes off-machine. Redirect responses are rejected rather than followed. Multipart framing is written
+around the single bounded source buffer rather than constructing a second full-size upload body. Renderer
 contracts contain neither Project/source paths nor an upload destination override. Trust-boundary failures expose stable
 machine categories such as `stale-project-session`, `unauthorized-asset`, `unsafe-path`, `symlink-escape`,
 `not-regular-file`, `source-revision-mismatch`, `source-too-large`, and `remote-upload-denied` alongside more specific

@@ -10,7 +10,7 @@ export interface AssetImageThumbnailRequest {
   profile: ImageThumbnailProfile;
 }
 
-export type AssetImageThumbnailSource = Omit<ImageThumbnailSource, 'projectSessionId'>;
+type AssetImageThumbnailSource = Omit<ImageThumbnailSource, 'projectSessionId'>;
 
 interface AssetImageThumbnailProps {
   label: string;

@@ -1,6 +1,4 @@
 export const PROJECT_TRUST_FAILURE = {
-  UNTRUSTED_SENDER: 'untrusted-sender',
-  INVALID_REQUEST: 'invalid-request',
   STALE_PROJECT_SESSION: 'stale-project-session',
   UNAUTHORIZED_ASSET: 'unauthorized-asset',
   UNSAFE_PATH: 'unsafe-path',

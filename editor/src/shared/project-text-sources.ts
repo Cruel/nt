@@ -1,3 +1,4 @@
+import { EDITOR_IPC_FAILURE } from './editor-ipc-boundary';
 import { PROJECT_TRUST_FAILURE, type ProjectTrustFailureCode } from './project-trust-boundary';
 
 export const PROJECT_TEXT_SOURCE_LIMITS = Object.freeze({
@@ -32,7 +33,7 @@ export type ProjectTextSourceReadEntry =
       projectRelativePath: string;
       expectedContentHash: string | null;
       code: string;
-      boundaryCode: ProjectTrustFailureCode;
+      boundaryCode: ProjectTextSourceBoundaryCode;
       message: string;
     };
 
@@ -40,7 +41,11 @@ export interface ReadProjectTextSourcesResponse {
   entries: readonly ProjectTextSourceReadEntry[];
 }
 
-export function projectTextSourceBoundaryCode(code: string): ProjectTrustFailureCode {
+export type ProjectTextSourceBoundaryCode =
+  | ProjectTrustFailureCode
+  | typeof EDITOR_IPC_FAILURE.INVALID_REQUEST;
+
+export function projectTextSourceBoundaryCode(code: string): ProjectTextSourceBoundaryCode {
   switch (code) {
     case 'stale-session':
       return PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION;
@@ -60,7 +65,7 @@ export function projectTextSourceBoundaryCode(code: string): ProjectTrustFailure
       return PROJECT_TRUST_FAILURE.SOURCE_REVISION_MISMATCH;
     case 'invalid-request':
     default:
-      return PROJECT_TRUST_FAILURE.INVALID_REQUEST;
+      return EDITOR_IPC_FAILURE.INVALID_REQUEST;
   }
 }
 

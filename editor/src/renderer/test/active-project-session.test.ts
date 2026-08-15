@@ -128,21 +128,21 @@ describe('active Project session lifecycle', () => {
       contentProject,
     );
 
-    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.data.contentHash).toBe(
+    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.contentHash).toBe(
       `sha256:${'a'.repeat(64)}`,
     );
 
     const refreshedProject = structuredClone(contentProject);
     refreshedProject.assets.logo!.data.contentHash = `sha256:${'b'.repeat(64)}`;
     await service.refreshActiveProject(projectSessionId, projectFilePath, refreshedProject);
-    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.data.contentHash).toBe(
+    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.contentHash).toBe(
       `sha256:${'b'.repeat(64)}`,
     );
 
     await expect(
       service.refreshActiveProject(projectSessionId, projectFilePath, { assets: null }),
     ).rejects.toThrow();
-    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.data.contentHash).toBe(
+    expect(service.requireActiveAsset(projectSessionId, 'logo').asset.contentHash).toBe(
       `sha256:${'b'.repeat(64)}`,
     );
   });

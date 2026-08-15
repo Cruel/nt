@@ -22,72 +22,24 @@ const TEST_ASSET_ID = 'test-image';
 async function fixtureProject() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'noveltea-thumbnail-'));
   temporaryRoots.push(root);
-  const projectFilePath = path.join(root, 'project.json');
   const assetDirectory = path.join(root, 'assets', 'images');
   await fs.mkdir(assetDirectory, { recursive: true });
-  await fs.writeFile(projectFilePath, '{}');
-  return { root, projectFilePath, assetDirectory, cacheRoot: path.join(root, 'cache') };
-}
-
-function normalizeTestThumbnailSource(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const source = value as Record<string, unknown>;
-  if (!('projectFilePath' in source)) return value;
-  const { projectFilePath: _projectFilePath, ...rest } = source;
-  return {
-    projectSessionId: TEST_PROJECT_SESSION_ID,
-    assetId: TEST_ASSET_ID,
-    ...rest,
-  };
-}
-
-class TestImageThumbnailService extends ImageThumbnailService {
-  override request(
-    value: unknown,
-    priority?: 'interactive' | 'prewarm',
-    projectGeneration?: string,
-  ) {
-    if (value && typeof value === 'object' && !Array.isArray(value) && 'source' in value) {
-      const request = value as Record<string, unknown>;
-      value = { ...request, source: normalizeTestThumbnailSource(request.source) };
-    }
-    return super.request(value, priority, projectGeneration);
-  }
-
-  override prewarm(value: unknown) {
-    if (value && typeof value === 'object' && !Array.isArray(value) && 'sources' in value) {
-      const request = value as Record<string, unknown>;
-      if (Array.isArray(request.sources)) {
-        value = { ...request, sources: request.sources.map(normalizeTestThumbnailSource) };
-      }
-    }
-    return super.prewarm(value);
-  }
+  return { root, assetDirectory, cacheRoot: path.join(root, 'cache') };
 }
 
 function thumbnailService(
   fixture: Awaited<ReturnType<typeof fixtureProject>>,
   options: ImageThumbnailServiceOptions = {},
 ) {
-  return new TestImageThumbnailService(fixture.cacheRoot, {
+  return new ImageThumbnailService(fixture.cacheRoot, {
     ...options,
     resolveProjectAsset:
       options.resolveProjectAsset ??
       ((source) => ({
         root: fixture.root,
-        data: {
-          kind: 'image',
-          source: { type: 'project-file', path: source.projectRelativePath },
-          aliases: [],
-          sampling: source.sampling,
-          contentHash: source.contentHash,
-          imageMetadata: {
-            width: source.width,
-            height: source.height,
-            hasAlpha: true,
-            orientation: source.orientation,
-          },
-        },
+        kind: 'image',
+        sourcePath: source.projectRelativePath,
+        contentHash: source.contentHash,
       })),
   });
 }
@@ -154,7 +106,8 @@ describe('main-process image thumbnail service', () => {
     const service = thumbnailService(fixture);
     const request = {
       source: {
-        projectFilePath: fixture.projectFilePath,
+        projectSessionId: TEST_PROJECT_SESSION_ID,
+        assetId: TEST_ASSET_ID,
         projectRelativePath: 'assets/images/source.png',
         contentHash: source.hash,
         width: 8,
@@ -289,7 +242,8 @@ describe('main-process image thumbnail service', () => {
     const service = thumbnailService(fixture);
     const base = {
       source: {
-        projectFilePath: fixture.projectFilePath,
+        projectSessionId: TEST_PROJECT_SESSION_ID,
+        assetId: TEST_ASSET_ID,
         projectRelativePath: 'assets/images/source.png',
         width: 8,
         height: 4,
@@ -344,7 +298,8 @@ describe('main-process image thumbnail service', () => {
     const service = thumbnailService(fixture);
     const requestFor = (name: string, bytes: Buffer) => ({
       source: {
-        projectFilePath: fixture.projectFilePath,
+        projectSessionId: TEST_PROJECT_SESSION_ID,
+        assetId: TEST_ASSET_ID,
         projectRelativePath: `assets/images/${name}`,
         contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
         width: 4,
@@ -398,7 +353,8 @@ describe('main-process image thumbnail service', () => {
       await fs.writeFile(path.join(fixture.assetDirectory, name), bytes);
       const result = await service.request({
         source: {
-          projectFilePath: fixture.projectFilePath,
+          projectSessionId: TEST_PROJECT_SESSION_ID,
+          assetId: TEST_ASSET_ID,
           projectRelativePath: `assets/images/${name}`,
           contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
           width: 2,
@@ -433,7 +389,8 @@ describe('main-process image thumbnail service', () => {
       await fs.writeFile(path.join(fixture.assetDirectory, name), bytes);
       const result = await service.request({
         source: {
-          projectFilePath: fixture.projectFilePath,
+          projectSessionId: TEST_PROJECT_SESSION_ID,
+          assetId: TEST_ASSET_ID,
           projectRelativePath: `assets/images/${name}`,
           contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
           width: 3,
@@ -482,7 +439,8 @@ describe('main-process image thumbnail service', () => {
     const service = thumbnailService(fixture);
     const generated = await service.request({
       source: {
-        projectFilePath: fixture.projectFilePath,
+        projectSessionId: TEST_PROJECT_SESSION_ID,
+        assetId: TEST_ASSET_ID,
         projectRelativePath: 'assets/images/source.png',
         contentHash: source.hash,
         width: 8,
@@ -506,7 +464,8 @@ describe('main-process image thumbnail service', () => {
     const source = await writeRaster(fixture.assetDirectory);
     const service = thumbnailService(fixture);
     const validSource = {
-      projectFilePath: fixture.projectFilePath,
+      projectSessionId: TEST_PROJECT_SESSION_ID,
+      assetId: TEST_ASSET_ID,
       projectRelativePath: 'assets/images/source.png',
       contentHash: source.hash,
       width: 8,
@@ -555,7 +514,8 @@ describe('main-process image thumbnail service', () => {
       projectGeneration: 'generation-a',
       sources: [
         {
-          projectFilePath: fixture.projectFilePath,
+          projectSessionId: TEST_PROJECT_SESSION_ID,
+          assetId: TEST_ASSET_ID,
           projectRelativePath: 'assets/images/source.png',
           contentHash: source.hash,
           width: 8,
@@ -637,7 +597,8 @@ describe('main-process image thumbnail service', () => {
     const source = await writeRaster(fixture.assetDirectory);
     const request = {
       source: {
-        projectFilePath: fixture.projectFilePath,
+        projectSessionId: TEST_PROJECT_SESSION_ID,
+        assetId: TEST_ASSET_ID,
         projectRelativePath: 'assets/images/source.png',
         contentHash: source.hash,
         width: 8,
@@ -709,7 +670,8 @@ describe('main-process image thumbnail service', () => {
             const name = `large-${index}.png`;
             await fs.writeFile(path.join(fixture.assetDirectory, name), bytes);
             return {
-              projectFilePath: fixture.projectFilePath,
+              projectSessionId: TEST_PROJECT_SESSION_ID,
+              assetId: `test-image-${index}`,
               projectRelativePath: `assets/images/${name}`,
               contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
               width: 2048,
@@ -805,7 +767,8 @@ describe('main-process image thumbnail service', () => {
     const service = thumbnailService(fixture);
     const requestFor = (name: string) => ({
       source: {
-        projectFilePath: fixture.projectFilePath,
+        projectSessionId: TEST_PROJECT_SESSION_ID,
+        assetId: TEST_ASSET_ID,
         projectRelativePath: `assets/images/${name}`,
         contentHash: source.hash,
         width: 8,
@@ -822,6 +785,40 @@ describe('main-process image thumbnail service', () => {
     const renamed = await service.request(requestFor('renamed.png'));
     expect(renamed.ok && linked.ok && renamed.cacheKey).toBe(linked.ok && linked.cacheKey);
     expect(renamed.ok && renamed.cacheStatus).toBe('hit');
+  });
+
+  it('rejects a Project root replaced after thumbnail authority was established', async () => {
+    const fixture = await fixtureProject();
+    const replacement = await fixtureProject();
+    const source = await writeRaster(fixture.assetDirectory, 'root-replacement.png');
+    await fs.writeFile(path.join(replacement.assetDirectory, 'root-replacement.png'), source.bytes);
+    const service = thumbnailService(fixture);
+    const movedRoot = `${fixture.root}-moved`;
+
+    await fs.rename(fixture.root, movedRoot);
+    await fs.symlink(
+      replacement.root,
+      fixture.root,
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    try {
+      const result = await service.request({
+        source: {
+          projectSessionId: TEST_PROJECT_SESSION_ID,
+          assetId: TEST_ASSET_ID,
+          projectRelativePath: 'assets/images/root-replacement.png',
+          contentHash: source.hash,
+          width: 8,
+          height: 4,
+          orientation: 1,
+        },
+        variant: { kind: 'profile', profile: 'list' },
+      });
+      expect(result.ok || result.errorCode).toBe('unsafe_source_path');
+    } finally {
+      await fs.rm(fixture.root);
+      await fs.rename(movedRoot, fixture.root);
+    }
   });
 
   it('keeps the old derivative until explicit reimport publishes a new revision', async () => {
@@ -894,7 +891,8 @@ describe('main-process image thumbnail service', () => {
         const name = `clear-${index}.png`;
         await fs.writeFile(path.join(fixture.assetDirectory, name), bytes);
         return {
-          projectFilePath: fixture.projectFilePath,
+          projectSessionId: TEST_PROJECT_SESSION_ID,
+          assetId: `test-image-${index}`,
           projectRelativePath: `assets/images/${name}`,
           contentHash: `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
           width: 4096,
@@ -921,7 +919,8 @@ describe('main-process image thumbnail service', () => {
     const service = thumbnailService(fixture);
     const request = {
       source: {
-        projectFilePath: fixture.projectFilePath,
+        projectSessionId: TEST_PROJECT_SESSION_ID,
+        assetId: TEST_ASSET_ID,
         projectRelativePath: 'assets/images/source.png',
         contentHash: source.hash,
         width: 8,

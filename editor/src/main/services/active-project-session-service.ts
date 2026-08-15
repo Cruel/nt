@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   isSafeProjectAssetPath,
   parseAssetData,
-  type AssetData,
+  type AssetKind,
 } from '../../shared/project-schema/authoring-assets';
 import {
   parseAuthoringProject,
@@ -31,9 +31,12 @@ class TextSourceReadFailure extends Error {
   }
 }
 
-export interface ActiveProjectAssetAuthorization {
+interface ActiveProjectAssetAuthorization {
   assetId: string;
-  data: AssetData;
+  kind: AssetKind;
+  sourcePath: string;
+  byteSize?: number;
+  contentHash?: string;
 }
 
 interface ActiveProjectSession {
@@ -47,7 +50,14 @@ function admittedAssets(project: unknown): ReadonlyMap<string, ActiveProjectAsse
   const assets = new Map<string, ActiveProjectAssetAuthorization>();
   for (const [assetId, record] of Object.entries(parsed.assets)) {
     const data = parseAssetData(record.data);
-    if (data) assets.set(assetId, { assetId, data });
+    if (data)
+      assets.set(assetId, {
+        assetId,
+        kind: data.kind,
+        sourcePath: data.source.path,
+        byteSize: data.byteSize,
+        contentHash: data.contentHash,
+      });
   }
   return assets;
 }

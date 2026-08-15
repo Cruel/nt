@@ -52,7 +52,7 @@ import {
 } from '../../shared/project-schema/shader-material-project';
 import { parseVariableData } from '../../shared/project-schema/authoring-variables';
 import type { ShaderVariant } from '../../shared/shader-variants';
-import { projectOriginalAssetUrl } from '../../shared/project-asset-url';
+import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 
 type Diagnostic = AuthoringDependencyGraphDiagnostic;
 type FocusedCondition = RoomPreviewDocumentV2['world']['cast'][number]['condition'];

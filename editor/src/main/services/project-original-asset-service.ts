@@ -9,21 +9,22 @@ import {
   PROJECT_ORIGINAL_ASSET_MAX_BYTES,
   projectOriginalAssetBoundaryCode,
   projectOriginalAssetUrl,
-  type ProjectAssetUrlResponse,
+  type ProjectOriginalAssetUrlResponse,
   type ProjectOriginalAssetFailureCode,
-} from '../../shared/project-asset-url';
+} from '../../shared/project-original-asset';
 
 export const PROJECT_ORIGINAL_ASSET_SCHEME = 'noveltea-asset';
 
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
 
-export interface ResolvedOriginalAsset {
+interface ResolvedOriginalAsset {
   handle: FileHandle;
   size: number;
   mimeType: string;
+  contentHash: string;
 }
 
-export interface ResolveContainedOriginalAssetOptions {
+interface ResolveContainedOriginalAssetOptions {
   maxBytes?: number;
   requireKind?: 'image' | 'audio';
 }
@@ -33,7 +34,7 @@ function isContained(parent: string, candidate: string) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-function failure(code: ProjectOriginalAssetFailureCode): ProjectAssetUrlResponse {
+function failure(code: ProjectOriginalAssetFailureCode): ProjectOriginalAssetUrlResponse {
   return { ok: false, code, boundaryCode: projectOriginalAssetBoundaryCode(code) };
 }
 
@@ -62,10 +63,20 @@ function authoritativeMime(kind: 'image' | 'audio', sourcePath: string): string 
   return (kind === 'image' ? image : audio)[extension] ?? null;
 }
 
-async function hashHandle(handle: FileHandle): Promise<string> {
+async function hashHandle(handle: FileHandle, expectedBytes: number): Promise<string | null> {
   const hash = createHash('sha256');
-  for await (const chunk of handle.createReadStream({ autoClose: false, start: 0 }))
+  let observedBytes = 0;
+  const stream = handle.createReadStream({
+    autoClose: false,
+    start: 0,
+    end: expectedBytes,
+  });
+  for await (const chunk of stream) {
+    observedBytes += chunk.byteLength;
+    if (observedBytes > expectedBytes) return null;
     hash.update(chunk);
+  }
+  if (observedBytes !== expectedBytes) return null;
   return `sha256:${hash.digest('hex')}`;
 }
 
@@ -82,31 +93,32 @@ export async function resolveContainedOriginalAsset(
   } catch {
     return 'unknown-asset';
   }
-  const data = authorized.asset.data;
-  if (data.kind !== 'image' && data.kind !== 'audio') return 'unsupported-kind';
-  if (options.requireKind && data.kind !== options.requireKind) return 'unsupported-kind';
+  const { kind, sourcePath, byteSize, contentHash } = authorized.asset;
+  if (kind !== 'image' && kind !== 'audio') return 'unsupported-kind';
+  if (options.requireKind && kind !== options.requireKind) return 'unsupported-kind';
   const maxBytes = options.maxBytes ?? PROJECT_ORIGINAL_ASSET_MAX_BYTES;
-  if (!isSafeProjectAssetPath(data.source.path) || !data.source.path.startsWith('assets/')) {
+  if (!isSafeProjectAssetPath(sourcePath) || !sourcePath.startsWith('assets/')) {
     return 'invalid-source';
   }
   if (
-    data.byteSize === undefined ||
-    !Number.isSafeInteger(data.byteSize) ||
-    data.byteSize < 0 ||
-    typeof data.contentHash !== 'string' ||
-    !/^sha256:[0-9a-f]{64}$/.test(data.contentHash)
+    byteSize === undefined ||
+    !Number.isSafeInteger(byteSize) ||
+    byteSize < 0 ||
+    typeof contentHash !== 'string' ||
+    !/^sha256:[0-9a-f]{64}$/.test(contentHash)
   ) {
     return 'invalid-metadata';
   }
-  if (data.byteSize > maxBytes) return 'too-large';
-  const mimeType = authoritativeMime(data.kind, data.source.path);
+  if (byteSize > maxBytes) return 'too-large';
+  const mimeType = authoritativeMime(kind, sourcePath);
   if (!mimeType) return 'unsupported-kind';
 
   let handle: FileHandle | null = null;
   let keepHandle = false;
   try {
     const rootRealPath = await fs.realpath(authorized.root);
-    const candidate = path.resolve(rootRealPath, data.source.path);
+    if (path.relative(authorized.root, rootRealPath) !== '') return 'symlink-escape';
+    const candidate = path.resolve(rootRealPath, sourcePath);
     if (!isContained(rootRealPath, candidate)) return 'invalid-source';
     const targetRealPath = await fs.realpath(candidate);
     if (!isContained(rootRealPath, targetRealPath)) return 'symlink-escape';
@@ -114,12 +126,13 @@ export async function resolveContainedOriginalAsset(
     const stat = await handle.stat();
     if (!stat.isFile()) return 'not-regular-file';
     if (stat.size > maxBytes) return 'too-large';
-    if (stat.size !== data.byteSize) return 'size-mismatch';
-    const revision = await hashHandle(handle);
+    if (stat.size !== byteSize) return 'size-mismatch';
+    const revision = await hashHandle(handle, byteSize);
+    if (!revision) return 'size-mismatch';
     if (!sessions.isCurrent(projectSessionId)) return 'stale-or-unknown';
-    if (revision !== data.contentHash) return 'revision-mismatch';
+    if (revision !== contentHash) return 'revision-mismatch';
     keepHandle = true;
-    return { handle, size: stat.size, mimeType };
+    return { handle, size: stat.size, mimeType, contentHash };
   } catch {
     return 'not-found';
   } finally {
@@ -131,7 +144,7 @@ export async function resolveProjectOriginalAssetUrl(
   sessions: ActiveProjectSessionService,
   projectSessionId: string,
   assetId: string,
-): Promise<ProjectAssetUrlResponse> {
+): Promise<ProjectOriginalAssetUrlResponse> {
   const resolved = await resolveContainedOriginalAsset(sessions, projectSessionId, assetId);
   if (typeof resolved === 'string') return failure(resolved);
   await resolved.handle.close();

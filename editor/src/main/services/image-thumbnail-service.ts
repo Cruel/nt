@@ -22,7 +22,7 @@ import {
 } from '../../shared/image-thumbnails';
 import {
   isSafeProjectAssetPath,
-  type AssetData,
+  type AssetKind,
 } from '../../shared/project-schema/authoring-assets';
 import { createImageThumbnailUrl } from '../image-thumbnail-protocol';
 import { EditorCacheService } from './editor-cache-service';
@@ -47,13 +47,17 @@ export type ImageThumbnailServiceInstrumentation = {
   onGenerationAdmitted?: (priority: Priority, cacheKey: string) => void;
 };
 
+type AuthorizedThumbnailAsset = {
+  root: string;
+  kind: AssetKind;
+  sourcePath: string;
+  contentHash?: string;
+};
+
 export type ImageThumbnailServiceOptions = {
   generationTimeoutMs?: number;
   instrumentation?: ImageThumbnailServiceInstrumentation;
-  resolveProjectAsset?: (source: ImageThumbnailRequest['source']) => {
-    root: string;
-    data: AssetData;
-  };
+  resolveProjectAsset?: (source: ImageThumbnailRequest['source']) => AuthorizedThumbnailAsset;
 };
 
 type PreparedHashlessRequest =
@@ -163,10 +167,9 @@ export class ImageThumbnailService {
   readonly #prewarmSignatures = new Set<string>();
   readonly #generationTimeoutMs: number;
   readonly #instrumentation?: ImageThumbnailServiceInstrumentation;
-  readonly #resolveProjectAsset?: (source: ImageThumbnailRequest['source']) => {
-    root: string;
-    data: AssetData;
-  };
+  readonly #resolveProjectAsset?: (
+    source: ImageThumbnailRequest['source'],
+  ) => AuthorizedThumbnailAsset;
   #prewarmAdmissionTail: Promise<void> = Promise.resolve();
   #activeProjectGeneration: string | null = null;
   #active = 0;
@@ -495,8 +498,8 @@ export class ImageThumbnailService {
     return canceled;
   }
 
-  #authorizeSource(request: ImageThumbnailRequest): { root: string; data: AssetData } {
-    let authorization: { root: string; data: AssetData };
+  #authorizeSource(request: ImageThumbnailRequest): AuthorizedThumbnailAsset {
+    let authorization: AuthorizedThumbnailAsset;
     try {
       const resolved = this.#resolveProjectAsset?.(request.source);
       if (!resolved) throw new Error('stale_project_session');
@@ -508,16 +511,11 @@ export class ImageThumbnailService {
       }
       throw error;
     }
-    const { data } = authorization;
     if (
-      data.kind !== 'image' ||
-      !data.imageMetadata ||
-      data.source.path !== request.source.projectRelativePath ||
-      data.imageMetadata.width !== request.source.width ||
-      data.imageMetadata.height !== request.source.height ||
-      data.imageMetadata.orientation !== request.source.orientation ||
-      (data.sampling ?? 'linear') !== (request.source.sampling ?? 'linear') ||
-      (request.source.contentHash !== undefined && data.contentHash !== request.source.contentHash)
+      authorization.kind !== 'image' ||
+      authorization.sourcePath !== request.source.projectRelativePath ||
+      (request.source.contentHash !== undefined &&
+        authorization.contentHash !== request.source.contentHash)
     ) {
       throw new Error('unauthorized_asset');
     }
@@ -529,14 +527,18 @@ export class ImageThumbnailService {
       throw new Error('unsafe_source_path');
     const authorization = this.#authorizeSource(request);
     const projectRoot = authorization.root;
-    const sourcePath = path.resolve(projectRoot, request.source.projectRelativePath);
+    const sourcePath = path.resolve(projectRoot, authorization.sourcePath);
     if (!isStrictlyContainedPath(projectRoot, sourcePath)) throw new Error('unsafe_source_path');
     const [rootRealPath, sourceRealPath, stat] = await Promise.all([
       fs.realpath(projectRoot),
       fs.realpath(sourcePath),
       fs.stat(sourcePath),
     ]);
-    if (!stat.isFile() || !isStrictlyContainedPath(rootRealPath, sourceRealPath)) {
+    if (
+      path.relative(projectRoot, rootRealPath) !== '' ||
+      !stat.isFile() ||
+      !isStrictlyContainedPath(rootRealPath, sourceRealPath)
+    ) {
       throw new Error('unsafe_source_path');
     }
     const currentAuthorization = this.#authorizeSource(request);

@@ -45,7 +45,7 @@ export function projectOriginalAssetBoundaryCode(
   }
 }
 
-export type ProjectAssetUrlResponse =
+export type ProjectOriginalAssetUrlResponse =
   | { ok: true; url: string }
   | {
       ok: false;

@@ -79,9 +79,10 @@ Interactive work has priority over queued prewarm work.
 Project open publishes the editor document without waiting for thumbnail work. Thumbnail and prewarm
 requests carry the active `projectSessionId`, Asset id, Project-relative source identity, and bounded
 presentation metadata. Main resolves the Asset from the session-owned admitted snapshot rather than
-accepting a renderer Project root. It rejects stale sessions, unknown Assets, or source/revision/
-intrinsic-metadata mismatches before source bytes are read, then retains the existing realpath,
-regular-file, and containment checks. Authority is re-checked after asynchronous path admission.
+accepting a renderer Project root. It rejects stale sessions, unknown/non-image Assets, and admitted
+source or revision mismatches before source bytes are read, then applies canonical-root, realpath,
+regular-file, and containment checks. Intrinsic dimensions and orientation are verified against the
+decoded source before publication. Authority is re-checked after asynchronous path admission.
 
 The renderer submits `list`-profile prewarm batches for admitted image revisions, replaces ownership
 when the active Project session changes, and incrementally schedules imported, generated, and
@@ -125,9 +126,10 @@ Asset snapshot owned by the active Project session and returns only a `noveltea-
 URL.
 
 The protocol repeats authorization for every request. It accepts only admitted image/audio Assets
-under `assets/`, canonicalizes the Project root and source target, permits symlinks only when their
-real target remains contained, requires a regular file, and verifies the admitted byte size and
-`sha256:` revision before streaming. Files larger than 128 MiB are rejected. Successful responses
+under `assets/`, requires the activated canonical Project root to still resolve to itself, canonicalizes
+the source target, permits symlinks only when their real target remains contained, requires a regular
+file, and verifies the admitted byte size and `sha256:` revision with a bounded read before streaming.
+Files larger than 128 MiB are rejected. Successful responses
 stream from the verified open file with authoritative `Content-Type` and `Content-Length`,
 `Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`; filesystem paths are never returned
 to the renderer. Switching or closing the Project invalidates previously issued URLs.

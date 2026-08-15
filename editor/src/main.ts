@@ -236,7 +236,12 @@ const imageThumbnailService = new ImageThumbnailService(
         source.projectSessionId,
         source.assetId,
       );
-      return { root, data: asset.data };
+      return {
+        root,
+        kind: asset.kind,
+        sourcePath: asset.sourcePath,
+        contentHash: asset.contentHash,
+      };
     },
   },
 );

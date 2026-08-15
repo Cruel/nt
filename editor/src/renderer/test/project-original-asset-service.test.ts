@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import {
   createProjectOriginalAssetProtocolHandler,
-  resolveProjectOriginalAssetUrl as resolveProjectAssetUrl,
+  resolveProjectOriginalAssetUrl,
 } from '../../main/services/project-original-asset-service';
-import { PROJECT_ORIGINAL_ASSET_MAX_BYTES } from '../../shared/project-asset-url';
+import { PROJECT_ORIGINAL_ASSET_MAX_BYTES } from '../../shared/project-original-asset';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const roots: string[] = [];
@@ -81,7 +81,7 @@ describe('session-scoped original Asset streaming', () => {
       projectWithAsset('logo', 'assets/images/logo.png', bytes),
     );
 
-    const resolved = await resolveProjectAssetUrl(sessions, sessionId, 'logo');
+    const resolved = await resolveProjectOriginalAssetUrl(sessions, sessionId, 'logo');
     expect(resolved).toEqual({
       ok: true,
       url: `noveltea-asset://source/${sessionId}/logo`,
@@ -136,17 +136,43 @@ describe('session-scoped original Asset streaming', () => {
     }
     const { sessions, sessionId } = await activate(projectFilePath, project);
 
-    expect((await resolveProjectAssetUrl(sessions, sessionId, 'inside')).ok).toBe(true);
-    expect(await resolveProjectAssetUrl(sessions, sessionId, 'outside')).toEqual({
+    expect((await resolveProjectOriginalAssetUrl(sessions, sessionId, 'inside')).ok).toBe(true);
+    expect(await resolveProjectOriginalAssetUrl(sessions, sessionId, 'outside')).toEqual({
       ok: false,
       code: 'symlink-escape',
       boundaryCode: 'symlink-escape',
     });
-    expect(await resolveProjectAssetUrl(sessions, sessionId, 'traversal')).toEqual({
+    expect(await resolveProjectOriginalAssetUrl(sessions, sessionId, 'traversal')).toEqual({
       ok: false,
       code: 'invalid-source',
       boundaryCode: 'unsafe-path',
     });
+  });
+
+  it('rejects a Project root replaced by a symlink after activation', async () => {
+    const projectA = tempProject('root-a');
+    const projectB = tempProject('root-b');
+    const movedProjectA = `${projectA.root}-moved`;
+    const bytes = Buffer.from('png');
+    fs.writeFileSync(path.join(projectA.root, 'assets', 'images', 'logo.png'), bytes);
+    fs.writeFileSync(path.join(projectB.root, 'assets', 'images', 'logo.png'), bytes);
+    const { sessions, sessionId } = await activate(
+      projectA.projectFilePath,
+      projectWithAsset('logo', 'assets/images/logo.png', bytes),
+    );
+
+    fs.renameSync(projectA.root, movedProjectA);
+    fs.symlinkSync(projectB.root, projectA.root, 'dir');
+    try {
+      expect(await resolveProjectOriginalAssetUrl(sessions, sessionId, 'logo')).toEqual({
+        ok: false,
+        code: 'symlink-escape',
+        boundaryCode: 'symlink-escape',
+      });
+    } finally {
+      fs.rmSync(projectA.root);
+      fs.renameSync(movedProjectA, projectA.root);
+    }
   });
 
   it('rejects changed size, changed revision, non-regular files, and sources over 128 MiB', async () => {
@@ -159,29 +185,33 @@ describe('session-scoped original Asset streaming', () => {
       byteSize: original.byteLength + 1,
     });
     let active = await activate(projectFilePath, sizeProject);
-    expect(await resolveProjectAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual({
-      ok: false,
-      code: 'size-mismatch',
-      boundaryCode: 'source-revision-mismatch',
-    });
+    expect(await resolveProjectOriginalAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual(
+      {
+        ok: false,
+        code: 'size-mismatch',
+        boundaryCode: 'source-revision-mismatch',
+      },
+    );
 
     const revisionProject = projectWithAsset('logo', 'assets/images/logo.png', original, {
       contentHash: `sha256:${'0'.repeat(64)}`,
     });
     active = await activate(projectFilePath, revisionProject);
-    expect(await resolveProjectAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual({
-      ok: false,
-      code: 'revision-mismatch',
-      boundaryCode: 'source-revision-mismatch',
-    });
+    expect(await resolveProjectOriginalAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual(
+      {
+        ok: false,
+        code: 'revision-mismatch',
+        boundaryCode: 'source-revision-mismatch',
+      },
+    );
 
     fs.rmSync(sourcePath);
     fs.mkdirSync(sourcePath);
     const directoryProject = projectWithAsset('logo', 'assets/images/logo.png', original);
     active = await activate(projectFilePath, directoryProject);
-    expect((await resolveProjectAssetUrl(active.sessions, active.sessionId, 'logo')).ok).toBe(
-      false,
-    );
+    expect(
+      (await resolveProjectOriginalAssetUrl(active.sessions, active.sessionId, 'logo')).ok,
+    ).toBe(false);
 
     fs.rmSync(sourcePath, { recursive: true, force: true });
     fs.writeFileSync(sourcePath, Buffer.alloc(0));
@@ -190,11 +220,13 @@ describe('session-scoped original Asset streaming', () => {
       byteSize: PROJECT_ORIGINAL_ASSET_MAX_BYTES + 1,
     });
     active = await activate(projectFilePath, oversizedProject);
-    expect(await resolveProjectAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual({
-      ok: false,
-      code: 'too-large',
-      boundaryCode: 'source-too-large',
-    });
+    expect(await resolveProjectOriginalAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual(
+      {
+        ok: false,
+        code: 'too-large',
+        boundaryCode: 'source-too-large',
+      },
+    );
   });
 
   it('accepts exactly 128 MiB and rejects larger files', async () => {
@@ -207,7 +239,7 @@ describe('session-scoped original Asset streaming', () => {
       contentHash: zeroDigest(PROJECT_ORIGINAL_ASSET_MAX_BYTES),
     });
     let active = await activate(projectFilePath, exactProject);
-    const exact = await resolveProjectAssetUrl(active.sessions, active.sessionId, 'limit');
+    const exact = await resolveProjectOriginalAssetUrl(active.sessions, active.sessionId, 'limit');
     expect(exact.ok).toBe(true);
 
     fs.truncateSync(sourcePath, PROJECT_ORIGINAL_ASSET_MAX_BYTES + 1);
@@ -216,7 +248,9 @@ describe('session-scoped original Asset streaming', () => {
       contentHash: zeroDigest(PROJECT_ORIGINAL_ASSET_MAX_BYTES + 1),
     });
     active = await activate(projectFilePath, overProject);
-    expect(await resolveProjectAssetUrl(active.sessions, active.sessionId, 'limit')).toEqual({
+    expect(
+      await resolveProjectOriginalAssetUrl(active.sessions, active.sessionId, 'limit'),
+    ).toEqual({
       ok: false,
       code: 'too-large',
       boundaryCode: 'source-too-large',
@@ -242,18 +276,18 @@ describe('session-scoped original Asset streaming', () => {
       },
     };
     const { sessions, sessionId } = await activate(projectFilePath, project);
-    expect(await resolveProjectAssetUrl(sessions, sessionId, 'missing')).toEqual({
+    expect(await resolveProjectOriginalAssetUrl(sessions, sessionId, 'missing')).toEqual({
       ok: false,
       code: 'unknown-asset',
       boundaryCode: 'unauthorized-asset',
     });
-    expect(await resolveProjectAssetUrl(sessions, sessionId, 'note')).toEqual({
+    expect(await resolveProjectOriginalAssetUrl(sessions, sessionId, 'note')).toEqual({
       ok: false,
       code: 'unsupported-kind',
       boundaryCode: 'unauthorized-asset',
     });
     sessions.closeActiveProject();
-    expect(await resolveProjectAssetUrl(sessions, sessionId, 'note')).toEqual({
+    expect(await resolveProjectOriginalAssetUrl(sessions, sessionId, 'note')).toEqual({
       ok: false,
       code: 'stale-or-unknown',
       boundaryCode: 'stale-project-session',
@@ -272,7 +306,7 @@ describe('session-scoped original Asset streaming', () => {
       undefined,
       projectWithAsset('logo', 'assets/images/logo.png', bytes),
     );
-    const urlA = await resolveProjectAssetUrl(sessions, sessionA, 'logo');
+    const urlA = await resolveProjectOriginalAssetUrl(sessions, sessionA, 'logo');
     expect(urlA.ok).toBe(true);
 
     await sessions.activateProjectFile(

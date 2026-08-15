@@ -53,12 +53,15 @@ Main derives the Project root from the session and re-checks authority at dialog
 boundaries so a close or switch cannot redirect an in-flight Asset operation.
 
 Successful Project content publication and successful external reconciliation refresh the admitted
-Asset identities and source metadata before their results become current. A malformed candidate or
+Asset identities and minimal authorization metadata before their results become current: Asset id,
+kind, Project-relative source path, declared byte size, and content hash. A malformed candidate or
 failed refresh leaves the previous snapshot unchanged. Image-thumbnail requests additionally name an
-Asset id. Main verifies that the id is an admitted image Asset and that its Project-relative source,
-content revision when supplied, intrinsic dimensions, orientation, and sampling agree with the active
-snapshot before source filesystem access. Session authority is re-checked after asynchronous path
-resolution, so Project A thumbnail work cannot continue reading after Project B replaces it.
+Asset id. Main verifies that the id is an admitted image Asset and that its Project-relative source
+and content revision when supplied agree with the active snapshot before source filesystem access.
+Intrinsic dimensions and orientation are checked against the decoded source itself rather than stored
+as filesystem authority. Session and canonical-root authority are re-checked after asynchronous path
+resolution, so Project A thumbnail work cannot continue reading after Project B replaces it or after
+the activated Project root is replaced on disk.
 
 ## Preview, validation, playback, and shader boundaries
 
