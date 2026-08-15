@@ -407,6 +407,9 @@ async function copyResources(resourcesRoot) {
   const destinationCli = path.join(resourcesRoot, 'bin', expectedNovelTeaCliName());
   await mkdir(path.dirname(destinationCli), { recursive: true });
   await cp(cliSource, destinationCli);
+  if ((await sha256File(cliSource)) !== (await sha256File(destinationCli))) {
+    throw new Error('Staged NovelTea CLI bytes differ from the certified source binary.');
+  }
   if (process.platform !== 'win32') await chmod(destinationCli, 0o755);
 }
 

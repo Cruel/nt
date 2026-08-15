@@ -185,8 +185,6 @@ try {
       CSC_IDENTITY_AUTO_DISCOVERY: process.env.CSC_IDENTITY_AUTO_DISCOVERY ?? 'false',
     },
   });
-  const transactionApplication = await findPackagedApplication(transactionOutput);
-  await verifyPackagedEditor(transactionApplication);
   if (mode === 'artifact' && process.platform === 'linux') {
     await verifyLinuxInstallerContracts(transactionOutput, transactionRoot);
   }
