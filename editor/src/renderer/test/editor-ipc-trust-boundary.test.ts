@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import {
+  cancelPlatformExportArgumentsSchema,
   compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
   createProjectArgumentsSchema,
+  exportProjectToPlatformArgumentsSchema,
+  inspectPlayerTemplateArgumentsSchema,
   installEditorNavigationPolicy,
+  installPlayerTemplateArgumentsSchema,
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
@@ -23,6 +27,7 @@ import {
   normalizeEditorIpcBoundaryError,
 } from '../../shared/editor-ipc-boundary';
 import { selectDirectoryArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { ReadProjectTextSourcesRequest } from '../../shared/project-text-sources';
 
 class FakeIpcMain implements EditorIpcMain {
@@ -245,6 +250,90 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(shaderService).not.toHaveBeenCalled();
+  });
+
+  it('guards Project export authority and bounds template operations before side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const exportService = vi.fn((projectSessionId: string, _request: unknown) => projectSessionId);
+    const cancelService = vi.fn(
+      (projectSessionId: string, _operationId: string) => projectSessionId,
+    );
+    const inspectService = vi.fn((templateId: string, _buildId: string) => templateId);
+    const installService = vi.fn((request: unknown) => request);
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'platform-export',
+      (arguments_) => exportProjectToPlatformArgumentsSchema.parse(arguments_),
+      exportService,
+    );
+    registrar.handle(
+      'cancel-export',
+      (arguments_) => cancelPlatformExportArgumentsSchema.parse(arguments_),
+      cancelService,
+    );
+    registrar.handle(
+      'inspect-template',
+      (arguments_) => inspectPlayerTemplateArgumentsSchema.parse(arguments_),
+      inspectService,
+    );
+    registrar.handle(
+      'install-template',
+      (arguments_) => installPlayerTemplateArgumentsSchema.parse(arguments_),
+      installService,
+    );
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const request = {
+      project: createAuthoringProject({ name: 'Export' }),
+      profileId: 'linux-release',
+      outputDirectory: '/exports/story',
+    };
+
+    await expect(
+      ipcMain.invoke('platform-export', harness.event, sessionId, request),
+    ).resolves.toBe(sessionId);
+    await expect(
+      ipcMain.invoke('cancel-export', harness.event, sessionId, 'editor-export-1'),
+    ).resolves.toBe(sessionId);
+    await expect(
+      ipcMain.invoke('inspect-template', harness.event, 'linux-x64', 'build-1'),
+    ).resolves.toBe('linux-x64');
+    await expect(
+      ipcMain.invoke('install-template', harness.event, { archivePath: '/tmp/template.tar' }),
+    ).resolves.toEqual({ archivePath: '/tmp/template.tar' });
+
+    for (const [channel, arguments_] of [
+      ['platform-export', [sessionId, { ...request, projectRoot: '/alternate-project' }]],
+      ['platform-export', [sessionId, { ...request, projectPath: '/alternate/project.json' }]],
+      ['cancel-export', ['not-a-session', 'editor-export-1']],
+      ['inspect-template', ['x'.repeat(513), 'build-1']],
+      ['install-template', [{ archivePath: '/tmp/template.tar', unexpected: true }]],
+      ['install-template', [{ archivePath: 'x'.repeat(32_769) }]],
+    ] as const) {
+      exportService.mockClear();
+      cancelService.mockClear();
+      inspectService.mockClear();
+      installService.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(exportService).not.toHaveBeenCalled();
+      expect(cancelService).not.toHaveBeenCalled();
+      expect(inspectService).not.toHaveBeenCalled();
+      expect(installService).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(
+      ipcMain.invoke('platform-export', other.event, sessionId, request),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(exportService).not.toHaveBeenCalled();
   });
 
   it('strictly admits bounded app, window, dialog, and shell requests before side effects', async () => {

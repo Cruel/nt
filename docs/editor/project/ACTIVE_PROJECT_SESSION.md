@@ -81,6 +81,24 @@ arrays, numeric controls, and argument counts before the validation or native pl
 called. Extra fields and alternate request shapes are rejected rather than treated as compatibility
 forms.
 
+## Export and player-template authority
+
+Runtime package export, direct platform staging, platform export orchestration, and cancellation are
+admitted through the trusted editor IPC boundary. Project-derived export operations require the
+current `projectSessionId`; main resolves the canonical Project root from that session before any
+package, staging, signing, subprocess, or Project filesystem work begins. Platform export IPC no
+longer accepts `projectRoot` or `projectPath` from the renderer. Main supplies both from active
+authority, and prepared package sources, shader build roots, icon sources, and other Project-derived
+filesystem inputs are checked against that root before native work starts.
+
+Output files and output directories remain explicit user-selected destinations rather than Project
+authority. Player-template registry operations likewise remain explicit non-Project capabilities,
+but list, inspect, install, download, remove, and resolve requests now cross the trusted IPC seam with
+strict bounded schemas for identifiers, archive paths, hashes, collections, and options. Export
+cancellation is session-bound so a stale Project cannot cancel work owned by the current Project.
+Malformed or untrusted requests are rejected by the IPC registrar before export, download, signing,
+staging, or template services run.
+
 ## Project-scoped reads
 
 Project text-source requests carry `projectSessionId` and Project-relative source entries. The main

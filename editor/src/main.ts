@@ -83,7 +83,6 @@ import {
 } from './main/services/template-registry-service';
 import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
 import { downloadPlayerTemplateForRelease } from './main/services/template-download-service';
-import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type {
   ComfyUiEditImageRequest,
@@ -100,7 +99,7 @@ import type {
   ComfyUiWorkflowLibraryListRequest,
   ComfyUiWorkflowRenameRequest,
 } from './shared/comfyui-workflows';
-import type { CreateProjectRequest, PackageExportOptions } from './shared/editor-tooling';
+import type { CreateProjectRequest } from './shared/editor-tooling';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 import {
@@ -109,20 +108,28 @@ import {
 } from './main/image-thumbnail-protocol';
 import { ImageThumbnailService } from './main/services/image-thumbnail-service';
 import {
+  isStrictlyContainedPath,
   resolveEditorCacheRoot,
   resolveSystemCachePath,
 } from './main/services/image-thumbnail-cache-paths';
 import {
   auditProjectAssetsArgumentsSchema,
   cancelImageThumbnailPrewarmArgumentsSchema,
+  cancelPlatformExportArgumentsSchema,
   compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
   createProjectArgumentsSchema,
+  downloadPlayerTemplateArgumentsSchema,
+  exportPackageArgumentsSchema,
+  exportProjectToPlatformArgumentsSchema,
   imageThumbnailArgumentsSchema,
   imageThumbnailPrewarmArgumentsSchema,
   importAssetsArgumentsSchema,
+  inspectPlayerTemplateArgumentsSchema,
+  installPlayerTemplateArgumentsSchema,
   listPlaybackTestsArgumentsSchema,
+  listPlayerTemplatesArgumentsSchema,
   installEditorNavigationPolicy,
   noArgumentsSchema,
   openExternalArgumentsSchema,
@@ -133,10 +140,13 @@ import {
   projectSessionArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
   reimportAssetArgumentsSchema,
+  removePlayerTemplateArgumentsSchema,
+  resolvePlayerTemplateArgumentsSchema,
   runPlaybackSpecArgumentsSchema,
   runPlaybackTestArgumentsSchema,
   restoreProjectAssetFilesArgumentsSchema,
   selectDirectoryArgumentsSchema,
+  stagePlatformExportArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
@@ -312,6 +322,29 @@ function rememberPreviewProjectRoot<
     enginePreviewServer.setProjectFilePath(result.projectFilePath);
   }
   return result;
+}
+
+function requireProjectContainedPath(projectRoot: string, candidate: string, label: string): void {
+  const resolved = path.resolve(candidate);
+  if (!isStrictlyContainedPath(projectRoot, resolved)) {
+    throw new Error(`${label} must stay within the active Project.`);
+  }
+}
+
+function assertPackageProjectAuthority(
+  projectRoot: string,
+  options: {
+    shaderAssetRoot?: string;
+    assetRoots?: Array<{ root: string }>;
+    fileEntries?: Array<{ source: string }>;
+  },
+): void {
+  if (options.shaderAssetRoot)
+    requireProjectContainedPath(projectRoot, options.shaderAssetRoot, 'Shader asset root');
+  for (const assetRoot of options.assetRoots ?? [])
+    requireProjectContainedPath(projectRoot, assetRoot.root, 'Asset root');
+  for (const entry of options.fileEntries ?? [])
+    requireProjectContainedPath(projectRoot, entry.source, 'Package file source');
 }
 
 function getEditorWindowSettingsPath() {
@@ -846,47 +879,84 @@ void app.whenReady().then(async () => {
     (project, spec) => runUiPlaybackSpec(project, spec),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.EXPORT_PACKAGE,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, outputPath: string, options: unknown) =>
-      exportPackage(project, outputPath, options as PackageExportOptions),
+    (arguments_) => exportPackageArgumentsSchema.parse(arguments_),
+    (projectSessionId, project, outputPath, options) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      assertPackageProjectAuthority(projectRoot, options);
+      return exportPackage(project, outputPath, options);
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.STAGE_PLATFORM_EXPORT,
-    (_event: Electron.IpcMainInvokeEvent, request: PlatformStageRequest) =>
-      stagePlatformExport(request),
+    (arguments_) => stagePlatformExportArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      requireProjectContainedPath(projectRoot, request.packagePath, 'Runtime package source');
+      if (request.iconSourcePath)
+        requireProjectContainedPath(projectRoot, request.iconSourcePath, 'Platform icon source');
+      if (request.systemAssetsRoot)
+        requireProjectContainedPath(projectRoot, request.systemAssetsRoot, 'System assets root');
+      return stagePlatformExport(request);
+    },
   );
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM,
-    (event: Electron.IpcMainInvokeEvent, request) =>
-      exportProjectToPlatform(request, (progress) =>
-        event.sender.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
-      ),
+    (arguments_) => exportProjectToPlatformArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      if (request.preparedRuntimeArtifact)
+        assertPackageProjectAuthority(projectRoot, request.preparedRuntimeArtifact.packageOptions);
+      return exportProjectToPlatform(
+        {
+          ...request,
+          projectPath: path.join(projectRoot, 'project.json'),
+          projectRoot,
+        },
+        (progress) =>
+          mainWindow?.webContents.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
+      );
+    },
   );
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.CANCEL_PLATFORM_EXPORT,
-    (_event: Electron.IpcMainInvokeEvent, operationId: string) => cancelPlatformExport(operationId),
+    (arguments_) => cancelPlatformExportArgumentsSchema.parse(arguments_),
+    (projectSessionId, operationId) => {
+      activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return cancelPlatformExport(operationId);
+    },
   );
-  ipcMain.handle(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, (_event, query = {}) =>
-    listPlayerTemplates(query),
+  guardedIpc.handle(
+    IPC_CHANNELS.LIST_PLAYER_TEMPLATES,
+    (arguments_) => listPlayerTemplatesArgumentsSchema.parse(arguments_),
+    (query) => listPlayerTemplates(query),
   );
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.INSPECT_PLAYER_TEMPLATE,
-    (_event, templateId: string, buildId: string) => inspectPlayerTemplate(templateId, buildId),
+    (arguments_) => inspectPlayerTemplateArgumentsSchema.parse(arguments_),
+    (templateId, buildId) => inspectPlayerTemplate(templateId, buildId),
   );
-  ipcMain.handle(IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE, (_event, request) =>
-    installPlayerTemplate(request),
+  guardedIpc.handle(
+    IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE,
+    (arguments_) => installPlayerTemplateArgumentsSchema.parse(arguments_),
+    (request) => installPlayerTemplate(request),
   );
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_PLAYER_TEMPLATE, (_event, request) =>
-    downloadPlayerTemplateForRelease(`v${NOVELTEA_VERSION}`, request),
+  guardedIpc.handle(
+    IPC_CHANNELS.DOWNLOAD_PLAYER_TEMPLATE,
+    (arguments_) => downloadPlayerTemplateArgumentsSchema.parse(arguments_),
+    (request) => downloadPlayerTemplateForRelease(`v${NOVELTEA_VERSION}`, request),
   );
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE,
-    (_event, templateId: string, buildId: string) => removePlayerTemplate(templateId, buildId),
+    (arguments_) => removePlayerTemplateArgumentsSchema.parse(arguments_),
+    (templateId, buildId) => removePlayerTemplate(templateId, buildId),
   );
-  ipcMain.handle(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, (_event, request) =>
-    resolvePlayerTemplate(request),
+  guardedIpc.handle(
+    IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE,
+    (arguments_) => resolvePlayerTemplateArgumentsSchema.parse(arguments_),
+    (request) => resolvePlayerTemplate(request),
   );
 
   guardedIpc.handle(

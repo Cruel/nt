@@ -7,6 +7,16 @@ import {
 } from '../shared/image-thumbnails';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { compiledProjectWireV3Schema } from '../shared/project-schema/compiled-project';
+import { preparedRuntimeArtifactSchema } from '../shared/project-schema/prepared-runtime-artifact';
+import {
+  exportCapabilityValues,
+  normalizedPlatformDisplayMetadataSchema,
+  platformExportProfileSchema,
+  playerAccessibilityMetadataSchema,
+  playerDisplayMetadataSchema,
+  templateCompatibilityRequirementsSchema,
+  templateDownloadRequestSchema,
+} from '../shared/project-schema/platform-export-contracts';
 import { shaderMaterialProjectWireSchema } from '../shared/project-schema/shader-material-project';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 
@@ -23,6 +33,10 @@ const MAX_PLAYBACK_TEST_ID_LENGTH = 1_024;
 const MAX_PLAYBACK_STEPS = 100_000;
 const MAX_SHADER_VARIANTS = 256;
 const MAX_SHADER_VARIANT_LENGTH = 256;
+const MAX_EXPORT_IDENTIFIER_LENGTH = 512;
+const MAX_EXPORT_COLLECTION_ENTRIES = 10_000;
+const MAX_EXPORT_ARGUMENTS = 1_024;
+const MAX_EXPORT_ARGUMENT_LENGTH = 32_768;
 const sha256DigestSchema = z.custom<`sha256:${string}`>(
   (value) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value),
 );
@@ -406,4 +420,235 @@ export const compileShadersArgumentsSchema = z.tuple([
         .optional(),
     })
     .strict(),
+]);
+
+const boundedExportStringSchema = z.string().min(1).max(MAX_EXPORT_ARGUMENT_LENGTH);
+const boundedExportIdentifierSchema = z.string().min(1).max(MAX_EXPORT_IDENTIFIER_LENGTH);
+const boundedExportArgumentsSchema = z
+  .array(z.string().max(MAX_EXPORT_ARGUMENT_LENGTH))
+  .max(MAX_EXPORT_ARGUMENTS);
+
+export const exportPackageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  compiledProjectWireV3Schema,
+  boundedExportStringSchema,
+  preparedRuntimeArtifactSchema.shape.packageOptions,
+]);
+
+const platformStageRequestSchema = z
+  .object({
+    operationId: boundedExportIdentifierSchema,
+    profile: platformExportProfileSchema,
+    templateToken: boundedExportStringSchema,
+    outputDirectory: boundedExportStringSchema,
+    packagePath: boundedExportStringSchema,
+    iconSourcePath: boundedExportStringSchema.optional(),
+    systemAssetsRoot: boundedExportStringSchema.optional(),
+    runtimePackageEvidence: z
+      .object({
+        sourceFingerprint: boundedExportIdentifierSchema,
+        packageSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+      })
+      .strict(),
+    identity: z
+      .object({
+        displayName: boundedExportIdentifierSchema,
+        shortName: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        applicationId: boundedExportIdentifierSchema,
+        saveNamespace: boundedExportIdentifierSchema,
+        versionName: boundedExportIdentifierSchema,
+        defaultLocale: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        themeColor: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        backgroundColor: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        webManifestId: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH).optional(),
+        linuxDesktopId: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        macosCategory: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        macosMicrophoneUsageDescription: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH).optional(),
+        androidVersionCode: z.number().int().positive().optional(),
+        androidAllowBackup: z.boolean().optional(),
+        androidIsGame: z.boolean().optional(),
+        localized: z
+          .record(
+            z.string().min(1).max(MAX_EXPORT_IDENTIFIER_LENGTH),
+            z
+              .object({
+                displayName: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+                shortName: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+                description: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH).optional(),
+              })
+              .strict(),
+          )
+          .optional(),
+      })
+      .strict(),
+    display: normalizedPlatformDisplayMetadataSchema,
+    runtimeDisplay: playerDisplayMetadataSchema,
+    accessibility: playerAccessibilityMetadataSchema,
+    capabilities: z
+      .array(z.enum(exportCapabilityValues))
+      .max(MAX_EXPORT_COLLECTION_ENTRIES)
+      .optional(),
+    runtimePackageApi: z.number().int().nonnegative(),
+    host: z
+      .object({
+        platform: z.enum(['windows', 'linux', 'macos']),
+        availableTools: z.array(boundedExportStringSchema).max(MAX_EXPORT_ARGUMENTS),
+      })
+      .strict()
+      .optional(),
+    windowsSigning: z
+      .object({
+        command: boundedExportStringSchema,
+        args: boundedExportArgumentsSchema,
+        verifyCommand: boundedExportStringSchema.optional(),
+        verifyArgs: boundedExportArgumentsSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    linuxAppImageTool: boundedExportStringSchema.optional(),
+    macosSigning: z
+      .object({
+        identity: boundedExportStringSchema,
+        entitlementsPath: boundedExportStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    macosNotarization: z
+      .object({ command: boundedExportStringSchema, args: boundedExportArgumentsSchema })
+      .strict()
+      .optional(),
+    macosDmg: z
+      .object({ command: boundedExportStringSchema, args: boundedExportArgumentsSchema })
+      .strict()
+      .optional(),
+    androidToolchain: z
+      .object({
+        androidSdk: boundedExportStringSchema.optional(),
+        androidNdk: boundedExportStringSchema.optional(),
+        javaHome: boundedExportStringSchema.optional(),
+        cmake: boundedExportStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    androidSigning: z
+      .object({
+        keystorePath: boundedExportStringSchema,
+        keyAlias: boundedExportIdentifierSchema,
+        storePassword: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH),
+        keyPassword: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const stagePlatformExportArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  platformStageRequestSchema,
+]);
+
+const projectPlatformExportIpcRequestSchema = z
+  .object({
+    project: authoringProjectSchema,
+    profileId: boundedExportIdentifierSchema,
+    outputDirectory: boundedExportStringSchema,
+    operationId: boundedExportIdentifierSchema.optional(),
+    templateToken: boundedExportStringSchema.optional(),
+    checkOnly: z.boolean().optional(),
+    force: z.boolean().optional(),
+    allowUntrustedTemplate: z.boolean().optional(),
+    allowIdentityChange: z.boolean().optional(),
+    sign: z.boolean().optional(),
+    preparedRuntimeArtifact: preparedRuntimeArtifactSchema.optional(),
+    localState: z
+      .object({
+        androidSdk: boundedExportStringSchema.optional(),
+        androidNdk: boundedExportStringSchema.optional(),
+        javaHome: boundedExportStringSchema.optional(),
+        cmake: boundedExportStringSchema.optional(),
+        signing: z
+          .object({
+            windows: z
+              .object({
+                command: boundedExportStringSchema,
+                args: boundedExportArgumentsSchema,
+                verifyCommand: boundedExportStringSchema,
+                verifyArgs: boundedExportArgumentsSchema,
+              })
+              .strict()
+              .optional(),
+            macos: z
+              .object({
+                identity: boundedExportStringSchema,
+                entitlementsPath: boundedExportStringSchema.optional(),
+                notarizationCommand: boundedExportStringSchema.optional(),
+                notarizationArgs: boundedExportArgumentsSchema.optional(),
+              })
+              .strict()
+              .optional(),
+            android: z
+              .object({
+                keystorePath: boundedExportStringSchema,
+                keyAlias: boundedExportIdentifierSchema,
+                storePasswordReference: boundedExportIdentifierSchema,
+                keyPasswordReference: boundedExportIdentifierSchema,
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const exportProjectToPlatformArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  projectPlatformExportIpcRequestSchema,
+]);
+export const cancelPlatformExportArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  boundedExportIdentifierSchema,
+]);
+
+export const listPlayerTemplatesArgumentsSchema = z.tuple([
+  z
+    .object({
+      platform: z.enum(['windows', 'linux', 'macos', 'web', 'android']).optional(),
+      architecture: boundedExportIdentifierSchema.optional(),
+      buildFlavor: z.enum(['debug', 'release']).optional(),
+    })
+    .strict(),
+]);
+export const inspectPlayerTemplateArgumentsSchema = z.tuple([
+  boundedExportIdentifierSchema,
+  boundedExportIdentifierSchema,
+]);
+export const installPlayerTemplateArgumentsSchema = z.tuple([
+  z
+    .object({
+      archivePath: boundedExportStringSchema,
+      force: z.boolean().optional(),
+      archiveSha256: z
+        .string()
+        .regex(/^[0-9a-f]{64}$/u)
+        .optional(),
+      origin: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH).optional(),
+      officialProvenance: z
+        .object({
+          archiveSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+          descriptorSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+          source: boundedExportStringSchema,
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+]);
+export const downloadPlayerTemplateArgumentsSchema = z.tuple([templateDownloadRequestSchema]);
+export const removePlayerTemplateArgumentsSchema = inspectPlayerTemplateArgumentsSchema;
+export const resolvePlayerTemplateArgumentsSchema = z.tuple([
+  z.object({ requirements: templateCompatibilityRequirementsSchema }).strict(),
 ]);

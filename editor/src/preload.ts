@@ -60,19 +60,20 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RUN_PLAYBACK_SPEC, project, spec),
   runUiPlaybackSpec: (project: unknown, spec: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC, project, spec),
-  exportPackage: (project: unknown, outputPath: string, options = {}) =>
-    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PACKAGE, project, outputPath, options),
-  stagePlatformExport: (request) => ipcRenderer.invoke(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, request),
-  exportProjectToPlatform: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM, request),
+  exportPackage: (projectSessionId: string, project: unknown, outputPath: string, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PACKAGE, projectSessionId, project, outputPath, options),
+  stagePlatformExport: (projectSessionId: string, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, projectSessionId, request),
+  exportProjectToPlatform: (projectSessionId: string, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM, projectSessionId, request),
   onPlatformExportProgress: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown) =>
       callback(progress as never);
     ipcRenderer.on(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, listener);
   },
-  cancelPlatformExport: (operationId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, operationId),
+  cancelPlatformExport: (projectSessionId: string, operationId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, projectSessionId, operationId),
   listPlayerTemplates: (query = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, query),
   inspectPlayerTemplate: (templateId, buildId) =>

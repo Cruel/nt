@@ -56,7 +56,23 @@ export async function runPlatformStageWorkflow(
   store.start();
   store.setStage('writing-package');
   workspace.setStatusMessage(`Staging ${request.profile.label}`);
-  const staged = await window.noveltea.stagePlatformExport(request);
+  const projectSessionId = useProjectStore.getState().projectSessionId;
+  const staged = projectSessionId
+    ? await window.noveltea.stagePlatformExport(projectSessionId, request)
+    : {
+        ok: false,
+        success: false,
+        cancelled: false,
+        operationId: request.operationId,
+        diagnostics: [
+          createPlatformExportValidationDiagnostic({
+            code: 'platform-export.active-project-session-required',
+            severity: 'error',
+            path: '/project',
+            message: 'Platform staging requires the active saved Project session.',
+          }),
+        ],
+      };
   const result: PackageExportWorkflowResult = {
     ...emptyPackageExportResult(staged.success ? 'complete' : 'failed'),
     ok: staged.ok,
@@ -86,7 +102,10 @@ export async function runPlatformStageWorkflow(
 }
 
 export function cancelPlatformStageWorkflow(operationId: string) {
-  return window.noveltea.cancelPlatformExport(operationId);
+  const projectSessionId = useProjectStore.getState().projectSessionId;
+  return projectSessionId
+    ? window.noveltea.cancelPlatformExport(projectSessionId, operationId)
+    : Promise.resolve({ cancelled: false });
 }
 
 async function recordSuccessfulExportIdentity(
@@ -218,10 +237,29 @@ export async function runProjectPlatformExportWorkflow(
           diagnostics: prepared.diagnostics,
         };
       } else {
-        staged = await window.noveltea.exportProjectToPlatform({
-          ...request,
-          preparedRuntimeArtifact: prepared.artifact,
-        });
+        const projectSessionId = useProjectStore.getState().projectSessionId;
+        if (!projectSessionId) {
+          staged = {
+            ok: false,
+            success: false,
+            cancelled: false,
+            operationId: request.operationId ?? 'platform-export',
+            diagnostics: [
+              createPlatformExportValidationDiagnostic({
+                code: 'platform-export.active-project-session-required',
+                severity: 'error',
+                path: '/project',
+                message: 'Platform export requires the active saved Project session.',
+              }),
+            ],
+          };
+        } else {
+          const { projectPath: _projectPath, projectRoot: _projectRoot, ...ipcRequest } = request;
+          staged = await window.noveltea.exportProjectToPlatform(projectSessionId, {
+            ...ipcRequest,
+            preparedRuntimeArtifact: prepared.artifact,
+          });
+        }
       }
     }
   } finally {

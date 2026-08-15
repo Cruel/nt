@@ -48,22 +48,31 @@ interface NovelTeaElectronApiContract {
   runPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
   runUiPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
   exportPackage(
+    projectSessionId: string,
     project: unknown,
     outputPath: string,
-    options?: PackageExportOptions,
+    options: import('./project-schema/prepared-runtime-artifact').PreparedRuntimePackageOptions,
   ): Promise<PackageExportResponse>;
   stagePlatformExport(
+    projectSessionId: string,
     request: import('./project-schema/platform-export-contracts').PlatformStageRequest,
   ): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
   exportProjectToPlatform(
-    request: import('./project-schema/platform-export-contracts').ProjectPlatformExportRequest,
+    projectSessionId: string,
+    request: Omit<
+      import('./project-schema/platform-export-contracts').ProjectPlatformExportRequest,
+      'projectPath' | 'projectRoot'
+    >,
   ): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
   onPlatformExportProgress(
     callback: (
       event: import('./project-schema/platform-export-contracts').PlatformExportProgressEvent,
     ) => void,
   ): () => void;
-  cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>;
+  cancelPlatformExport(
+    projectSessionId: string,
+    operationId: string,
+  ): Promise<{ cancelled: boolean }>;
   listPlayerTemplates(
     query?: import('./project-schema/platform-export-contracts').TemplateRegistryQuery,
   ): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate[]>;
@@ -245,7 +254,6 @@ import type {
   CreateProjectRequest,
   OpenProjectResponse,
   SaveProjectEditorMetadataResponse,
-  PackageExportOptions,
   PackageExportResponse,
   PackagePreviewResponse,
   PlaybackReportResponse,

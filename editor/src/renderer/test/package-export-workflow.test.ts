@@ -29,6 +29,7 @@ beforeEach(() => {
   useWorkspaceStore.getState().setLastExportResult(null);
   useWorkspaceStore.getState().setStatusMessage('');
   useProjectStore.getState().clearProject();
+  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   useCommandStore.getState().resetCommandHistory();
   vi.mocked(window.noveltea.exportPackage).mockResolvedValue({
     ok: true,
@@ -53,6 +54,7 @@ describe('package export workflow', () => {
 
     expect(result.success).toBe(true);
     expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
       expect.objectContaining({
         project: expect.objectContaining({ name: 'Workflow Demo' }),
         entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
@@ -192,6 +194,7 @@ describe('package export workflow', () => {
     expect(useProjectStore.getState().document).toEqual(authored);
     expect(useCommandStore.getState().history.entries).toEqual([]);
     expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
       expect.anything(),
       '/project/out.ntpkg',
       expect.objectContaining({

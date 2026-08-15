@@ -96,6 +96,7 @@ beforeEach(() => {
   usePackageExportStore.getState().clear();
   useWorkspaceStore.getState().setLastExportResult(null);
   useProjectStore.getState().clearProject();
+  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   useCommandStore.getState().resetCommandHistory();
   vi.mocked(window.noveltea.selectPackageOutputPath).mockResolvedValue(
     '/project/dialog-export.ntpkg',
@@ -327,6 +328,7 @@ describe('PackageExportDialog', () => {
     fireEvent.click(exportButton);
     await waitFor(() => expect(window.noveltea.exportPackage).toHaveBeenCalled());
     expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
       expect.objectContaining({ project: expect.objectContaining({ name: '[Unnamed Project]' }) }),
       '/project/new-project.ntpkg',
       expect.objectContaining({
@@ -466,12 +468,15 @@ describe('PackageExportDialog', () => {
     await waitFor(() => expect(screen.getByText('linux-x64@build-1')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: 'Export Project' }));
     await waitFor(() => expect(window.noveltea.exportProjectToPlatform).toHaveBeenCalled());
-    const request = vi.mocked(window.noveltea.exportProjectToPlatform).mock.calls[0]![0];
+    const [projectSessionId, request] = vi.mocked(window.noveltea.exportProjectToPlatform).mock
+      .calls[0]!;
+    expect(projectSessionId).toBe('11111111-1111-4111-8111-111111111111');
     expect(request).toMatchObject({
       profileId: 'linux-release',
       templateToken: 'linux-x64/build-1',
-      projectRoot: '/project',
     });
+    expect(request).not.toHaveProperty('projectRoot');
+    expect(request).not.toHaveProperty('projectPath');
   });
 
   it('downloads, verifies, and selects the release template when one is missing', async () => {
@@ -603,6 +608,7 @@ describe('PackageExportDialog', () => {
     fireEvent.click(cancel);
     await waitFor(() =>
       expect(window.noveltea.cancelPlatformExport).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
         expect.stringMatching(/^editor-/),
       ),
     );
