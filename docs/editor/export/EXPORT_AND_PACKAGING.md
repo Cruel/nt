@@ -138,7 +138,12 @@ not trusted. Platform orchestration then verifies the player template, stages `p
 performs the selected target export. Project open does not attempt old-format native import.
 
 Templates may carry a precompiled player or a platform build project. Desktop and Web templates
-normally carry precompiled players. Android uses the source-template form: it carries a Gradle
+normally carry precompiled players. Template installation verifies the descriptor and file byte
+inventory; target file modes come from that verified descriptor rather than host extraction
+permissions. Their final ZIP/TAR publication is assembled by the editor/CLI without CMake or another
+build toolchain, honors the profile compression policy, and writes those target modes into archive
+metadata so cross-host publication does not depend on the host filesystem preserving POSIX
+permissions. Android uses the source-template form: it carries a Gradle
 project and structured Android descriptor while retaining precompiled native player libraries.
 The exporter runs its declared build workflow with an already installed compatible toolchain; it
 never installs SDKs or silently builds NovelTea itself.

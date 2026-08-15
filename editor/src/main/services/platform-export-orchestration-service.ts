@@ -154,7 +154,7 @@ function plannedPlatformArtifactPaths(
   const paths = [output];
   if (profile.target === 'web' || profile.target === 'windows') paths.push(`${output}.zip`);
   if (profile.target === 'linux') {
-    paths.push(`${output}.tar.gz`);
+    paths.push(profile.desktop.artifact === 'zip' ? `${output}.zip` : `${output}.tar.gz`);
     if (profile.desktop.artifact === 'appimage') paths.push(`${output}.AppImage`);
   }
   if (profile.target === 'macos') {

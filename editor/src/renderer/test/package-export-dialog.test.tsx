@@ -8,6 +8,11 @@ import { usePackageExportStore } from '@/export/package-export-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
+import {
+  collectPendingInputDiagnostics,
+  selectPendingSaveUnitIds,
+  usePendingInputStore,
+} from '@/workbench/pending-input-store';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
@@ -71,7 +76,7 @@ function installedLinuxTemplateResult() {
         graphicsBackends: ['opengl' as const],
         shaderVariants: ['glsl-120' as const],
         runtimePackageApi: { minimum: 2, maximum: 2 },
-        playerConfigApi: { minimum: 1, maximum: 1 },
+        playerConfigApi: { minimum: 2, maximum: 2 },
         compiledFeatures: [],
         capabilities: [],
         buildFlavor: 'release' as const,
@@ -97,6 +102,7 @@ beforeEach(() => {
   useWorkspaceStore.getState().setLastExportResult(null);
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
+  usePendingInputStore.getState().resetPendingInputs();
   vi.mocked(window.noveltea.selectPackageOutputPath).mockResolvedValue(
     '/project/dialog-export.ntpkg',
   );
@@ -147,6 +153,23 @@ describe('PackageExportDialog', () => {
     expect(screen.queryByText('Profile name')).not.toBeInTheDocument();
   });
 
+  it('uses host-native separators for default external output paths', async () => {
+    render(
+      <PackageExportDialog
+        open
+        initialMode="platform"
+        onOpenChange={vi.fn()}
+        project={exportableProject()}
+        projectRoot={'C:\\Users\\Thomas\\Documents\\NovelTea\\project'}
+        projectFilePath={'C:\\Users\\Thomas\\Documents\\NovelTea\\project\\project.json'}
+      />,
+    );
+
+    expect(await screen.findByLabelText('Output directory')).toHaveValue(
+      'C:\\Users\\Thomas\\Documents\\NovelTea\\project\\dist\\linux-release',
+    );
+  });
+
   it('keeps profile editing in the dedicated profile manager', () => {
     const project = exportableProject();
     delete project.settings.platformExport;
@@ -169,6 +192,65 @@ describe('PackageExportDialog', () => {
     expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument();
     expect(screen.queryByText('Profile name')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Export Project' })).not.toBeInTheDocument();
+  });
+
+  it('keeps invalid Web base-path text while showing validity status', async () => {
+    const project = exportableProject();
+    const webProfile = defaultPlatformExportProfile('web');
+    project.settings.platformExport = {
+      selectedProfileId: webProfile.id,
+      profiles: [webProfile],
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/project',
+      projectFilePath: '/project/project.json',
+    });
+    render(
+      <PackageExportDialog
+        embedded
+        profileManagementOnly
+        initialMode="platform"
+        open
+        onOpenChange={vi.fn()}
+        project={project}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+
+    const input = screen.getByLabelText('Base path');
+    expect(input).toHaveValue('/');
+    expect(screen.getByLabelText('Valid web base path')).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: '/game' } });
+    expect(input).toHaveValue('/game');
+    expect(selectPendingSaveUnitIds(usePendingInputStore.getState())).toContain(
+      'project:platform-export-profiles',
+    );
+    expect(collectPendingInputDiagnostics(usePendingInputStore.getState())).toContainEqual(
+      expect.objectContaining({
+        code: 'platform-export.web-base-path-invalid',
+        message: 'Web base path must start and end with /.',
+      }),
+    );
+    const invalid = screen.getByLabelText('Invalid web base path');
+    expect(invalid).toBeInTheDocument();
+    fireEvent.mouseEnter(invalid);
+    expect(
+      await screen.findByText('Must start and end with / (for example /game/).'),
+    ).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: '/game/' } });
+    expect(input).toHaveValue('/game/');
+    expect(screen.getByLabelText('Valid web base path')).toBeInTheDocument();
+    expect(selectPendingSaveUnitIds(usePendingInputStore.getState())).not.toContain(
+      'project:platform-export-profiles',
+    );
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof exportableProject>).settings
+        .platformExport?.profiles[0],
+    ).toMatchObject({ web: { basePath: '/game/' } });
   });
 
   it('performs profile CRUD through command-backed project settings', async () => {
@@ -472,6 +554,43 @@ describe('PackageExportDialog', () => {
       templateToken: 'linux-x64/build-1',
       projectRoot: '/project',
     });
+  });
+
+  it('installs, reads back, and selects a compatible local template', async () => {
+    const installed = installedLinuxTemplateResult();
+    vi.mocked(window.noveltea.selectTemplateArchivePath).mockResolvedValue(
+      '/downloads/linux.tar.gz',
+    );
+    vi.mocked(window.noveltea.installPlayerTemplate).mockResolvedValue({
+      success: true,
+      entry: { ...installed.template.entry, trust: 'local-untrusted' },
+      diagnostics: [],
+    });
+    vi.mocked(window.noveltea.inspectPlayerTemplate).mockResolvedValue({
+      ...installed.template,
+      status: 'untrusted',
+      entry: { ...installed.template.entry, trust: 'local-untrusted' },
+    });
+
+    render(
+      <PackageExportDialog
+        open
+        onOpenChange={vi.fn()}
+        project={exportableProject()}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Playable Platform Export' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Install Template…' }));
+
+    await waitFor(() =>
+      expect(window.noveltea.inspectPlayerTemplate).toHaveBeenCalledWith('linux-x64', 'build-1'),
+    );
+    expect(await screen.findByText('linux-x64@build-1')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Player template' })).toHaveValue(
+      'linux-x64/build-1',
+    );
   });
 
   it('downloads, verifies, and selects the release template when one is missing', async () => {

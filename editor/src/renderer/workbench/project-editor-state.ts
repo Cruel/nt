@@ -101,6 +101,13 @@ function manualSaveUnitForHistoryPath(originSaveUnitId: string, path: string): s
     )
       return originSaveUnitId;
   }
+  if (
+    originSaveUnitId === SAVE_UNIT_IDS.platformExportProfiles &&
+    segments[0] === 'settings' &&
+    segments[1] === 'platformExport'
+  )
+    return originSaveUnitId;
+
   const collectionMatch = originSaveUnitId.match(/^collection:([^:]+)$/);
   if (collectionMatch) {
     const collection = collectionMatch[1]!;

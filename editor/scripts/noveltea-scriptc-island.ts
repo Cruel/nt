@@ -70,8 +70,8 @@ function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
     async resizeImageToPng(request) {
       call('image-resize-png', request);
     },
-    async fileMode(path) {
-      return call('file-mode', { path });
+    async fileMode(path, fallback) {
+      return call('file-mode', { path, fallback });
     },
     async availableDiskSpace(path) {
       return call('disk-space', { path });

@@ -11,13 +11,16 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCommandStore } from '@/commands/command-store';
-import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS, SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import { buildPlatformExportProfilesTab, buildSettingsTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
+import type { JsonPointer } from '@/project/json-pointer';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -61,6 +64,7 @@ import {
 import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
 import { evaluatePlatformExportReadiness } from './platform-export-readiness';
 import { rendererRuntimeArtifactPaths } from './runtime-artifact-adapters';
+import { hostPathDirname, joinHostPath } from '../host-filesystem-path';
 
 interface PackageExportDialogProps {
   open: boolean;
@@ -75,6 +79,8 @@ interface PackageExportDialogProps {
 
 type ExportMode = 'runtime' | 'platform';
 type CustomAssetMemoryField = keyof NonNullable<PlatformExportProfile['assetMemory']['custom']>;
+
+const webBasePathPattern = /^\/$|^\/[a-zA-Z0-9._~!$&'()*+,;=:@%/-]*\/$/;
 
 function ExportSurface({
   embedded,
@@ -114,26 +120,20 @@ const capabilityOptions: ExportCapability[] = [
   'billing',
 ];
 
-function dirname(value: string | null): string | null {
-  if (!value) return null;
-  const normalized = value.replace(/\\/g, '/');
-  const slash = normalized.lastIndexOf('/');
-  return slash >= 0 ? normalized.slice(0, slash) : null;
-}
-
 function defaultOutputPath(
   project: AuthoringProject,
   projectRoot: string | null,
   projectFilePath: string | null,
 ) {
-  const root = projectRoot ?? dirname(projectFilePath) ?? '';
+  const root = projectRoot ?? hostPathDirname(projectFilePath) ?? '';
   const file = defaultPackageOutputFileName(project);
-  return root ? `${root.replace(/[\\/]+$/, '')}/${file}` : file;
+  return root ? joinHostPath(root, file) : file;
 }
 
 function defaultPlatformOutput(projectRoot: string | null, profile: PlatformExportProfile) {
-  const root = projectRoot?.replace(/[\\/]+$/, '') ?? '';
-  return `${root ? `${root}/` : ''}dist/${profile.id}`;
+  return projectRoot
+    ? joinHostPath(projectRoot, 'dist', profile.id)
+    : joinHostPath('', 'dist', profile.id);
 }
 
 function toggleVariant(
@@ -244,7 +244,7 @@ function iconSourcePath(project: AuthoringProject, projectRoot: string | null) {
   const icon = projectSettingsForEditing(project).app.icon;
   if (!icon || !projectRoot) return undefined;
   const data = parseAssetData(project.assets[icon.$ref.id]?.data);
-  return data ? `${projectRoot.replace(/[\\/]+$/, '')}/${data.source.path}` : undefined;
+  return data ? joinHostPath(projectRoot, data.source.path) : undefined;
 }
 
 function persistPlatformSettings(
@@ -346,12 +346,28 @@ export function PackageExportDialog({
     null;
   const activePlatformProfile = selectedPlatformProfile ?? defaultPlatformExportProfile('linux');
   const selectedPlatformTarget = selectedPlatformProfile?.target;
+  const selectedPlatformProfileIndex = Math.max(
+    0,
+    platformSettings?.profiles.findIndex((item) => item.id === activePlatformProfile.id) ?? 0,
+  );
+  const webBasePathPendingPath =
+    `/settings/platformExport/profiles/${selectedPlatformProfileIndex}/web/basePath` as JsonPointer;
+  const webBasePathPending = usePendingInputStore(
+    (state) =>
+      state.entriesBySaveUnitId[SAVE_UNIT_IDS.platformExportProfiles]?.[webBasePathPendingPath],
+  );
+  const setPendingInput = usePendingInputStore((state) => state.setPendingInput);
+  const clearPendingInput = usePendingInputStore((state) => state.clearPendingInput);
+  const platformRuntimeProfile = useMemo(() => {
+    if (!project || !selectedPlatformTarget) return null;
+    return runtimeExportProfileForPlatform(project, selectedPlatformTarget);
+  }, [project, selectedPlatformTarget]);
   const previewProfile = useMemo(() => {
     if (!project || !activeRuntimeProfile) return null;
-    return mode === 'platform' && selectedPlatformTarget
-      ? runtimeExportProfileForPlatform(project, selectedPlatformTarget)
+    return mode === 'platform' && platformRuntimeProfile
+      ? platformRuntimeProfile
       : activeRuntimeProfile;
-  }, [project, activeRuntimeProfile, mode, selectedPlatformTarget]);
+  }, [project, activeRuntimeProfile, mode, platformRuntimeProfile]);
   const [preview, setPreview] = useState<RuntimeArtifactAssessment | null>(null);
   useEffect(() => {
     let current = true;
@@ -386,7 +402,7 @@ export function PackageExportDialog({
   }, [selectedPlatformProfile?.id, platformOutput, projectFilePath, projectRoot]); // oxlint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!open || mode !== 'platform' || !selectedPlatformProfile || !activeRuntimeProfile) return;
+    if (!open || mode !== 'platform' || !selectedPlatformProfile || !platformRuntimeProfile) return;
     let cancelled = false;
     setTemplate(null);
     const rememberedTemplate =
@@ -407,7 +423,7 @@ export function PackageExportDialog({
           profile: selectedPlatformProfile,
           runtimePackageApi: 2,
           playerConfigApi: 2,
-          shaderVariants: activeRuntimeProfile.shaderVariants,
+          shaderVariants: platformRuntimeProfile.shaderVariants,
           graphicsBackends: [],
           capabilities: selectedPlatformProfile.capabilityOverrides,
           requiredFeatures: [],
@@ -434,7 +450,7 @@ export function PackageExportDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, mode, selectedPlatformProfile, activeRuntimeProfile]); // oxlint-disable-line react-hooks/exhaustive-deps
+  }, [open, mode, selectedPlatformProfile, platformRuntimeProfile]); // oxlint-disable-line react-hooks/exhaustive-deps
 
   if (!project || !activeRuntimeProfile || !platformSettings) return null;
 
@@ -515,6 +531,10 @@ export function PackageExportDialog({
   const currentRuntimeProfile: ExportProfileData = activeRuntimeProfile;
   const currentPlatformSettings: ProjectPlatformExportSettings = platformSettings;
   const currentPlatformProfile: PlatformExportProfile = activePlatformProfile;
+  const currentPlatformRuntimeProfile = runtimeExportProfileForPlatform(
+    currentProject,
+    currentPlatformProfile.target,
+  );
   const resolvedAssetMemory = resolveAssetMemoryPolicy(
     currentPlatformProfile.target,
     currentPlatformProfile.assetMemory,
@@ -526,7 +546,7 @@ export function PackageExportDialog({
       profile: currentPlatformProfile,
       runtimePackageApi: 2,
       playerConfigApi: 2,
-      shaderVariants: currentRuntimeProfile.shaderVariants,
+      shaderVariants: currentPlatformRuntimeProfile.shaderVariants,
       graphicsBackends: [],
       capabilities: currentPlatformProfile.capabilityOverrides,
       requiredFeatures: [],
@@ -757,31 +777,92 @@ export function PackageExportDialog({
       );
       return;
     }
-    const resolved = await window.noveltea.resolvePlayerTemplate({
-      requirements: {
-        profile: currentPlatformProfile,
-        runtimePackageApi: 2,
-        playerConfigApi: 2,
-        shaderVariants: currentRuntimeProfile.shaderVariants,
-        graphicsBackends: [],
-        capabilities: currentPlatformProfile.capabilityOverrides,
-        requiredFeatures: [],
-      },
-    });
-    setTemplate(resolved.template ?? null);
-    setSelectedTemplateToken(resolved.token ?? '');
-    setTemplateDiagnostics(
-      classifyProjectValidationDiagnostics(
-        resolved.diagnostics.map((item) => ({
-          code: item.code,
-          severity: resolved.success ? ('warning' as const) : ('error' as const),
-          category: `template:${item.code}`,
-          path: item.path,
-          message: item.message,
-        })),
-        { producer: 'template' },
-      ),
+    if (!installed.entry) {
+      setTemplateDiagnostics(
+        classifyProjectValidationDiagnostics(
+          [
+            {
+              code: 'template-install-failed',
+              severity: 'error' as const,
+              category: 'template:template-install-failed',
+              path: '/archive',
+              message: 'Template installation completed without an installation record.',
+            },
+          ],
+          { producer: 'template' },
+        ),
+      );
+      return;
+    }
+    const installedTemplate = await window.noveltea.inspectPlayerTemplate(
+      installed.entry.templateId,
+      installed.entry.buildId,
     );
+    if (!installedTemplate) {
+      setTemplateDiagnostics(
+        classifyProjectValidationDiagnostics(
+          [
+            {
+              code: 'template-install-failed',
+              severity: 'error' as const,
+              category: 'template:template-install-failed',
+              path: '/archive',
+              message: 'Installed template could not be read back from the template registry.',
+            },
+          ],
+          { producer: 'template' },
+        ),
+      );
+      return;
+    }
+    const token = `${installedTemplate.descriptor.templateId}/${installedTemplate.descriptor.buildId}`;
+    const compatibility = evaluateTemplateCompatibility(installedTemplate.descriptor, {
+      profile: currentPlatformProfile,
+      runtimePackageApi: 2,
+      playerConfigApi: 2,
+      shaderVariants: currentPlatformRuntimeProfile.shaderVariants,
+      graphicsBackends: [],
+      capabilities: currentPlatformProfile.capabilityOverrides,
+      requiredFeatures: [],
+    });
+    if (
+      installedTemplate.descriptor.platform === currentPlatformProfile.target &&
+      installedTemplate.descriptor.architecture === currentPlatformProfile.architecture &&
+      installedTemplate.descriptor.buildFlavor === currentPlatformProfile.buildFlavor
+    ) {
+      setTemplates((current) => [
+        ...current.filter(
+          (item) => `${item.descriptor.templateId}/${item.descriptor.buildId}` !== token,
+        ),
+        installedTemplate,
+      ]);
+    }
+    if (compatibility.compatible && installedTemplate.status !== 'corrupted') {
+      setTemplate(installedTemplate);
+      setSelectedTemplateToken(token);
+      const key = localProfileKey(currentPlatformProfile.id);
+      setExportPreferences({
+        profileTemplateTokens: { ...localState.profileTemplateTokens, [key]: token },
+      });
+      setTemplateDiagnostics(
+        classifyProjectValidationDiagnostics(
+          installedTemplate.status === 'untrusted'
+            ? [
+                {
+                  code: 'template-untrusted',
+                  severity: 'warning' as const,
+                  category: 'template:template-untrusted',
+                  path: '/template',
+                  message: 'Template is locally installed and has no official provenance.',
+                },
+              ]
+            : [],
+          { producer: 'template' },
+        ),
+      );
+      return;
+    }
+    // Installing a template for another profile must not invalidate the current profile's readiness.
   }
 
   async function downloadTemplate() {
@@ -820,7 +901,7 @@ export function PackageExportDialog({
           profile: currentPlatformProfile,
           runtimePackageApi: 2,
           playerConfigApi: 2,
-          shaderVariants: currentRuntimeProfile.shaderVariants,
+          shaderVariants: currentPlatformRuntimeProfile.shaderVariants,
           graphicsBackends: [],
           capabilities: currentPlatformProfile.capabilityOverrides,
           requiredFeatures: [],
@@ -1434,20 +1515,58 @@ export function PackageExportDialog({
                         </select>
                       </div>
                       <div className="grid gap-1">
-                        <Label>Base path</Label>
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor="platform-export-web-base-path">Base path</Label>
+                          {webBasePathPattern.test(
+                            webBasePathPending?.value ?? activePlatformProfile.web.basePath,
+                          ) ? (
+                            <span
+                              aria-label="Valid web base path"
+                              className="size-2 rounded-full bg-emerald-500"
+                            />
+                          ) : (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger
+                                  render={
+                                    <span
+                                      aria-label="Invalid web base path"
+                                      className="size-2 rounded-full bg-red-500"
+                                    />
+                                  }
+                                />
+                                <TooltipContent>
+                                  Must start and end with / (for example /game/).
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
                         <Input
-                          value={activePlatformProfile.web.basePath}
-                          onChange={(event) =>
-                            replaceActiveProfile(
-                              parsePlatformExportProfile({
+                          id="platform-export-web-base-path"
+                          value={webBasePathPending?.value ?? activePlatformProfile.web.basePath}
+                          onChange={(event) => {
+                            const value = event.currentTarget.value;
+                            if (webBasePathPattern.test(value)) {
+                              replaceActiveProfile({
                                 ...activePlatformProfile,
-                                web: {
-                                  ...activePlatformProfile.web,
-                                  basePath: event.currentTarget.value,
+                                web: { ...activePlatformProfile.web, basePath: value },
+                              });
+                              clearPendingInput(
+                                SAVE_UNIT_IDS.platformExportProfiles,
+                                webBasePathPendingPath,
+                              );
+                            } else {
+                              setPendingInput(
+                                SAVE_UNIT_IDS.platformExportProfiles,
+                                webBasePathPendingPath,
+                                {
+                                  value,
+                                  diagnosticCode: 'platform-export.web-base-path-invalid',
                                 },
-                              }),
-                            )
-                          }
+                              );
+                            }
+                          }}
                         />
                       </div>
                       <div className="grid gap-1">

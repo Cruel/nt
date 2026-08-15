@@ -23,7 +23,10 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { toJsonValue } from '@/project/json-value';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
-import { buildProjectSettingsTab } from '@/workbench/editor-registry';
+import {
+  buildPlatformExportProfilesTab,
+  buildProjectSettingsTab,
+} from '@/workbench/editor-registry';
 
 const workspaceRevision = `sha256:${'a'.repeat(64)}` as const;
 const roomFileRevision = `sha256:${'b'.repeat(64)}` as const;
@@ -95,6 +98,34 @@ beforeEach(() => {
 });
 
 describe('project save coordinator', () => {
+  it('saves platform export profile edits from the Export Profiles tab', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    loadProject(saved, working, emptyEditorProjectState());
+
+    const command = useCommandStore.getState().executeCommand({
+      type: 'project.addAtPath',
+      label: 'Add platform export profiles',
+      payload: {
+        path: '/settings/platformExport',
+        value: { selectedProfileId: null, profiles: [] },
+      },
+      originSaveUnitId: 'project:platform-export-profiles',
+      persistencePolicy: 'manual-save',
+    });
+    expect(command.ok).toBe(true);
+    useWorkbenchStore.getState().openTab(buildPlatformExportProfilesTab());
+
+    const result = await saveActiveSaveUnit();
+
+    expect(result.success).toBe(true);
+    expect(result.savedSaveUnitIds).toContain('project:platform-export-profiles');
+    expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
+      settings: { platformExport: { selectedProfileId: null, profiles: [] } },
+    });
+  });
+
   it('saves only the active unit and rebases the remaining recovery overlay', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();

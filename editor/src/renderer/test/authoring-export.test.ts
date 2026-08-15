@@ -49,6 +49,10 @@ describe('authoring export settings', () => {
       label: 'Web',
       shaderVariants: ['essl-300'],
     });
+    expect(runtimeExportProfileForPlatform(project, 'windows').shaderVariants).toEqual([
+      'glsl-120',
+    ]);
+    expect(runtimeExportProfileForPlatform(project, 'linux').shaderVariants).toEqual(['glsl-120']);
     expect(runtimeExportProfileForPlatform(project, 'web').shaderVariants).toEqual(['essl-100']);
     expect(runtimeExportProfileForPlatform(project, 'android').shaderVariants).toEqual([
       'essl-300',

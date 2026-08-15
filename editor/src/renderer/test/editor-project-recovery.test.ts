@@ -297,6 +297,35 @@ describe('project recovery reconstruction', () => {
     expect(tagGroups).toEqual(recordGroups);
   });
 
+  it('keeps platform export profile edits in their dedicated save unit', () => {
+    const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/project',
+      projectFilePath: '/project/project.json',
+    });
+    setLoadedEditorProjectState(project.editor);
+
+    const result = useCommandStore.getState().executeCommand({
+      type: 'project.addAtPath',
+      label: 'Add platform export profiles',
+      payload: {
+        path: '/settings/platformExport',
+        value: { selectedProfileId: null, profiles: [] },
+      },
+      originSaveUnitId: 'project:platform-export-profiles',
+      persistencePolicy: 'manual-save',
+    });
+    expect(result.ok).toBe(true);
+
+    const recovery = buildEditorProjectStateSnapshot().recovery;
+    expect(recovery.saveUnitsById['project:platform-export-profiles']?.affectedPaths).toEqual([
+      '/settings/platformExport',
+    ]);
+    expect(recovery.saveUnitsById['project:settings']).toBeUndefined();
+  });
+
   it('serializes the same dirty command state deterministically', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     useProjectStore.getState().loadProjectDocument({

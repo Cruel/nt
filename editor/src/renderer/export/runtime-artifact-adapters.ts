@@ -5,15 +5,16 @@ import type {
   RuntimeArtifactShaderCompilerAdapter,
 } from '../../shared/runtime-artifact-preparation';
 import { useShaderCompileStore } from '../shaders/shader-compile-store';
+import { joinHostPath } from '../host-filesystem-path';
 
 export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
   resolveProjectSource(projectRoot, source) {
-    if (/^(?:[a-zA-Z]:[\\/]|\/|\\\\)/.test(source)) return source;
-    const clean = source.replace(/^[/\\]+/, '').replace(/\\/g, '/');
-    return projectRoot ? `${projectRoot.replace(/[\\/]+$/, '')}/${clean}` : clean;
+    if (/^(?:[a-zA-Z]:[\\/]|\/|\\\\)/.test(source)) return joinHostPath(source);
+    const clean = source.replace(/^[/\\]+/, '');
+    return projectRoot ? joinHostPath(projectRoot, clean) : clean;
   },
   shaderAssetRoot(projectRoot) {
-    return projectRoot ? `${projectRoot.replace(/[\\/]+$/, '')}/.noveltea/build` : undefined;
+    return projectRoot ? joinHostPath(projectRoot, '.noveltea', 'build') : undefined;
   },
 };
 

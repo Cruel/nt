@@ -224,6 +224,16 @@ function outputBytes(root: string, prefix = ''): Record<string, string> {
 }
 
 describe('platform staging service', () => {
+  it('creates missing output parent directories', async () => {
+    const { root, request } = await fixture();
+    request.outputDirectory = path.join(root, 'dist', 'nested', 'game');
+    expect(fs.existsSync(path.dirname(request.outputDirectory))).toBe(false);
+    const result = await stagePlatformExport(request);
+    expect(result.success, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(fs.existsSync(request.outputDirectory)).toBe(true);
+    expect(fs.existsSync(`${request.outputDirectory}.tar.gz`)).toBe(true);
+  });
+
   it('builds deterministic provenance and replaces a previous output', async () => {
     const { request } = await fixture();
     fs.mkdirSync(request.outputDirectory);
@@ -265,6 +275,20 @@ describe('platform staging service', () => {
         path.join(request.outputDirectory, 'share/icons/hicolor/512x512/apps/com.example.game.png'),
       ),
     ).toBe(true);
+  });
+
+  it('emits a ZIP when the Linux profile selects the ZIP artifact', async () => {
+    const { request } = await fixture();
+    if (request.profile.target !== 'linux') throw new Error('Expected Linux fixture profile.');
+    request.profile = {
+      ...request.profile,
+      desktop: { ...request.profile.desktop, artifact: 'zip' },
+    };
+    const result = await stagePlatformExport(request);
+    expect(result.success, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(result.archivePath).toBe(`${request.outputDirectory}.zip`);
+    expect(fs.readFileSync(result.archivePath!).readUInt32LE(0)).toBe(0x04034b50);
+    expect(fs.existsSync(`${request.outputDirectory}.tar.gz`)).toBe(false);
   });
 
   it('preserves verified template modes when the host filesystem cannot represent them', async () => {

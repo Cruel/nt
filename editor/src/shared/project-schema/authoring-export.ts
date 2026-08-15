@@ -121,9 +121,14 @@ export function runtimeExportProfileForPlatform(
   target: 'windows' | 'linux' | 'macos' | 'web' | 'android',
 ): ExportProfileData {
   const profile = selectedExportProfile(project);
-  if (target !== 'android' && target !== 'web' && target !== 'macos') return profile;
   const requiredVariant =
-    target === 'web' ? 'essl-100' : target === 'android' ? 'essl-300' : 'metal';
+    target === 'web'
+      ? 'essl-100'
+      : target === 'android'
+        ? 'essl-300'
+        : target === 'macos'
+          ? 'metal'
+          : 'glsl-120';
   const shaderVariants = profile.shaderVariants.filter((variant) => variant === requiredVariant);
   return {
     ...profile,
