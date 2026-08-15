@@ -66,7 +66,7 @@ export function HotspotAuthoringPanel(props: Props) {
   useEffect(() => {
     let canceled = false;
     setImageUrl(null);
-    if (!projectSessionId || !props.assetId || !assetData?.source.path) return;
+    if (!projectSessionId || !props.assetId || assetData?.kind !== 'image') return;
     void window.noveltea
       .resolveProjectAssetUrl(projectSessionId, props.assetId)
       .then((result) => {
@@ -78,7 +78,7 @@ export function HotspotAuthoringPanel(props: Props) {
     return () => {
       canceled = true;
     };
-  }, [assetData?.source.path, projectSessionId, props.assetId]);
+  }, [assetData?.kind, assetData?.source.path, projectSessionId, props.assetId]);
   const selected =
     props.hotspots.find((item) => item.id === props.selectedView.selectedHotspotId) ?? null;
   const selectedCondition = selected?.condition ?? null;

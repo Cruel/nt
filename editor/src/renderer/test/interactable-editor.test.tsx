@@ -1,5 +1,5 @@
-import { act, render } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vite-plus/test';
+import { act, render, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { InteractableEditor } from '@/editors/interactables/InteractableEditor';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
@@ -29,9 +29,101 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
   clearWorkbenchTabStates();
+  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockReset();
+  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+    ok: false,
+    code: 'stale-or-unknown',
+  });
 });
 
 describe('InteractableEditor', () => {
+  it('loads hotspot geometry from the full-resolution bounded Asset source', async () => {
+    const project = createAuthoringProject();
+    project.assets.sprite = {
+      id: 'sprite',
+      label: 'Door Sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/door.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1234,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 2048, height: 1024, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const data = defaultInteractableData('Door');
+    data.presentation.sprite = { $ref: { collection: 'assets', id: 'sprite' } };
+    project.interactables.door = {
+      id: 'door',
+      label: 'Door',
+      extends: null,
+      properties: {},
+      data,
+    };
+    vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+      ok: true,
+      url: 'noveltea-asset://source/11111111-1111-4111-8111-111111111111/sprite',
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    const view = render(<InteractableEditor tab={tab} />);
+
+    await waitFor(() =>
+      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        'sprite',
+      ),
+    );
+    expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledTimes(1);
+    expect(view.container.querySelector('[data-image-layer] img')).toHaveAttribute(
+      'src',
+      'noveltea-asset://source/11111111-1111-4111-8111-111111111111/sprite',
+    );
+  });
+
+  it('fails closed for unavailable or non-image hotspot sources without thumbnail fallback', async () => {
+    const project = createAuthoringProject();
+    project.assets.sound = {
+      id: 'sound',
+      label: 'Door Sound',
+      data: {
+        kind: 'audio',
+        source: { type: 'project-file', path: 'assets/audio/door.ogg' },
+        aliases: [],
+        byteSize: 12,
+        contentHash: `sha256:${'b'.repeat(64)}`,
+        imageMetadata: null,
+      },
+    };
+    const data = defaultInteractableData('Door');
+    data.presentation.sprite = { $ref: { collection: 'assets', id: 'sound' } };
+    project.interactables.door = {
+      id: 'door',
+      label: 'Door',
+      extends: null,
+      properties: {},
+      data,
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    const view = render(<InteractableEditor tab={tab} />);
+    await Promise.resolve();
+
+    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
+    expect(window.noveltea.requestImageThumbnail).not.toHaveBeenCalled();
+    expect(view.container.querySelector('[data-image-layer] img')).toBeNull();
+  });
   it('captures the shared version-1 hotspot view state in its owner tab state', () => {
     const project = createAuthoringProject();
     project.interactables.door = {
