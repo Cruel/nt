@@ -46,8 +46,8 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   clearWorkbenchTabStates();
   vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
-    url: 'data:image/png;base64,bW9jaw==',
-    absolutePath: '/mock/project/assets/images/logo.png',
+    ok: true,
+    url: 'noveltea-asset://source/session/logo',
   });
   vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue({
     ok: true,
@@ -89,13 +89,13 @@ describe('AssetLibraryEditor', () => {
     );
     await waitFor(() =>
       expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
-        '/mock/project/game.json',
-        'assets/audio/click.mp3',
+        '11111111-1111-4111-8111-111111111111',
+        'click',
       ),
     );
     expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalledWith(
-      '/mock/project/game.json',
-      'assets/images/logo.png',
+      '11111111-1111-4111-8111-111111111111',
+      'logo',
     );
     expect(screen.getByAltText('Logo')).toHaveAttribute(
       'src',

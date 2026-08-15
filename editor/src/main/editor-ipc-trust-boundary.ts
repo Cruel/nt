@@ -305,6 +305,10 @@ export const restoreProjectAssetFilesArgumentsSchema = z.tuple([
 ]);
 
 export const projectSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
+export const projectAssetUrlArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.string().min(1).max(512),
+]);
 export const imageThumbnailArgumentsSchema = z.tuple([imageThumbnailRequestSchema]);
 export const imageThumbnailPrewarmArgumentsSchema = z.tuple([imageThumbnailPrewarmRequestSchema]);
 export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([

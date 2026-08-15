@@ -146,9 +146,9 @@ interface NovelTeaElectronApiContract {
   stopProjectWorkspaceWatcher(projectSessionId: string): Promise<ProjectAssetFileOperationResponse>;
   onProjectWorkspaceChanged(callback: (event: ProjectWorkspaceWatchEvent) => void): () => void;
   resolveProjectAssetUrl(
-    projectFilePath: string,
-    projectRelativePath: string,
-  ): Promise<ProjectAssetUrlResponse | null>;
+    projectSessionId: string,
+    assetId: string,
+  ): Promise<ProjectAssetUrlResponse>;
   requestImageThumbnail(
     request: import('./image-thumbnails').ImageThumbnailRequest,
   ): Promise<import('./image-thumbnails').ImageThumbnailResult>;

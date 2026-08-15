@@ -209,8 +209,16 @@ async function characterizeProductionThumbnailProtocol(
           },
           variant: { kind: 'profile', profile: 'list' },
         };
+        const original = await window.noveltea.resolveProjectAssetUrl(opened.projectSessionId, ${assetIdLiteral});
+        if (!original.ok) return { first: { ok: false }, second: null, original, originalLoaded: false, loaded: false, width: 0, height: 0 };
+        const originalImage = await new Promise((resolve) => {
+          const element = new Image();
+          element.onload = () => resolve({ loaded: true, width: element.naturalWidth, height: element.naturalHeight });
+          element.onerror = () => resolve({ loaded: false, width: 0, height: 0 });
+          element.src = original.url;
+        });
         const first = await window.noveltea.requestImageThumbnail(request);
-        if (!first.ok) return { first, second: null, loaded: false, width: 0, height: 0 };
+        if (!first.ok) return { first, second: null, original, originalLoaded: originalImage.loaded, loaded: false, width: 0, height: 0 };
         const image = await new Promise((resolve) => {
           const element = new Image();
           element.onload = () => resolve({ loaded: true, width: element.naturalWidth, height: element.naturalHeight });
@@ -218,7 +226,7 @@ async function characterizeProductionThumbnailProtocol(
           element.src = first.url;
         });
         const second = await window.noveltea.requestImageThumbnail(request);
-        return { first, second, ...image };
+        return { first, second, original, originalLoaded: originalImage.loaded, originalWidth: originalImage.width, originalHeight: originalImage.height, ...image };
       })()`,
       true,
     )) as {
@@ -234,6 +242,10 @@ async function characterizeProductionThumbnailProtocol(
         cacheKey?: string;
         cacheStatus?: string;
       } | null;
+      original?: { ok: boolean; url?: string };
+      originalLoaded?: boolean;
+      originalWidth?: number;
+      originalHeight?: number;
       loaded: boolean;
       width: number;
       height: number;
@@ -246,6 +258,11 @@ async function characterizeProductionThumbnailProtocol(
       proof.second.cacheStatus !== 'hit' ||
       proof.first.cacheKey !== proof.second.cacheKey ||
       proof.first.url !== proof.second.url ||
+      !proof.original?.ok ||
+      !proof.original.url?.startsWith('noveltea-asset://source/') ||
+      !proof.originalLoaded ||
+      proof.originalWidth !== 3 ||
+      proof.originalHeight !== 2 ||
       !proof.loaded ||
       proof.width !== 3 ||
       proof.height !== 2
@@ -253,10 +270,17 @@ async function characterizeProductionThumbnailProtocol(
       return false;
     }
     const response = await net.fetch(proof.first.url);
+    const originalResponse = await net.fetch(proof.original!.url!);
     return (
       response.ok &&
       response.headers.get('content-type') === 'image/webp' &&
       response.headers.get('cache-control') === 'public, max-age=31536000, immutable' &&
+      originalResponse.ok &&
+      originalResponse.headers.get('content-type') === 'image/png' &&
+      originalResponse.headers.get('content-length') === String(sourceBytes.byteLength) &&
+      originalResponse.headers.get('cache-control') === 'no-store' &&
+      originalResponse.headers.get('x-content-type-options') === 'nosniff' &&
+      (await originalResponse.arrayBuffer()).byteLength === sourceBytes.byteLength &&
       response.headers.get('cross-origin-resource-policy') === 'cross-origin' &&
       response.headers.get('access-control-allow-origin') === '*' &&
       response.headers.get('x-content-type-options') === 'nosniff' &&

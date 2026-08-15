@@ -682,6 +682,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const openTab = useWorkbenchStore((state) => state.openTab);
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(document) ? document : null;
   const record = roomId && project ? project.rooms[roomId] : null;
@@ -773,18 +774,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       : null;
   useEffect(() => {
     let cancelled = false;
-    if (!projectFilePath || backgroundAssetData?.kind !== 'image') {
+    if (!projectSessionId || !data.background.asset || backgroundAssetData?.kind !== 'image') {
       setCompositionBackgroundUrl(null);
       return;
     }
     window.noveltea
-      .resolveProjectAssetUrl(projectFilePath, backgroundAssetData.source.path)
-      .then((result) => !cancelled && setCompositionBackgroundUrl(result?.url ?? null))
+      .resolveProjectAssetUrl(projectSessionId, data.background.asset.$ref.id)
+      .then((result) => !cancelled && setCompositionBackgroundUrl(result.ok ? result.url : null))
       .catch(() => !cancelled && setCompositionBackgroundUrl(null));
     return () => {
       cancelled = true;
     };
-  }, [backgroundAssetData, projectFilePath]);
+  }, [backgroundAssetData, data.background.asset, projectSessionId]);
   if (!project || !record || !roomId)
     return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
   const previewSplitOrientation = resolveEditorPreviewSplitOrientation(

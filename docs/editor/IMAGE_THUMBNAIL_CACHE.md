@@ -117,10 +117,23 @@ the cache epoch, cancels or invalidates work owned by the clearing main process,
 renderers. It is independent from Reset All Settings. V1 intentionally has no age/size eviction:
 cache use is append-only across source revisions until this explicit clear action.
 
-## Retained original-image consumers
+## Session-scoped original Asset streaming
 
-The following production consumers intentionally continue through `resolveProjectAssetUrl` because
-they require full source pixels rather than a reduced editor thumbnail:
+Full-size image and audio consumers use `resolveProjectAssetUrl(projectSessionId, assetId)`. The
+renderer cannot provide a Project root, manifest path, or source path. Main resolves the admitted
+Asset snapshot owned by the active Project session and returns only a `noveltea-asset://` protocol
+URL.
+
+The protocol repeats authorization for every request. It accepts only admitted image/audio Assets
+under `assets/`, canonicalizes the Project root and source target, permits symlinks only when their
+real target remains contained, requires a regular file, and verifies the admitted byte size and
+`sha256:` revision before streaming. Files larger than 128 MiB are rejected. Successful responses
+stream from the verified open file with authoritative `Content-Type` and `Content-Length`,
+`Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`; filesystem paths are never returned
+to the renderer. Switching or closing the Project invalidates previously issued URLs.
+
+The following production consumers intentionally use original-source streaming because they require
+full source pixels or audio rather than a reduced editor thumbnail:
 
 | Consumer | Full-source purpose |
 | --- | --- |

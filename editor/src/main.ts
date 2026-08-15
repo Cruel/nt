@@ -51,7 +51,11 @@ import {
   startProjectWorkspaceWatcher,
   stopProjectWorkspaceWatcher,
 } from './main/services/project-workspace-watcher-service';
-import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
+import {
+  createProjectOriginalAssetProtocolHandler,
+  PROJECT_ORIGINAL_ASSET_SCHEME,
+  resolveProjectAssetUrl,
+} from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
 import {
   compileShaders,
@@ -134,6 +138,7 @@ import {
   previewExportedPackageArgumentsSchema,
   previewSessionArgumentsSchema,
   projectAssetPathsArgumentsSchema,
+  projectAssetUrlArgumentsSchema,
   projectSessionArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
   reimportAssetArgumentsSchema,
@@ -178,6 +183,16 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       secure: true,
       supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+  {
+    scheme: PROJECT_ORIGINAL_ASSET_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
       corsEnabled: true,
     },
   },
@@ -582,6 +597,10 @@ void app.whenReady().then(async () => {
   protocol.handle(
     IMAGE_THUMBNAIL_SCHEME,
     createImageThumbnailProtocolHandler(imageThumbnailService.imageCacheRoot),
+  );
+  protocol.handle(
+    PROJECT_ORIGINAL_ASSET_SCHEME,
+    createProjectOriginalAssetProtocolHandler(activeProjectSessions),
   );
   if (isDev) installLocalDocumentIsolationHeaders();
   if (!isDev) registerPackagedEditorProtocol();
@@ -1272,10 +1291,11 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
-      resolveProjectAssetUrl(projectFilePath, projectRelativePath),
+    (arguments_) => projectAssetUrlArgumentsSchema.parse(arguments_),
+    (projectSessionId, assetId) =>
+      resolveProjectAssetUrl(activeProjectSessions, projectSessionId, assetId),
   );
 
   guardedIpc.handle(

@@ -19,6 +19,7 @@ import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
 import type { Condition } from '../../../shared/project-schema/authoring-flow';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import { useProjectStore } from '@/project/project-store';
 
 export interface EditableHotspot {
   id: string;
@@ -58,17 +59,18 @@ interface Props {
 export function HotspotAuthoringPanel(props: Props) {
   const { t } = useTranslation('workspace');
   const [recordSelector, setRecordSelector] = useState<'verb' | 'material' | null>(null);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const asset = props.assetId ? props.project.assets[props.assetId] : null;
   const assetData = parseAssetData(asset?.data);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   useEffect(() => {
     let canceled = false;
     setImageUrl(null);
-    if (!props.projectFilePath || !assetData?.source.path) return;
-    Promise.resolve(props.projectFilePath)
-      .then((resolved) => window.noveltea.resolveProjectAssetUrl(resolved, assetData.source.path))
+    if (!projectSessionId || !props.assetId || !assetData?.source.path) return;
+    void window.noveltea
+      .resolveProjectAssetUrl(projectSessionId, props.assetId)
       .then((result) => {
-        if (!canceled) setImageUrl(result?.url ?? null);
+        if (!canceled) setImageUrl(result.ok ? result.url : null);
       })
       .catch(() => {
         if (!canceled) setImageUrl(null);
@@ -76,7 +78,7 @@ export function HotspotAuthoringPanel(props: Props) {
     return () => {
       canceled = true;
     };
-  }, [assetData?.source.path, props.projectFilePath]);
+  }, [assetData?.source.path, projectSessionId, props.assetId]);
   const selected =
     props.hotspots.find((item) => item.id === props.selectedView.selectedHotspotId) ?? null;
   const selectedCondition = selected?.condition ?? null;

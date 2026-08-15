@@ -16,6 +16,7 @@ import {
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   previewSessionArgumentsSchema,
+  projectAssetUrlArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
@@ -188,6 +189,53 @@ describe('guarded editor IPC registrar', () => {
     const other = trustedHarness();
     await expect(
       ipcMain.invoke('read-project-text-sources', other.event, request),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(service).not.toHaveBeenCalled();
+  });
+
+  it('guards original Asset URL requests before Project filesystem work', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const service = vi.fn(
+      (projectSessionId: string, assetId: string) => `${projectSessionId}:${assetId}`,
+    );
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'original-asset',
+      (arguments_) => projectAssetUrlArgumentsSchema.parse(arguments_),
+      service,
+    );
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+
+    await expect(ipcMain.invoke('original-asset', harness.event, sessionId, 'logo')).resolves.toBe(
+      `${sessionId}:logo`,
+    );
+    for (const arguments_ of [
+      [sessionId],
+      ['not-a-session', 'logo'],
+      [sessionId, ''],
+      [sessionId, 'x'.repeat(513)],
+      [sessionId, 'logo', '/alternate/project/path'],
+    ] as const) {
+      service.mockClear();
+      await expect(
+        ipcMain.invoke('original-asset', harness.event, ...arguments_),
+      ).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(service).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    service.mockClear();
+    await expect(
+      ipcMain.invoke('original-asset', other.event, sessionId, 'logo'),
     ).rejects.toSatisfy(
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );

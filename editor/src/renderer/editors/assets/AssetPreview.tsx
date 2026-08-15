@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { useProjectStore } from '@/project/project-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
@@ -37,27 +36,22 @@ function kindLabel(kind: AssetData['kind']) {
 }
 
 export function AssetPreview({ assetId, label, data, compact = false }: AssetPreviewProps) {
-  const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const deletedAsset = useAssetTrashStore((state) => state.deletedAssets[assetId]);
   const [assetUrl, setAssetUrl] = useState<string | null>(null);
-  const [absolutePath, setAbsolutePath] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const canResolve =
-    Boolean(projectFilePath) && (data.kind === 'audio' || (!compact && data.kind === 'image'));
+    Boolean(projectSessionId) && (data.kind === 'audio' || (!compact && data.kind === 'image'));
 
   useEffect(() => {
     let canceled = false;
     setAssetUrl(null);
-    setAbsolutePath(null);
     setLoadError(null);
-    if (!projectFilePath || !canResolve) return;
+    if (!projectSessionId || !canResolve) return;
     void window.noveltea
-      .resolveProjectAssetUrl(projectFilePath, data.source.path)
+      .resolveProjectAssetUrl(projectSessionId, assetId)
       .then((result) => {
-        if (!canceled) {
-          setAssetUrl(result?.url ?? null);
-          setAbsolutePath(result?.absolutePath ?? null);
-        }
+        if (!canceled) setAssetUrl(result.ok ? result.url : null);
       })
       .catch((error) => {
         if (!canceled)
@@ -66,7 +60,7 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
     return () => {
       canceled = true;
     };
-  }, [canResolve, data.source.path, deletedAsset, projectFilePath]);
+  }, [assetId, canResolve, deletedAsset, projectSessionId]);
 
   if (compact) {
     const imageSource =
@@ -145,16 +139,6 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
         {data.byteSize !== undefined ? <div>{data.byteSize.toLocaleString()} bytes</div> : null}
         {data.contentHash ? <div className="truncate">{data.contentHash}</div> : null}
       </div>
-      {absolutePath ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="mt-3 h-7"
-          onClick={() => void window.noveltea.showItemInFolder(absolutePath)}
-        >
-          Show in folder
-        </Button>
-      ) : null}
     </div>
   );
 }

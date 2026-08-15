@@ -38,8 +38,8 @@ beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
   vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
-    url: 'data:image/png;base64,bW9jaw==',
-    absolutePath: '/mock/project/assets/images/logo.png',
+    ok: true,
+    url: 'noveltea-asset://source/session/logo',
   });
 });
 

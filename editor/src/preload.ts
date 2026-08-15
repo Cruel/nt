@@ -163,12 +163,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.on(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, listener);
   },
-  resolveProjectAssetUrl: (projectFilePath: string, projectRelativePath: string) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
-      projectFilePath,
-      projectRelativePath,
-    ),
+  resolveProjectAssetUrl: (projectSessionId: string, assetId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL, projectSessionId, assetId),
   requestImageThumbnail: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL, request),
   prewarmImageThumbnails: (request) =>

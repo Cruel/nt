@@ -491,16 +491,16 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   useEffect(() => {
     let canceled = false;
     setSourcePreviewUrl(null);
-    if (!projectFilePath || !sourceAsset?.path || sourceAsset.kind !== 'image') return;
+    if (!projectSessionId || !sourceAsset?.id || sourceAsset.kind !== 'image') return;
     void window.noveltea
-      .resolveProjectAssetUrl(projectFilePath, sourceAsset.path)
+      .resolveProjectAssetUrl(projectSessionId, sourceAsset.id)
       .then((response) => {
-        if (!canceled) setSourcePreviewUrl(response?.url ?? null);
+        if (!canceled) setSourcePreviewUrl(response.ok ? response.url : null);
       });
     return () => {
       canceled = true;
     };
-  }, [projectFilePath, sourceAsset?.kind, sourceAsset?.path]);
+  }, [projectSessionId, sourceAsset?.id, sourceAsset?.kind]);
 
   function generate() {
     if (!projectFilePath) {
