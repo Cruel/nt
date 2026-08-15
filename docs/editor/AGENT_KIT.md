@@ -10,7 +10,7 @@ Changing kit wording, examples, workflow guidance, or generated schema payload m
 
 ## Source and generated content
 
-Checked-in kit source lives under `editor/agent-kit/`. Stable guidance and `skill/SKILL.md` are hand-authored public resources. Machine-readable schemas are derived from the exact workspace-v1 Zod/contextual codecs rather than maintained as a second handwritten format definition. Constraints JSON Schema cannot represent, such as project-wide path/ownership rules, are documented in generated `PROJECT_FORMAT.md` and enforced by the executable workspace loader.
+Checked-in kit source lives under `editor/agent-kit/`. Stable guidance is hand-authored public documentation routed from the generated project `AGENTS.md` block through `.noveltea/agent/GUIDE.md`; the kit does not install or depend on an agent-framework skill. Machine-readable schemas are derived from the exact workspace-v1 Zod/contextual codecs rather than maintained as a second handwritten format definition. Constraints JSON Schema cannot represent, such as project-wide path/ownership rules, are documented in generated `PROJECT_FORMAT.md` and enforced by the executable workspace loader.
 
 Release builds embed the checked-in hand-authored kit source as a private scriptc island package. `noveltea agent sync` combines those exact source texts with JSON Schemas generated from the shared Zod schemas, then writes and validates the deterministic manifest/hashes. This work is command-local: ordinary CLI operations do not generate the agent-kit schemas. See `SCRIPTC_COMPATIBILITY.md`.
 
@@ -22,7 +22,7 @@ New projects contain a root `AGENTS.md` with a clearly marked NovelTea-managed b
 
 Sync creates the canonical root `.gitignore` when it is absent. When an existing regular file contains `.noveltea` anywhere, NovelTea assumes the user has handled the rule; when it does not, sync succeeds with `AGENT_LOCAL_STATE_NOT_IGNORED` and leaves the file untouched. `--fix` does not modify an existing `.gitignore`. A non-file `AGENTS.md` or `.gitignore` is an error.
 
-The generated kit tells agents to edit ordinary JSON/Lua/RML/RCSS source directly, run `noveltea validate`, and reserve semantic CLI commands for operations requiring whole-project knowledge or transactions. `.noveltea/` is never a compilation input or authoring source.
+The generated kit tells agents to edit ordinary JSON/Lua/RML/RCSS source directly, complete coherent multi-record authoring edits before treating validation as final, run `noveltea validate`, and reserve semantic CLI commands for operations requiring whole-project knowledge or transactions. `GUIDE.md` routes normal authoring work to focused conceptual and recipe docs before schemas; schemas remain the exhaustive structural fallback. `.noveltea/` is never a compilation input or authoring source.
 
 ## Editor coexistence
 

@@ -7,8 +7,9 @@ const bootstrapBody = `<!-- DO NOT EDIT THIS BLOCK. -->
 Before editing NovelTea project content:
 
 1. Run \`noveltea agent sync\`.
-2. Read \`.noveltea/agent/GUIDE.md\`.
+2. Read \`.noveltea/agent/GUIDE.md\` and follow its routing to the focused generated docs for the task.
 
+\`.noveltea/agent/GUIDE.md\` is the authoritative entrypoint for NovelTea authoring guidance.
 \`.noveltea/\` is generated, ignored local state. Do not edit it as project source.`;
 
 export const NOVELTEA_PROJECT_AGENTS_MANAGED_BLOCK = `${NOVELTEA_AGENT_BOOTSTRAP_START}

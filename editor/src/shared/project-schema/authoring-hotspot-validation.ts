@@ -37,8 +37,9 @@ function validateVerb(
       diagnostic(
         category,
         path,
-        'Hotspot activation requires a Verb.',
+        'Hotspot activation has no Verb configured yet.',
         'hotspot.authoring.verb.required',
+        'warning',
       ),
     ];
   const record = project.verbs[verbId];

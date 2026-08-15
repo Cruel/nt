@@ -37,10 +37,11 @@ const agentKitSourcePaths = [
   'PROJECT_FORMAT.md',
   'docs/ASSETS_SHADERS.md',
   'docs/AUTHORING.md',
+  'docs/INTERACTIONS.md',
+  'docs/ROOMS.md',
   'docs/LAYOUTS.md',
   'docs/LUA.md',
   'docs/TESTS.md',
-  'skill/SKILL.md',
 ];
 const islandBundle = path.join(editorRoot, 'dist-scriptc-island', 'noveltea-scriptc-island.mjs');
 const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');

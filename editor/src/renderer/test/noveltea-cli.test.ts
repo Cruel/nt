@@ -758,7 +758,9 @@ describe('NovelTea headless CLI', () => {
         'GUIDE.md',
         'CLI.md',
         'PROJECT_FORMAT.md',
-        'skill/SKILL.md',
+        'docs/AUTHORING.md',
+        'docs/INTERACTIONS.md',
+        'docs/ROOMS.md',
         'schemas/project.schema.json',
         'schemas/properties.schema.json',
         'schemas/localization.schema.json',
@@ -777,6 +779,20 @@ describe('NovelTea headless CLI', () => {
       projectWorkspaceVersion: 1,
     });
     expect(Object.keys(manifest.files)).toEqual(Object.keys(first.files));
+    expect(first.files['skill/SKILL.md']).toBeUndefined();
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
+    expect(first.files['GUIDE.md']).toContain(
+      'do not begin ordinary authoring work by reverse-engineering the schemas',
+    );
+    expect(first.files['docs/AUTHORING.md']).toContain('Need only an image visible in the Room?');
+    expect(first.files['docs/ROOMS.md']).toContain(
+      'Template 2: sprite-backed Interactable placed in a Room',
+    );
+    expect(first.files['docs/ROOMS.md']).toContain(
+      'normalized to the complete Room background source image',
+    );
+    expect(first.files['docs/INTERACTIONS.md']).toContain('Room hotspot');
+    expect(first.files['docs/INTERACTIONS.md']).toContain('arity-`1` Verb');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
     const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);
