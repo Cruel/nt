@@ -535,6 +535,13 @@ jobs:
         with:
           subject-path: dist/noveltea-player-template-*
 
+      - name: Upload desktop host release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-desktop-host-${{ matrix.platform }}-${{ matrix.arch }}-release-dist
+          path: dist/*
+          if-no-files-found: error
+
   web:
     name: Web release
     runs-on: ubuntu-24.04
