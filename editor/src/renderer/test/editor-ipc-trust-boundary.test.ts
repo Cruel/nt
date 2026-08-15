@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   cancelPlatformExportArgumentsSchema,
   comfyUiConfigArgumentsSchema,
+  comfyUiEditImageArgumentsSchema,
   comfyUiGenerateImageArgumentsSchema,
   comfyUiListWorkflowLibraryArgumentsSchema,
   compileShadersArgumentsSchema,
@@ -397,6 +398,9 @@ describe('guarded editor IPC registrar', () => {
     const generateService = vi.fn(
       (projectSessionId: string, _config: unknown, _request: unknown) => projectSessionId,
     );
+    const editService = vi.fn(
+      (projectSessionId: string, _config: unknown, _request: unknown) => projectSessionId,
+    );
     const registrar = createGuardedIpcRegistrar({
       ipcMain,
       getOwner: () => harness.window,
@@ -416,6 +420,11 @@ describe('guarded editor IPC registrar', () => {
       'comfy-generate',
       (arguments_) => comfyUiGenerateImageArgumentsSchema.parse(arguments_),
       generateService,
+    );
+    registrar.handle(
+      'comfy-edit',
+      (arguments_) => comfyUiEditImageArgumentsSchema.parse(arguments_),
+      editService,
     );
 
     const sessionId = '11111111-1111-4111-8111-111111111111';
@@ -442,6 +451,14 @@ describe('guarded editor IPC registrar', () => {
         cfg: 7.5,
       }),
     ).resolves.toBe(sessionId);
+    await expect(
+      ipcMain.invoke('comfy-edit', harness.event, sessionId, config, {
+        workflowId: 'image-edit',
+        sourceAssetId: 'source-image',
+        prompt: 'make it night',
+        steps: 4,
+      }),
+    ).resolves.toBe(sessionId);
 
     for (const [channel, arguments_] of [
       ['comfy-config', [{ ...config, serverUrl: 'file:///tmp/comfy' }]],
@@ -463,16 +480,44 @@ describe('guarded editor IPC registrar', () => {
           { workflowId: 'image-generate', prompt: 'tea', projectFilePath: '/alternate' },
         ],
       ],
+      [
+        'comfy-edit',
+        [
+          sessionId,
+          config,
+          {
+            workflowId: 'image-edit',
+            sourceAssetId: 'source-image',
+            sourceProjectRelativePath: 'assets/images/source.png',
+            prompt: 'night',
+          },
+        ],
+      ],
+      [
+        'comfy-edit',
+        [
+          sessionId,
+          { ...config, serverUrl: 'http://192.168.1.50:8188' },
+          {
+            workflowId: 'image-edit',
+            sourceAssetId: 'source-image',
+            projectFilePath: '/alternate/project.json',
+            prompt: 'night',
+          },
+        ],
+      ],
     ] as const) {
       configService.mockClear();
       listService.mockClear();
       generateService.mockClear();
+      editService.mockClear();
       await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
         (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
       );
       expect(configService).not.toHaveBeenCalled();
       expect(listService).not.toHaveBeenCalled();
       expect(generateService).not.toHaveBeenCalled();
+      expect(editService).not.toHaveBeenCalled();
     }
 
     const other = trustedHarness();

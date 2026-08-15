@@ -16,10 +16,15 @@ export const PROJECT_ORIGINAL_ASSET_MAX_BYTES = 128 * 1024 * 1024;
 
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
 
-interface ResolvedOriginalAsset {
+export interface ResolvedOriginalAsset {
   handle: FileHandle;
   size: number;
   mimeType: string;
+}
+
+export interface ResolveContainedOriginalAssetOptions {
+  maxBytes?: number;
+  requireKind?: 'image' | 'audio';
 }
 
 function isContained(parent: string, candidate: string) {
@@ -67,6 +72,7 @@ export async function resolveContainedOriginalAsset(
   sessions: ActiveProjectSessionService,
   projectSessionId: string,
   assetId: string,
+  options: ResolveContainedOriginalAssetOptions = {},
 ): Promise<ResolvedOriginalAsset | ProjectOriginalAssetFailureCode> {
   if (!sessions.isCurrent(projectSessionId)) return 'stale-or-unknown';
   let authorized;
@@ -77,6 +83,8 @@ export async function resolveContainedOriginalAsset(
   }
   const data = authorized.asset.data;
   if (data.kind !== 'image' && data.kind !== 'audio') return 'unsupported-kind';
+  if (options.requireKind && data.kind !== options.requireKind) return 'unsupported-kind';
+  const maxBytes = options.maxBytes ?? PROJECT_ORIGINAL_ASSET_MAX_BYTES;
   if (!isSafeProjectAssetPath(data.source.path) || !data.source.path.startsWith('assets/')) {
     return 'invalid-source';
   }
@@ -84,7 +92,7 @@ export async function resolveContainedOriginalAsset(
     data.byteSize === undefined ||
     !Number.isSafeInteger(data.byteSize) ||
     data.byteSize < 0 ||
-    data.byteSize > PROJECT_ORIGINAL_ASSET_MAX_BYTES ||
+    data.byteSize > maxBytes ||
     typeof data.contentHash !== 'string' ||
     !/^sha256:[0-9a-f]{64}$/.test(data.contentHash)
   ) {
@@ -104,7 +112,7 @@ export async function resolveContainedOriginalAsset(
     handle = await fs.open(targetRealPath, readOnlyNoFollowFlags);
     const stat = await handle.stat();
     if (!stat.isFile()) return 'not-regular-file';
-    if (stat.size > PROJECT_ORIGINAL_ASSET_MAX_BYTES) return 'too-large';
+    if (stat.size > maxBytes) return 'too-large';
     if (stat.size !== data.byteSize) return 'size-mismatch';
     const revision = await hashHandle(handle);
     if (!sessions.isCurrent(projectSessionId)) return 'stale-or-unknown';

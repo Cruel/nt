@@ -210,7 +210,7 @@ interface NovelTeaElectronApiContract {
   editComfyUiImage(
     projectSessionId: string,
     config: ComfyUiConfig,
-    request: Omit<ComfyUiEditImageRequest, 'projectFilePath'>,
+    request: ComfyUiEditImageRequest,
   ): Promise<ComfyUiImageJobResponse>;
   cancelComfyUiJob(
     projectSessionId: string,

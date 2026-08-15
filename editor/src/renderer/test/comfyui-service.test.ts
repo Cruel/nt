@@ -69,9 +69,8 @@ describe('comfyui-service', () => {
       prompt: 'tea',
     });
     await editComfyUiImage(config, {
-      projectFilePath: '/mock/project/game.json',
       workflowId: 'flux2-klein-image-edit',
-      sourceProjectRelativePath: 'assets/generated/generated.png',
+      sourceAssetId: 'generated',
       prompt: 'night',
     });
     await cancelComfyUiJob(config);

@@ -90,7 +90,6 @@ function promptTitle(prompt: string) {
 function sourceFromTab(tab: WorkbenchEditorProps['tab']) {
   return {
     sourceAssetId: tab.resource?.entityId ?? undefined,
-    sourceProjectRelativePath: tab.resource?.sourceProjectRelativePath,
     mode: tab.resource?.generationMode === 'edit' ? 'edit' : 'generate',
   } as const;
 }
@@ -572,10 +571,9 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       setMessage(editValidationIssue);
       return;
     }
-    const sourceProjectRelativePath = selectedRevision?.projectRelativePath ?? sourceAsset?.path;
     const sourceAssetId = selectedRevision?.assetId ?? sourceAsset?.id;
-    if (!sourceProjectRelativePath) {
-      setMessage('Generate or select an image before editing.');
+    if (!sourceAssetId) {
+      setMessage('Add the source image to the Project before editing it.');
       return;
     }
     const editNegativePromptValue = editFields.negativePrompt
@@ -591,12 +589,11 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       workflowLabel: selectedEditWorkflow.label,
       role: selectedEditWorkflow.role,
       promptSummary: promptTitle(editPrompt),
+      projectFilePath,
       request: {
-        projectFilePath,
         workflowId: selectedEditWorkflow.id,
         workflowKey: selectedEditWorkflow.workflowKey,
         sourceAssetId,
-        sourceProjectRelativePath,
         prompt: editPrompt.trim(),
         ...(editNegativePromptValue !== undefined
           ? { negativePrompt: editNegativePromptValue }

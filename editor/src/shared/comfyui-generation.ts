@@ -17,11 +17,9 @@ export interface ComfyUiGenerateImageRequest {
 }
 
 export interface ComfyUiEditImageRequest {
-  projectFilePath: string;
   workflowId?: ComfyUiWorkflowId;
   workflowKey?: ComfyUiWorkflowKey;
-  sourceAssetId?: string;
-  sourceProjectRelativePath: string;
+  sourceAssetId: string;
   prompt: string;
   clientJobId?: string;
   negativePrompt?: string;

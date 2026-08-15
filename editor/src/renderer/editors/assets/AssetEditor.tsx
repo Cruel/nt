@@ -219,7 +219,6 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
               openTab(
                 buildImageGenerationTab({
                   sourceAssetId: assetId,
-                  sourceProjectRelativePath: data.source.path,
                   mode: 'edit',
                 }),
               )

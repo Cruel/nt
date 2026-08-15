@@ -1467,10 +1467,12 @@ void app.whenReady().then(async () => {
       const projectFilePath = requireComfyUiProjectFilePath(projectSessionId);
       return editComfyUiImage(
         mainWindow,
-        config,
-        { ...request, projectFilePath },
-        () => activeProjectSessions.isCurrent(projectSessionId),
+        activeProjectSessions,
         projectSessionId,
+        projectFilePath,
+        config,
+        request,
+        () => activeProjectSessions.isCurrent(projectSessionId),
       );
     },
   );

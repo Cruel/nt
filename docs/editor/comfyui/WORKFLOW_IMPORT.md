@@ -118,8 +118,19 @@ contracts. A stale or wrong session fails before Project workflow filesystem or 
 Generation requests also bound workflow identity, prompts, dimensions, seed, steps, CFG, job identity, and workflow JSON
 sizes. Progress events are emitted only while the initiating Project session remains current. If the Project closes or
 switches while a job is running, stale work cannot publish completion/error progress or continue writing generated
-assets into the newly active Project. Source-image admission for image-edit workflows is hardened separately by the
-Asset-authority slice.
+assets into the newly active Project.
+
+Image-edit requests identify their source only by current `projectSessionId` and admitted image Asset id. Main resolves
+and revalidates the Asset through the active Project authority, including canonical containment, contained-only symlinks,
+regular-file identity, admitted byte size, and SHA-256 revision. The source upload ceiling is 32 MiB and is enforced both
+before opening the upload buffer and while streaming bytes into it.
+
+Source-image upload is intentionally narrower than ordinary ComfyUI communication: it accepts loopback HTTP only.
+Literal `127.0.0.0/8`, `::1`, IPv4-mapped loopback, and `localhost` are accepted; credentials, HTTPS, arbitrary hostnames,
+and non-loopback addresses are rejected. `localhost` is resolved before upload and every returned address must be
+loopback. The upload socket then connects directly to the verified address and rechecks its remote address, so DNS
+rebinding cannot redirect source bytes off-machine. Redirect responses are rejected rather than followed. Renderer
+contracts contain neither Project/source paths nor an upload destination override.
 
 ## Defaults and Generation
 

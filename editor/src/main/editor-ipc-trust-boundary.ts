@@ -39,7 +39,6 @@ const MAX_EXPORT_IDENTIFIER_LENGTH = 512;
 const MAX_EXPORT_COLLECTION_ENTRIES = 10_000;
 const MAX_EXPORT_ARGUMENTS = 1_024;
 const MAX_EXPORT_ARGUMENT_LENGTH = 32_768;
-const MAX_COMFYUI_PATH_LENGTH = 32_768;
 const sha256DigestSchema = z.custom<`sha256:${string}`>(
   (value) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value),
 );
@@ -771,8 +770,7 @@ export const comfyUiEditImageArgumentsSchema = z.tuple([
     .object({
       workflowId: comfyUiWorkflowIdSchema.optional(),
       workflowKey: comfyUiWorkflowKeySchema.optional(),
-      sourceAssetId: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength).optional(),
-      sourceProjectRelativePath: z.string().min(1).max(MAX_COMFYUI_PATH_LENGTH),
+      sourceAssetId: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength),
       prompt: comfyUiPromptSchema,
       ...comfyUiGenerationControlsSchema,
     })

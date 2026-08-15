@@ -140,7 +140,7 @@ the `noveltea-asset://` URL directly and never publishes a Room Asset source pat
 | Consumer | Full-source purpose |
 | --- | --- |
 | `editors/assets/AssetPreview.tsx` | Noncompact asset detail. |
-| `editors/comfyui/ImageGenerationEditor.tsx` | Image editing and source-image workflow. |
+| `editors/comfyui/ImageGenerationEditor.tsx` | Image-edit preview uses the session-scoped original URL; edit submission carries only the admitted Asset id and main performs a separate 32 MiB loopback-only upload. |
 | `components/hotspots/HotspotAuthoringPanel.tsx` | Hotspot authoring and hit-region alignment; requires an admitted image Asset and uses its original-resolution protocol stream so normalized hotspot geometry is never authored against a thumbnail. |
 | `editors/rooms/RoomEditor.tsx` | Room composition and engine-preview input. |
 

@@ -145,8 +145,7 @@ export async function editComfyUiImage(
   config: ComfyUiConfig,
   request: ComfyUiEditImageRequest,
 ): Promise<ComfyUiImageJobResponse> {
-  const { projectFilePath: _projectFilePath, ...ipcRequest } = request;
-  return window.noveltea.editComfyUiImage(currentProjectSessionId(true)!, config, ipcRequest);
+  return window.noveltea.editComfyUiImage(currentProjectSessionId(true)!, config, request);
 }
 
 export async function cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse> {

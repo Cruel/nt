@@ -371,15 +371,10 @@ describe('ImageGenerationEditor', () => {
     fireEvent.click(screen.getByText('Edit Selected Image'));
 
     expect(window.noveltea.editComfyUiImage).not.toHaveBeenCalled();
-    const queue = useComfyUiQueueStore.getState();
-    expect(queue.order).toHaveLength(1);
-    const job = queue.localJobsByPromptId[queue.order[0]!];
-    expect(job?.kind).toBe('edit');
-    expect(job?.request).toMatchObject({
-      workflowKey: 'project:flux2-klein-image-edit.manifest.json',
-      sourceProjectRelativePath: 'assets/generated/generated.png',
-      prompt: 'make it night',
-    });
+    expect(useComfyUiQueueStore.getState().order).toHaveLength(0);
+    expect(
+      screen.getByText('Add the source image to the Project before editing it.'),
+    ).toBeInTheDocument();
   });
 
   it('shows and submits only bound generate controls', async () => {
@@ -531,7 +526,6 @@ describe('ImageGenerationEditor', () => {
         stableId: 'utility:image-generation:logo',
         collection: 'assets',
         entityId: 'logo',
-        sourceProjectRelativePath: 'assets/images/logo.png',
         generationMode: 'edit',
       },
     };
@@ -558,7 +552,7 @@ describe('ImageGenerationEditor', () => {
     const job = queue.localJobsByPromptId[queue.order[0]!];
     expect(job?.request).toMatchObject({
       workflowId: 'bound-edit',
-      sourceProjectRelativePath: 'assets/images/logo.png',
+      sourceAssetId: 'logo',
       prompt: 'make it warmer',
       negativePrompt: 'harsh shadows',
       steps: 12,
