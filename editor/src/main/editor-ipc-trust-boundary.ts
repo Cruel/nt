@@ -8,6 +8,8 @@ import {
 import { COMFYUI_IPC_LIMITS, comfyUiConfigSchema } from '../shared/comfyui';
 import type { ComfyUiWorkflowKey } from '../shared/comfyui-workflows';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
+import { isSafeProjectAssetPath } from '../shared/project-schema/authoring-assets';
+import { editorProjectStateSchema } from '../shared/project-schema/editor-project-state';
 import { compiledProjectWireV3Schema } from '../shared/project-schema/compiled-project';
 import { preparedRuntimeArtifactSchema } from '../shared/project-schema/prepared-runtime-artifact';
 import {
@@ -31,6 +33,9 @@ const MAX_PROJECT_NAME_LENGTH = 512;
 const MAX_TEXT_SOURCE_READ_KEY_LENGTH = 1_024;
 const MAX_PROJECT_PATH_LENGTH = 32_768;
 const MAX_ASSET_OPERATION_PATHS = 10_000;
+const MAX_SAVE_SOURCE_PATHS = 10_000;
+const MAX_SAVE_UNITS = 10_000;
+const MAX_SAVE_LABEL_LENGTH = 1_024;
 const MAX_PLAYBACK_TEST_ID_LENGTH = 1_024;
 const MAX_PLAYBACK_STEPS = 100_000;
 const MAX_SHADER_VARIANTS = 256;
@@ -267,7 +272,11 @@ export const readProjectTextSourcesArgumentsSchema = z.tuple([
 ]);
 
 const projectSessionIdSchema = z.string().uuid().max(MAX_PROJECT_SESSION_ID_LENGTH);
-const projectRelativePathSchema = z.string().min(1).max(MAX_PROJECT_PATH_LENGTH);
+const projectRelativePathSchema = z
+  .string()
+  .min(1)
+  .max(MAX_PROJECT_PATH_LENGTH)
+  .refine(isSafeProjectAssetPath);
 
 export const importAssetsArgumentsSchema = z.tuple([
   projectSessionIdSchema,
@@ -303,6 +312,69 @@ export const restoreProjectAssetFilesArgumentsSchema = z.tuple([
     .max(MAX_ASSET_OPERATION_PATHS),
 ]);
 
+const projectRevisionMapSchema = z.record(projectRelativePathSchema, sha256DigestSchema);
+const scriptSourcePathsSchema = z
+  .record(z.string().min(1).max(512), projectRelativePathSchema)
+  .refine((value) => Object.keys(value).length <= MAX_SAVE_SOURCE_PATHS);
+const projectWorkspaceCommitOptionsSchema = z
+  .object({
+    expectedFileRevisions: projectRevisionMapSchema,
+    saveUnitIds: z.array(z.string().min(1).max(1_024)).max(MAX_SAVE_UNITS).optional(),
+    baselineProject: authoringProjectSchema.optional(),
+    affectedPaths: z
+      .array(z.string().min(1).max(MAX_PROJECT_PATH_LENGTH))
+      .max(MAX_SAVE_UNITS)
+      .optional(),
+    operationLabel: z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
+    structural: z.boolean().optional(),
+    assetTransition: z
+      .union([
+        z
+          .object({
+            kind: z.literal('trash'),
+            projectRelativePaths: z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal('restore'),
+            moves: z
+              .array(
+                z
+                  .object({
+                    projectRelativePath: projectRelativePathSchema,
+                    trashRelativePath: projectRelativePathSchema,
+                  })
+                  .strict(),
+              )
+              .max(MAX_ASSET_OPERATION_PATHS),
+          })
+          .strict(),
+      ])
+      .optional(),
+  })
+  .strict();
+
+export const saveProjectContentArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.string().min(1).max(512),
+  authoringProjectSchema,
+  editorProjectStateSchema,
+  scriptSourcePathsSchema,
+  z.union([projectWorkspaceCommitOptionsSchema, z.undefined()]),
+]);
+export const saveProjectEditorMetadataArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.string().min(1).max(512),
+  editorProjectStateSchema,
+  projectRevisionMapSchema,
+]);
+export const saveProjectCopyAsArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  authoringProjectSchema,
+  z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
+  scriptSourcePathsSchema,
+]);
 export const projectSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
 export const projectAssetUrlArgumentsSchema = z.tuple([
   projectSessionIdSchema,

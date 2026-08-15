@@ -19,6 +19,9 @@ import {
   previewSessionArgumentsSchema,
   projectAssetUrlArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
+  saveProjectContentArgumentsSchema,
+  saveProjectCopyAsArgumentsSchema,
+  saveProjectEditorMetadataArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
@@ -33,6 +36,7 @@ import {
 } from '../../shared/editor-ipc-boundary';
 import { selectDirectoryArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import type { ReadProjectTextSourcesRequest } from '../../shared/project-text-sources';
 
 class FakeIpcMain implements EditorIpcMain {
@@ -812,6 +816,86 @@ describe('editor top-level navigation policy', () => {
     listener?.(navigation);
 
     expect(navigation.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it('strictly guards Project persistence requests before persistence side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const saveContent = vi.fn((..._arguments: unknown[]) => 'content-saved');
+    const saveMetadata = vi.fn((..._arguments: unknown[]) => 'metadata-saved');
+    const saveCopy = vi.fn((..._arguments: unknown[]) => 'copy-saved');
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'save-content',
+      (arguments_) => saveProjectContentArgumentsSchema.parse(arguments_),
+      saveContent,
+    );
+    registrar.handle(
+      'save-metadata',
+      (arguments_) => saveProjectEditorMetadataArgumentsSchema.parse(arguments_),
+      saveMetadata,
+    );
+    registrar.handle(
+      'save-copy',
+      (arguments_) => saveProjectCopyAsArgumentsSchema.parse(arguments_),
+      saveCopy,
+    );
+
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const project = createAuthoringProject({ name: 'Persistence Boundary' });
+    const editorState = emptyEditorProjectState();
+
+    await expect(
+      ipcMain.invoke(
+        'save-content',
+        harness.event,
+        sessionId,
+        'workspace-revision',
+        project,
+        editorState,
+        {},
+        undefined,
+      ),
+    ).resolves.toBe('content-saved');
+    await expect(
+      ipcMain.invoke(
+        'save-metadata',
+        harness.event,
+        sessionId,
+        'workspace-revision',
+        editorState,
+        {},
+      ),
+    ).resolves.toBe('metadata-saved');
+    await expect(
+      ipcMain.invoke('save-copy', harness.event, sessionId, project, [], {}),
+    ).resolves.toBe('copy-saved');
+
+    for (const [channel, arguments_] of [
+      [
+        'save-content',
+        [sessionId, 'workspace-revision', project, editorState, {}, undefined, 'extra'],
+      ],
+      [
+        'save-metadata',
+        [sessionId, 'workspace-revision', { ...editorState, unexpected: true }, {}],
+      ],
+      ['save-copy', [sessionId, project, ['../escape.png'], {}]],
+    ] as const) {
+      saveContent.mockClear();
+      saveMetadata.mockClear();
+      saveCopy.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(saveContent).not.toHaveBeenCalled();
+      expect(saveMetadata).not.toHaveBeenCalled();
+      expect(saveCopy).not.toHaveBeenCalled();
+    }
   });
 
   it('denies every new-window request', () => {

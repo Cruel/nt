@@ -125,4 +125,7 @@ cover canonical activation, same-root refresh, rejected cross-root refresh, root
 failure, close and teardown revocation, Project A-to-B isolation before filesystem access, and the
 retained text-source rules. Persistence, Asset, thumbnail, and watcher tests additionally cover
 authority loss before mutation/source access, Save As revocation after destination selection,
-session-tagged reconciliation, admitted-Asset matching, and watcher routing.
+session-tagged reconciliation, admitted-Asset matching, and watcher routing. Project content save,
+metadata save, Save As, and watcher start/stop are themselves guarded IPC registrations with strict
+runtime argument parsers; `ipc-boundary-inventory.test.ts` certifies that there is no direct invoke
+registration bypass for these or any other preload channel.

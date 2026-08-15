@@ -49,8 +49,14 @@ The active-Project close capability also uses the registrar with an exact no-arg
 the trusted editor frame can revoke the main-owned Project session. Project text-source reads use a
 strict bounded request object through the same registrar before the active-session service can resolve
 a path. Project open and saved-Project creation likewise use strict bounded path/request tuples before
-a successful result may establish Project authority. Existing invoke channels are not described as
-guarded until they are migrated through the registrar with their own runtime parsers.
+a successful result may establish Project authority.
+
+Every channel invoked by `editor/src/preload.ts` now has exactly one registration through this guarded
+registrar and an explicit runtime argument parser. This includes Project content persistence,
+editor-metadata persistence, Save As, workspace watcher start/stop, thumbnail/cache operations,
+preview/playback/shader operations, export/template operations, Asset operations, and ComfyUI. Direct
+channel-specific `ipcMain.handle(IPC_CHANNELS.*)` registrations are prohibited; there is no alternate
+unguarded compatibility path.
 
 ## Editor document navigation
 
@@ -64,13 +70,39 @@ different same-origin path or query and `javascript:`, `data:`, and `file:` targ
 redirects remain governed by their owning preview/iframe boundary. Window creation is denied.
 Rejected top-level navigation never changes the approved document or origin.
 
+## D-001, D-002, and D-014 closure
+
+The three discovery findings are treated as one boundary rather than independent mitigations:
+
+- **D-001 — renderer sender trust:** main accepts privileged invokes only from the owning live top-level
+  editor document at the exact approved origin, with unexpected navigation/redirects prevented.
+- **D-002 — unchecked privileged request forms / renderer-selected Project authority:** every preload
+  invoke is parsed from `unknown` through a strict bounded tuple/object contract, and Project-scoped
+  filesystem work derives its root from the current opaque `projectSessionId` instead of a renderer
+  root or manifest path.
+- **D-014 — Asset/source exfiltration:** original media is authorized by active-session Asset identity,
+  canonical containment, regular-file/revision/size checks, and bounded streaming. ComfyUI edit upload
+  additionally requires an admitted image and a pinned loopback HTTP destination with redirects
+  disabled and a 32 MiB upload ceiling.
+
+The current security invariant is therefore: a renderer invocation can affect Project files only when
+it comes from the owning top-level editor document, parses against its declared current contract,
+presents the current Project session where required, names an admitted capability, and passes the
+operation's containment and resource limits.
+
 ## Verification
 
 Focused tests in `editor/src/renderer/test/editor-ipc-trust-boundary.test.ts` use the guarded registrar
 and navigation policy as public seams. They cover valid packaged and configured-development calls,
 different or stale senders, child and remote frames, wrong origins, malformed requests, bounded app,
-window, dialog, path, and external-URL contracts, extra arguments, blocked navigation and redirects,
-denied window creation, and absence of downstream service calls after rejection. The packaged smoke
-also invokes the representative channel with an
-invalid request and verifies the renderer-visible `EditorIpcBoundaryError` contract through real
-Electron IPC.
+window, dialog, path, Project, export, Asset, and ComfyUI contracts, extra arguments, blocked
+navigation and redirects, denied window creation, and absence of downstream service calls after
+rejection.
+
+`editor/src/renderer/test/ipc-boundary-inventory.test.ts` mechanically inventories preload invoke
+channels against main registration source. It requires one guarded registration with a declared parser
+for every preload invoke and fails if a channel-specific direct `ipcMain.handle` is added. Real
+filesystem/session tests cover Project switching, lexical and symlink escape, non-regular/changed
+sources and limits; ComfyUI tests add pinned-loopback upload and redirect/rebinding defenses. The
+packaged smoke verifies the production editor origin plus the bounded original-Asset protocol through
+real Electron IPC.

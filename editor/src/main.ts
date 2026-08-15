@@ -146,6 +146,9 @@ import {
   resolvePlayerTemplateArgumentsSchema,
   runPlaybackSpecArgumentsSchema,
   runPlaybackTestArgumentsSchema,
+  saveProjectContentArgumentsSchema,
+  saveProjectCopyAsArgumentsSchema,
+  saveProjectEditorMetadataArgumentsSchema,
   restoreProjectAssetFilesArgumentsSchema,
   selectDirectoryArgumentsSchema,
   stagePlatformExportArgumentsSchema,
@@ -989,16 +992,16 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_CONTENT,
+    (arguments_) => saveProjectContentArgumentsSchema.parse(arguments_),
     async (
-      _event: Electron.IpcMainInvokeEvent,
-      projectSessionId: string,
-      expectedWorkspaceRevision: string,
-      contentProject: unknown,
-      editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
-      scriptSourcePaths: Record<string, string>,
-      commitOptions: import('./shared/editor-tooling').ProjectWorkspaceCommitOptions | undefined,
+      projectSessionId,
+      expectedWorkspaceRevision,
+      contentProject,
+      editorState,
+      scriptSourcePaths,
+      commitOptions,
     ) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
@@ -1027,15 +1030,10 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
-    async (
-      _event: Electron.IpcMainInvokeEvent,
-      projectSessionId: string,
-      expectedWorkspaceRevision: string,
-      editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
-      expectedFileRevisions: Record<string, `sha256:${string}`> | undefined,
-    ) => {
+    (arguments_) => saveProjectEditorMetadataArgumentsSchema.parse(arguments_),
+    async (projectSessionId, expectedWorkspaceRevision, editorState, expectedFileRevisions) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         const result = await saveProjectEditorMetadata(
@@ -1063,15 +1061,10 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
-    async (
-      _event: Electron.IpcMainInvokeEvent,
-      projectSessionId: string,
-      project: unknown,
-      workingProjectAssetPaths: string[],
-      scriptSourcePaths: Record<string, string>,
-    ) => {
+    (arguments_) => saveProjectCopyAsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, project, workingProjectAssetPaths, scriptSourcePaths) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await saveProjectCopyAs(
@@ -1245,9 +1238,10 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER,
-    (_event: Electron.IpcMainInvokeEvent, projectSessionId: string) => {
+    (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return startProjectWorkspaceWatcher(
@@ -1272,9 +1266,10 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER,
-    (_event: Electron.IpcMainInvokeEvent, projectSessionId: string) => {
+    (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
       try {
         activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return stopProjectWorkspaceWatcher(projectSessionId);
@@ -1316,7 +1311,11 @@ void app.whenReady().then(async () => {
     (request) => imageThumbnailService.cancelPrewarm(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.CLEAR_EDITOR_CACHE, () => imageThumbnailService.clearEditorCache());
+  guardedIpc.handle(
+    IPC_CHANNELS.CLEAR_EDITOR_CACHE,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => imageThumbnailService.clearEditorCache(),
+  );
 
   guardedIpc.handle(
     IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES,
