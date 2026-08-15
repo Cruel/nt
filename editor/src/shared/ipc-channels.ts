@@ -54,7 +54,7 @@ export const IPC_CHANNELS = {
   START_PROJECT_WORKSPACE_WATCHER: 'noveltea:start-project-workspace-watcher',
   STOP_PROJECT_WORKSPACE_WATCHER: 'noveltea:stop-project-workspace-watcher',
   PROJECT_WORKSPACE_WATCH_EVENT: 'noveltea:project-workspace-watch-event',
-  RESOLVE_PROJECT_ASSET_URL: 'noveltea:resolve-project-asset-url',
+  RESOLVE_PROJECT_ORIGINAL_ASSET_URL: 'noveltea:resolve-project-original-asset-url',
   REQUEST_IMAGE_THUMBNAIL: 'noveltea:request-image-thumbnail',
   PREWARM_IMAGE_THUMBNAILS: 'noveltea:prewarm-image-thumbnails',
   CANCEL_IMAGE_THUMBNAIL_PREWARM: 'noveltea:cancel-image-thumbnail-prewarm',

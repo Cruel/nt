@@ -209,7 +209,7 @@ async function characterizeProductionThumbnailProtocol(
           },
           variant: { kind: 'profile', profile: 'list' },
         };
-        const original = await window.noveltea.resolveProjectAssetUrl(opened.projectSessionId, ${assetIdLiteral});
+        const original = await window.noveltea.resolveProjectOriginalAssetUrl(opened.projectSessionId, ${assetIdLiteral});
         if (!original.ok) return { first: { ok: false }, second: null, original, originalLoaded: false, loaded: false, width: 0, height: 0 };
         const originalImage = await new Promise((resolve) => {
           const element = new Image();

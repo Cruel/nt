@@ -13,6 +13,7 @@ import {
 import {
   isSha256Digest,
   PROJECT_TEXT_SOURCE_LIMITS,
+  projectTextSourceBoundaryCode,
   type ProjectTextSourceReadEntry,
   type ReadProjectTextSourcesRequest,
   type ReadProjectTextSourcesResponse,
@@ -391,6 +392,7 @@ function unavailable(
     projectRelativePath: entry.projectRelativePath,
     expectedContentHash: entry.expectedContentHash ?? null,
     code,
+    boundaryCode: projectTextSourceBoundaryCode(code),
     message,
   };
 }

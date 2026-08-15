@@ -248,7 +248,13 @@ describe('active Project session lifecycle', () => {
       stat.mockClear();
       open.mockClear();
       await expect(service.read({ ...request, projectSessionId })).resolves.toEqual({
-        entries: [expect.objectContaining({ status: 'unavailable', code: 'stale-session' })],
+        entries: [
+          expect.objectContaining({
+            status: 'unavailable',
+            code: 'stale-session',
+            boundaryCode: 'stale-project-session',
+          }),
+        ],
       });
       expect(realpath).not.toHaveBeenCalled();
       expect(stat).not.toHaveBeenCalled();

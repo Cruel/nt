@@ -5,8 +5,18 @@ import {
   imageThumbnailRequestSchema,
   cancelImageThumbnailPrewarmRequestSchema,
 } from '../shared/image-thumbnails';
-import { COMFYUI_IPC_LIMITS, comfyUiConfigSchema } from '../shared/comfyui';
-import type { ComfyUiWorkflowKey } from '../shared/comfyui-workflows';
+import {
+  COMFYUI_IPC_LIMITS,
+  comfyUiConfigSchema,
+  comfyUiPromptSchema,
+  comfyUiWorkflowIdSchema,
+  comfyUiWorkflowLabelSchema,
+  utf8ByteLength,
+} from '../shared/comfyui';
+import {
+  parseComfyUiWorkflowDefinition,
+  type ComfyUiWorkflowKey,
+} from '../shared/comfyui-workflows';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { isSafeProjectAssetPath } from '../shared/project-schema/authoring-assets';
 import { editorProjectStateSchema } from '../shared/project-schema/editor-project-state';
@@ -736,18 +746,38 @@ const comfyUiWorkflowKeySchema = z.custom<ComfyUiWorkflowKey>(
   (value) =>
     typeof value === 'string' &&
     value.length > 0 &&
-    value.length <= COMFYUI_IPC_LIMITS.workflowIdLength &&
+    utf8ByteLength(value) <= COMFYUI_IPC_LIMITS.workflowIdBytes &&
     /^(?:built-in|editor|project):[^\\/]+$/u.test(value),
 );
-const comfyUiWorkflowIdSchema = z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength);
-const comfyUiPromptSchema = z.string().max(COMFYUI_IPC_LIMITS.promptLength);
 const comfyUiGenerationControlsSchema = {
-  clientJobId: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength).optional(),
+  clientJobId: comfyUiWorkflowIdSchema.optional(),
   negativePrompt: comfyUiPromptSchema.optional(),
   seed: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   steps: z.number().int().positive().max(10_000).optional(),
   cfg: z.number().finite().min(0).max(1_000).optional(),
 } as const;
+
+const comfyUiWorkflowManifestSchema = z.unknown().superRefine((value, context) => {
+  try {
+    const serialized = JSON.stringify(value);
+    if (
+      serialized === undefined ||
+      utf8ByteLength(serialized) > COMFYUI_IPC_LIMITS.workflowManifestBytes
+    ) {
+      context.addIssue({ code: 'custom', message: 'ComfyUI workflow manifest exceeds its limit.' });
+      return;
+    }
+    const definition = parseComfyUiWorkflowDefinition(value);
+    if (utf8ByteLength(definition.id) > COMFYUI_IPC_LIMITS.workflowIdBytes) {
+      context.addIssue({ code: 'custom', message: 'ComfyUI workflow id exceeds its limit.' });
+    }
+    if (utf8ByteLength(definition.label) > COMFYUI_IPC_LIMITS.workflowLabelBytes) {
+      context.addIssue({ code: 'custom', message: 'ComfyUI workflow label exceeds its limit.' });
+    }
+  } catch {
+    context.addIssue({ code: 'custom', message: 'ComfyUI workflow manifest is invalid.' });
+  }
+});
 
 export const comfyUiConfigArgumentsSchema = z.tuple([comfyUiConfigSchema]);
 export const comfyUiListWorkflowLibraryArgumentsSchema = z.tuple([
@@ -755,7 +785,7 @@ export const comfyUiListWorkflowLibraryArgumentsSchema = z.tuple([
   z
     .object({
       includeOverridden: z.boolean().optional(),
-      comfyUiVersion: z.string().max(COMFYUI_IPC_LIMITS.workflowIdLength).optional(),
+      comfyUiVersion: comfyUiWorkflowIdSchema.optional(),
     })
     .strict(),
 ]);
@@ -778,17 +808,17 @@ export const comfyUiRenameWorkflowArgumentsSchema = z.tuple([
   z
     .object({
       workflowKey: comfyUiWorkflowKeySchema,
-      label: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength),
+      label: comfyUiWorkflowLabelSchema,
     })
     .strict(),
 ]);
 export const comfyUiImportWorkflowArgumentsSchema = z.tuple([
   z
     .object({
-      workflowFileName: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength),
-      manifestFileName: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength),
+      workflowFileName: comfyUiWorkflowLabelSchema,
+      manifestFileName: comfyUiWorkflowLabelSchema,
       workflowJsonText: z.string().max(COMFYUI_IPC_LIMITS.workflowJsonLength),
-      manifest: z.unknown(),
+      manifest: comfyUiWorkflowManifestSchema,
       overwrite: z.boolean(),
       config: comfyUiConfigSchema.optional(),
     })
@@ -799,7 +829,7 @@ export const comfyUiRepairWorkflowArgumentsSchema = z.tuple([
   z
     .object({
       workflowKey: comfyUiWorkflowKeySchema,
-      manifest: z.unknown(),
+      manifest: comfyUiWorkflowManifestSchema,
       overwrite: z.literal(true),
     })
     .strict(),
@@ -842,7 +872,7 @@ export const comfyUiEditImageArgumentsSchema = z.tuple([
     .object({
       workflowId: comfyUiWorkflowIdSchema.optional(),
       workflowKey: comfyUiWorkflowKeySchema.optional(),
-      sourceAssetId: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength),
+      sourceAssetId: comfyUiWorkflowIdSchema,
       prompt: comfyUiPromptSchema,
       ...comfyUiGenerationControlsSchema,
     })

@@ -26,6 +26,14 @@ Assets remain complete Asset records in `records/assets/`; their project source 
 explicit Asset source path, normally under `assets/`. Project-local `workflows/` is owned by the
 ComfyUI workflow service and is not AuthoringProject input.
 
+Privileged editor reads do not treat those stored source paths as renderer capabilities. The Electron
+main process resolves Project-scoped access from the current opaque `projectSessionId` and admitted
+Asset identity. Original Asset access accepts only normalized forward-slash paths beneath `assets/`,
+canonicalizes the Project root and target with realpath, allows symlinks only when their real target
+remains beneath the canonical Project root, requires a regular file, and verifies admitted size and
+SHA-256 revision. Project-relative lexical escape, alternate/backslash spellings, symlink escape,
+non-regular files, stale sessions, and changed source identity fail closed before bytes are published.
+
 Writers emit UTF-8, LF, two-space JSON with a trailing newline and deterministic key order. Every
 authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. The
 aggregate workspace revision hashes the sorted path/revision inventory, but Save and Save All use the

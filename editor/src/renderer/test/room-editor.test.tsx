@@ -49,8 +49,8 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   clearWorkbenchTabStates();
   vi.mocked(window.noveltea.requestImageThumbnail).mockClear();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockReset();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockReset();
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: true,
     url: 'noveltea-asset://source/session/logo',
   });
@@ -193,7 +193,7 @@ describe('RoomEditor', () => {
       expect.stringContaining('noveltea-thumbnail:'),
     );
     await waitFor(() =>
-      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+      expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
         'foyer-background',
       ),
@@ -221,9 +221,10 @@ describe('RoomEditor', () => {
     const room = defaultRoomData('Foyer');
     room.background.asset = { $ref: { collection: 'assets', id: 'foyer-background' } };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+    vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
       ok: false,
       code: 'revision-mismatch',
+      boundaryCode: 'source-revision-mismatch',
     });
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -235,7 +236,7 @@ describe('RoomEditor', () => {
     renderEditor();
     selectRoomCategory('Composition');
     await waitFor(() =>
-      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+      expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
         'foyer-background',
       ),

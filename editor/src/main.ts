@@ -54,7 +54,7 @@ import {
 import {
   createProjectOriginalAssetProtocolHandler,
   PROJECT_ORIGINAL_ASSET_SCHEME,
-  resolveProjectAssetUrl,
+  resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
 import {
@@ -1287,10 +1287,10 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
-    IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
+    IPC_CHANNELS.RESOLVE_PROJECT_ORIGINAL_ASSET_URL,
     (arguments_) => projectAssetUrlArgumentsSchema.parse(arguments_),
     (projectSessionId, assetId) =>
-      resolveProjectAssetUrl(activeProjectSessions, projectSessionId, assetId),
+      resolveProjectOriginalAssetUrl(activeProjectSessions, projectSessionId, assetId),
   );
 
   guardedIpc.handle(

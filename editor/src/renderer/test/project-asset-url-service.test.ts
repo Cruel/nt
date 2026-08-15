@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import {
   createProjectOriginalAssetProtocolHandler,
-  PROJECT_ORIGINAL_ASSET_MAX_BYTES,
-  resolveProjectAssetUrl,
+  resolveProjectOriginalAssetUrl as resolveProjectAssetUrl,
 } from '../../main/services/project-original-asset-service';
+import { PROJECT_ORIGINAL_ASSET_MAX_BYTES } from '../../shared/project-asset-url';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const roots: string[] = [];
@@ -97,6 +97,24 @@ describe('session-scoped original Asset streaming', () => {
     expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
   });
 
+  it('never streams bytes beyond the admitted length if the file grows after protocol admission', async () => {
+    const { root, projectFilePath } = tempProject('growth');
+    const bytes = Buffer.from('png');
+    const sourcePath = path.join(root, 'assets', 'images', 'logo.png');
+    fs.writeFileSync(sourcePath, bytes);
+    const { sessions, sessionId } = await activate(
+      projectFilePath,
+      projectWithAsset('logo', 'assets/images/logo.png', bytes),
+    );
+    const handler = createProjectOriginalAssetProtocolHandler(sessions);
+    const response = await handler(new Request(`noveltea-asset://source/${sessionId}/logo`));
+
+    fs.appendFileSync(sourcePath, Buffer.from('-unexpected-growth'));
+
+    expect(response.headers.get('content-length')).toBe(String(bytes.byteLength));
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+  });
+
   it('permits contained symlinks and rejects symlink escapes and alternate traversal spellings', async () => {
     const { root, projectFilePath } = tempProject();
     const bytes = Buffer.from('png');
@@ -122,10 +140,12 @@ describe('session-scoped original Asset streaming', () => {
     expect(await resolveProjectAssetUrl(sessions, sessionId, 'outside')).toEqual({
       ok: false,
       code: 'symlink-escape',
+      boundaryCode: 'symlink-escape',
     });
     expect(await resolveProjectAssetUrl(sessions, sessionId, 'traversal')).toEqual({
       ok: false,
       code: 'invalid-source',
+      boundaryCode: 'unsafe-path',
     });
   });
 
@@ -142,6 +162,7 @@ describe('session-scoped original Asset streaming', () => {
     expect(await resolveProjectAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual({
       ok: false,
       code: 'size-mismatch',
+      boundaryCode: 'source-revision-mismatch',
     });
 
     const revisionProject = projectWithAsset('logo', 'assets/images/logo.png', original, {
@@ -151,6 +172,7 @@ describe('session-scoped original Asset streaming', () => {
     expect(await resolveProjectAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual({
       ok: false,
       code: 'revision-mismatch',
+      boundaryCode: 'source-revision-mismatch',
     });
 
     fs.rmSync(sourcePath);
@@ -170,7 +192,8 @@ describe('session-scoped original Asset streaming', () => {
     active = await activate(projectFilePath, oversizedProject);
     expect(await resolveProjectAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual({
       ok: false,
-      code: 'invalid-metadata',
+      code: 'too-large',
+      boundaryCode: 'source-too-large',
     });
   });
 
@@ -195,7 +218,8 @@ describe('session-scoped original Asset streaming', () => {
     active = await activate(projectFilePath, overProject);
     expect(await resolveProjectAssetUrl(active.sessions, active.sessionId, 'limit')).toEqual({
       ok: false,
-      code: 'invalid-metadata',
+      code: 'too-large',
+      boundaryCode: 'source-too-large',
     });
   });
 
@@ -221,15 +245,18 @@ describe('session-scoped original Asset streaming', () => {
     expect(await resolveProjectAssetUrl(sessions, sessionId, 'missing')).toEqual({
       ok: false,
       code: 'unknown-asset',
+      boundaryCode: 'unauthorized-asset',
     });
     expect(await resolveProjectAssetUrl(sessions, sessionId, 'note')).toEqual({
       ok: false,
       code: 'unsupported-kind',
+      boundaryCode: 'unauthorized-asset',
     });
     sessions.closeActiveProject();
     expect(await resolveProjectAssetUrl(sessions, sessionId, 'note')).toEqual({
       ok: false,
       code: 'stale-or-unknown',
+      boundaryCode: 'stale-project-session',
     });
   });
 

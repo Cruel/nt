@@ -6,13 +6,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import {
-  COMFYUI_SOURCE_UPLOAD_MAX_BYTES,
   isLoopbackAddress,
   readBoundedComfyUiSourceImage,
   resolveLoopbackUploadTarget,
   uploadComfyUiSourceImage,
 } from '../../main/services/comfyui-service';
-import type { ComfyUiConfig } from '../../shared/comfyui';
+import { COMFYUI_IPC_LIMITS, type ComfyUiConfig } from '../../shared/comfyui';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const roots: string[] = [];
@@ -120,9 +119,9 @@ describe('secure ComfyUI source-image upload', () => {
     await expect(resolveLoopbackUploadTarget(config('https://127.0.0.1:8188'))).rejects.toThrow(
       /loopback HTTP/,
     );
-    await expect(resolveLoopbackUploadTarget(config('http://192.168.1.10:8188'))).rejects.toThrow(
-      /loopback/,
-    );
+    await expect(
+      resolveLoopbackUploadTarget(config('http://192.168.1.10:8188')),
+    ).rejects.toMatchObject({ code: 'remote-upload-denied' });
     await expect(resolveLoopbackUploadTarget(config('http://example.com:8188'))).rejects.toThrow(
       /localhost or a loopback IP literal/,
     );
@@ -137,11 +136,11 @@ describe('secure ComfyUI source-image upload', () => {
     let active = await activate(projectFilePath, imageProject('source', sourcePath, bytes));
     await expect(
       readBoundedComfyUiSourceImage(active.sessions, active.sessionId, 'missing'),
-    ).rejects.toThrow(/unknown-asset/);
+    ).rejects.toMatchObject({ code: 'unauthorized-asset' });
     active.sessions.closeActiveProject();
     await expect(
       readBoundedComfyUiSourceImage(active.sessions, active.sessionId, 'source'),
-    ).rejects.toThrow(/stale-or-unknown/);
+    ).rejects.toMatchObject({ code: 'stale-project-session' });
 
     active = await activate(
       projectFilePath,
@@ -206,23 +205,25 @@ describe('secure ComfyUI source-image upload', () => {
 
   it('admits exactly 32 MiB and rejects metadata over the source-upload ceiling before buffering', async () => {
     const { root, projectFilePath } = tempProject();
-    const exact = Buffer.alloc(COMFYUI_SOURCE_UPLOAD_MAX_BYTES);
+    const exact = Buffer.alloc(COMFYUI_IPC_LIMITS.sourceUploadBytes);
     const sourcePath = 'assets/images/limit.png';
     fs.writeFileSync(path.join(root, sourcePath), exact);
     let active = await activate(projectFilePath, imageProject('source', sourcePath, exact));
     await expect(
       readBoundedComfyUiSourceImage(active.sessions, active.sessionId, 'source'),
     ).resolves.toMatchObject({
-      bytes: expect.objectContaining({ byteLength: COMFYUI_SOURCE_UPLOAD_MAX_BYTES }),
+      bytes: expect.objectContaining({ byteLength: COMFYUI_IPC_LIMITS.sourceUploadBytes }),
     });
 
     active = await activate(
       projectFilePath,
-      imageProject('source', sourcePath, exact, { byteSize: COMFYUI_SOURCE_UPLOAD_MAX_BYTES + 1 }),
+      imageProject('source', sourcePath, exact, {
+        byteSize: COMFYUI_IPC_LIMITS.sourceUploadBytes + 1,
+      }),
     );
     await expect(
       readBoundedComfyUiSourceImage(active.sessions, active.sessionId, 'source'),
-    ).rejects.toThrow(/invalid-metadata/);
+    ).rejects.toThrow(/too-large/);
   });
 
   it('uploads to a pinned loopback fake server and never follows redirects', async () => {

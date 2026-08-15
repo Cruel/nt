@@ -45,7 +45,7 @@ function project() {
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   clearWorkbenchTabStates();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: true,
     url: 'noveltea-asset://source/session/logo',
   });
@@ -88,12 +88,12 @@ describe('AssetLibraryEditor', () => {
       }),
     );
     await waitFor(() =>
-      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+      expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
         'click',
       ),
     );
-    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalledWith(
+    expect(window.noveltea.resolveProjectOriginalAssetUrl).not.toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
       'logo',
     );

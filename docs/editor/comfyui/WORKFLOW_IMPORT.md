@@ -116,7 +116,10 @@ Project workspace from that session; renderer-supplied Project roots or manifest
 contracts. A stale or wrong session fails before Project workflow filesystem or generation work begins.
 
 Generation requests also bound workflow identity, prompts, dimensions, seed, steps, CFG, job identity, and workflow JSON
-sizes. Progress events are emitted only while the initiating Project session remains current. If the Project closes or
+sizes. IPC limits are byte-oriented where identity/text disclosure matters: server URLs are limited to 2 KiB UTF-8,
+workflow and job ids to 256 UTF-8 bytes, workflow labels to 1 KiB UTF-8, and prompts/negative prompts to 64 KiB UTF-8.
+Imported/repaired workflow manifests are structurally parsed at the IPC boundary and capped at 1 MiB before workflow
+services run. Progress events are emitted only while the initiating Project session remains current. If the Project closes or
 switches while a job is running, stale work cannot publish completion/error progress or continue writing generated
 assets into the newly active Project.
 
@@ -130,7 +133,10 @@ Literal `127.0.0.0/8`, `::1`, IPv4-mapped loopback, and `localhost` are accepted
 and non-loopback addresses are rejected. `localhost` is resolved before upload and every returned address must be
 loopback. The upload socket then connects directly to the verified address and rechecks its remote address, so DNS
 rebinding cannot redirect source bytes off-machine. Redirect responses are rejected rather than followed. Renderer
-contracts contain neither Project/source paths nor an upload destination override.
+contracts contain neither Project/source paths nor an upload destination override. Trust-boundary failures expose stable
+machine categories such as `stale-project-session`, `unauthorized-asset`, `unsafe-path`, `symlink-escape`,
+`not-regular-file`, `source-revision-mismatch`, `source-too-large`, and `remote-upload-denied` alongside more specific
+service diagnostics where useful.
 
 ## Defaults and Generation
 

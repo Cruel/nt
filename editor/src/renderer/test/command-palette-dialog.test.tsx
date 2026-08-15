@@ -16,7 +16,7 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   usePreferencesStore.getState().resetToDefaults();
   clearWorkbenchRevealTargets();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockClear();
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockClear();
   vi.mocked(window.noveltea.requestImageThumbnail).mockClear();
 });
 
@@ -58,7 +58,7 @@ describe('CommandPaletteDialog', () => {
       },
       variant: { kind: 'profile', profile: 'list' },
     });
-    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
+    expect(window.noveltea.resolveProjectOriginalAssetUrl).not.toHaveBeenCalled();
     expect(screen.getByAltText('Logo')).toHaveAttribute(
       'src',
       expect.stringContaining('noveltea-thumbnail:'),

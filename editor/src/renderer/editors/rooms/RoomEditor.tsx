@@ -779,7 +779,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       return;
     }
     window.noveltea
-      .resolveProjectAssetUrl(projectSessionId, data.background.asset.$ref.id)
+      .resolveProjectOriginalAssetUrl(projectSessionId, data.background.asset.$ref.id)
       .then((result) => !cancelled && setCompositionBackgroundUrl(result.ok ? result.url : null))
       .catch(() => !cancelled && setCompositionBackgroundUrl(null));
     return () => {

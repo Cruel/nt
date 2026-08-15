@@ -492,7 +492,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     setSourcePreviewUrl(null);
     if (!projectSessionId || !sourceAsset?.id || sourceAsset.kind !== 'image') return;
     void window.noveltea
-      .resolveProjectAssetUrl(projectSessionId, sourceAsset.id)
+      .resolveProjectOriginalAssetUrl(projectSessionId, sourceAsset.id)
       .then((response) => {
         if (!canceled) setSourcePreviewUrl(response.ok ? response.url : null);
       });

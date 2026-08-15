@@ -7,7 +7,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
-import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
+import { COMFYUI_IPC_LIMITS, normalizeComfyUiServerUrl } from '../../shared/comfyui';
 import type {
   ComfyUiCancelJobResponse,
   ComfyUiEditImageRequest,
@@ -28,6 +28,11 @@ import {
   type ComfyUiWorkflowListResponse,
 } from '../../shared/comfyui-workflows';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
+import { projectOriginalAssetBoundaryCode } from '../../shared/project-asset-url';
+import {
+  PROJECT_TRUST_FAILURE,
+  type ProjectTrustFailureCode,
+} from '../../shared/project-trust-boundary';
 import type { ActiveProjectSessionService } from './active-project-session-service';
 import { resolveContainedOriginalAsset } from './project-original-asset-service';
 
@@ -1000,13 +1005,26 @@ function descriptorViewPath(image: ComfyImageDescriptor) {
   return `/view?${params.toString()}`;
 }
 
-export const COMFYUI_SOURCE_UPLOAD_MAX_BYTES = 32 * 1024 * 1024;
 const COMFYUI_UPLOAD_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 interface LoopbackUploadTarget {
   url: URL;
   address: string;
   family: 4 | 6;
+}
+
+class ComfyUiBoundaryFailure extends Error {
+  constructor(
+    readonly code: ProjectTrustFailureCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ComfyUiBoundaryFailure';
+  }
+}
+
+function remoteUploadDenied(message: string): never {
+  throw new ComfyUiBoundaryFailure(PROJECT_TRUST_FAILURE.REMOTE_UPLOAD_DENIED, message);
 }
 
 function stripIpv6Brackets(hostname: string): string {
@@ -1032,24 +1050,27 @@ export async function resolveLoopbackUploadTarget(
   try {
     base = new URL(normalizeComfyUiServerUrl(config.serverUrl));
   } catch {
-    throw new Error('ComfyUI source upload URL is invalid.');
+    remoteUploadDenied('ComfyUI source upload URL is invalid.');
   }
-  if (base.protocol !== 'http:') throw new Error('ComfyUI source upload requires loopback HTTP.');
+  if (base.protocol !== 'http:')
+    remoteUploadDenied('ComfyUI source upload requires loopback HTTP.');
   if (base.username || base.password)
-    throw new Error('ComfyUI source upload URL cannot contain credentials.');
+    remoteUploadDenied('ComfyUI source upload URL cannot contain credentials.');
   const hostname = stripIpv6Brackets(base.hostname);
   const literalFamily = net.isIP(hostname);
   let candidates: Array<{ address: string; family: 4 | 6 }>;
   if (literalFamily) {
     if (!isLoopbackAddress(hostname))
-      throw new Error('ComfyUI source upload target must be loopback.');
+      remoteUploadDenied('ComfyUI source upload target must be loopback.');
     candidates = [{ address: hostname, family: literalFamily as 4 | 6 }];
   } else {
     if (hostname.toLowerCase() !== 'localhost')
-      throw new Error('ComfyUI source upload hostname must be localhost or a loopback IP literal.');
+      remoteUploadDenied(
+        'ComfyUI source upload hostname must be localhost or a loopback IP literal.',
+      );
     const resolved = await lookup(hostname, { all: true, verbatim: true });
     if (!resolved.length || resolved.some((entry) => !isLoopbackAddress(entry.address)))
-      throw new Error('ComfyUI localhost resolution is ambiguous or non-loopback.');
+      remoteUploadDenied('ComfyUI localhost resolution is ambiguous or non-loopback.');
     candidates = resolved.map((entry) => ({
       address: entry.address,
       family: entry.family as 4 | 6,
@@ -1065,10 +1086,16 @@ export async function readBoundedComfyUiSourceImage(
   sourceAssetId: string,
 ): Promise<{ bytes: Buffer; mimeType: string }> {
   const resolved = await resolveContainedOriginalAsset(sessions, projectSessionId, sourceAssetId, {
-    maxBytes: COMFYUI_SOURCE_UPLOAD_MAX_BYTES,
+    maxBytes: COMFYUI_IPC_LIMITS.sourceUploadBytes,
     requireKind: 'image',
   });
-  if (typeof resolved === 'string') throw new Error(`ComfyUI source image rejected: ${resolved}.`);
+  if (typeof resolved === 'string') {
+    const boundaryCode = projectOriginalAssetBoundaryCode(resolved);
+    throw new ComfyUiBoundaryFailure(
+      boundaryCode === 'invalid-request' ? PROJECT_TRUST_FAILURE.UNAUTHORIZED_ASSET : boundaryCode,
+      `ComfyUI source image rejected: ${resolved}.`,
+    );
+  }
   const expectedRevision = sessions.requireActiveAsset(projectSessionId, sourceAssetId).asset.data
     .contentHash;
   const chunks: Buffer[] = [];
@@ -1078,16 +1105,29 @@ export async function readBoundedComfyUiSourceImage(
     for await (const chunk of resolved.handle.createReadStream({ autoClose: false, start: 0 })) {
       const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       total += bytes.byteLength;
-      if (total > COMFYUI_SOURCE_UPLOAD_MAX_BYTES)
-        throw new Error('ComfyUI source image exceeds the 32 MiB upload limit.');
+      if (total > COMFYUI_IPC_LIMITS.sourceUploadBytes)
+        throw new ComfyUiBoundaryFailure(
+          PROJECT_TRUST_FAILURE.SOURCE_TOO_LARGE,
+          'ComfyUI source image exceeds the 32 MiB upload limit.',
+        );
       hash.update(bytes);
       chunks.push(bytes);
     }
-    if (total !== resolved.size) throw new Error('ComfyUI source image changed while buffering.');
+    if (total !== resolved.size)
+      throw new ComfyUiBoundaryFailure(
+        PROJECT_TRUST_FAILURE.SOURCE_REVISION_MISMATCH,
+        'ComfyUI source image changed while buffering.',
+      );
     if (`sha256:${hash.digest('hex')}` !== expectedRevision)
-      throw new Error('ComfyUI source image revision changed while buffering.');
+      throw new ComfyUiBoundaryFailure(
+        PROJECT_TRUST_FAILURE.SOURCE_REVISION_MISMATCH,
+        'ComfyUI source image revision changed while buffering.',
+      );
     if (!sessions.isCurrent(projectSessionId))
-      throw new Error('Project session is stale or unknown.');
+      throw new ComfyUiBoundaryFailure(
+        PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+        'Project session is stale or unknown.',
+      );
     return { bytes: Buffer.concat(chunks, total), mimeType: resolved.mimeType };
   } finally {
     await resolved.handle.close().catch(() => undefined);
@@ -1140,7 +1180,12 @@ export async function postLoopbackComfyUiImage(
         const status = response.statusCode ?? 0;
         if (status >= 300 && status < 400) {
           response.resume();
-          reject(new Error('ComfyUI source upload redirects are not allowed.'));
+          reject(
+            new ComfyUiBoundaryFailure(
+              PROJECT_TRUST_FAILURE.REMOTE_UPLOAD_DENIED,
+              'ComfyUI source upload redirects are not allowed.',
+            ),
+          );
           return;
         }
         const chunks: Buffer[] = [];
@@ -1177,7 +1222,12 @@ export async function postLoopbackComfyUiImage(
     request.on('socket', (socket) => {
       socket.once('connect', () => {
         if (!socket.remoteAddress || !isLoopbackAddress(socket.remoteAddress))
-          request.destroy(new Error('ComfyUI source upload connection is not loopback.'));
+          request.destroy(
+            new ComfyUiBoundaryFailure(
+              PROJECT_TRUST_FAILURE.REMOTE_UPLOAD_DENIED,
+              'ComfyUI source upload connection is not loopback.',
+            ),
+          );
       });
     });
     request.on('timeout', () => request.destroy(new Error('ComfyUI source upload timed out.')));
@@ -1194,10 +1244,16 @@ export async function uploadComfyUiSourceImage(
 ): Promise<string> {
   const target = await resolveLoopbackUploadTarget(config);
   if (!sessions.isCurrent(projectSessionId))
-    throw new Error('Project session is stale or unknown.');
+    throw new ComfyUiBoundaryFailure(
+      PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+      'Project session is stale or unknown.',
+    );
   const source = await readBoundedComfyUiSourceImage(sessions, projectSessionId, sourceAssetId);
   if (!sessions.isCurrent(projectSessionId))
-    throw new Error('Project session is stale or unknown.');
+    throw new ComfyUiBoundaryFailure(
+      PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+      'Project session is stale or unknown.',
+    );
   return postLoopbackComfyUiImage(
     config,
     target,
@@ -1356,6 +1412,7 @@ export async function generateComfyUiImage(
       assets: [],
       diagnostics: [],
       error: 'Project session is stale or unknown.',
+      failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
     };
   const { definition, workflow: template } = await resolveComfyUiWorkflowPackage(
     request.projectFilePath,
@@ -1451,6 +1508,7 @@ export async function editComfyUiImage(
       assets: [],
       diagnostics: [],
       error: 'Project session is stale or unknown.',
+      failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
     };
   const { definition, workflow: template } = await resolveComfyUiWorkflowPackage(
     projectFilePath,
@@ -1473,13 +1531,27 @@ export async function editComfyUiImage(
       assets: [],
       diagnostics: [],
       error: 'Project session is stale or unknown.',
+      failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
     };
-  const uploadReference = await uploadComfyUiSourceImage(
-    sessions,
-    projectSessionId,
-    config,
-    request.sourceAssetId,
-  );
+  let uploadReference: string;
+  try {
+    uploadReference = await uploadComfyUiSourceImage(
+      sessions,
+      projectSessionId,
+      config,
+      request.sourceAssetId,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ComfyUI source image upload failed.';
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [{ severity: 'error', category: 'comfyui', path: '/', message }],
+      error: message,
+      ...(error instanceof ComfyUiBoundaryFailure ? { failureCode: error.code } : {}),
+    };
+  }
   if (!isAuthorityCurrent())
     return {
       ok: false,
@@ -1487,6 +1559,7 @@ export async function editComfyUiImage(
       assets: [],
       diagnostics: [],
       error: 'Project session is stale or unknown.',
+      failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
     };
   const seed = generatedSeed(request.seed);
   setWorkflowInput(workflow, definition.bindings.sourceImage, uploadReference);

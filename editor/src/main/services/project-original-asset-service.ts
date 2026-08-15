@@ -6,13 +6,14 @@ import { Readable } from 'node:stream';
 import type { ActiveProjectSessionService } from './active-project-session-service';
 import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
 import {
+  PROJECT_ORIGINAL_ASSET_MAX_BYTES,
+  projectOriginalAssetBoundaryCode,
   projectOriginalAssetUrl,
   type ProjectAssetUrlResponse,
   type ProjectOriginalAssetFailureCode,
 } from '../../shared/project-asset-url';
 
 export const PROJECT_ORIGINAL_ASSET_SCHEME = 'noveltea-asset';
-export const PROJECT_ORIGINAL_ASSET_MAX_BYTES = 128 * 1024 * 1024;
 
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
 
@@ -33,7 +34,7 @@ function isContained(parent: string, candidate: string) {
 }
 
 function failure(code: ProjectOriginalAssetFailureCode): ProjectAssetUrlResponse {
-  return { ok: false, code };
+  return { ok: false, code, boundaryCode: projectOriginalAssetBoundaryCode(code) };
 }
 
 function authoritativeMime(kind: 'image' | 'audio', sourcePath: string): string | null {
@@ -92,12 +93,12 @@ export async function resolveContainedOriginalAsset(
     data.byteSize === undefined ||
     !Number.isSafeInteger(data.byteSize) ||
     data.byteSize < 0 ||
-    data.byteSize > maxBytes ||
     typeof data.contentHash !== 'string' ||
     !/^sha256:[0-9a-f]{64}$/.test(data.contentHash)
   ) {
     return 'invalid-metadata';
   }
+  if (data.byteSize > maxBytes) return 'too-large';
   const mimeType = authoritativeMime(data.kind, data.source.path);
   if (!mimeType) return 'unsupported-kind';
 
@@ -126,7 +127,7 @@ export async function resolveContainedOriginalAsset(
   }
 }
 
-export async function resolveProjectAssetUrl(
+export async function resolveProjectOriginalAssetUrl(
   sessions: ActiveProjectSessionService,
   projectSessionId: string,
   assetId: string,
@@ -138,13 +139,15 @@ export async function resolveProjectAssetUrl(
 }
 
 function errorResponse(status: number, code: ProjectOriginalAssetFailureCode): Response {
-  return new Response(code, {
+  const boundaryCode = projectOriginalAssetBoundaryCode(code);
+  return new Response(boundaryCode, {
     status,
     headers: {
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
       'Cross-Origin-Resource-Policy': 'cross-origin',
       'Access-Control-Allow-Origin': '*',
+      'X-NovelTea-Failure-Code': boundaryCode,
     },
   });
 }
@@ -197,7 +200,15 @@ export function createProjectOriginalAssetProtocolHandler(sessions: ActiveProjec
       await resolved.handle.close();
       return new Response(null, { status: 200, headers });
     }
-    const nodeStream = resolved.handle.createReadStream({ autoClose: true, start: 0 });
+    if (resolved.size === 0) {
+      await resolved.handle.close();
+      return new Response(new Uint8Array(0), { status: 200, headers });
+    }
+    const nodeStream = resolved.handle.createReadStream({
+      autoClose: true,
+      start: 0,
+      end: resolved.size - 1,
+    });
     const body = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
     request.signal.addEventListener('abort', () => nodeStream.destroy(), { once: true });
     return new Response(body, { status: 200, headers });

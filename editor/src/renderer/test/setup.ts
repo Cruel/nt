@@ -244,7 +244,7 @@ Object.defineProperty(window, 'noveltea', {
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
     onProjectWorkspaceChanged: vi.fn().mockReturnValue(() => {}),
-    resolveProjectAssetUrl: vi.fn().mockResolvedValue({
+    resolveProjectOriginalAssetUrl: vi.fn().mockResolvedValue({
       ok: true,
       url: 'noveltea-asset://source/session/logo',
     }),

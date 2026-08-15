@@ -49,7 +49,7 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
     setLoadError(null);
     if (!projectSessionId || !canResolve) return;
     void window.noveltea
-      .resolveProjectAssetUrl(projectSessionId, assetId)
+      .resolveProjectOriginalAssetUrl(projectSessionId, assetId)
       .then((result) => {
         if (!canceled) setAssetUrl(result.ok ? result.url : null);
       })

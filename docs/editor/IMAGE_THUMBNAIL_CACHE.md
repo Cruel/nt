@@ -119,7 +119,7 @@ cache use is append-only across source revisions until this explicit clear actio
 
 ## Session-scoped original Asset streaming
 
-Full-size image and audio consumers use `resolveProjectAssetUrl(projectSessionId, assetId)`. The
+Full-size image and audio consumers use `resolveProjectOriginalAssetUrl(projectSessionId, assetId)`. The
 renderer cannot provide a Project root, manifest path, or source path. Main resolves the admitted
 Asset snapshot owned by the active Project session and returns only a `noveltea-asset://` protocol
 URL.

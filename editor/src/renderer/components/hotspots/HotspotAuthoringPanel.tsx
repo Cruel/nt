@@ -68,7 +68,7 @@ export function HotspotAuthoringPanel(props: Props) {
     setImageUrl(null);
     if (!projectSessionId || !props.assetId || assetData?.kind !== 'image') return;
     void window.noveltea
-      .resolveProjectAssetUrl(projectSessionId, props.assetId)
+      .resolveProjectOriginalAssetUrl(projectSessionId, props.assetId)
       .then((result) => {
         if (!canceled) setImageUrl(result.ok ? result.url : null);
       })

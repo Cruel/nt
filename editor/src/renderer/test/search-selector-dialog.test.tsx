@@ -12,7 +12,7 @@ const items: SelectorItem[] = [
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockClear();
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockClear();
 });
 
 describe('SearchSelectorDialog', () => {
@@ -154,7 +154,7 @@ describe('SearchSelectorDialog', () => {
       },
       variant: { kind: 'profile', profile: 'list' },
     });
-    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
+    expect(window.noveltea.resolveProjectOriginalAssetUrl).not.toHaveBeenCalled();
     expect(await screen.findByAltText('Logo')).toHaveAttribute(
       'src',
       `noveltea-thumbnail://image-v2/aa/${'a'.repeat(64)}.webp`,

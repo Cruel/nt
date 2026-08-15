@@ -4,7 +4,9 @@ import {
   comfyUiConfigArgumentsSchema,
   comfyUiEditImageArgumentsSchema,
   comfyUiGenerateImageArgumentsSchema,
+  comfyUiImportWorkflowArgumentsSchema,
   comfyUiListWorkflowLibraryArgumentsSchema,
+  comfyUiRepairWorkflowArgumentsSchema,
   compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
@@ -476,6 +478,11 @@ describe('guarded editor IPC registrar', () => {
         'comfy-generate',
         [sessionId, config, { workflowId: 'image-generate', prompt: 'x'.repeat(65_537) }],
       ],
+      ['comfy-generate', [sessionId, config, { workflowId: 'é'.repeat(129), prompt: 'tea' }]],
+      [
+        'comfy-generate',
+        [sessionId, config, { workflowId: 'image-generate', prompt: 'é'.repeat(32_769) }],
+      ],
       [
         'comfy-generate',
         [
@@ -534,6 +541,31 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(generateService).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed or oversized nested ComfyUI workflow manifests at the IPC parser', () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    expect(
+      comfyUiImportWorkflowArgumentsSchema.safeParse([
+        {
+          workflowFileName: 'custom.workflow.json',
+          manifestFileName: 'custom.manifest.json',
+          workflowJsonText: '{}',
+          manifest: {},
+          overwrite: false,
+        },
+      ]).success,
+    ).toBe(false);
+    expect(
+      comfyUiRepairWorkflowArgumentsSchema.safeParse([
+        sessionId,
+        {
+          workflowKey: 'project:custom.manifest.json',
+          manifest: { unexpected: 'x'.repeat(1024 * 1024) },
+          overwrite: true,
+        },
+      ]).success,
+    ).toBe(false);
   });
 
   it('strictly admits bounded app, window, dialog, and shell requests before side effects', async () => {

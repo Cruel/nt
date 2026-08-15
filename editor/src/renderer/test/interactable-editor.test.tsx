@@ -29,10 +29,11 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
   clearWorkbenchTabStates();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockReset();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockReset();
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: false,
     code: 'stale-or-unknown',
+    boundaryCode: 'stale-project-session',
   });
 });
 
@@ -61,7 +62,7 @@ describe('InteractableEditor', () => {
       properties: {},
       data,
     };
-    vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+    vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
       ok: true,
       url: 'noveltea-asset://source/11111111-1111-4111-8111-111111111111/sprite',
     });
@@ -75,12 +76,12 @@ describe('InteractableEditor', () => {
     const view = render(<InteractableEditor tab={tab} />);
 
     await waitFor(() =>
-      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+      expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
         'sprite',
       ),
     );
-    expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledTimes(1);
+    expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledTimes(1);
     expect(view.container.querySelector('[data-image-layer] img')).toHaveAttribute(
       'src',
       'noveltea-asset://source/11111111-1111-4111-8111-111111111111/sprite',
@@ -120,7 +121,7 @@ describe('InteractableEditor', () => {
     const view = render(<InteractableEditor tab={tab} />);
     await Promise.resolve();
 
-    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
+    expect(window.noveltea.resolveProjectOriginalAssetUrl).not.toHaveBeenCalled();
     expect(window.noveltea.requestImageThumbnail).not.toHaveBeenCalled();
     expect(view.container.querySelector('[data-image-layer] img')).toBeNull();
   });

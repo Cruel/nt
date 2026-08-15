@@ -145,7 +145,7 @@ interface NovelTeaElectronApiContract {
   ): Promise<ProjectAssetFileOperationResponse>;
   stopProjectWorkspaceWatcher(projectSessionId: string): Promise<ProjectAssetFileOperationResponse>;
   onProjectWorkspaceChanged(callback: (event: ProjectWorkspaceWatchEvent) => void): () => void;
-  resolveProjectAssetUrl(
+  resolveProjectOriginalAssetUrl(
     projectSessionId: string,
     assetId: string,
   ): Promise<ProjectAssetUrlResponse>;

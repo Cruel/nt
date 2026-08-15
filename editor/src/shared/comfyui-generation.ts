@@ -1,5 +1,6 @@
 import type { ImportedAssetMetadata } from './asset-import';
 import type { ToolDiagnostic } from './editor-tooling';
+import type { ProjectTrustFailureCode } from './project-trust-boundary';
 import type { ComfyUiWorkflowId, ComfyUiWorkflowKey } from './comfyui-workflows';
 
 export interface ComfyUiGenerateImageRequest {
@@ -47,6 +48,7 @@ export interface ComfyUiImageJobResponse {
   assets: ComfyUiGeneratedAsset[];
   diagnostics: ToolDiagnostic[];
   error?: string;
+  failureCode?: ProjectTrustFailureCode;
 }
 
 export interface ComfyUiCancelJobResponse {
