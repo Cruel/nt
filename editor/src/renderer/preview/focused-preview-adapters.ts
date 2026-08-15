@@ -48,6 +48,7 @@ import { buildFocusedRoomPreview } from './room-focused-preview-builder';
 
 export interface FocusedPreviewBuildContext<TInputs> {
   project: AuthoringProject;
+  projectSessionId: string | null;
   projectInstanceId: string;
   projectRevision: number;
   root: PreviewRootKey;
@@ -395,8 +396,11 @@ const roomAdapter: FocusedPreviewAdapter<z.infer<typeof roomPreviewInputsSchema>
   owningPath: (root) => `/rooms/${root.recordId}`,
   build: async (context) => {
     if (!context.graph) throw new Error('Room preview requires a current dependency graph.');
+    if (!context.projectSessionId)
+      throw new Error('Room preview requires an active Project session.');
     const built = await buildFocusedRoomPreview({
       project: context.project,
+      projectSessionId: context.projectSessionId,
       roomId: context.root.recordId,
       inputs: context.inputs,
       graph: context.graph,

@@ -15,3 +15,7 @@ export type ProjectOriginalAssetFailureCode =
 export type ProjectAssetUrlResponse =
   | { ok: true; url: string }
   | { ok: false; code: ProjectOriginalAssetFailureCode };
+
+export function projectOriginalAssetUrl(projectSessionId: string, assetId: string): string {
+  return `noveltea-asset://source/${encodeURIComponent(projectSessionId)}/${encodeURIComponent(assetId)}`;
+}

@@ -133,7 +133,9 @@ stream from the verified open file with authoritative `Content-Type` and `Conten
 to the renderer. Switching or closing the Project invalidates previously issued URLs.
 
 The following production consumers intentionally use original-source streaming because they require
-full source pixels or audio rather than a reduced editor thumbnail:
+full source pixels or audio rather than a reduced editor thumbnail. Room composition and focused
+Room preview both use the active Project session plus Asset id; focused Room resource staging fetches
+the `noveltea-asset://` URL directly and never publishes a Room Asset source path to the preview host.
 
 | Consumer | Full-source purpose |
 | --- | --- |

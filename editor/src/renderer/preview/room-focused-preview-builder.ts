@@ -52,6 +52,7 @@ import {
 } from '../../shared/project-schema/shader-material-project';
 import { parseVariableData } from '../../shared/project-schema/authoring-variables';
 import type { ShaderVariant } from '../../shared/shader-variants';
+import { projectOriginalAssetUrl } from '../../shared/project-asset-url';
 
 type Diagnostic = AuthoringDependencyGraphDiagnostic;
 type FocusedCondition = RoomPreviewDocumentV2['world']['cast'][number]['condition'];
@@ -60,6 +61,7 @@ type FocusedVisual = RoomPreviewDocumentV2['world']['cast'][number]['visual'];
 
 export interface BuildFocusedRoomPreviewOptions {
   project: AuthoringProject;
+  projectSessionId: string;
   roomId: string;
   inputs: RoomPreviewInputs;
   graph: AuthoringDependencyGraphSnapshot;
@@ -721,6 +723,7 @@ function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocume
 
 async function resourceManifest(
   project: AuthoringProject,
+  projectSessionId: string,
   assetIds: Set<string>,
   alphaCoverageAssetIds: Set<string>,
   shaderIds: Set<string>,
@@ -741,7 +744,7 @@ async function resourceManifest(
       sourceKind: 'authoring-asset',
       assetId,
       usageRoles: ['room-preview'] as string[],
-      fetchProjectRelativePath: data.source.path,
+      fetchUrl: projectOriginalAssetUrl(projectSessionId, assetId),
       logicalPath: `project:/${data.source.path}`,
       contentHash: data.contentHash as `sha256:${string}`,
       byteSize: data.byteSize,
@@ -812,7 +815,7 @@ async function resourceManifest(
 export async function buildFocusedRoomPreview(
   options: BuildFocusedRoomPreviewOptions,
 ): Promise<FocusedRoomPreviewBuildResult> {
-  const { project, roomId, graph, sourceAnalysis, activeShaderVariant } = options;
+  const { project, projectSessionId, roomId, graph, sourceAnalysis, activeShaderVariant } = options;
   const diagnostics: Diagnostic[] = [];
   const record = project.rooms[roomId];
   const room = parseRoomData(record?.data);
@@ -1066,6 +1069,7 @@ export async function buildFocusedRoomPreview(
   }
   const resources = await resourceManifest(
     project,
+    projectSessionId,
     visual.assets,
     new Set(
       interactables.flatMap((interactable) => {

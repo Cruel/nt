@@ -74,7 +74,6 @@ export const FOCUSED_EDITOR_DOCUMENT_LIMITS = {
 
 const manifestBase = {
   usageRoles: z.array(z.string()),
-  fetchProjectRelativePath: z.string().min(1),
   logicalPath: z.string().min(1),
   contentHash: sha256Schema,
   byteSize: z.number().int().nonnegative().safe(),
@@ -105,7 +104,8 @@ const projectLogicalPathSchema = z
 
 const authoringManifestBase = {
   ...manifestBase,
-  fetchProjectRelativePath: safeProjectRelativePathSchema,
+  fetchProjectRelativePath: safeProjectRelativePathSchema.optional(),
+  fetchUrl: z.string().startsWith('noveltea-asset://source/').optional(),
   logicalPath: projectLogicalPathSchema,
   resourceId: z.string().regex(/^asset:.+$/),
   sourceKind: z.literal('authoring-asset'),
@@ -131,6 +131,12 @@ const authoringManifestEntrySchema = z
         code: 'custom',
         path: ['resourceId'],
         message: 'Authoring resourceId must equal asset:<assetId>.',
+      });
+    if (Boolean(entry.fetchProjectRelativePath) === Boolean(entry.fetchUrl))
+      context.addIssue({
+        code: 'custom',
+        path: ['fetchUrl'],
+        message: 'Authoring resources must provide exactly one fetch authority.',
       });
   });
 
@@ -282,10 +288,15 @@ export const focusedRecordPreviewDocumentSchema = strict({
         message: 'Duplicate focused resourceId.',
       });
     resourceIds.add(entry.resourceId);
+    const fetchAuthority =
+      entry.sourceKind === 'authoring-asset'
+        ? (entry.fetchUrl ?? entry.fetchProjectRelativePath)
+        : entry.fetchProjectRelativePath;
     for (const [map, path, label] of [
-      [fetchPaths, entry.fetchProjectRelativePath, 'fetch path'],
+      [fetchPaths, fetchAuthority, 'fetch authority'],
       [logicalPaths, entry.logicalPath, 'logical path'],
     ] as const) {
+      if (!path) continue;
       const prior = map.get(path);
       if (prior && prior !== entry.resourceId)
         context.addIssue({

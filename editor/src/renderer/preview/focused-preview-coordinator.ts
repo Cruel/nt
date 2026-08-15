@@ -24,6 +24,7 @@ import {
 
 export interface FocusedPreviewDesiredState {
   project: AuthoringProject;
+  projectSessionId: string | null;
   projectInstanceId: string;
   projectRevision: number;
   affectedPaths: readonly string[];
@@ -168,6 +169,7 @@ export class FocusedPreviewFreshnessCoordinator {
     return {
       document: await adapter.build({
         project: state.project,
+        projectSessionId: state.projectSessionId,
         projectInstanceId: state.projectInstanceId,
         projectRevision: state.projectRevision,
         root: state.root,

@@ -49,6 +49,11 @@ beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   clearWorkbenchTabStates();
   vi.mocked(window.noveltea.requestImageThumbnail).mockClear();
+  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockReset();
+  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+    ok: true,
+    url: 'noveltea-asset://source/session/logo',
+  });
 });
 describe('RoomEditor', () => {
   it('splits Room editing into the shared categorical layout', () => {
@@ -187,6 +192,55 @@ describe('RoomEditor', () => {
       'src',
       expect.stringContaining('noveltea-thumbnail:'),
     );
+    await waitFor(() =>
+      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        'foyer-background',
+      ),
+    );
+    selectRoomCategory('Composition');
+    expect(screen.getByTestId('room-composition-background')).toHaveAttribute(
+      'src',
+      expect.stringContaining('noveltea-asset://'),
+    );
+  });
+  it('falls back safely when the bounded Room background source is unavailable', async () => {
+    const project = createAuthoringProject();
+    project.assets['foyer-background'] = {
+      id: 'foyer-background',
+      label: 'Foyer Background',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/foyer.png' },
+        aliases: [],
+        byteSize: 3,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'foyer-background' } };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+      ok: false,
+      code: 'revision-mismatch',
+    });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    renderEditor();
+    selectRoomCategory('Composition');
+    await waitFor(() =>
+      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        'foyer-background',
+      ),
+    );
+    expect(screen.queryByTestId('room-composition-background')).toBeNull();
   });
   it('shows visual background-fit options and updates the selected fit', async () => {
     const project = createAuthoringProject();

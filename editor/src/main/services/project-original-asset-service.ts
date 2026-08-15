@@ -5,9 +5,10 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { ActiveProjectSessionService } from './active-project-session-service';
 import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
-import type {
-  ProjectAssetUrlResponse,
-  ProjectOriginalAssetFailureCode,
+import {
+  projectOriginalAssetUrl,
+  type ProjectAssetUrlResponse,
+  type ProjectOriginalAssetFailureCode,
 } from '../../shared/project-asset-url';
 
 export const PROJECT_ORIGINAL_ASSET_SCHEME = 'noveltea-asset';
@@ -117,10 +118,6 @@ export async function resolveContainedOriginalAsset(
   }
 }
 
-function createOriginalAssetUrl(projectSessionId: string, assetId: string) {
-  return `${PROJECT_ORIGINAL_ASSET_SCHEME}://source/${encodeURIComponent(projectSessionId)}/${encodeURIComponent(assetId)}`;
-}
-
 export async function resolveProjectAssetUrl(
   sessions: ActiveProjectSessionService,
   projectSessionId: string,
@@ -129,7 +126,7 @@ export async function resolveProjectAssetUrl(
   const resolved = await resolveContainedOriginalAsset(sessions, projectSessionId, assetId);
   if (typeof resolved === 'string') return failure(resolved);
   await resolved.handle.close();
-  return { ok: true, url: createOriginalAssetUrl(projectSessionId, assetId) };
+  return { ok: true, url: projectOriginalAssetUrl(projectSessionId, assetId) };
 }
 
 function errorResponse(status: number, code: ProjectOriginalAssetFailureCode): Response {
