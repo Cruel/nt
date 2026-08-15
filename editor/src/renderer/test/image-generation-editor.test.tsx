@@ -110,6 +110,7 @@ beforeEach(() => {
     document: project(),
     projectPath: '/mock/project',
     projectFilePath: '/mock/project/game.json',
+    projectSessionId: '11111111-1111-4111-8111-111111111111',
   });
   usePreferencesStore
     .getState()

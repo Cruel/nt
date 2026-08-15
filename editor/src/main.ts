@@ -83,22 +83,6 @@ import {
 } from './main/services/template-registry-service';
 import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
 import { downloadPlayerTemplateForRelease } from './main/services/template-download-service';
-import type { ComfyUiConfig } from './shared/comfyui';
-import type {
-  ComfyUiEditImageRequest,
-  ComfyUiGenerateImageRequest,
-} from './shared/comfyui-generation';
-import type {
-  ComfyUiAnalyzeWorkflowImportRequest,
-  ComfyUiImportWorkflowToLibraryRequest,
-  ComfyUiRepairWorkflowInLibraryRequest,
-  ComfyUiVerifyWorkflowLibraryRequest,
-  ComfyUiWorkflowCopyRequest,
-  ComfyUiWorkflowDeleteRequest,
-  ComfyUiWorkflowKey,
-  ComfyUiWorkflowLibraryListRequest,
-  ComfyUiWorkflowRenameRequest,
-} from './shared/comfyui-workflows';
 import type { CreateProjectRequest } from './shared/editor-tooling';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
@@ -116,6 +100,19 @@ import {
   auditProjectAssetsArgumentsSchema,
   cancelImageThumbnailPrewarmArgumentsSchema,
   cancelPlatformExportArgumentsSchema,
+  comfyUiAnalyzeWorkflowArgumentsSchema,
+  comfyUiCancelJobArgumentsSchema,
+  comfyUiConfigArgumentsSchema,
+  comfyUiCopyWorkflowArgumentsSchema,
+  comfyUiDeleteWorkflowArgumentsSchema,
+  comfyUiEditImageArgumentsSchema,
+  comfyUiGenerateImageArgumentsSchema,
+  comfyUiImportWorkflowArgumentsSchema,
+  comfyUiListWorkflowLibraryArgumentsSchema,
+  comfyUiRenameWorkflowArgumentsSchema,
+  comfyUiRepairWorkflowArgumentsSchema,
+  comfyUiRevealWorkflowArgumentsSchema,
+  comfyUiVerifyWorkflowArgumentsSchema,
   compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
@@ -1307,94 +1304,164 @@ void app.whenReady().then(async () => {
     (request: ReadProjectTextSourcesRequest) => activeProjectSessions.read(request),
   );
 
-  ipcMain.handle(
+  const comfyUiProjectFilePath = (projectSessionId: string | null) =>
+    projectSessionId
+      ? path.join(activeProjectSessions.requireActiveProjectRoot(projectSessionId), 'project.json')
+      : undefined;
+  const requireComfyUiProjectFilePath = (projectSessionId: string | null) => {
+    if (!projectSessionId)
+      throw new Error('ComfyUI Project operation requires an active Project session.');
+    return comfyUiProjectFilePath(projectSessionId)!;
+  };
+
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_CHECK_CONNECTION,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => checkComfyUiConnection(config),
+    (arguments_) => comfyUiConfigArgumentsSchema.parse(arguments_),
+    (config) => checkComfyUiConnection(config),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_GET_QUEUE,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => getComfyUiQueue(config),
+    (arguments_) => comfyUiConfigArgumentsSchema.parse(arguments_),
+    (config) => getComfyUiQueue(config),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowLibraryListRequest = {}) =>
-      listComfyUiWorkflowLibrary(request),
+    (arguments_) => comfyUiListWorkflowLibraryArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      listComfyUiWorkflowLibrary({
+        ...request,
+        projectFilePath: comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_COPY_WORKFLOW,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowCopyRequest) =>
-      copyComfyUiWorkflow(request),
+    (arguments_) => comfyUiCopyWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) => {
+      const requiresProject =
+        request.targetSource === 'project' || request.workflowKey.startsWith('project:');
+      return copyComfyUiWorkflow({
+        ...request,
+        projectFilePath: requiresProject
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      });
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowDeleteRequest) =>
-      deleteComfyUiWorkflow(request),
+    (arguments_) => comfyUiDeleteWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      deleteComfyUiWorkflow({
+        ...request,
+        projectFilePath: request.workflowKey.startsWith('project:')
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowRenameRequest) =>
-      renameComfyUiWorkflow(request),
+    (arguments_) => comfyUiRenameWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      renameComfyUiWorkflow({
+        ...request,
+        projectFilePath: request.workflowKey.startsWith('project:')
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiImportWorkflowToLibraryRequest) =>
-      importComfyUiWorkflowToLibrary(request),
+    (arguments_) => comfyUiImportWorkflowArgumentsSchema.parse(arguments_),
+    (request) => importComfyUiWorkflowToLibrary(request),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiRepairWorkflowInLibraryRequest) =>
-      repairComfyUiWorkflowInLibrary(request),
+    (arguments_) => comfyUiRepairWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      repairComfyUiWorkflowInLibrary({
+        ...request,
+        projectFilePath: request.workflowKey.startsWith('project:')
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      workflowKey: ComfyUiWorkflowKey,
-      projectFilePath?: string | null,
-    ) => revealComfyUiWorkflow(workflowKey, projectFilePath),
+    (arguments_) => comfyUiRevealWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, workflowKey) =>
+      revealComfyUiWorkflow(
+        workflowKey,
+        workflowKey.startsWith('project:')
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      ),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiVerifyWorkflowLibraryRequest) =>
-      verifyComfyUiWorkflowLibrary(request),
+    (arguments_) => comfyUiVerifyWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      verifyComfyUiWorkflowLibrary({
+        ...request,
+        projectFilePath: comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiAnalyzeWorkflowImportRequest) =>
-      analyzeComfyUiWorkflowImport(request),
+    (arguments_) => comfyUiAnalyzeWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      analyzeComfyUiWorkflowImport({
+        ...request,
+        projectFilePath: comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_GENERATE_IMAGE,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      config: ComfyUiConfig,
-      request: ComfyUiGenerateImageRequest,
-    ) => generateComfyUiImage(mainWindow, config, request),
+    (arguments_) => comfyUiGenerateImageArgumentsSchema.parse(arguments_),
+    (projectSessionId, config, request) => {
+      const projectFilePath = requireComfyUiProjectFilePath(projectSessionId);
+      return generateComfyUiImage(
+        mainWindow,
+        config,
+        { ...request, projectFilePath },
+        () => activeProjectSessions.isCurrent(projectSessionId),
+        projectSessionId,
+      );
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_EDIT_IMAGE,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      config: ComfyUiConfig,
-      request: ComfyUiEditImageRequest,
-    ) => editComfyUiImage(mainWindow, config, request),
+    (arguments_) => comfyUiEditImageArgumentsSchema.parse(arguments_),
+    (projectSessionId, config, request) => {
+      const projectFilePath = requireComfyUiProjectFilePath(projectSessionId);
+      return editComfyUiImage(
+        mainWindow,
+        config,
+        { ...request, projectFilePath },
+        () => activeProjectSessions.isCurrent(projectSessionId),
+        projectSessionId,
+      );
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_CANCEL_JOB,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => cancelComfyUiJob(config),
+    (arguments_) => comfyUiCancelJobArgumentsSchema.parse(arguments_),
+    (projectSessionId, config) => {
+      activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return cancelComfyUiJob(config);
+    },
   );
 
   const window = createWindow();

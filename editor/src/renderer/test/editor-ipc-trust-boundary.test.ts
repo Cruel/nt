@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   cancelPlatformExportArgumentsSchema,
+  comfyUiConfigArgumentsSchema,
+  comfyUiGenerateImageArgumentsSchema,
+  comfyUiListWorkflowLibraryArgumentsSchema,
   compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
@@ -334,6 +337,106 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(exportService).not.toHaveBeenCalled();
+  });
+
+  it('strictly guards ComfyUI control, workflow, and generation requests before side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const configService = vi.fn((config: unknown) => config);
+    const listService = vi.fn(
+      (projectSessionId: string | null, _request: unknown) => projectSessionId,
+    );
+    const generateService = vi.fn(
+      (projectSessionId: string, _config: unknown, _request: unknown) => projectSessionId,
+    );
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'comfy-config',
+      (arguments_) => comfyUiConfigArgumentsSchema.parse(arguments_),
+      configService,
+    );
+    registrar.handle(
+      'comfy-list',
+      (arguments_) => comfyUiListWorkflowLibraryArgumentsSchema.parse(arguments_),
+      listService,
+    );
+    registrar.handle(
+      'comfy-generate',
+      (arguments_) => comfyUiGenerateImageArgumentsSchema.parse(arguments_),
+      generateService,
+    );
+
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const config = {
+      enabled: true,
+      serverUrl: 'http://127.0.0.1:8188',
+      defaultWorkflowId: 'image-generate',
+      defaultWorkflows: { 'image.generate': 'image-generate' },
+      requestTimeoutMs: 15_000,
+      connectionCheckIntervalMs: 10_000,
+    };
+
+    await expect(ipcMain.invoke('comfy-config', harness.event, config)).resolves.toEqual(config);
+    await expect(
+      ipcMain.invoke('comfy-list', harness.event, sessionId, { includeOverridden: true }),
+    ).resolves.toBe(sessionId);
+    await expect(
+      ipcMain.invoke('comfy-generate', harness.event, sessionId, config, {
+        workflowId: 'image-generate',
+        prompt: 'tea house',
+        width: 1024,
+        height: 1024,
+        steps: 20,
+        cfg: 7.5,
+      }),
+    ).resolves.toBe(sessionId);
+
+    for (const [channel, arguments_] of [
+      ['comfy-config', [{ ...config, serverUrl: 'file:///tmp/comfy' }]],
+      ['comfy-config', [{ ...config, requestTimeoutMs: Number.POSITIVE_INFINITY }]],
+      ['comfy-list', [sessionId, { includeOverridden: true, projectFilePath: '/alternate' }]],
+      [
+        'comfy-generate',
+        [sessionId, config, { workflowId: 'image-generate', prompt: 'tea', cfg: Number.NaN }],
+      ],
+      [
+        'comfy-generate',
+        [sessionId, config, { workflowId: 'image-generate', prompt: 'x'.repeat(65_537) }],
+      ],
+      [
+        'comfy-generate',
+        [
+          sessionId,
+          config,
+          { workflowId: 'image-generate', prompt: 'tea', projectFilePath: '/alternate' },
+        ],
+      ],
+    ] as const) {
+      configService.mockClear();
+      listService.mockClear();
+      generateService.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(configService).not.toHaveBeenCalled();
+      expect(listService).not.toHaveBeenCalled();
+      expect(generateService).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(
+      ipcMain.invoke('comfy-generate', other.event, sessionId, config, {
+        workflowId: 'image-generate',
+        prompt: 'tea house',
+      }),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(generateService).not.toHaveBeenCalled();
   });
 
   it('strictly admits bounded app, window, dialog, and shell requests before side effects', async () => {

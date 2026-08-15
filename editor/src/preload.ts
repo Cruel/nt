@@ -187,28 +187,30 @@ const api: NovelTeaElectronApi = {
   checkComfyUiConnection: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CHECK_CONNECTION, config),
   getComfyUiQueue: (config) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),
-  listComfyUiWorkflowLibrary: (request = {}) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY, request),
-  copyComfyUiWorkflow: (request) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_COPY_WORKFLOW, request),
-  deleteComfyUiWorkflow: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW, request),
-  renameComfyUiWorkflow: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW, request),
+  listComfyUiWorkflowLibrary: (projectSessionId, request = {}) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY, projectSessionId, request),
+  copyComfyUiWorkflow: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_COPY_WORKFLOW, projectSessionId, request),
+  deleteComfyUiWorkflow: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW, projectSessionId, request),
+  renameComfyUiWorkflow: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW, projectSessionId, request),
   importComfyUiWorkflowToLibrary: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY, request),
-  repairComfyUiWorkflowInLibrary: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY, request),
-  revealComfyUiWorkflow: (workflowKey, projectFilePath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW, workflowKey, projectFilePath),
-  verifyComfyUiWorkflowLibrary: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY, request),
-  analyzeComfyUiWorkflowImport: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT, request),
-  generateComfyUiImage: (config, request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GENERATE_IMAGE, config, request),
-  editComfyUiImage: (config, request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_EDIT_IMAGE, config, request),
-  cancelComfyUiJob: (config) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CANCEL_JOB, config),
+  repairComfyUiWorkflowInLibrary: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY, projectSessionId, request),
+  revealComfyUiWorkflow: (projectSessionId, workflowKey) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW, projectSessionId, workflowKey),
+  verifyComfyUiWorkflowLibrary: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY, projectSessionId, request),
+  analyzeComfyUiWorkflowImport: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT, projectSessionId, request),
+  generateComfyUiImage: (projectSessionId, config, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GENERATE_IMAGE, projectSessionId, config, request),
+  editComfyUiImage: (projectSessionId, config, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_EDIT_IMAGE, projectSessionId, config, request),
+  cancelComfyUiJob: (projectSessionId, config) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CANCEL_JOB, projectSessionId, config),
   onComfyUiProgress: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown) =>
       callback(progress as never);

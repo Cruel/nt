@@ -201,6 +201,29 @@ afterEach(() => {
 });
 
 describe('comfyui generation service', () => {
+  it('rejects stale Project authority before workflow or network work begins', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await generateComfyUiImage(
+      null,
+      config(),
+      {
+        projectFilePath: '/missing/project.json',
+        workflowId: 'custom',
+        prompt: 'tea house',
+      },
+      () => false,
+      '11111111-1111-4111-8111-111111111111',
+    );
+
+    expect(response).toMatchObject({
+      success: false,
+      error: 'Project session is stale or unknown.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('mutates bound negative prompt and cfg inputs before submitting a prompt', async () => {
     const project = projectFilePath();
     writeWorkflowPair(project, manifest(true), workflow());

@@ -1,7 +1,44 @@
+import { z } from 'zod';
 import type { ToolDiagnostic } from './editor-tooling';
 import type { ComfyUiWorkflowId, ComfyUiWorkflowRole } from './comfyui-workflows';
 
 export type ComfyUiConnectionState = 'disabled' | 'unchecked' | 'checking' | 'ready' | 'error';
+
+export const COMFYUI_IPC_LIMITS = {
+  serverUrlLength: 2048,
+  workflowIdLength: 512,
+  promptLength: 65_536,
+  requestTimeoutMs: 300_000,
+  connectionCheckIntervalMs: 3_600_000,
+  defaultWorkflowEntries: 16,
+  workflowJsonLength: 8 * 1024 * 1024,
+} as const;
+
+const boundedWorkflowIdSchema = z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength);
+export const comfyUiConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    serverUrl: z
+      .string()
+      .min(1)
+      .max(COMFYUI_IPC_LIMITS.serverUrlLength)
+      .url()
+      .refine((value) => {
+        const protocol = new URL(value).protocol;
+        return protocol === 'http:' || protocol === 'https:';
+      }),
+    defaultWorkflowId: boundedWorkflowIdSchema,
+    defaultWorkflows: z
+      .partialRecord(z.enum(['image.generate', 'image.edit']), boundedWorkflowIdSchema)
+      .refine((value) => Object.keys(value).length <= COMFYUI_IPC_LIMITS.defaultWorkflowEntries),
+    requestTimeoutMs: z.number().int().positive().max(COMFYUI_IPC_LIMITS.requestTimeoutMs),
+    connectionCheckIntervalMs: z
+      .number()
+      .int()
+      .positive()
+      .max(COMFYUI_IPC_LIMITS.connectionCheckIntervalMs),
+  })
+  .strict();
 
 export interface ComfyUiConfig {
   enabled: boolean;
@@ -31,6 +68,7 @@ export interface ComfyUiQueueProgress {
   progressValue: number | null;
   progressMax: number | null;
   message: string | null;
+  projectSessionId?: string;
   projectFilePath?: string;
   workflowLabel?: string;
   role?: ComfyUiWorkflowRole;

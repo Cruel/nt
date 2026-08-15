@@ -168,40 +168,54 @@ interface NovelTeaElectronApiContract {
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
   listComfyUiWorkflowLibrary(
-    request?: ComfyUiWorkflowLibraryListRequest,
+    projectSessionId: string | null,
+    request?: Omit<ComfyUiWorkflowLibraryListRequest, 'projectFilePath'>,
   ): Promise<ComfyUiWorkflowLibraryListResponse>;
-  copyComfyUiWorkflow(request: ComfyUiWorkflowCopyRequest): Promise<ComfyUiWorkflowCopyResponse>;
+  copyComfyUiWorkflow(
+    projectSessionId: string | null,
+    request: Omit<ComfyUiWorkflowCopyRequest, 'projectFilePath'>,
+  ): Promise<ComfyUiWorkflowCopyResponse>;
   deleteComfyUiWorkflow(
-    request: ComfyUiWorkflowDeleteRequest,
+    projectSessionId: string | null,
+    request: Omit<ComfyUiWorkflowDeleteRequest, 'projectFilePath'>,
   ): Promise<ComfyUiWorkflowDeleteResponse>;
   renameComfyUiWorkflow(
-    request: import('./comfyui-workflows').ComfyUiWorkflowRenameRequest,
+    projectSessionId: string | null,
+    request: Omit<import('./comfyui-workflows').ComfyUiWorkflowRenameRequest, 'projectFilePath'>,
   ): Promise<import('./comfyui-workflows').ComfyUiWorkflowRenameResponse>;
   importComfyUiWorkflowToLibrary(
     request: ComfyUiImportWorkflowToLibraryRequest,
   ): Promise<ComfyUiImportWorkflowToLibraryResponse>;
   repairComfyUiWorkflowInLibrary(
-    request: ComfyUiRepairWorkflowInLibraryRequest,
+    projectSessionId: string | null,
+    request: Omit<ComfyUiRepairWorkflowInLibraryRequest, 'projectFilePath'>,
   ): Promise<ComfyUiRepairWorkflowInLibraryResponse>;
   revealComfyUiWorkflow(
+    projectSessionId: string | null,
     workflowKey: ComfyUiWorkflowKey,
-    projectFilePath?: string | null,
   ): Promise<boolean>;
   verifyComfyUiWorkflowLibrary(
-    request: ComfyUiVerifyWorkflowLibraryRequest,
+    projectSessionId: string | null,
+    request: Omit<ComfyUiVerifyWorkflowLibraryRequest, 'projectFilePath'>,
   ): Promise<ComfyUiVerifyWorkflowLibraryResponse>;
   analyzeComfyUiWorkflowImport(
-    request: ComfyUiAnalyzeWorkflowImportRequest,
+    projectSessionId: string | null,
+    request: Omit<ComfyUiAnalyzeWorkflowImportRequest, 'projectFilePath'>,
   ): Promise<ComfyUiAnalyzeWorkflowImportResponse>;
   generateComfyUiImage(
+    projectSessionId: string,
     config: ComfyUiConfig,
-    request: ComfyUiGenerateImageRequest,
+    request: Omit<ComfyUiGenerateImageRequest, 'projectFilePath'>,
   ): Promise<ComfyUiImageJobResponse>;
   editComfyUiImage(
+    projectSessionId: string,
     config: ComfyUiConfig,
-    request: ComfyUiEditImageRequest,
+    request: Omit<ComfyUiEditImageRequest, 'projectFilePath'>,
   ): Promise<ComfyUiImageJobResponse>;
-  cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse>;
+  cancelComfyUiJob(
+    projectSessionId: string,
+    config: ComfyUiConfig,
+  ): Promise<ComfyUiCancelJobResponse>;
   onComfyUiProgress(callback: (progress: ComfyUiQueueProgress) => void): () => void;
 }
 

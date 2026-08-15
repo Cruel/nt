@@ -5,6 +5,8 @@ import {
   imageThumbnailRequestSchema,
   cancelImageThumbnailPrewarmRequestSchema,
 } from '../shared/image-thumbnails';
+import { COMFYUI_IPC_LIMITS, comfyUiConfigSchema } from '../shared/comfyui';
+import type { ComfyUiWorkflowKey } from '../shared/comfyui-workflows';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { compiledProjectWireV3Schema } from '../shared/project-schema/compiled-project';
 import { preparedRuntimeArtifactSchema } from '../shared/project-schema/prepared-runtime-artifact';
@@ -37,6 +39,7 @@ const MAX_EXPORT_IDENTIFIER_LENGTH = 512;
 const MAX_EXPORT_COLLECTION_ENTRIES = 10_000;
 const MAX_EXPORT_ARGUMENTS = 1_024;
 const MAX_EXPORT_ARGUMENT_LENGTH = 32_768;
+const MAX_COMFYUI_PATH_LENGTH = 32_768;
 const sha256DigestSchema = z.custom<`sha256:${string}`>(
   (value) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value),
 );
@@ -651,4 +654,127 @@ export const downloadPlayerTemplateArgumentsSchema = z.tuple([templateDownloadRe
 export const removePlayerTemplateArgumentsSchema = inspectPlayerTemplateArgumentsSchema;
 export const resolvePlayerTemplateArgumentsSchema = z.tuple([
   z.object({ requirements: templateCompatibilityRequirementsSchema }).strict(),
+]);
+
+const comfyUiSessionSchema = projectSessionIdSchema.nullable();
+const comfyUiWorkflowKeySchema = z.custom<ComfyUiWorkflowKey>(
+  (value) =>
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= COMFYUI_IPC_LIMITS.workflowIdLength &&
+    /^(?:built-in|editor|project):[^\\/]+$/u.test(value),
+);
+const comfyUiWorkflowIdSchema = z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength);
+const comfyUiPromptSchema = z.string().max(COMFYUI_IPC_LIMITS.promptLength);
+const comfyUiGenerationControlsSchema = {
+  clientJobId: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength).optional(),
+  negativePrompt: comfyUiPromptSchema.optional(),
+  seed: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  steps: z.number().int().positive().max(10_000).optional(),
+  cfg: z.number().finite().min(0).max(1_000).optional(),
+} as const;
+
+export const comfyUiConfigArgumentsSchema = z.tuple([comfyUiConfigSchema]);
+export const comfyUiListWorkflowLibraryArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      includeOverridden: z.boolean().optional(),
+      comfyUiVersion: z.string().max(COMFYUI_IPC_LIMITS.workflowIdLength).optional(),
+    })
+    .strict(),
+]);
+export const comfyUiCopyWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      workflowKey: comfyUiWorkflowKeySchema,
+      targetSource: z.enum(['editor', 'project']),
+      replace: z.boolean().optional(),
+    })
+    .strict(),
+]);
+export const comfyUiDeleteWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z.object({ workflowKey: comfyUiWorkflowKeySchema }).strict(),
+]);
+export const comfyUiRenameWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      workflowKey: comfyUiWorkflowKeySchema,
+      label: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength),
+    })
+    .strict(),
+]);
+export const comfyUiImportWorkflowArgumentsSchema = z.tuple([
+  z
+    .object({
+      workflowFileName: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength),
+      manifestFileName: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength),
+      workflowJsonText: z.string().max(COMFYUI_IPC_LIMITS.workflowJsonLength),
+      manifest: z.unknown(),
+      overwrite: z.boolean(),
+      config: comfyUiConfigSchema.optional(),
+    })
+    .strict(),
+]);
+export const comfyUiRepairWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      workflowKey: comfyUiWorkflowKeySchema,
+      manifest: z.unknown(),
+      overwrite: z.literal(true),
+    })
+    .strict(),
+]);
+export const comfyUiRevealWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  comfyUiWorkflowKeySchema,
+]);
+export const comfyUiVerifyWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z.object({ config: comfyUiConfigSchema, force: z.boolean().optional() }).strict(),
+]);
+export const comfyUiAnalyzeWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      workflowJsonText: z.string().max(COMFYUI_IPC_LIMITS.workflowJsonLength),
+      config: comfyUiConfigSchema.optional(),
+    })
+    .strict(),
+]);
+export const comfyUiGenerateImageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  comfyUiConfigSchema,
+  z
+    .object({
+      workflowId: comfyUiWorkflowIdSchema.optional(),
+      workflowKey: comfyUiWorkflowKeySchema.optional(),
+      prompt: comfyUiPromptSchema,
+      width: z.number().int().positive().max(16_384).optional(),
+      height: z.number().int().positive().max(16_384).optional(),
+      ...comfyUiGenerationControlsSchema,
+    })
+    .strict(),
+]);
+export const comfyUiEditImageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  comfyUiConfigSchema,
+  z
+    .object({
+      workflowId: comfyUiWorkflowIdSchema.optional(),
+      workflowKey: comfyUiWorkflowKeySchema.optional(),
+      sourceAssetId: z.string().min(1).max(COMFYUI_IPC_LIMITS.workflowIdLength).optional(),
+      sourceProjectRelativePath: z.string().min(1).max(MAX_COMFYUI_PATH_LENGTH),
+      prompt: comfyUiPromptSchema,
+      ...comfyUiGenerationControlsSchema,
+    })
+    .strict(),
+]);
+export const comfyUiCancelJobArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  comfyUiConfigSchema,
 ]);

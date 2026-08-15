@@ -12,9 +12,11 @@ The workflow library discovers packages from three sources:
 - editor-wide workflows under the editor user-data `workflows/` directory;
 - project-local workflows under the saved project's `workflows/` directory.
 
-Project workflows are only discovered when a project file path exists. Built-in and editor-wide workflows are available
-without a project open, although image generation still needs a saved project before it can write generated output
-assets.
+Project workflows are only discovered when an active saved Project session exists. Renderer code may retain the Project
+file path as UI context, but it does not send that path across the privileged IPC boundary: main derives the canonical
+Project root and `project.json` from the current `projectSessionId`. Built-in and editor-wide workflows remain available
+without a project open, although image generation still requires an active saved Project session before it can write
+generated output assets.
 
 Workflow identity uses the logical manifest `id`, while execution and manager actions use a source-specific
 `workflowKey` such as `built-in:flux2-klein-text-to-image.manifest.json`,
@@ -101,6 +103,23 @@ rekeys its cached verification because the name does not affect ComfyUI compatib
 itself the strict `noveltea.comfyui-workflow-verification-cache` version 1 document; incompatible or
 malformed cache files are discarded and rebuilt. If offline checks pass but no server is
 available, the verification light is yellow and its tooltip says `Need ComfyUI server to verify`.
+
+## IPC Authority and Bounds
+
+ComfyUI IPC is admitted through the editor's trusted top-level-frame boundary. Connection checks and queue reads are
+non-Project network capabilities, but their server URL, timeout, workflow defaults, and collection sizes are parsed from
+strict bounded contracts before any request is sent. Only HTTP(S) ComfyUI server URLs are accepted.
+
+Project-local workflow discovery, copy, delete, rename, repair, reveal, verification, import analysis, image generation,
+image editing, and cancellation use the current `projectSessionId` whenever Project state is involved. Main derives the
+Project workspace from that session; renderer-supplied Project roots or manifest paths are not accepted by those IPC
+contracts. A stale or wrong session fails before Project workflow filesystem or generation work begins.
+
+Generation requests also bound workflow identity, prompts, dimensions, seed, steps, CFG, job identity, and workflow JSON
+sizes. Progress events are emitted only while the initiating Project session remains current. If the Project closes or
+switches while a job is running, stale work cannot publish completion/error progress or continue writing generated
+assets into the newly active Project. Source-image admission for image-edit workflows is hardened separately by the
+Asset-authority slice.
 
 ## Defaults and Generation
 

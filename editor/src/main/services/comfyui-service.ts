@@ -1030,13 +1030,15 @@ async function runImageJob(
   mode: 'generated' | 'edit',
   owner: ComfyUiProgressOwner | null,
   clientJobId?: string,
+  isAuthorityCurrent: () => boolean = () => true,
+  projectSessionId?: string,
 ): Promise<ComfyUiImageJobResponse> {
   const clientId = randomUUID();
   const promptId = clientJobId ?? randomUUID();
   const createdAt = new Date().toISOString();
   const queueMode = mode === 'generated' ? 'generate' : 'edit';
   const progressMetadata = {
-    projectFilePath,
+    projectSessionId,
     workflowLabel: definition.label,
     role: definition.role,
     mode: queueMode,
@@ -1044,16 +1046,20 @@ async function runImageJob(
     createdAt,
   } satisfies Partial<ComfyUiQueueProgress>;
   try {
+    if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
     await validateWorkflowRequirements(config, definition);
+    if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
     const submitted = await submitPrompt(config, workflow, promptId, clientId);
     const actualPromptId = submitted.prompt_id ?? promptId;
     const selectedOutputNodeIds = resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
-    const emit = (progress: ComfyUiQueueProgress) =>
+    const emit = (progress: ComfyUiQueueProgress) => {
+      if (!isAuthorityCurrent()) return;
       owner?.webContents.send(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, {
         ...progressMetadata,
         ...progress,
         updatedAt: new Date().toISOString(),
       });
+    };
     emit({
       promptId: actualPromptId,
       workflowId: definition.id,
@@ -1071,6 +1077,7 @@ async function runImageJob(
       actualPromptId,
       selectedOutputNodeIds,
     );
+    if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
     if (!descriptors.length) {
       const outputDetail = selectedOutputNodeIds.length
         ? ` from selected output node${selectedOutputNodeIds.length === 1 ? '' : 's'} ${selectedOutputNodeIds.join(', ')}`
@@ -1080,7 +1087,9 @@ async function runImageJob(
     const assets = [];
     for (const descriptor of descriptors) {
       const bytes = await fetchBytes(config, descriptorViewPath(descriptor));
+      if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
       const written = await writeGeneratedAsset(projectFilePath, bytes, mode);
+      if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
       assets.push({
         asset: written.metadata,
         previewUrl: written.previewUrl,
@@ -1106,18 +1115,19 @@ async function runImageJob(
     return { ok: true, success: true, promptId: actualPromptId, assets, diagnostics: [] };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'ComfyUI image job failed.';
-    owner?.webContents.send(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, {
-      ...progressMetadata,
-      promptId,
-      workflowId: definition.id,
-      state: 'error',
-      queueRemaining: null,
-      currentNode: null,
-      progressValue: null,
-      progressMax: null,
-      message,
-      updatedAt: new Date().toISOString(),
-    });
+    if (isAuthorityCurrent())
+      owner?.webContents.send(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, {
+        ...progressMetadata,
+        promptId,
+        workflowId: definition.id,
+        state: 'error',
+        queueRemaining: null,
+        currentNode: null,
+        progressValue: null,
+        progressMax: null,
+        message,
+        updatedAt: new Date().toISOString(),
+      });
     return {
       ok: false,
       success: false,
@@ -1133,6 +1143,8 @@ export async function generateComfyUiImage(
   owner: ComfyUiProgressOwner | null,
   config: ComfyUiConfig,
   request: ComfyUiGenerateImageRequest,
+  isAuthorityCurrent: () => boolean = () => true,
+  projectSessionId?: string,
 ): Promise<ComfyUiImageJobResponse> {
   if (!config.enabled)
     return {
@@ -1149,6 +1161,14 @@ export async function generateComfyUiImage(
       assets: [],
       diagnostics: [],
       error: 'Save the project before generating images.',
+    };
+  if (!isAuthorityCurrent())
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: 'Project session is stale or unknown.',
     };
   const { definition, workflow: template } = await resolveComfyUiWorkflowPackage(
     request.projectFilePath,
@@ -1207,6 +1227,8 @@ export async function generateComfyUiImage(
     'generated',
     owner,
     request.clientJobId,
+    isAuthorityCurrent,
+    projectSessionId,
   );
 }
 
@@ -1214,6 +1236,8 @@ export async function editComfyUiImage(
   owner: ComfyUiProgressOwner | null,
   config: ComfyUiConfig,
   request: ComfyUiEditImageRequest,
+  isAuthorityCurrent: () => boolean = () => true,
+  projectSessionId?: string,
 ): Promise<ComfyUiImageJobResponse> {
   if (!config.enabled)
     return {
@@ -1231,6 +1255,14 @@ export async function editComfyUiImage(
       diagnostics: [],
       error: 'Save the project before editing images.',
     };
+  if (!isAuthorityCurrent())
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: 'Project session is stale or unknown.',
+    };
   const { definition, workflow: template } = await resolveComfyUiWorkflowPackage(
     request.projectFilePath,
     request,
@@ -1245,11 +1277,27 @@ export async function editComfyUiImage(
     };
   const workflow = cloneWorkflow(template);
   assertWorkflowBindingsValid(workflow, definition);
+  if (!isAuthorityCurrent())
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: 'Project session is stale or unknown.',
+    };
   const uploadReference = await uploadImage(
     config,
     request.projectFilePath,
     request.sourceProjectRelativePath,
   );
+  if (!isAuthorityCurrent())
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: 'Project session is stale or unknown.',
+    };
   const seed = generatedSeed(request.seed);
   setWorkflowInput(workflow, definition.bindings.sourceImage, uploadReference);
   setWorkflowInput(workflow, definition.bindings.prompt, request.prompt);
@@ -1284,6 +1332,8 @@ export async function editComfyUiImage(
     'edit',
     owner,
     request.clientJobId,
+    isAuthorityCurrent,
+    projectSessionId,
   );
 }
 
