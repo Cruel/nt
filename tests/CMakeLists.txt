@@ -3,6 +3,14 @@ include(Catch)
 # Tests that construct JSON wire fixtures are explicit boundary consumers.
 find_package(nlohmann_json CONFIG REQUIRED)
 
+add_test(
+    NAME noveltea_rmlui_html4_baseline_hash
+    COMMAND "${CMAKE_COMMAND}"
+        "-DNOVELTEA_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/rmlui_html4_baseline_hash.cmake")
+set_tests_properties(noveltea_rmlui_html4_baseline_hash PROPERTIES
+    LABELS "rmlui;assets;baseline")
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(
         NAME noveltea_installed_rmlui_extension_probe

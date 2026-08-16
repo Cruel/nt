@@ -102,6 +102,34 @@ with `AssetManager` during refresh, and releases/reissues the request after comp
 configuration or project replacement advances the generation. Initialization order is therefore not
 relied upon to keep the font alive.
 
+## Universal RCSS Baseline
+
+Every RmlUi `ElementDocument` instantiated through NovelTea's RuntimeUI document registry receives
+two engine-owned baseline stylesheet layers before any template or document-authored RCSS:
+
+1. `system:/ui/baseline/rmlui-html4.rcss` is a frozen verbatim copy of the stylesheet block from
+   RmlUi's recommended HTML style sheet documentation.
+2. `system:/ui/baseline/noveltea.rcss` contains NovelTea-specific universal defaults layered above
+   that imported baseline.
+
+The resulting cascade order is `RmlUi HTML4 -> NovelTea -> template RCSS -> document RCSS`. This
+applies equally to built-in system documents, project Layouts, fragments after hosting, focused
+previews, and internal RuntimeUI utility documents. Authors do not need to and should not explicitly
+link either baseline file; ordinary authored RCSS overrides the baseline normally.
+
+RuntimeUI parses the two immutable baseline assets once per UI session. Each loaded document receives
+a fresh combined `StyleSheetContainer`, so media-query compilation remains document/context-local.
+Failure to obtain or parse either required baseline prevents RuntimeUI document loading rather than
+silently rendering without the contract.
+
+The imported RmlUi file comes from
+`https://github.com/mikke89/RmlUiDoc/blob/23cc335d8c67c12c706dee4b8ddec9416e4c4280/pages/rml/html4_style_sheet.md`
+(the stylesheet code block; upstream file commit dated 2024-06-06). Its NovelTea copy has SHA-256
+`6d29abc4a959f14dac3041ecce498c0aac98cbd9e141951c5749e12a02542d05`, enforced by a CTest check.
+Do not modify that file for engine-specific styling; put such changes in `noveltea.rcss`. Refreshing
+the upstream baseline is an explicit compatibility change and requires updating the pinned
+provenance and hash together.
+
 ## Layout Events and Lua
 
 Layout events use Lua and the single `RuntimeScriptApi` gateway. Do not expose arbitrary project or
