@@ -16,11 +16,11 @@ Release builds embed the checked-in hand-authored kit source as a private script
 
 ## Project bootstrap and sync
 
-New projects contain a root `AGENTS.md` with a clearly marked NovelTea-managed bootstrap block that tells agents to run `noveltea agent sync` before relying on generated guidance. Users own all content outside that block. Project creation also creates a root `.gitignore` containing `/.noveltea/` when the file is absent; it never rewrites an existing `.gitignore`.
+New projects contain a root `AGENTS.md` with a clearly marked NovelTea-managed bootstrap block that tells agents to run `noveltea agent sync` before relying on generated guidance. Users own all content outside that block. Project creation also creates a root `.gitignore` containing `/.noveltea/` and `/dist/` when the file is absent; it never rewrites an existing `.gitignore`.
 
 `noveltea agent sync` atomically and idempotently refreshes `.noveltea/agent/`. It also inspects the managed root bootstrap and reports missing, outdated, or malformed blocks without failing ordinary sync. `noveltea agent sync --fix` explicitly creates a missing `AGENTS.md`, inserts a missing block after an initial H1 (or at the start otherwise), or replaces only a valid outdated block. Malformed or duplicate markers require manual repair and make `--fix` fail without guessing. Content outside a valid block is preserved byte-for-byte.
 
-Sync creates the canonical root `.gitignore` when it is absent. When an existing regular file contains `.noveltea` anywhere, NovelTea assumes the user has handled the rule; when it does not, sync succeeds with `AGENT_LOCAL_STATE_NOT_IGNORED` and leaves the file untouched. `--fix` does not modify an existing `.gitignore`. A non-file `AGENTS.md` or `.gitignore` is an error.
+Sync creates the canonical root `.gitignore` when it is absent. When an existing regular file contains both `.noveltea` and `dist` anywhere, NovelTea assumes the required rules are handled; when either is missing, sync succeeds with `AGENT_LOCAL_STATE_NOT_IGNORED` and leaves the file untouched. `--fix` does not modify an existing `.gitignore`. A non-file `AGENTS.md` or `.gitignore` is an error.
 
 The generated kit tells agents to edit ordinary JSON/Lua/RML/RCSS source directly, complete coherent multi-record authoring edits before treating validation as final, run `noveltea validate`, and reserve semantic CLI commands for operations requiring whole-project knowledge or transactions. `GUIDE.md` routes normal authoring work to focused conceptual and recipe docs before schemas; schemas remain the exhaustive structural fallback. `.noveltea/` is never a compilation input or authoring source.
 

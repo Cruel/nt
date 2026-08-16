@@ -21,7 +21,7 @@ export const NOVELTEA_PROJECT_AGENTS_BOOTSTRAP = `# NovelTea Project
 ${NOVELTEA_PROJECT_AGENTS_MANAGED_BLOCK}
 `;
 
-export const NOVELTEA_LOCAL_STATE_GITIGNORE_RULE = '/.noveltea/';
+export const NOVELTEA_LOCAL_STATE_GITIGNORE_RULE = '/.noveltea/\n/dist/';
 
 export type NovelTeaAgentBootstrapStatus = 'missing' | 'current' | 'outdated' | 'malformed';
 
@@ -137,5 +137,6 @@ export async function ensureNovelTeaLocalStateIgnored(
     await fileSystem.writeTextAtomic(target, `${NOVELTEA_LOCAL_STATE_GITIGNORE_RULE}\n`);
     return 'created';
   }
-  return (await fileSystem.readText(target)).includes('.noveltea') ? 'present' : 'missing-rule';
+  const text = await fileSystem.readText(target);
+  return text.includes('.noveltea') && text.includes('dist') ? 'present' : 'missing-rule';
 }

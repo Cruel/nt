@@ -815,7 +815,7 @@ describe('NovelTea headless CLI', () => {
         expect.objectContaining({ code: 'AGENT_BOOTSTRAP_MISSING', severity: 'warning' }),
       ]),
     });
-    expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('/.noveltea/\n');
+    expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('/.noveltea/\n/dist/\n');
     const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
     const second = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(second.exitCode).toBe(0);
@@ -860,7 +860,7 @@ describe('NovelTea headless CLI', () => {
     );
   });
 
-  it('preserves an existing gitignore and warns only when it does not mention .noveltea', async () => {
+  it('preserves an existing gitignore and warns when either required rule is missing', async () => {
     const value = fixture();
     await value.fileSystem.writeTextAtomic(`${root}/.gitignore`, 'dist/\n');
     const missing = await runNovelTeaCli(['--json', 'agent', 'sync', '--fix'], options(value));
@@ -875,6 +875,16 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('dist/\n');
 
     await value.fileSystem.writeTextAtomic(`${root}/.gitignore`, '# custom .noveltea handling\n');
+    const missingDist = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
+    expect(JSON.parse(missingDist.stdout).agentGitignoreStatus).toBe('missing-rule');
+    expect(JSON.parse(missingDist.stdout).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'AGENT_LOCAL_STATE_NOT_IGNORED' })]),
+    );
+
+    await value.fileSystem.writeTextAtomic(
+      `${root}/.gitignore`,
+      '# custom .noveltea handling\ndist/\n',
+    );
     const accepted = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(JSON.parse(accepted.stdout).agentGitignoreStatus).toBe('present');
     expect(JSON.parse(accepted.stdout).diagnostics).toEqual([]);
