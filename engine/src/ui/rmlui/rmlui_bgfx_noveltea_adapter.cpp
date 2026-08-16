@@ -85,37 +85,6 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
                      value[0] == 'Y' || value[0] == 'o' || value[0] == 'O');
 }
 
-[[nodiscard]] bool env_flag_value(const char* name, bool default_value)
-{
-    const char* value = std::getenv(name);
-    if (!value)
-        return default_value;
-    if (value[0] == '0' || value[0] == 'f' || value[0] == 'F' || value[0] == 'n' ||
-        value[0] == 'N')
-        return false;
-    return env_flag_enabled(name);
-}
-
-[[nodiscard]] std::uint8_t reference_msaa_samples_from_env()
-{
-    const char* value = std::getenv("NOVELTEA_RMLUI_MSAA");
-    if (!value)
-        return 2;
-    const std::string_view samples(value);
-    if (samples == "0")
-        return 0;
-    if (samples == "2")
-        return 2;
-    if (samples == "4")
-        return 4;
-    if (samples == "8")
-        return 8;
-    if (samples == "16")
-        return 16;
-    std::fprintf(stderr, "[rmlui-bgfx] invalid NOVELTEA_RMLUI_MSAA='%s'; using 2\n", value);
-    return 2;
-}
-
 [[nodiscard]] rmlui_bgfx::RenderPath render_path_from_env()
 {
     const char* value = std::getenv("RMLUI_BGFX_RENDER_PATH");
@@ -603,19 +572,7 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
     config.material_shaders = m_adapter.get();
     config.render_path = render_path_from_env();
     config.trace_filter_pipeline = env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
-    config.reference_msaa_samples = reference_msaa_samples_from_env();
-    config.preserve_backbuffer = env_flag_value("NOVELTEA_RMLUI_PRESERVE_BACKBUFFER", true);
-    if (env_flag_enabled("NOVELTEA_RESIZE_DIAGNOSTICS")) {
-        std::fprintf(stderr,
-                     "[resize-diag] rmlui renderer surface=%dx%d framebuffer=%dx%d scale=%.3fx%.3f "
-                     "path=%s msaa=%u preserve_backbuffer=%s\n",
-                     surface->logical_width, surface->logical_height, surface->framebuffer_width,
-                     surface->framebuffer_height, surface->scale_x, surface->scale_y,
-                     config.render_path == rmlui_bgfx::RenderPath::Reference ? "reference"
-                                                                            : "optimized",
-                     static_cast<unsigned>(config.reference_msaa_samples),
-                     config.preserve_backbuffer ? "true" : "false");
-    }
+    config.preserve_backbuffer = true;
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
 }
 

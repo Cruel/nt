@@ -213,7 +213,6 @@ private:
     ShaderStandardInputs m_shader_standard_inputs{};
     bool m_initialized = false;
     bool m_vsync = true;
-    std::uint8_t m_resize_diagnostic_frames_remaining = 0;
     PresentationMetrics m_presentation{};
     IntegerSize m_backbuffer_size{};
     std::uint32_t m_bar_color_rgba = 0x000000ff;
