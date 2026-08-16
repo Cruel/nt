@@ -20,7 +20,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Supported NovelTea `nt-*` custom elements: `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md`
 - RML event Lua, `<script>`, RmlUi element/document APIs, and `script.enabled`: `.noveltea/agent/docs/RMLUI_LUA.md`
 - Layout source modes, document/fragment kind, dependencies, system Layout overrides, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
-- Exact built-in system Layout RML/RCSS used as override reference: `.noveltea/agent/system-layouts/manifest.json` and `.noveltea/agent/system-layouts/ui/`
+- Exact built-in system Layout RML/RCSS plus universal baseline RCSS/cascade reference: `.noveltea/agent/system-layouts/manifest.json` and `.noveltea/agent/system-layouts/ui/`
 - NovelTea Lua sandbox, APIs, capabilities, and yielding rules: `.noveltea/agent/docs/LUA.md`
 - Authored tests: `.noveltea/agent/docs/TESTS.md`
 

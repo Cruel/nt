@@ -6,6 +6,21 @@ Layouts use RmlUi RML/RCSS plus optional dedicated Lua. For file-mode Layout cha
 
 Use project asset/reference forms already present in the schemas and project docs. Validate after RML, RCSS, or Layout metadata changes so dependency and source diagnostics remain authoritative.
 
+## Baseline RCSS applies to every Layout
+
+All Layout RCSS is authored above NovelTea's universal RuntimeUI baseline. The engine applies the frozen RmlUi HTML4 baseline first, then the NovelTea-specific baseline, then template RCSS, then the Layout/document's own RCSS.
+
+Do not add `<link>` entries or Layout stylesheet dependencies for the baseline files. They are implicit engine-owned layers and apply equally to built-in Layouts, project Layouts, hosted fragments, and focused previews. Project RCSS should contain only project-owned styling and intentional overrides of baseline defaults.
+
+The installed CLI exports the exact baseline source together with its other internal Layout references:
+
+```text
+.noveltea/agent/system-layouts/ui/baseline/rmlui-html4.rcss
+.noveltea/agent/system-layouts/ui/baseline/noveltea.rcss
+```
+
+`.noveltea/agent/system-layouts/manifest.json` records their cascade order and scope. Inspect those generated files when an inherited/default style matters, but never edit or copy them wholesale merely to reproduce the runtime defaults.
+
 ## System Layout overrides
 
 Project settings can replace the engine UI Layout assigned to each system role through `settings.ui.systemLayouts`. The roles are:

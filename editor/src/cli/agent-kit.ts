@@ -220,9 +220,37 @@ function systemLayoutManifestText(
     }
   }
 
+  const baselineLayers = [
+    {
+      id: 'rmlui-html4',
+      path: 'ui/baseline/rmlui-html4.rcss',
+      authoringUrl: 'system|/ui/baseline/rmlui-html4.rcss',
+    },
+    {
+      id: 'noveltea',
+      path: 'ui/baseline/noveltea.rcss',
+      authoringUrl: 'system|/ui/baseline/noveltea.rcss',
+    },
+  ] as const;
+  for (const layer of baselineLayers) {
+    if (!Object.hasOwn(systemLayoutSourceFiles, layer.path))
+      throw new Error(`Universal RCSS baseline requires missing source '${layer.path}'.`);
+  }
+
   return jsonText({
     schema: 'noveltea.agent-kit.system-layouts',
-    schemaVersion: 1,
+    schemaVersion: 2,
+    baselines: {
+      implicit: true,
+      appliesTo: [
+        'built-in-system-layouts',
+        'project-layouts',
+        'fragments',
+        'focused-previews',
+        'runtime-ui-utility-documents',
+      ],
+      cascade: [...baselineLayers, { id: 'template-rcss' }, { id: 'document-rcss' }],
+    },
     roles: Object.fromEntries(
       systemLayoutRoleValues.map((role) => {
         const reference = systemLayoutReferenceByRole[role];

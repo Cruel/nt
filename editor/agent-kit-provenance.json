@@ -8,7 +8,7 @@
     "noveltea": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/nt.git",
-      "revision": "6cfe91240d51546544107d8b631490cc504df4e2"
+      "revision": "d103dc48c6bcde6134271793b40354ec46560692"
     },
     "rmlui": {
       "kind": "repository",
@@ -19,6 +19,11 @@
     "rmlui-docs": {
       "kind": "web",
       "url": "https://mikke89.github.io/RmlUiDoc/"
+    },
+    "rmlui-docs-html4": {
+      "kind": "repository",
+      "repository": "https://github.com/mikke89/RmlUiDoc.git",
+      "revision": "23cc335d8c67c12c706dee4b8ddec9416e4c4280"
     }
   },
   "documents": {
@@ -121,7 +126,7 @@
     },
     "docs/RMLUI.md": {
       "reviewed": "2026-08-16",
-      "strategy": "Use the pinned NovelTea RmlUi source as the compatibility authority and upstream RmlUi documentation for concise semantics; include only browser-assumption differences and NovelTea resource rules that affect authored RML/RCSS.",
+      "strategy": "Use the pinned NovelTea RmlUi source and universal baseline contract as the compatibility authority and upstream RmlUi documentation for concise semantics; include only browser-assumption differences and NovelTea resource rules that affect authored RML/RCSS.",
       "sources": [
         {
           "source": "noveltea",
@@ -130,7 +135,8 @@
             "cmake/patches/rmlui-feature-calc-noveltea-presentation.patch",
             "docs/engine/LAYOUT.md",
             "docs/ui/RMLUI_RUNTIME_UI.md",
-            "editor/src/shared/project-schema/authoring-layouts.ts"
+            "editor/src/shared/project-schema/authoring-layouts.ts",
+            "engine/assets/system/ui/baseline/"
           ]
         },
         {
@@ -158,6 +164,10 @@
             "pages/rcss/decorators.html",
             "pages/rcss/sprite_sheets.html"
           ]
+        },
+        {
+          "source": "rmlui-docs-html4",
+          "areas": ["pages/rml/html4_style_sheet.md"]
         }
       ]
     },

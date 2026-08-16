@@ -799,7 +799,7 @@ describe('NovelTea headless CLI', () => {
       noveltea: {
         kind: 'repository',
         repository: 'https://github.com/Cruel/nt.git',
-        revision: '6cfe91240d51546544107d8b631490cc504df4e2',
+        revision: 'd103dc48c6bcde6134271793b40354ec46560692',
       },
       rmlui: {
         kind: 'repository',
@@ -815,6 +815,11 @@ describe('NovelTea headless CLI', () => {
       'rmlui-docs': {
         kind: 'web',
         url: 'https://mikke89.github.io/RmlUiDoc/',
+      },
+      'rmlui-docs-html4': {
+        kind: 'repository',
+        repository: 'https://github.com/mikke89/RmlUiDoc.git',
+        revision: '23cc335d8c67c12c706dee4b8ddec9416e4c4280',
       },
     });
     expect(manifest.provenance.documents['docs/LAYOUTS.md'].sources).toEqual(
@@ -870,7 +875,31 @@ describe('NovelTea headless CLI', () => {
       expect(first.files[`system-layouts/${relativePath}`]).toBe(text);
     expect(JSON.parse(first.files['system-layouts/manifest.json']!)).toEqual({
       schema: 'noveltea.agent-kit.system-layouts',
-      schemaVersion: 1,
+      schemaVersion: 2,
+      baselines: {
+        implicit: true,
+        appliesTo: [
+          'built-in-system-layouts',
+          'project-layouts',
+          'fragments',
+          'focused-previews',
+          'runtime-ui-utility-documents',
+        ],
+        cascade: [
+          {
+            id: 'rmlui-html4',
+            path: 'ui/baseline/rmlui-html4.rcss',
+            authoringUrl: 'system|/ui/baseline/rmlui-html4.rcss',
+          },
+          {
+            id: 'noveltea',
+            path: 'ui/baseline/noveltea.rcss',
+            authoringUrl: 'system|/ui/baseline/noveltea.rcss',
+          },
+          { id: 'template-rcss' },
+          { id: 'document-rcss' },
+        ],
+      },
       roles: {
         title: {
           builtinFallback: true,
@@ -963,7 +992,10 @@ describe('NovelTea headless CLI', () => {
       "RmlUi's `:hover`, `:active`, `:focus`, and `:focus-visible` state propagates backward",
     );
     expect(first.files['docs/RMLUI.md']).toContain('`calc()`, `min()`, `max()`, and `clamp()`');
-    expect(first.files['docs/RMLUI.md']).toContain('base-RCSS/default-style');
+    expect(first.files['docs/RMLUI.md']).toContain('Universal RCSS baseline');
+    expect(first.files['docs/RMLUI.md']).toContain(
+      'RmlUi HTML4 baseline\nNovelTea baseline\ntemplate RCSS\ndocument/Layout RCSS',
+    );
     expect(first.files['docs/RMLUI.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
     expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in properties: 99');
     expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in shorthands: 20');
@@ -1044,7 +1076,49 @@ describe('NovelTea headless CLI', () => {
       supportingFiles: [],
     });
 
+    expect(documentRegistry).toContain(
+      'constexpr char kRmlUiHtml4BaselineAsset[] = "system:/ui/baseline/rmlui-html4.rcss";',
+    );
+    expect(documentRegistry).toContain(
+      'constexpr char kNovelTeaBaselineAsset[] = "system:/ui/baseline/noveltea.rcss";',
+    );
+    expect(documentRegistry).toMatch(
+      /rmlui_html4->CombineStyleSheetContainer\(\*noveltea\)[\s\S]*MergeStyleSheetContainer\(\*document_styles\)/,
+    );
+    expect(reference.baselines).toEqual({
+      implicit: true,
+      appliesTo: [
+        'built-in-system-layouts',
+        'project-layouts',
+        'fragments',
+        'focused-previews',
+        'runtime-ui-utility-documents',
+      ],
+      cascade: [
+        {
+          id: 'rmlui-html4',
+          path: 'ui/baseline/rmlui-html4.rcss',
+          authoringUrl: 'system|/ui/baseline/rmlui-html4.rcss',
+        },
+        {
+          id: 'noveltea',
+          path: 'ui/baseline/noveltea.rcss',
+          authoringUrl: 'system|/ui/baseline/noveltea.rcss',
+        },
+        { id: 'template-rcss' },
+        { id: 'document-rcss' },
+      ],
+    });
+    expect(payload.files['system-layouts/ui/baseline/rmlui-html4.rcss']).toBe(
+      readFileSync('../engine/assets/system/ui/baseline/rmlui-html4.rcss', 'utf8'),
+    );
+    expect(payload.files['system-layouts/ui/baseline/noveltea.rcss']).toBe(
+      readFileSync('../engine/assets/system/ui/baseline/noveltea.rcss', 'utf8'),
+    );
+
     expect(Object.keys(loadAgentKitSystemLayoutSourceFiles())).toEqual([
+      'ui/baseline/noveltea.rcss',
+      'ui/baseline/rmlui-html4.rcss',
       'ui/menu/load-menu.rml',
       'ui/menu/modal.rml',
       'ui/menu/pause-menu.rcss',
@@ -1511,12 +1585,25 @@ describe('NovelTea headless CLI', () => {
       ),
     ).toBe(systemLayoutSources['ui/runtime/runtime_game.rml']);
     expect(
-      JSON.parse(
-        await value.fileSystem.readText(`${root}/.noveltea/agent/system-layouts/manifest.json`),
-      ).roles['game-hud'],
-    ).toMatchObject({
+      await value.fileSystem.readText(
+        `${root}/.noveltea/agent/system-layouts/ui/baseline/rmlui-html4.rcss`,
+      ),
+    ).toBe(systemLayoutSources['ui/baseline/rmlui-html4.rcss']);
+    const systemLayoutManifest = JSON.parse(
+      await value.fileSystem.readText(`${root}/.noveltea/agent/system-layouts/manifest.json`),
+    );
+    expect(systemLayoutManifest.roles['game-hud']).toMatchObject({
       builtinFallback: true,
       authoringUrl: 'system|/ui/runtime/runtime_game.rml',
+    });
+    expect(systemLayoutManifest.baselines).toMatchObject({
+      implicit: true,
+      cascade: [
+        expect.objectContaining({ id: 'rmlui-html4' }),
+        expect.objectContaining({ id: 'noveltea' }),
+        { id: 'template-rcss' },
+        { id: 'document-rcss' },
+      ],
     });
     expect(
       await value.fileSystem.inspect(`${root}/.noveltea/agent/agent-kit-provenance.json`),

@@ -39,6 +39,25 @@ RmlUi-specific facilities are normal RCSS and are preferable to browser workarou
 
 RCSS custom properties and `var()` are supported in NovelTea's pinned build. They cascade and inherit, but custom properties themselves are not animation targets. Use them for tokens; do not assume every newer CSS custom-property feature exists.
 
+## Universal RCSS baseline
+
+Every NovelTea RmlUi document is styled above two engine-owned baseline layers. Authors do not import these files themselves.
+
+The cascade order is:
+
+```text
+RmlUi HTML4 baseline
+NovelTea baseline
+template RCSS
+document/Layout RCSS
+```
+
+The first layer is NovelTea's frozen copy of RmlUi's recommended HTML4 stylesheet. The second contains NovelTea-specific universal defaults. Ordinary authored RCSS comes later and overrides either baseline through the normal cascade.
+
+This contract applies to built-in system Layouts, project Layouts, hosted fragments, focused previews, and internal RuntimeUI utility documents. Do not compensate for preview/runtime differences by duplicating baseline rules into project RCSS; preview and runtime receive the same layers.
+
+To inspect the exact baseline used by the installed CLI, read `.noveltea/agent/system-layouts/manifest.json` and the byte-exact files under `.noveltea/agent/system-layouts/ui/baseline/`. Treat those generated files as reference material, not project source. If the project intentionally wants to override a baseline default, author only the desired override in the project's own RCSS.
+
 ## Selector and pseudo-class traps
 
 RCSS supports the familiar universal, type, class, ID, attribute, descendant, child, adjacent-sibling, and general-sibling selectors, plus `:not(...)` and the common structural `:nth-*`, first/last/only/empty selectors.
@@ -111,5 +130,3 @@ A path in RML or RCSS is not enough to make a resource available. Project images
 ## Before treating browser intuition as authoritative
 
 When a familiar CSS or HTML technique is not covered here, prefer the focused generated references over guessing. Use `.noveltea/agent/docs/RCSS_REFERENCE.md` before introducing a new RCSS property/value/function, `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` for `data-*` or `noveltea` model behavior, `.noveltea/agent/docs/RMLUI_LUA.md` for RML event Lua/`<script>`/imperative RmlUi APIs, and `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md` before using any `nt-*` tag. When replacing a system Layout, inspect `.noveltea/agent/system-layouts/manifest.json` and the corresponding exact built-in source under `.noveltea/agent/system-layouts/ui/` first.
-
-The separate engine-wide base-RCSS/default-style behavior is outside this guide. Do not compensate for that issue by baking assumptions about implicit base styles into authored Layouts.
