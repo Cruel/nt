@@ -31,6 +31,7 @@ const agentKitSourcePackageRoot = path.join(
   'node_modules',
   'noveltea-scriptc-agent-kit-source',
 );
+const agentKitProvenancePath = path.join(editorRoot, 'agent-kit-provenance.json');
 const agentKitSourcePaths = [
   'CLI.md',
   'GUIDE.md',
@@ -335,6 +336,7 @@ try {
       ]),
     ),
   );
+  const agentKitProvenance = JSON.parse(await readFile(agentKitProvenancePath, 'utf8'));
   await writeFile(
     path.join(agentKitSourcePackageRoot, 'package.json'),
     `${JSON.stringify(
@@ -351,11 +353,11 @@ try {
   );
   await writeFile(
     path.join(agentKitSourcePackageRoot, 'index.mjs'),
-    `export const scriptcAgentKitSourceFiles = Object.freeze(${JSON.stringify(agentKitSourceFiles)});\n`,
+    `export const scriptcAgentKitSourceFiles = Object.freeze(${JSON.stringify(agentKitSourceFiles)});\nexport const scriptcAgentKitProvenance = Object.freeze(${JSON.stringify(agentKitProvenance)});\n`,
   );
   await writeFile(
     path.join(agentKitSourcePackageRoot, 'index.d.ts'),
-    'export declare const scriptcAgentKitSourceFiles: Readonly<Record<string, string>>;\n',
+    'export declare const scriptcAgentKitSourceFiles: Readonly<Record<string, string>>;\nexport declare const scriptcAgentKitProvenance: unknown;\n',
   );
 
   const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');

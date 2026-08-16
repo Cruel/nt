@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import { createNovelTeaAgentKitPayload } from '../../cli/agent-kit';
+import { loadAgentKitSourceFiles } from '../../cli/agent-kit/source';
 import { syncNovelTeaAgentKit } from '../../cli/agent-sync';
 import {
   NOVELTEA_CLI_HELP,
@@ -773,12 +774,47 @@ describe('NovelTea headless CLI', () => {
     const manifest = JSON.parse(first.manifestText);
     expect(manifest).toMatchObject({
       schema: 'noveltea.agent-kit.manifest',
-      schemaVersion: 1,
+      schemaVersion: 2,
       agentKitVersion: 1,
       cliVersion: '1.0.0',
       projectWorkspaceVersion: 1,
     });
     expect(Object.keys(manifest.files)).toEqual(Object.keys(first.files));
+    const authoredSourceFiles = loadAgentKitSourceFiles();
+    expect(Object.keys(manifest.provenance.documents)).toEqual(Object.keys(authoredSourceFiles));
+    expect(manifest.provenance.sources).toMatchObject({
+      noveltea: {
+        kind: 'repository',
+        repository: 'https://github.com/Cruel/nt.git',
+        revision: '6cfe91240d51546544107d8b631490cc504df4e2',
+      },
+      rmlui: {
+        kind: 'repository',
+        repository: 'https://github.com/Cruel/RmlUi.git',
+        revision: 'c6744d15bda5e9df7ad9c1f8eae937157e7ed309',
+        version: '6.3-dev',
+      },
+      'lua-5.5-manual': {
+        kind: 'web',
+        url: 'https://www.lua.org/manual/5.5/manual.html',
+        version: '5.5',
+      },
+    });
+    expect(manifest.provenance.documents['docs/LAYOUTS.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/LUA.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'lua-5.5-manual' }),
+      ]),
+    );
+    for (const [relativePath, text] of Object.entries(authoredSourceFiles))
+      expect(first.files[relativePath]).toBe(text);
+    expect(first.files['agent-kit-provenance.json']).toBeUndefined();
     expect(first.files['skill/SKILL.md']).toBeUndefined();
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
     expect(first.files['GUIDE.md']).toContain(
@@ -801,6 +837,35 @@ describe('NovelTea headless CLI', () => {
     );
   });
 
+  it('rejects incomplete or dangling curated agent-kit provenance', () => {
+    const sourceFiles = { 'GUIDE.md': '# Guide\n' };
+    expect(() =>
+      createNovelTeaAgentKitPayload(sourceFiles, {
+        sources: {
+          noveltea: {
+            kind: 'repository',
+            repository: 'https://github.com/Cruel/nt.git',
+            revision: 'abc123',
+          },
+        },
+        documents: {},
+      }),
+    ).toThrow('must declare exactly one entry');
+
+    expect(() =>
+      createNovelTeaAgentKitPayload(sourceFiles, {
+        sources: {},
+        documents: {
+          'GUIDE.md': {
+            reviewed: '2026-08-16',
+            strategy: 'Use the public authoring contract.',
+            sources: [{ source: 'noveltea', areas: ['docs/editor/AGENT_KIT.md'] }],
+          },
+        },
+      }),
+    ).toThrow("references unknown source 'noveltea'");
+  });
+
   it('repairs, validates, and then leaves an unchanged agent kit untouched', async () => {
     const value = fixture();
     const first = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
@@ -817,6 +882,12 @@ describe('NovelTea headless CLI', () => {
     });
     expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('/.noveltea/\n');
     const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
+    expect(JSON.parse(manifestBefore).provenance.documents['docs/LAYOUTS.md']).toMatchObject({
+      reviewed: '2026-08-16',
+    });
+    expect(
+      await value.fileSystem.inspect(`${root}/.noveltea/agent/agent-kit-provenance.json`),
+    ).toBe('missing');
     const second = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(second.exitCode).toBe(0);
     expect(JSON.parse(second.stdout).agentKitChanged).toBe(false);
@@ -927,7 +998,7 @@ describe('NovelTea headless CLI', () => {
     const result = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).agentKitChanged).toBe(true);
-    expect(JSON.parse(await value.fileSystem.readText(manifestPath)).schemaVersion).toBe(1);
+    expect(JSON.parse(await value.fileSystem.readText(manifestPath)).schemaVersion).toBe(2);
     expect(await value.fileSystem.readText(`${root}/records/rooms/start.json`)).toBe(
       trackedRoomBefore,
     );

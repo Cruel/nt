@@ -1,0 +1,163 @@
+{
+  "sources": {
+    "lua-5.5-manual": {
+      "kind": "web",
+      "url": "https://www.lua.org/manual/5.5/manual.html",
+      "version": "5.5"
+    },
+    "noveltea": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "6cfe91240d51546544107d8b631490cc504df4e2"
+    },
+    "rmlui": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/RmlUi.git",
+      "revision": "c6744d15bda5e9df7ad9c1f8eae937157e7ed309",
+      "version": "6.3-dev"
+    }
+  },
+  "documents": {
+    "CLI.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Curate only the public standalone CLI workflow and command boundaries that game-authoring agents need; keep implementation and release plumbing out.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": ["docs/editor/CLI.md", "editor/src/cli/"]
+        }
+      ]
+    },
+    "GUIDE.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Route agents to the smallest authoring reference for each task and preserve only stable project-facing workflow rules.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/editor/AGENT_KIT.md",
+            "editor/src/cli/agent-kit.ts",
+            "editor/src/cli/agent-sync.ts"
+          ]
+        }
+      ]
+    },
+    "PROJECT_FORMAT.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Summarize the current workspace contract and persistence rules that are not safely inferable from generated JSON Schema.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/editor/project/PROJECT_WORKSPACE_FORMAT.md",
+            "editor/src/shared/project-workspace/",
+            "editor/src/shared/project-schema/"
+          ]
+        }
+      ]
+    },
+    "docs/ASSETS_SHADERS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Keep only author-visible asset, shader, and material invariants plus the supported shader compilation entrypoints.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/assets/OVERVIEW.md",
+            "docs/rendering/OVERVIEW.md",
+            "editor/src/shared/project-schema/authoring-assets.ts",
+            "editor/src/shared/project-schema/authoring-shaders.ts"
+          ]
+        }
+      ]
+    },
+    "docs/AUTHORING.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Explain only NovelTea-specific authoring concepts and distinctions that schema structure alone does not communicate well.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": ["docs/engine/OVERVIEW.md", "editor/src/shared/project-schema/"]
+        }
+      ]
+    },
+    "docs/INTERACTIONS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Reconcile interaction terminology and hotspot behavior against the current project schema and runtime authoring contract, excluding implementation plumbing.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
+            "editor/src/shared/project-schema/authoring-interactions.ts",
+            "editor/src/shared/project-schema/authoring-rooms.ts"
+          ]
+        }
+      ]
+    },
+    "docs/LAYOUTS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Treat NovelTea's pinned RmlUi build and Layout persistence contract as authoritative; use RmlUi source semantics only where they affect authored RML/RCSS/Lua.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaRmlUi.cmake",
+            "docs/ui/OVERVIEW.md",
+            "editor/src/shared/project-schema/authoring-layouts.ts"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": ["Documentation/", "Include/RmlUi/Core/"]
+        }
+      ]
+    },
+    "docs/LUA.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Use the Lua 5.5 language manual for language semantics and NovelTea runtime bindings as the authority for the sandbox and public game API.",
+      "sources": [
+        {
+          "source": "lua-5.5-manual",
+          "areas": ["Language and standard-library semantics used by authored scripts"]
+        },
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaLua.cmake",
+            "engine/src/script/lua/",
+            "editor/src/shared/project-schema/authoring-lua-analysis.ts",
+            "editor/src/shared/project-schema/authoring-lua-source-registry.ts"
+          ]
+        }
+      ]
+    },
+    "docs/ROOMS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Reconcile Room geometry and composition examples against the current schema and hotspot contract, emphasizing coordinate spaces and author-visible ownership.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
+            "editor/src/shared/project-schema/authoring-rooms.ts"
+          ]
+        }
+      ]
+    },
+    "docs/TESTS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Expose only the tracked Test-record contract and supported CLI execution workflow that game-authoring agents need.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/engine/TEST.md",
+            "editor/src/shared/project-schema/authoring-tests.ts",
+            "editor/src/cli/"
+          ]
+        }
+      ]
+    }
+  }
+}

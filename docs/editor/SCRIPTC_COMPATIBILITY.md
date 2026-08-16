@@ -23,7 +23,7 @@ The native tooling archive continues to own shader compilation, raw bgfx shaderc
 
 ## Agent-kit source embedding
 
-The hand-authored agent-kit source remains canonical under `editor/agent-kit/`. Release builds generate a private staged package containing those exact source texts. The QuickJS island embeds that package and combines the texts with JSON Schemas generated from the shared Zod schemas when `agent sync` is invoked. No generated agent-kit source copy is checked in.
+The hand-authored agent-kit source remains canonical under `editor/agent-kit/`, while curator-only source/ref metadata lives beside it in `editor/agent-kit-provenance.json`. Release builds generate a private staged package containing the exact source texts plus that provenance object. The QuickJS island embeds the package, combines the texts with JSON Schemas generated from the shared Zod schemas when `agent sync` is invoked, and places provenance only in the generated manifest. No generated agent-kit source copy is checked in, and curator metadata is never emitted as an agent-facing file.
 
 ## Build pin and admitted host
 

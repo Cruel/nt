@@ -17,11 +17,54 @@ import {
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from '../shared/project-workspace/project-workspace-contracts';
 import { NOVELTEA_CLI_VERSION } from './contracts';
-import { loadAgentKitSourceFiles } from './agent-kit/source';
+import { loadAgentKitProvenance, loadAgentKitSourceFiles } from './agent-kit/source';
 
 export const NOVELTEA_AGENT_KIT_SCHEMA = 'noveltea.agent-kit.manifest' as const;
-export const NOVELTEA_AGENT_KIT_SCHEMA_VERSION = 1 as const;
+export const NOVELTEA_AGENT_KIT_SCHEMA_VERSION = 2 as const;
 export const NOVELTEA_AGENT_KIT_VERSION = 1 as const;
+
+const provenanceSourceIdSchema = z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/);
+const provenanceSourceSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('repository'),
+      repository: z.string().min(1),
+      revision: z.string().min(1),
+      version: z.string().min(1).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('web'),
+      url: z.string().min(1),
+      version: z.string().min(1).optional(),
+    })
+    .strict(),
+]);
+const provenanceDocumentSchema = z
+  .object({
+    reviewed: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    strategy: z.string().min(1),
+    sources: z
+      .array(
+        z
+          .object({
+            source: provenanceSourceIdSchema,
+            areas: z.array(z.string().min(1)).min(1),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+const agentKitProvenanceSchema = z
+  .object({
+    sources: z.record(provenanceSourceIdSchema, provenanceSourceSchema),
+    documents: z.record(z.string().min(1), provenanceDocumentSchema),
+  })
+  .strict();
+
+export type NovelTeaAgentKitProvenance = z.infer<typeof agentKitProvenanceSchema>;
 
 const workspaceManifestSchema = z
   .object({
@@ -117,8 +160,36 @@ export interface NovelTeaAgentKitPayload {
   readonly files: Readonly<Record<string, string>>;
 }
 
+function normalizeAgentKitProvenance(
+  value: unknown,
+  sourceFiles: Readonly<Record<string, string>>,
+): NovelTeaAgentKitProvenance {
+  const provenance = agentKitProvenanceSchema.parse(value);
+  const sourcePaths = Object.keys(sourceFiles).sort(compareCodePoints);
+  const documentPaths = Object.keys(provenance.documents).sort(compareCodePoints);
+  if (
+    sourcePaths.length !== documentPaths.length ||
+    sourcePaths.some((sourcePath, index) => sourcePath !== documentPaths[index])
+  )
+    throw new Error(
+      'Agent-kit provenance must declare exactly one entry for every hand-authored agent-kit source file.',
+    );
+
+  for (const [documentPath, document] of Object.entries(provenance.documents)) {
+    for (const reference of document.sources) {
+      if (!Object.hasOwn(provenance.sources, reference.source))
+        throw new Error(
+          `Agent-kit provenance for '${documentPath}' references unknown source '${reference.source}'.`,
+        );
+    }
+  }
+
+  return canonicalizeJson(provenance) as NovelTeaAgentKitProvenance;
+}
+
 export function createNovelTeaAgentKitPayload(
   sourceFiles: Readonly<Record<string, string>> = loadAgentKitSourceFiles(),
+  provenanceSource: unknown = loadAgentKitProvenance(),
 ): NovelTeaAgentKitPayload {
   const files: Record<string, string> = { ...sourceFiles };
   for (const [relativePath, schema] of Object.entries(schemaSources))
@@ -140,6 +211,7 @@ export function createNovelTeaAgentKitPayload(
     cliVersion: NOVELTEA_CLI_VERSION,
     projectWorkspaceVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
     files: hashes,
+    provenance: normalizeAgentKitProvenance(provenanceSource, sourceFiles),
   };
   return {
     manifestText: `${JSON.stringify(manifest, null, 2)}\n`,

@@ -5,7 +5,10 @@ import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-servic
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
 import { createNovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service-node';
 import { configurePlatformHostService } from '../src/main/services/platform-host-service';
-import { scriptcAgentKitSourceFiles } from './noveltea-scriptc-agent-kit-source';
+import {
+  scriptcAgentKitProvenance,
+  scriptcAgentKitSourceFiles,
+} from './noveltea-scriptc-agent-kit-source';
 import {
   createNodeProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
@@ -163,7 +166,12 @@ export async function runNovelTeaScriptcIsland(
     nativeTools,
     platformTools,
     ...(needsAgentKit
-      ? { agentKitPayload: createNovelTeaAgentKitPayload(scriptcAgentKitSourceFiles) }
+      ? {
+          agentKitPayload: createNovelTeaAgentKitPayload(
+            scriptcAgentKitSourceFiles,
+            scriptcAgentKitProvenance,
+          ),
+        }
       : {}),
     readStdinText: () => invokeHost('read-stdin', ''),
   });

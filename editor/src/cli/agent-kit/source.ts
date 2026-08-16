@@ -49,3 +49,11 @@ export function loadAgentKitSourceFiles(): Readonly<Record<string, string>> {
   collectFiles(root, root, files);
   return Object.freeze(files);
 }
+
+export function loadAgentKitProvenance(): unknown {
+  const sourceRoot = findSourceRoot();
+  const provenancePath = path.join(path.dirname(sourceRoot), 'agent-kit-provenance.json');
+  if (!statSync(provenancePath).isFile())
+    throw new Error(`NovelTea agent-kit provenance must be a regular file: ${provenancePath}`);
+  return JSON.parse(readFileSync(provenancePath, 'utf8')) as unknown;
+}
