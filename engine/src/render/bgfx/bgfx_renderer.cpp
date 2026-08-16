@@ -16,17 +16,19 @@
 
 #include <bx/file.h>
 #include <bx/error.h>
-#include <bx/allocator.h>
 #include <bx/readerwriter.h>
 
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -74,6 +76,43 @@ namespace {
 #else
     return {std::max(required.width, 1), std::max(required.height, 1)};
 #endif
+}
+
+[[nodiscard]] bool env_flag_enabled(const char* name)
+{
+    const char* value = std::getenv(name);
+    return value && (value[0] == '1' || value[0] == 't' || value[0] == 'T' || value[0] == 'y' ||
+                     value[0] == 'Y' || value[0] == 'o' || value[0] == 'O');
+}
+
+[[nodiscard]] bool resize_diagnostics_enabled()
+{
+    return env_flag_enabled("NOVELTEA_RESIZE_DIAGNOSTICS");
+}
+
+[[nodiscard]] uint32_t bgfx_reset_flags(bool vsync)
+{
+    uint32_t flags = vsync ? BGFX_RESET_VSYNC : 0;
+    if (resize_diagnostics_enabled()) {
+        if (env_flag_enabled("NOVELTEA_RESIZE_DIAGNOSTIC_NO_VSYNC"))
+            flags &= ~BGFX_RESET_VSYNC;
+        if (env_flag_enabled("NOVELTEA_RESIZE_DIAGNOSTIC_FLIP_AFTER_RENDER"))
+            flags |= BGFX_RESET_FLIP_AFTER_RENDER;
+    }
+    return flags;
+}
+
+[[nodiscard]] double timer_ticks_to_ms(std::int64_t ticks, std::int64_t frequency)
+{
+    if (frequency <= 0)
+        return 0.0;
+    return static_cast<double>(ticks) * 1000.0 / static_cast<double>(frequency);
+}
+
+[[nodiscard]] double elapsed_wall_ms(std::chrono::steady_clock::time_point begin,
+                                     std::chrono::steady_clock::time_point end)
+{
+    return std::chrono::duration<double, std::milli>(end - begin).count();
 }
 
 } // namespace
@@ -125,6 +164,8 @@ public:
 #endif
                     const void* data, uint32_t size, bool yflip) override
     {
+        const bool diagnose_screenshot = resize_diagnostics_enabled();
+        const auto callback_begin = std::chrono::steady_clock::now();
         constexpr std::string_view capture_prefix = "__noveltea_game_viewport_capture_";
         constexpr std::string_view capture_suffix = ".ntcapture";
         if (!file_path) {
@@ -158,8 +199,10 @@ public:
             return;
         }
 
+        const auto crop_begin = std::chrono::steady_clock::now();
         auto cropped = crop_screenshot_bgra8(data, width, height, pitch, size, yflip,
                                              request->captured_host_size, request->crop);
+        const auto crop_end = std::chrono::steady_clock::now();
         if (!cropped) {
             std::fprintf(stderr,
                          "[renderer] screenshot crop rejected: callback=%ux%u captured=%dx%d "
@@ -172,25 +215,72 @@ public:
         }
 
         if (request->kind == RequestKind::Capture) {
-            bx::DefaultAllocator allocator;
-            bx::MemoryBlock memory(&allocator);
-            bx::MemoryWriter writer(&memory);
+            const auto convert_begin = std::chrono::steady_clock::now();
+            std::vector<std::uint8_t> rgba8(cropped->bgra8.size());
+            for (std::size_t offset = 0; offset < cropped->bgra8.size(); offset += 4u) {
+                rgba8[offset + 0u] = cropped->bgra8[offset + 2u];
+                rgba8[offset + 1u] = cropped->bgra8[offset + 1u];
+                rgba8[offset + 2u] = cropped->bgra8[offset + 0u];
+                rgba8[offset + 3u] = cropped->bgra8[offset + 3u];
+            }
+            const auto convert_end = std::chrono::steady_clock::now();
+
+            const auto png_capacity =
+                static_cast<std::uint64_t>(rgba8.size()) +
+                static_cast<std::uint64_t>(cropped->height) * 6u + 63u;
+            if (png_capacity >
+                static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max())) {
+                std::fprintf(stderr, "[renderer] checkpoint PNG capture is too large\n");
+                fail_capture(*request);
+                return;
+            }
+
+            const auto allocate_begin = std::chrono::steady_clock::now();
+            std::vector<std::uint8_t> png(static_cast<std::size_t>(png_capacity));
+            bx::StaticMemoryBlockWriter writer(png.data(), static_cast<std::uint32_t>(png.size()));
+            const auto allocate_end = std::chrono::steady_clock::now();
+
             bx::Error err;
+            const auto encode_begin = std::chrono::steady_clock::now();
             const auto encoded_size =
                 bimg::imageWritePng(&writer, cropped->width, cropped->height, cropped->pitch,
-                                    cropped->bgra8.data(), bimg::TextureFormat::BGRA8, false, &err);
+                                    rgba8.data(), bimg::TextureFormat::RGBA8, false, &err);
+            const auto encode_end = std::chrono::steady_clock::now();
             if (!err.isOk() || encoded_size <= 0 ||
-                static_cast<std::uint32_t>(encoded_size) > memory.getSize()) {
+                static_cast<std::size_t>(encoded_size) > png.size()) {
                 std::fprintf(stderr, "[renderer] checkpoint PNG write error: %s\n",
                              err.getMessage().getCPtr());
                 fail_capture(*request);
                 return;
             }
+            const auto package_begin = std::chrono::steady_clock::now();
             Capture capture{request->capture_id, cropped->width, cropped->height,
-                            std::string(static_cast<const char*>(memory.more()),
+                            std::string(reinterpret_cast<const char*>(png.data()),
                                         static_cast<std::size_t>(encoded_size))};
-            std::scoped_lock lock(m_mutex);
-            m_captures.push_back(std::move(capture));
+            {
+                std::scoped_lock lock(m_mutex);
+                m_captures.push_back(std::move(capture));
+            }
+            const auto package_end = std::chrono::steady_clock::now();
+
+            if (diagnose_screenshot) {
+                std::fprintf(
+                    stderr,
+                    "[screenshot-diag] capture=%llu size=%ux%u source=%.2fMiB png=%.2fMiB "
+                    "crop=%.3fms convert=%.3fms alloc=%.3fms encode=%.3fms package=%.3fms "
+                    "callback_total=%.3fms\n",
+                    static_cast<unsigned long long>(request->capture_id), cropped->width,
+                    cropped->height,
+                    static_cast<double>(cropped->bgra8.size()) / (1024.0 * 1024.0),
+                    static_cast<double>(encoded_size) / (1024.0 * 1024.0),
+                    elapsed_wall_ms(crop_begin, crop_end),
+                    elapsed_wall_ms(convert_begin, convert_end),
+                    elapsed_wall_ms(allocate_begin, allocate_end),
+                    elapsed_wall_ms(encode_begin, encode_end),
+                    elapsed_wall_ms(package_begin, package_end),
+                    elapsed_wall_ms(callback_begin, package_end));
+                std::fflush(stderr);
+            }
             return;
         }
 
@@ -406,7 +496,7 @@ bool Renderer::initialize(const RendererConfig& config)
     init.resolution.height = static_cast<uint32_t>(backbuffer_size.height);
     // Keep swapchain MSAA off. RmlUi resolves its own offscreen MSAA before final presentation,
     // matching the upstream GL3 renderer's normal-backbuffer final pass.
-    init.resolution.reset = (config.vsync ? BGFX_RESET_VSYNC : 0);
+    init.resolution.reset = bgfx_reset_flags(config.vsync);
 
     SDL_Log("[renderer] starting bgfx::init requested=%s window=%p display=%p", requested_renderer,
             config.native_window, config.native_display);
@@ -554,7 +644,44 @@ void Renderer::end_frame()
         m_outstanding_screenshot_capture = m_pending_screenshot_capture;
         m_pending_screenshot_capture.reset();
     }
+
+    const bool diagnose_resize = m_resize_diagnostic_frames_remaining > 0;
+    const unsigned diagnostic_frame =
+        diagnose_resize ? 9u - static_cast<unsigned>(m_resize_diagnostic_frames_remaining) : 0u;
+    if (diagnose_resize) {
+        std::fprintf(stderr, "[resize-diag] bgfx::frame #%u begin\n", diagnostic_frame);
+        std::fflush(stderr);
+    }
+    const auto begin = std::chrono::steady_clock::now();
     bgfx::frame();
+    const auto end = std::chrono::steady_clock::now();
+    if (diagnose_resize) {
+        const double wall_ms =
+            std::chrono::duration<double, std::milli>(end - begin).count();
+        const bgfx::Stats* stats = bgfx::getStats();
+        if (stats) {
+            std::fprintf(
+                stderr,
+                "[resize-diag] bgfx::frame #%u end wall=%.3fms wait_render=%.3fms "
+                "wait_submit=%.3fms backbuffer=%ux%u textures=%u framebuffers=%u "
+                "texture_mem=%.2fMiB rt_mem=%.2fMiB gpu_mem=%.2fMiB/%0.2fMiB\n",
+                diagnostic_frame, wall_ms,
+                timer_ticks_to_ms(stats->waitRender, stats->cpuTimerFreq),
+                timer_ticks_to_ms(stats->waitSubmit, stats->cpuTimerFreq),
+                static_cast<unsigned>(stats->width), static_cast<unsigned>(stats->height),
+                static_cast<unsigned>(stats->numTextures),
+                static_cast<unsigned>(stats->numFrameBuffers),
+                static_cast<double>(stats->textureMemoryUsed) / (1024.0 * 1024.0),
+                static_cast<double>(stats->rtMemoryUsed) / (1024.0 * 1024.0),
+                static_cast<double>(stats->gpuMemoryUsed) / (1024.0 * 1024.0),
+                static_cast<double>(stats->gpuMemoryMax) / (1024.0 * 1024.0));
+        } else {
+            std::fprintf(stderr, "[resize-diag] bgfx::frame #%u end wall=%.3fms stats=unavailable\n",
+                         diagnostic_frame, wall_ms);
+        }
+        std::fflush(stderr);
+        --m_resize_diagnostic_frames_remaining;
+    }
 }
 
 void Renderer::submit_screenshot_request(std::string output_path,
@@ -621,23 +748,54 @@ void Renderer::resize(const PresentationMetrics& presentation)
     }
 
     m_presentation = presentation;
+    if (resize_diagnostics_enabled()) {
+        m_resize_diagnostic_frames_remaining = 8;
+        std::fprintf(stderr,
+                     "[resize-diag] renderer resize queued host=%dx%d ui=%dx%d world=%dx%d "
+                     "previous_backbuffer=%dx%d\n",
+                     m_presentation.host.framebuffer_size.width,
+                     m_presentation.host.framebuffer_size.height, m_presentation.ui_raster.size.width,
+                     m_presentation.ui_raster.size.height, m_presentation.world_raster.size.width,
+                     m_presentation.world_raster.size.height, m_backbuffer_size.width,
+                     m_backbuffer_size.height);
+        std::fflush(stderr);
+    }
     destroy_world_transition_surfaces();
     destroy_postprocess_surface();
     const HostSurfaceMetrics& host = m_presentation.host;
     const IntegerSize next_backbuffer_size =
         resolve_backbuffer_size(m_backbuffer_size, host.framebuffer_size);
     if (next_backbuffer_size != m_backbuffer_size) {
-        bgfx::reset(static_cast<uint32_t>(next_backbuffer_size.width),
-                    static_cast<uint32_t>(next_backbuffer_size.height),
-                    (m_vsync ? BGFX_RESET_VSYNC : 0));
-        m_backbuffer_size = next_backbuffer_size;
+        if (resize_diagnostics_enabled() &&
+            env_flag_enabled("NOVELTEA_RESIZE_DIAGNOSTIC_SKIP_BGFX_RESET")) {
+            std::fprintf(stderr,
+                         "[resize-diag] skipping bgfx::reset requested=%dx%d retained=%dx%d\n",
+                         next_backbuffer_size.width, next_backbuffer_size.height,
+                         m_backbuffer_size.width, m_backbuffer_size.height);
+            std::fflush(stderr);
+        } else {
+            bgfx::reset(static_cast<uint32_t>(next_backbuffer_size.width),
+                        static_cast<uint32_t>(next_backbuffer_size.height),
+                        bgfx_reset_flags(m_vsync));
+            m_backbuffer_size = next_backbuffer_size;
+        }
     }
     bgfx::setViewRect(ViewPresentationClear, 0, 0,
                       static_cast<uint16_t>(host.framebuffer_size.width),
                       static_cast<uint16_t>(host.framebuffer_size.height));
-    if (!prepare_ordinary_world_surface())
+    if (resize_diagnostics_enabled() &&
+        env_flag_enabled("NOVELTEA_RESIZE_DIAGNOSTIC_KEEP_WORLD_SURFACE")) {
+        std::fprintf(stderr,
+                     "[resize-diag] retaining world surface %ux%u while presentation requests %dx%d\n",
+                     static_cast<unsigned>(m_world_color_width),
+                     static_cast<unsigned>(m_world_color_height), m_presentation.world_raster.size.width,
+                     m_presentation.world_raster.size.height);
+        std::fflush(stderr);
+        configure_ordinary_world_surface();
+    } else if (!prepare_ordinary_world_surface()) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "[renderer] failed to resize ordinary world color target");
+    }
     SDL_Log("[renderer] resized %s backbuffer=%dx%d",
             format_presentation_metrics(m_presentation).c_str(), m_backbuffer_size.width,
             m_backbuffer_size.height);
