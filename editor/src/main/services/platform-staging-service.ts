@@ -15,11 +15,7 @@ import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import * as ResEdit from 'resedit';
 import { generateAppIcons } from './icon-generation-service';
-import {
-  createTarGzArchive,
-  createZipArchive,
-  type PlatformArchiveEntry,
-} from './platform-archive-service';
+import type { PlatformArchiveEntry } from './platform-archive-service';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
 import {
   PLATFORM_EXPORT_MANIFEST_FORMAT,
@@ -38,6 +34,7 @@ import {
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { templateRootForToken, verifyTemplateToken } from './template-registry-service';
 import {
+  createPlatformArchive,
   platformAvailableDiskSpace,
   platformFileMode,
   runPlatformProcess,
@@ -1398,9 +1395,12 @@ export async function stagePlatformExport(
         mode: 0o644,
       });
       await rm(symbolArchiveTemp, { force: true });
-      if (request.profile.target === 'linux')
-        await createTarGzArchive(symbolArchiveTemp, symbolEntries, request.profile.compression);
-      else await createZipArchive(symbolArchiveTemp, symbolEntries, request.profile.compression);
+      await createPlatformArchive({
+        outputPath: symbolArchiveTemp,
+        format: request.profile.target === 'linux' ? 'tar.gz' : 'zip',
+        compression: request.profile.compression,
+        entries: symbolEntries,
+      });
       await rm(symbolStage, { recursive: true, force: true });
       checkPlatformExportCancelled(request.operationId);
     }
@@ -1486,9 +1486,15 @@ export async function stagePlatformExport(
         size: manifestData.length,
         mode: 0o644,
       });
-      if (request.profile.target === 'linux' && request.profile.desktop.artifact !== 'zip')
-        await createTarGzArchive(archiveTemp, archiveEntries, request.profile.compression);
-      else await createZipArchive(archiveTemp, archiveEntries, request.profile.compression);
+      await createPlatformArchive({
+        outputPath: archiveTemp,
+        format:
+          request.profile.target === 'linux' && request.profile.desktop.artifact !== 'zip'
+            ? 'tar.gz'
+            : 'zip',
+        compression: request.profile.compression,
+        entries: archiveEntries,
+      });
       checkPlatformExportCancelled(request.operationId);
     }
     if (macos && dmgTemp && request.macosDmg) {

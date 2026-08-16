@@ -70,6 +70,9 @@ function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
     async resizeImageToPng(request) {
       call('image-resize-png', request);
     },
+    async createArchive(request) {
+      call('create-archive', request);
+    },
     async fileMode(path, fallback) {
       return call('file-mode', { path, fallback });
     },
