@@ -14,7 +14,8 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Rooms, placements, props, room interactables, and background hotspots: `.noveltea/agent/docs/ROOMS.md`
 - Verbs, operand arity, interactions, and hotspot activation: `.noveltea/agent/docs/INTERACTIONS.md`
 - Assets, shaders, and materials: `.noveltea/agent/docs/ASSETS_SHADERS.md`
-- Layouts/RML/RCSS: `.noveltea/agent/docs/LAYOUTS.md`
+- RML/RCSS authoring and RmlUi differences from browser HTML/CSS: `.noveltea/agent/docs/RMLUI.md`
+- Layout source modes, document/fragment kind, dependencies, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
 - Lua: `.noveltea/agent/docs/LUA.md`
 - Authored tests: `.noveltea/agent/docs/TESTS.md`
 

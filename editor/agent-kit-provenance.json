@@ -15,6 +15,10 @@
       "repository": "https://github.com/Cruel/RmlUi.git",
       "revision": "c6744d15bda5e9df7ad9c1f8eae937157e7ed309",
       "version": "6.3-dev"
+    },
+    "rmlui-docs": {
+      "kind": "web",
+      "url": "https://mikke89.github.io/RmlUiDoc/"
     }
   },
   "documents": {
@@ -110,6 +114,48 @@
         {
           "source": "rmlui",
           "areas": ["Documentation/", "Include/RmlUi/Core/"]
+        }
+      ]
+    },
+    "docs/RMLUI.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Use the pinned NovelTea RmlUi source as the compatibility authority and upstream RmlUi documentation for concise semantics; include only browser-assumption differences and NovelTea resource rules that affect authored RML/RCSS.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaRmlUi.cmake",
+            "cmake/patches/rmlui-feature-calc-noveltea-presentation.patch",
+            "docs/engine/LAYOUT.md",
+            "docs/ui/RMLUI_RUNTIME_UI.md",
+            "editor/src/shared/project-schema/authoring-layouts.ts"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": [
+            "readme.md",
+            "Source/Core/CalculationParser.cpp",
+            "Source/Core/StyleSheetSpecification.cpp",
+            "Source/Core/StyleSheetParser.cpp",
+            "Source/Core/StyleSheetNode.cpp"
+          ]
+        },
+        {
+          "source": "rmlui-docs",
+          "areas": [
+            "pages/rml.html",
+            "pages/rml/documents.html",
+            "pages/rml/templates.html",
+            "pages/rcss.html",
+            "pages/rcss/selectors.html",
+            "pages/rcss/flexboxes.html",
+            "pages/rcss/animations_transitions_transforms.html",
+            "pages/rcss/custom_properties.html",
+            "pages/rcss/media_queries.html",
+            "pages/rcss/decorators.html",
+            "pages/rcss/sprite_sheets.html"
+          ]
         }
       ]
     },

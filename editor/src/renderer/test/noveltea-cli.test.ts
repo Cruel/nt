@@ -762,6 +762,7 @@ describe('NovelTea headless CLI', () => {
         'docs/AUTHORING.md',
         'docs/INTERACTIONS.md',
         'docs/ROOMS.md',
+        'docs/RMLUI.md',
         'schemas/project.schema.json',
         'schemas/properties.schema.json',
         'schemas/localization.schema.json',
@@ -799,11 +800,22 @@ describe('NovelTea headless CLI', () => {
         url: 'https://www.lua.org/manual/5.5/manual.html',
         version: '5.5',
       },
+      'rmlui-docs': {
+        kind: 'web',
+        url: 'https://mikke89.github.io/RmlUiDoc/',
+      },
     });
     expect(manifest.provenance.documents['docs/LAYOUTS.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
         expect.objectContaining({ source: 'rmlui' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/RMLUI.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'rmlui-docs' }),
       ]),
     );
     expect(manifest.provenance.documents['docs/LUA.md'].sources).toEqual(
@@ -817,6 +829,7 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['agent-kit-provenance.json']).toBeUndefined();
     expect(first.files['skill/SKILL.md']).toBeUndefined();
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI.md');
     expect(first.files['GUIDE.md']).toContain(
       'do not begin ordinary authoring work by reverse-engineering the schemas',
     );
@@ -829,6 +842,13 @@ describe('NovelTea headless CLI', () => {
     );
     expect(first.files['docs/INTERACTIONS.md']).toContain('Room hotspot');
     expect(first.files['docs/INTERACTIONS.md']).toContain('arity-`1` Verb');
+    expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI.md');
+    expect(first.files['docs/RMLUI.md']).toContain('RML is XML, not browser HTML');
+    expect(first.files['docs/RMLUI.md']).toContain(
+      "RmlUi's `:hover`, `:active`, `:focus`, and `:focus-visible` state propagates backward",
+    );
+    expect(first.files['docs/RMLUI.md']).toContain('`calc()`, `min()`, `max()`, and `clamp()`');
+    expect(first.files['docs/RMLUI.md']).toContain('base-RCSS/default-style');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
     const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);
