@@ -19,7 +19,7 @@ The installed CLI exports the exact baseline source together with its other inte
 .noveltea/agent/system-layouts/ui/baseline/noveltea.rcss
 ```
 
-`.noveltea/agent/system-layouts/manifest.json` records their cascade order and scope. Inspect those generated files when an inherited/default style matters, but never edit or copy them wholesale merely to reproduce the runtime defaults.
+Inspect those generated baseline files when an inherited/default style matters, but never edit or copy them wholesale merely to reproduce the runtime defaults.
 
 ## System Layout overrides
 
@@ -41,14 +41,25 @@ Leaving `title`, `game-hud`, `pause-menu`, `save-menu`, `load-menu`, `settings-m
 
 A system Layout override is a behavioral replacement, not just a visual skin. Preserve or deliberately replace the built-in data-model bindings, callbacks, custom elements, focus behavior, and RmlUi Lua needed by that role.
 
-Before authoring an override, inspect the exact built-in source exported by the installed CLI:
+Before authoring an override, inspect the exact built-in source exported by the installed CLI for that role:
 
 ```text
-.noveltea/agent/system-layouts/manifest.json
-.noveltea/agent/system-layouts/ui/
+title          -> .noveltea/agent/system-layouts/ui/title/default-title.rml
+                   .noveltea/agent/system-layouts/ui/title/default-title.rcss
+game-hud       -> .noveltea/agent/system-layouts/ui/runtime/runtime_game.rml
+                   .noveltea/agent/system-layouts/ui/runtime/runtime_game.rcss
+pause-menu     -> .noveltea/agent/system-layouts/ui/menu/pause-menu.rml
+                   .noveltea/agent/system-layouts/ui/menu/pause-menu.rcss
+save-menu      -> .noveltea/agent/system-layouts/ui/menu/save-menu.rml
+load-menu      -> .noveltea/agent/system-layouts/ui/menu/load-menu.rml
+settings-menu  -> .noveltea/agent/system-layouts/ui/menu/settings-menu.rml
+text-log       -> .noveltea/agent/system-layouts/ui/menu/text-log.rml
+modal          -> .noveltea/agent/system-layouts/ui/menu/modal.rml
 ```
 
-`manifest.json` maps each role to its built-in document, authored `system|/` URL, and supporting RCSS files. The `ui/` tree is copied byte-for-byte from the engine's shipped system UI assets during agent-kit generation. It is reference material under generated `.noveltea/` state, not project source: never edit it in place.
+The save/load/settings/text-log/modal documents share `.noveltea/agent/system-layouts/ui/menu/system-menu.rcss`. `debug-overlay` has no built-in source because it has no built-in fallback.
+
+The generated `ui/` tree is copied byte-for-byte from the engine's shipped system UI assets. It is reference material under generated `.noveltea/` state, not project source: never edit it in place.
 
 When customizing a built-in, create or edit a tracked project Layout and assign that Layout to the role. Copy any RML/RCSS you want the project to own into tracked project source and update its URLs/dependencies accordingly. Keeping a documented `system|/...` reference means that resource remains engine-owned and can change when the installed NovelTea version changes.
 

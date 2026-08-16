@@ -965,7 +965,8 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_DATA_BINDING.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/system-layouts/manifest.json');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/system-layouts/ui/');
+    expect(first.files['GUIDE.md']).not.toContain('.noveltea/agent/system-layouts/manifest.json');
     expect(first.files['GUIDE.md']).toContain(
       'NovelTea Lua sandbox, APIs, capabilities, and yielding rules',
     );
@@ -984,6 +985,12 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI.md');
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
     expect(first.files['docs/LAYOUTS.md']).toContain(
+      '.noveltea/agent/system-layouts/ui/title/default-title.rml',
+    );
+    expect(first.files['docs/LAYOUTS.md']).toContain(
+      '.noveltea/agent/system-layouts/ui/baseline/rmlui-html4.rcss',
+    );
+    expect(first.files['docs/LAYOUTS.md']).not.toContain(
       '.noveltea/agent/system-layouts/manifest.json',
     );
     expect(first.files['docs/LAYOUTS.md']).toContain('`debug-overlay` has no built-in fallback');
