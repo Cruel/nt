@@ -15,6 +15,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Verbs, operand arity, interactions, and hotspot activation: `.noveltea/agent/docs/INTERACTIONS.md`
 - Assets, shaders, and materials: `.noveltea/agent/docs/ASSETS_SHADERS.md`
 - RML/RCSS authoring and RmlUi differences from browser HTML/CSS: `.noveltea/agent/docs/RMLUI.md`
+- Exact RCSS property/value/shorthand/unit support: `.noveltea/agent/docs/RCSS_REFERENCE.md`
 - Layout source modes, document/fragment kind, dependencies, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
 - Lua: `.noveltea/agent/docs/LUA.md`
 - Authored tests: `.noveltea/agent/docs/TESTS.md`

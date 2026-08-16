@@ -68,7 +68,7 @@ RCSS `@media` supports the RmlUi media features `width`, `height`, `aspect-ratio
 
 Do not use unsupported browser media-query syntax: nested media rules, nested condition parentheses, `or`, general CSS Level 4 comparison syntax such as `width >= ...`, or arbitrary browser/device features.
 
-NovelTea supplies the logical dimensions and scale environment used by RmlUi. `px`, `dp`, `em`, `rem`, `ex`, `vw`, `vh`, and physical length units are available, while RCSS resolution uses the `x` unit (for example `2x`). Do not infer browser `devicePixelRatio`, physical monitor size, or CSS viewport behavior from the native window. Author responsive UI against the RmlUi logical context presented by NovelTea.
+NovelTea supplies the logical dimensions and scale environment used by RmlUi. The pinned numeric parser accepts `px`, `dp`, `em`, `rem`, `vw`, `vh`, `in`, `cm`, `mm`, `pt`, and `pc` length units; `ex` is not accepted. RCSS resolution uses the `x` unit (for example `2x`). Do not infer browser `devicePixelRatio`, physical monitor size, or CSS viewport behavior from the native window. Author responsive UI against the RmlUi logical context presented by NovelTea.
 
 ## Animations and transitions
 
@@ -110,6 +110,6 @@ A path in RML or RCSS is not enough to make a resource available. Project images
 
 ## Before treating browser intuition as authoritative
 
-When a familiar CSS or HTML technique is not covered here, prefer an existing NovelTea Layout pattern or the exact generated compatibility references over guessing. In particular, verify property/value support before introducing modern CSS, unusual form behavior, a new pseudo selector, a browser-only element semantic, or an undocumented `nt-*` tag.
+When a familiar CSS or HTML technique is not covered here, prefer an existing NovelTea Layout pattern or `.noveltea/agent/docs/RCSS_REFERENCE.md` over guessing. Use that exact compatibility reference before introducing a new RCSS property, value, shorthand, unit, transform/filter/decorator function, or modern CSS feature. For unusual RML/form behavior or undocumented `nt-*` tags, prefer existing NovelTea patterns rather than browser intuition.
 
 The separate engine-wide base-RCSS/default-style behavior is outside this guide. Do not compensate for that issue by baking assumptions about implicit base styles into authored Layouts.

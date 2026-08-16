@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import { createNovelTeaAgentKitPayload } from '../../cli/agent-kit';
@@ -763,6 +764,7 @@ describe('NovelTea headless CLI', () => {
         'docs/INTERACTIONS.md',
         'docs/ROOMS.md',
         'docs/RMLUI.md',
+        'docs/RCSS_REFERENCE.md',
         'schemas/project.schema.json',
         'schemas/properties.schema.json',
         'schemas/localization.schema.json',
@@ -818,6 +820,13 @@ describe('NovelTea headless CLI', () => {
         expect.objectContaining({ source: 'rmlui-docs' }),
       ]),
     );
+    expect(manifest.provenance.documents['docs/RCSS_REFERENCE.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'rmlui-docs' }),
+      ]),
+    );
     expect(manifest.provenance.documents['docs/LUA.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
@@ -830,6 +839,7 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['skill/SKILL.md']).toBeUndefined();
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
     expect(first.files['GUIDE.md']).toContain(
       'do not begin ordinary authoring work by reverse-engineering the schemas',
     );
@@ -849,12 +859,43 @@ describe('NovelTea headless CLI', () => {
     );
     expect(first.files['docs/RMLUI.md']).toContain('`calc()`, `min()`, `max()`, and `clamp()`');
     expect(first.files['docs/RMLUI.md']).toContain('base-RCSS/default-style');
+    expect(first.files['docs/RMLUI.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
+    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in properties: 99');
+    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in shorthands: 20');
+    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('`ex` is not registered');
+    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('There is no `border-style` property');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
     const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);
     expect(scriptSchema.properties.data.properties.source.oneOf[0].properties.path.pattern).toBe(
       '^scripts\\/(?:[^/]+\\/)*[^/]+\\.lua$',
     );
+  });
+
+  it('certifies the RCSS reference against the pinned NovelTea RmlUi profile', () => {
+    const cmake = readFileSync('../cmake/NovelTeaRmlUi.cmake', 'utf8');
+    const readCmakeString = (name: string) => {
+      const match = cmake.match(new RegExp(`set\\(${name} "([^"]+)"\\)`));
+      expect(match, `Missing ${name} in NovelTeaRmlUi.cmake`).not.toBeNull();
+      return match![1];
+    };
+
+    const rmluiVersion = readCmakeString('NOVELTEA_RMLUI_VERSION');
+    const rmluiCommit = readCmakeString('NOVELTEA_RMLUI_GIT_COMMIT');
+    const patchRevision = readCmakeString('NOVELTEA_RMLUI_PATCH_REVISION');
+    expect(cmake).toContain('set(RMLUI_MATH_EXPRESSIONS ON CACHE BOOL "" FORCE)');
+
+    const payload = createNovelTeaAgentKitPayload();
+    const manifest = JSON.parse(payload.manifestText);
+    expect(manifest.provenance.sources.rmlui).toMatchObject({
+      version: rmluiVersion,
+      revision: rmluiCommit,
+    });
+    const reference = payload.files['docs/RCSS_REFERENCE.md']!;
+    expect(reference).toContain(`RmlUi version label: \`${rmluiVersion}\``);
+    expect(reference).toContain(`pinned RmlUi commit: \`${rmluiCommit}\``);
+    expect(reference).toContain(`NovelTea RmlUi patch revision: \`${patchRevision}\``);
+    expect(reference).toContain('`RMLUI_MATH_EXPRESSIONS`: enabled');
   });
 
   it('rejects incomplete or dangling curated agent-kit provenance', () => {

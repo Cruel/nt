@@ -42,6 +42,7 @@ const agentKitSourcePaths = [
   'docs/ROOMS.md',
   'docs/LAYOUTS.md',
   'docs/RMLUI.md',
+  'docs/RCSS_REFERENCE.md',
   'docs/LUA.md',
   'docs/TESTS.md',
 ];

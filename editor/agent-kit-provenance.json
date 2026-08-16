@@ -159,6 +159,42 @@
         }
       ]
     },
+    "docs/RCSS_REFERENCE.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Reconcile the complete built-in RCSS property, shorthand, unit, function, inheritance, and extension surface against NovelTea's exact pinned patched RmlUi source; use upstream docs only to clarify semantics and explicitly preserve source/profile identifiers for drift certification.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaRmlUi.cmake",
+            "cmake/patches/rmlui-feature-calc-noveltea-presentation.patch"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": [
+            "Source/Core/StyleSheetSpecification.cpp",
+            "Source/Core/PropertySpecification.cpp",
+            "Source/Core/PropertyParserNumber.cpp",
+            "Source/Core/PropertyParserColour.cpp",
+            "Source/Core/PropertyParserTransform.cpp",
+            "Source/Core/Factory.cpp",
+            "Source/Core/CalculationParser.cpp"
+          ]
+        },
+        {
+          "source": "rmlui-docs",
+          "areas": [
+            "pages/rcss/property_index.html",
+            "pages/rcss/decorators.html",
+            "pages/rcss/filters.html",
+            "pages/rcss/animations_transitions_transforms.html",
+            "pages/rcss/custom_properties.html",
+            "pages/rcss/media_queries.html"
+          ]
+        }
+      ]
+    },
     "docs/LUA.md": {
       "reviewed": "2026-08-16",
       "strategy": "Use the Lua 5.5 language manual for language semantics and NovelTea runtime bindings as the authority for the sandbox and public game API.",
