@@ -8,6 +8,7 @@ import { configurePlatformHostService } from '../src/main/services/platform-host
 import {
   scriptcAgentKitProvenance,
   scriptcAgentKitSourceFiles,
+  scriptcAgentKitSystemLayoutSourceFiles,
 } from './noveltea-scriptc-agent-kit-source';
 import {
   createNodeProjectWorkspaceFileSystem,
@@ -170,6 +171,7 @@ export async function runNovelTeaScriptcIsland(
           agentKitPayload: createNovelTeaAgentKitPayload(
             scriptcAgentKitSourceFiles,
             scriptcAgentKitProvenance,
+            scriptcAgentKitSystemLayoutSourceFiles,
           ),
         }
       : {}),

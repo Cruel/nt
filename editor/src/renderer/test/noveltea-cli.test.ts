@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import { createNovelTeaAgentKitPayload } from '../../cli/agent-kit';
-import { loadAgentKitSourceFiles } from '../../cli/agent-kit/source';
+import {
+  loadAgentKitSourceFiles,
+  loadAgentKitSystemLayoutSourceFiles,
+} from '../../cli/agent-kit/source';
 import { syncNovelTeaAgentKit } from '../../cli/agent-sync';
 import {
   NOVELTEA_CLI_HELP,
@@ -775,6 +778,10 @@ describe('NovelTea headless CLI', () => {
         'schemas/records/layouts.schema.json',
         'schemas/records/scripts.schema.json',
         'schemas/records/tests.schema.json',
+        'system-layouts/manifest.json',
+        'system-layouts/ui/title/default-title.rml',
+        'system-layouts/ui/runtime/runtime_game.rml',
+        'system-layouts/ui/menu/system-menu.rcss',
       ]),
     );
     const manifest = JSON.parse(first.manifestText);
@@ -858,6 +865,69 @@ describe('NovelTea headless CLI', () => {
     );
     for (const [relativePath, text] of Object.entries(authoredSourceFiles))
       expect(first.files[relativePath]).toBe(text);
+    const systemLayoutSourceFiles = loadAgentKitSystemLayoutSourceFiles();
+    for (const [relativePath, text] of Object.entries(systemLayoutSourceFiles))
+      expect(first.files[`system-layouts/${relativePath}`]).toBe(text);
+    expect(JSON.parse(first.files['system-layouts/manifest.json']!)).toEqual({
+      schema: 'noveltea.agent-kit.system-layouts',
+      schemaVersion: 1,
+      roles: {
+        title: {
+          builtinFallback: true,
+          document: 'ui/title/default-title.rml',
+          authoringUrl: 'system|/ui/title/default-title.rml',
+          supportingFiles: ['ui/title/default-title.rcss'],
+        },
+        'game-hud': {
+          builtinFallback: true,
+          document: 'ui/runtime/runtime_game.rml',
+          authoringUrl: 'system|/ui/runtime/runtime_game.rml',
+          supportingFiles: ['ui/runtime/runtime_game.rcss'],
+        },
+        'pause-menu': {
+          builtinFallback: true,
+          document: 'ui/menu/pause-menu.rml',
+          authoringUrl: 'system|/ui/menu/pause-menu.rml',
+          supportingFiles: ['ui/menu/pause-menu.rcss'],
+        },
+        'save-menu': {
+          builtinFallback: true,
+          document: 'ui/menu/save-menu.rml',
+          authoringUrl: 'system|/ui/menu/save-menu.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        'load-menu': {
+          builtinFallback: true,
+          document: 'ui/menu/load-menu.rml',
+          authoringUrl: 'system|/ui/menu/load-menu.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        'settings-menu': {
+          builtinFallback: true,
+          document: 'ui/menu/settings-menu.rml',
+          authoringUrl: 'system|/ui/menu/settings-menu.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        'text-log': {
+          builtinFallback: true,
+          document: 'ui/menu/text-log.rml',
+          authoringUrl: 'system|/ui/menu/text-log.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        modal: {
+          builtinFallback: true,
+          document: 'ui/menu/modal.rml',
+          authoringUrl: 'system|/ui/menu/modal.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        'debug-overlay': {
+          builtinFallback: false,
+          document: null,
+          authoringUrl: null,
+          supportingFiles: [],
+        },
+      },
+    });
     expect(first.files['agent-kit-provenance.json']).toBeUndefined();
     expect(first.files['skill/SKILL.md']).toBeUndefined();
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
@@ -866,6 +936,7 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_DATA_BINDING.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/system-layouts/manifest.json');
     expect(first.files['GUIDE.md']).toContain(
       'NovelTea Lua sandbox, APIs, capabilities, and yielding rules',
     );
@@ -883,6 +954,10 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/INTERACTIONS.md']).toContain('arity-`1` Verb');
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI.md');
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
+    expect(first.files['docs/LAYOUTS.md']).toContain(
+      '.noveltea/agent/system-layouts/manifest.json',
+    );
+    expect(first.files['docs/LAYOUTS.md']).toContain('`debug-overlay` has no built-in fallback');
     expect(first.files['docs/RMLUI.md']).toContain('RML is XML, not browser HTML');
     expect(first.files['docs/RMLUI.md']).toContain(
       "RmlUi's `:hover`, `:active`, `:focus`, and `:focus-visible` state propagates backward",
@@ -926,6 +1001,63 @@ describe('NovelTea headless CLI', () => {
     expect(scriptSchema.properties.data.properties.source.oneOf[0].properties.path.pattern).toBe(
       '^scripts\\/(?:[^/]+\\/)*[^/]+\\.lua$',
     );
+  });
+
+  it('certifies generated system Layout references against the runtime fallback source', () => {
+    const engine = readFileSync('../engine/src/engine.cpp', 'utf8');
+    const documentRegistry = readFileSync(
+      '../engine/src/ui/rmlui/rmlui_document_registry.cpp',
+      'utf8',
+    );
+    const layoutRealizer = readFileSync('../engine/src/host/layout_realizer.cpp', 'utf8');
+    const runtimeSources = `${documentRegistry}\n${layoutRealizer}`;
+
+    const payload = createNovelTeaAgentKitPayload();
+    const reference = JSON.parse(payload.files['system-layouts/manifest.json']!);
+    const expectedFallbacks = [
+      ['Title', 'title'],
+      ['GameHud', 'game-hud'],
+      ['PauseMenu', 'pause-menu'],
+      ['SaveMenu', 'save-menu'],
+      ['LoadMenu', 'load-menu'],
+      ['SettingsMenu', 'settings-menu'],
+      ['TextLog', 'text-log'],
+      ['Modal', 'modal'],
+    ] as const;
+    for (const [enumName, role] of expectedFallbacks) {
+      expect(engine).toMatch(
+        new RegExp(
+          `case core::compiled::SystemLayoutRole::${enumName}:\\s*return RuntimeLayoutBuiltinDocument::${enumName};`,
+        ),
+      );
+      expect(reference.roles[role].builtinFallback).toBe(true);
+      const runtimeUrl = reference.roles[role].authoringUrl.replace('system|/', 'system:/');
+      expect(runtimeSources).toContain(`"${runtimeUrl}"`);
+    }
+    expect(engine).toMatch(
+      /case core::compiled::SystemLayoutRole::DebugOverlay:\s*return std::nullopt;/,
+    );
+    expect(reference.roles['debug-overlay']).toEqual({
+      builtinFallback: false,
+      document: null,
+      authoringUrl: null,
+      supportingFiles: [],
+    });
+
+    expect(Object.keys(loadAgentKitSystemLayoutSourceFiles())).toEqual([
+      'ui/menu/load-menu.rml',
+      'ui/menu/modal.rml',
+      'ui/menu/pause-menu.rcss',
+      'ui/menu/pause-menu.rml',
+      'ui/menu/save-menu.rml',
+      'ui/menu/settings-menu.rml',
+      'ui/menu/system-menu.rcss',
+      'ui/menu/text-log.rml',
+      'ui/runtime/runtime_game.rcss',
+      'ui/runtime/runtime_game.rml',
+      'ui/title/default-title.rcss',
+      'ui/title/default-title.rml',
+    ]);
   });
 
   it('certifies the RCSS reference against the pinned NovelTea RmlUi profile', () => {
@@ -1291,6 +1423,20 @@ describe('NovelTea headless CLI', () => {
     const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
     expect(JSON.parse(manifestBefore).provenance.documents['docs/LAYOUTS.md']).toMatchObject({
       reviewed: '2026-08-16',
+    });
+    const systemLayoutSources = loadAgentKitSystemLayoutSourceFiles();
+    expect(
+      await value.fileSystem.readText(
+        `${root}/.noveltea/agent/system-layouts/ui/runtime/runtime_game.rml`,
+      ),
+    ).toBe(systemLayoutSources['ui/runtime/runtime_game.rml']);
+    expect(
+      JSON.parse(
+        await value.fileSystem.readText(`${root}/.noveltea/agent/system-layouts/manifest.json`),
+      ).roles['game-hud'],
+    ).toMatchObject({
+      builtinFallback: true,
+      authoringUrl: 'system|/ui/runtime/runtime_game.rml',
     });
     expect(
       await value.fileSystem.inspect(`${root}/.noveltea/agent/agent-kit-provenance.json`),

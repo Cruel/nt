@@ -5,7 +5,11 @@ import { authoringLocalizationSchema } from '../shared/project-schema/authoring-
 import { entityIdSchema } from '../shared/project-schema/authoring-common';
 import { propertyDefinitionSchema } from '../shared/project-schema/authoring-properties';
 import { authoringRecordSchemas } from '../shared/project-schema/authoring-records';
-import { layoutAssetRefSchema } from '../shared/project-schema/authoring-layouts';
+import {
+  layoutAssetRefSchema,
+  systemLayoutRoleValues,
+  type SystemLayoutRole,
+} from '../shared/project-schema/authoring-layouts';
 import { assetRefSchema } from '../shared/project-schema/authoring-flow';
 import {
   editorChaptersStateSchema,
@@ -17,7 +21,11 @@ import {
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from '../shared/project-workspace/project-workspace-contracts';
 import { NOVELTEA_CLI_VERSION } from './contracts';
-import { loadAgentKitProvenance, loadAgentKitSourceFiles } from './agent-kit/source';
+import {
+  loadAgentKitProvenance,
+  loadAgentKitSourceFiles,
+  loadAgentKitSystemLayoutSourceFiles,
+} from './agent-kit/source';
 
 export const NOVELTEA_AGENT_KIT_SCHEMA = 'noveltea.agent-kit.manifest' as const;
 export const NOVELTEA_AGENT_KIT_SCHEMA_VERSION = 2 as const;
@@ -111,6 +119,50 @@ const persistedScriptRecordSchema = authoringRecordSchemas.scripts.extend({
   }),
 });
 
+const systemLayoutReferenceByRole: Readonly<
+  Record<
+    SystemLayoutRole,
+    {
+      readonly document: string | null;
+      readonly supportingFiles: readonly string[];
+    }
+  >
+> = {
+  title: {
+    document: 'ui/title/default-title.rml',
+    supportingFiles: ['ui/title/default-title.rcss'],
+  },
+  'game-hud': {
+    document: 'ui/runtime/runtime_game.rml',
+    supportingFiles: ['ui/runtime/runtime_game.rcss'],
+  },
+  'pause-menu': {
+    document: 'ui/menu/pause-menu.rml',
+    supportingFiles: ['ui/menu/pause-menu.rcss'],
+  },
+  'save-menu': {
+    document: 'ui/menu/save-menu.rml',
+    supportingFiles: ['ui/menu/system-menu.rcss'],
+  },
+  'load-menu': {
+    document: 'ui/menu/load-menu.rml',
+    supportingFiles: ['ui/menu/system-menu.rcss'],
+  },
+  'settings-menu': {
+    document: 'ui/menu/settings-menu.rml',
+    supportingFiles: ['ui/menu/system-menu.rcss'],
+  },
+  'text-log': {
+    document: 'ui/menu/text-log.rml',
+    supportingFiles: ['ui/menu/system-menu.rcss'],
+  },
+  modal: {
+    document: 'ui/menu/modal.rml',
+    supportingFiles: ['ui/menu/system-menu.rcss'],
+  },
+  'debug-overlay': { document: null, supportingFiles: [] },
+};
+
 const schemaSources = {
   'project.schema.json': workspaceManifestSchema,
   'properties.schema.json': z.record(entityIdSchema, propertyDefinitionSchema),
@@ -147,12 +199,45 @@ function canonicalizeJson(value: unknown): unknown {
   );
 }
 
+function jsonText(value: unknown): string {
+  return `${JSON.stringify(canonicalizeJson(value), null, 2)}\n`;
+}
+
 function schemaText(schema: z.ZodType): string {
-  return `${JSON.stringify(
-    canonicalizeJson(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' })),
-    null,
-    2,
-  )}\n`;
+  return jsonText(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }));
+}
+
+function systemLayoutManifestText(
+  systemLayoutSourceFiles: Readonly<Record<string, string>>,
+): string {
+  for (const role of systemLayoutRoleValues) {
+    const reference = systemLayoutReferenceByRole[role];
+    for (const relativePath of [reference.document, ...reference.supportingFiles]) {
+      if (relativePath !== null && !Object.hasOwn(systemLayoutSourceFiles, relativePath))
+        throw new Error(
+          `Built-in system Layout reference for '${role}' requires missing source '${relativePath}'.`,
+        );
+    }
+  }
+
+  return jsonText({
+    schema: 'noveltea.agent-kit.system-layouts',
+    schemaVersion: 1,
+    roles: Object.fromEntries(
+      systemLayoutRoleValues.map((role) => {
+        const reference = systemLayoutReferenceByRole[role];
+        return [
+          role,
+          {
+            builtinFallback: reference.document !== null,
+            document: reference.document,
+            authoringUrl: reference.document === null ? null : `system|/${reference.document}`,
+            supportingFiles: reference.supportingFiles,
+          },
+        ];
+      }),
+    ),
+  });
 }
 
 export interface NovelTeaAgentKitPayload {
@@ -190,10 +275,14 @@ function normalizeAgentKitProvenance(
 export function createNovelTeaAgentKitPayload(
   sourceFiles: Readonly<Record<string, string>> = loadAgentKitSourceFiles(),
   provenanceSource: unknown = loadAgentKitProvenance(),
+  systemLayoutSourceFiles: Readonly<Record<string, string>> = loadAgentKitSystemLayoutSourceFiles(),
 ): NovelTeaAgentKitPayload {
   const files: Record<string, string> = { ...sourceFiles };
   for (const [relativePath, schema] of Object.entries(schemaSources))
     files[`schemas/${relativePath}`] = schemaText(schema);
+  for (const [relativePath, text] of Object.entries(systemLayoutSourceFiles))
+    files[`system-layouts/${relativePath}`] = text;
+  files['system-layouts/manifest.json'] = systemLayoutManifestText(systemLayoutSourceFiles);
 
   const sortedFiles = Object.fromEntries(
     Object.entries(files).sort(([left], [right]) => compareCodePoints(left, right)),

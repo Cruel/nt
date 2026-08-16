@@ -101,14 +101,16 @@
     },
     "docs/LAYOUTS.md": {
       "reviewed": "2026-08-16",
-      "strategy": "Treat NovelTea's pinned RmlUi build and Layout persistence contract as authoritative; use RmlUi source semantics only where they affect authored RML/RCSS/Lua.",
+      "strategy": "Treat NovelTea's pinned RmlUi build, Layout persistence contract, system-role fallback contract, and exact shipped built-in UI source as authoritative; use RmlUi source semantics only where they affect authored RML/RCSS/Lua.",
       "sources": [
         {
           "source": "noveltea",
           "areas": [
             "cmake/NovelTeaRmlUi.cmake",
+            "docs/engine/LAYOUT.md",
             "docs/ui/OVERVIEW.md",
-            "editor/src/shared/project-schema/authoring-layouts.ts"
+            "editor/src/shared/project-schema/authoring-layouts.ts",
+            "engine/assets/system/ui/"
           ]
         },
         {

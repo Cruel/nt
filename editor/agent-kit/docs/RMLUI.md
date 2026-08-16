@@ -110,6 +110,6 @@ A path in RML or RCSS is not enough to make a resource available. Project images
 
 ## Before treating browser intuition as authoritative
 
-When a familiar CSS or HTML technique is not covered here, prefer the focused generated references over guessing. Use `.noveltea/agent/docs/RCSS_REFERENCE.md` before introducing a new RCSS property/value/function, `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` for `data-*` or `noveltea` model behavior, `.noveltea/agent/docs/RMLUI_LUA.md` for RML event Lua/`<script>`/imperative RmlUi APIs, and `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md` before using any `nt-*` tag.
+When a familiar CSS or HTML technique is not covered here, prefer the focused generated references over guessing. Use `.noveltea/agent/docs/RCSS_REFERENCE.md` before introducing a new RCSS property/value/function, `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` for `data-*` or `noveltea` model behavior, `.noveltea/agent/docs/RMLUI_LUA.md` for RML event Lua/`<script>`/imperative RmlUi APIs, and `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md` before using any `nt-*` tag. When replacing a system Layout, inspect `.noveltea/agent/system-layouts/manifest.json` and the corresponding exact built-in source under `.noveltea/agent/system-layouts/ui/` first.
 
 The separate engine-wide base-RCSS/default-style behavior is outside this guide. Do not compensate for that issue by baking assumptions about implicit base styles into authored Layouts.
