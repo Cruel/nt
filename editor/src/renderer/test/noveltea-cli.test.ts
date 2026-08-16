@@ -858,6 +858,9 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_DATA_BINDING.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md');
     expect(first.files['GUIDE.md']).toContain(
+      'NovelTea Lua sandbox, APIs, capabilities, and yielding rules',
+    );
+    expect(first.files['GUIDE.md']).toContain(
       'do not begin ordinary authoring work by reverse-engineering the schemas',
     );
     expect(first.files['docs/AUTHORING.md']).toContain('Need only an image visible in the Room?');
@@ -891,6 +894,16 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
       'There is no current `nt-text-log` element',
     );
+    expect(first.files['docs/LUA.md']).toContain('Lua 5.5.0 exactly');
+    expect(first.files['docs/LUA.md']).toContain(
+      'noveltea.properties.get(owner_kind, owner_id, property_id)',
+    );
+    expect(first.files['docs/LUA.md']).toContain(
+      'Game.choose` and `Game.navigate` are deliberately **zero-based**',
+    );
+    expect(first.files['docs/LUA.md']).toContain('audio.play_and_wait');
+    expect(first.files['docs/LUA.md']).toContain('Game.ui.navigate_map_connection');
+    expect(first.files['docs/LUA.md']).toContain('Game.shell.state()');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
     const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);
@@ -978,6 +991,162 @@ describe('NovelTea headless CLI', () => {
     const componentGuide = payload.files['docs/RMLUI_CUSTOM_COMPONENTS.md']!;
     for (const tag of customTags) expect(componentGuide).toContain(`\`${tag}\``);
     expect(componentGuide).toContain('There is no current `nt-text-log` element');
+  });
+
+  it('certifies the Lua guide against the exact sandbox and authored binding surface', () => {
+    const cmake = readFileSync('../cmake/NovelTeaLua.cmake', 'utf8');
+    const archive = cmake.match(/URL https:\/\/www\.lua\.org\/ftp\/lua-([0-9.]+)\.tar\.gz/);
+    const archiveHash = cmake.match(/URL_HASH SHA256=([a-f0-9]+)/);
+    expect(archive?.[1]).toBe('5.5.0');
+    expect(archiveHash?.[1]).toBe(
+      '57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d',
+    );
+    expect(cmake).toContain('if(NOT LUA_VERSION_STRING VERSION_EQUAL "5.5.0")');
+
+    const scriptRuntime = readFileSync('../engine/src/script/lua/script_runtime.cpp', 'utf8');
+    const openLibraries = scriptRuntime.match(/open_libraries\(([\s\S]*?)\);/);
+    expect(openLibraries).not.toBeNull();
+    const libraryNames = [...openLibraries![1].matchAll(/sol::lib::([a-z0-9_]+)/g)].map(
+      (match) => match[1],
+    );
+    expect(libraryNames).toEqual(['base', 'coroutine', 'table', 'string', 'math', 'utf8']);
+    const excludedGlobals = [
+      ...scriptRuntime.matchAll(/m_impl->lua\["([^"]+)"\] = sol::lua_nil;/g),
+    ].map((match) => match[1]);
+    expect(excludedGlobals).toEqual([
+      'os',
+      'io',
+      'debug',
+      'package',
+      'require',
+      'dofile',
+      'loadfile',
+    ]);
+
+    const bindNovelTea = readFileSync('../engine/src/script/lua/bind_noveltea.cpp', 'utf8');
+    const typedBindings = readFileSync(
+      '../engine/src/script/lua/bind_typed_script_host.cpp',
+      'utf8',
+    );
+    const capabilityBindings = readFileSync(
+      '../engine/src/script/lua/bind_runtime_capabilities.cpp',
+      'utf8',
+    );
+    const gameplayUiBindings = readFileSync(
+      '../engine/src/ui/rmlui/runtime_ui_action_gateway.cpp',
+      'utf8',
+    );
+    const shellUiBindings = readFileSync('../engine/src/ui/rmlui/runtime_ui.cpp', 'utf8');
+    const capabilityProfiles = readFileSync(
+      '../engine/include/noveltea/runtime/runtime_capabilities.hpp',
+      'utf8',
+    );
+    const setFunctions = (source: string, object: string) =>
+      [
+        ...source.matchAll(
+          new RegExp(`(?:^|[^A-Za-z0-9_])${object}\\.set_function\\(\\s*"([^"]+)"`, 'g'),
+        ),
+      ].map((match) => match[1]);
+
+    const payload = createNovelTeaAgentKitPayload();
+    const guide = payload.files['docs/LUA.md']!;
+    expect(guide).toContain('Lua 5.5.0 exactly');
+    for (const library of libraryNames) expect(guide).toContain(`\n${library}\n`);
+    for (const excluded of excludedGlobals) expect(guide).toContain(excluded);
+
+    const groups = [
+      [bindNovelTea, 'noveltea', 'noveltea', 4],
+      [typedBindings, 'noveltea', 'noveltea', 1],
+      [typedBindings, 'variables', 'noveltea.variables', 2],
+      [typedBindings, 'properties', 'noveltea.properties', 3],
+      [typedBindings, 'interactables', 'noveltea.interactables', 4],
+      [typedBindings, 'navigation', 'noveltea.navigation', 1],
+      [typedBindings, 'flow', 'noveltea.flow', 9],
+      [typedBindings, 'game', 'Game', 10],
+      [capabilityBindings, 'room_presentation', 'noveltea.room_presentation', 2],
+      [capabilityBindings, 'random', 'noveltea.random', 3],
+      [capabilityBindings, 'map', 'noveltea.map', 5],
+      [capabilityBindings, 'layouts', 'noveltea.layouts', 6],
+      [capabilityBindings, 'presentation', 'noveltea.presentation', 13],
+      [capabilityBindings, 'text_log', 'noveltea.text_log', 2],
+      [capabilityBindings, 'game', 'Game', 3],
+      [gameplayUiBindings, 'ui', 'Game.ui', 10],
+      [shellUiBindings, 'shell', 'Game.shell', 24],
+      [shellUiBindings, 'game', 'Game', 1],
+    ] as const;
+    for (const [source, object, prefix, expectedCount] of groups) {
+      const functions = setFunctions(source, object);
+      expect(functions).toHaveLength(expectedCount);
+      for (const name of functions) expect(guide).toContain(`${prefix}.${name}`);
+    }
+
+    const projectReaders = [
+      ...typedBindings.matchAll(/bind_definition_reader\(project,\s*"([^"]+)"/g),
+    ].map((match) => match[1]);
+    expect(projectReaders).toEqual([
+      'room',
+      'scene',
+      'dialogue',
+      'character',
+      'interactable',
+      'verb',
+      'interaction',
+      'map',
+    ]);
+    for (const name of projectReaders) expect(guide).toContain(`noveltea.project.${name}`);
+
+    const audioFunctions = setFunctions(capabilityBindings, 'audio');
+    expect(audioFunctions).toEqual([
+      '_play',
+      'play_ui',
+      '_stop',
+      'set_loop',
+      'set_music',
+      'clear_loop',
+      'clear_bus',
+      'state',
+    ]);
+    for (const name of audioFunctions.filter((name) => !name.startsWith('_')))
+      expect(guide).toContain(`audio.${name}`);
+    for (const wrapper of ['play', 'stop', 'play_and_wait', 'stop_and_wait']) {
+      expect(capabilityBindings).toContain(`audio.${wrapper} = function`);
+      expect(guide).toContain(`audio.${wrapper}`);
+    }
+    expect(guide).toContain('audio._play');
+    expect(guide).toContain('audio._stop');
+    expect(guide).toContain('implementation details');
+
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::GameplayScript:\s*return \{profile, all_gameplay_queries, gameplay_commands, true, false\};/,
+    );
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::SynchronousExpression:\s*return \{profile, expression_queries, 0, false, false\};/,
+    );
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::RoomComposition:\s*return \{profile, expression_queries, 0, false, true\};/,
+    );
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::GameplayLayoutEvent:\s*return \{profile, all_gameplay_queries, gameplay_commands, false, false\};/,
+    );
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::ShellLayoutEvent:\s*return \{profile, capability_bit\(G::Save\) \| capability_bit\(G::Game\),\s*capability_bit\(G::Save\) \| capability_bit\(G::Game\), false, false\};/,
+    );
+    for (const profile of [
+      'Gameplay Script',
+      'Synchronous expression',
+      'Room composition',
+      'Gameplay Layout event',
+      'Shell Layout event',
+    ])
+      expect(guide).toContain(profile);
+
+    const manifest = JSON.parse(payload.manifestText);
+    const provenanceAreas = manifest.provenance.documents['docs/LUA.md'].sources.flatMap(
+      (source: { areas: string[] }) => source.areas,
+    );
+    expect(provenanceAreas).toContain(
+      'cmake/NovelTeaLua.cmake (Lua 5.5.0 archive SHA256 57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d)',
+    );
   });
 
   it('rejects incomplete or dangling curated agent-kit provenance', () => {

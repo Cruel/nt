@@ -19,7 +19,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - NovelTea `noveltea` data model, `data-*` bindings, expressions, and callbacks: `.noveltea/agent/docs/RMLUI_DATA_BINDING.md`
 - Supported NovelTea `nt-*` custom elements: `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md`
 - Layout source modes, document/fragment kind, dependencies, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
-- Lua: `.noveltea/agent/docs/LUA.md`
+- NovelTea Lua sandbox, APIs, capabilities, and yielding rules: `.noveltea/agent/docs/LUA.md`
 - Authored tests: `.noveltea/agent/docs/TESTS.md`
 
 Machine-readable workspace-v1 schemas are under `.noveltea/agent/schemas/`. Use them as an exhaustive structural reference when the focused documentation does not answer a detail; do not begin ordinary authoring work by reverse-engineering the schemas.

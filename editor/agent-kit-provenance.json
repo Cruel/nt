@@ -252,19 +252,27 @@
     },
     "docs/LUA.md": {
       "reviewed": "2026-08-16",
-      "strategy": "Use the Lua 5.5 language manual for language semantics and NovelTea runtime bindings as the authority for the sandbox and public game API.",
+      "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
       "sources": [
         {
           "source": "lua-5.5-manual",
-          "areas": ["Language and standard-library semantics used by authored scripts"]
+          "areas": [
+            "Lua 5.5 language and standard-library semantics for the libraries NovelTea opens"
+          ]
         },
         {
           "source": "noveltea",
           "areas": [
-            "cmake/NovelTeaLua.cmake",
-            "engine/src/script/lua/",
-            "editor/src/shared/project-schema/authoring-lua-analysis.ts",
-            "editor/src/shared/project-schema/authoring-lua-source-registry.ts"
+            "cmake/NovelTeaLua.cmake (Lua 5.5.0 archive SHA256 57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d)",
+            "docs/runtime/LUA_RUNTIME.md",
+            "docs/engine/SCRIPT_MODULE.md",
+            "engine/src/script/lua/bind_noveltea.cpp",
+            "engine/src/script/lua/bind_typed_script_host.cpp",
+            "engine/src/script/lua/bind_runtime_capabilities.cpp",
+            "engine/src/script/lua/script_runtime.cpp",
+            "engine/include/noveltea/runtime/runtime_capabilities.hpp",
+            "engine/src/ui/rmlui/runtime_ui_action_gateway.cpp",
+            "engine/src/ui/rmlui/runtime_ui.cpp"
           ]
         }
       ]
