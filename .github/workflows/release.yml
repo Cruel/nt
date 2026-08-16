@@ -613,6 +613,8 @@ jobs:
           ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)|MessageChannel' build/web-release-no-threads/apps/player/player.js
 
       - name: Package Web player template
+        env:
+          EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           cmake -DNOVELTEA_TEMPLATE_PRESET=web-release -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
           cmake -DNOVELTEA_TEMPLATE_PRESET=web-release-no-threads -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake

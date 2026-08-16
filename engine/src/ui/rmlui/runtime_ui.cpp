@@ -773,6 +773,12 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
     }
 }
 
+void RuntimeUI::set_final_output_framebuffer(std::uint16_t framebuffer)
+{
+    if (m_state && m_state->host)
+        m_state->host->set_final_output_framebuffer(framebuffer);
+}
+
 void RuntimeUI::set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game)
 {
     if (m_state && m_state->host)

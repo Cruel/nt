@@ -265,6 +265,13 @@ GameHost::attach_checkpoint_thumbnail(const core::CheckpointThumbnailCaptureRequ
     return m_running_game->session().attach_checkpoint_thumbnail(request, std::move(thumbnail));
 }
 
+bool GameHost::discard_checkpoint_thumbnail_capture(
+    const core::CheckpointThumbnailCaptureRequest& request) noexcept
+{
+    return m_running_game &&
+           m_running_game->session().discard_checkpoint_thumbnail_capture(request);
+}
+
 void GameHost::replace_running_game(std::unique_ptr<runtime::RunningGame> running_game) noexcept
 {
     detach_runtime_bindings();

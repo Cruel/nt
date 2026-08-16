@@ -129,8 +129,11 @@ dispatch transaction. Nested Flow, Lua, and deferred-command work appends to tha
 than recursively dispatching. After commands and synchronous presentation/audio acceptance settle,
 the service receives typed queue, Flow, Lua, presentation-barrier, and mutation facts. It publishes
 deterministic readiness and an immutable retained candidate only at an eligible boundary. Structural
-changes capture immediately; time-only changes coalesce on one second of deterministic elapsed
-runtime input, while unchanged idle transactions do not re-encode.
+changes capture checkpoint state immediately; time-only changes coalesce on one second of
+deterministic elapsed runtime input, while unchanged idle transactions do not re-encode. Retained
+checkpoint publication does not request a visual thumbnail. A thumbnail capture is queued only after
+a manual save, autosave, or other typed save-slot write actually persists that checkpoint, and the
+asynchronous result updates only slots still bound to the same checkpoint revision.
 
 The presentation coordinator publishes exact causal status before backend work. Awaited finite
 presentation/audio, voice and gameplay SFX until semantic termination, and ActiveText reveal/fade

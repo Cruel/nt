@@ -54,6 +54,7 @@ public:
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);
+    void set_final_output_framebuffer(std::uint16_t framebuffer);
     void set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game);
     void set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                         bool transition_active);

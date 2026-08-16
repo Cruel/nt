@@ -85,6 +85,14 @@ transformation. It may snap a submitted run/geometry origin as one unit; it does
 advances or alter input coordinates. `rmlui-bgfx` remains generic and receives the configured
 logical dimensions, framebuffer dimensions, projection scale, viewport, and scissor mapping.
 
+The host also supplies an explicit final-output framebuffer for capture frames. During an ordinary
+frame, non-debug RmlUi planes resolve to the normal final presentation target unless a transition or
+postprocess surface has more specific ownership. During a screenshot capture frame, those same
+non-debug planes resolve to the screenshot scene target so the captured presentation includes runtime
+UI exactly once. Transition-local and postprocess-local targets retain precedence. The Debug plane is
+never redirected into the screenshot target, so host/debug overlays remain outside captured game
+content.
+
 ActiveText may use the direct bgfx text renderer while remaining driven by the same typed published
 state.
 

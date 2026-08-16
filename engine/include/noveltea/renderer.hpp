@@ -13,9 +13,11 @@
 #include "noveltea/text/text_layout.hpp"
 #include "noveltea/surface.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <array>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -73,11 +75,42 @@ struct RendererConfig {
     const assets::AssetManager* assets = nullptr;
 };
 
+enum class RendererScreenshotPixelFormat : std::uint8_t {
+    Rgba8,
+    Bgra8,
+};
+
+inline constexpr std::uint32_t kScreenshotCaptureMaxDimension = 8192;
+inline constexpr std::uint64_t kScreenshotCaptureMaxPixels = 16u * 1024u * 1024u;
+
+[[nodiscard]] inline std::optional<std::size_t>
+screenshot_rgba8_byte_size(std::uint32_t width, std::uint32_t height) noexcept
+{
+    if (width == 0 || height == 0 || width > kScreenshotCaptureMaxDimension ||
+        height > kScreenshotCaptureMaxDimension)
+        return std::nullopt;
+    const auto pixels = static_cast<std::uint64_t>(width) * height;
+    if (pixels > kScreenshotCaptureMaxPixels ||
+        pixels > std::numeric_limits<std::size_t>::max() / 4u)
+        return std::nullopt;
+    return static_cast<std::size_t>(pixels * 4u);
+}
+
+struct RendererScreenshotRequest {
+    std::uint64_t request_id = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    Rect source_uv{0.0f, 0.0f, 1.0f, 1.0f};
+};
+
 struct RendererScreenshotCapture {
     std::uint64_t request_id = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
-    std::string png_bytes;
+    std::uint32_t pitch = 0;
+    RendererScreenshotPixelFormat format = RendererScreenshotPixelFormat::Bgra8;
+    bool yflip = false;
+    std::vector<std::uint8_t> pixels;
 };
 
 class Renderer {
@@ -93,13 +126,15 @@ public:
     void end_frame();
     void resize(const PresentationMetrics& presentation);
     void shutdown();
-    void request_screenshot(const std::string& path);
-    [[nodiscard]] bool request_screenshot_capture(std::uint64_t request_id);
+    [[nodiscard]] bool request_screenshot_capture(RendererScreenshotRequest request);
     [[nodiscard]] std::optional<RendererScreenshotCapture> take_screenshot_capture();
-    [[nodiscard]] bool game_viewport_capture_pending() const noexcept
+    [[nodiscard]] bool game_viewport_capture_pending() const noexcept;
+    [[nodiscard]] bool screenshot_capture_frame_active() const noexcept
     {
-        return !m_pending_screenshot.empty() || m_pending_screenshot_capture.has_value();
+        return m_active_screenshot_capture.has_value();
     }
+    [[nodiscard]] std::uint16_t screenshot_output_framebuffer() const noexcept;
+    void finalize_screenshot_capture();
 
     void draw_2d(const QuadBatch& batch);
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
@@ -187,15 +222,17 @@ private:
     void destroy_ordinary_world_surface();
     void destroy_postprocess_surface();
     void destroy_world_transition_surfaces();
+    [[nodiscard]] bool
+    prepare_screenshot_capture_surfaces(const RendererScreenshotRequest& request);
+    void destroy_screenshot_capture_surfaces();
     void create_text();
     void destroy_text();
     void resize_text();
-    void submit_screenshot_request(std::string output_path,
-                                   std::optional<std::uint64_t> capture_id);
     void submit_quad(const QuadCommand& command);
     void submit_quad(const QuadCommand& command, std::uint16_t view, float opacity);
     void submit_default_quad(const QuadCommand& command);
     void submit_default_quad(const QuadCommand& command, std::uint16_t view);
+    void submit_copy_quad(const QuadCommand& command, std::uint16_t view);
     [[nodiscard]] bool submit_material_quad(const QuadCommand& command);
     [[nodiscard]] bool submit_material_quad(const QuadCommand& command, std::uint16_t view);
     [[nodiscard]] bool submit_postprocess_quad(const QuadCommand& command, std::uint16_t view);
@@ -252,6 +289,13 @@ private:
     std::optional<MaterialId> m_postprocess_material;
     std::optional<PostprocessScope> m_active_postprocess_scope;
     PostprocessSurfaceDiagnostics m_postprocess_surface_diagnostics{};
+    RenderTargetHandles m_screenshot_scene_target{};
+    RenderTargetHandles m_screenshot_output_target{};
+    uint16_t m_screenshot_readback_texture = UINT16_MAX;
+    uint16_t m_screenshot_scene_width = 0;
+    uint16_t m_screenshot_scene_height = 0;
+    uint16_t m_screenshot_output_width = 0;
+    uint16_t m_screenshot_output_height = 0;
     uint32_t m_default_text_font = 0;
     void* m_text_renderer = nullptr;
     std::unique_ptr<bgfx_backend::BgfxShaderProgramCache> m_shader_program_cache;
@@ -259,10 +303,12 @@ private:
     std::unique_ptr<bgfx_backend::BgfxMaterialBinder> m_material_binder;
     ShaderMaterialProject m_builtin_hotspot_materials = make_builtin_hotspot_material_project();
     std::string m_texture_status = "procedural checker";
-    std::string m_pending_screenshot;
-    std::optional<std::uint64_t> m_pending_screenshot_capture;
+    std::optional<RendererScreenshotRequest> m_pending_screenshot_capture;
+    std::optional<RendererScreenshotRequest> m_active_screenshot_capture;
     std::optional<std::uint64_t> m_outstanding_screenshot_capture;
-    std::uint64_t m_next_screenshot_callback_id = 1;
+    std::vector<std::uint8_t> m_screenshot_readback_pixels;
+    std::uint32_t m_screenshot_readback_ready_frame = 0;
+    std::uint32_t m_bgfx_frame = 0;
 };
 
 } // namespace noveltea

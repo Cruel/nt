@@ -515,6 +515,12 @@ if(TARGET noveltea-sandbox)
         "${CMAKE_BINARY_DIR}/presentation-readback-no-debug.ppm")
     set(NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM
         "${CMAKE_BINARY_DIR}/presentation-readback-unbarred.ppm")
+    set(NOVELTEA_PRESENTATION_FIT_READBACK_PPM
+        "${CMAKE_BINARY_DIR}/presentation-readback-fit.ppm")
+    set(NOVELTEA_PRESENTATION_FILL_READBACK_PPM
+        "${CMAKE_BINARY_DIR}/presentation-readback-fill.ppm")
+    set(NOVELTEA_PRESENTATION_EXACT_READBACK_PPM
+        "${CMAKE_BINARY_DIR}/presentation-readback-exact.ppm")
     set(NOVELTEA_WORLD_PRESENTATION_READBACK_PPM
         "${CMAKE_BINARY_DIR}/world-presentation-readback.ppm")
     set(NOVELTEA_LAYOUT_SCALE_READBACK_PPM
@@ -566,6 +572,9 @@ if(TARGET noveltea-sandbox)
         NOVELTEA_PRESENTATION_READBACK_PPM="${NOVELTEA_PRESENTATION_READBACK_PPM}"
         NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM="${NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM}"
         NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM="${NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM}"
+        NOVELTEA_PRESENTATION_FIT_READBACK_PPM="${NOVELTEA_PRESENTATION_FIT_READBACK_PPM}"
+        NOVELTEA_PRESENTATION_FILL_READBACK_PPM="${NOVELTEA_PRESENTATION_FILL_READBACK_PPM}"
+        NOVELTEA_PRESENTATION_EXACT_READBACK_PPM="${NOVELTEA_PRESENTATION_EXACT_READBACK_PPM}"
     )
     target_link_libraries(noveltea_presentation_readback_verifier PRIVATE Catch2::Catch2WithMain)
     add_executable(noveltea_world_presentation_readback_verifier
@@ -665,7 +674,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_presentation_readback_capture
         COMMAND /bin/sh -c
-            "set -e; rm -f '${NOVELTEA_PRESENTATION_READBACK_PPM}' '${NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM}' '${NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM}'; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_READBACK_PPM}' --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 960x540 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM}' --no-audio"
+            "set -e; rm -f '${NOVELTEA_PRESENTATION_READBACK_PPM}' '${NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM}' '${NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM}' '${NOVELTEA_PRESENTATION_FIT_READBACK_PPM}' '${NOVELTEA_PRESENTATION_FILL_READBACK_PPM}' '${NOVELTEA_PRESENTATION_EXACT_READBACK_PPM}'; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_READBACK_PPM}' --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 960x540 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM}' --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_FIT_READBACK_PPM}' --screenshot-mode fit --screenshot-size 480x480 --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_FILL_READBACK_PPM}' --screenshot-mode fill --screenshot-size 320x320 --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_EXACT_READBACK_PPM}' --screenshot-mode exact --screenshot-size 320x200 --no-audio"
     )
     set_tests_properties(noveltea_presentation_readback_capture PROPERTIES
         RUN_SERIAL TRUE

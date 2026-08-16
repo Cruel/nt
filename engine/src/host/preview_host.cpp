@@ -1,6 +1,7 @@
 #include "host/preview_host.hpp"
 
 #include "host/layout_realizer.hpp"
+#include "host/screenshot_capture.hpp"
 
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/preview_bridge.hpp"
@@ -875,12 +876,17 @@ void PreviewHost::update_focused_preview() { m_focused_presenter->update(); }
 
 bool PreviewHost::request_screenshot(std::string path)
 {
-    if (path.empty() || !m_dependencies.renderer.is_initialized()) {
+    if (path.empty() || !m_dependencies.renderer.is_initialized() ||
+        m_dependencies.screenshots == nullptr) {
         report_diagnostic(preview_error("preview.screenshot.unavailable",
                                         "Screenshot request requires a ready renderer and path."));
         return false;
     }
-    m_dependencies.renderer.request_screenshot(path);
+    if (!m_dependencies.screenshots->request_file(std::move(path))) {
+        report_diagnostic(preview_error("preview.screenshot.rejected",
+                                        "Screenshot service rejected the request."));
+        return false;
+    }
     return true;
 }
 
