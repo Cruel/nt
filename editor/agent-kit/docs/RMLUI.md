@@ -110,6 +110,6 @@ A path in RML or RCSS is not enough to make a resource available. Project images
 
 ## Before treating browser intuition as authoritative
 
-When a familiar CSS or HTML technique is not covered here, prefer an existing NovelTea Layout pattern or `.noveltea/agent/docs/RCSS_REFERENCE.md` over guessing. Use that exact compatibility reference before introducing a new RCSS property, value, shorthand, unit, transform/filter/decorator function, or modern CSS feature. For unusual RML/form behavior or undocumented `nt-*` tags, prefer existing NovelTea patterns rather than browser intuition.
+When a familiar CSS or HTML technique is not covered here, prefer the focused generated references over guessing. Use `.noveltea/agent/docs/RCSS_REFERENCE.md` before introducing a new RCSS property/value/function, `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` for `data-*` or `noveltea` model behavior, and `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md` before using any `nt-*` tag.
 
 The separate engine-wide base-RCSS/default-style behavior is outside this guide. Do not compensate for that issue by baking assumptions about implicit base styles into authored Layouts.

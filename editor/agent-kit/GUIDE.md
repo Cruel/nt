@@ -16,6 +16,8 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Assets, shaders, and materials: `.noveltea/agent/docs/ASSETS_SHADERS.md`
 - RML/RCSS authoring and RmlUi differences from browser HTML/CSS: `.noveltea/agent/docs/RMLUI.md`
 - Exact RCSS property/value/shorthand/unit support: `.noveltea/agent/docs/RCSS_REFERENCE.md`
+- NovelTea `noveltea` data model, `data-*` bindings, expressions, and callbacks: `.noveltea/agent/docs/RMLUI_DATA_BINDING.md`
+- Supported NovelTea `nt-*` custom elements: `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md`
 - Layout source modes, document/fragment kind, dependencies, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
 - Lua: `.noveltea/agent/docs/LUA.md`
 - Authored tests: `.noveltea/agent/docs/TESTS.md`

@@ -765,6 +765,8 @@ describe('NovelTea headless CLI', () => {
         'docs/ROOMS.md',
         'docs/RMLUI.md',
         'docs/RCSS_REFERENCE.md',
+        'docs/RMLUI_DATA_BINDING.md',
+        'docs/RMLUI_CUSTOM_COMPONENTS.md',
         'schemas/project.schema.json',
         'schemas/properties.schema.json',
         'schemas/localization.schema.json',
@@ -827,6 +829,19 @@ describe('NovelTea headless CLI', () => {
         expect.objectContaining({ source: 'rmlui-docs' }),
       ]),
     );
+    expect(manifest.provenance.documents['docs/RMLUI_DATA_BINDING.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'rmlui-docs' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/RMLUI_CUSTOM_COMPONENTS.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+      ]),
+    );
     expect(manifest.provenance.documents['docs/LUA.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
@@ -840,6 +855,8 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_DATA_BINDING.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md');
     expect(first.files['GUIDE.md']).toContain(
       'do not begin ordinary authoring work by reverse-engineering the schemas',
     );
@@ -864,6 +881,16 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in shorthands: 20');
     expect(first.files['docs/RCSS_REFERENCE.md']).toContain('`ex` is not registered');
     expect(first.files['docs/RCSS_REFERENCE.md']).toContain('There is no `border-style` property');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('gameplay.text_log.entries[]');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('shell.save_slots[]');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('ui_choose(kind, id)');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('data-alias-name');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('The model is read-only');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-active-text');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-map-view   (provisional)');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+      'There is no current `nt-text-log` element',
+    );
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
     const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);
@@ -896,6 +923,61 @@ describe('NovelTea headless CLI', () => {
     expect(reference).toContain(`pinned RmlUi commit: \`${rmluiCommit}\``);
     expect(reference).toContain(`NovelTea RmlUi patch revision: \`${patchRevision}\``);
     expect(reference).toContain('`RMLUI_MATH_EXPRESSIONS`: enabled');
+  });
+
+  it('certifies the NovelTea data-binding callbacks and custom-element surface', () => {
+    const runtimeModel = readFileSync('../engine/src/ui/rmlui/runtime_ui_data_model.cpp', 'utf8');
+    const callbackNames = [...runtimeModel.matchAll(/BindEventCallback\(\s*"([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(callbackNames).toEqual([
+      'ui_continue',
+      'ui_choose',
+      'ui_navigate_room',
+      'ui_toggle_subject',
+      'ui_clear_selection',
+      'ui_invoke_interaction',
+      'shell_start',
+      'shell_pause',
+      'shell_resume',
+      'shell_open_settings',
+      'shell_open_save',
+      'shell_open_load',
+      'shell_open_text_log',
+      'shell_open_debug',
+      'shell_close',
+      'shell_return_to_title',
+      'shell_quit',
+      'shell_save_slot',
+      'shell_load_slot',
+      'shell_set_ui_scale',
+      'shell_set_text_scale',
+      'shell_confirm',
+      'shell_cancel',
+    ]);
+
+    const topLevelVariables = [...runtimeModel.matchAll(/constructor\.Bind\("([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(topLevelVariables).toEqual(['project', 'gameplay', 'shell']);
+
+    const componentSource = readFileSync(
+      '../engine/src/ui/rmlui/rmlui_custom_components.cpp',
+      'utf8',
+    );
+    const customTags = [...componentSource.matchAll(/RegisterElementInstancer\("([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(customTags).toEqual(['nt-active-text', 'nt-map-view']);
+
+    const payload = createNovelTeaAgentKitPayload();
+    const bindingGuide = payload.files['docs/RMLUI_DATA_BINDING.md']!;
+    for (const variable of topLevelVariables) expect(bindingGuide).toContain(`### \`${variable}\``);
+    for (const callback of callbackNames) expect(bindingGuide).toContain(`${callback}(`);
+
+    const componentGuide = payload.files['docs/RMLUI_CUSTOM_COMPONENTS.md']!;
+    for (const tag of customTags) expect(componentGuide).toContain(`\`${tag}\``);
+    expect(componentGuide).toContain('There is no current `nt-text-log` element');
   });
 
   it('rejects incomplete or dangling curated agent-kit provenance', () => {

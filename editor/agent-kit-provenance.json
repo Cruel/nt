@@ -195,6 +195,61 @@
         }
       ]
     },
+    "docs/RMLUI_DATA_BINDING.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Expose the exact NovelTea `noveltea` model and callback contract, then reconcile only the RmlUi data-binding and expression semantics needed to author against it safely; exclude native projection/publication implementation details.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/ui/RMLUI_DATA_MODEL_CONTRACT.md",
+            "engine/src/ui/rmlui/runtime_ui_data_model.cpp",
+            "engine/assets/system/ui/runtime/runtime_game.rml",
+            "engine/assets/system/ui/menu/"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": [
+            "Source/Core/DataExpression.cpp",
+            "Source/Core/DataViewDefault.cpp",
+            "Source/Core/DataControllerDefault.cpp",
+            "Source/Core/DataTypeRegister.cpp",
+            "Source/Core/Factory.cpp"
+          ]
+        },
+        {
+          "source": "rmlui-docs",
+          "areas": [
+            "pages/data_bindings.html",
+            "pages/data_bindings/model.html",
+            "pages/data_bindings/expressions.html",
+            "pages/data_bindings/views_and_controllers.html"
+          ]
+        }
+      ]
+    },
+    "docs/RMLUI_CUSTOM_COMPONENTS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Document only the supported NovelTea `nt-*` authoring contract and visible limitations of ActiveText/Map hosts; keep generated markup and C++ rendering/lifecycle machinery explicitly outside the public surface.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/ui/RMLUI_CUSTOM_COMPONENTS.md",
+            "docs/ui/RMLUI_DATA_MODEL_CONTRACT.md",
+            "engine/src/ui/rmlui/rmlui_custom_components.cpp",
+            "engine/src/ui/rmlui/active_text_presenter.cpp",
+            "engine/src/ui/rmlui/runtime_ui.cpp",
+            "engine/assets/system/ui/runtime/runtime_game.rml"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": ["Include/RmlUi/Core/Element.h", "Source/Core/Factory.cpp"]
+        }
+      ]
+    },
     "docs/LUA.md": {
       "reviewed": "2026-08-16",
       "strategy": "Use the Lua 5.5 language manual for language semantics and NovelTea runtime bindings as the authority for the sandbox and public game API.",
