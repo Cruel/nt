@@ -1086,7 +1086,7 @@ describe('NovelTea headless CLI', () => {
     expect(reference).toContain('`RMLUI_MATH_EXPRESSIONS`: enabled');
   });
 
-  it('certifies the NovelTea data-binding callbacks and custom-element surface', () => {
+  it('certifies the NovelTea data-binding model, callbacks, and custom-element surface', () => {
     const runtimeModel = readFileSync('../engine/src/ui/rmlui/runtime_ui_data_model.cpp', 'utf8');
     const callbackNames = [...runtimeModel.matchAll(/BindEventCallback\(\s*"([^"]+)"/g)].map(
       (match) => match[1],
@@ -1121,6 +1121,86 @@ describe('NovelTea headless CLI', () => {
       (match) => match[1],
     );
     expect(topLevelVariables).toEqual(['project', 'gameplay', 'shell']);
+
+    const registeredMembers: Record<string, string[]> = {};
+    for (const match of runtimeModel.matchAll(/NT_MEMBER\(([^,]+),\s*([^)]+)\)/g)) {
+      const type = match[1]!.trim();
+      const member = match[2]!.trim();
+      if (type === 'TYPE' && member === 'NAME') continue;
+      const members = (registeredMembers[type] ??= []);
+      if (!members.includes(member)) members.push(member);
+    }
+    expect(registeredMembers).toEqual({
+      ChoiceProjection: ['kind', 'id', 'label', 'enabled'],
+      ActorProjection: [
+        'character_id',
+        'instance_id',
+        'pose_id',
+        'expression_id',
+        'presentation_complete',
+      ],
+      ExitProjection: ['id', 'target_id', 'direction', 'label', 'enabled', 'glyph'],
+      ObjectProjection: ['subject_kind', 'subject_id', 'label', 'enabled', 'selected'],
+      InventoryItemProjection: ['id', 'display_name', 'enabled', 'selected'],
+      ActionProjection: ['verb_id', 'label', 'arity', 'quick_action', 'enabled'],
+      TextLogEntryProjection: ['sequence', 'kind', 'has_speaker', 'speaker_id', 'text', 'body_rml'],
+      RoomProjection: ['available', 'has_enabled_exits', 'exits', 'objects'],
+      InventoryProjection: ['items'],
+      InteractionProjection: ['has_selection', 'actions'],
+      TextLogProjection: ['entries'],
+      GameplayProjection: [
+        'available',
+        'mode',
+        'title',
+        'notification',
+        'can_continue',
+        'active_text_available',
+        'choices',
+        'actors',
+        'room',
+        'inventory',
+        'interaction',
+        'text_log',
+      ],
+      ProjectProjection: ['title', 'subtitle', 'start_label'],
+      ScaleProjection: ['enabled', 'value', 'minimum', 'default_value', 'maximum'],
+      SettingsProjection: ['ui_scale', 'text_scale'],
+      CheckpointProjection: [
+        'available',
+        'ready',
+        'retained',
+        'retained_revision',
+        'replay_structural_generations',
+        'replay_time_generations',
+        'replay_play_time_ms',
+        'thumbnail_available',
+        'thumbnail_capture_pending',
+        'summary',
+      ],
+      SaveSlotProjection: [
+        'kind',
+        'number',
+        'label',
+        'occupied',
+        'has_metadata',
+        'play_time_ms',
+        'project_version',
+        'detail',
+        'thumbnail_available',
+        'thumbnail_url',
+      ],
+      ConfirmationProjection: ['active', 'prompt'],
+      ShellProjection: [
+        'available',
+        'screen',
+        'game_active',
+        'status',
+        'settings',
+        'checkpoint',
+        'save_slots',
+        'confirmation',
+      ],
+    });
 
     const componentSource = readFileSync(
       '../engine/src/ui/rmlui/rmlui_custom_components.cpp',
