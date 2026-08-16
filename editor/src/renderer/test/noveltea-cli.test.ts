@@ -767,6 +767,7 @@ describe('NovelTea headless CLI', () => {
         'docs/RCSS_REFERENCE.md',
         'docs/RMLUI_DATA_BINDING.md',
         'docs/RMLUI_CUSTOM_COMPONENTS.md',
+        'docs/RMLUI_LUA.md',
         'schemas/project.schema.json',
         'schemas/properties.schema.json',
         'schemas/localization.schema.json',
@@ -842,6 +843,13 @@ describe('NovelTea headless CLI', () => {
         expect.objectContaining({ source: 'rmlui' }),
       ]),
     );
+    expect(manifest.provenance.documents['docs/RMLUI_LUA.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'lua-5.5-manual' }),
+      ]),
+    );
     expect(manifest.provenance.documents['docs/LUA.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
@@ -857,6 +865,7 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_DATA_BINDING.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
     expect(first.files['GUIDE.md']).toContain(
       'NovelTea Lua sandbox, APIs, capabilities, and yielding rules',
     );
@@ -873,6 +882,7 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/INTERACTIONS.md']).toContain('Room hotspot');
     expect(first.files['docs/INTERACTIONS.md']).toContain('arity-`1` Verb');
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI.md');
+    expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
     expect(first.files['docs/RMLUI.md']).toContain('RML is XML, not browser HTML');
     expect(first.files['docs/RMLUI.md']).toContain(
       "RmlUi's `:hover`, `:active`, `:focus`, and `:focus-visible` state propagates backward",
@@ -894,6 +904,12 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
       'There is no current `nt-text-log` element',
     );
+    expect(first.files['docs/RMLUI_LUA.md']).toContain('function(event, element, document)');
+    expect(first.files['docs/RMLUI_LUA.md']).toContain(
+      'controls **only the dedicated Layout Lua source**',
+    );
+    expect(first.files['docs/RMLUI_LUA.md']).toContain('rmlui:CreateContext');
+    expect(first.files['docs/RMLUI_LUA.md']).toContain('.noveltea/agent/docs/LUA.md');
     expect(first.files['docs/LUA.md']).toContain('Lua 5.5.0 exactly');
     expect(first.files['docs/LUA.md']).toContain(
       'noveltea.properties.get(owner_kind, owner_id, property_id)',
@@ -1146,6 +1162,85 @@ describe('NovelTea headless CLI', () => {
     );
     expect(provenanceAreas).toContain(
       'cmake/NovelTeaLua.cmake (Lua 5.5.0 archive SHA256 57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d)',
+    );
+  });
+
+  it('certifies the RmlUi Lua guide against Layout script gating and integration ownership', () => {
+    const layoutRealizer = readFileSync('../engine/src/host/layout_realizer.cpp', 'utf8');
+    expect(layoutRealizer).toContain(
+      'definition->script_enabled ? "<script>" + *lua.value_if() + "</script>"',
+    );
+    expect(layoutRealizer).toContain(
+      'if (layout.script_enabled && layout.contains_dedicated_lua_source)',
+    );
+
+    const layoutSchema = readFileSync(
+      '../editor/src/shared/project-schema/authoring-layouts.ts',
+      'utf8',
+    );
+    expect(layoutSchema).toContain('enabled: z.boolean().default(true)');
+    expect(layoutSchema).toContain('Lua namespace must be a dot-separated Lua identifier path.');
+
+    const sourceAnalysis = readFileSync(
+      '../editor/src/shared/authoring-source-analysis.ts',
+      'utf8',
+    );
+    expect(sourceAnalysis).toContain("reference.kind === 'script'");
+    expect(sourceAnalysis).toContain('does not resolve to exactly one declared dependency.');
+
+    const listenerPatch = readFileSync(
+      '../cmake/patches/rmlui-feature-calc-noveltea-lua-listener-lifetime.patch',
+      'utf8',
+    );
+    expect(listenerPatch).toContain('LuaType<Event>::push(L, &event, false);');
+    expect(listenerPatch).toContain('LuaType<Element>::push(L, attached, false);');
+
+    const payload = createNovelTeaAgentKitPayload();
+    const guide = payload.files['docs/RMLUI_LUA.md']!;
+    expect(guide).toContain('function(event, element, document)');
+    expect(guide).toContain('controls **only the dedicated Layout Lua source**');
+    expect(guide).toContain('It is **not** a document-wide scripting switch');
+    expect(guide).toContain(
+      'GetElementsByTagName` and `QuerySelectorAll` return ordinary 1-based Lua tables',
+    );
+    expect(guide).toContain('Gameplay Layout events are non-yielding');
+    for (const hostOwned of [
+      'rmlui:CreateContext',
+      'rmlui:LoadFontFace',
+      'rmlui:RegisterTag',
+      'Context:LoadDocument',
+      'Context:Update',
+      'Context:Render',
+      'Context:OpenDataModel',
+    ])
+      expect(guide).toContain(hostOwned);
+
+    const manifest = JSON.parse(payload.manifestText);
+    const provenance = manifest.provenance.documents['docs/RMLUI_LUA.md'];
+    expect(provenance.sources.map((source: { source: string }) => source.source)).toEqual([
+      'noveltea',
+      'rmlui',
+      'lua-5.5-manual',
+    ]);
+    const rmluiAreas = provenance.sources.find(
+      (source: { source: string }) => source.source === 'rmlui',
+    ).areas;
+    expect(rmluiAreas).toEqual(
+      expect.arrayContaining([
+        'Source/Lua/LuaEventListener.cpp',
+        'Source/Lua/LuaDocument.cpp',
+        'Source/Lua/Element.cpp',
+        'Source/Lua/Event.cpp',
+        'Source/Lua/Document.cpp',
+        'Source/Lua/Context.cpp',
+        'Source/Lua/RmlUi.cpp',
+      ]),
+    );
+    const novelTeaAreas = provenance.sources.find(
+      (source: { source: string }) => source.source === 'noveltea',
+    ).areas;
+    expect(novelTeaAreas).toEqual(
+      expect.arrayContaining(['cmake/NovelTeaRmlUi.cmake', 'cmake/NovelTeaLua.cmake']),
     );
   });
 

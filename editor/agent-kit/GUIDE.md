@@ -18,6 +18,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Exact RCSS property/value/shorthand/unit support: `.noveltea/agent/docs/RCSS_REFERENCE.md`
 - NovelTea `noveltea` data model, `data-*` bindings, expressions, and callbacks: `.noveltea/agent/docs/RMLUI_DATA_BINDING.md`
 - Supported NovelTea `nt-*` custom elements: `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md`
+- RML event Lua, `<script>`, RmlUi element/document APIs, and `script.enabled`: `.noveltea/agent/docs/RMLUI_LUA.md`
 - Layout source modes, document/fragment kind, dependencies, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
 - NovelTea Lua sandbox, APIs, capabilities, and yielding rules: `.noveltea/agent/docs/LUA.md`
 - Authored tests: `.noveltea/agent/docs/TESTS.md`

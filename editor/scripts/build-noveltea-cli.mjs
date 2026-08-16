@@ -45,6 +45,7 @@ const agentKitSourcePaths = [
   'docs/RCSS_REFERENCE.md',
   'docs/RMLUI_DATA_BINDING.md',
   'docs/RMLUI_CUSTOM_COMPONENTS.md',
+  'docs/RMLUI_LUA.md',
   'docs/LUA.md',
   'docs/TESTS.md',
 ];

@@ -75,7 +75,7 @@ Treat model-controlled document structure as declarative ownership:
 - Do not imperatively replace children owned by `data-rml`. A later model update can replace the complete inner RML again.
 - Do not attach new `data-*` attributes dynamically and expect them to become bindings. Author bindings in the RML before the element is attached.
 - Avoid mixing `data-for` with RmlUi elements that internally restructure children unless an existing NovelTea pattern proves the combination.
-- If Layout Lua needs imperative DOM work, keep that work outside subtrees whose structure is controlled by `data-for` or `data-rml`.
+- If Layout Lua needs imperative DOM work, keep that work outside subtrees whose structure is controlled by `data-for` or `data-rml`; use `.noveltea/agent/docs/RMLUI_LUA.md` for the supported imperative RmlUi Lua surface.
 
 `data-if` and `data-visible` do not own child structure: they control display/visibility of the existing element.
 
