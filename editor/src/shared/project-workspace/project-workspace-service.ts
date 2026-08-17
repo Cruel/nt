@@ -101,6 +101,7 @@ const workspaceManifestSchema = z
     schemaVersion: z.literal(PROJECT_WORKSPACE_SCHEMA_VERSION),
     project: authoringProjectSchema.shape.project,
     settings: authoringProjectSchema.shape.settings,
+    export: authoringProjectSchema.shape.export,
     startupHook: authoringProjectSchema.shape.startupHook,
     entrypoint: authoringProjectSchema.shape.entrypoint,
   })
@@ -430,7 +431,10 @@ function ownershipFor(
       paths: ['/editor/chapters'],
     },
     'project:tags': { files: ['editor.json'], paths: ['/editor/tags'] },
-    'project:platform-export-profiles': { files: ['project.json'], paths: ['/settings/export'] },
+    'project:platform-export-profiles': {
+      files: ['project.json'],
+      paths: ['/export'],
+    },
     'editor:organization': {
       files: ['editor.json'],
       paths: ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'],
@@ -569,6 +573,7 @@ export function projectWorkspaceFiles(
       schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
       project: project.project,
       settings: project.settings,
+      export: project.export,
       startupHook: project.startupHook,
       entrypoint: project.entrypoint,
     },
@@ -744,8 +749,8 @@ export class ProjectWorkspaceService {
             manifest.schemaVersion !== PROJECT_WORKSPACE_SCHEMA_VERSION
           )
             return fail('Project must use the current NovelTea workspace schema.', '/schema');
-          const required = ['project', 'settings', 'startupHook', 'entrypoint'];
-          if (Object.keys(manifest).length !== 6 || !required.every((key) => key in manifest))
+          const required = ['project', 'settings', 'export', 'startupHook', 'entrypoint'];
+          if (Object.keys(manifest).length !== 7 || !required.every((key) => key in manifest))
             return fail('project.json has an unsupported workspace-v1 shape.');
           let properties: unknown;
           let localization: unknown;

@@ -142,6 +142,132 @@ describe('Prepared Runtime Artifact module', () => {
     });
   });
 
+  it('excludes unreferenced assets from both gameplay resources and package files by default', async () => {
+    const project = roomProject();
+    project.assets.unused = {
+      id: 'unused',
+      label: 'Unused',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/unused.png',
+        extension: '.png',
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+      }),
+    };
+
+    const pruned = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(), compileShadersBeforeExport: false },
+    });
+    expect(pruned.excludedUnusedAssetCount).toBe(1);
+    expect(pruned.compiledProject?.resources.assets.map((asset) => asset.id)).toEqual(['foyer']);
+    expect(pruned.fileEntries.map((entry) => entry.assetId)).toEqual(['foyer']);
+    expect(
+      JSON.parse(pruned.gameplayJson ?? '{}').resources.assets.map(
+        (asset: { id: string }) => asset.id,
+      ),
+    ).toEqual(['foyer']);
+
+    const complete = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: {
+        ...defaultExportProfile(),
+        compileShadersBeforeExport: false,
+        excludeUnusedAssets: false,
+      },
+    });
+    expect(complete.excludedUnusedAssetCount).toBe(0);
+    expect(complete.compiledProject?.resources.assets.map((asset) => asset.id)).toEqual([
+      'foyer',
+      'unused',
+    ]);
+    expect(complete.fileEntries.map((entry) => entry.assetId)).toEqual(['foyer', 'unused']);
+  });
+
+  it('retains assets referenced only by conservative Lua/source analysis', async () => {
+    const project = roomProject();
+    project.assets['lua-only'] = {
+      id: 'lua-only',
+      label: 'Lua Only',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/lua-only.png',
+        extension: '.png',
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.startupHook = { source: "local image = 'lua-only'" };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(), compileShadersBeforeExport: false },
+    });
+
+    expect(result.compiledProject?.resources.assets.map((asset) => asset.id)).toContain('lua-only');
+    expect(result.fileEntries.map((entry) => entry.assetId)).toContain('lua-only');
+  });
+
+  it('retains assets referenced only from file-backed Lua source', async () => {
+    const project = roomProject();
+    const sourceHash = `sha256:${'a'.repeat(64)}` as const;
+    project.assets['script-file'] = {
+      id: 'script-file',
+      label: 'Script File',
+      data: assetDataFromImportMetadata({
+        kind: 'script',
+        projectRelativePath: 'assets/scripts/main.lua',
+        extension: '.lua',
+        contentHash: sourceHash,
+        imageMetadata: null,
+      }),
+    };
+    project.assets['lua-only-file'] = {
+      id: 'lua-only-file',
+      label: 'Lua Only File',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/lua-only-file.png',
+        extension: '.png',
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.scripts.main = {
+      id: 'main',
+      label: 'Main',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'script-file' } } },
+      },
+    };
+
+    const result = await prepareRuntimeAssessmentForTest(project, {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(), compileShadersBeforeExport: false },
+      paths: {
+        resolveProjectSource(root, source) {
+          return `${root}/${source}`;
+        },
+        shaderAssetRoot() {
+          return undefined;
+        },
+        async readProjectTextSources(_root, entries) {
+          return entries.map((entry) => ({
+            status: 'ready' as const,
+            assetId: entry.assetId,
+            projectRelativePath: entry.projectRelativePath,
+            contentHash: entry.expectedContentHash,
+            text: "local image = 'lua-only-file'",
+          }));
+        },
+      },
+    });
+
+    expect(result.compiledProject?.resources.assets.map((asset) => asset.id)).toContain(
+      'lua-only-file',
+    );
+    expect(result.fileEntries.map((entry) => entry.assetId)).toContain('lua-only-file');
+  });
+
   it('marks authored audio stored and seekable regardless of its package filename', async () => {
     const project = roomProject();
     project.assets.theme = {
@@ -154,7 +280,11 @@ describe('Prepared Runtime Artifact module', () => {
         imageMetadata: null,
       }),
     };
-    const profile = { ...defaultExportProfile(), compileShadersBeforeExport: false };
+    const profile = {
+      ...defaultExportProfile(),
+      compileShadersBeforeExport: false,
+      excludeUnusedAssets: false,
+    };
     const result = await prepareRuntimeAssessmentForTest(project, {
       projectRoot: '/project',
       profile,
@@ -617,6 +747,122 @@ describe('Prepared Runtime Artifact module', () => {
         })
       ).status,
     ).toBe('rejected');
+  });
+
+  it('rejects a mutually consistent omitted compiled asset against a fresh current-project compile', async () => {
+    const project = roomProject();
+    const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
+    const prepared = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile,
+    });
+    expect(prepared.status).toBe('prepared');
+    if (prepared.status !== 'prepared') return;
+
+    const compiledProject = {
+      ...prepared.artifact.compiledProject,
+      resources: { ...prepared.artifact.compiledProject.resources, assets: [] },
+    };
+    const omitted = {
+      ...prepared.artifact,
+      compiledProject,
+      gameplayJson: JSON.stringify(compiledProject),
+      fileEntries: [],
+      manifestPreview: {
+        ...prepared.artifact.manifestPreview,
+        assetCount: 0,
+        entryCount: 1,
+      },
+      packageOptions: { ...prepared.artifact.packageOptions, fileEntries: [] },
+    };
+    const verified = await verifyPreparedRuntimeArtifact(omitted, {
+      project,
+      projectRoot: '/project',
+      profile,
+      paths: rendererRuntimeArtifactPaths,
+    });
+    expect(verified.status).toBe('rejected');
+    if (verified.status === 'rejected')
+      expect(verified.diagnostics[0]?.path).toBe('/artifact/compiledProject/resources/assets');
+  });
+
+  it('rejects pruned prepared evidence when source references cannot be independently rederived', async () => {
+    const project = roomProject();
+    const sourceHash = `sha256:${'a'.repeat(64)}` as const;
+    project.assets['script-file'] = {
+      id: 'script-file',
+      label: 'Script File',
+      data: assetDataFromImportMetadata({
+        kind: 'script',
+        projectRelativePath: 'assets/scripts/main.lua',
+        contentHash: sourceHash,
+        imageMetadata: null,
+      }),
+    };
+    project.assets['lua-only-file'] = {
+      id: 'lua-only-file',
+      label: 'Lua Only File',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/lua-only-file.png',
+        extension: '.png',
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.scripts.main = {
+      id: 'main',
+      label: 'Main',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'script-file' } } },
+      },
+    };
+    const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
+    const readyPaths = {
+      ...rendererRuntimeArtifactPaths,
+      async readProjectTextSources(
+        _root: string | null,
+        entries: Parameters<
+          NonNullable<typeof rendererRuntimeArtifactPaths.readProjectTextSources>
+        >[1],
+      ) {
+        return entries.map((entry) => ({
+          status: 'ready' as const,
+          assetId: entry.assetId,
+          projectRelativePath: entry.projectRelativePath,
+          contentHash: entry.expectedContentHash,
+          text: "local image = 'lua-only-file'",
+        }));
+      },
+    };
+    const prepared = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile,
+      paths: readyPaths,
+    });
+    expect(prepared.status).toBe('prepared');
+    if (prepared.status !== 'prepared') return;
+    expect(prepared.artifact.compiledProject.resources.assets.map((asset) => asset.id)).toContain(
+      'lua-only-file',
+    );
+
+    const verified = await verifyPreparedRuntimeArtifact(prepared.artifact, {
+      project,
+      projectRoot: '/project',
+      profile,
+      paths: {
+        ...rendererRuntimeArtifactPaths,
+        async readProjectTextSources(_root, entries) {
+          return entries.map((entry) => ({
+            status: 'unavailable' as const,
+            assetId: entry.assetId,
+          }));
+        },
+      },
+    });
+    expect(verified.status).toBe('rejected');
+    if (verified.status === 'rejected')
+      expect(verified.diagnostics[0]?.message).toContain('cannot be verified');
   });
 
   it('rejects preflight shader evidence when an export profile requires compiled outputs', async () => {

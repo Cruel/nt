@@ -22,46 +22,18 @@ export type Theme = 'system' | 'light' | 'dark';
 
 export interface ExportPreferences {
   defaultOutputDirectory: string;
-  androidSdk: string;
-  androidNdk: string;
-  javaHome: string;
-  cmake: string;
-  windowsSigningCommand: string;
-  windowsSigningArgs: string;
-  windowsVerifyCommand: string;
-  windowsVerifyArgs: string;
-  macosSigningIdentity: string;
-  macosEntitlementsPath: string;
-  macosNotarizationCommand: string;
-  macosNotarizationArgs: string;
-  androidKeystorePath: string;
-  androidKeyAlias: string;
-  androidStorePasswordReference: string;
-  androidKeyPasswordReference: string;
+  selectedProfileIds: Record<string, string>;
   profileOutputDirectories: Record<string, string>;
   profileTemplateTokens: Record<string, string>;
+  profileSigningProfileIds: Record<string, string>;
 }
 
 export const DEFAULT_EXPORT_PREFERENCES: ExportPreferences = {
   defaultOutputDirectory: '',
-  androidSdk: '',
-  androidNdk: '',
-  javaHome: '',
-  cmake: '',
-  windowsSigningCommand: '',
-  windowsSigningArgs: '["sign", "{executable}"]',
-  windowsVerifyCommand: '',
-  windowsVerifyArgs: '["verify", "{executable}"]',
-  macosSigningIdentity: '',
-  macosEntitlementsPath: '',
-  macosNotarizationCommand: '',
-  macosNotarizationArgs: '[]',
-  androidKeystorePath: '',
-  androidKeyAlias: '',
-  androidStorePasswordReference: '',
-  androidKeyPasswordReference: '',
+  selectedProfileIds: {},
   profileOutputDirectories: {},
   profileTemplateTokens: {},
+  profileSigningProfileIds: {},
 };
 
 export function normalizeExportPreferences(
@@ -70,8 +42,10 @@ export function normalizeExportPreferences(
   return {
     ...DEFAULT_EXPORT_PREFERENCES,
     ...value,
+    selectedProfileIds: { ...value?.selectedProfileIds },
     profileOutputDirectories: { ...value?.profileOutputDirectories },
     profileTemplateTokens: { ...value?.profileTemplateTokens },
+    profileSigningProfileIds: { ...value?.profileSigningProfileIds },
   };
 }
 

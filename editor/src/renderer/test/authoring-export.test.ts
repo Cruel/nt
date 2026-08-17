@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   defaultExportProfile,
-  defaultExportSettings,
   normalizeExportProfile,
-  parseExportSettings,
   runtimeExportProfileForPlatform,
   selectedExportProfile,
 } from '../../shared/project-schema/authoring-export';
@@ -22,12 +20,11 @@ describe('authoring export settings', () => {
       shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
       includeTests: false,
     });
-    expect(defaultExportSettings(project).selectedProfileId).toBe('runtime-default');
+    expect(project.export.runtime.id).toBe('runtime-default');
   });
 
-  it('normalizes absent or malformed settings', () => {
+  it('normalizes malformed runtime profiles', () => {
     const project = createAuthoringProject();
-    expect(parseExportSettings(null, project).profiles).toHaveLength(1);
     expect(normalizeExportProfile({ label: '', shaderVariants: [] }, project)).toMatchObject({
       id: 'runtime-default',
       label: 'Runtime Package',
@@ -35,18 +32,15 @@ describe('authoring export settings', () => {
     });
   });
 
-  it('reads the selected profile from project settings', () => {
+  it('reads the built-in runtime profile from top-level export settings', () => {
     const project = createAuthoringProject();
-    project.settings.export = {
-      selectedProfileId: 'web',
-      profiles: [
-        { ...defaultExportProfile(project), id: 'desktop', label: 'Desktop' },
-        { ...defaultExportProfile(project), id: 'web', label: 'Web', shaderVariants: ['essl-300'] },
-      ],
+    project.export.runtime = {
+      ...defaultExportProfile(project),
+      shaderVariants: ['essl-300'],
     };
     expect(selectedExportProfile(project)).toMatchObject({
-      id: 'web',
-      label: 'Web',
+      id: 'runtime-default',
+      label: 'Runtime Package',
       shaderVariants: ['essl-300'],
     });
     expect(runtimeExportProfileForPlatform(project, 'windows').shaderVariants).toEqual([

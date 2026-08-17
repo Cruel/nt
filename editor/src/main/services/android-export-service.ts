@@ -155,10 +155,6 @@ export function buildAndroidManifest(
 ) {
   if (request.profile.target !== 'android' || !descriptor.android)
     throw new Error('Android manifest requires Android contracts.');
-  const deployment = request.profile;
-  const permissions = [
-    ...new Set([...(request.capabilities ?? []), ...deployment.capabilityOverrides]),
-  ];
   const metadata = buildPlatformDeployment(request, descriptor).model?.capabilityMetadata;
   const permissionXml = (metadata?.androidPermissions ?? [])
     .map((name) => `    <uses-permission android:name="${xml(name)}" />`)
@@ -170,7 +166,6 @@ export function buildAndroidManifest(
     request.display.orientation === 'portrait' ? 'sensorPortrait' : 'sensorLandscape';
   const allowBackup = request.identity.androidAllowBackup ?? false;
   const appCategory = (request.identity.androidIsGame ?? true) ? ' android:appCategory="game"' : '';
-  void permissions;
   return `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 ${permissionXml ? `${permissionXml}\n` : ''}    <uses-feature android:glEsVersion="0x00030000" android:required="true" />

@@ -104,6 +104,14 @@ function platformTools(
         signing: {},
       };
     },
+    async loadUserConfig() {
+      return {
+        format: 'noveltea.user-export-config',
+        formatVersion: 1,
+        toolchains: {},
+        signingProfiles: [],
+      };
+    },
     ...patch,
   };
 }
@@ -127,13 +135,10 @@ function projectWithSourceReference() {
 }
 
 describe('NovelTea headless CLI', () => {
-  it('lists platform profiles with the copyable export id and selected marker', async () => {
+  it('lists platform profiles with copyable export ids', async () => {
     const value = fixture();
     const profile = defaultPlatformExportProfile('linux');
-    value.project.settings.platformExport = {
-      selectedProfileId: profile.id,
-      profiles: [profile],
-    };
+    value.project.export.profiles = [profile];
     const refreshed = fixture(value.project);
     const result = await runNovelTeaCli(
       ['--json', 'platform', 'profiles'],
@@ -145,7 +150,6 @@ describe('NovelTea headless CLI', () => {
       profiles: [
         {
           id: 'linux-release',
-          selected: true,
           target: 'linux',
           architecture: 'x64',
         },
@@ -153,10 +157,10 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
-  it('exports the selected platform profile and forwards strict publication flags', async () => {
+  it('exports the sole platform profile and forwards strict publication flags', async () => {
     const project = validProject();
     const profile = defaultPlatformExportProfile('linux');
-    project.settings.platformExport = { selectedProfileId: profile.id, profiles: [profile] };
+    project.export.profiles = [profile];
     const value = fixture(project);
     let request: Parameters<NovelTeaCliPlatformToolService['exportProject']>[0] | undefined;
     const result = await runNovelTeaCli(
@@ -168,7 +172,6 @@ describe('NovelTea headless CLI', () => {
         'dist/game',
         '--check',
         '--force',
-        '--sign',
         '--allow-untrusted-template',
       ],
       options(
@@ -198,15 +201,83 @@ describe('NovelTea headless CLI', () => {
       outputDirectory: '/projects/headless/dist/game',
       checkOnly: true,
       force: true,
-      sign: true,
+      sign: false,
       allowUntrustedTemplate: true,
+    });
+  });
+
+  it('uses a named shared signing configuration for headless export', async () => {
+    const project = validProject();
+    const profile = defaultPlatformExportProfile('windows');
+    project.export.profiles = [profile];
+    const value = fixture(project);
+    let request: Parameters<NovelTeaCliPlatformToolService['exportProject']>[0] | undefined;
+    const tools = platformTools({
+      async loadUserConfig() {
+        return {
+          format: 'noveltea.user-export-config',
+          formatVersion: 1,
+          toolchains: {},
+          signingProfiles: [
+            {
+              id: 'windows-release',
+              label: 'Windows Release Certificate',
+              target: 'windows',
+              command: 'signtool',
+              args: ['sign', '{executable}'],
+              verifyCommand: 'signtool',
+              verifyArgs: ['verify', '{executable}'],
+            },
+          ],
+        };
+      },
+      async exportProject(value) {
+        request = value;
+        return {
+          ok: true,
+          success: true,
+          cancelled: false,
+          operationId: 'signed',
+          templateToken: 'windows@build-1',
+          outputDirectory: value.outputDirectory,
+          diagnostics: [],
+        };
+      },
+    });
+
+    const result = await runNovelTeaCli(
+      [
+        '--json',
+        'platform',
+        'export',
+        '--output',
+        'dist/game',
+        '--signing-profile',
+        'windows-release',
+      ],
+      options(value, root, undefined, tools),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(request).toMatchObject({
+      sign: true,
+      localState: {
+        signing: {
+          windows: {
+            command: 'signtool',
+            args: ['sign', '{executable}'],
+            verifyCommand: 'signtool',
+            verifyArgs: ['verify', '{executable}'],
+          },
+        },
+      },
     });
   });
 
   it('rejects the removed platform completion option', async () => {
     const project = validProject();
     const profile = defaultPlatformExportProfile('linux');
-    project.settings.platformExport = { selectedProfileId: profile.id, profiles: [profile] };
+    project.export.profiles = [profile];
     const result = await runNovelTeaCli(
       ['--json', 'platform', 'export', '--output', 'dist/game', '--completion', 'published'],
       options(fixture(project), root, undefined, platformTools()),
@@ -215,10 +286,44 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(result.stdout).diagnostics[0].message).toContain("'--completion'");
   });
 
-  it('does not silently choose the first platform profile when no selection is configured', async () => {
+  it('uses the sole platform profile when --profile is omitted', async () => {
     const project = validProject();
     const profile = defaultPlatformExportProfile('linux');
-    project.settings.platformExport = { selectedProfileId: null, profiles: [profile] };
+    project.export.profiles = [profile];
+    let request: Parameters<NovelTeaCliPlatformToolService['exportProject']>[0] | undefined;
+    const result = await runNovelTeaCli(
+      ['--json', 'platform', 'export', '--output', 'dist/game'],
+      options(
+        fixture(project),
+        root,
+        undefined,
+        platformTools({
+          async exportProject(value) {
+            request = value;
+            return {
+              ok: true,
+              success: true,
+              cancelled: false,
+              operationId: 'single-profile',
+              templateToken: 'linux@build-1',
+              outputDirectory: value.outputDirectory,
+              diagnostics: [],
+            };
+          },
+        }),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(request?.profileId).toBe(profile.id);
+  });
+
+  it('requires --profile when multiple platform profiles are configured', async () => {
+    const project = validProject();
+    project.export.profiles = [
+      defaultPlatformExportProfile('linux'),
+      defaultPlatformExportProfile('windows'),
+    ];
     const result = await runNovelTeaCli(
       ['--json', 'platform', 'export', '--output', 'dist/game'],
       options(fixture(project), root, undefined, platformTools()),
@@ -226,7 +331,9 @@ describe('NovelTea headless CLI', () => {
 
     expect(result.exitCode).toBe(4);
     expect(JSON.parse(result.stdout).diagnostics).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: 'platform.profile_missing' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'platform.profile_missing', path: '/export/profiles' }),
+      ]),
     );
   });
 
@@ -325,6 +432,45 @@ describe('NovelTea headless CLI', () => {
     );
     expect(unsupportedAssetCreate.exitCode).toBe(2);
     expect(unsupportedAssetCreate.stderr).toContain('Generic Asset creation is not supported');
+  });
+
+  it('accepts Runtime Package developer overrides headlessly', async () => {
+    const value = fixture(validProject());
+    let receivedOptions: unknown;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      async compileShaders() {
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async runHeadlessTest() {
+        return { ok: true, success: true };
+      },
+      async runUiTest() {
+        return { ok: true, success: true };
+      },
+      async exportPackage(request) {
+        receivedOptions = (request as { options?: unknown }).options;
+        return { ok: true, success: true };
+      },
+      shaderc() {
+        return 0;
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      [
+        '--json',
+        'package',
+        'export',
+        '--output',
+        'dist/game.ntpkg',
+        '--include-unused-assets',
+        '--include-shader-sources',
+      ],
+      options(value, root, nativeTools),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(receivedOptions).toMatchObject({ stripShaderSources: false });
   });
 
   it('reads stdin only for the exact test run-spec command path', async () => {

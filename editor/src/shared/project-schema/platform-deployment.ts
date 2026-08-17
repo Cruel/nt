@@ -1,4 +1,6 @@
 import type {
+  ExportCapability,
+  ExportPlatform,
   PlatformCapabilityMetadata,
   PlatformDeploymentModel,
   PlatformStageDiagnostic,
@@ -16,7 +18,6 @@ const mapping: Record<string, Partial<PlatformCapabilityMetadata>> = {
     webRequirements: ['network'],
   },
   'external-url': {
-    androidPermissions: ['android.permission.INTERNET'],
     webRequirements: ['external-navigation'],
   },
   'clipboard.read': { webRequirements: ['clipboard-read'], desktopFeatures: ['clipboard'] },
@@ -43,6 +44,13 @@ const mapping: Record<string, Partial<PlatformCapabilityMetadata>> = {
   billing: { androidPermissions: ['com.android.vending.BILLING'], desktopFeatures: ['billing'] },
 };
 const sorted = (values: string[]) => [...new Set(values)].sort();
+
+export function derivedPlatformCapabilities(target: ExportPlatform): ExportCapability[] {
+  const capabilities: ExportCapability[] = ['external-url'];
+  if (target === 'android') capabilities.push('vibration');
+  return capabilities;
+}
+
 export function capabilityMetadata(capabilities: string[]): PlatformCapabilityMetadata {
   const result: PlatformCapabilityMetadata = {
     androidPermissions: [],
@@ -77,10 +85,7 @@ export function buildPlatformDeployment(
     error('invalid-app-identity', '/identity/displayName', 'Display name is required.');
   if (!request.iconSourcePath)
     error('missing-icon', '/iconSourcePath', 'A canonical application icon is required.');
-  const capabilities = sorted([
-    ...(request.capabilities ?? []),
-    ...request.profile.capabilityOverrides,
-  ]);
+  const capabilities = sorted([...(request.capabilities ?? [])]);
   const compatibility = evaluateTemplateCompatibility(descriptor, {
     profile: request.profile,
     runtimePackageApi: request.runtimePackageApi,

@@ -46,10 +46,6 @@ const representativeResources: Record<string, WorkbenchResource> = {
   settings: { kind: 'tool', stableId: 'utility:settings' },
   'project-settings': { kind: 'project', stableId: 'project:settings' },
   'platform-export': { kind: 'project', stableId: 'project:platform-export' },
-  'platform-export-profiles': {
-    kind: 'project',
-    stableId: 'project:platform-export-profiles',
-  },
   'project-chapters': { kind: 'project', stableId: 'project:chapters' },
   'project-tags': { kind: 'project', stableId: 'project:tags' },
 };

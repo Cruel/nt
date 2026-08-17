@@ -7,7 +7,10 @@ paths accept no legacy monolithic project file or alternate manifest name.
 ## Tracked source
 
 `project.json` has schema `noveltea.project.workspace` at version `1` and owns project identity,
-settings, startup hook, and entrypoint. `properties.json`, `localization.json`, and `editor.json`
+project settings, top-level export configuration, startup hook, and entrypoint. `/settings` is the
+Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
+built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
+choices remain editor-local. `properties.json`, `localization.json`, and `editor.json`
 are required contextual fragments. `editor.json` contains exactly collaborator-visible `chapters`,
 `tags`, and `recordMetadata`.
 

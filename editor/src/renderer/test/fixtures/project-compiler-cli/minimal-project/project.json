@@ -63,6 +63,24 @@
       }
     }
   },
+  "export": {
+    "runtime": {
+      "id": "runtime-default",
+      "label": "Runtime Package",
+      "kind": "runtime",
+      "outputPath": "",
+      "includeChecksums": true,
+      "stripEditorData": true,
+      "stripShaderSources": true,
+      "compileShadersBeforeExport": true,
+      "shaderVariants": ["glsl-120", "essl-100", "essl-300", "metal"],
+      "excludeUnusedAssets": true,
+      "includeShaderSources": false,
+      "includeTests": false,
+      "previewAfterExport": false
+    },
+    "profiles": []
+  },
   "startupHook": null,
   "entrypoint": {
     "kind": "room",

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import {
   emptyEditorProjectState,
   stripEditorProjectState,
@@ -308,11 +309,11 @@ describe('project recovery reconstruction', () => {
     setLoadedEditorProjectState(project.editor);
 
     const result = useCommandStore.getState().executeCommand({
-      type: 'project.addAtPath',
-      label: 'Add platform export profiles',
+      type: 'project.replaceAtPath',
+      label: 'Update platform export profiles',
       payload: {
-        path: '/settings/platformExport',
-        value: { selectedProfileId: null, profiles: [] },
+        path: '/export/profiles',
+        value: [defaultPlatformExportProfile('windows')],
       },
       originSaveUnitId: 'project:platform-export-profiles',
       persistencePolicy: 'manual-save',
@@ -321,7 +322,7 @@ describe('project recovery reconstruction', () => {
 
     const recovery = buildEditorProjectStateSnapshot().recovery;
     expect(recovery.saveUnitsById['project:platform-export-profiles']?.affectedPaths).toEqual([
-      '/settings/platformExport',
+      '/export/profiles',
     ]);
     expect(recovery.saveUnitsById['project:settings']).toBeUndefined();
   });

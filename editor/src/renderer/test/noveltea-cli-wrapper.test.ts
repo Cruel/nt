@@ -12,6 +12,11 @@ describe('NovelTea CLI development wrapper', () => {
 
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ success: true, exitCode: 0 });
+    const jsonLine = result.stdout
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .findLast((line) => line.startsWith('{'));
+    expect(jsonLine).toBeDefined();
+    expect(JSON.parse(jsonLine!)).toMatchObject({ success: true, exitCode: 0 });
   }, 35_000);
 });

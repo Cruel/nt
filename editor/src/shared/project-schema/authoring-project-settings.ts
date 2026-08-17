@@ -1,9 +1,7 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
-import { exportSettingsSchema } from './authoring-export';
 import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
 import { systemLayoutRoleValues, systemLayoutSettingsSchema } from './authoring-layouts';
-import { projectPlatformExportSettingsSchema } from './platform-export-contracts';
 import {
   roomNavigationTransitionSchema,
   validateRoomNavigationTransition,
@@ -231,8 +229,6 @@ export const typedProjectSettingsSchema = z
       .default({
         roomNavigationTransition: { kind: 'cut', durationMs: 0, color: null, skippable: true },
       }),
-    export: exportSettingsSchema.optional(),
-    platformExport: projectPlatformExportSettingsSchema.optional(),
   })
   .strict();
 

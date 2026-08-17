@@ -139,8 +139,6 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'nnoonoonnonnnnoosnnnosnnnnnnoooooonoooooonoonnnnnyonnnnnnyonsssssssssovsnnsssssssssnnsnoooooonsnoono' +
   'oonnsssssssssovssnoonoonnnnnnoyop';
 
-const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = REVIEWED_FIELD_EFFECT_CODES;
-
 const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
   [/^\/assets\/\*\/data\/imageMetadata\//, OWNER],
   [/^\/interactables\/\*\/data\/presentation\/hotspots\//, OWNER],
@@ -194,6 +192,31 @@ function fnv1a(value: string): string {
 const schemaLeafPaths = new Set<JsonPointer>();
 collectSchemaLeafPaths(authoringProjectSchema, schemaLeafPaths);
 const sortedSchemaLeafPaths = [...schemaLeafPaths].sort();
+
+// Export configuration moved from /settings/{export,platformExport} to /export. It has no
+// dependency-graph effect, but the reviewed code sequence predates that top-level reclassification.
+// Relocate the old export-config code block to the new schema position and normalize it to `none` so
+// unrelated field classifications retain their reviewed alignment.
+const exportLeafCount = sortedSchemaLeafPaths.filter((path) => path.startsWith('/export/')).length;
+const retiredExportLeafCount = 2; // capabilityOverrides and signingProfileId
+const legacyExportLeafCount = exportLeafCount + retiredExportLeafCount;
+const exportFirstLeafIndex = sortedSchemaLeafPaths.findIndex((path) => path.startsWith('/export/'));
+const settingsPresentationLeafIndex = sortedSchemaLeafPaths.findIndex((path) =>
+  path.startsWith('/settings/presentation/'),
+);
+const reviewedCountBefore = (leafIndex: number) =>
+  sortedSchemaLeafPaths.slice(0, leafIndex).filter((path) => !explicitFieldEffect(path)).length;
+const exportInsertReviewedIndex = reviewedCountBefore(exportFirstLeafIndex);
+const legacyExportReviewedIndex =
+  reviewedCountBefore(settingsPresentationLeafIndex) - legacyExportLeafCount;
+const reviewedWithoutLegacyExport =
+  REVIEWED_FIELD_EFFECT_CODES.slice(0, legacyExportReviewedIndex) +
+  REVIEWED_FIELD_EFFECT_CODES.slice(legacyExportReviewedIndex + legacyExportLeafCount);
+const ACTIVE_REVIEWED_FIELD_EFFECT_CODES =
+  reviewedWithoutLegacyExport.slice(0, exportInsertReviewedIndex) +
+  'n'.repeat(exportLeafCount) +
+  reviewedWithoutLegacyExport.slice(exportInsertReviewedIndex);
+
 const explicitLeafCount = sortedSchemaLeafPaths.filter((path) => explicitFieldEffect(path)).length;
 if (
   ACTIVE_REVIEWED_FIELD_EFFECT_CODES.length + explicitLeafCount !==
@@ -241,6 +264,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     characters: '249ac48b',
     dialogues: 'e674338a',
     entrypoint: 'a61673d4',
+    export: 'b9fd529f',
     interactables: '9e7a7329',
     interactions: '42041028',
     layouts: '87e0b859',
@@ -254,7 +278,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
-    settings: '88ac0f8d',
+    settings: 'faa09891',
     shaders: '94d3aa6e',
     startupHook: '4fa45604',
     tests: '2dead819',

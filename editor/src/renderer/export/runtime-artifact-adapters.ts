@@ -6,6 +6,7 @@ import type {
 } from '../../shared/runtime-artifact-preparation';
 import { useShaderCompileStore } from '../shaders/shader-compile-store';
 import { joinHostPath } from '../host-filesystem-path';
+import { useProjectStore } from '../project/project-store';
 
 export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
   resolveProjectSource(projectRoot, source) {
@@ -15,6 +16,32 @@ export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
   },
   shaderAssetRoot(projectRoot) {
     return projectRoot ? joinHostPath(projectRoot, '.noveltea', 'build') : undefined;
+  },
+  async readProjectTextSources(_projectRoot, entries) {
+    const projectSessionId = useProjectStore.getState().projectSessionId;
+    if (!projectSessionId)
+      return entries.map(({ assetId }) => ({ status: 'unavailable' as const, assetId }));
+    const response = await window.noveltea.readProjectTextSources({
+      projectSessionId,
+      entries: entries.map((entry) => ({
+        readKey: entry.assetId,
+        projectRelativePath: entry.projectRelativePath,
+        expectedContentHash: entry.expectedContentHash,
+      })),
+    });
+    const byKey = new Map(response.entries.map((entry) => [entry.readKey, entry]));
+    return entries.map(({ assetId, projectRelativePath }) => {
+      const result = byKey.get(assetId);
+      return result?.status === 'ready'
+        ? {
+            status: 'ready' as const,
+            assetId,
+            projectRelativePath,
+            contentHash: result.contentHash,
+            text: result.text,
+          }
+        : { status: 'unavailable' as const, assetId };
+    });
   },
 };
 

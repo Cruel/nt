@@ -83,6 +83,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE, templateId, buildId),
   resolvePlayerTemplate: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, request),
+  loadUserExportConfig: () => ipcRenderer.invoke(IPC_CHANNELS.LOAD_USER_EXPORT_CONFIG),
+  saveUserExportConfig: (value) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_USER_EXPORT_CONFIG, value),
   compileShaders: (shaderProject: unknown, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, shaderProject, options),
   saveProjectContent: (

@@ -4,7 +4,6 @@ import {
   buildComfyUiWorkflowsTab,
   buildDefaultRecordTab,
   buildFullGamePreviewTab,
-  buildPlatformExportProfilesTab,
   buildPlatformExportTab,
   buildTestsEditorTab,
   buildVariablesEditorTab,
@@ -95,18 +94,6 @@ describe('editor registry', () => {
       editorType: 'platform-export',
       resource: { kind: 'project', stableId: 'project:platform-export' },
     });
-  });
-
-  it('builds export profile management as a separate project-scoped tab', () => {
-    expect(buildPlatformExportProfilesTab()).toEqual({
-      id: 'tab:platform-export-profiles',
-      title: 'Export Profiles',
-      editorType: 'platform-export-profiles',
-      resource: { kind: 'project', stableId: 'project:platform-export-profiles' },
-    });
-    expect(defaultEditorRegistry.resolve('platform-export-profiles')?.label).toBe(
-      'Export Profiles',
-    );
   });
 
   it('builds the global ComfyUI workflows tab descriptor', () => {

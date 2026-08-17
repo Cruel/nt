@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { EDITOR_IPC_FAILURE, EditorIpcBoundaryError } from '../shared/editor-ipc-boundary';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
+import { userExportConfigSchema } from '../shared/project-schema/platform-export-contracts';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
 const MAX_DIALOG_TITLE_LENGTH = 512;
@@ -184,6 +185,7 @@ export const selectDirectoryArgumentsSchema = z.tuple([
 ]);
 
 export const noArgumentsSchema = z.tuple([]);
+export const saveUserExportConfigArgumentsSchema = z.tuple([userExportConfigSchema]);
 
 export const selectPackageOutputPathArgumentsSchema = z.tuple([
   z.string().min(1).max(MAX_DIALOG_PATH_LENGTH).nullable(),
