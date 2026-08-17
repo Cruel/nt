@@ -162,8 +162,11 @@ function validateSourceImage(
       diagnostic(
         category,
         path,
-        'Clickable hotspots require an image source.',
+        category === 'Interactables'
+          ? 'Hotspot has no sprite image configured yet.'
+          : 'Clickable hotspots require an image source.',
         'hotspot.authoring.source-image-required',
+        category === 'Interactables' ? 'warning' : 'error',
       ),
     ];
   const record = project.assets[assetId];

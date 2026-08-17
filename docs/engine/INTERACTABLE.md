@@ -32,7 +32,9 @@ host APIs but cannot mutate arbitrary JSON.
 
 The editor authoring schema uses the current `interactables` collection with immutable presentation and an
 explicit initial location/enabled/visible declaration. The editor supports creation and detail editing
-and validates a Room-placement initial location against its matching placement. `CompiledProject`
+and validates a Room-placement initial location against its matching placement. A newly created
+Interactable may temporarily have no sprite while being authored; its default hotspot is therefore
+reported as incomplete with a warning rather than making the record unsavable. `CompiledProject`
 decodes `InteractableDefinition` records, `SessionState` initializes one live state per definition,
 and typed mutations reject missing definitions and invalid placement references. Placements have no
 occupant back-reference or Interactable owner. Lua,
