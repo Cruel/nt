@@ -199,6 +199,51 @@ describe('ProjectWorkspaceService', () => {
     ]);
   });
 
+  it('reports precise authoring schema diagnostics when workspace fragments assemble invalid data', async () => {
+    const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const files = filesFor(project);
+    const roomPath = '/projects/headless/records/rooms/foyer.json';
+    const room = JSON.parse(files[roomPath]!) as {
+      data: { interactables: unknown[] };
+    };
+    room.data.interactables = [
+      {
+        id: 'key-instance',
+        interactable: { $ref: { collection: 'interactables', id: 'key' } },
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        enabled: true,
+        visible: true,
+        order: 0,
+      },
+    ];
+    files[roomPath] = `${JSON.stringify(room, null, 2)}\n`;
+
+    const opened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(files),
+    ).open('/projects/headless');
+    expect(opened.ok).toBe(false);
+    if (opened.ok) return;
+
+    expect(opened.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/rooms/foyer/data/interactables/0/bounds',
+          code: 'authoring.schema.invalid_type',
+        }),
+        expect.objectContaining({
+          path: '/rooms/foyer/data/interactables/0',
+          code: 'authoring.schema.unrecognized_keys',
+          message: expect.stringContaining('id'),
+        }),
+      ]),
+    );
+    expect(opened.diagnostics.map((diagnostic) => diagnostic.message)).not.toContain(
+      'Workspace fragments do not assemble into the current authoring project.',
+    );
+  });
+
   it('returns the full composed editor state while keeping contentProject editor-free', async () => {
     const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };

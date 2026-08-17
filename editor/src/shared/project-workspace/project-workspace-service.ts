@@ -1060,7 +1060,12 @@ export class ProjectWorkspaceService {
           (candidate as Record<string, unknown>).schemaVersion = AUTHORING_PROJECT_SCHEMA_VERSION;
           const decoded = authoringProjectSchema.safeParse(candidate);
           if (!decoded.success)
-            return fail('Workspace fragments do not assemble into the current authoring project.');
+            return complete({
+              ok: false,
+              projectRoot: discovered.projectRoot,
+              manifestPath: discovered.manifestPath,
+              diagnostics: validateAuthoringProject(candidate),
+            });
           // Preserve the separately validated tracked editor organization after AuthoringProject
           // parsing instead of relying on a second nested dynamic-record normalization pass.
           decoded.data.editor.chapters = trackedEditor.chapters;
