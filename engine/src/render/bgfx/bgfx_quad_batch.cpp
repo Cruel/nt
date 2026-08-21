@@ -976,9 +976,10 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     };
 
     BgfxMaterialBindResult bound;
-    if (command.material.value() == builtin_hotspot_alpha_material_id ||
-        command.material.value() == builtin_hotspot_custom_material_id) {
-        const auto interface = command.material.value() == builtin_hotspot_alpha_material_id
+    const auto& material_id = command.material.string();
+    if (material_id == builtin_hotspot_alpha_material_id ||
+        material_id == builtin_hotspot_custom_material_id) {
+        const auto interface = material_id == builtin_hotspot_alpha_material_id
                                    ? HotspotMaterialInterface::Alpha
                                    : HotspotMaterialInterface::Custom;
         bound = m_material_binder->bind_system_material(
