@@ -69,7 +69,7 @@ There is no compiled Variable reference or separate Variable runtime store.
 
 `PropertyTargetRef` is either the explicit global target or one supported identity target. Globals do not use a fake Game/entity owner ID.
 
-`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. Global reads resolve an override first and otherwise return the required authored default. Identity-scoped reads retain their authored assignment/inheritance/default lookup rules until those later domain-model slices are replaced.
+`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. Global reads resolve an override first and otherwise return the required authored default. Identity-scoped reads resolve runtime override, direct authored assignment, configured attached Trait value, declaration default, then typed missing. Values never propagate between same-type definitions.
 
 ### Null versus unset
 
@@ -85,7 +85,7 @@ Do not encode "unset" as `null`.
 
 Every authoritative runtime Property override participates in checkpoints and saves. There is no `Session` versus `Save` Property persistence class.
 
-`noveltea.save.state` V8 serializes only sparse Property overrides. Authored defaults and inherited/effective values are not materialized into the save. A missing override record means unset; a saved nullable null remains an explicit override.
+`noveltea.save.state` V8 serializes only sparse Property overrides. Direct authored assignments, Trait configuration, declaration defaults, and other effective values are not materialized into the save. A missing override record means unset; a saved nullable null remains an explicit override.
 
 Loading validates every saved target, declaration, and value before restoring the candidate session.
 
@@ -148,6 +148,6 @@ engine/src/runtime/runtime_command_gateway.cpp
 engine/src/script/lua/bind_typed_script_host.cpp
 ```
 
-## Related direction
+## Traits
 
-Traits, Archetypes, runtime-created identities, and removal of provisional same-type definition inheritance are separate parent-spec slices. This Variable/Property unification does not pre-implement those later changes.
+Traits are now the supported capability/configuration layer over identity-scoped Properties; see `docs/engine/TRAIT.md`. They reuse these exact Property declarations, values, Lua APIs, mutation validation, checkpoint semantics, and save semantics. Universal same-type gameplay definition inheritance is retired.

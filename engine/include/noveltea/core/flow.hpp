@@ -93,7 +93,7 @@ struct VerbDefaultProgramRef {
 using InteractionProgramRef = std::variant<InteractionRuleProgramRef, VerbDefaultProgramRef>;
 enum class InteractionFallbackStage : std::uint8_t {
     SelectedProgram,
-    ParentVerb,
+    VerbDefault,
     UndefinedInteraction,
     Complete
 };

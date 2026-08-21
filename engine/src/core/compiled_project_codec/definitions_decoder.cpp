@@ -189,8 +189,8 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                                                     std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"defaults", "dialogue", "displayName", "expressions", "extends", "id",
-                         "idles", "initialWorldState", "poses", "propertyAssignments"}))
+                        {"defaults", "dialogue", "displayName", "expressions", "id", "idles",
+                         "initialWorldState", "poses", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<CharacterId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -494,8 +494,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
 {
     if (!decoder.object(value, pointer,
                         {"background", "description", "displayName", "environments", "exits",
-                         "hotspots", "extends", "id", "cast", "compose", "lifecycle", "overlays",
-                         "placements", "props", "propertyAssignments"}))
+                         "hotspots", "id", "cast", "compose", "lifecycle", "overlays", "placements",
+                         "props", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<RoomId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -1078,9 +1078,9 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
 std::optional<InteractableDefinition>
 decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
-    if (!decoder.object(value, pointer,
-                        {"displayName", "extends", "id", "initialState", "presentation",
-                         "propertyAssignments"}))
+    if (!decoder.object(
+            value, pointer,
+            {"displayName", "id", "initialState", "presentation", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<InteractableId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -1238,7 +1238,7 @@ std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& 
 {
     if (!decoder.object(
             value, pointer,
-            {"connections", "extends", "id", "locations", "presentation", "propertyAssignments"}))
+            {"connections", "id", "locations", "presentation", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<MapId>(decoder, value, pointer);
     const auto* connections_value = decoder.member(value, "connections", pointer);

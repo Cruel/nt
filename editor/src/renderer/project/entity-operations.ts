@@ -84,10 +84,6 @@ export interface UpdateEntityMetadataPayload extends EntityTarget {
   sortKey?: string | null;
 }
 
-export interface SetEntityExtendsPayload extends EntityTarget {
-  extendsId: string | null;
-}
-
 export interface EntityOperationDiagnostic {
   severity: 'error' | 'warning' | 'info';
   message: string;
@@ -222,7 +218,7 @@ export function createDefaultAuthoringRecord(
       'maps',
     ].includes(collection)
   ) {
-    record.extends = null;
+    record.traits = [];
     record.properties = {};
   }
   return record;
@@ -321,7 +317,6 @@ function rewriteRecordReferences(
   to: ReferenceTarget,
 ): AuthoringRecordBase {
   const next = cloneRecord(record);
-  if (from.collection === to.collection && next.extends === from.id) next.extends = to.id;
   next.data = rewriteReferenceTarget(next.data, from, to);
   return next;
 }
@@ -462,7 +457,7 @@ export function renameEntityIdPatches(
     if (usage.sourceCollection === payload.collection && usage.sourceId === payload.fromId)
       continue;
     const value =
-      usage.kind === 'variable-ref' || usage.kind === 'extends'
+      usage.kind === 'variable-ref'
         ? to.id
         : usage.kind === 'entrypoint'
           ? { kind: to.collection.slice(0, -1), id: to.id }
@@ -666,90 +661,6 @@ export function updateEntityMetadataPatches(
     affectedPaths.push(metadataPath);
   }
   return { patches, affectedPaths };
-}
-
-const extendableCollections = new Set<AuthoringCollectionKey>([
-  'characters',
-  'rooms',
-  'interactables',
-  'verbs',
-  'interactions',
-  'dialogues',
-  'scenes',
-  'maps',
-]);
-
-export function wouldCreateExtendsCycle(
-  project: AuthoringProject,
-  source: EntityTarget,
-  extendsId: string | null,
-): boolean {
-  let current = extendsId;
-  const seen = new Set<string>();
-  while (current) {
-    if (current === source.entityId || seen.has(current)) return true;
-    seen.add(current);
-    current =
-      (project[source.collection][current] as AuthoringRecordBase | undefined)?.extends ?? null;
-  }
-  return false;
-}
-
-export function setEntityExtendsPatches(
-  document: unknown,
-  payload: SetEntityExtendsPayload,
-): EntityOperationResult {
-  const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
-  if (!extendableCollections.has(payload.collection)) {
-    return {
-      patches: [],
-      diagnostics: [
-        error(
-          `${payload.collection} records do not support extends.`,
-          pathForRecord(payload.collection, payload.entityId),
-        ),
-      ],
-    };
-  }
-  const record = project[payload.collection][payload.entityId] as AuthoringRecordBase | undefined;
-  if (!record)
-    return {
-      patches: [],
-      diagnostics: [
-        error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId)),
-      ],
-    };
-  if (payload.extendsId && !project[payload.collection][payload.extendsId]) {
-    return {
-      patches: [],
-      diagnostics: [
-        error(
-          'Extended record does not exist.',
-          pathForRecord(payload.collection, payload.extendsId),
-        ),
-      ],
-    };
-  }
-  if (wouldCreateExtendsCycle(project, payload, payload.extendsId)) {
-    return {
-      patches: [],
-      diagnostics: [
-        error(
-          'extends assignment would create a cycle.',
-          pathForRecordField(payload.collection, payload.entityId, 'extends'),
-        ),
-      ],
-    };
-  }
-  const patch = recordFieldPatch(
-    record,
-    payload.collection,
-    payload.entityId,
-    'extends',
-    payload.extendsId,
-  );
-  return { patches: [patch], affectedPaths: [patch.path] };
 }
 
 export function referenceUsageSummary(usages: ReferenceUsage[]): string {

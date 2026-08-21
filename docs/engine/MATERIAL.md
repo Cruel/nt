@@ -165,7 +165,7 @@ Material-specific commands include:
 - `material.replaceData` for validated full data replacement;
 - `material.setBase` for setting or clearing the explicit base material.
 
-Generic entity commands handle creation, rename, deletion, metadata updates, duplication, and gameplay-definition `extends` where supported. Material inheritance remains a material-specific command and schema field.
+Generic entity commands handle creation, rename, deletion, metadata updates, and duplication. Material inheritance remains a material-specific command and schema field; it is unrelated to the retired universal gameplay-definition `extends` relationship.
 
 `resolveMaterialData()` follows `data.baseMaterialId` and merges inherited material data before preview/export. Uniforms and textures are keyed by `name` and `sampler` respectively during merge.
 

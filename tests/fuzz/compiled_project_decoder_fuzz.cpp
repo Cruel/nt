@@ -70,8 +70,8 @@ int main()
     }
 
     for (const auto name :
-         {"minimal", "comprehensive", "inheritance-properties-localization", "resources",
-          "scene-program", "dialogue-program", "interaction-program"})
+         {"minimal", "comprehensive", "trait-properties-localization", "resources", "scene-program",
+          "dialogue-program", "interaction-program"})
         if (!exercise_fixture(name))
             return 1;
     return 0;

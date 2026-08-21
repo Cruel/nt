@@ -237,6 +237,8 @@ export function serializeAuthoringDependencyNodeKey(key: AuthoringDependencyNode
       return JSON.stringify(['nested', key.ownerCollection, key.ownerId, key.family, key.id]);
     case 'property-definition':
       return JSON.stringify(['property-definition', key.id]);
+    case 'trait-definition':
+      return JSON.stringify(['trait-definition', key.id]);
     case 'localization-key':
       return JSON.stringify(['localization-key', key.locale, key.key]);
     case 'project-field':
@@ -264,6 +266,10 @@ export function propertyDefinitionNodeKey(id: string): AuthoringDependencyNodeKe
   return Object.freeze({ kind: 'property-definition', id });
 }
 
+export function traitDefinitionNodeKey(id: string): AuthoringDependencyNodeKey {
+  return Object.freeze({ kind: 'trait-definition', id });
+}
+
 export function localizationKeyNodeKey(locale: string, key: string): AuthoringDependencyNodeKey {
   return Object.freeze({ kind: 'localization-key', locale, key });
 }
@@ -282,6 +288,10 @@ export function projectFieldContributionKey(path: JsonPointer): string {
 
 export function propertyDefinitionContributionKey(id: string): string {
   return `property-definition:${JSON.stringify(id)}`;
+}
+
+export function traitDefinitionContributionKey(id: string): string {
+  return `trait-definition:${JSON.stringify(id)}`;
 }
 
 export function localizationContributionKey(locale: string, key: string): string {
@@ -903,7 +913,7 @@ function semanticEdgeOptions(
       'material-base',
     ].includes(role)
   ) {
-    targetImpactPaths = recordImpactPaths(target, ['/extends', '/data']);
+    targetImpactPaths = recordImpactPaths(target, ['/data']);
   } else if (role === 'material-shader') {
     targetImpactPaths = recordImpactPaths(target, ['/data']);
   } else if (
@@ -1579,14 +1589,19 @@ function recordContribution(
       : collection === 'interactables'
         ? nestedInteractableNodesAndEdges(id, record, source, owningPath)
         : { nodes: [], edges: [] };
-  if (record.extends) {
+  for (const [index, traitId] of (record.traits ?? []).entries()) {
     edges.push(
       structuralEdge(
         source,
-        recordNodeKey(collection, record.extends),
-        `${owningPath}/extends`,
-        `/${collection}/${escapeJsonPointerSegment(record.extends)}`,
-        'extends',
+        traitDefinitionNodeKey(traitId),
+        `${owningPath}/traits/${index}`,
+        `/traits/${escapeJsonPointerSegment(traitId)}`,
+        {
+          role: 'trait-attachment',
+          facets: ['reference-integrity', 'tooling-reference', 'validation', 'runtime-only'],
+          targetImpactPaths: [`/traits/${escapeJsonPointerSegment(traitId)}`],
+          repair: { kind: 'remove-array-item', itemPath: `${owningPath}/traits/${index}` },
+        },
       ),
     );
   }
@@ -1606,7 +1621,7 @@ function recordContribution(
           facets: ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
           targetImpactPaths: recordImpactPaths(
             recordNodeKey('materials', record.data.baseMaterialId),
-            ['/extends', '/data'],
+            ['/data'],
           ),
           repair: { kind: 'set-null', path: `${owningPath}/data/baseMaterialId` },
         },
@@ -1722,6 +1737,47 @@ function deriveStructuralContributionByKey(
     const record = project[collection][id];
     return record ? recordContribution(project, collection, id, record) : null;
   }
+  if (contributionKey.startsWith('trait-definition:')) {
+    const id = JSON.parse(contributionKey.slice('trait-definition:'.length)) as unknown;
+    if (typeof id !== 'string') return null;
+    const definition = project.traits[id];
+    if (!definition) return null;
+    const key = traitDefinitionNodeKey(id);
+    const ownerPath = `/traits/${escapeJsonPointerSegment(id)}`;
+    const edges = definition.properties.map((property, index) =>
+      structuralEdge(
+        key,
+        propertyDefinitionNodeKey(property.propertyId),
+        `${ownerPath}/properties/${index}/propertyId`,
+        `/properties/${escapeJsonPointerSegment(property.propertyId)}`,
+        {
+          role: 'trait-property',
+          facets: ['reference-integrity', 'tooling-reference', 'validation', 'runtime-only'],
+          targetImpactPaths: [`/properties/${escapeJsonPointerSegment(property.propertyId)}`],
+          repair: {
+            kind: 'blocked',
+            reason: 'Trait Property membership must be repaired explicitly.',
+          },
+        },
+      ),
+    );
+    return {
+      key: contributionKey,
+      ownerPath,
+      nodes: [
+        {
+          key,
+          keyText: serializeAuthoringDependencyNodeKey(key),
+          owningPath: ownerPath,
+          label: definition.label,
+        },
+      ],
+      edges,
+      diagnostics: [],
+      derivationDependencies: [],
+      literalOccurrences: [],
+    };
+  }
   if (contributionKey.startsWith('property-definition:')) {
     const id = JSON.parse(contributionKey.slice('property-definition:'.length)) as unknown;
     if (typeof id !== 'string') return null;
@@ -1823,6 +1879,7 @@ export function enumerateAuthoringDependencyContributionKeys(
   const keys: string[] = [];
   for (const id of Object.keys(project.properties))
     keys.push(propertyDefinitionContributionKey(id));
+  for (const id of Object.keys(project.traits)) keys.push(traitDefinitionContributionKey(id));
   for (const [locale, catalog] of Object.entries(project.localization.catalogs))
     for (const key of Object.keys(catalog)) keys.push(localizationContributionKey(locale, key));
   for (const field of projectFieldSpecs(project))
@@ -1888,6 +1945,7 @@ function luaTargetPath(target: AuthoringDependencyNodeKey): JsonPointer {
     return `/${target.collection}/${escapeJsonPointerSegment(target.id)}`;
   if (target.kind === 'property-definition')
     return `/properties/${escapeJsonPointerSegment(target.id)}`;
+  if (target.kind === 'trait-definition') return `/traits/${escapeJsonPointerSegment(target.id)}`;
   if (target.kind === 'localization-key')
     return buildJsonPointer(['localization', 'catalogs', target.locale, target.key]);
   if (target.kind === 'project-field') return target.path;
@@ -1958,22 +2016,20 @@ function luaFacets(
   return previewFacet ? [...base, previewFacet] : base;
 }
 
-function propertyInheritanceImpactPaths(
+function propertyResolutionImpactPaths(
   project: AuthoringProject,
   collection: AuthoringCollectionKey,
   ownerId: string,
 ): readonly JsonPointer[] {
-  const paths: JsonPointer[] = [];
-  const visited = new Set<string>();
-  let currentId: string | undefined = ownerId;
-  while (currentId && !visited.has(currentId)) {
-    visited.add(currentId);
-    const base = `/${collection}/${escapeJsonPointerSegment(currentId)}`;
-    paths.push(`${base}/extends`, `${base}/properties`);
-    currentId =
-      (project[collection][currentId] as AuthoringRecordBase | undefined)?.extends ?? undefined;
-  }
-  return paths;
+  const base = `/${collection}/${escapeJsonPointerSegment(ownerId)}`;
+  const record = project[collection][ownerId] as AuthoringRecordBase | undefined;
+  return [
+    `${base}/properties`,
+    `${base}/traits`,
+    ...(record?.traits ?? []).map(
+      (traitId) => `/traits/${escapeJsonPointerSegment(traitId)}` as JsonPointer,
+    ),
+  ];
 }
 
 function buildLuaSymbolProjection(
@@ -1988,6 +2044,7 @@ function buildLuaSymbolProjection(
   for (const collection of authoringCollectionKeys)
     for (const id of Object.keys(project[collection])) add(id, recordNodeKey(collection, id));
   for (const id of Object.keys(project.properties)) add(id, propertyDefinitionNodeKey(id));
+  for (const id of Object.keys(project.traits)) add(id, traitDefinitionNodeKey(id));
   return new Map(
     [...byLiteral].map(([literal, keys]) => [
       literal,
@@ -2140,11 +2197,7 @@ function addLuaEvidenceToContribution(
               facets: ['tooling-reference', 'validation', ...previewFacet],
               targetImpactPaths:
                 previewFacet.length > 0
-                  ? propertyInheritanceImpactPaths(
-                      project,
-                      ownerCollection,
-                      propertyTarget.owner.id,
-                    )
+                  ? propertyResolutionImpactPaths(project, ownerCollection, propertyTarget.owner.id)
                   : [],
               repair: {
                 kind: 'blocked',

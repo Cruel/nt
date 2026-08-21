@@ -759,14 +759,14 @@ describe('FullGamePreviewEditor', () => {
     project.interactables.key = {
       id: 'key',
       label: 'Brass Key',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultInteractableData('Brass Key'),
     };
     project.verbs.look = {
       id: 'look',
       label: 'Inspect',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultVerbData('Inspect'),
     };

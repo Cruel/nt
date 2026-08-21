@@ -4,7 +4,7 @@
 
 `InteractableDefinition` is immutable runtime content for one uniquely identified world/inventory object. Interactable replaces the generic gameplay term Object. It is not an Item synonym and is not a counted inventory row.
 
-Interactable is property-bearing and may `extends` another Interactable only for declared custom-property lookup. Identity, presentation, interaction structure, and location do not merge.
+Interactable is Property-bearing and may attach compatible Traits. Trait members remain ordinary Properties; identity, presentation, interaction structure, and location do not merge through Traits.
 
 Presentation chooses either one sprite-alpha hotspot or a custom list of normalized rectangular
 hotspots. Each hotspot has stable owner-local identity, condition, one-arity Verb activation, input
@@ -19,8 +19,8 @@ V1 models unique interactables only. Stackable/count-based inventory is explicit
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring version 3:** collection-specific Interactable record, optional `extends`, typed property assignments, immutable identity/presentation, hotspot behavior, and initial state declaration.
-- **Compiled:** `InteractableDefinition`, retained parent edge, linked resources, property assignments, and validated initial location/state declaration.
+- **Authoring version 3:** collection-specific Interactable record, Trait attachments, typed Property assignments, immutable identity/presentation, hotspot behavior, and initial state declaration.
+- **Compiled:** `InteractableDefinition`, retained Trait attachments, linked resources, Property assignments, and validated initial location/state declaration.
 - **Mutable:** `InteractableState` and property overrides in `SessionState`; Save-policy values and logical state enter `SaveState`.
 - **Tooling only:** categories, tags, colors, sort keys, notes, selection, and preview state.
 

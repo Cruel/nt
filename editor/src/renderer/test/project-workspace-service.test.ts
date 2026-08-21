@@ -211,10 +211,11 @@ describe('ProjectWorkspaceService', () => {
         id: 'key-instance',
         interactable: { $ref: { collection: 'interactables', id: 'key' } },
         condition: { kind: 'always' },
-        placementId: 'key-placement',
+        placementId: 42,
         enabled: true,
         visible: true,
         order: 0,
+        bounds: {},
       },
     ];
     files[roomPath] = `${JSON.stringify(room, null, 2)}\n`;
@@ -229,13 +230,13 @@ describe('ProjectWorkspaceService', () => {
     expect(opened.diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: '/rooms/foyer/data/interactables/0/bounds',
+          path: '/rooms/foyer/data/interactables/0/placementId',
           code: 'authoring.schema.invalid_type',
         }),
         expect.objectContaining({
           path: '/rooms/foyer/data/interactables/0',
           code: 'authoring.schema.unrecognized_keys',
-          message: expect.stringContaining('id'),
+          message: expect.stringContaining('bounds'),
         }),
       ]),
     );

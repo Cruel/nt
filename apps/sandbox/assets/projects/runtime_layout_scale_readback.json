@@ -1,6 +1,6 @@
 {
   "schema": "noveltea.compiled.project",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "project": {
     "id": "runtime-layout-scale-readback",
     "name": "Runtime Layout Scale Readback",
@@ -50,7 +50,7 @@
   },
   "startupHook": null,
   "properties": [],
-  "variables": [],
+  "traits": [],
   "localization": {
     "defaultLocale": "en",
     "fallbackLocale": null,
@@ -137,7 +137,7 @@
       {
         "id": "probe",
         "displayName": "Scale Probe",
-        "extends": null,
+        "traits": [],
         "defaultBackground": {
           "asset": null,
           "color": "#101820",

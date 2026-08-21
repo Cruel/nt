@@ -3,6 +3,7 @@ import { beforeEach, vi } from 'vite-plus/test';
 import { DEFAULT_EDITOR_LANGUAGE, editorI18n, initEditorI18n } from '@/i18n';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { NOVELTEA_VERSION } from '../../shared/product-version';
+import type { ReadProjectTextSourcesRequest } from '../../shared/project-text-sources';
 import { configureSharpPlatformImageService } from '../../main/services/platform-image-sharp-service';
 import {
   emptyEditorProjectState,
@@ -149,6 +150,19 @@ Object.defineProperty(window, 'noveltea', {
       diagnostics: [],
     }),
     validateProject: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
+    readProjectTextSources: vi
+      .fn()
+      .mockImplementation(async (request: ReadProjectTextSourcesRequest) => ({
+        entries: request.entries.map((entry) => ({
+          status: 'unavailable' as const,
+          readKey: entry.readKey,
+          projectRelativePath: entry.projectRelativePath,
+          expectedContentHash: entry.expectedContentHash,
+          code: 'read-failed',
+          boundaryCode: 'project-trust.source-revision-mismatch',
+          message: 'Project text source is unavailable in the renderer test harness.',
+        })),
+      })),
     listPlaybackTests: vi
       .fn()
       .mockResolvedValue({ ok: true, tests: [{ id: 'smoke', steps: 1 }], diagnostics: [] }),

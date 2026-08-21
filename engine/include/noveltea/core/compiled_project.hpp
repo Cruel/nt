@@ -22,9 +22,21 @@ enum class LayoutClockDomain : std::uint8_t;
 
 namespace noveltea::core::compiled {
 
+struct TraitProperty {
+    PropertyId property_id;
+    std::optional<RuntimeValue> configured_value;
+};
+struct TraitDefinition {
+    TraitId id;
+    std::string label;
+    std::string description;
+    std::vector<PropertyOwnerKind> allowed_owners;
+    std::vector<TraitProperty> properties;
+};
+
 template<class Id> struct PropertyBearingDefinition {
     Id id;
-    std::optional<Id> extends;
+    std::vector<TraitId> traits;
     std::vector<PropertyAssignment> property_assignments;
 };
 
@@ -924,6 +936,7 @@ struct CompiledProjectInput {
     std::optional<StartupHook> startup_hook;
     Localization localization;
     std::vector<PropertyDefinition> properties;
+    std::vector<TraitDefinition> traits;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;
     std::vector<ScriptResource> scripts;
@@ -963,6 +976,10 @@ public:
     [[nodiscard]] const std::vector<PropertyDefinition>& properties() const noexcept
     {
         return m_properties;
+    }
+    [[nodiscard]] const std::vector<compiled::TraitDefinition>& traits() const noexcept
+    {
+        return m_traits;
     }
     [[nodiscard]] const std::vector<compiled::AssetResource>& assets() const noexcept
     {
@@ -1011,6 +1028,7 @@ public:
     }
 
     [[nodiscard]] const PropertyDefinition* find_property(const PropertyId& id) const noexcept;
+    [[nodiscard]] const compiled::TraitDefinition* find_trait(const TraitId& id) const noexcept;
     [[nodiscard]] const compiled::AssetResource* find_asset(const AssetId& id) const noexcept;
     [[nodiscard]] const compiled::LayoutResource* find_layout(const LayoutId& id) const noexcept;
     [[nodiscard]] const compiled::ScriptResource* find_script(const ScriptId& id) const noexcept;
@@ -1027,19 +1045,6 @@ public:
     find_dialogue(const DialogueId& id) const noexcept;
     [[nodiscard]] const compiled::MapDefinition* find_map(const MapId& id) const noexcept;
 
-    [[nodiscard]] std::optional<std::size_t>
-    character_parent_index(const CharacterId& id) const noexcept;
-    [[nodiscard]] std::optional<std::size_t> room_parent_index(const RoomId& id) const noexcept;
-    [[nodiscard]] std::optional<std::size_t>
-    interactable_parent_index(const InteractableId& id) const noexcept;
-    [[nodiscard]] std::optional<std::size_t> verb_parent_index(const VerbId& id) const noexcept;
-    [[nodiscard]] std::optional<std::size_t>
-    interaction_parent_index(const InteractionId& id) const noexcept;
-    [[nodiscard]] std::optional<std::size_t> scene_parent_index(const SceneId& id) const noexcept;
-    [[nodiscard]] std::optional<std::size_t>
-    dialogue_parent_index(const DialogueId& id) const noexcept;
-    [[nodiscard]] std::optional<std::size_t> map_parent_index(const MapId& id) const noexcept;
-
 private:
     explicit CompiledProject(compiled::CompiledProjectInput input);
 
@@ -1049,6 +1054,7 @@ private:
     std::optional<compiled::StartupHook> m_startup_hook;
     compiled::Localization m_localization;
     std::vector<PropertyDefinition> m_properties;
+    std::vector<compiled::TraitDefinition> m_traits;
     std::vector<compiled::AssetResource> m_assets;
     std::vector<compiled::LayoutResource> m_layouts;
     std::vector<compiled::ScriptResource> m_scripts;
@@ -1063,6 +1069,7 @@ private:
 
 #define NOVELTEA_COMPILED_INDEX(type, name) std::unordered_map<type, std::size_t> m_##name##_index
     NOVELTEA_COMPILED_INDEX(PropertyId, property);
+    NOVELTEA_COMPILED_INDEX(TraitId, trait);
     NOVELTEA_COMPILED_INDEX(AssetId, asset);
     NOVELTEA_COMPILED_INDEX(LayoutId, layout);
     NOVELTEA_COMPILED_INDEX(ScriptId, script);
@@ -1075,18 +1082,6 @@ private:
     NOVELTEA_COMPILED_INDEX(DialogueId, dialogue);
     NOVELTEA_COMPILED_INDEX(MapId, map);
 #undef NOVELTEA_COMPILED_INDEX
-
-#define NOVELTEA_COMPILED_PARENT_INDEX(type, name)                                                 \
-    std::unordered_map<type, std::size_t> m_##name##_parent_index
-    NOVELTEA_COMPILED_PARENT_INDEX(CharacterId, character);
-    NOVELTEA_COMPILED_PARENT_INDEX(RoomId, room);
-    NOVELTEA_COMPILED_PARENT_INDEX(InteractableId, interactable);
-    NOVELTEA_COMPILED_PARENT_INDEX(VerbId, verb);
-    NOVELTEA_COMPILED_PARENT_INDEX(InteractionId, interaction);
-    NOVELTEA_COMPILED_PARENT_INDEX(SceneId, scene);
-    NOVELTEA_COMPILED_PARENT_INDEX(DialogueId, dialogue);
-    NOVELTEA_COMPILED_PARENT_INDEX(MapId, map);
-#undef NOVELTEA_COMPILED_PARENT_INDEX
 };
 
 } // namespace noveltea::core

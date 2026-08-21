@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { validateHotspotAuthoringSemantics } from '../../shared/project-schema/authoring-hotspot-validation';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -50,11 +51,28 @@ describe('authoring V2 validation', () => {
     ).toContainEqual(expect.objectContaining({ severity: 'error', path: '/rooms/room' }));
   });
 
-  it('reports missing entrypoints and same-type extends cycles', () => {
+  it('reports missing entrypoints and unsatisfied Trait Property requirements', () => {
     const project = createAuthoringProject();
     project.entrypoint = { kind: 'room', id: 'missing-room' };
-    project.rooms.a = { id: 'a', label: 'A', extends: 'b', data: defaultRoomData('A') };
-    project.rooms.b = { id: 'b', label: 'B', extends: 'a', data: defaultRoomData('B') };
+    project.properties.clue = {
+      id: 'clue',
+      label: 'Clue',
+      type: 'string',
+      nullable: false,
+      ownerKinds: ['room'],
+    };
+    project.traits.inspectable = {
+      id: 'inspectable',
+      label: 'Inspectable',
+      ownerKinds: ['room'],
+      properties: [{ kind: 'required', propertyId: 'clue' }],
+    };
+    project.rooms.a = {
+      id: 'a',
+      label: 'A',
+      traits: ['inspectable'],
+      data: defaultRoomData('A'),
+    };
     const diagnostics = validateAuthoringProject(project);
     expect(diagnostics).toEqual(
       expect.arrayContaining([
@@ -66,11 +84,52 @@ describe('authoring V2 validation', () => {
           boundaries: ['authoring', 'runtime-package', 'platform-export'],
         }),
         expect.objectContaining({
-          code: 'authoring.project.validation.rooms.record.extends',
           severity: 'error',
-          path: '/rooms/a/extends',
-          ownerPaths: ['/rooms/a/extends'],
-          boundaries: ['authoring', 'runtime-package', 'platform-export'],
+          path: '/rooms/a/traits',
+          message: expect.stringContaining("Trait 'inspectable' requires property 'clue'"),
+        }),
+      ]),
+    );
+  });
+
+  it('rejects missing and owner-incompatible Trait attachments', () => {
+    const project = createAuthoringProject();
+    project.properties.mood = {
+      id: 'mood',
+      label: 'Mood',
+      type: 'string',
+      nullable: false,
+      defaultValue: 'calm',
+      ownerKinds: ['room'],
+    };
+    project.traits['room-state'] = {
+      id: 'room-state',
+      label: 'Room State',
+      ownerKinds: ['room'],
+      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+    };
+    project.rooms.a = {
+      id: 'a',
+      label: 'A',
+      traits: ['missing-trait'],
+      data: defaultRoomData('A'),
+    };
+    project.characters.person = {
+      id: 'person',
+      label: 'Person',
+      traits: ['room-state'],
+      data: defaultCharacterData('Person'),
+    };
+    const diagnostics = validateAuthoringProject(project);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/rooms/a/traits/0',
+          message: "Trait 'missing-trait' is not declared.",
+        }),
+        expect.objectContaining({
+          path: '/characters/person/traits/0',
+          message: "Trait 'room-state' cannot be attached to character.",
         }),
       ]),
     );

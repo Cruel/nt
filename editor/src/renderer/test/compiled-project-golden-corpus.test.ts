@@ -9,7 +9,7 @@ import {
 import {
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
-  inheritancePropertiesLocalizationGoldenProject,
+  traitPropertiesLocalizationGoldenProject,
   interactionProgramGoldenProject,
   minimalGoldenProject,
   resourceGoldenProject,
@@ -66,11 +66,8 @@ describe('compiled project cross-language golden corpus', () => {
       expect(definitions.length).toBeGreaterThan(0);
   });
 
-  it('keeps inheritance, properties, and localization edge data byte-stable', () => {
-    expectGolden(
-      'inheritance-properties-localization',
-      inheritancePropertiesLocalizationGoldenProject(),
-    );
+  it('keeps Traits, properties, and localization edge data byte-stable', () => {
+    expectGolden('trait-properties-localization', traitPropertiesLocalizationGoldenProject());
   });
 
   it('keeps typed gameplay-resource references and both resource source modes byte-stable', () => {

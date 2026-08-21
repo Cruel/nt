@@ -502,13 +502,14 @@ function resolvedProperty(
   id: string,
   propertyId: string,
 ): { kind: 'value'; value: null | boolean | number | string } | { kind: 'missing' } {
-  const visited = new Set<string>();
-  let record = recordForOwner(project, kind, id);
-  while (record && !visited.has(record.id)) {
-    visited.add(record.id);
-    if (Object.hasOwn(record.properties ?? {}, propertyId))
-      return { kind: 'value', value: record.properties![propertyId] };
-    record = record.extends ? recordForOwner(project, kind, record.extends) : null;
+  const record = recordForOwner(project, kind, id);
+  if (record && Object.hasOwn(record.properties ?? {}, propertyId))
+    return { kind: 'value', value: record.properties![propertyId] };
+  for (const traitId of record?.traits ?? []) {
+    const member = project.traits[traitId]?.properties.find(
+      (property) => property.kind === 'configured' && property.propertyId === propertyId,
+    );
+    if (member?.kind === 'configured') return { kind: 'value', value: member.value };
   }
   const fallback = project.properties[propertyId]?.defaultValue;
   return fallback !== undefined ? { kind: 'value', value: fallback } : { kind: 'missing' };

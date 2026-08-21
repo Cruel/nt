@@ -63,11 +63,11 @@ CompiledProject load_fixture(std::string_view filename)
     return std::move(decoded).value();
 }
 
-compiled::RoomDefinition room(RoomId room_id, std::optional<RoomId> parent = std::nullopt,
+compiled::RoomDefinition room(RoomId room_id, std::vector<TraitId> traits = {},
                               std::vector<PropertyAssignment> assignments = {})
 {
     return compiled::RoomDefinition{
-        .identity = {std::move(room_id), std::move(parent), std::move(assignments)},
+        .identity = {std::move(room_id), std::move(traits), std::move(assignments)},
         .display_name = "Room",
         .description = text("Room description"),
         .background = {std::nullopt, std::nullopt, compiled::BackgroundFit::Cover, std::nullopt},
@@ -162,10 +162,21 @@ CompiledProject project()
     properties.push_back(std::move(count).value());
     properties.push_back(std::move(weather).value());
 
+    const auto dim_room = id<TraitId>("dim-room");
+    std::vector<compiled::TraitDefinition> traits;
+    traits.push_back(compiled::TraitDefinition{
+        dim_room,
+        "Dim room",
+        "Configures Room mood and light through ordinary Properties.",
+        {PropertyOwnerKind::Room},
+        {{id<PropertyId>("mood"), RuntimeValue{std::string{"tense"}}},
+         {id<PropertyId>("light"), RuntimeValue{0.5}}},
+    });
+
     std::vector<compiled::RoomDefinition> rooms;
-    rooms.push_back(room(root, std::nullopt, std::move(root_assignments)));
-    rooms.push_back(room(child, root));
-    rooms.push_back(room(leaf, child, std::move(leaf_assignments)));
+    rooms.push_back(room(root, {}, std::move(root_assignments)));
+    rooms.push_back(room(child, {dim_room}));
+    rooms.push_back(room(leaf, {dim_room}, std::move(leaf_assignments)));
     rooms.push_back(room(id<RoomId>("garden")));
 
     compiled::CompiledProjectInput input{
@@ -180,6 +191,7 @@ CompiledProject project()
         .startup_hook = std::nullopt,
         .localization = {"en", std::nullopt, {compiled::LocalizationCatalog{"en", {}}}},
         .properties = std::move(properties),
+        .traits = std::move(traits),
         .assets = {},
         .layouts = {},
         .scripts = {},
@@ -235,7 +247,7 @@ TEST_CASE("global properties resolve authored defaults and enforce their types")
     CHECK(resolved_value(resolver.get_global(id<PropertyId>("flag"))) == RuntimeValue{false});
 }
 
-TEST_CASE("property resolution follows local authored ancestor default and missing order")
+TEST_CASE("property resolution follows override authored Trait default and missing order")
 {
     const auto compiled_project = project();
     auto state_result = SessionState::create(compiled_project);
@@ -263,7 +275,7 @@ TEST_CASE("property resolution follows local authored ancestor default and missi
     CHECK(state.property_override_count() == 0);
 }
 
-TEST_CASE("sparse property overrides update inheritance immediately and unset resumes fallback")
+TEST_CASE("sparse property overrides are owner-local and unset resumes authored Trait fallback")
 {
     const auto compiled_project = project();
     auto state_result = SessionState::create(compiled_project);
@@ -276,20 +288,25 @@ TEST_CASE("sparse property overrides update inheritance immediately and unset re
     const PropertyOwnerRef leaf{id<RoomId>("tower")};
 
     REQUIRE(resolver.set(root, mood, RuntimeValue{std::string{"bright"}}));
-    CHECK(resolved_value(resolver.get(child, mood)) == RuntimeValue{std::string{"bright"}});
+    CHECK(resolved_value(resolver.get(root, mood)) == RuntimeValue{std::string{"bright"}});
+    CHECK(resolved_value(resolver.get(child, mood)) == RuntimeValue{std::string{"tense"}});
     CHECK(resolved_value(resolver.get(leaf, mood)) == RuntimeValue{std::string{"calm"}});
     CHECK(state.property_override_count() == 1);
 
-    REQUIRE(resolver.set(child, mood, RuntimeValue{std::string{"tense"}}));
-    REQUIRE(resolver.set(root, mood, RuntimeValue{std::string{"calm"}}));
-    CHECK(resolved_value(resolver.get(child, mood)) == RuntimeValue{std::string{"tense"}});
+    REQUIRE(resolver.set(child, mood, RuntimeValue{std::string{"bright"}}));
+    CHECK(resolved_value(resolver.get(child, mood)) == RuntimeValue{std::string{"bright"}});
     CHECK(state.property_override_count() == 2);
-
     REQUIRE(resolver.unset(child, mood));
-    CHECK(resolved_value(resolver.get(child, mood)) == RuntimeValue{std::string{"calm"}});
-    CHECK(state.property_override_count() == 1);
-    REQUIRE(resolver.unset(root, mood));
     CHECK(resolved_value(resolver.get(child, mood)) == RuntimeValue{std::string{"tense"}});
+    CHECK(state.property_override_count() == 1);
+
+    REQUIRE(resolver.set(leaf, mood, RuntimeValue{std::string{"bright"}}));
+    CHECK(resolved_value(resolver.get(leaf, mood)) == RuntimeValue{std::string{"bright"}});
+    REQUIRE(resolver.unset(leaf, mood));
+    CHECK(resolved_value(resolver.get(leaf, mood)) == RuntimeValue{std::string{"calm"}});
+
+    REQUIRE(resolver.unset(root, mood));
+    CHECK(resolved_value(resolver.get(root, mood)) == RuntimeValue{std::string{"tense"}});
     CHECK(state.property_override_count() == 0);
 }
 

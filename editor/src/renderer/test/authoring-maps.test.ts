@@ -9,14 +9,14 @@ describe('authoring maps', () => {
     project.rooms.a = {
       id: 'a',
       label: 'A',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultRoomData('A'),
     };
     project.rooms.b = {
       id: 'b',
       label: 'B',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultRoomData('B'),
     };
@@ -46,7 +46,7 @@ describe('authoring maps', () => {
       validateMapData(project, 'world', {
         id: 'world',
         label: 'World',
-        extends: null,
+        traits: [],
         properties: {},
         data: map,
       }),

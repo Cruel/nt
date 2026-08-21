@@ -9,9 +9,7 @@ feature state/views, `FlowExecutor`, script gateway, playback state, and pending
 `RuntimeWorld` is stored with the session-owned runtime executor and borrows both `CompiledProject`
 and `SessionState`; it does not copy definitions or create a second mutable state authority. Runtime
 consumers obtain immutable Room, Character, and Interactable configuration only through
-`RuntimeWorld::resolved_configuration(...)`, and gameplay-instance Property reads use
-`RuntimeWorld::resolve_property(...)` so the current inheritance representation remains private to
-the world/property-resolution seam.
+`RuntimeWorld::resolved_configuration(...)`, and gameplay-instance Property reads use `RuntimeWorld::resolve_property(...)` so Trait-backed Property resolution remains behind one world/property-resolution seam.
 
 Gameplay mode is represented by typed Room, Flow, or Ended state. Presentation loading/error UI is
 not persisted gameplay mode.
@@ -27,11 +25,7 @@ underlying values remain owned by `SessionState` and the definitions remain owne
 live Scene invocation, current Room visit, named Room, runtime session, or shell. Actor, background
 override, presentation-only prop, environment/loop, and mounted-Layout records carry stable typed
 identities. Presentation plane does not imply authority; gameplay and shell records remain independent.
-Reads resolve through:
-
-1. a typed session override;
-2. the validated compiled definition/property declaration and inheritance graph;
-3. the declared default.
+Identity-scoped Property reads resolve through the target runtime override, the target's own authored assignment, any compatible configured Trait value attached to that target, the declaration default, and finally a typed missing result. Global Properties resolve their runtime override before their required authored default. Trait requirements and conflicting providers are rejected before runtime publication.
 
 There is no JSON property bag, fake player object, legacy parent lookup, or mutable
 `ProjectDocument`.

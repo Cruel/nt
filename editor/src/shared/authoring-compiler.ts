@@ -293,7 +293,7 @@ function normalizeAuthoringProject(value: unknown, context: CompilerContext): vo
   }
 
   // Zod parsing publishes a detached V2 value. Settings then receive their
-  // explicit project-identity defaults without flattening extends edges or
+  // explicit project-identity defaults without flattening Trait configuration or
   // authored property assignments.
   context.normalizedProject = { ...parsed.data, settings: projectSettingsFromProject(parsed.data) };
   addStage(context, 'normalize', 'completed');

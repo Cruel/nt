@@ -36,50 +36,48 @@ Diagnostics property_error(std::string code, const PropertyOwnerRef& owner,
     return property_error(std::move(code), property_target(owner), property, std::move(message));
 }
 
-template<class Id, class Definition, class FindDefinition, class FindParent>
+template<class Id, class FindDefinition>
 Result<PropertyLookupResult, Diagnostics>
-resolve_chain(const CompiledProject& project, const SessionState& state, Id current,
-              const PropertyId& property, const PropertyDefinition& declaration,
-              const std::vector<Definition>& definitions, FindDefinition find_definition,
-              FindParent find_parent)
+resolve_definition(const CompiledProject& project, const SessionState& state, const Id& id,
+                   const PropertyId& property, const PropertyDefinition& declaration,
+                   FindDefinition find_definition)
 {
-    const PropertyTargetRef requested_target{current};
-    for (std::size_t depth = 0; depth <= definitions.size(); ++depth) {
-        const auto* definition = (project.*find_definition)(current);
-        if (definition == nullptr)
+    const PropertyTargetRef target{id};
+    const auto* definition = (project.*find_definition)(id);
+    if (definition == nullptr)
+        return Result<PropertyLookupResult, Diagnostics>::failure(
+            property_error("runtime.unknown_property_owner", target, property,
+                           "does not identify a compiled definition"));
+
+    if (const auto* value = state.property_override(target, property))
+        return Result<PropertyLookupResult, Diagnostics>::success(*value);
+
+    const auto assignment = std::find_if(
+        definition->identity.property_assignments.begin(),
+        definition->identity.property_assignments.end(),
+        [&property](const PropertyAssignment& value) { return value.property_id() == property; });
+    if (assignment != definition->identity.property_assignments.end())
+        return Result<PropertyLookupResult, Diagnostics>::success(assignment->value());
+
+    for (const auto& trait_id : definition->identity.traits) {
+        const auto* trait = project.find_trait(trait_id);
+        if (trait == nullptr)
             return Result<PropertyLookupResult, Diagnostics>::failure(
-                property_error("runtime.unknown_property_owner", PropertyTargetRef{current},
-                               property, "does not identify a compiled definition"));
-
-        const PropertyTargetRef current_target{current};
-        if (const auto* value = state.property_override(current_target, property))
-            return Result<PropertyLookupResult, Diagnostics>::success(*value);
-
-        const auto assignment = std::find_if(definition->identity.property_assignments.begin(),
-                                             definition->identity.property_assignments.end(),
-                                             [&property](const PropertyAssignment& value) {
-                                                 return value.property_id() == property;
+                property_error("runtime.invalid_trait_attachment", target, property,
+                               "references a missing compiled Trait"));
+        const auto configured = std::find_if(trait->properties.begin(), trait->properties.end(),
+                                             [&](const compiled::TraitProperty& member) {
+                                                 return member.property_id == property &&
+                                                        member.configured_value.has_value();
                                              });
-        if (assignment != definition->identity.property_assignments.end())
-            return Result<PropertyLookupResult, Diagnostics>::success(assignment->value());
-
-        if (!definition->identity.extends)
+        if (configured != trait->properties.end())
             return Result<PropertyLookupResult, Diagnostics>::success(
-                declaration.default_value()
-                    ? PropertyLookupResult{*declaration.default_value()}
-                    : PropertyLookupResult{MissingPropertyValue{requested_target, property}});
-
-        const auto parent_index = (project.*find_parent)(current);
-        if (!parent_index || *parent_index >= definitions.size())
-            return Result<PropertyLookupResult, Diagnostics>::failure(
-                property_error("runtime.invalid_property_inheritance", current_target, property,
-                               "has an invalid retained parent index"));
-        current = definitions[*parent_index].identity.id;
+                *configured->configured_value);
     }
 
-    return Result<PropertyLookupResult, Diagnostics>::failure(
-        property_error("runtime.invalid_property_inheritance", requested_target, property,
-                       "exceeded the bounded inheritance depth"));
+    return Result<PropertyLookupResult, Diagnostics>::success(
+        declaration.default_value() ? PropertyLookupResult{*declaration.default_value()}
+                                    : PropertyLookupResult{MissingPropertyValue{target, property}});
 }
 
 } // namespace
@@ -216,37 +214,29 @@ Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOw
          declaration](const auto& id) -> Result<PropertyLookupResult, Diagnostics> {
             using T = std::decay_t<decltype(id)>;
             if constexpr (std::is_same_v<T, RoomId>)
-                return resolve_chain(m_project, m_state, id, property, *declaration,
-                                     m_project.rooms(), &CompiledProject::find_room,
-                                     &CompiledProject::room_parent_index);
+                return resolve_definition(m_project, m_state, id, property, *declaration,
+                                          &CompiledProject::find_room);
             else if constexpr (std::is_same_v<T, SceneId>)
-                return resolve_chain(m_project, m_state, id, property, *declaration,
-                                     m_project.scenes(), &CompiledProject::find_scene,
-                                     &CompiledProject::scene_parent_index);
+                return resolve_definition(m_project, m_state, id, property, *declaration,
+                                          &CompiledProject::find_scene);
             else if constexpr (std::is_same_v<T, DialogueId>)
-                return resolve_chain(m_project, m_state, id, property, *declaration,
-                                     m_project.dialogues(), &CompiledProject::find_dialogue,
-                                     &CompiledProject::dialogue_parent_index);
+                return resolve_definition(m_project, m_state, id, property, *declaration,
+                                          &CompiledProject::find_dialogue);
             else if constexpr (std::is_same_v<T, CharacterId>)
-                return resolve_chain(m_project, m_state, id, property, *declaration,
-                                     m_project.characters(), &CompiledProject::find_character,
-                                     &CompiledProject::character_parent_index);
+                return resolve_definition(m_project, m_state, id, property, *declaration,
+                                          &CompiledProject::find_character);
             else if constexpr (std::is_same_v<T, InteractableId>)
-                return resolve_chain(m_project, m_state, id, property, *declaration,
-                                     m_project.interactables(), &CompiledProject::find_interactable,
-                                     &CompiledProject::interactable_parent_index);
+                return resolve_definition(m_project, m_state, id, property, *declaration,
+                                          &CompiledProject::find_interactable);
             else if constexpr (std::is_same_v<T, VerbId>)
-                return resolve_chain(m_project, m_state, id, property, *declaration,
-                                     m_project.verbs(), &CompiledProject::find_verb,
-                                     &CompiledProject::verb_parent_index);
+                return resolve_definition(m_project, m_state, id, property, *declaration,
+                                          &CompiledProject::find_verb);
             else if constexpr (std::is_same_v<T, InteractionId>)
-                return resolve_chain(m_project, m_state, id, property, *declaration,
-                                     m_project.interactions(), &CompiledProject::find_interaction,
-                                     &CompiledProject::interaction_parent_index);
+                return resolve_definition(m_project, m_state, id, property, *declaration,
+                                          &CompiledProject::find_interaction);
             else if constexpr (std::is_same_v<T, MapId>)
-                return resolve_chain(m_project, m_state, id, property, *declaration,
-                                     m_project.maps(), &CompiledProject::find_map,
-                                     &CompiledProject::map_parent_index);
+                return resolve_definition(m_project, m_state, id, property, *declaration,
+                                          &CompiledProject::find_map);
         },
         owner);
 }

@@ -329,8 +329,6 @@ Diagnostics use category `authoring-tests`.
 Validation currently checks:
 
 - the `record.data` shape matches `testDataSchema`;
-- test inheritance, when present, targets another test and references an existing
-  record;
 - display name is present, warning if empty;
 - entrypoint reference exists, when set;
 - starting inventory object references exist;

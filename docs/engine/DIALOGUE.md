@@ -6,8 +6,7 @@ Dialogue is a specialized conversation graph. A `DialogueDefinition` owns immuta
 `DialogueProgram`; a Dialogue frame owns the mutable cursor. Dialogue is not flattened into Scene
 text steps and does not use a universal entity program.
 
-Dialogue may `extends` another Dialogue only for declared custom-property lookup. Blocks, segments,
-edges, settings, and completion behavior remain local and do not merge.
+Dialogue is property-bearing and may attach supported Traits backed by ordinary Properties. Trait attachment does not merge blocks, segments, edges, settings, or completion behavior.
 
 ## Authoring V2 structure
 
@@ -124,9 +123,9 @@ tests/script/typed_dialogue_execution_tests.cpp
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific graph record, optional `extends`, typed properties, strict
+- **Authoring V2:** collection-specific graph record with Trait attachments, typed properties, strict
   blocks/segments/edges, entry block, settings, and completion target.
-- **Compiled:** linked `DialogueDefinition`/`DialogueProgram`, retained parent edge, redirects,
+- **Compiled:** linked `DialogueDefinition`/`DialogueProgram`, retained Trait IDs, redirects,
   ordered choices, property assignments, and safe points.
 - **Mutable:** Dialogue frame cursor, show-once/history/visit state, waits, and property overrides in
   `SessionState`.

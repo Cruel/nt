@@ -18,9 +18,21 @@ struct PropertyAssignment {
     RuntimeValue value;
 };
 
+struct TraitProperty {
+    PropertyId property_id;
+    std::optional<RuntimeValue> configured_value;
+};
+struct TraitDeclaration {
+    TraitId id;
+    std::string label;
+    std::string description;
+    std::vector<PropertyOwnerKind> allowed_owners;
+    std::vector<TraitProperty> properties;
+};
+
 template<class Id> struct PropertyBearingDefinition {
     Id id;
-    std::optional<Id> extends;
+    std::vector<TraitId> traits;
     std::vector<PropertyAssignment> property_assignments;
 };
 
@@ -118,6 +130,7 @@ struct SharedProject {
     std::optional<StartupHook> startup_hook;
     Localization localization;
     std::vector<PropertyDeclaration> properties;
+    std::vector<TraitDeclaration> traits;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;
     std::vector<ScriptResource> scripts;

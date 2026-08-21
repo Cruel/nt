@@ -83,13 +83,13 @@ be addressed through property-owner APIs.
 
 The native model lives in `core/compiled_project.hpp`. `CompiledProject` privately owns each
 compiled collection in a vector and exposes only const collection views. It builds a distinct
-ID-to-index map for variables, property declarations, gameplay resources, and every definition kind;
-lookups use checked `find_*` functions and return null for missing IDs. Same-type `extends` IDs remain
-on each property-bearing definition, while separate type-specific parent-index maps provide bounded
-ancestor traversal without raw pointers. Construction publishes a value only after collection indexes
-and inheritance indexes are coherent and all structural invariants have been checked,
-including finite/ranged geometry and presentation values, declaration defaults, enum ranges, and
-collection-shape constraints. Compiled Scene timing values use whole nonnegative milliseconds so the
+ID-to-index map for property declarations, Traits, gameplay resources, and every definition kind;
+lookups use checked `find_*` functions and return null for missing IDs. Property-bearing definitions
+retain only their own assignments and attached Trait IDs; there are no generic definition-parent
+indexes. Construction publishes a value only after collection indexes, Trait attachments, Property
+requirements, and all structural invariants have been checked, including finite/ranged geometry and
+presentation values, declaration defaults, enum ranges, and collection-shape constraints. Compiled
+Scene timing values use whole nonnegative milliseconds so the
 wire contract maps losslessly to the shared `DurationWait` vocabulary.
 
 ## IDs and references
@@ -110,7 +110,7 @@ A project entrypoint is exactly Room, Scene, or Dialogue. A continuation/flow ta
 Dialogue, Room, Return, or End. Script is neither an entrypoint nor a continuation target; the
 non-yielding startup hook runs successfully before the entrypoint starts.
 
-## Properties and runtime inheritance
+## Properties and Traits
 
 Project globals and identity-scoped custom state use one typed Property system. Variable is only the
 editor-facing authoring term for a Global Property. A `PropertyDefinition` owns a globally unique
@@ -120,35 +120,34 @@ kinds where applicable. Global Properties require authored defaults. Values use 
 an explicit nullable null override, and removing an override are distinct states.
 
 Room, Scene, Dialogue, Character, Interactable, Verb, Interaction, and Map may carry typed authored
-assignments and an optional same-collection `extends` edge. Categories and tags are editor-only and
-have no inheritance meaning. The compiler rejects missing parents, self-parenting, cycles, and
-collection mismatches; it retains valid edges rather than flattening them. The graph is immutable
-during a session.
+assignments and attached Traits. A Trait is a discoverable capability/configuration declaration whose
+members are ordinary Properties: a member either requires that Property to have an authored value or
+configures an authored fallback value. Traits do not create another value namespace and never merge
+structural fields, programs, graphs, placements, exits, or resources. Categories and tags remain
+editor-only organization with no gameplay semantics.
 
 Property lookup for definition `D` is exactly:
 
 1. `D`'s runtime override in `SessionState`;
-2. `D`'s authored assignment in `CompiledProject`;
-3. those two locations on each same-type ancestor, nearest first;
+2. `D`'s own authored assignment in `CompiledProject`;
+3. a configured value supplied by an attached Trait;
 4. the property's declared default;
 5. a typed missing-value result.
 
 Overrides are stored once by `(PropertyTargetRef, PropertyId)`, where the target is either the explicit
-global target or an admitted identity. Setting an ancestor identity override therefore immediately
-affects unshadowed descendants; unsetting removes only that override. Global lookup resolves the same
-override store before its required authored default. The initial runtime must use bounded direct chain
-traversal rather than an invalidatable resolved-value cache. Production Room, Character, and
-Interactable reads reach that traversal through `RuntimeWorld::resolve_property(...)`; runtime
-consumers do not inspect `extends` or parent indexes directly. Their non-Property configuration is
-obtained through `RuntimeWorld::resolved_configuration(...)`, which currently borrows the immutable
-compiled definition and provides the seam where later compiler-resolved Archetype configuration can
-replace this representation without scattering lookup policy.
+global target or an admitted identity. Identity overrides are owner-local: no value propagates from
+one definition to another. Unsetting removes only that override and resumes the same
+assignment/Trait/default lookup. Global lookup resolves the same override store before its required
+authored default. Production Room, Character, and Interactable reads use the same
+`RuntimeWorld::resolve_property(...)` seam; runtime consumers do not implement alternative Trait
+precedence themselves.
 
-Only declared custom properties inherit by default. Structural fields, programs, graphs, placements,
-exits, and resources remain local. Verb alone has V1 behavioral inheritance: availability conditions
-all pass root-to-child; default programs are attempted child-to-root; `Unhandled` falls back,
-`Handled` stops, and `Failed` aborts. The project undefined-interaction fallback runs only after the
-root is `Unhandled`.
+Trait attachments and configured values are immutable compiled data. Direct assignments override
+Trait configuration. Conflicting configured Trait values, invalid owner attachments, and unsatisfied
+required members are rejected before runtime publication. Verb availability and default programs are
+owned only by that Verb; an unhandled selected program falls back to the selected Verb's own default
+program and then to the project undefined-interaction fallback. There is no generic same-type gameplay
+definition inheritance.
 
 ## Properties, session state, and saves
 
@@ -159,8 +158,8 @@ defaults remain immutable in `CompiledProject`; backend resources, renderer stat
 internals, tween internals, and Lua VM or coroutine state are excluded.
 
 `SaveState` V8 is the explicitly versioned persisted subset of `SessionState`. Every authoritative
-Property override is serialized once at its actual target; authored defaults and inherited/effective
-values are never materialized into a save. There is no Session-versus-Save Property class. A missing
+Property override is serialized once at its actual target; authored assignments, Trait configuration,
+declaration defaults, and other effective values are never materialized into a save. There is no Session-versus-Save Property class. A missing
 override record means unset, while an admitted nullable null is an explicit saved override. Stable flow
 positions and remaining logical duration waits may be saved. Visual/audio operations restore to
 documented logical post-step state rather than backend snapshots. Saving fails with structured
@@ -192,8 +191,7 @@ the audited nonthrowing helpers. `decode_compiled_project` is the public gamepla
 It strictly decodes schema identity/version, root settings, declarations, resources, shared
 primitives, every definition field, and the complete Scene, Dialogue, Interaction, Verb-default, and
 Room-hook program vocabulary into internal DTOs. A distinct semantic pass then validates typed and
-owner-scoped references, inheritance, declarations and assignments, variable usage, graph/program
-targets, gameplay Asset/Layout closure, and Map topology before building indexes and atomically
+owner-scoped references, Trait attachments/requirements, Property declarations and assignments, variable usage, graph/program targets, gameplay Asset/Layout closure, and Map topology before building indexes and atomically
 publishing `CompiledProject`. Failed linking publishes no partial model, Material IDs remain typed for
 the separate shader/material manifest path, and neither successful nor failed decoding retains source JSON.
 

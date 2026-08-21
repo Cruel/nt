@@ -635,7 +635,7 @@ describe('RoomEditor', () => {
     project.interactables.lamp = {
       id: 'lamp',
       label: 'Lamp',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultInteractableData('Lamp'),
     };

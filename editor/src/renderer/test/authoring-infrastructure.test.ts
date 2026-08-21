@@ -41,13 +41,26 @@ describe('authoring V2 infrastructure', () => {
     ).toBe(false);
   });
 
-  it('keeps category and tag metadata separate from runtime extends and assignments', () => {
+  it('keeps category and tag metadata separate from runtime Traits and assignments', () => {
     const project = createAuthoringProject();
-    project.rooms.area = { id: 'area', label: 'Area', data: defaultRoomData('Area') };
+    project.properties.mood = {
+      id: 'mood',
+      label: 'Mood',
+      type: 'string',
+      nullable: false,
+      defaultValue: 'calm',
+      ownerKinds: ['room'],
+    };
+    project.traits['tense-room'] = {
+      id: 'tense-room',
+      label: 'Tense Room',
+      ownerKinds: ['room'],
+      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+    };
     project.rooms.child = {
       id: 'child',
       label: 'Child',
-      extends: 'area',
+      traits: ['tense-room'],
       properties: {},
       data: defaultRoomData('Child'),
     };
@@ -56,7 +69,7 @@ describe('authoring V2 infrastructure', () => {
     project.editor.recordMetadata.rooms = { child: { tags: ['Chapter one'], color: '#fff' } };
     expect(isAuthoringProject(project)).toBe(true);
     expect(project.rooms.child).not.toHaveProperty('tags');
-    expect(project.rooms.child.extends).toBe('area');
+    expect(project.rooms.child.traits).toEqual(['tense-room']);
   });
 
   it('validates property declarations, owner allowlists, nullability, and assignment types', () => {

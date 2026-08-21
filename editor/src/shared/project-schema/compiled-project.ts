@@ -90,10 +90,33 @@ const compiledEntrypointSchema = z.discriminatedUnion('kind', [
 
 const propertyAssignmentSchema = strict({ propertyId: id, value: runtimeValueSchema });
 const propertyBearingDefinition = {
-  extends: id.nullable(),
   id,
+  traits: z.array(id),
   propertyAssignments: z.array(propertyAssignmentSchema),
 };
+
+const propertyOwnerKindSchema = z.enum([
+  'room',
+  'scene',
+  'dialogue',
+  'character',
+  'interactable',
+  'verb',
+  'interaction',
+  'map',
+]);
+
+const traitPropertySchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('required'), propertyId: id }),
+  strict({ kind: z.literal('configured'), propertyId: id, value: runtimeValueSchema }),
+]);
+const traitDefinitionSchema = strict({
+  description: z.string(),
+  id,
+  label: z.string().min(1),
+  ownerKinds: z.array(propertyOwnerKindSchema).min(1),
+  properties: z.array(traitPropertySchema).min(1),
+});
 
 const propertyDefinitionCommon = {
   description: z.string(),
@@ -113,20 +136,7 @@ const propertyDefinitionSchema = z.discriminatedUnion('scope', [
   strict({
     ...propertyDefinitionCommon,
     defaultValue: runtimeValueSchema.optional(),
-    ownerKinds: z
-      .array(
-        z.enum([
-          'room',
-          'scene',
-          'dialogue',
-          'character',
-          'interactable',
-          'verb',
-          'interaction',
-          'map',
-        ]),
-      )
-      .min(1),
+    ownerKinds: z.array(propertyOwnerKindSchema).min(1),
     scope: z.literal('identity'),
   }),
 ]);
@@ -864,6 +874,7 @@ export const compiledProjectWireV4Schema = strict({
     version: z.string(),
   }),
   properties: z.array(propertyDefinitionSchema),
+  traits: z.array(traitDefinitionSchema),
   resources: strict({
     assets: z.array(assetResourceSchema),
     layouts: z.array(layoutResourceSchema),
@@ -884,6 +895,7 @@ export const compiledProjectWireV4Schema = strict({
     { path: ['definitions', 'scenes'], records: project.definitions.scenes },
     { path: ['definitions', 'verbs'], records: project.definitions.verbs },
     { path: ['properties'], records: project.properties },
+    { path: ['traits'], records: project.traits },
     { path: ['resources', 'assets'], records: project.resources.assets },
     { path: ['resources', 'layouts'], records: project.resources.layouts },
     { path: ['resources', 'scripts'], records: project.resources.scripts },

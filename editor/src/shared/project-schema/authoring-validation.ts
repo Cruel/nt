@@ -69,33 +69,6 @@ function recordsFor(
   return project[collection] as Record<string, AuthoringRecordBase>;
 }
 
-function detectExtendsCycles(
-  project: AuthoringProject,
-  collection: AuthoringCollectionKey,
-  diagnostics: ProjectValidationDiagnosticLike[],
-) {
-  if (!propertyOwnerKindByCollection[collection]) return;
-  const records = recordsFor(project, collection);
-  for (const id of Object.keys(records)) {
-    const seen = new Set<string>();
-    let current: string | null = id;
-    while (current) {
-      if (seen.has(current)) {
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `/${collection}/${escapePathSegment(id)}/extends`,
-            'extends chain contains a cycle.',
-          ),
-        );
-        break;
-      }
-      seen.add(current);
-      current = records[current]?.extends ?? null;
-    }
-  }
-}
-
 function validateProperties(
   project: AuthoringProject,
   diagnostics: ProjectValidationDiagnosticLike[],
@@ -133,6 +106,120 @@ function validateProperties(
           diagnostics.push(
             diagnostic('error', path, `Assignment does not match property '${propertyId}'.`),
           );
+        }
+      }
+    }
+  }
+}
+
+function validateTraits(project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) {
+  for (const [traitId, trait] of Object.entries(project.traits)) {
+    const base = `/traits/${escapePathSegment(traitId)}`;
+    if (trait.id !== traitId)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${base}/id`,
+          `Trait id '${trait.id}' must match map key '${traitId}'.`,
+        ),
+      );
+    for (const [index, member] of trait.properties.entries()) {
+      const path = `${base}/properties/${index}`;
+      const definition = project.properties[member.propertyId];
+      if (!definition) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${path}/propertyId`,
+            `Property '${member.propertyId}' is not declared.`,
+          ),
+        );
+        continue;
+      }
+      const unsupportedOwners = trait.ownerKinds.filter(
+        (ownerKind) => !definition.ownerKinds.includes(ownerKind),
+      );
+      if (unsupportedOwners.length > 0)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${path}/propertyId`,
+            `Property '${member.propertyId}' is not valid for Trait owner kind${unsupportedOwners.length === 1 ? '' : 's'} ${unsupportedOwners.join(', ')}.`,
+          ),
+        );
+      if (member.kind === 'configured' && !isPropertyValueCompatible(definition, member.value))
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${path}/value`,
+            `Configured value does not match property '${member.propertyId}'.`,
+          ),
+        );
+    }
+  }
+
+  for (const collection of authoringCollectionKeys) {
+    const ownerKind = propertyOwnerKindByCollection[collection];
+    if (!ownerKind) continue;
+    for (const [recordId, record] of Object.entries(recordsFor(project, collection))) {
+      const attachmentIds = record.traits ?? [];
+      const seenTraits = new Set<string>();
+      const configured = new Map<string, { traitId: string; value: unknown }>();
+      const attachedTraits: Array<(typeof project.traits)[string]> = [];
+      for (const [index, traitId] of attachmentIds.entries()) {
+        const path = `/${collection}/${escapePathSegment(recordId)}/traits/${index}`;
+        if (seenTraits.has(traitId)) {
+          diagnostics.push(
+            diagnostic('error', path, `Trait '${traitId}' is attached more than once.`),
+          );
+          continue;
+        }
+        seenTraits.add(traitId);
+        const trait = project.traits[traitId];
+        if (!trait) {
+          diagnostics.push(diagnostic('error', path, `Trait '${traitId}' is not declared.`));
+          continue;
+        }
+        if (!trait.ownerKinds.includes(ownerKind)) {
+          diagnostics.push(
+            diagnostic('error', path, `Trait '${traitId}' cannot be attached to ${ownerKind}.`),
+          );
+          continue;
+        }
+        attachedTraits.push(trait);
+        for (const member of trait.properties) {
+          if (member.kind !== 'configured') continue;
+          const previous = configured.get(member.propertyId);
+          if (previous && previous.value !== member.value)
+            diagnostics.push(
+              diagnostic(
+                'error',
+                path,
+                `Trait '${traitId}' configures property '${member.propertyId}' incompatibly with Trait '${previous.traitId}'.`,
+              ),
+            );
+          else if (!previous) configured.set(member.propertyId, { traitId, value: member.value });
+        }
+      }
+
+      for (const trait of attachedTraits) {
+        for (const member of trait.properties) {
+          if (member.kind !== 'required') continue;
+          const definition = project.properties[member.propertyId];
+          const hasOwnAssignment = Object.prototype.hasOwnProperty.call(
+            record.properties ?? {},
+            member.propertyId,
+          );
+          const hasConfiguredValue = configured.has(member.propertyId);
+          const hasDeclarationDefault = definition?.defaultValue !== undefined;
+          if (!hasOwnAssignment && !hasConfiguredValue && !hasDeclarationDefault)
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `/${collection}/${escapePathSegment(recordId)}/traits`,
+                `Trait '${trait.id}' requires property '${member.propertyId}' to have an authored value.`,
+              ),
+            );
         }
       }
     }
@@ -280,22 +367,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
             'authoring.record.label.required',
           ),
         );
-      if (record.extends) {
-        if (record.extends === id)
-          diagnostics.push(
-            diagnostic('error', `${basePath}/extends`, 'Record cannot extend itself.'),
-          );
-        else if (!records[record.extends])
-          diagnostics.push(
-            diagnostic(
-              'error',
-              `${basePath}/extends`,
-              `Missing extended ${collection} record '${record.extends}'.`,
-            ),
-          );
-      }
     }
-    detectExtendsCycles(project, collection, diagnostics);
   }
 
   for (const [collection, records] of Object.entries(project.editor.recordMetadata ?? {})) {
@@ -322,6 +394,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   }
 
   validateProperties(project, diagnostics);
+  validateTraits(project, diagnostics);
   validateAssets(project, diagnostics);
   diagnostics.push(...validateTypedProjectSettings(project));
   for (const [id, record] of Object.entries(project.layouts))

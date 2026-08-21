@@ -257,7 +257,7 @@ decode_interaction_program(Decoder& d, const nlohmann::json& value, std::string_
 
 nlohmann::json encode_interaction_position(const InteractionFramePosition& value)
 {
-    static constexpr std::string_view stages[] = {"selected-program", "parent-verb",
+    static constexpr std::string_view stages[] = {"selected-program", "verb-default",
                                                   "undefined-interaction", "complete"};
     static constexpr std::string_view outcomes[] = {"pending", "handled", "unhandled", "failed"};
     return {{"nextInstruction", encode_optional_id(value.next_instruction)},
@@ -285,7 +285,7 @@ decode_interaction_position(Decoder& d, const nlohmann::json& value, std::string
         awaiting ? d.boolean(*awaiting, child(pointer, "awaitingCompletion")) : std::nullopt;
     if (!next_id || !stage_name || !outcome_name || !awaiting_value)
         return std::nullopt;
-    const std::array<std::string_view, 4> stages = {"selected-program", "parent-verb",
+    const std::array<std::string_view, 4> stages = {"selected-program", "verb-default",
                                                     "undefined-interaction", "complete"};
     const std::array<std::string_view, 4> outcomes = {"pending", "handled", "unhandled", "failed"};
     const auto stage_found = std::find(stages.begin(), stages.end(), *stage_name);

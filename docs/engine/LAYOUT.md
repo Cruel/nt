@@ -304,7 +304,7 @@ Layout-specific commands include:
   `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `save-menu`, `load-menu`,
   `settings-menu`, `text-log`, `modal`, and `debug-overlay`).
 
-Generic entity commands handle creation, rename, deletion, metadata, duplication, parent assignment, and inheritance fields.
+Generic entity commands handle creation, rename, deletion, metadata, and duplication. Layouts do not participate in gameplay Trait attachments or universal record inheritance.
 
 ## System Layout Roles
 

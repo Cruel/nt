@@ -30,7 +30,10 @@ import {
 import { entityIdSchema } from '../project-schema/authoring-common';
 import { authoringProjectSchema, type AuthoringProject } from '../project-schema/authoring-project';
 import { authoringLocalizationSchema } from '../project-schema/authoring-localization';
-import { propertyDefinitionSchema } from '../project-schema/authoring-properties';
+import {
+  propertyDefinitionSchema,
+  traitDefinitionSchema,
+} from '../project-schema/authoring-properties';
 import { authoringRecordSchemas } from '../project-schema/authoring-records';
 import { validateAuthoringProject } from '../project-schema/authoring-validation';
 import {
@@ -425,6 +428,7 @@ function ownershipFor(
       paths: ['/project', '/settings', '/startupHook', '/entrypoint'],
     },
     'project:properties': { files: ['properties.json'], paths: ['/properties'] },
+    'project:traits': { files: ['traits.json'], paths: ['/traits'] },
     'project:localization': { files: ['localization.json'], paths: ['/localization'] },
     'project:chapters': {
       files: ['editor.json'],
@@ -582,6 +586,10 @@ export function projectWorkspaceFiles(
   files['properties.json'] = canonicalJson(
     project.properties,
     z.record(entityIdSchema, propertyDefinitionSchema),
+  );
+  files['traits.json'] = canonicalJson(
+    project.traits,
+    z.record(entityIdSchema, traitDefinitionSchema),
   );
   files['localization.json'] = canonicalJson(project.localization, authoringLocalizationSchema);
   files['editor.json'] = canonicalJson(
@@ -753,6 +761,7 @@ export class ProjectWorkspaceService {
           if (Object.keys(manifest).length !== 7 || !required.every((key) => key in manifest))
             return fail('project.json has an unsupported workspace-v1 shape.');
           let properties: unknown;
+          let traits: unknown;
           let localization: unknown;
           let editor: Record<string, unknown>;
           let trackedEditor: ReturnType<typeof parseTrackedEditorOrganization>;
@@ -760,6 +769,10 @@ export class ProjectWorkspaceService {
             await this.assertContained(
               discovered.projectRoot,
               this.fileSystem.joinPath(discovered.projectRoot, 'properties.json'),
+            );
+            await this.assertContained(
+              discovered.projectRoot,
+              this.fileSystem.joinPath(discovered.projectRoot, 'traits.json'),
             );
             await this.assertContained(
               discovered.projectRoot,
@@ -772,6 +785,11 @@ export class ProjectWorkspaceService {
             properties = JSON.parse(
               await this.fileSystem.readText(
                 this.fileSystem.joinPath(discovered.projectRoot, 'properties.json'),
+              ),
+            );
+            traits = JSON.parse(
+              await this.fileSystem.readText(
+                this.fileSystem.joinPath(discovered.projectRoot, 'traits.json'),
               ),
             );
             localization = JSON.parse(
@@ -1046,6 +1064,7 @@ export class ProjectWorkspaceService {
             schemaVersion: AUTHORING_PROJECT_SCHEMA_VERSION,
             ...manifest,
             properties,
+            traits,
             localization,
             editor: {
               ...local,
