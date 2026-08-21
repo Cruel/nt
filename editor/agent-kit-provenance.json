@@ -1,0 +1,362 @@
+{
+  "sources": {
+    "lua-5.5-manual": {
+      "kind": "web",
+      "url": "https://www.lua.org/manual/5.5/manual.html",
+      "version": "5.5"
+    },
+    "noveltea": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "d103dc48c6bcde6134271793b40354ec46560692"
+    },
+    "rmlui": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/RmlUi.git",
+      "revision": "c6744d15bda5e9df7ad9c1f8eae937157e7ed309",
+      "version": "6.3-dev"
+    },
+    "rmlui-docs": {
+      "kind": "web",
+      "url": "https://mikke89.github.io/RmlUiDoc/"
+    },
+    "rmlui-docs-html4": {
+      "kind": "repository",
+      "repository": "https://github.com/mikke89/RmlUiDoc.git",
+      "revision": "23cc335d8c67c12c706dee4b8ddec9416e4c4280"
+    }
+  },
+  "documents": {
+    "CLI.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Curate only the public standalone CLI workflow and command boundaries that game-authoring agents need; keep implementation and release plumbing out.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": ["docs/editor/CLI.md", "editor/src/cli/"]
+        }
+      ]
+    },
+    "GUIDE.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Route agents to the smallest authoring reference for each task and preserve only stable project-facing workflow rules.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/editor/AGENT_KIT.md",
+            "editor/src/cli/agent-kit.ts",
+            "editor/src/cli/agent-sync.ts"
+          ]
+        }
+      ]
+    },
+    "PROJECT_FORMAT.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Summarize the current workspace contract and persistence rules that are not safely inferable from generated JSON Schema.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/editor/project/PROJECT_WORKSPACE_FORMAT.md",
+            "editor/src/shared/project-workspace/",
+            "editor/src/shared/project-schema/"
+          ]
+        }
+      ]
+    },
+    "docs/ASSETS_SHADERS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Keep only author-visible asset, shader, and material invariants plus the supported shader compilation entrypoints.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/assets/OVERVIEW.md",
+            "docs/rendering/OVERVIEW.md",
+            "editor/src/shared/project-schema/authoring-assets.ts",
+            "editor/src/shared/project-schema/authoring-shaders.ts"
+          ]
+        }
+      ]
+    },
+    "docs/AUTHORING.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Explain only NovelTea-specific authoring concepts and distinctions that schema structure alone does not communicate well.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": ["docs/engine/OVERVIEW.md", "editor/src/shared/project-schema/"]
+        }
+      ]
+    },
+    "docs/INTERACTIONS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Reconcile interaction terminology and hotspot behavior against the current project schema and runtime authoring contract, excluding implementation plumbing.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
+            "editor/src/shared/project-schema/authoring-interactions.ts",
+            "editor/src/shared/project-schema/authoring-rooms.ts"
+          ]
+        }
+      ]
+    },
+    "docs/LAYOUTS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Treat NovelTea's pinned RmlUi build, Layout persistence contract, system-role fallback contract, and exact shipped built-in UI source as authoritative; use RmlUi source semantics only where they affect authored RML/RCSS/Lua.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaRmlUi.cmake",
+            "docs/engine/LAYOUT.md",
+            "docs/ui/OVERVIEW.md",
+            "editor/src/shared/project-schema/authoring-layouts.ts",
+            "engine/assets/system/ui/"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": ["Documentation/", "Include/RmlUi/Core/"]
+        }
+      ]
+    },
+    "docs/RMLUI.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Use the pinned NovelTea RmlUi source and universal baseline contract as the compatibility authority and upstream RmlUi documentation for concise semantics; include only browser-assumption differences and NovelTea resource rules that affect authored RML/RCSS.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaRmlUi.cmake",
+            "cmake/patches/rmlui-feature-calc-noveltea-presentation.patch",
+            "docs/engine/LAYOUT.md",
+            "docs/ui/RMLUI_RUNTIME_UI.md",
+            "editor/src/shared/project-schema/authoring-layouts.ts",
+            "engine/assets/system/ui/baseline/"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": [
+            "readme.md",
+            "Source/Core/CalculationParser.cpp",
+            "Source/Core/StyleSheetSpecification.cpp",
+            "Source/Core/StyleSheetParser.cpp",
+            "Source/Core/StyleSheetNode.cpp"
+          ]
+        },
+        {
+          "source": "rmlui-docs",
+          "areas": [
+            "pages/rml.html",
+            "pages/rml/documents.html",
+            "pages/rml/templates.html",
+            "pages/rcss.html",
+            "pages/rcss/selectors.html",
+            "pages/rcss/flexboxes.html",
+            "pages/rcss/animations_transitions_transforms.html",
+            "pages/rcss/custom_properties.html",
+            "pages/rcss/media_queries.html",
+            "pages/rcss/decorators.html",
+            "pages/rcss/sprite_sheets.html"
+          ]
+        },
+        {
+          "source": "rmlui-docs-html4",
+          "areas": ["pages/rml/html4_style_sheet.md"]
+        }
+      ]
+    },
+    "docs/RCSS_REFERENCE.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Reconcile the complete built-in RCSS property, shorthand, unit, function, inheritance, and extension surface against NovelTea's exact pinned patched RmlUi source; use upstream docs only to clarify semantics and explicitly preserve source/profile identifiers for drift certification.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaRmlUi.cmake",
+            "cmake/patches/rmlui-feature-calc-noveltea-presentation.patch"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": [
+            "Source/Core/StyleSheetSpecification.cpp",
+            "Source/Core/PropertySpecification.cpp",
+            "Source/Core/PropertyParserNumber.cpp",
+            "Source/Core/PropertyParserColour.cpp",
+            "Source/Core/PropertyParserTransform.cpp",
+            "Source/Core/Factory.cpp",
+            "Source/Core/CalculationParser.cpp"
+          ]
+        },
+        {
+          "source": "rmlui-docs",
+          "areas": [
+            "pages/rcss/property_index.html",
+            "pages/rcss/decorators.html",
+            "pages/rcss/filters.html",
+            "pages/rcss/animations_transitions_transforms.html",
+            "pages/rcss/custom_properties.html",
+            "pages/rcss/media_queries.html"
+          ]
+        }
+      ]
+    },
+    "docs/RMLUI_DATA_BINDING.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Expose the exact NovelTea `noveltea` model and callback contract, then reconcile only the RmlUi data-binding and expression semantics needed to author against it safely; exclude native projection/publication implementation details.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/ui/RMLUI_DATA_MODEL_CONTRACT.md",
+            "engine/src/ui/rmlui/runtime_ui_data_model.cpp",
+            "engine/assets/system/ui/runtime/runtime_game.rml",
+            "engine/assets/system/ui/menu/"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": [
+            "Source/Core/DataExpression.cpp",
+            "Source/Core/DataViewDefault.cpp",
+            "Source/Core/DataControllerDefault.cpp",
+            "Source/Core/DataTypeRegister.cpp",
+            "Source/Core/Factory.cpp"
+          ]
+        },
+        {
+          "source": "rmlui-docs",
+          "areas": [
+            "pages/data_bindings.html",
+            "pages/data_bindings/model.html",
+            "pages/data_bindings/expressions.html",
+            "pages/data_bindings/views_and_controllers.html"
+          ]
+        }
+      ]
+    },
+    "docs/RMLUI_CUSTOM_COMPONENTS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Document only the supported NovelTea `nt-*` authoring contract and visible limitations of ActiveText/Map hosts; keep generated markup and C++ rendering/lifecycle machinery explicitly outside the public surface.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/ui/RMLUI_CUSTOM_COMPONENTS.md",
+            "docs/ui/RMLUI_DATA_MODEL_CONTRACT.md",
+            "engine/src/ui/rmlui/rmlui_custom_components.cpp",
+            "engine/src/ui/rmlui/active_text_presenter.cpp",
+            "engine/src/ui/rmlui/runtime_ui.cpp",
+            "engine/assets/system/ui/runtime/runtime_game.rml"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": ["Include/RmlUi/Core/Element.h", "Source/Core/Factory.cpp"]
+        }
+      ]
+    },
+    "docs/RMLUI_LUA.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Treat NovelTea's Layout realization and the pinned RmlUi Lua binding source as authoritative for authored RML/Layout Lua; document only event/script/element/document behavior and explicitly exclude RmlUi host-management facilities owned by NovelTea.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaRmlUi.cmake",
+            "cmake/NovelTeaLua.cmake",
+            "docs/ui/RMLUI_RUNTIME_UI.md",
+            "docs/editor/project/AUTHORING_DEPENDENCY_GRAPH.md",
+            "docs/engine/LAYOUT.md",
+            "engine/src/host/layout_realizer.cpp",
+            "engine/src/script/lua/script_runtime.cpp",
+            "engine/src/ui/rmlui/runtime_ui_action_gateway.cpp",
+            "engine/src/ui/rmlui/runtime_ui.cpp",
+            "editor/src/shared/authoring-source-analysis.ts",
+            "editor/src/shared/project-schema/authoring-layouts.ts"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": [
+            "Source/Lua/LuaEventListener.cpp",
+            "Source/Lua/LuaDocument.cpp",
+            "Source/Lua/Element.cpp",
+            "Source/Lua/ElementStyleProxy.cpp",
+            "Source/Lua/Event.cpp",
+            "Source/Lua/Document.cpp",
+            "Source/Lua/Context.cpp",
+            "Source/Lua/RmlUi.cpp",
+            "Source/Lua/Utilities.cpp"
+          ]
+        },
+        {
+          "source": "lua-5.5-manual",
+          "areas": [
+            "Lua 5.5 function, table, coroutine, and lexical semantics used by RmlUi-authored Lua"
+          ]
+        }
+      ]
+    },
+    "docs/LUA.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
+      "sources": [
+        {
+          "source": "lua-5.5-manual",
+          "areas": [
+            "Lua 5.5 language and standard-library semantics for the libraries NovelTea opens"
+          ]
+        },
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaLua.cmake (Lua 5.5.0 archive SHA256 57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d)",
+            "docs/runtime/LUA_RUNTIME.md",
+            "docs/engine/SCRIPT_MODULE.md",
+            "engine/src/script/lua/bind_noveltea.cpp",
+            "engine/src/script/lua/bind_typed_script_host.cpp",
+            "engine/src/script/lua/bind_runtime_capabilities.cpp",
+            "engine/src/script/lua/script_runtime.cpp",
+            "engine/include/noveltea/runtime/runtime_capabilities.hpp",
+            "engine/src/ui/rmlui/runtime_ui_action_gateway.cpp",
+            "engine/src/ui/rmlui/runtime_ui.cpp"
+          ]
+        }
+      ]
+    },
+    "docs/ROOMS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Reconcile Room geometry and composition examples against the current schema and hotspot contract, emphasizing coordinate spaces and author-visible ownership.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
+            "editor/src/shared/project-schema/authoring-rooms.ts"
+          ]
+        }
+      ]
+    },
+    "docs/TESTS.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Expose only the tracked Test-record contract and supported CLI execution workflow that game-authoring agents need.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "docs/engine/TEST.md",
+            "editor/src/shared/project-schema/authoring-tests.ts",
+            "editor/src/cli/"
+          ]
+        }
+      ]
+    }
+  }
+}

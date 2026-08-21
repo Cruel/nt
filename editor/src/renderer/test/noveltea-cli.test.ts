@@ -1,6 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import { createNovelTeaAgentKitPayload } from '../../cli/agent-kit';
+import {
+  loadAgentKitSourceFiles,
+  loadAgentKitSystemLayoutSourceFiles,
+} from '../../cli/agent-kit/source';
 import { syncNovelTeaAgentKit } from '../../cli/agent-sync';
 import {
   NOVELTEA_CLI_HELP,
@@ -907,6 +912,11 @@ describe('NovelTea headless CLI', () => {
         'docs/AUTHORING.md',
         'docs/INTERACTIONS.md',
         'docs/ROOMS.md',
+        'docs/RMLUI.md',
+        'docs/RCSS_REFERENCE.md',
+        'docs/RMLUI_DATA_BINDING.md',
+        'docs/RMLUI_CUSTOM_COMPONENTS.md',
+        'docs/RMLUI_LUA.md',
         'schemas/project.schema.json',
         'schemas/properties.schema.json',
         'schemas/localization.schema.json',
@@ -914,19 +924,198 @@ describe('NovelTea headless CLI', () => {
         'schemas/records/layouts.schema.json',
         'schemas/records/scripts.schema.json',
         'schemas/records/tests.schema.json',
+        'system-layouts/manifest.json',
+        'system-layouts/ui/title/default-title.rml',
+        'system-layouts/ui/runtime/runtime_game.rml',
+        'system-layouts/ui/menu/system-menu.rcss',
       ]),
     );
     const manifest = JSON.parse(first.manifestText);
     expect(manifest).toMatchObject({
       schema: 'noveltea.agent-kit.manifest',
-      schemaVersion: 1,
+      schemaVersion: 2,
       agentKitVersion: 1,
       cliVersion: '1.0.0',
       projectWorkspaceVersion: 1,
     });
     expect(Object.keys(manifest.files)).toEqual(Object.keys(first.files));
+    const authoredSourceFiles = loadAgentKitSourceFiles();
+    expect(Object.keys(manifest.provenance.documents)).toEqual(Object.keys(authoredSourceFiles));
+    expect(manifest.provenance.sources).toMatchObject({
+      noveltea: {
+        kind: 'repository',
+        repository: 'https://github.com/Cruel/nt.git',
+        revision: 'd103dc48c6bcde6134271793b40354ec46560692',
+      },
+      rmlui: {
+        kind: 'repository',
+        repository: 'https://github.com/Cruel/RmlUi.git',
+        revision: 'c6744d15bda5e9df7ad9c1f8eae937157e7ed309',
+        version: '6.3-dev',
+      },
+      'lua-5.5-manual': {
+        kind: 'web',
+        url: 'https://www.lua.org/manual/5.5/manual.html',
+        version: '5.5',
+      },
+      'rmlui-docs': {
+        kind: 'web',
+        url: 'https://mikke89.github.io/RmlUiDoc/',
+      },
+      'rmlui-docs-html4': {
+        kind: 'repository',
+        repository: 'https://github.com/mikke89/RmlUiDoc.git',
+        revision: '23cc335d8c67c12c706dee4b8ddec9416e4c4280',
+      },
+    });
+    expect(manifest.provenance.documents['docs/LAYOUTS.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/RMLUI.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'rmlui-docs' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/RCSS_REFERENCE.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'rmlui-docs' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/RMLUI_DATA_BINDING.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'rmlui-docs' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/RMLUI_CUSTOM_COMPONENTS.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/RMLUI_LUA.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'lua-5.5-manual' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['docs/LUA.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'lua-5.5-manual' }),
+      ]),
+    );
+    for (const [relativePath, text] of Object.entries(authoredSourceFiles))
+      expect(first.files[relativePath]).toBe(text);
+    const systemLayoutSourceFiles = loadAgentKitSystemLayoutSourceFiles();
+    for (const [relativePath, text] of Object.entries(systemLayoutSourceFiles))
+      expect(first.files[`system-layouts/${relativePath}`]).toBe(text);
+    expect(JSON.parse(first.files['system-layouts/manifest.json']!)).toEqual({
+      schema: 'noveltea.agent-kit.system-layouts',
+      schemaVersion: 2,
+      baselines: {
+        implicit: true,
+        appliesTo: [
+          'built-in-system-layouts',
+          'project-layouts',
+          'fragments',
+          'focused-previews',
+          'runtime-ui-utility-documents',
+        ],
+        cascade: [
+          {
+            id: 'rmlui-html4',
+            path: 'ui/baseline/rmlui-html4.rcss',
+            authoringUrl: 'system|/ui/baseline/rmlui-html4.rcss',
+          },
+          {
+            id: 'noveltea',
+            path: 'ui/baseline/noveltea.rcss',
+            authoringUrl: 'system|/ui/baseline/noveltea.rcss',
+          },
+          { id: 'template-rcss' },
+          { id: 'document-rcss' },
+        ],
+      },
+      roles: {
+        title: {
+          builtinFallback: true,
+          document: 'ui/title/default-title.rml',
+          authoringUrl: 'system|/ui/title/default-title.rml',
+          supportingFiles: ['ui/title/default-title.rcss'],
+        },
+        'game-hud': {
+          builtinFallback: true,
+          document: 'ui/runtime/runtime_game.rml',
+          authoringUrl: 'system|/ui/runtime/runtime_game.rml',
+          supportingFiles: ['ui/runtime/runtime_game.rcss'],
+        },
+        'pause-menu': {
+          builtinFallback: true,
+          document: 'ui/menu/pause-menu.rml',
+          authoringUrl: 'system|/ui/menu/pause-menu.rml',
+          supportingFiles: ['ui/menu/pause-menu.rcss'],
+        },
+        'save-menu': {
+          builtinFallback: true,
+          document: 'ui/menu/save-menu.rml',
+          authoringUrl: 'system|/ui/menu/save-menu.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        'load-menu': {
+          builtinFallback: true,
+          document: 'ui/menu/load-menu.rml',
+          authoringUrl: 'system|/ui/menu/load-menu.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        'settings-menu': {
+          builtinFallback: true,
+          document: 'ui/menu/settings-menu.rml',
+          authoringUrl: 'system|/ui/menu/settings-menu.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        'text-log': {
+          builtinFallback: true,
+          document: 'ui/menu/text-log.rml',
+          authoringUrl: 'system|/ui/menu/text-log.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        modal: {
+          builtinFallback: true,
+          document: 'ui/menu/modal.rml',
+          authoringUrl: 'system|/ui/menu/modal.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss'],
+        },
+        'debug-overlay': {
+          builtinFallback: false,
+          document: null,
+          authoringUrl: null,
+          supportingFiles: [],
+        },
+      },
+    });
+    expect(first.files['agent-kit-provenance.json']).toBeUndefined();
     expect(first.files['skill/SKILL.md']).toBeUndefined();
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_DATA_BINDING.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/system-layouts/ui/');
+    expect(first.files['GUIDE.md']).not.toContain('.noveltea/agent/system-layouts/manifest.json');
+    expect(first.files['GUIDE.md']).toContain(
+      'NovelTea Lua sandbox, APIs, capabilities, and yielding rules',
+    );
     expect(first.files['GUIDE.md']).toContain(
       'do not begin ordinary authoring work by reverse-engineering the schemas',
     );
@@ -939,12 +1128,588 @@ describe('NovelTea headless CLI', () => {
     );
     expect(first.files['docs/INTERACTIONS.md']).toContain('Room hotspot');
     expect(first.files['docs/INTERACTIONS.md']).toContain('arity-`1` Verb');
+    expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI.md');
+    expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
+    expect(first.files['docs/LAYOUTS.md']).toContain(
+      '.noveltea/agent/system-layouts/ui/title/default-title.rml',
+    );
+    expect(first.files['docs/LAYOUTS.md']).toContain(
+      '.noveltea/agent/system-layouts/ui/baseline/rmlui-html4.rcss',
+    );
+    expect(first.files['docs/LAYOUTS.md']).not.toContain(
+      '.noveltea/agent/system-layouts/manifest.json',
+    );
+    expect(first.files['docs/LAYOUTS.md']).toContain('`debug-overlay` has no built-in fallback');
+    expect(first.files['docs/RMLUI.md']).toContain('RML is XML, not browser HTML');
+    expect(first.files['docs/RMLUI.md']).toContain(
+      "RmlUi's `:hover`, `:active`, `:focus`, and `:focus-visible` state propagates backward",
+    );
+    expect(first.files['docs/RMLUI.md']).toContain('`calc()`, `min()`, `max()`, and `clamp()`');
+    expect(first.files['docs/RMLUI.md']).toContain('Universal RCSS baseline');
+    expect(first.files['docs/RMLUI.md']).toContain(
+      'RmlUi HTML4 baseline\nNovelTea baseline\ntemplate RCSS\ndocument/Layout RCSS',
+    );
+    expect(first.files['docs/RMLUI.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
+    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in properties: 99');
+    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in shorthands: 20');
+    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('`ex` is not registered');
+    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('There is no `border-style` property');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('gameplay.text_log.entries[]');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('shell.save_slots[]');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('ui_choose(kind, id)');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('data-alias-name');
+    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('The model is read-only');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-active-text');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-map-view   (provisional)');
+    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+      'There is no current `nt-text-log` element',
+    );
+    expect(first.files['docs/RMLUI_LUA.md']).toContain('function(event, element, document)');
+    expect(first.files['docs/RMLUI_LUA.md']).toContain(
+      'controls **only the dedicated Layout Lua source**',
+    );
+    expect(first.files['docs/RMLUI_LUA.md']).toContain('rmlui:CreateContext');
+    expect(first.files['docs/RMLUI_LUA.md']).toContain('.noveltea/agent/docs/LUA.md');
+    expect(first.files['docs/LUA.md']).toContain('Lua 5.5.0 exactly');
+    expect(first.files['docs/LUA.md']).toContain(
+      'noveltea.properties.get(owner_kind, owner_id, property_id)',
+    );
+    expect(first.files['docs/LUA.md']).toContain(
+      'Game.choose` and `Game.navigate` are deliberately **zero-based**',
+    );
+    expect(first.files['docs/LUA.md']).toContain('audio.play_and_wait');
+    expect(first.files['docs/LUA.md']).toContain('Game.ui.navigate_map_connection');
+    expect(first.files['docs/LUA.md']).toContain('Game.shell.state()');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
     const scriptSchema = JSON.parse(first.files['schemas/records/scripts.schema.json']!);
     expect(scriptSchema.properties.data.properties.source.oneOf[0].properties.path.pattern).toBe(
       '^scripts\\/(?:[^/]+\\/)*[^/]+\\.lua$',
     );
+  });
+
+  it('certifies generated system Layout references against the runtime fallback source', () => {
+    const engine = readFileSync('../engine/src/engine.cpp', 'utf8');
+    const documentRegistry = readFileSync(
+      '../engine/src/ui/rmlui/rmlui_document_registry.cpp',
+      'utf8',
+    );
+    const layoutRealizer = readFileSync('../engine/src/host/layout_realizer.cpp', 'utf8');
+    const runtimeSources = `${documentRegistry}\n${layoutRealizer}`;
+
+    const payload = createNovelTeaAgentKitPayload();
+    const reference = JSON.parse(payload.files['system-layouts/manifest.json']!);
+    const expectedFallbacks = [
+      ['Title', 'title'],
+      ['GameHud', 'game-hud'],
+      ['PauseMenu', 'pause-menu'],
+      ['SaveMenu', 'save-menu'],
+      ['LoadMenu', 'load-menu'],
+      ['SettingsMenu', 'settings-menu'],
+      ['TextLog', 'text-log'],
+      ['Modal', 'modal'],
+    ] as const;
+    for (const [enumName, role] of expectedFallbacks) {
+      expect(engine).toMatch(
+        new RegExp(
+          `case core::compiled::SystemLayoutRole::${enumName}:\\s*return RuntimeLayoutBuiltinDocument::${enumName};`,
+        ),
+      );
+      expect(reference.roles[role].builtinFallback).toBe(true);
+      const runtimeUrl = reference.roles[role].authoringUrl.replace('system|/', 'system:/');
+      expect(runtimeSources).toContain(`"${runtimeUrl}"`);
+    }
+    expect(engine).toMatch(
+      /case core::compiled::SystemLayoutRole::DebugOverlay:\s*return std::nullopt;/,
+    );
+    expect(reference.roles['debug-overlay']).toEqual({
+      builtinFallback: false,
+      document: null,
+      authoringUrl: null,
+      supportingFiles: [],
+    });
+
+    expect(documentRegistry).toContain(
+      'constexpr char kRmlUiHtml4BaselineAsset[] = "system:/ui/baseline/rmlui-html4.rcss";',
+    );
+    expect(documentRegistry).toContain(
+      'constexpr char kNovelTeaBaselineAsset[] = "system:/ui/baseline/noveltea.rcss";',
+    );
+    expect(documentRegistry).toMatch(
+      /rmlui_html4->CombineStyleSheetContainer\(\*noveltea\)[\s\S]*MergeStyleSheetContainer\(\*document_styles\)/,
+    );
+    expect(reference.baselines).toEqual({
+      implicit: true,
+      appliesTo: [
+        'built-in-system-layouts',
+        'project-layouts',
+        'fragments',
+        'focused-previews',
+        'runtime-ui-utility-documents',
+      ],
+      cascade: [
+        {
+          id: 'rmlui-html4',
+          path: 'ui/baseline/rmlui-html4.rcss',
+          authoringUrl: 'system|/ui/baseline/rmlui-html4.rcss',
+        },
+        {
+          id: 'noveltea',
+          path: 'ui/baseline/noveltea.rcss',
+          authoringUrl: 'system|/ui/baseline/noveltea.rcss',
+        },
+        { id: 'template-rcss' },
+        { id: 'document-rcss' },
+      ],
+    });
+    expect(payload.files['system-layouts/ui/baseline/rmlui-html4.rcss']).toBe(
+      readFileSync('../engine/assets/system/ui/baseline/rmlui-html4.rcss', 'utf8'),
+    );
+    expect(payload.files['system-layouts/ui/baseline/noveltea.rcss']).toBe(
+      readFileSync('../engine/assets/system/ui/baseline/noveltea.rcss', 'utf8'),
+    );
+
+    expect(Object.keys(loadAgentKitSystemLayoutSourceFiles())).toEqual([
+      'ui/baseline/noveltea.rcss',
+      'ui/baseline/rmlui-html4.rcss',
+      'ui/menu/load-menu.rml',
+      'ui/menu/modal.rml',
+      'ui/menu/pause-menu.rcss',
+      'ui/menu/pause-menu.rml',
+      'ui/menu/save-menu.rml',
+      'ui/menu/settings-menu.rml',
+      'ui/menu/system-menu.rcss',
+      'ui/menu/text-log.rml',
+      'ui/runtime/runtime_game.rcss',
+      'ui/runtime/runtime_game.rml',
+      'ui/title/default-title.rcss',
+      'ui/title/default-title.rml',
+    ]);
+  });
+
+  it('certifies the RCSS reference against the pinned NovelTea RmlUi profile', () => {
+    const cmake = readFileSync('../cmake/NovelTeaRmlUi.cmake', 'utf8');
+    const readCmakeString = (name: string) => {
+      const match = cmake.match(new RegExp(`set\\(${name} "([^"]+)"\\)`));
+      expect(match, `Missing ${name} in NovelTeaRmlUi.cmake`).not.toBeNull();
+      return match![1];
+    };
+
+    const rmluiVersion = readCmakeString('NOVELTEA_RMLUI_VERSION');
+    const rmluiCommit = readCmakeString('NOVELTEA_RMLUI_GIT_COMMIT');
+    const patchRevision = readCmakeString('NOVELTEA_RMLUI_PATCH_REVISION');
+    expect(cmake).toContain('set(RMLUI_MATH_EXPRESSIONS ON CACHE BOOL "" FORCE)');
+
+    const payload = createNovelTeaAgentKitPayload();
+    const manifest = JSON.parse(payload.manifestText);
+    expect(manifest.provenance.sources.rmlui).toMatchObject({
+      version: rmluiVersion,
+      revision: rmluiCommit,
+    });
+    const reference = payload.files['docs/RCSS_REFERENCE.md']!;
+    expect(reference).toContain(`RmlUi version label: \`${rmluiVersion}\``);
+    expect(reference).toContain(`pinned RmlUi commit: \`${rmluiCommit}\``);
+    expect(reference).toContain(`NovelTea RmlUi patch revision: \`${patchRevision}\``);
+    expect(reference).toContain('`RMLUI_MATH_EXPRESSIONS`: enabled');
+  });
+
+  it('certifies the NovelTea data-binding model, callbacks, and custom-element surface', () => {
+    const runtimeModel = readFileSync('../engine/src/ui/rmlui/runtime_ui_data_model.cpp', 'utf8');
+    const callbackNames = [...runtimeModel.matchAll(/BindEventCallback\(\s*"([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(callbackNames).toEqual([
+      'ui_continue',
+      'ui_choose',
+      'ui_navigate_room',
+      'ui_toggle_subject',
+      'ui_clear_selection',
+      'ui_invoke_interaction',
+      'shell_start',
+      'shell_pause',
+      'shell_resume',
+      'shell_open_settings',
+      'shell_open_save',
+      'shell_open_load',
+      'shell_open_text_log',
+      'shell_open_debug',
+      'shell_close',
+      'shell_return_to_title',
+      'shell_quit',
+      'shell_save_slot',
+      'shell_load_slot',
+      'shell_set_ui_scale',
+      'shell_set_text_scale',
+      'shell_confirm',
+      'shell_cancel',
+    ]);
+
+    const topLevelVariables = [...runtimeModel.matchAll(/constructor\.Bind\("([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(topLevelVariables).toEqual(['project', 'gameplay', 'shell']);
+
+    const registeredMembers: Record<string, string[]> = {};
+    for (const match of runtimeModel.matchAll(/NT_MEMBER\(([^,]+),\s*([^)]+)\)/g)) {
+      const type = match[1]!.trim();
+      const member = match[2]!.trim();
+      if (type === 'TYPE' && member === 'NAME') continue;
+      const members = (registeredMembers[type] ??= []);
+      if (!members.includes(member)) members.push(member);
+    }
+    expect(registeredMembers).toEqual({
+      ChoiceProjection: ['kind', 'id', 'label', 'enabled'],
+      ActorProjection: [
+        'character_id',
+        'instance_id',
+        'pose_id',
+        'expression_id',
+        'presentation_complete',
+      ],
+      ExitProjection: ['id', 'target_id', 'direction', 'label', 'enabled', 'glyph'],
+      ObjectProjection: ['subject_kind', 'subject_id', 'label', 'enabled', 'selected'],
+      InventoryItemProjection: ['id', 'display_name', 'enabled', 'selected'],
+      ActionProjection: ['verb_id', 'label', 'arity', 'quick_action', 'enabled'],
+      TextLogEntryProjection: ['sequence', 'kind', 'has_speaker', 'speaker_id', 'text', 'body_rml'],
+      RoomProjection: ['available', 'has_enabled_exits', 'exits', 'objects'],
+      InventoryProjection: ['items'],
+      InteractionProjection: ['has_selection', 'actions'],
+      TextLogProjection: ['entries'],
+      GameplayProjection: [
+        'available',
+        'mode',
+        'title',
+        'notification',
+        'can_continue',
+        'active_text_available',
+        'choices',
+        'actors',
+        'room',
+        'inventory',
+        'interaction',
+        'text_log',
+      ],
+      ProjectProjection: ['title', 'subtitle', 'start_label'],
+      ScaleProjection: ['enabled', 'value', 'minimum', 'default_value', 'maximum'],
+      SettingsProjection: ['ui_scale', 'text_scale'],
+      CheckpointProjection: [
+        'available',
+        'ready',
+        'retained',
+        'retained_revision',
+        'replay_structural_generations',
+        'replay_time_generations',
+        'replay_play_time_ms',
+        'thumbnail_available',
+        'thumbnail_capture_pending',
+        'summary',
+      ],
+      SaveSlotProjection: [
+        'kind',
+        'number',
+        'label',
+        'occupied',
+        'has_metadata',
+        'play_time_ms',
+        'project_version',
+        'detail',
+        'thumbnail_available',
+        'thumbnail_url',
+      ],
+      ConfirmationProjection: ['active', 'prompt'],
+      ShellProjection: [
+        'available',
+        'screen',
+        'game_active',
+        'status',
+        'settings',
+        'checkpoint',
+        'save_slots',
+        'confirmation',
+      ],
+    });
+
+    const componentSource = readFileSync(
+      '../engine/src/ui/rmlui/rmlui_custom_components.cpp',
+      'utf8',
+    );
+    const customTags = [...componentSource.matchAll(/RegisterElementInstancer\("([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(customTags).toEqual(['nt-active-text', 'nt-map-view']);
+
+    const payload = createNovelTeaAgentKitPayload();
+    const bindingGuide = payload.files['docs/RMLUI_DATA_BINDING.md']!;
+    for (const variable of topLevelVariables) expect(bindingGuide).toContain(`### \`${variable}\``);
+    for (const callback of callbackNames) expect(bindingGuide).toContain(`${callback}(`);
+
+    const componentGuide = payload.files['docs/RMLUI_CUSTOM_COMPONENTS.md']!;
+    for (const tag of customTags) expect(componentGuide).toContain(`\`${tag}\``);
+    expect(componentGuide).toContain('There is no current `nt-text-log` element');
+  });
+
+  it('certifies the Lua guide against the exact sandbox and authored binding surface', () => {
+    const cmake = readFileSync('../cmake/NovelTeaLua.cmake', 'utf8');
+    const archive = cmake.match(/URL https:\/\/www\.lua\.org\/ftp\/lua-([0-9.]+)\.tar\.gz/);
+    const archiveHash = cmake.match(/URL_HASH SHA256=([a-f0-9]+)/);
+    expect(archive?.[1]).toBe('5.5.0');
+    expect(archiveHash?.[1]).toBe(
+      '57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d',
+    );
+    expect(cmake).toContain('if(NOT LUA_VERSION_STRING VERSION_EQUAL "5.5.0")');
+
+    const scriptRuntime = readFileSync('../engine/src/script/lua/script_runtime.cpp', 'utf8');
+    const openLibraries = scriptRuntime.match(/open_libraries\(([\s\S]*?)\);/);
+    expect(openLibraries).not.toBeNull();
+    const libraryNames = [...openLibraries![1].matchAll(/sol::lib::([a-z0-9_]+)/g)].map(
+      (match) => match[1],
+    );
+    expect(libraryNames).toEqual(['base', 'coroutine', 'table', 'string', 'math', 'utf8']);
+    const excludedGlobals = [
+      ...scriptRuntime.matchAll(/m_impl->lua\["([^"]+)"\] = sol::lua_nil;/g),
+    ].map((match) => match[1]);
+    expect(excludedGlobals).toEqual([
+      'os',
+      'io',
+      'debug',
+      'package',
+      'require',
+      'dofile',
+      'loadfile',
+    ]);
+
+    const bindNovelTea = readFileSync('../engine/src/script/lua/bind_noveltea.cpp', 'utf8');
+    const typedBindings = readFileSync(
+      '../engine/src/script/lua/bind_typed_script_host.cpp',
+      'utf8',
+    );
+    const capabilityBindings = readFileSync(
+      '../engine/src/script/lua/bind_runtime_capabilities.cpp',
+      'utf8',
+    );
+    const gameplayUiBindings = readFileSync(
+      '../engine/src/ui/rmlui/runtime_ui_action_gateway.cpp',
+      'utf8',
+    );
+    const shellUiBindings = readFileSync('../engine/src/ui/rmlui/runtime_ui.cpp', 'utf8');
+    const capabilityProfiles = readFileSync(
+      '../engine/include/noveltea/runtime/runtime_capabilities.hpp',
+      'utf8',
+    );
+    const setFunctions = (source: string, object: string) =>
+      [
+        ...source.matchAll(
+          new RegExp(`(?:^|[^A-Za-z0-9_])${object}\\.set_function\\(\\s*"([^"]+)"`, 'g'),
+        ),
+      ].map((match) => match[1]);
+
+    const payload = createNovelTeaAgentKitPayload();
+    const guide = payload.files['docs/LUA.md']!;
+    expect(guide).toContain('Lua 5.5.0 exactly');
+    for (const library of libraryNames) expect(guide).toContain(`\n${library}\n`);
+    for (const excluded of excludedGlobals) expect(guide).toContain(excluded);
+
+    const groups = [
+      [bindNovelTea, 'noveltea', 'noveltea', 4],
+      [typedBindings, 'noveltea', 'noveltea', 1],
+      [typedBindings, 'variables', 'noveltea.variables', 2],
+      [typedBindings, 'properties', 'noveltea.properties', 3],
+      [typedBindings, 'interactables', 'noveltea.interactables', 4],
+      [typedBindings, 'navigation', 'noveltea.navigation', 1],
+      [typedBindings, 'flow', 'noveltea.flow', 9],
+      [typedBindings, 'game', 'Game', 10],
+      [capabilityBindings, 'room_presentation', 'noveltea.room_presentation', 2],
+      [capabilityBindings, 'random', 'noveltea.random', 3],
+      [capabilityBindings, 'map', 'noveltea.map', 5],
+      [capabilityBindings, 'layouts', 'noveltea.layouts', 6],
+      [capabilityBindings, 'presentation', 'noveltea.presentation', 13],
+      [capabilityBindings, 'text_log', 'noveltea.text_log', 2],
+      [capabilityBindings, 'game', 'Game', 3],
+      [gameplayUiBindings, 'ui', 'Game.ui', 10],
+      [shellUiBindings, 'shell', 'Game.shell', 24],
+      [shellUiBindings, 'game', 'Game', 1],
+    ] as const;
+    for (const [source, object, prefix, expectedCount] of groups) {
+      const functions = setFunctions(source, object);
+      expect(functions).toHaveLength(expectedCount);
+      for (const name of functions) expect(guide).toContain(`${prefix}.${name}`);
+    }
+
+    const projectReaders = [
+      ...typedBindings.matchAll(/bind_definition_reader\(project,\s*"([^"]+)"/g),
+    ].map((match) => match[1]);
+    expect(projectReaders).toEqual([
+      'room',
+      'scene',
+      'dialogue',
+      'character',
+      'interactable',
+      'verb',
+      'interaction',
+      'map',
+    ]);
+    for (const name of projectReaders) expect(guide).toContain(`noveltea.project.${name}`);
+
+    const audioFunctions = setFunctions(capabilityBindings, 'audio');
+    expect(audioFunctions).toEqual([
+      '_play',
+      'play_ui',
+      '_stop',
+      'set_loop',
+      'set_music',
+      'clear_loop',
+      'clear_bus',
+      'state',
+    ]);
+    for (const name of audioFunctions.filter((name) => !name.startsWith('_')))
+      expect(guide).toContain(`audio.${name}`);
+    for (const wrapper of ['play', 'stop', 'play_and_wait', 'stop_and_wait']) {
+      expect(capabilityBindings).toContain(`audio.${wrapper} = function`);
+      expect(guide).toContain(`audio.${wrapper}`);
+    }
+    expect(guide).toContain('audio._play');
+    expect(guide).toContain('audio._stop');
+    expect(guide).toContain('implementation details');
+
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::GameplayScript:\s*return \{profile, all_gameplay_queries, gameplay_commands, true, false\};/,
+    );
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::SynchronousExpression:\s*return \{profile, expression_queries, 0, false, false\};/,
+    );
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::RoomComposition:\s*return \{profile, expression_queries, 0, false, true\};/,
+    );
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::GameplayLayoutEvent:\s*return \{profile, all_gameplay_queries, gameplay_commands, false, false\};/,
+    );
+    expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::ShellLayoutEvent:\s*return \{profile, capability_bit\(G::Save\) \| capability_bit\(G::Game\),\s*capability_bit\(G::Save\) \| capability_bit\(G::Game\), false, false\};/,
+    );
+    for (const profile of [
+      'Gameplay Script',
+      'Synchronous expression',
+      'Room composition',
+      'Gameplay Layout event',
+      'Shell Layout event',
+    ])
+      expect(guide).toContain(profile);
+
+    const manifest = JSON.parse(payload.manifestText);
+    const provenanceAreas = manifest.provenance.documents['docs/LUA.md'].sources.flatMap(
+      (source: { areas: string[] }) => source.areas,
+    );
+    expect(provenanceAreas).toContain(
+      'cmake/NovelTeaLua.cmake (Lua 5.5.0 archive SHA256 57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d)',
+    );
+  });
+
+  it('certifies the RmlUi Lua guide against Layout script gating and integration ownership', () => {
+    const layoutRealizer = readFileSync('../engine/src/host/layout_realizer.cpp', 'utf8');
+    expect(layoutRealizer).toContain(
+      'definition->script_enabled ? "<script>" + *lua.value_if() + "</script>"',
+    );
+    expect(layoutRealizer).toContain(
+      'if (layout.script_enabled && layout.contains_dedicated_lua_source)',
+    );
+
+    const layoutSchema = readFileSync(
+      '../editor/src/shared/project-schema/authoring-layouts.ts',
+      'utf8',
+    );
+    expect(layoutSchema).toContain('enabled: z.boolean().default(true)');
+    expect(layoutSchema).toContain('Lua namespace must be a dot-separated Lua identifier path.');
+
+    const sourceAnalysis = readFileSync(
+      '../editor/src/shared/authoring-source-analysis.ts',
+      'utf8',
+    );
+    expect(sourceAnalysis).toContain("reference.kind === 'script'");
+    expect(sourceAnalysis).toContain('does not resolve to exactly one declared dependency.');
+
+    const listenerPatch = readFileSync(
+      '../cmake/patches/rmlui-feature-calc-noveltea-lua-listener-lifetime.patch',
+      'utf8',
+    );
+    expect(listenerPatch).toContain('LuaType<Event>::push(L, &event, false);');
+    expect(listenerPatch).toContain('LuaType<Element>::push(L, attached, false);');
+
+    const payload = createNovelTeaAgentKitPayload();
+    const guide = payload.files['docs/RMLUI_LUA.md']!;
+    expect(guide).toContain('function(event, element, document)');
+    expect(guide).toContain('controls **only the dedicated Layout Lua source**');
+    expect(guide).toContain('It is **not** a document-wide scripting switch');
+    expect(guide).toContain(
+      'GetElementsByTagName` and `QuerySelectorAll` return ordinary 1-based Lua tables',
+    );
+    expect(guide).toContain('Gameplay Layout events are non-yielding');
+    for (const hostOwned of [
+      'rmlui:CreateContext',
+      'rmlui:LoadFontFace',
+      'rmlui:RegisterTag',
+      'Context:LoadDocument',
+      'Context:Update',
+      'Context:Render',
+      'Context:OpenDataModel',
+    ])
+      expect(guide).toContain(hostOwned);
+
+    const manifest = JSON.parse(payload.manifestText);
+    const provenance = manifest.provenance.documents['docs/RMLUI_LUA.md'];
+    expect(provenance.sources.map((source: { source: string }) => source.source)).toEqual([
+      'noveltea',
+      'rmlui',
+      'lua-5.5-manual',
+    ]);
+    const rmluiAreas = provenance.sources.find(
+      (source: { source: string }) => source.source === 'rmlui',
+    ).areas;
+    expect(rmluiAreas).toEqual(
+      expect.arrayContaining([
+        'Source/Lua/LuaEventListener.cpp',
+        'Source/Lua/LuaDocument.cpp',
+        'Source/Lua/Element.cpp',
+        'Source/Lua/Event.cpp',
+        'Source/Lua/Document.cpp',
+        'Source/Lua/Context.cpp',
+        'Source/Lua/RmlUi.cpp',
+      ]),
+    );
+    const novelTeaAreas = provenance.sources.find(
+      (source: { source: string }) => source.source === 'noveltea',
+    ).areas;
+    expect(novelTeaAreas).toEqual(
+      expect.arrayContaining(['cmake/NovelTeaRmlUi.cmake', 'cmake/NovelTeaLua.cmake']),
+    );
+  });
+
+  it('rejects incomplete or dangling curated agent-kit provenance', () => {
+    const sourceFiles = { 'GUIDE.md': '# Guide\n' };
+    expect(() =>
+      createNovelTeaAgentKitPayload(sourceFiles, {
+        sources: {
+          noveltea: {
+            kind: 'repository',
+            repository: 'https://github.com/Cruel/nt.git',
+            revision: 'abc123',
+          },
+        },
+        documents: {},
+      }),
+    ).toThrow('must declare exactly one entry');
+
+    expect(() =>
+      createNovelTeaAgentKitPayload(sourceFiles, {
+        sources: {},
+        documents: {
+          'GUIDE.md': {
+            reviewed: '2026-08-16',
+            strategy: 'Use the public authoring contract.',
+            sources: [{ source: 'noveltea', areas: ['docs/editor/AGENT_KIT.md'] }],
+          },
+        },
+      }),
+    ).toThrow("references unknown source 'noveltea'");
   });
 
   it('repairs, validates, and then leaves an unchanged agent kit untouched', async () => {
@@ -963,6 +1728,39 @@ describe('NovelTea headless CLI', () => {
     });
     expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('/.noveltea/\n/dist/\n');
     const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
+    expect(JSON.parse(manifestBefore).provenance.documents['docs/LAYOUTS.md']).toMatchObject({
+      reviewed: '2026-08-16',
+    });
+    const systemLayoutSources = loadAgentKitSystemLayoutSourceFiles();
+    expect(
+      await value.fileSystem.readText(
+        `${root}/.noveltea/agent/system-layouts/ui/runtime/runtime_game.rml`,
+      ),
+    ).toBe(systemLayoutSources['ui/runtime/runtime_game.rml']);
+    expect(
+      await value.fileSystem.readText(
+        `${root}/.noveltea/agent/system-layouts/ui/baseline/rmlui-html4.rcss`,
+      ),
+    ).toBe(systemLayoutSources['ui/baseline/rmlui-html4.rcss']);
+    const systemLayoutManifest = JSON.parse(
+      await value.fileSystem.readText(`${root}/.noveltea/agent/system-layouts/manifest.json`),
+    );
+    expect(systemLayoutManifest.roles['game-hud']).toMatchObject({
+      builtinFallback: true,
+      authoringUrl: 'system|/ui/runtime/runtime_game.rml',
+    });
+    expect(systemLayoutManifest.baselines).toMatchObject({
+      implicit: true,
+      cascade: [
+        expect.objectContaining({ id: 'rmlui-html4' }),
+        expect.objectContaining({ id: 'noveltea' }),
+        { id: 'template-rcss' },
+        { id: 'document-rcss' },
+      ],
+    });
+    expect(
+      await value.fileSystem.inspect(`${root}/.noveltea/agent/agent-kit-provenance.json`),
+    ).toBe('missing');
     const second = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(second.exitCode).toBe(0);
     expect(JSON.parse(second.stdout).agentKitChanged).toBe(false);
@@ -1083,7 +1881,7 @@ describe('NovelTea headless CLI', () => {
     const result = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout).agentKitChanged).toBe(true);
-    expect(JSON.parse(await value.fileSystem.readText(manifestPath)).schemaVersion).toBe(1);
+    expect(JSON.parse(await value.fileSystem.readText(manifestPath)).schemaVersion).toBe(2);
     expect(await value.fileSystem.readText(`${root}/records/rooms/start.json`)).toBe(
       trackedRoomBefore,
     );
