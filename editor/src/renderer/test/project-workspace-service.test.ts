@@ -8,7 +8,6 @@ import {
   compareProjectWorkspaceUnicodeCodePoints,
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
-  projectWorkspaceLocalStateFile,
 } from '../../shared/project-workspace';
 import {
   FINAL_WORKSPACE_FIXTURE_ROOT,
@@ -225,12 +224,6 @@ describe('ProjectWorkspaceService', () => {
       new InMemoryProjectWorkspaceFileSystem(files),
     ).open('/projects/headless');
 
-    expect(opened.ok).toBe(true);
-    if (!opened.ok) return;
-    expect(opened.editorState).toMatchObject({
-      schemaVersion: 3,
-      bottomPanel: { visible: true },
-    });
     expect(opened.ok).toBe(false);
     if (opened.ok) return;
 
