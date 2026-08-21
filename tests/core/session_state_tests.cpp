@@ -347,8 +347,9 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
     CHECK_FALSE(
         state.set_interactable_visible(compiled_project, id<InteractableId>("missing"), true));
 
+    noveltea::runtime::RuntimeWorld world(compiled_project, state);
     noveltea::runtime::RuntimeCommandGateway gateway(
-        compiled_project, state, *noveltea::runtime::CapabilityGeneration::from_number(1));
+        compiled_project, state, world, *noveltea::runtime::CapabilityGeneration::from_number(1));
     REQUIRE(gateway.interactable_location(key));
     CHECK(std::holds_alternative<compiled::InventoryLocation>(
         gateway.interactable_location(key).value()));
@@ -562,8 +563,9 @@ TEST_CASE("desired presentation ownership isolates nested Scene invocations and 
         project, environment(environment_id, state.shell_presentation_owner(), "shell-loop")));
     CHECK(state.presentation_environments().size() == 3);
 
+    noveltea::runtime::RuntimeWorld world(project, state);
     noveltea::runtime::RuntimeCommandGateway gateway(
-        project, state, *noveltea::runtime::CapabilityGeneration::from_number(1));
+        project, state, world, *noveltea::runtime::CapabilityGeneration::from_number(1));
     CHECK_FALSE(gateway.upsert_presentation_environment(
         environment(id<PresentationEnvironmentInstanceId>("forbidden-shell"),
                     state.shell_presentation_owner(), "shell-only")));

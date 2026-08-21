@@ -4,8 +4,10 @@
 
 `runtime::RunningGame` owns one validated `LoadedCompiledPackage` and constructs one
 `runtime::RuntimeSession`. The session references immutable `CompiledProject` definitions and owns
-the mutable execution composition: `SessionState`, feature state/views, `FlowExecutor`, script
-gateway, playback state, and pending typed operations.
+the mutable execution composition: `SessionState`, the `RuntimeWorld` Gameplay Instance boundary,
+feature state/views, `FlowExecutor`, script gateway, playback state, and pending typed operations.
+`RuntimeWorld` is stored with the session-owned runtime executor and borrows both `CompiledProject`
+and `SessionState`; it does not copy definitions or create a second mutable state authority.
 
 Gameplay mode is represented by typed Room, Flow, or Ended state. Presentation loading/error UI is
 not persisted gameplay mode.
@@ -13,8 +15,11 @@ not persisted gameplay mode.
 ## State
 
 `SessionState` stores typed variable values, typed property overrides, room visits, interactable
-locations, history, inventory selection, deterministic random state, session-only gameplay pause,
-and authoritative desired-presentation records. Desired presentation uses one closed owner vocabulary:
+locations, Character world state, history, inventory selection, deterministic random state,
+session-only gameplay pause, and authoritative desired-presentation records. Production runtime
+lookup and mutation of declared Rooms, Characters, and Interactables crosses `RuntimeWorld`; the
+underlying values remain owned by `SessionState` and the definitions remain owned by immutable
+`CompiledProject`. Desired presentation uses one closed owner vocabulary:
 live Scene invocation, current Room visit, named Room, runtime session, or shell. Actor, background
 override, presentation-only prop, environment/loop, and mounted-Layout records carry stable typed
 identities. Presentation plane does not imply authority; gameplay and shell records remain independent.

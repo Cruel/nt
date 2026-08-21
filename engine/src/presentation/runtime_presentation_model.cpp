@@ -18,18 +18,21 @@ RuntimePresentationModel::build_transition_target(
 
 core::Result<core::PreparedRoomNavigationTarget, core::Diagnostics>
 RuntimePresentationModel::prepare_room_navigation(const core::CompiledProject& project,
+                                                  const runtime::RuntimeWorld& world,
                                                   const core::SessionState& settled_state,
                                                   const core::RoomNavigationPreparationInput& input,
                                                   core::RoomPresentationConditionEvaluator evaluate,
                                                   core::RoomPresentationTextResolver resolve_text,
                                                   core::RoomCompositionCallback* composition) const
 {
-    return core::prepare_room_navigation_target(project, settled_state, input, std::move(evaluate),
-                                                std::move(resolve_text), composition);
+    return core::prepare_room_navigation_target(project, world, settled_state, input,
+                                                std::move(evaluate), std::move(resolve_text),
+                                                composition);
 }
 
 core::Result<core::RoomPresentationResolution, core::Diagnostics>
 RuntimePresentationModel::resolve_room(const core::CompiledProject& project,
+                                       const runtime::RuntimeWorld& world,
                                        const core::SessionState& state,
                                        const core::RoomVisitContext& visit,
                                        core::RoomPresentationConditionEvaluator evaluate,
@@ -37,16 +40,17 @@ RuntimePresentationModel::resolve_room(const core::CompiledProject& project,
                                        core::RoomCompositionCallback* composition) const
 {
     core::RoomPresentationResolver resolver;
-    return resolver.resolve(project, state, visit, std::move(evaluate), std::move(resolve_text),
-                            composition);
+    return resolver.resolve(project, world, state, visit, std::move(evaluate),
+                            std::move(resolve_text), composition);
 }
 
 core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>
 RuntimePresentationModel::project(const core::CompiledProject& project,
+                                  const runtime::RuntimeWorld& world,
                                   const core::SessionState& state,
                                   const core::ResolvedRoomPresentation* room_presentation) const
 {
-    return core::PresentationProjector::project(project, state, room_presentation);
+    return core::PresentationProjector::project(project, world, state, room_presentation);
 }
 
 } // namespace noveltea::presentation

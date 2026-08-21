@@ -32,10 +32,10 @@ void validate_asset(const CompiledProject& project, const std::optional<AssetId>
         diagnostics.push_back(unresolved(std::move(family), asset->text()));
 }
 
-const compiled::RoomPlacement* find_placement(const CompiledProject& project,
+const compiled::RoomPlacement* find_placement(const runtime::RuntimeWorld& world,
                                               const compiled::RoomPlacementRef& ref) noexcept
 {
-    const auto* room = project.find_room(ref.room);
+    const auto* room = world.room(ref.room);
     if (room == nullptr)
         return nullptr;
     const auto found =
@@ -44,11 +44,11 @@ const compiled::RoomPlacement* find_placement(const CompiledProject& project,
     return found == room->placements.end() ? nullptr : &*found;
 }
 
-void validate_text_and_choice(const CompiledProject& project, const SessionState& state,
-                              Diagnostics& diagnostics)
+void validate_text_and_choice(const CompiledProject& project, const runtime::RuntimeWorld& world,
+                              const SessionState& state, Diagnostics& diagnostics)
 {
     if (state.presented_text() && state.presented_text()->speaker &&
-        project.find_character(*state.presented_text()->speaker) == nullptr)
+        world.character(*state.presented_text()->speaker) == nullptr)
         diagnostics.push_back(
             unresolved("presented-text speaker", state.presented_text()->speaker->text()));
 
@@ -157,14 +157,14 @@ effective_background(const SessionState& state, const ResolvedRoomPresentation* 
     return result;
 }
 
-void validate_actor_key(const CompiledProject& project, const ActorPresentationKey& key,
-                        Diagnostics& diagnostics)
+void validate_actor_key(const CompiledProject& project, const runtime::RuntimeWorld& world,
+                        const ActorPresentationKey& key, Diagnostics& diagnostics)
 {
     std::visit(
-        [&project, &diagnostics](const auto& value) {
+        [&project, &world, &diagnostics](const auto& value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, RoomCastActorKey>) {
-                if (project.find_room(value.room) == nullptr)
+                if (world.room(value.room) == nullptr)
                     diagnostics.push_back(unresolved("actor Room", value.room.text()));
             } else if constexpr (std::is_same_v<T, SceneActorKey>) {
                 if (project.find_scene(value.owner.scene) == nullptr)
@@ -227,11 +227,12 @@ struct ActorSource {
     bool desired_override = false;
 };
 
-void append_actor(const CompiledProject& project, const ActorSource& actor,
-                  RuntimePresentationSnapshot& result, Diagnostics& diagnostics)
+void append_actor(const CompiledProject& project, const runtime::RuntimeWorld& world,
+                  const ActorSource& actor, RuntimePresentationSnapshot& result,
+                  Diagnostics& diagnostics)
 {
-    validate_actor_key(project, actor.key, diagnostics);
-    const auto* character = project.find_character(actor.character);
+    validate_actor_key(project, world, actor.key, diagnostics);
+    const auto* character = world.character(actor.character);
     if (character == nullptr) {
         diagnostics.push_back(unresolved("Character", actor.character.text()));
         return;
@@ -286,11 +287,10 @@ room_environment_stop_key(const RoomId& room, const RoomEnvironmentId& environme
                                                   "-" + room.text() + "-" + environment.text());
 }
 
-[[maybe_unused]] void append_room_baseline(const CompiledProject& project,
-                                           const ResolvedRoomPresentation& room,
-                                           std::vector<ActorSource>& actors,
-                                           RuntimePresentationSnapshot& result,
-                                           Diagnostics& diagnostics)
+[[maybe_unused]] void
+append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld& world,
+                     const ResolvedRoomPresentation& room, std::vector<ActorSource>& actors,
+                     RuntimePresentationSnapshot& result, Diagnostics& diagnostics)
 {
     for (const auto& actor : room.actors) {
         const ActorPresentationKey key = std::visit(
@@ -303,7 +303,7 @@ room_environment_stop_key(const RoomId& room, const RoomEnvironmentId& environme
             },
             actor.id);
         const compiled::RoomPlacementRef placement{room.visit.room, actor.placement};
-        const auto* definition = find_placement(project, placement);
+        const auto* definition = find_placement(world, placement);
         if (definition == nullptr) {
             diagnostics.push_back(unresolved("actor Room placement", actor.placement.text()));
             continue;
@@ -324,9 +324,9 @@ room_environment_stop_key(const RoomId& room, const RoomEnvironmentId& environme
     }
 
     for (const auto& interactable : room.interactables) {
-        const auto* definition = project.find_interactable(interactable.interactable);
+        const auto* definition = world.interactable(interactable.interactable);
         const compiled::RoomPlacementRef placement{room.visit.room, interactable.placement};
-        const auto* placement_definition = find_placement(project, placement);
+        const auto* placement_definition = find_placement(world, placement);
         if (definition == nullptr) {
             diagnostics.push_back(unresolved("Interactable", interactable.interactable.text()));
             continue;
@@ -347,7 +347,7 @@ room_environment_stop_key(const RoomId& room, const RoomEnvironmentId& environme
 
     for (const auto& prop : room.props) {
         const compiled::RoomPlacementRef placement{room.visit.room, prop.placement};
-        const auto* placement_definition = find_placement(project, placement);
+        const auto* placement_definition = find_placement(world, placement);
         if (placement_definition == nullptr) {
             diagnostics.push_back(unresolved("Room prop placement", prop.placement.text()));
             continue;
@@ -414,17 +414,17 @@ void canonicalize(RuntimePresentationSnapshot& result)
 }
 
 RoomPresentationVisualCatalog
-build_room_visual_catalog_impl(const CompiledProject& project,
+build_room_visual_catalog_impl(const runtime::RuntimeWorld& world,
                                const RoomPresentationResolution& resolution)
 {
     RoomPresentationVisualCatalog catalog;
-    const auto* room = project.find_room(resolution.presentation.visit.room);
+    const auto* room = world.room(resolution.presentation.visit.room);
     if (room != nullptr) {
         for (const auto& placement : room->placements)
             catalog.placements.push_back({placement.id, placement.bounds, placement.order});
     }
     for (const auto& actor : resolution.presentation.actors) {
-        const auto* character = project.find_character(actor.character);
+        const auto* character = world.character(actor.character);
         if (character == nullptr)
             continue;
         const auto expression =
@@ -452,7 +452,7 @@ build_room_visual_catalog_impl(const CompiledProject& project,
                                       std::move(idle)});
     }
     for (const auto& interactable : resolution.presentation.interactables) {
-        const auto* definition = project.find_interactable(interactable.interactable);
+        const auto* definition = world.interactable(interactable.interactable);
         if (definition != nullptr)
             catalog.interactables.push_back({interactable.interactable,
                                              definition->presentation.sprite,
@@ -463,10 +463,10 @@ build_room_visual_catalog_impl(const CompiledProject& project,
 } // namespace
 
 RoomPresentationVisualCatalog
-build_room_presentation_visual_catalog(const CompiledProject& project,
+build_room_presentation_visual_catalog(const runtime::RuntimeWorld& world,
                                        const RoomPresentationResolution& resolution)
 {
-    return build_room_visual_catalog_impl(project, resolution);
+    return build_room_visual_catalog_impl(world, resolution);
 }
 
 Result<RuntimePresentationSnapshot, Diagnostics>
@@ -751,7 +751,8 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
 }
 
 Result<RuntimePresentationSnapshot, Diagnostics>
-PresentationProjector::project(const CompiledProject& project, const SessionState& state,
+PresentationProjector::project(const CompiledProject& project, const runtime::RuntimeWorld& world,
+                               const SessionState& state,
                                const ResolvedRoomPresentation* room_presentation)
 {
     RuntimePresentationSnapshot result;
@@ -784,7 +785,7 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
                      .controls = {}},
             {}};
         auto baseline = RoomPresentationSnapshotProjector::project(
-            project, resolution, build_room_presentation_visual_catalog(project, resolution));
+            project, resolution, build_room_presentation_visual_catalog(world, resolution));
         if (!baseline) {
             append_diagnostics(diagnostics, std::move(baseline.error()));
         } else {
@@ -838,7 +839,7 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
                                      true, desired.visible, desired.presentation_complete, true});
     }
     for (const auto& actor : actors)
-        append_actor(project, actor, result, diagnostics);
+        append_actor(project, world, actor, result, diagnostics);
 
     for (const auto& desired : state.presentation_props()) {
         if (!state.presentation_owner_is_active(desired.owner))
@@ -856,7 +857,7 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
         }
         auto bounds = desired.bounds;
         if (desired.placement) {
-            const auto* placement = find_placement(project, *desired.placement);
+            const auto* placement = find_placement(world, *desired.placement);
             if (placement == nullptr) {
                 diagnostics.push_back(unresolved("presentation prop placement",
                                                  desired.placement->placement_id.text()));
@@ -915,7 +916,7 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
                                                            mount.composition_group});
     }
 
-    validate_text_and_choice(project, state, diagnostics);
+    validate_text_and_choice(project, world, state, diagnostics);
     result.text_and_choice = {state.presented_text(), state.active_choice()};
 
     if (state.map_presentation()) {
@@ -975,12 +976,11 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
     return Result<RuntimePresentationSnapshot, Diagnostics>::success(std::move(result));
 }
 
-Result<bool, Diagnostics>
-RuntimePresentationSnapshotPublisher::reproject(const CompiledProject& project,
-                                                const SessionState& state,
-                                                const ResolvedRoomPresentation* room_presentation)
+Result<bool, Diagnostics> RuntimePresentationSnapshotPublisher::reproject(
+    const CompiledProject& project, const runtime::RuntimeWorld& world, const SessionState& state,
+    const ResolvedRoomPresentation* room_presentation)
 {
-    auto candidate = PresentationProjector::project(project, state, room_presentation);
+    auto candidate = PresentationProjector::project(project, world, state, room_presentation);
     if (!candidate)
         return Result<bool, Diagnostics>::failure(candidate.error());
 

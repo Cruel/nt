@@ -6,6 +6,7 @@
 #include "noveltea/core/shared_evaluator.hpp"
 #include "noveltea/runtime/runtime_command_gateway.hpp"
 #include "noveltea/runtime/runtime_ports.hpp"
+#include "noveltea/runtime/runtime_world.hpp"
 
 #include <memory>
 #include <string>
@@ -93,6 +94,8 @@ public:
 
     [[nodiscard]] core::SessionState& state() noexcept { return m_state; }
     [[nodiscard]] const core::SessionState& state() const noexcept { return m_state; }
+    [[nodiscard]] RuntimeWorld& world() noexcept { return m_world; }
+    [[nodiscard]] const RuntimeWorld& world() const noexcept { return m_world; }
     [[nodiscard]] core::FlowExecutor& flow() noexcept { return m_flow; }
     [[nodiscard]] runtime::RuntimeCommandGateway& gateway() noexcept { return m_gateway; }
     [[nodiscard]] const runtime::RuntimeCommandGateway& gateway() const noexcept
@@ -231,6 +234,7 @@ private:
 
     const core::CompiledProject& m_project;
     core::SessionState m_state;
+    RuntimeWorld m_world;
     core::FlowExecutor m_flow;
     core::SharedPrimitiveEvaluator m_primitives;
     RuntimeCommandGateway m_gateway;

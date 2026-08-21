@@ -284,7 +284,7 @@ RuntimeExecutor::activate_hotspot(const core::compiled::HotspotRef& hotspot)
                     return core::Result<void, RuntimeExecutionError>::failure(
                         interaction_error("execution.hotspot_owner_unavailable",
                                           "Room hotspot owner is not the active Room"));
-                const auto* room = m_project.find_room(reference.room);
+                const auto* room = m_world.room(reference.room);
                 if (room == nullptr)
                     return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
                         "execution.unknown_hotspot", "Room hotspot definition is missing"));
@@ -310,7 +310,7 @@ RuntimeExecutor::activate_hotspot(const core::compiled::HotspotRef& hotspot)
                                  : core::Result<void, RuntimeExecutionError>::failure(
                                        std::move(navigated).error());
             } else {
-                const auto* owner = m_project.find_interactable(reference.interactable);
+                const auto* owner = m_world.interactable(reference.interactable);
                 const auto present =
                     std::find_if(m_room_presentation->presentation.interactables.begin(),
                                  m_room_presentation->presentation.interactables.end(),
@@ -468,20 +468,20 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
                 return advanced ? std::nullopt
                                 : std::optional<core::FlowRunOutcome>{fault(advanced.error())};
             } else if constexpr (std::is_same_v<T, core::compiled::MoveInteractableInstruction>) {
-                auto moved = m_state.move_interactable(m_project, value.interactable, value.target);
+                auto moved = m_world.move_interactable(value.interactable, value.target);
                 if (!moved)
                     return fault(moved.error());
             } else if constexpr (std::is_same_v<T,
                                                 core::compiled::SetInteractableStateInstruction>) {
                 if (value.enabled) {
-                    auto changed = m_state.set_interactable_enabled(m_project, value.interactable,
-                                                                    *value.enabled);
+                    auto changed =
+                        m_world.set_interactable_enabled(value.interactable, *value.enabled);
                     if (!changed)
                         return fault(changed.error());
                 }
                 if (value.visible) {
-                    auto changed = m_state.set_interactable_visible(m_project, value.interactable,
-                                                                    *value.visible);
+                    auto changed =
+                        m_world.set_interactable_visible(value.interactable, *value.visible);
                     if (!changed)
                         return fault(changed.error());
                 }
@@ -551,7 +551,7 @@ RuntimeExecutor::inventory_view(std::string_view runtime_locale)
     for (const auto& state : m_state.interactables()) {
         if (!std::holds_alternative<core::compiled::InventoryLocation>(state.location))
             continue;
-        const auto* definition = m_project.find_interactable(state.interactable);
+        const auto* definition = m_world.interactable(state.interactable);
         if (definition == nullptr)
             return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
                 interaction_error("execution.invalid_inventory",

@@ -68,9 +68,10 @@ RuntimeExecutor::RuntimeExecutor(const core::CompiledProject& project,
                                  ScriptInvocationPort& scripts,
                                  PresentationModelPort& presentation_model,
                                  core::SessionState state, CapabilityGeneration generation) noexcept
-    : m_project(project), m_state(std::move(state)), m_flow(m_project, m_state),
-      m_primitives(m_project, m_state, m_flow), m_gateway(m_project, m_state, generation),
-      m_scripts(scripts), m_presentation_model(presentation_model),
+    : m_project(project), m_state(std::move(state)), m_world(m_project, m_state),
+      m_flow(m_project, m_state, m_world), m_primitives(m_project, m_state, m_flow),
+      m_gateway(m_project, m_state, m_world, generation), m_scripts(scripts),
+      m_presentation_model(presentation_model),
       m_gameplay_capabilities(
           issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::GameplayScript)),
       m_expression_capabilities(
@@ -671,7 +672,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::ActorCueInstruction>) {
-                    const auto* character = m_project.find_character(value.character);
+                    const auto* character = m_world.character(value.character);
                     if (character == nullptr)
                         return fault(execution_error("execution.invalid_actor_character",
                                                      "Actor cue Character is missing"));
@@ -1084,8 +1085,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                 } else if constexpr (std::is_same_v<
                                                          C, core::compiled::
                                                                 TransitionGroupActorMutation>) {
-                                    const auto* character =
-                                        m_project.find_character(item.character);
+                                    const auto* character = m_world.character(item.character);
                                     if (character == nullptr)
                                         return core::Result<core::TransitionGroupTargetMutation,
                                                             core::Diagnostics>::

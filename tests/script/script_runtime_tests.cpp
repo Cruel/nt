@@ -118,8 +118,8 @@ class ScriptInvocationHarness {
 public:
     ScriptInvocationHarness(script::ScriptRuntime& runtime, const core::CompiledProject& project,
                             core::SessionState& state, core::FlowExecutor& flow)
-        : m_runtime(runtime), m_flow(flow),
-          m_gateway(project, state, *runtime::CapabilityGeneration::from_number(1)),
+        : m_runtime(runtime), m_flow(flow), m_world(project, state),
+          m_gateway(project, state, m_world, *runtime::CapabilityGeneration::from_number(1)),
           m_gameplay(
               issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::GameplayScript)),
           m_expression(issue_capabilities(m_gateway,
@@ -283,6 +283,7 @@ private:
 
     script::ScriptRuntime& m_runtime;
     core::FlowExecutor& m_flow;
+    runtime::RuntimeWorld m_world;
     runtime::RuntimeCommandGateway m_gateway;
     runtime::RuntimeCapabilitySet m_gameplay;
     runtime::RuntimeCapabilitySet m_expression;
@@ -990,7 +991,8 @@ TEST_CASE("runtime script API enforces capability profiles and stale generations
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
-    runtime::RuntimeCommandGateway gateway(project, state,
+    runtime::RuntimeWorld world(project, state);
+    runtime::RuntimeCommandGateway gateway(project, state, world,
                                            *runtime::CapabilityGeneration::from_number(1));
     runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
     auto expression = issuer.issue(runtime::RuntimeCapabilityProfile::SynchronousExpression);

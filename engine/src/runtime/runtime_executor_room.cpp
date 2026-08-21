@@ -51,26 +51,25 @@ struct HookSelection {
     const core::compiled::RoomHookProgram* hook = nullptr;
 };
 
-HookSelection select_hook(const core::CompiledProject& project,
-                          const core::RoomTransitionFrame& transition)
+HookSelection select_hook(const RuntimeWorld& world, const core::RoomTransitionFrame& transition)
 {
     const core::compiled::RoomDefinition* room = nullptr;
     std::optional<core::compiled::RoomHookKind> kind;
     switch (transition.position.stage) {
     case core::RoomTransitionStage::BeforeLeave:
-        room = transition.source_room ? project.find_room(*transition.source_room) : nullptr;
+        room = transition.source_room ? world.room(*transition.source_room) : nullptr;
         kind = core::compiled::RoomHookKind::BeforeLeave;
         break;
     case core::RoomTransitionStage::BeforeEnter:
-        room = project.find_room(transition.target_room);
+        room = world.room(transition.target_room);
         kind = core::compiled::RoomHookKind::BeforeEnter;
         break;
     case core::RoomTransitionStage::AfterLeave:
-        room = transition.source_room ? project.find_room(*transition.source_room) : nullptr;
+        room = transition.source_room ? world.room(*transition.source_room) : nullptr;
         kind = core::compiled::RoomHookKind::AfterLeave;
         break;
     case core::RoomTransitionStage::AfterEnter:
-        room = project.find_room(transition.target_room);
+        room = world.room(transition.target_room);
         kind = core::compiled::RoomHookKind::AfterEnter;
         break;
     default:
@@ -212,7 +211,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         return fault(execution_error("execution.invalid_room_transition",
                                      "Active flow frame is not a Room transition"));
     const core::RoomTransitionFrame transition = *active;
-    const auto* target = m_project.find_room(transition.target_room);
+    const auto* target = m_world.room(transition.target_room);
     if (target == nullptr)
         return fault(
             execution_error("execution.invalid_room_target", "Room transition target is missing"));
@@ -244,7 +243,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
     switch (transition.position.stage) {
     case core::RoomTransitionStage::SourceCanLeave: {
         const auto* source =
-            transition.source_room ? m_project.find_room(*transition.source_room) : nullptr;
+            transition.source_room ? m_world.room(*transition.source_room) : nullptr;
         if (source == nullptr)
             return fault(execution_error("execution.invalid_room_source",
                                          "Room transition source is missing"));
@@ -256,7 +255,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
     }
     case core::RoomTransitionStage::ExitCondition: {
         const auto* source =
-            transition.source_room ? m_project.find_room(*transition.source_room) : nullptr;
+            transition.source_room ? m_world.room(*transition.source_room) : nullptr;
         const auto* exit = source != nullptr && transition.selected_exit
                                ? find_exit(*source, transition.selected_exit->exit_id)
                                : nullptr;
@@ -277,7 +276,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
     case core::RoomTransitionStage::BeforeEnter:
     case core::RoomTransitionStage::AfterLeave:
     case core::RoomTransitionStage::AfterEnter: {
-        const auto selected = select_hook(m_project, transition);
+        const auto selected = select_hook(m_world, transition);
         if (selected.room == nullptr)
             return fault(execution_error("execution.invalid_room_hook_owner",
                                          "Room lifecycle hook owner is missing"));
@@ -323,7 +322,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
 
         RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
         auto prepared = m_presentation_model.prepare_room_navigation(
-            m_project, m_state,
+            m_project, m_world, m_state,
             core::RoomNavigationPreparationInput{transition.frame_id, transition.source_room,
                                                  transition.target_room, transition.selected_exit,
                                                  std::nullopt,
@@ -351,7 +350,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
 
         const core::SessionState source_state = m_state;
         const auto source_room = m_room_presentation;
-        auto committed = m_state.commit_room_navigation(m_project, prepared.value_if()->resolution);
+        auto committed = m_world.commit_room_navigation(prepared.value_if()->resolution);
         if (!committed)
             return fault(committed.error());
         m_room_presentation = std::move(prepared.value_if()->resolution);
@@ -411,7 +410,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
 core::Result<void, core::Diagnostics> RuntimeExecutor::navigate(const core::RoomExitId& exit)
 {
     const auto* mode = std::get_if<core::RoomMode>(&m_state.mode());
-    const auto* room = mode == nullptr ? nullptr : m_project.find_room(mode->room);
+    const auto* room = mode == nullptr ? nullptr : m_world.room(mode->room);
     const auto* selected = room == nullptr ? nullptr : find_exit(*room, exit);
     if (mode == nullptr || room == nullptr || selected == nullptr || !m_state.flow_stack().empty())
         return core::Result<void, core::Diagnostics>::failure(execution_error(
@@ -489,7 +488,7 @@ RuntimeExecutor::refresh_room_presentation(std::string_view runtime_locale)
 
     RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
     auto resolution = m_presentation_model.resolve_room(
-        m_project, m_state, *visit,
+        m_project, m_world, m_state, *visit,
         [this](const core::Condition& condition) -> core::Result<bool, core::Diagnostics> {
             auto result = evaluate(condition);
             const auto* value = result.value_if();

@@ -53,6 +53,7 @@ public:
 
     [[nodiscard]] noveltea::core::Result<noveltea::core::PreparedRoomNavigationTarget, Diagnostics>
     prepare_room_navigation(const noveltea::core::CompiledProject&,
+                            const noveltea::runtime::RuntimeWorld&,
                             const noveltea::core::SessionState&,
                             const noveltea::core::RoomNavigationPreparationInput&,
                             noveltea::core::RoomPresentationConditionEvaluator,
@@ -64,8 +65,8 @@ public:
     }
 
     [[nodiscard]] noveltea::core::Result<noveltea::core::RoomPresentationResolution, Diagnostics>
-    resolve_room(const noveltea::core::CompiledProject&, const noveltea::core::SessionState&,
-                 const noveltea::core::RoomVisitContext&,
+    resolve_room(const noveltea::core::CompiledProject&, const noveltea::runtime::RuntimeWorld&,
+                 const noveltea::core::SessionState&, const noveltea::core::RoomVisitContext&,
                  noveltea::core::RoomPresentationConditionEvaluator,
                  noveltea::core::RoomPresentationTextResolver,
                  noveltea::core::RoomCompositionCallback*) const override
@@ -75,7 +76,8 @@ public:
     }
 
     [[nodiscard]] noveltea::core::Result<noveltea::core::RuntimePresentationSnapshot, Diagnostics>
-    project(const noveltea::core::CompiledProject&, const noveltea::core::SessionState&,
+    project(const noveltea::core::CompiledProject&, const noveltea::runtime::RuntimeWorld&,
+            const noveltea::core::SessionState&,
             const noveltea::core::ResolvedRoomPresentation*) const override
     {
         return noveltea::core::Result<noveltea::core::RuntimePresentationSnapshot,
