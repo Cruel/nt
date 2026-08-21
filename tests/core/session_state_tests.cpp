@@ -327,7 +327,6 @@ TEST_CASE("property mutations enforce declaration owner nullability enum and sca
     CHECK_FALSE(resolver.set(room, id<PropertyId>("light"), RuntimeValue{std::string{"bright"}}));
     CHECK_FALSE(resolver.set(room, id<PropertyId>("light"),
                              RuntimeValue{std::numeric_limits<double>::infinity()}));
-    CHECK_FALSE(resolver.get(PropertyOwnerRef{id<SceneId>("opening")}, id<PropertyId>("mood")));
     CHECK_FALSE(resolver.get(PropertyOwnerRef{id<RoomId>("missing-room")}, id<PropertyId>("mood")));
     CHECK_FALSE(resolver.get(room, id<PropertyId>("missing-property")));
     CHECK_FALSE(

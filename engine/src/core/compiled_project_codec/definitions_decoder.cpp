@@ -1236,11 +1236,9 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
 std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& value,
                                         std::string_view pointer)
 {
-    if (!decoder.object(
-            value, pointer,
-            {"connections", "id", "locations", "presentation", "propertyAssignments", "traits"}))
+    if (!decoder.object(value, pointer, {"connections", "id", "locations", "presentation"}))
         return std::nullopt;
-    auto identity = decode_identity<MapId>(decoder, value, pointer);
+    auto identity = decode_definition_identity<MapId>(decoder, value, pointer);
     const auto* connections_value = decoder.member(value, "connections", pointer);
     const auto* locations_value = decoder.member(value, "locations", pointer);
     const auto* presentation_value = decoder.member(value, "presentation", pointer);

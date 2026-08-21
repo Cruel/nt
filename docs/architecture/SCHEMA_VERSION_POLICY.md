@@ -8,9 +8,16 @@ A version change replaces the previous contract atomically across all producers,
 fixtures, tests, documentation, and development data.
 
 Normal readers must not contain migrations, upgrade decoders, missing-version defaults, retired-field
-aliases, dual writers, or old/new representation unions. This includes alternate shapes hidden under
-the same numeric version. Historical conversion is permitted only through an explicitly requested,
-separately invoked importer; no such importer is implied by this policy.
+aliases, dual writers, or old/new representation unions. This includes accepting alternate historical
+shapes under the same numeric version. Historical conversion is permitted only through an explicitly
+requested, separately invoked importer; no such importer is implied by this policy.
+
+Because NovelTea is unreleased, an explicitly scoped implementation may preserve an already-selected
+numeric version while atomically replacing its one canonical contract shape. That is a contract rewrite,
+not compatibility: every producer, consumer, fixture, test, and document must move together, and the
+replaced shape must be rejected immediately by normal readers. Do not infer this exception merely from
+pre-release status; the owning issue or implementation instruction must explicitly require preserving the
+selected version.
 
 ## Definitions
 
@@ -43,15 +50,20 @@ separately invoked importer; no such importer is implied by this policy.
 | Player, template, export, registry, certification, or editor-stage manifest | Wrong identity/version | Reject, discard, or regenerate according to the inventory row; never normalize the old artifact. |
 | Generated cache or compile output | Incompatible metadata | Discard or regenerate; never migrate. |
 
-## Future Pre-Release Version Changes
+## Future Pre-Release Contract Changes
 
-1. Increment the single current version constant or schema tag.
-2. Update every producer and consumer in the same change.
-3. Replace checked-in fixtures and development data with the current form.
-4. Update permanent contract documentation.
-5. Replace positive old-version tests with a focused rejection test.
-6. Remove the previous decoder, migration, alias, and dual writer.
-7. Add a separately requested importer only when conversion is itself a product requirement.
+By default, a contract-shape change increments the single current version constant or schema tag. When
+an explicitly scoped implementation instead requires preserving an already-selected version, keep that
+number and perform the same atomic replacement without accepting the prior shape.
+
+In either case:
+
+1. Update every producer and consumer in the same change.
+2. Replace checked-in fixtures and development data with the current form.
+3. Update permanent contract documentation.
+4. Replace positive coverage for the retired shape with focused rejection coverage where useful.
+5. Remove the previous decoder, migration, alias, and dual writer.
+6. Add a separately requested importer only when conversion is itself a product requirement.
 
 ## Automated Inventory and Guardrail
 

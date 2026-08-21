@@ -984,11 +984,11 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
 std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::json& value,
                                             std::string_view pointer)
 {
-    if (!decoder.object(value, pointer,
-                        {"continuation", "defaultBackground", "defaultLayout", "displayName", "id",
-                         "program", "propertyAssignments", "traits"}))
+    if (!decoder.object(
+            value, pointer,
+            {"continuation", "defaultBackground", "defaultLayout", "displayName", "id", "program"}))
         return std::nullopt;
-    auto identity = decode_identity<SceneId>(decoder, value, pointer);
+    auto identity = decode_definition_identity<SceneId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
     const auto* background_value = decoder.member(value, "defaultBackground", pointer);
     const auto* layout_value = decoder.member(value, "defaultLayout", pointer);

@@ -653,13 +653,12 @@ describe('authoring compiler framework', () => {
     expect(
       compiled.definitions.verbs.map((verb) => ({
         id: verb.id,
-        traits: verb.traits,
         availability: verb.availability.kind,
         outcome: verb.defaultProgram.outcome,
       })),
     ).toEqual([
-      { id: 'unlock', traits: [], availability: 'always', outcome: 'handled' },
-      { id: 'use', traits: [], availability: 'lua-predicate', outcome: 'unhandled' },
+      { id: 'unlock', availability: 'always', outcome: 'handled' },
+      { id: 'use', availability: 'lua-predicate', outcome: 'unhandled' },
     ]);
     expect(
       compiled.definitions.interactions[0]!.rules[0]!.program.instructions.map(

@@ -55,10 +55,14 @@ generated manifest supports exactly its declared current version. A version chan
 previous contract atomically across producers, consumers, fixtures, tests, and development data.
 Normal readers must reject, discard, or regenerate unsupported data according to the owning
 boundary; they must not add migrations, missing-version defaults, legacy aliases, alternate old
-shapes, or dual writers. Same-version alternate representations are compatibility and are equally
-prohibited. A historical conversion is allowed only as an explicitly requested, separately invoked
-importer. See `docs/architecture/SCHEMA_VERSION_POLICY.md` and keep the schema-policy checker
-inventory current when adding or changing a versioned contract.
+shapes, or dual writers. Accepting multiple historical representations under one numeric version is
+compatibility and is equally prohibited. Because NovelTea is unreleased, an explicitly scoped issue or
+implementation instruction may preserve an already-selected version while atomically replacing its
+single canonical shape; in that case every producer, consumer, fixture, test, and document moves
+together and the replaced shape must be rejected immediately. A historical conversion is allowed only
+as an explicitly requested, separately invoked importer. See
+`docs/architecture/SCHEMA_VERSION_POLICY.md` and keep the schema-policy checker inventory current when
+adding or changing a versioned contract.
 
 Treat `refs/NovelTea/` as read-only reference code. Do not edit files under `refs/NovelTea/`. Do not add `refs/NovelTea/` as a CMake subdirectory, production include path, or linked target. Port intentionally selected behavior into the new structure instead.
 

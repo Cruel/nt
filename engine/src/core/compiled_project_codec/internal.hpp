@@ -280,6 +280,18 @@ std::optional<Id> decode_reference(Decoder& decoder, const nlohmann::json& value
 }
 
 template<class Id>
+std::optional<DefinitionIdentity<Id>>
+decode_definition_identity(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    const auto* id_value = decoder.member(value, "id", pointer);
+    auto decoded_id =
+        id_value ? decoder.id<Id>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
+    return decoded_id ? std::optional<DefinitionIdentity<Id>>{DefinitionIdentity<Id>{
+                            std::move(*decoded_id)}}
+                      : std::nullopt;
+}
+
+template<class Id>
 std::optional<PropertyBearingDefinition<Id>>
 decode_identity(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {

@@ -246,7 +246,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
     for (const auto& trait : traits)
         trait_index.emplace(trait.id, &trait);
 
-#define LINK_DEFINITIONS(wire_member, output_member, output_type, owner_kind, path_text, body)     \
+#define LINK_PROPERTY_DEFINITIONS(wire_member, output_member, output_type, owner_kind, path_text,  \
+                                  body)                                                            \
     std::vector<compiled::output_type> output_member;                                              \
     output_member.reserve(wire.wire_member.size());                                                \
     for (std::size_t index = 0; index < wire.wire_member.size(); ++index) {                        \
@@ -259,14 +260,22 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         output_member.push_back(body);                                                             \
     }
 
-    LINK_DEFINITIONS(
+#define LINK_DEFINITIONS(wire_member, output_member, output_type, id_type, body)                   \
+    std::vector<compiled::output_type> output_member;                                              \
+    output_member.reserve(wire.wire_member.size());                                                \
+    for (auto& value : wire.wire_member) {                                                         \
+        compiled::DefinitionIdentity<id_type> identity{std::move(value.identity.id)};              \
+        output_member.push_back(body);                                                             \
+    }
+
+    LINK_PROPERTY_DEFINITIONS(
         characters, characters, CharacterDefinition, PropertyOwnerKind::Character,
         "/definitions/characters",
         (compiled::CharacterDefinition{
             std::move(*identity), std::move(value.display_name), std::move(value.dialogue),
             std::move(value.defaults), std::move(value.poses), std::move(value.expressions),
             std::move(value.idles), std::move(value.initial_world_state)}));
-    LINK_DEFINITIONS(
+    LINK_PROPERTY_DEFINITIONS(
         rooms, rooms, RoomDefinition, PropertyOwnerKind::Room, "/definitions/rooms",
         (compiled::RoomDefinition{std::move(*identity), std::move(value.display_name),
                                   std::move(value.description), std::move(value.background),
@@ -277,37 +286,35 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                   std::move(value.props), std::move(value.environments),
                                   std::move(value.compose), std::move(value.placements),
                                   std::move(value.exits), std::move(value.hotspots)}));
-    LINK_DEFINITIONS(interactables, interactables, InteractableDefinition,
-                     PropertyOwnerKind::Interactable, "/definitions/interactables",
-                     (compiled::InteractableDefinition{
-                         std::move(*identity), std::move(value.display_name),
-                         std::move(value.initial_state), std::move(value.presentation)}));
+    LINK_PROPERTY_DEFINITIONS(interactables, interactables, InteractableDefinition,
+                              PropertyOwnerKind::Interactable, "/definitions/interactables",
+                              (compiled::InteractableDefinition{
+                                  std::move(*identity), std::move(value.display_name),
+                                  std::move(value.initial_state), std::move(value.presentation)}));
     LINK_DEFINITIONS(
-        verbs, verbs, VerbDefinition, PropertyOwnerKind::Verb, "/definitions/verbs",
-        (compiled::VerbDefinition{std::move(*identity), std::move(value.action_text), value.arity,
+        verbs, verbs, VerbDefinition, VerbId,
+        (compiled::VerbDefinition{std::move(identity), std::move(value.action_text), value.arity,
                                   std::move(value.availability), std::move(value.default_program),
                                   std::move(value.operand_roles), value.quick_action}));
     LINK_DEFINITIONS(
-        interactions, interactions, InteractionDefinition, PropertyOwnerKind::Interaction,
-        "/definitions/interactions",
-        (compiled::InteractionDefinition{std::move(*identity), std::move(value.rules)}));
+        interactions, interactions, InteractionDefinition, InteractionId,
+        (compiled::InteractionDefinition{std::move(identity), std::move(value.rules)}));
+    LINK_DEFINITIONS(scenes, scenes, SceneDefinition, SceneId,
+                     (compiled::SceneDefinition{
+                         std::move(identity), std::move(value.display_name),
+                         std::move(value.default_background), std::move(value.default_layout),
+                         std::move(value.program), std::move(value.continuation)}));
     LINK_DEFINITIONS(
-        scenes, scenes, SceneDefinition, PropertyOwnerKind::Scene, "/definitions/scenes",
-        (compiled::SceneDefinition{std::move(*identity), std::move(value.display_name),
-                                   std::move(value.default_background),
-                                   std::move(value.default_layout), std::move(value.program),
-                                   std::move(value.continuation)}));
-    LINK_DEFINITIONS(
-        dialogues, dialogues, DialogueDefinition, PropertyOwnerKind::Dialogue,
-        "/definitions/dialogues",
-        (compiled::DialogueDefinition{std::move(*identity), std::move(value.display_name),
+        dialogues, dialogues, DialogueDefinition, DialogueId,
+        (compiled::DialogueDefinition{std::move(identity), std::move(value.display_name),
                                       std::move(value.default_speaker), std::move(value.program),
                                       std::move(value.settings), std::move(value.completion)}));
     LINK_DEFINITIONS(
-        maps, maps, MapDefinition, PropertyOwnerKind::Map, "/definitions/maps",
-        (compiled::MapDefinition{std::move(*identity), std::move(value.connections),
+        maps, maps, MapDefinition, MapId,
+        (compiled::MapDefinition{std::move(identity), std::move(value.connections),
                                  std::move(value.locations), std::move(value.presentation)}));
 #undef LINK_DEFINITIONS
+#undef LINK_PROPERTY_DEFINITIONS
 
     if (!diagnostics.empty())
         return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics));

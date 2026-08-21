@@ -233,16 +233,15 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   moodVariable.defaultValue = 'calm';
   project.variables['mood-variable'] = { id: 'mood-variable', label: 'Mood', data: moodVariable };
 
-  const allOwnerKinds = [
-    'room',
-    'scene',
-    'dialogue',
-    'character',
-    'interactable',
-    'verb',
-    'interaction',
-    'map',
-  ] as const;
+  const allOwnerKinds = ['room', 'character', 'interactable'] as const;
+  project.properties.affinity = {
+    id: 'affinity',
+    label: 'Affinity',
+    type: 'number',
+    nullable: false,
+    defaultValue: 0.5,
+    ownerKinds: ['character'],
+  };
   project.properties.enabled = {
     id: 'enabled',
     label: 'Enabled',
@@ -259,22 +258,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     defaultValue: 0,
     ownerKinds: ['room'],
   };
-  project.properties.opacity = {
-    id: 'opacity',
-    label: 'Opacity',
-    type: 'number',
-    nullable: false,
-    defaultValue: 1,
-    ownerKinds: ['scene'],
-  };
-  project.properties.note = {
-    id: 'note',
-    label: 'Note',
-    type: 'string',
-    nullable: true,
-    defaultValue: null,
-    ownerKinds: ['dialogue'],
-  };
   project.properties.mood = {
     id: 'mood',
     label: 'Mood',
@@ -284,6 +267,14 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     defaultValue: 'calm',
     enumValues: ['calm', 'tense'],
     ownerKinds: ['room'],
+  };
+  project.properties.note = {
+    id: 'note',
+    label: 'Note',
+    type: 'string',
+    nullable: true,
+    defaultValue: null,
+    ownerKinds: ['interactable'],
   };
   project.traits['tense-room'] = {
     id: 'tense-room',
@@ -305,7 +296,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.characters.hero = {
     id: 'hero',
     label: 'Hero',
-    properties: { enabled: true },
+    properties: { affinity: 0.75, enabled: true },
     data: hero,
   };
 
@@ -316,7 +307,12 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     material: interactableMaterialRef('sprite-material'),
     hotspots: key.presentation.hotspots,
   };
-  project.interactables.key = { id: 'key', label: 'Key', properties: { enabled: true }, data: key };
+  project.interactables.key = {
+    id: 'key',
+    label: 'Key',
+    properties: { enabled: true, note: 'brass key' },
+    data: key,
+  };
 
   const coin = defaultInteractableData('Coin');
   coin.presentation.hotspots = { kind: 'custom', hotspots: [] };
@@ -466,11 +462,10 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   const look = defaultVerbData('Look');
   look.quickAction = true;
-  project.verbs.look = { id: 'look', label: 'Look', properties: { enabled: true }, data: look };
+  project.verbs.look = { id: 'look', label: 'Look', data: look };
   project.interactions.look = {
     id: 'look',
     label: 'Look Rules',
-    properties: { enabled: true },
     data: defaultInteractionData(),
   };
 
@@ -485,7 +480,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.scenes.opening = {
     id: 'opening',
     label: 'Opening',
-    properties: { opacity: 0.75 },
     data: opening,
   };
 
@@ -504,7 +498,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.dialogues.intro = {
     id: 'intro',
     label: 'Intro',
-    properties: { note: null },
     data: intro,
   };
 
@@ -552,7 +545,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       targetLocation: 'tower-location',
     },
   ];
-  project.maps.house = { id: 'house', label: 'House', properties: { enabled: true }, data: map };
+  project.maps.house = { id: 'house', label: 'House', data: map };
 
   project.settings.text.defaultFont = projectAssetRef('font-main');
   project.settings.titleScreen.titleImage = projectAssetRef('image-main');
@@ -789,7 +782,6 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   project.scenes.opening = {
     id: 'opening',
     label: 'Opening',
-    properties: { opacity: 0.5 },
     data: opening,
   };
 
@@ -905,7 +897,6 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
   project.dialogues.intro = {
     id: 'intro',
     label: 'Intro',
-    properties: { note: 'dialogue-note' },
     data: intro,
   };
 
@@ -1225,7 +1216,6 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   project.interactions.actions = {
     id: 'actions',
     label: 'Actions',
-    properties: { enabled: true },
     data: interaction,
   };
   return project;

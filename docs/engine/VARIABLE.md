@@ -47,7 +47,7 @@ defaultValue
 enumValues
 ```
 
-An identity-scoped Property instead has `scope: "identity"`, its admitted `ownerKinds`, and may omit a declaration default when absence is meaningful.
+An identity-scoped Property instead has `scope: "identity"`, its admitted `ownerKinds`, and may omit a declaration default when absence is meaningful. Current identity owners are exactly Room, Character, and Interactable Gameplay Instances; Scene, Dialogue, Verb, Interaction, and Map definitions are not Property targets.
 
 Conditions and effects that originate from Variable authoring also compile to Property vocabulary:
 
@@ -67,7 +67,7 @@ There is no compiled Variable reference or separate Variable runtime store.
 (PropertyTargetRef, PropertyId)
 ```
 
-`PropertyTargetRef` is either the explicit global target or one supported identity target. Globals do not use a fake Game/entity owner ID.
+`PropertyTargetRef` is either the explicit global target or a Room, Character, or Interactable identity target. Globals do not use a fake Game/entity owner ID.
 
 `PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. Global reads resolve an override first and otherwise return the required authored default. Identity-scoped reads resolve runtime override, direct authored assignment, configured attached Trait value, declaration default, then typed missing. Values never propagate between same-type definitions.
 

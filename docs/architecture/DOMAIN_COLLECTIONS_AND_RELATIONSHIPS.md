@@ -55,7 +55,7 @@ root flow started from Room mode may Return to its captured Room.
 
 ## Traits and properties
 
-Editor categories/tags organize source only. Room, Scene, Dialogue, Character, Interactable, Verb, Interaction, and Map may attach Traits. A Trait declares required or configured ordinary identity-scoped Properties for a closed set of admitted owner kinds; it does not contribute structural fields or create a separate runtime value family.
+Editor categories/tags organize source only. Traits attach only to stateful Gameplay Instances: Room, Character, and Interactable. Scene, Dialogue, Verb, Interaction, and Map are immutable program/vocabulary definitions and are not Property or Trait owners. A Trait declares required or configured ordinary identity-scoped Properties for that closed owner set; it does not contribute structural fields or create a separate runtime value family.
 
 Identity Property resolution is: target runtime override, owner direct authored assignment, configured value from an attached Trait, declaration default, then typed missing. Global Property resolution is its runtime override followed by its required authored default. Unset removes one override and resumes lookup; explicit nullable null remains a value. Identity values never propagate between definitions. Every runtime Property override serializes once at its actual target; authored assignments, Trait configuration, defaults, and other effective values do not.
 

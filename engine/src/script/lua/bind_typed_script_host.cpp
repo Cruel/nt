@@ -92,13 +92,8 @@ core::Result<core::PropertyOwnerRef, core::Diagnostics> property_owner(std::stri
                      : Result::failure(parsed.error());                                            \
     }
     NOVELTEA_PARSE_OWNER("room", core::RoomId)
-    NOVELTEA_PARSE_OWNER("scene", core::SceneId)
-    NOVELTEA_PARSE_OWNER("dialogue", core::DialogueId)
     NOVELTEA_PARSE_OWNER("character", core::CharacterId)
     NOVELTEA_PARSE_OWNER("interactable", core::InteractableId)
-    NOVELTEA_PARSE_OWNER("verb", core::VerbId)
-    NOVELTEA_PARSE_OWNER("interaction", core::InteractionId)
-    NOVELTEA_PARSE_OWNER("map", core::MapId)
 #undef NOVELTEA_PARSE_OWNER
     return Result::failure(core::Diagnostics{core::Diagnostic{
         .code = "script_host.invalid_owner_kind",

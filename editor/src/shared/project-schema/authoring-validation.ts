@@ -53,13 +53,8 @@ function escapePathSegment(segment: string): string {
 
 const propertyOwnerKindByCollection: Partial<Record<AuthoringCollectionKey, PropertyOwnerKind>> = {
   rooms: 'room',
-  scenes: 'scene',
-  dialogues: 'dialogue',
   characters: 'character',
   interactables: 'interactable',
-  verbs: 'verb',
-  interactions: 'interaction',
-  maps: 'map',
 };
 
 function recordsFor(

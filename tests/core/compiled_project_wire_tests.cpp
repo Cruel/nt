@@ -918,7 +918,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("incompatible Trait attachment")
     {
         auto document = fixture("trait-properties-localization");
-        auto* traits = path_member(document, {"definitions", "scenes", "0", "traits"});
+        auto* traits = path_member(document, {"definitions", "characters", "0", "traits"});
         REQUIRE(traits != nullptr);
         traits->push_back("tense-room");
         auto result = noveltea::core::decode_compiled_project(document, "traits.json");
@@ -946,9 +946,9 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("property owner restriction")
     {
         auto document = fixture("trait-properties-localization");
-        auto* scene = path_member(document, {"definitions", "scenes", "0"});
-        REQUIRE(scene != nullptr);
-        (*scene)["propertyAssignments"] =
+        auto* character = path_member(document, {"definitions", "characters", "0"});
+        REQUIRE(character != nullptr);
+        (*character)["propertyAssignments"] =
             nlohmann::json::array({{{"propertyId", "mood"}, {"value", "calm"}}});
         auto result = noveltea::core::decode_compiled_project(document, "properties.json");
         REQUIRE_FALSE(result);

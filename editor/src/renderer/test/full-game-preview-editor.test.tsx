@@ -766,8 +766,6 @@ describe('FullGamePreviewEditor', () => {
     project.verbs.look = {
       id: 'look',
       label: 'Inspect',
-      traits: [],
-      properties: {},
       data: defaultVerbData('Inspect'),
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);

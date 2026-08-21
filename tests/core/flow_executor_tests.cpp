@@ -81,7 +81,7 @@ compiled::SceneDefinition make_scene(SceneId scene_id, std::string first, std::s
         id<SceneStepId>(std::move(second)), std::nullopt, id<PropertyId>("flag"),
         RuntimeValue{true}});
     return compiled::SceneDefinition{
-        .identity = {std::move(scene_id), {}, {}},
+        .identity = {std::move(scene_id)},
         .display_name = "Scene",
         .default_background = {std::nullopt, std::nullopt, compiled::BackgroundFit::Cover,
                                std::nullopt},
@@ -97,7 +97,7 @@ compiled::DialogueDefinition make_dialogue(DialogueId dialogue_id)
     blocks.emplace_back(
         compiled::DialogueSequenceBlock{id<DialogueBlockId>("entry"), std::nullopt, {}});
     return compiled::DialogueDefinition{
-        .identity = {std::move(dialogue_id), {}, {}},
+        .identity = {std::move(dialogue_id)},
         .display_name = "Dialogue",
         .default_speaker = std::nullopt,
         .program = {std::move(blocks), {}, id<DialogueBlockId>("entry")},
@@ -120,14 +120,14 @@ CompiledProject make_project(compiled::Entrypoint entrypoint)
         {compiled::NotifyInstruction{id<InteractionInstructionId>("notify"), text("Done")}},
         EndFlow{},
         compiled::InteractionOutcome::Handled};
-    compiled::VerbDefinition verb{{id<VerbId>("look"), {}, {}}, text("Look"), 0,   Always{},
-                                  std::move(default_program),   {},           true};
+    compiled::VerbDefinition verb{{id<VerbId>("look")},       text("Look"), 0,   Always{},
+                                  std::move(default_program), {},           true};
     compiled::InteractionRule rule{id<InteractionRuleId>("look-rule"),
                                    id<VerbId>("look"),
                                    compiled::AnyInteractionContext{},
                                    {},
                                    std::move(rule_program)};
-    compiled::InteractionDefinition interaction{{id<InteractionId>("room-actions"), {}, {}},
+    compiled::InteractionDefinition interaction{{id<InteractionId>("room-actions")},
                                                 {std::move(rule)}};
 
     compiled::CompiledProjectInput input{

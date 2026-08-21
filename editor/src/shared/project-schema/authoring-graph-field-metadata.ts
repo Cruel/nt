@@ -220,8 +220,8 @@ const PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES =
 // #68 replaces the universal same-type `extends` leaf on Property-bearing records with a Trait
 // attachment array and adds top-level Trait declarations. Preserve every previously reviewed field
 // effect by path, then classify only the new Trait leaves explicitly as owner contributions. This is
-// deliberately a one-time schema-shape migration at the already-selected authoring version.
-const traitBearingRoots = new Set([
+// deliberately a one-time atomic contract replacement at the already-selected authoring version.
+const legacyTraitBearingRoots = new Set([
   'characters',
   'dialogues',
   'interactables',
@@ -231,23 +231,35 @@ const traitBearingRoots = new Set([
   'scenes',
   'verbs',
 ]);
-const legacySchemaLeafPaths = sortedSchemaLeafPaths
-  .filter((path) => !path.startsWith('/traits/'))
-  .map((path) => {
-    const segments = parseJsonPointer(path);
-    return segments.length === 4 &&
-      traitBearingRoots.has(segments[0] ?? '') &&
-      segments[1] === '*' &&
-      segments[2] === 'traits' &&
-      segments[3] === '*'
-      ? (`/${segments[0]}/*/extends` as JsonPointer)
-      : path;
-  })
-  .sort();
+const retiredPropertyBearingRoots = [
+  'dialogues',
+  'interactions',
+  'maps',
+  'scenes',
+  'verbs',
+] as const;
+const legacySchemaLeafPaths = [
+  ...sortedSchemaLeafPaths
+    .filter((path) => !path.startsWith('/traits/'))
+    .map((path) => {
+      const segments = parseJsonPointer(path);
+      return segments.length === 4 &&
+        legacyTraitBearingRoots.has(segments[0] ?? '') &&
+        segments[1] === '*' &&
+        segments[2] === 'traits' &&
+        segments[3] === '*'
+        ? (`/${segments[0]}/*/extends` as JsonPointer)
+        : path;
+    }),
+  ...retiredPropertyBearingRoots.flatMap((root) => [
+    `/${root}/*/extends` as JsonPointer,
+    `/${root}/*/properties/*` as JsonPointer,
+  ]),
+].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
 if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
   throw new Error(
-    `Authoring graph Trait migration changed the legacy reviewed leaf set: expected ${PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length}, received ${legacyReviewedPaths.length}.`,
+    `Authoring graph Trait contract replacement changed the legacy reviewed leaf set: expected ${PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length}, received ${legacyReviewedPaths.length}.`,
   );
 }
 const legacyReviewedEffects = new Map(
@@ -262,7 +274,7 @@ const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
     const segments = parseJsonPointer(path);
     if (
       segments.length === 4 &&
-      traitBearingRoots.has(segments[0] ?? '') &&
+      legacyTraitBearingRoots.has(segments[0] ?? '') &&
       segments[1] === '*' &&
       segments[2] === 'traits' &&
       segments[3] === '*'
@@ -322,19 +334,19 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
   Object.freeze({
     assets: 'e718127a',
     characters: 'f9e51e22',
-    dialogues: '6e083bb5',
+    dialogues: 'bfadec81',
     entrypoint: 'a61673d4',
     export: 'b9fd529f',
     interactables: 'c2651b54',
-    interactions: '6463ced7',
+    interactions: '27039017',
     layouts: '87e0b859',
     localization: '3f6d0d11',
-    maps: '6a2edcd1',
+    maps: '9b969995',
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
     rooms: 'ccd353f5',
-    scenes: 'f376aa68',
+    scenes: '911d4458',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
@@ -344,7 +356,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     tests: '2dead819',
     traits: 'e06af863',
     variables: '9ac2af8d',
-    verbs: '15f7aae6',
+    verbs: 'b5afbce6',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {

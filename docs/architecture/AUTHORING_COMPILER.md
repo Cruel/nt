@@ -51,7 +51,7 @@ The Scene lowering is one-to-one:
 Specialized program lowering completes the draft. Dialogue remains a graph: Sequence, Choice, and
 Redirect blocks; Line and RunLua segments; Next and Choice edges; stable IDs; conditions, effects,
 logging, show-once, safe-point, speaker, text, redirect, entry, and completion data lower directly.
-Comment blocks and segments are omitted. Interaction rules retain authored order, exact or wildcard operands, typed contexts, and all six closed instruction variants. Verb definitions retain their own Trait attachments, availability condition, and default program. Runtime evaluates the selected Verb's local availability and, after an unhandled Interaction result, attempts that same Verb's default program once before the project undefined-interaction fallback.
+Comment blocks and segments are omitted. Interaction rules retain authored order, exact or wildcard operands, typed contexts, and all six closed instruction variants. Verb definitions retain their availability condition and default program but carry no Property assignments or Trait attachments. Runtime evaluates the selected Verb's local availability and, after an unhandled Interaction result, attempts that same Verb's default program once before the project undefined-interaction fallback.
 
 Interaction instructions now have authoritative stable authoring IDs matching the compiled contract.
 The editor allocates collision-free IDs on creation and preserves them during editing and reordering;

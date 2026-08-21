@@ -22,9 +22,11 @@ Workspace-v1 persistence stores each record at its canonical stable-ID path; Lay
 directory for their companion source files and Traits are stored in `traits.json`.
 Stable record IDs are unique within a collection and nested IDs within their owner.
 
-Property-bearing definitions may attach compatible Traits and carry declared typed Property
-assignments. Universal same-type gameplay `extends` is retired. Categories, tags, record colors/order,
-notes, graph positions, selections, preview state, and workbench state remain editor-only.
+Room, Character, and Interactable Gameplay Instances may attach compatible Traits and carry declared
+typed Property assignments. Scene, Dialogue, Verb, Interaction, and Map are immutable program or
+vocabulary definitions and are not Property/Trait owners. Universal same-type gameplay `extends` is
+retired. Categories, tags, record colors/order, notes, graph positions, selections, preview state, and
+workbench state remain editor-only.
 
 ## Startup and Settings
 

@@ -44,11 +44,11 @@ export const layoutRecordSchema = recordSchema(layoutDataSchema.strict());
 export const characterRecordSchema = propertyRecordSchema(characterDataSchema.strict());
 export const roomRecordSchema = propertyRecordSchema(roomDataSchema.strict());
 export const interactableRecordSchema = propertyRecordSchema(interactableDataSchema.strict());
-export const verbRecordSchema = propertyRecordSchema(verbDataSchema);
-export const interactionRecordSchema = propertyRecordSchema(interactionDataSchema);
-export const dialogueRecordSchema = propertyRecordSchema(dialogueDataSchema.strict());
-export const sceneRecordSchema = propertyRecordSchema(sceneDataSchema.strict());
-export const mapRecordSchema = propertyRecordSchema(mapDataSchema);
+export const verbRecordSchema = recordSchema(verbDataSchema);
+export const interactionRecordSchema = recordSchema(interactionDataSchema);
+export const dialogueRecordSchema = recordSchema(dialogueDataSchema.strict());
+export const sceneRecordSchema = recordSchema(sceneDataSchema.strict());
+export const mapRecordSchema = recordSchema(mapDataSchema);
 export const scriptRecordSchema = recordSchema(scriptModuleDataSchema);
 export const testRecordSchema = recordSchema(testDataSchema.strict());
 

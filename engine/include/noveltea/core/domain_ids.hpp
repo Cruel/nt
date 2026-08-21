@@ -51,14 +51,8 @@ NOVELTEA_DOMAIN_ID(MapConnectionId);
 
 enum class PropertyOwnerKind : std::uint8_t {
     Room,
-    Scene,
-    Dialogue,
     Character,
-    Interactable,
-    Verb,
-    Interaction,
-    Map
+    Interactable
 };
-using PropertyOwnerRef = std::variant<RoomId, SceneId, DialogueId, CharacterId, InteractableId,
-                                      VerbId, InteractionId, MapId>;
+using PropertyOwnerRef = std::variant<RoomId, CharacterId, InteractableId>;
 } // namespace noveltea::core

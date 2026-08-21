@@ -25,8 +25,7 @@ enum class PropertyScope : std::uint8_t {
 struct GlobalPropertyTarget {
     bool operator==(const GlobalPropertyTarget&) const = default;
 };
-using PropertyTargetRef = std::variant<GlobalPropertyTarget, RoomId, SceneId, DialogueId,
-                                       CharacterId, InteractableId, VerbId, InteractionId, MapId>;
+using PropertyTargetRef = std::variant<GlobalPropertyTarget, RoomId, CharacterId, InteractableId>;
 
 struct BooleanPropertyType {};
 struct IntegerPropertyType {};
@@ -140,20 +139,10 @@ using PropertyLookupResult = std::variant<RuntimeValue, MissingPropertyValue>;
             using T = std::decay_t<decltype(id)>;
             if constexpr (std::is_same_v<T, RoomId>)
                 return PropertyOwnerKind::Room;
-            else if constexpr (std::is_same_v<T, SceneId>)
-                return PropertyOwnerKind::Scene;
-            else if constexpr (std::is_same_v<T, DialogueId>)
-                return PropertyOwnerKind::Dialogue;
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return PropertyOwnerKind::Character;
             else if constexpr (std::is_same_v<T, InteractableId>)
                 return PropertyOwnerKind::Interactable;
-            else if constexpr (std::is_same_v<T, VerbId>)
-                return PropertyOwnerKind::Verb;
-            else if constexpr (std::is_same_v<T, InteractionId>)
-                return PropertyOwnerKind::Interaction;
-            else if constexpr (std::is_same_v<T, MapId>)
-                return PropertyOwnerKind::Map;
             else
                 static_assert(std::is_same_v<T, void>, "Unhandled property owner type");
         },
@@ -227,7 +216,7 @@ make_property_definition(PropertyDefinitionInput input)
                        .message = "Global Properties require a default and no owner kinds; "
                                   "identity Properties require at least one owner kind"}});
     for (const auto owner : input.allowed_owners) {
-        if (owner > PropertyOwnerKind::Map)
+        if (owner > PropertyOwnerKind::Interactable)
             return Result<PropertyDefinition, Diagnostics>::failure(
                 Diagnostics{Diagnostic{.code = "domain.invalid_property_definition",
                                        .message = "Property owner kind is invalid"}});

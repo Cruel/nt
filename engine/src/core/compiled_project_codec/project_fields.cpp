@@ -501,13 +501,8 @@ std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohm
                                return decoder.enumeration<PropertyOwnerKind>(
                                    owner, owner_pointer,
                                    {{"room", PropertyOwnerKind::Room},
-                                    {"scene", PropertyOwnerKind::Scene},
-                                    {"dialogue", PropertyOwnerKind::Dialogue},
                                     {"character", PropertyOwnerKind::Character},
-                                    {"interactable", PropertyOwnerKind::Interactable},
-                                    {"verb", PropertyOwnerKind::Verb},
-                                    {"interaction", PropertyOwnerKind::Interaction},
-                                    {"map", PropertyOwnerKind::Map}});
+                                    {"interactable", PropertyOwnerKind::Interactable}});
                            })
                      : std::nullopt;
     }
@@ -557,13 +552,8 @@ std::optional<TraitDeclaration> decode_trait(Decoder& decoder, const nlohmann::j
                                 return decoder.enumeration<PropertyOwnerKind>(
                                     owner, owner_pointer,
                                     {{"room", PropertyOwnerKind::Room},
-                                     {"scene", PropertyOwnerKind::Scene},
-                                     {"dialogue", PropertyOwnerKind::Dialogue},
                                      {"character", PropertyOwnerKind::Character},
-                                     {"interactable", PropertyOwnerKind::Interactable},
-                                     {"verb", PropertyOwnerKind::Verb},
-                                     {"interaction", PropertyOwnerKind::Interaction},
-                                     {"map", PropertyOwnerKind::Map}});
+                                     {"interactable", PropertyOwnerKind::Interactable}});
                             })
                       : std::nullopt;
     auto properties =

@@ -35,7 +35,7 @@ describe('runtime-content authoring contracts', () => {
     const verb = defaultVerbData('Use');
     verb.arity = 1;
     verb.operandRoles = ['target'];
-    project.verbs.use = { id: 'use', label: 'Use', traits: [], properties: {}, data: verb };
+    project.verbs.use = { id: 'use', label: 'Use', data: verb };
     const interaction = defaultInteractionData();
     interaction.rules.push({
       id: 'use-key',
@@ -55,8 +55,6 @@ describe('runtime-content authoring contracts', () => {
     project.interactions.actions = {
       id: 'actions',
       label: 'Actions',
-      traits: [],
-      properties: {},
       data: interaction,
     };
     const map = defaultMapData();
@@ -82,7 +80,7 @@ describe('runtime-content authoring contracts', () => {
       sourceLocation: 'foyer-location',
       targetLocation: 'garden-location',
     });
-    project.maps.world = { id: 'world', label: 'World', traits: [], properties: {}, data: map };
+    project.maps.world = { id: 'world', label: 'World', data: map };
     project.scripts.boot = { id: 'boot', label: 'Boot', data: defaultScriptModuleData() };
     expect(isAuthoringProject(project)).toBe(true);
     expect(validateAuthoringProject(project).filter((item) => item.severity === 'error')).toEqual(
@@ -95,7 +93,7 @@ describe('runtime-content authoring contracts', () => {
     const verb = defaultVerbData();
     verb.arity = 1;
     verb.operandRoles = ['target'];
-    project.verbs.use = { id: 'use', label: 'Use', traits: [], properties: {}, data: verb };
+    project.verbs.use = { id: 'use', label: 'Use', data: verb };
     const interaction = defaultInteractionData();
     interaction.rules.push({
       id: 'bad-rule',
@@ -107,8 +105,6 @@ describe('runtime-content authoring contracts', () => {
     project.interactions.actions = {
       id: 'actions',
       label: 'Actions',
-      traits: [],
-      properties: {},
       data: interaction,
     };
     expect(validateAuthoringProject(project)).toEqual(

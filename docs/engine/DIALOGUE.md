@@ -6,7 +6,7 @@ Dialogue is a specialized conversation graph. A `DialogueDefinition` owns immuta
 `DialogueProgram`; a Dialogue frame owns the mutable cursor. Dialogue is not flattened into Scene
 text steps and does not use a universal entity program.
 
-Dialogue is property-bearing and may attach supported Traits backed by ordinary Properties. Trait attachment does not merge blocks, segments, edges, settings, or completion behavior.
+Dialogue is an immutable conversation definition, not a stateful Property or Trait owner. Mutable cursor, history, show-once, and choice state belong to each Dialogue frame/invocation in the Runtime Session.
 
 ## Authoring V2 structure
 
@@ -123,11 +123,8 @@ tests/script/typed_dialogue_execution_tests.cpp
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific graph record with Trait attachments, typed properties, strict
-  blocks/segments/edges, entry block, settings, and completion target.
-- **Compiled:** linked `DialogueDefinition`/`DialogueProgram`, retained Trait IDs, redirects,
-  ordered choices, property assignments, and safe points.
-- **Mutable:** Dialogue frame cursor, show-once/history/visit state, waits, and property overrides in
-  `SessionState`.
+- **Authoring V2:** collection-specific graph record with strict blocks/segments/edges, entry block, settings, and completion target.
+- **Compiled:** linked immutable `DialogueDefinition`/`DialogueProgram` with redirects, ordered choices, and safe points.
+- **Mutable:** Dialogue frame cursor, show-once/history/visit state, and waits in `SessionState`; the Dialogue definition itself has no Property/Trait state.
 - **Tooling only:** graph coordinates, viewport, selection, collapsed state, preview settings,
   Comment blocks/segments, categories, tags, colors, and sort keys.

@@ -130,20 +130,10 @@ bool PropertyResolver::owner_exists(const PropertyOwnerRef& owner) const noexcep
             using T = std::decay_t<decltype(id)>;
             if constexpr (std::is_same_v<T, RoomId>)
                 return m_project.find_room(id) != nullptr;
-            else if constexpr (std::is_same_v<T, SceneId>)
-                return m_project.find_scene(id) != nullptr;
-            else if constexpr (std::is_same_v<T, DialogueId>)
-                return m_project.find_dialogue(id) != nullptr;
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return m_project.find_character(id) != nullptr;
             else if constexpr (std::is_same_v<T, InteractableId>)
                 return m_project.find_interactable(id) != nullptr;
-            else if constexpr (std::is_same_v<T, VerbId>)
-                return m_project.find_verb(id) != nullptr;
-            else if constexpr (std::is_same_v<T, InteractionId>)
-                return m_project.find_interaction(id) != nullptr;
-            else if constexpr (std::is_same_v<T, MapId>)
-                return m_project.find_map(id) != nullptr;
         },
         owner);
 }
@@ -216,27 +206,12 @@ Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOw
             if constexpr (std::is_same_v<T, RoomId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
                                           &CompiledProject::find_room);
-            else if constexpr (std::is_same_v<T, SceneId>)
-                return resolve_definition(m_project, m_state, id, property, *declaration,
-                                          &CompiledProject::find_scene);
-            else if constexpr (std::is_same_v<T, DialogueId>)
-                return resolve_definition(m_project, m_state, id, property, *declaration,
-                                          &CompiledProject::find_dialogue);
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
                                           &CompiledProject::find_character);
             else if constexpr (std::is_same_v<T, InteractableId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
                                           &CompiledProject::find_interactable);
-            else if constexpr (std::is_same_v<T, VerbId>)
-                return resolve_definition(m_project, m_state, id, property, *declaration,
-                                          &CompiledProject::find_verb);
-            else if constexpr (std::is_same_v<T, InteractionId>)
-                return resolve_definition(m_project, m_state, id, property, *declaration,
-                                          &CompiledProject::find_interaction);
-            else if constexpr (std::is_same_v<T, MapId>)
-                return resolve_definition(m_project, m_state, id, property, *declaration,
-                                          &CompiledProject::find_map);
         },
         owner);
 }

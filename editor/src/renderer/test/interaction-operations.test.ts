@@ -10,15 +10,11 @@ describe('interaction operations', () => {
     project.verbs.look = {
       id: 'look',
       label: 'Look',
-      traits: [],
-      properties: {},
       data: defaultVerbData('Look'),
     };
     project.interactions.actions = {
       id: 'actions',
       label: 'Actions',
-      traits: [],
-      properties: {},
       data: defaultInteractionData(),
     };
     const data = defaultInteractionData();

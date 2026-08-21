@@ -29,7 +29,7 @@ PropertyDefinition number_property(bool nullable = false)
         .nullable = nullable,
         .default_value = RuntimeValue{1.0},
         .scope = PropertyScope::Identity,
-        .allowed_owners = {PropertyOwnerKind::Scene, PropertyOwnerKind::Room},
+        .allowed_owners = {PropertyOwnerKind::Character, PropertyOwnerKind::Room},
     });
     return std::move(result).value();
 }
@@ -64,8 +64,8 @@ TEST_CASE("shared execution concepts are closed variants")
     STATIC_REQUIRE(std::variant_size_v<FlowTarget> == 5);
     STATIC_REQUIRE(std::variant_size_v<WaitSpec> == 7);
     STATIC_REQUIRE(std::variant_size_v<ActiveWait> == 6);
-    STATIC_REQUIRE(std::variant_size_v<PropertyOwnerRef> == 8);
-    STATIC_REQUIRE(std::variant_size_v<PropertyTargetRef> == 9);
+    STATIC_REQUIRE(std::variant_size_v<PropertyOwnerRef> == 3);
+    STATIC_REQUIRE(std::variant_size_v<PropertyTargetRef> == 4);
     STATIC_REQUIRE(std::variant_size_v<PropertyValueType> == 5);
     STATIC_REQUIRE(std::variant_size_v<NestedOwnerPath> == 8);
 }
@@ -100,15 +100,9 @@ TEST_CASE("property owner mapping is exhaustive and independent of enum ordering
 {
     const std::array cases{
         std::pair{PropertyOwnerRef{id<RoomId>("room")}, PropertyOwnerKind::Room},
-        std::pair{PropertyOwnerRef{id<SceneId>("scene")}, PropertyOwnerKind::Scene},
-        std::pair{PropertyOwnerRef{id<DialogueId>("dialogue")}, PropertyOwnerKind::Dialogue},
         std::pair{PropertyOwnerRef{id<CharacterId>("character")}, PropertyOwnerKind::Character},
         std::pair{PropertyOwnerRef{id<InteractableId>("interactable")},
                   PropertyOwnerKind::Interactable},
-        std::pair{PropertyOwnerRef{id<VerbId>("verb")}, PropertyOwnerKind::Verb},
-        std::pair{PropertyOwnerRef{id<InteractionId>("interaction")},
-                  PropertyOwnerKind::Interaction},
-        std::pair{PropertyOwnerRef{id<MapId>("map")}, PropertyOwnerKind::Map},
     };
     for (const auto& [owner, expected] : cases)
         CHECK(property_owner_kind(owner) == expected);
@@ -118,16 +112,18 @@ TEST_CASE("property factories enforce owner scalar type nullability and finitene
 {
     const auto definition = number_property();
     const auto room = PropertyOwnerRef{id<RoomId>("atrium")};
-    const auto scene = PropertyOwnerRef{id<SceneId>("opening")};
-    const auto map = PropertyOwnerRef{id<MapId>("world")};
+    const auto character = PropertyOwnerRef{id<CharacterId>("hero")};
+    const auto interactable = PropertyOwnerRef{id<InteractableId>("key")};
 
     CHECK(make_property_assignment(PropertyOwnerKind::Room, definition,
                                    RuntimeValue{std::int64_t{2}}));
-    CHECK_FALSE(make_property_assignment(PropertyOwnerKind::Map, definition, RuntimeValue{2.0}));
+    CHECK_FALSE(
+        make_property_assignment(PropertyOwnerKind::Interactable, definition, RuntimeValue{2.0}));
     CHECK(make_property_override(property_target(room), definition, RuntimeValue{2.0}));
-    CHECK(
-        make_property_override(property_target(scene), definition, RuntimeValue{std::int64_t{2}}));
-    CHECK_FALSE(make_property_override(property_target(map), definition, RuntimeValue{2.0}));
+    CHECK(make_property_override(property_target(character), definition,
+                                 RuntimeValue{std::int64_t{2}}));
+    CHECK_FALSE(
+        make_property_override(property_target(interactable), definition, RuntimeValue{2.0}));
     CHECK_FALSE(make_property_override(property_target(room), definition,
                                        RuntimeValue{std::string{"bright"}}));
     CHECK_FALSE(make_property_override(property_target(room), definition, RuntimeValue{}));

@@ -239,7 +239,7 @@ Shader-specific commands include:
 - `shader.replaceData` for validated full data replacement;
 - `shader.applyCompiledOutputs` for writing compiled output paths into matching stage `compiled` maps.
 
-Generic entity commands handle creation, rename, duplication, metadata edits, parent assignment, and deletion. Shader deletion should be preflighted through the reference index because materials may reference the shader.
+Generic entity commands handle creation, rename, duplication, metadata edits, and deletion. Shader deletion should be preflighted through the reference index because materials may reference the shader. Shader records do not participate in a generic parent relationship.
 
 ## Editor Behavior
 
