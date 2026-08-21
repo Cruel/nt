@@ -14,8 +14,14 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Rooms, placements, props, room interactables, and background hotspots: `.noveltea/agent/docs/ROOMS.md`
 - Verbs, operand arity, interactions, and hotspot activation: `.noveltea/agent/docs/INTERACTIONS.md`
 - Assets, shaders, and materials: `.noveltea/agent/docs/ASSETS_SHADERS.md`
-- Layouts/RML/RCSS: `.noveltea/agent/docs/LAYOUTS.md`
-- Lua: `.noveltea/agent/docs/LUA.md`
+- RML/RCSS authoring and RmlUi differences from browser HTML/CSS: `.noveltea/agent/docs/RMLUI.md`
+- Exact RCSS property/value/shorthand/unit support: `.noveltea/agent/docs/RCSS_REFERENCE.md`
+- NovelTea `noveltea` data model, `data-*` bindings, expressions, and callbacks: `.noveltea/agent/docs/RMLUI_DATA_BINDING.md`
+- Supported NovelTea `nt-*` custom elements: `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md`
+- RML event Lua, `<script>`, RmlUi element/document APIs, and `script.enabled`: `.noveltea/agent/docs/RMLUI_LUA.md`
+- Layout source modes, document/fragment kind, dependencies, system Layout overrides, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
+- Exact built-in system Layout RML/RCSS and universal baseline RCSS reference files: `.noveltea/agent/system-layouts/ui/`
+- NovelTea Lua sandbox, APIs, capabilities, and yielding rules: `.noveltea/agent/docs/LUA.md`
 - Authored tests: `.noveltea/agent/docs/TESTS.md`
 
 Machine-readable workspace-v1 schemas are under `.noveltea/agent/schemas/`. Use them as an exhaustive structural reference when the focused documentation does not answer a detail; do not begin ordinary authoring work by reverse-engineering the schemas.
