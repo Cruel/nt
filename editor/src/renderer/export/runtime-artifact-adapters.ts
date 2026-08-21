@@ -7,7 +7,6 @@ import type {
 import { useProjectStore } from '../project/project-store';
 import { useShaderCompileStore } from '../shaders/shader-compile-store';
 import { joinHostPath } from '../host-filesystem-path';
-import { useProjectStore } from '../project/project-store';
 
 export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
   resolveProjectSource(projectRoot, source) {
