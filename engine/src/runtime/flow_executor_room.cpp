@@ -12,39 +12,6 @@ Diagnostics execution_error(std::string code, std::string message)
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
-std::size_t room_hook_effect_count(const CompiledProject& project,
-                                   const RoomTransitionFrame& transition, RoomTransitionStage stage)
-{
-    const compiled::RoomDefinition* room = nullptr;
-    std::optional<compiled::RoomHookKind> hook;
-    switch (stage) {
-    case RoomTransitionStage::BeforeLeave:
-        room = transition.source_room ? project.find_room(*transition.source_room) : nullptr;
-        hook = compiled::RoomHookKind::BeforeLeave;
-        break;
-    case RoomTransitionStage::BeforeEnter:
-        room = project.find_room(transition.target_room);
-        hook = compiled::RoomHookKind::BeforeEnter;
-        break;
-    case RoomTransitionStage::AfterLeave:
-        room = transition.source_room ? project.find_room(*transition.source_room) : nullptr;
-        hook = compiled::RoomHookKind::AfterLeave;
-        break;
-    case RoomTransitionStage::AfterEnter:
-        room = project.find_room(transition.target_room);
-        hook = compiled::RoomHookKind::AfterEnter;
-        break;
-    default:
-        return 0;
-    }
-    if (room == nullptr || !hook)
-        return 0;
-    const auto found = std::find_if(
-        room->lifecycle.hooks.begin(), room->lifecycle.hooks.end(),
-        [&hook](const compiled::RoomHookProgram& program) { return program.hook == *hook; });
-    return found == room->lifecycle.hooks.end() ? 0 : found->effects.size();
-}
-
 bool is_effect_stage(RoomTransitionStage stage) noexcept
 {
     return stage == RoomTransitionStage::BeforeLeave || stage == RoomTransitionStage::BeforeEnter ||
@@ -80,14 +47,47 @@ RoomTransitionStage next_stage(const RoomTransitionFrame& transition) noexcept
 
 } // namespace
 
+std::size_t FlowExecutor::room_hook_effect_count(const RoomTransitionFrame& transition,
+                                                 RoomTransitionStage stage) const noexcept
+{
+    const compiled::RoomDefinition* room = nullptr;
+    std::optional<compiled::RoomHookKind> hook;
+    switch (stage) {
+    case RoomTransitionStage::BeforeLeave:
+        room = transition.source_room ? room_definition(*transition.source_room) : nullptr;
+        hook = compiled::RoomHookKind::BeforeLeave;
+        break;
+    case RoomTransitionStage::BeforeEnter:
+        room = room_definition(transition.target_room);
+        hook = compiled::RoomHookKind::BeforeEnter;
+        break;
+    case RoomTransitionStage::AfterLeave:
+        room = transition.source_room ? room_definition(*transition.source_room) : nullptr;
+        hook = compiled::RoomHookKind::AfterLeave;
+        break;
+    case RoomTransitionStage::AfterEnter:
+        room = room_definition(transition.target_room);
+        hook = compiled::RoomHookKind::AfterEnter;
+        break;
+    default:
+        return 0;
+    }
+    if (room == nullptr || !hook)
+        return 0;
+    const auto found = std::find_if(
+        room->lifecycle.hooks.begin(), room->lifecycle.hooks.end(),
+        [&hook](const compiled::RoomHookProgram& program) { return program.hook == *hook; });
+    return found == room->lifecycle.hooks.end() ? 0 : found->effects.size();
+}
+
 Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
                                                          const compiled::RoomExitRef& selected_exit)
 {
     if (m_state.m_execution_fault)
         return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
     const auto* source_mode = std::get_if<RoomMode>(&m_state.m_mode);
-    const auto* source = source_mode == nullptr ? nullptr : m_project.find_room(source_mode->room);
-    const auto* target_room = m_project.find_room(target);
+    const auto* source = source_mode == nullptr ? nullptr : room_definition(source_mode->room);
+    const auto* target_room = room_definition(target);
     if (source == nullptr || target_room == nullptr || !m_state.m_flow_stack.empty() ||
         selected_exit.room != source_mode->room)
         return Result<void, Diagnostics>::failure(
@@ -148,8 +148,7 @@ FlowExecutor::advance_room_transition(const RoomTransitionPosition& expected_pos
         return fail(valid.error());
 
     const bool effect_stage = is_effect_stage(expected_position.stage);
-    const auto effect_count =
-        room_hook_effect_count(m_project, *transition, expected_position.stage);
+    const auto effect_count = room_hook_effect_count(*transition, expected_position.stage);
     const bool advances_effect = effect_stage && next_position.stage == expected_position.stage &&
                                  next_position.next_effect == expected_position.next_effect + 1 &&
                                  !next_position.awaiting_completion &&

@@ -1,4 +1,5 @@
 #include "noveltea/core/flow_executor.hpp"
+#include "noveltea/runtime/runtime_world.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -147,61 +148,6 @@ bool has_interaction_instruction(const compiled::InteractionProgram& program,
                        });
 }
 
-std::size_t room_hook_effect_count(const CompiledProject& project,
-                                   const RoomTransitionFrame& transition, RoomTransitionStage stage)
-{
-    const compiled::RoomDefinition* room = nullptr;
-    std::optional<compiled::RoomHookKind> hook;
-    switch (stage) {
-    case RoomTransitionStage::BeforeLeave:
-        room = transition.source_room ? project.find_room(*transition.source_room) : nullptr;
-        hook = compiled::RoomHookKind::BeforeLeave;
-        break;
-    case RoomTransitionStage::BeforeEnter:
-        room = project.find_room(transition.target_room);
-        hook = compiled::RoomHookKind::BeforeEnter;
-        break;
-    case RoomTransitionStage::AfterLeave:
-        room = transition.source_room ? project.find_room(*transition.source_room) : nullptr;
-        hook = compiled::RoomHookKind::AfterLeave;
-        break;
-    case RoomTransitionStage::AfterEnter:
-        room = project.find_room(transition.target_room);
-        hook = compiled::RoomHookKind::AfterEnter;
-        break;
-    default:
-        return 0;
-    }
-    if (room == nullptr || !hook)
-        return 0;
-    const auto found = std::find_if(
-        room->lifecycle.hooks.begin(), room->lifecycle.hooks.end(),
-        [&hook](const compiled::RoomHookProgram& program) { return program.hook == *hook; });
-    return found == room->lifecycle.hooks.end() ? 0 : found->effects.size();
-}
-
-bool valid_room_transition_position(const CompiledProject& project,
-                                    const RoomTransitionFrame& transition,
-                                    const RoomTransitionPosition& position)
-{
-    if (position.stage > RoomTransitionStage::Complete)
-        return false;
-    switch (position.stage) {
-    case RoomTransitionStage::BeforeLeave:
-    case RoomTransitionStage::BeforeEnter:
-    case RoomTransitionStage::AfterLeave:
-    case RoomTransitionStage::AfterEnter: {
-        const auto effect_count = room_hook_effect_count(project, transition, position.stage);
-        return position.next_effect <= effect_count &&
-               (!position.awaiting_completion || position.next_effect < effect_count);
-    }
-    case RoomTransitionStage::CommitRoomSwitch:
-        return position.next_effect == 0;
-    default:
-        return position.next_effect == 0 && !position.awaiting_completion;
-    }
-}
-
 void assign_position(FlowFrame& frame, FlowFramePosition position)
 {
     std::visit(
@@ -266,6 +212,23 @@ FlowBlockerKind flow_blocker_kind(const FlowBlocker& blocker) noexcept
                 return FlowBlockerKind::Script;
         },
         blocker);
+}
+
+const compiled::RoomDefinition* FlowExecutor::room_definition(const RoomId& room) const noexcept
+{
+    return m_world->room(room);
+}
+
+const compiled::CharacterDefinition*
+FlowExecutor::character_definition(const CharacterId& character) const noexcept
+{
+    return m_world->character(character);
+}
+
+const compiled::InteractableDefinition*
+FlowExecutor::interactable_definition(const InteractableId& interactable) const noexcept
+{
+    return m_world->interactable(interactable);
 }
 
 Result<void, Diagnostics> FlowExecutor::fail(Diagnostics diagnostics)
@@ -395,8 +358,23 @@ Result<void, Diagnostics> FlowExecutor::validate_position(const FlowFrame& frame
                        (!candidate->awaiting_completion || candidate->next_instruction.has_value());
             } else {
                 const auto* candidate = std::get_if<RoomTransitionPosition>(&position);
-                return candidate != nullptr &&
-                       valid_room_transition_position(m_project, value, *candidate);
+                if (candidate == nullptr || candidate->stage > RoomTransitionStage::Complete)
+                    return false;
+                switch (candidate->stage) {
+                case RoomTransitionStage::BeforeLeave:
+                case RoomTransitionStage::BeforeEnter:
+                case RoomTransitionStage::AfterLeave:
+                case RoomTransitionStage::AfterEnter: {
+                    const auto effect_count = room_hook_effect_count(value, candidate->stage);
+                    return candidate->next_effect <= effect_count &&
+                           (!candidate->awaiting_completion ||
+                            candidate->next_effect < effect_count);
+                }
+                case RoomTransitionStage::CommitRoomSwitch:
+                    return candidate->next_effect == 0;
+                default:
+                    return candidate->next_effect == 0 && !candidate->awaiting_completion;
+                }
             }
         },
         frame);
@@ -483,9 +461,9 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
                 [this](const auto& value) {
                     using T = std::decay_t<decltype(value)>;
                     if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>)
-                        return m_project.find_character(value.character) != nullptr;
+                        return character_definition(value.character) != nullptr;
                     else
-                        return m_project.find_interactable(value.interactable) != nullptr;
+                        return interactable_definition(value.interactable) != nullptr;
                 },
                 subject);
         });
@@ -649,7 +627,7 @@ Result<void, Diagnostics> FlowExecutor::replace_with_dialogue(const DialogueId& 
 
 Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
 {
-    if (m_project.find_room(room) == nullptr)
+    if (room_definition(room) == nullptr)
         return fail(execution_error("execution.invalid_target", "Room target is missing"));
     if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
         return fail(

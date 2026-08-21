@@ -2,8 +2,10 @@
 
 #include "noveltea/core/save_state_codec_port.hpp"
 #include "noveltea/core/session_state.hpp"
+#include "noveltea/runtime/runtime_world.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <variant>
 
 namespace noveltea::core {
@@ -28,7 +30,13 @@ using FlowRunOutcome =
 class FlowExecutor {
 public:
     FlowExecutor(const CompiledProject& project, SessionState& state) noexcept
-        : m_project(project), m_state(state)
+        : m_project(project), m_state(state), m_standalone_world(std::in_place, project, state),
+          m_world(&*m_standalone_world)
+    {
+    }
+    FlowExecutor(const CompiledProject& project, SessionState& state,
+                 runtime::RuntimeWorld& world) noexcept
+        : m_project(project), m_state(state), m_world(&world)
     {
     }
     FlowExecutor(const FlowExecutor&) = delete;
@@ -119,11 +127,21 @@ private:
     [[nodiscard]] Result<void, Diagnostics> replace_with_scene(const SceneId& scene);
     [[nodiscard]] Result<void, Diagnostics> replace_with_dialogue(const DialogueId& dialogue);
     [[nodiscard]] Result<void, Diagnostics> replace_with_room(const RoomId& room);
+    [[nodiscard]] const compiled::RoomDefinition*
+    room_definition(const RoomId& room) const noexcept;
+    [[nodiscard]] const compiled::CharacterDefinition*
+    character_definition(const CharacterId& character) const noexcept;
+    [[nodiscard]] const compiled::InteractableDefinition*
+    interactable_definition(const InteractableId& interactable) const noexcept;
+    [[nodiscard]] std::size_t room_hook_effect_count(const RoomTransitionFrame& transition,
+                                                     RoomTransitionStage stage) const noexcept;
     void clear_blocker_for(const FlowFrameId& owner) noexcept;
     [[nodiscard]] bool& running_flag() noexcept;
 
     const CompiledProject& m_project;
     SessionState& m_state;
+    std::optional<runtime::RuntimeWorld> m_standalone_world;
+    runtime::RuntimeWorld* m_world;
 };
 
 } // namespace noveltea::core

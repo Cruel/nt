@@ -26,9 +26,10 @@ bool located_at(const compiled::RoomPlacementRef& location, const RoomVisitConte
 } // namespace
 
 Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target(
-    const CompiledProject& project, const SessionState& settled_state,
-    const RoomNavigationPreparationInput& input, RoomPresentationConditionEvaluator evaluate,
-    RoomPresentationTextResolver resolve_text, RoomCompositionCallback* composition)
+    const CompiledProject& project, const runtime::RuntimeWorld& world,
+    const SessionState& settled_state, const RoomNavigationPreparationInput& input,
+    RoomPresentationConditionEvaluator evaluate, RoomPresentationTextResolver resolve_text,
+    RoomCompositionCallback* composition)
 {
     if (input.owner.number() == 0)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
@@ -36,14 +37,14 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
     if (input.target_visit_index == 0)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
             "room_navigation.invalid_visit", "Prepared Room visit index must be non-zero"));
-    const auto* target = project.find_room(input.target_room);
+    const auto* target = world.room(input.target_room);
     if (target == nullptr)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
             "room_navigation.missing_target", "Prepared Room navigation target is missing"));
 
     const compiled::RoomDefinition* source = nullptr;
     if (input.source_room) {
-        source = project.find_room(*input.source_room);
+        source = world.room(*input.source_room);
         if (source == nullptr)
             return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
                 "room_navigation.missing_source", "Prepared Room navigation source is missing"));
@@ -69,8 +70,8 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
     RoomVisitContext target_visit{input.target_room, input.source_room, input.selected_exit,
                                   input.target_visit_index};
     RoomPresentationResolver resolver;
-    auto resolution = resolver.resolve(project, settled_state, target_visit, std::move(evaluate),
-                                       std::move(resolve_text), composition);
+    auto resolution = resolver.resolve(project, world, settled_state, target_visit,
+                                       std::move(evaluate), std::move(resolve_text), composition);
     if (!resolution)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(resolution.error());
     auto* resolved = resolution.value_if();
@@ -92,11 +93,11 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
 }
 
 Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolve(
-    const CompiledProject& project, const SessionState& state, const RoomVisitContext& visit,
-    RoomPresentationConditionEvaluator evaluate, RoomPresentationTextResolver resolve_text,
-    RoomCompositionCallback* composition) const
+    const CompiledProject& project, const runtime::RuntimeWorld& world, const SessionState& state,
+    const RoomVisitContext& visit, RoomPresentationConditionEvaluator evaluate,
+    RoomPresentationTextResolver resolve_text, RoomCompositionCallback* composition) const
 {
-    const auto* room = project.find_room(visit.room);
+    const auto* room = world.room(visit.room);
     if (room == nullptr || visit.visit_index == 0)
         return Result<RoomPresentationResolution, Diagnostics>::failure(error(
             "room_resolution.invalid_visit", "Room resolution requires a valid active visit"));
@@ -127,10 +128,13 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
         return texts.size() - 1;
     };
 
-    for (const auto& character : project.characters())
-        definition.character_defaults.push_back({character.identity.id, character.defaults.pose_id,
-                                                 character.defaults.expression_id,
-                                                 character.defaults.idle_id});
+    for (const auto& character_state : state.character_world()) {
+        const auto* character = world.character(character_state.character);
+        if (character != nullptr)
+            definition.character_defaults.push_back(
+                {character->identity.id, character->defaults.pose_id,
+                 character->defaults.expression_id, character->defaults.idle_id});
+    }
     for (const auto& overlay : room->overlays)
         definition.overlays.push_back({overlay.id, overlay.layout,
                                        condition_token(overlay.condition), overlay.visible,
@@ -244,7 +248,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                                          std::nullopt, PresentationPlane::WorldBackground, 0});
     }
     for (const auto& interactable : presentation.interactables) {
-        const auto* definition = project.find_interactable(interactable.interactable);
+        const auto* definition = world.interactable(interactable.interactable);
         if (definition == nullptr || !definition->presentation.sprite)
             continue;
         const auto placement = std::find_if(

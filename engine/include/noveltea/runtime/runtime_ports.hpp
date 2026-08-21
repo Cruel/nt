@@ -20,6 +20,8 @@
 
 namespace noveltea::runtime {
 
+class RuntimeWorld;
+
 enum class ScriptInvocationResultKind : std::uint8_t {
     None,
     Boolean,
@@ -127,20 +129,21 @@ public:
         const core::PresentationTargetDraft& source,
         const std::vector<core::TransitionGroupTargetMutation>& mutations) const = 0;
     [[nodiscard]] virtual core::Result<core::PreparedRoomNavigationTarget, core::Diagnostics>
-    prepare_room_navigation(const core::CompiledProject& project,
+    prepare_room_navigation(const core::CompiledProject& project, const RuntimeWorld& world,
                             const core::SessionState& settled_state,
                             const core::RoomNavigationPreparationInput& input,
                             core::RoomPresentationConditionEvaluator evaluate,
                             core::RoomPresentationTextResolver resolve_text,
                             core::RoomCompositionCallback* composition = nullptr) const = 0;
     [[nodiscard]] virtual core::Result<core::RoomPresentationResolution, core::Diagnostics>
-    resolve_room(const core::CompiledProject& project, const core::SessionState& state,
-                 const core::RoomVisitContext& visit,
+    resolve_room(const core::CompiledProject& project, const RuntimeWorld& world,
+                 const core::SessionState& state, const core::RoomVisitContext& visit,
                  core::RoomPresentationConditionEvaluator evaluate,
                  core::RoomPresentationTextResolver resolve_text,
                  core::RoomCompositionCallback* composition = nullptr) const = 0;
     [[nodiscard]] virtual core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>
-    project(const core::CompiledProject& project, const core::SessionState& state,
+    project(const core::CompiledProject& project, const RuntimeWorld& world,
+            const core::SessionState& state,
             const core::ResolvedRoomPresentation* room_presentation = nullptr) const = 0;
 };
 

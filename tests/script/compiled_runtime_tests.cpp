@@ -9,6 +9,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -215,6 +216,44 @@ TEST_CASE("compiled runtime final loader owns package and starts representative 
         CHECK(loaded.value()->package().project().identity().name.size() > 0);
         CHECK(session.gateway().active(session.gateway().generation()));
     }
+}
+
+TEST_CASE("compiled running game preserves declared Gameplay Instance lookup and mutation")
+{
+    RuntimeFixture runtime;
+    auto loaded = runtime::load_running_game(load_input(fixture("comprehensive")), runtime.scripts,
+                                             runtime.presentation, runtime.saves);
+    REQUIRE(loaded.has_value());
+
+    auto& session = loaded.value()->session();
+    const auto started = session.dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.disposition != runtime::RuntimeInputDisposition::Failed);
+
+    const auto hero = core::CharacterId::create("hero").value();
+    const auto key = core::InteractableId::create("key").value();
+    const auto* hero_definition = loaded.value()->package().project().find_character(hero);
+    const auto* key_definition = loaded.value()->package().project().find_interactable(key);
+    REQUIRE(hero_definition != nullptr);
+    REQUIRE(key_definition != nullptr);
+    REQUIRE(session.gateway().character_world_state(hero));
+    REQUIRE(session.gateway().interactable_state(key));
+    CHECK(session.gateway().character_world_state(hero).value().visible ==
+          hero_definition->initial_world_state.visible);
+    CHECK(session.gateway().interactable_state(key).value().visible ==
+          key_definition->initial_state.visible);
+
+    REQUIRE(
+        session.gateway().request_character_world_state(hero, std::nullopt, std::nullopt, false));
+    REQUIRE(session.gateway().request_interactable_state(key, std::nullopt, std::nullopt, false));
+    const auto settled = session.dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
+    REQUIRE(settled.disposition != runtime::RuntimeInputDisposition::Failed);
+    REQUIRE(session.gateway().character_world_state(hero));
+    REQUIRE(session.gateway().interactable_state(key));
+    CHECK_FALSE(session.gateway().character_world_state(hero).value().visible);
+    CHECK_FALSE(session.gateway().interactable_state(key).value().visible);
+    CHECK(hero_definition->initial_world_state.visible);
+    CHECK(key_definition->initial_state.visible);
 }
 
 TEST_CASE("compiled runtime rejects malformed package data before session construction")

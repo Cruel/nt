@@ -200,7 +200,7 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     REQUIRE(kernel->refresh_room_presentation("en"));
     REQUIRE(kernel->room_presentation());
     auto presentation = core::PresentationProjector::project(
-        project, kernel->state(), &kernel->room_presentation()->presentation);
+        project, kernel->world(), kernel->state(), &kernel->room_presentation()->presentation);
     REQUIRE(presentation);
     REQUIRE(presentation.value().background);
     CHECK(presentation.value().background->asset == id<core::AssetId>("image-main"));
@@ -289,7 +289,7 @@ TEST_CASE("Room navigation preparation resolves a complete target without mutati
         .target_visit_index = source_visits + 1,
     };
     auto prepared = core::prepare_room_navigation_target(
-        project, kernel->state(), input,
+        project, kernel->world(), kernel->state(), input,
         [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
         [](const core::TextSource&) {
             return core::Result<std::string, core::Diagnostics>::success("resolved");
@@ -312,7 +312,7 @@ TEST_CASE("Room navigation preparation resolves a complete target without mutati
 
     input.explicit_transition.reset();
     auto exit_policy = core::prepare_room_navigation_target(
-        project, kernel->state(), input,
+        project, kernel->world(), kernel->state(), input,
         [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
         [](const core::TextSource&) {
             return core::Result<std::string, core::Diagnostics>::success("resolved");
@@ -323,7 +323,7 @@ TEST_CASE("Room navigation preparation resolves a complete target without mutati
 
     input.selected_exit.reset();
     auto direct_entry = core::prepare_room_navigation_target(
-        project, kernel->state(), input,
+        project, kernel->world(), kernel->state(), input,
         [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
         [](const core::TextSource&) {
             return core::Result<std::string, core::Diagnostics>::success("resolved");
@@ -336,7 +336,7 @@ TEST_CASE("Room navigation preparation resolves a complete target without mutati
 
     input.source_room = id<core::RoomId>("missing-room");
     auto invalid_source = core::prepare_room_navigation_target(
-        project, kernel->state(), input,
+        project, kernel->world(), kernel->state(), input,
         [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
         [](const core::TextSource&) {
             return core::Result<std::string, core::Diagnostics>::success("resolved");
@@ -449,7 +449,7 @@ TEST_CASE("typed Room navigation preserves lifecycle order and exact yielding ho
     REQUIRE(kernel->refresh_room_presentation("en"));
     REQUIRE(kernel->room_presentation());
     auto hall_presentation = core::PresentationProjector::project(
-        project, kernel->state(), &kernel->room_presentation()->presentation);
+        project, kernel->world(), kernel->state(), &kernel->room_presentation()->presentation);
     REQUIRE(hall_presentation);
     REQUIRE(hall_presentation.value().background);
     CHECK(hall_presentation.value().background->fit == core::compiled::BackgroundFit::Contain);

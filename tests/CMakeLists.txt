@@ -190,6 +190,7 @@ add_executable(noveltea_runtime_tests
     core/shared_evaluator_tests.cpp
     core/typed_save_slot_store_tests.cpp
     runtime/runtime_contracts_tests.cpp
+    runtime/runtime_world_tests.cpp
     script/runtime_checkpoint_service_tests.cpp
 )
 target_include_directories(noveltea_runtime_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

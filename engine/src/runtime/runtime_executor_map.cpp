@@ -23,10 +23,10 @@ const core::compiled::MapLocation* find_location(const core::compiled::MapDefini
     return found == map.locations.end() ? nullptr : &*found;
 }
 
-const core::compiled::RoomExit* find_exit(const core::CompiledProject& project,
+const core::compiled::RoomExit* find_exit(const RuntimeWorld& world,
                                           const core::compiled::RoomExitRef& reference)
 {
-    const auto* room = project.find_room(reference.room);
+    const auto* room = world.room(reference.room);
     if (room == nullptr)
         return nullptr;
     const auto found = std::find_if(room->exits.begin(), room->exits.end(),
@@ -129,7 +129,7 @@ RuntimeExecutor::map_view(std::string_view runtime_locale)
                                   std::move(label), presentation->focused_location == location.id});
     }
     for (const auto& connection : definition->connections) {
-        const auto* exit = find_exit(m_project, connection.exit);
+        const auto* exit = find_exit(m_world, connection.exit);
         if (exit == nullptr)
             return core::Result<core::MapView, RuntimeExecutionError>::failure(map_error(
                 "execution.invalid_map_topology", "Map connection references a missing Room exit"));

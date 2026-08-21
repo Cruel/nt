@@ -12,19 +12,21 @@ public:
         const std::vector<core::TransitionGroupTargetMutation>& mutations) const override;
     [[nodiscard]] core::Result<core::PreparedRoomNavigationTarget, core::Diagnostics>
     prepare_room_navigation(const core::CompiledProject& project,
+                            const runtime::RuntimeWorld& world,
                             const core::SessionState& settled_state,
                             const core::RoomNavigationPreparationInput& input,
                             core::RoomPresentationConditionEvaluator evaluate,
                             core::RoomPresentationTextResolver resolve_text,
                             core::RoomCompositionCallback* composition = nullptr) const override;
     [[nodiscard]] core::Result<core::RoomPresentationResolution, core::Diagnostics>
-    resolve_room(const core::CompiledProject& project, const core::SessionState& state,
-                 const core::RoomVisitContext& visit,
+    resolve_room(const core::CompiledProject& project, const runtime::RuntimeWorld& world,
+                 const core::SessionState& state, const core::RoomVisitContext& visit,
                  core::RoomPresentationConditionEvaluator evaluate,
                  core::RoomPresentationTextResolver resolve_text,
                  core::RoomCompositionCallback* composition = nullptr) const override;
     [[nodiscard]] core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>
-    project(const core::CompiledProject& project, const core::SessionState& state,
+    project(const core::CompiledProject& project, const runtime::RuntimeWorld& world,
+            const core::SessionState& state,
             const core::ResolvedRoomPresentation* room_presentation = nullptr) const override;
 };
 
