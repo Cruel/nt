@@ -5,6 +5,7 @@ import type {
   PlatformStageResult,
   ProjectPlatformExportRequest,
   TemplateInstallResult,
+  UserExportConfig,
 } from '../shared/project-schema/platform-export-contracts';
 
 export interface NovelTeaCliPlatformToolService {
@@ -17,6 +18,7 @@ export interface NovelTeaCliPlatformToolService {
     onProgress?: (event: PlatformExportProgressEvent) => void,
   ): Promise<PlatformStageResult>;
   initializeConfig(path: string, force: boolean): Promise<EditorExportLocalState>;
+  loadUserConfig(): Promise<UserExportConfig>;
 }
 
 export const unavailablePlatformTools: NovelTeaCliPlatformToolService = {
@@ -36,6 +38,9 @@ export const unavailablePlatformTools: NovelTeaCliPlatformToolService = {
     throw new Error('Platform tooling is unavailable in this CLI host.');
   },
   async initializeConfig() {
+    throw new Error('Platform tooling is unavailable in this CLI host.');
+  },
+  async loadUserConfig() {
     throw new Error('Platform tooling is unavailable in this CLI host.');
   },
 };

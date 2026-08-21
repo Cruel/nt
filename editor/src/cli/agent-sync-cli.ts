@@ -93,7 +93,7 @@ export async function runNovelTeaAgentSyncCli(
         cliDiagnostic(
           'AGENT_LOCAL_STATE_NOT_IGNORED',
           '/.gitignore',
-          'Add a .noveltea ignore rule to the existing .gitignore file.',
+          'Add the missing `/.noveltea/` and/or `/dist/` ignore rules to the existing .gitignore file.',
           'warning',
         ),
       );

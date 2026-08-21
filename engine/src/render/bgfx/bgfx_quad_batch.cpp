@@ -21,6 +21,17 @@ using namespace bgfx_backend;
 
 namespace {
 
+void make_pixel_ortho(float* out, float width, float height)
+{
+    std::memset(out, 0, sizeof(float) * 16);
+    out[0] = 2.0f / width;
+    out[5] = -2.0f / height;
+    out[10] = 1.0f;
+    out[12] = -1.0f;
+    out[13] = 1.0f;
+    out[15] = 1.0f;
+}
+
 struct QuadVertex {
     float x, y;
     float u, v;
@@ -361,6 +372,181 @@ void Renderer::destroy_postprocess_surface()
 }
 
 void Renderer::retire_postprocess_surface() { destroy_postprocess_surface(); }
+
+bool Renderer::prepare_screenshot_capture_surfaces(const RendererScreenshotRequest& request)
+{
+    if (!m_initialized || !screenshot_rgba8_byte_size(request.width, request.height))
+        return false;
+    const auto* caps = bgfx::getCaps();
+    if (caps == nullptr || (caps->supported & BGFX_CAPS_TEXTURE_BLIT) == 0 ||
+        (caps->supported & BGFX_CAPS_TEXTURE_READ_BACK) == 0 ||
+        request.width > caps->limits.maxTextureSize || request.height > caps->limits.maxTextureSize)
+        return false;
+
+    const auto scene_width_value = static_cast<std::uint32_t>(std::max(ui_raster_width(), 1));
+    const auto scene_height_value = static_cast<std::uint32_t>(std::max(ui_raster_height(), 1));
+    if (!screenshot_rgba8_byte_size(scene_width_value, scene_height_value) ||
+        scene_width_value > caps->limits.maxTextureSize ||
+        scene_height_value > caps->limits.maxTextureSize)
+        return false;
+
+    const auto scene_width = static_cast<std::uint16_t>(scene_width_value);
+    const auto scene_height = static_cast<std::uint16_t>(scene_height_value);
+    const auto output_width = static_cast<std::uint16_t>(request.width);
+    const auto output_height = static_cast<std::uint16_t>(request.height);
+    const auto valid_target = [](const RenderTargetHandles& target) {
+        return bgfx::isValid(bgfx::TextureHandle{target.texture}) &&
+               bgfx::isValid(bgfx::FrameBufferHandle{target.framebuffer});
+    };
+    const bool reusable =
+        valid_target(m_screenshot_scene_target) && valid_target(m_screenshot_output_target) &&
+        bgfx::isValid(bgfx::TextureHandle{m_screenshot_readback_texture}) &&
+        m_screenshot_scene_width == scene_width && m_screenshot_scene_height == scene_height &&
+        m_screenshot_output_width == output_width && m_screenshot_output_height == output_height;
+    if (reusable)
+        return true;
+
+    destroy_screenshot_capture_surfaces();
+    const auto create_target = [](RenderTargetHandles& target, std::uint16_t width,
+                                  std::uint16_t height) {
+        const std::uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+        const auto texture =
+            bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, flags);
+        if (!bgfx::isValid(texture))
+            return false;
+        const auto framebuffer = bgfx::createFrameBuffer(1, &texture, false);
+        if (!bgfx::isValid(framebuffer)) {
+            bgfx::destroy(texture);
+            return false;
+        }
+        target = {.texture = texture.idx, .framebuffer = framebuffer.idx};
+        return true;
+    };
+    if (!create_target(m_screenshot_scene_target, scene_width, scene_height) ||
+        !create_target(m_screenshot_output_target, output_width, output_height)) {
+        destroy_screenshot_capture_surfaces();
+        return false;
+    }
+    const auto readback =
+        bgfx::createTexture2D(output_width, output_height, false, 1, bgfx::TextureFormat::RGBA8,
+                              BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK);
+    if (!bgfx::isValid(readback)) {
+        destroy_screenshot_capture_surfaces();
+        return false;
+    }
+    m_screenshot_readback_texture = readback.idx;
+    m_screenshot_scene_width = scene_width;
+    m_screenshot_scene_height = scene_height;
+    m_screenshot_output_width = output_width;
+    m_screenshot_output_height = output_height;
+    return true;
+}
+
+void Renderer::destroy_screenshot_capture_surfaces()
+{
+    const auto destroy_target = [](RenderTargetHandles& target) {
+        if (bgfx::isValid(bgfx::FrameBufferHandle{target.framebuffer}))
+            bgfx::destroy(bgfx::FrameBufferHandle{target.framebuffer});
+        if (bgfx::isValid(bgfx::TextureHandle{target.texture}))
+            bgfx::destroy(bgfx::TextureHandle{target.texture});
+        target = {};
+    };
+    destroy_target(m_screenshot_scene_target);
+    destroy_target(m_screenshot_output_target);
+    if (bgfx::isValid(bgfx::TextureHandle{m_screenshot_readback_texture}))
+        bgfx::destroy(bgfx::TextureHandle{m_screenshot_readback_texture});
+    m_screenshot_readback_texture = UINT16_MAX;
+    m_screenshot_readback_pixels.clear();
+    m_screenshot_readback_ready_frame = 0;
+    m_screenshot_scene_width = 0;
+    m_screenshot_scene_height = 0;
+    m_screenshot_output_width = 0;
+    m_screenshot_output_height = 0;
+}
+
+void Renderer::finalize_screenshot_capture()
+{
+    if (!m_active_screenshot_capture)
+        return;
+    const auto request = *m_active_screenshot_capture;
+    const bool valid_scene =
+        bgfx::isValid(bgfx::TextureHandle{m_screenshot_scene_target.texture}) &&
+        bgfx::isValid(bgfx::FrameBufferHandle{m_screenshot_scene_target.framebuffer});
+    const bool valid_output =
+        bgfx::isValid(bgfx::TextureHandle{m_screenshot_output_target.texture}) &&
+        bgfx::isValid(bgfx::FrameBufferHandle{m_screenshot_output_target.framebuffer});
+    const bool valid_readback = bgfx::isValid(bgfx::TextureHandle{m_screenshot_readback_texture});
+    if (!valid_scene || !valid_output || !valid_readback) {
+        m_active_screenshot_capture.reset();
+        return;
+    }
+
+    const auto& host = m_presentation.host;
+    const auto& viewport = m_presentation.viewport.host_framebuffer_rect;
+    const auto present_view = static_cast<bgfx::ViewId>(ViewScreenshotPresent);
+    bgfx::setViewFrameBuffer(present_view, BGFX_INVALID_HANDLE);
+    bgfx::setViewMode(present_view, bgfx::ViewMode::Sequential);
+    bgfx::setViewRect(present_view, 0, 0, static_cast<std::uint16_t>(host.framebuffer_size.width),
+                      static_cast<std::uint16_t>(host.framebuffer_size.height));
+    bgfx::setViewClear(present_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, m_bar_color_rgba, 1.0f,
+                       0);
+    float present_ortho[16];
+    make_pixel_ortho(present_ortho, static_cast<float>(host.framebuffer_size.width),
+                     static_cast<float>(host.framebuffer_size.height));
+    bgfx::setViewTransform(present_view, nullptr, present_ortho);
+    bgfx::touch(present_view);
+
+    QuadCommand present;
+    present.rect = {static_cast<float>(viewport.x), static_cast<float>(viewport.y),
+                    static_cast<float>(viewport.width), static_cast<float>(viewport.height)};
+    present.texture = Texture{m_screenshot_scene_target.texture};
+    present.texture_sampler = MaterialTextureSampler::ClampLinear;
+    if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
+        present.uv = {0.0f, 1.0f, 1.0f, -1.0f};
+    present.color = {1.0f, 1.0f, 1.0f, 1.0f};
+    submit_copy_quad(present, present_view);
+
+    const auto capture_view = static_cast<bgfx::ViewId>(ViewScreenshotResize);
+    bgfx::setViewFrameBuffer(capture_view,
+                             bgfx::FrameBufferHandle{m_screenshot_output_target.framebuffer});
+    bgfx::setViewMode(capture_view, bgfx::ViewMode::Sequential);
+    bgfx::setViewRect(capture_view, 0, 0, m_screenshot_output_width, m_screenshot_output_height);
+    bgfx::setViewClear(capture_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x000000ff, 1.0f, 0);
+    float capture_ortho[16];
+    make_pixel_ortho(capture_ortho, static_cast<float>(m_screenshot_output_width),
+                     static_cast<float>(m_screenshot_output_height));
+    bgfx::setViewTransform(capture_view, nullptr, capture_ortho);
+    bgfx::touch(capture_view);
+
+    QuadCommand capture;
+    capture.rect = {0.0f, 0.0f, static_cast<float>(m_screenshot_output_width),
+                    static_cast<float>(m_screenshot_output_height)};
+    capture.texture = Texture{m_screenshot_scene_target.texture};
+    capture.texture_sampler = MaterialTextureSampler::ClampLinear;
+    capture.uv = request.source_uv;
+    if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft) {
+        capture.uv.y = 1.0f - request.source_uv.y;
+        capture.uv.height = -request.source_uv.height;
+    }
+    capture.color = {1.0f, 1.0f, 1.0f, 1.0f};
+    submit_copy_quad(capture, capture_view);
+
+    const auto readback_texture = bgfx::TextureHandle{m_screenshot_readback_texture};
+    const auto output_texture = bgfx::TextureHandle{m_screenshot_output_target.texture};
+    bgfx::blit(static_cast<bgfx::ViewId>(ViewScreenshotReadback), readback_texture, 0, 0,
+               output_texture, 0, 0, m_screenshot_output_width, m_screenshot_output_height);
+    const auto readback_bytes =
+        screenshot_rgba8_byte_size(m_screenshot_output_width, m_screenshot_output_height);
+    if (!readback_bytes) {
+        m_active_screenshot_capture.reset();
+        return;
+    }
+    m_screenshot_readback_pixels.resize(*readback_bytes);
+    m_screenshot_readback_ready_frame =
+        bgfx::readTexture(readback_texture, m_screenshot_readback_pixels.data());
+    m_outstanding_screenshot_capture = request.request_id;
+    m_active_screenshot_capture.reset();
+}
 
 std::optional<PostprocessScope> Renderer::active_postprocess_scope() const noexcept
 {
@@ -756,7 +942,7 @@ bool Renderer::submit_material_quad(const QuadCommand& command)
 
 bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t view)
 {
-    if (!m_shader_materials || !m_material_binder)
+    if (!m_material_binder)
         return false;
 
     std::vector<ShaderProgramDiagnostic> diagnostics;
@@ -780,16 +966,30 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     bgfx::TextureHandle hotspot_mask = BGFX_INVALID_HANDLE;
     if (command.hotspot_mask && command.hotspot_mask->valid())
         hotspot_mask = bgfx::TextureHandle{command.hotspot_mask->handle};
-    const auto bound = m_material_binder->bind_material(
-        *m_shader_materials, command.material,
-        BgfxMaterialBindInputs{.role = hotspot_overlay ? ShaderRole::HotspotOverlay
-                                                       : ShaderRole::Engine2D,
-                               .quad_command = &command,
-                               .standard_inputs = inputs,
-                               .hotspot_image = hotspot_image,
-                               .hotspot_image_sampler = command.texture_sampler,
-                               .hotspot_mask = hotspot_mask},
-        &diagnostics);
+    const BgfxMaterialBindInputs bind_inputs{
+        .role = hotspot_overlay ? ShaderRole::HotspotOverlay : ShaderRole::Engine2D,
+        .quad_command = &command,
+        .standard_inputs = inputs,
+        .hotspot_image = hotspot_image,
+        .hotspot_image_sampler = command.texture_sampler,
+        .hotspot_mask = hotspot_mask,
+    };
+
+    BgfxMaterialBindResult bound;
+    if (command.material.value() == builtin_hotspot_alpha_material_id ||
+        command.material.value() == builtin_hotspot_custom_material_id) {
+        const auto interface = command.material.value() == builtin_hotspot_alpha_material_id
+                                   ? HotspotMaterialInterface::Alpha
+                                   : HotspotMaterialInterface::Custom;
+        bound = m_material_binder->bind_system_material(
+            m_builtin_hotspot_materials, command.material,
+            bgfx::ProgramHandle{builtin_hotspot_program(interface)}, bind_inputs, &diagnostics);
+    } else {
+        if (!m_shader_materials)
+            return false;
+        bound = m_material_binder->bind_material(*m_shader_materials, command.material, bind_inputs,
+                                                 &diagnostics);
+    }
     for (const auto& diagnostic : diagnostics) {
         SDL_Log("[renderer] material diagnostic: %s: %s", diagnostic.context.c_str(),
                 diagnostic.message.c_str());
@@ -879,6 +1079,25 @@ void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t vie
         bgfx::setScissor(UINT16_MAX);
     }
 
+    bgfx::submit(view, bgfx::ProgramHandle{m_quad_program});
+}
+
+void Renderer::submit_copy_quad(const QuadCommand& command, std::uint16_t view)
+{
+    if (!set_quad_buffers(command))
+        return;
+
+    const uint16_t texture = command.texture.handle;
+    const bool use_texture = texture != UINT16_MAX && bgfx::isValid(bgfx::TextureHandle{texture});
+    if (!use_texture)
+        return;
+
+    const float use_texture_uniform[] = {1.0f, 0.0f, 0.0f, 0.0f};
+    bgfx::setUniform(bgfx::UniformHandle{m_use_texture_uniform}, use_texture_uniform);
+    bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, bgfx::TextureHandle{texture},
+                     bgfx_backend::bgfx_sampler_flags(command.texture_sampler));
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+    bgfx::setScissor(UINT16_MAX);
     bgfx::submit(view, bgfx::ProgramHandle{m_quad_program});
 }
 

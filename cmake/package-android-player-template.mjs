@@ -77,7 +77,7 @@ const dependencies = [
   ['SDL', '3.4.10'], ['Android Gradle Plugin', '8.7.3'], ['Gradle', '8.9'], ['bundletool', '1.18.1'],
   ['Android NDK', '28.2.13676358'], ['bgfx.cmake', '1.143.9262-545'], ['RmlUi', '6.3-dev-feature-calc-c6744d15'], ['Lua', '5.5.0'],
   ['sol2', '3.5.0'], ['FreeType', '2.13.3'], ['HarfBuzz', '11.2.1'], ['SheenBidi', '2.6'],
-  ['libunibreak', '6.1'], ['miniaudio', '0.11.23'], ['nlohmann-json', '3.12.0'], ['twink', 'ea488b2'],
+  ['libunibreak', '6.1'], ['miniaudio', '0.11.23'], ['nlohmann-json', '3.12.0'], ['libpng', '1.6.58'], ['zlib', '1.3.2'], ['twink', 'ea488b2'],
 ];
 await writeFile(path.join(stage, 'SBOM.cdx.json'), `${JSON.stringify({ bomFormat: 'CycloneDX', specVersion: '1.5', version: 1, metadata: { component: { type: 'application', name: 'noveltea-android-player-template', version: releaseTag } }, components: dependencies.map(([name, version]) => ({ type: 'library', name, version })) }, null, 2)}\n`);
 await writeFile(path.join(stage, 'licenses', 'THIRD_PARTY_NOTICES.txt'), `NovelTea Android player template third-party inventory\n\n${dependencies.map(([name, version]) => `${name} ${version}`).join('\n')}\n\nResolved dependency license texts are collected from the native build source trees in release CI.\n`);

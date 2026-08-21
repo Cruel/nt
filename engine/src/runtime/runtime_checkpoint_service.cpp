@@ -95,11 +95,8 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
 {
     m_presentation_status = facts.presentation_status;
     if (m_latest_checkpoint && !m_latest_checkpoint->presentation_revision &&
-        facts.presentation_revision) {
+        facts.presentation_revision)
         m_latest_checkpoint->presentation_revision = facts.presentation_revision;
-        if (!m_latest_checkpoint->thumbnail && !m_thumbnail_capture_token)
-            assign_thumbnail_capture_token();
-    }
     if (mutations.elapsed.count() < 0)
         mutations.elapsed = std::chrono::milliseconds{0};
     if (mutations.elapsed.count() >
@@ -312,15 +309,12 @@ void RuntimeCheckpointService::commit_loaded_checkpoint(
 {
     m_generations = {};
     m_latest_checkpoint = std::move(checkpoint);
-    if (!m_latest_checkpoint->thumbnail && m_latest_checkpoint->presentation_revision)
-        assign_thumbnail_capture_token();
-    else
-        m_thumbnail_capture_token.reset();
     m_pending_deferred_autosave.reset();
     m_pending_manual_saves.clear();
     m_deferred_autosave_target.reset();
     m_completed_save_outcomes.clear();
     m_written_slots.clear();
+    m_pending_thumbnail_captures.clear();
     m_next_time_only_refresh = m_elapsed_runtime + std::chrono::seconds{1};
 }
 
@@ -335,6 +329,7 @@ void RuntimeCheckpointService::reset() noexcept
     m_deferred_autosave_target.reset();
     m_completed_save_outcomes.clear();
     m_written_slots.clear();
+    m_pending_thumbnail_captures.clear();
     m_next_checkpoint_revision = 1;
     m_next_readiness_revision = 2;
     m_next_time_only_refresh = {};
@@ -353,6 +348,7 @@ RuntimeCheckpointService::write_checkpoint(core::TypedSaveSlotId slot,
         return core::CheckpointSaveFailed{slot, core::CheckpointSaveFailureStage::SlotWrite,
                                           std::move(written).error()};
     m_written_slots.insert_or_assign(slot, checkpoint.revision);
+    queue_thumbnail_capture(checkpoint);
     return core::CheckpointWriteSucceeded{slot, checkpoint.revision, source};
 }
 
@@ -457,7 +453,6 @@ core::Result<void, core::Diagnostics> RuntimeCheckpointService::publish_candidat
                 core::LatestSaveCheckpoint candidate{*revision_value, std::move(*encoded_value),
                                                      metadata, presentation_revision, std::nullopt};
                 m_latest_checkpoint = std::move(candidate);
-                assign_thumbnail_capture_token();
                 if (m_pending_deferred_autosave && !m_deferred_autosave_target)
                     m_deferred_autosave_target = *m_latest_checkpoint;
                 m_generations.captured_structural_generation = m_generations.structural_generation;
@@ -504,12 +499,9 @@ RuntimeCheckpointService::observation(const core::SessionState& session) const
 std::optional<core::CheckpointThumbnailCaptureRequest>
 RuntimeCheckpointService::pending_thumbnail_capture() const noexcept
 {
-    if (!m_latest_checkpoint || m_latest_checkpoint->thumbnail ||
-        !m_latest_checkpoint->presentation_revision || !m_thumbnail_capture_token)
+    if (m_pending_thumbnail_captures.empty())
         return std::nullopt;
-    return core::CheckpointThumbnailCaptureRequest{*m_thumbnail_capture_token,
-                                                   m_latest_checkpoint->revision,
-                                                   *m_latest_checkpoint->presentation_revision};
+    return m_pending_thumbnail_captures.front().request;
 }
 
 core::Result<void, core::Diagnostics>
@@ -520,14 +512,13 @@ RuntimeCheckpointService::attach_thumbnail(const core::CheckpointThumbnailCaptur
         thumbnail.height == 0 || !valid_png_bytes(thumbnail.bytes))
         return core::Result<void, core::Diagnostics>::failure(checkpoint_error(
             "checkpoint.invalid_thumbnail", "Checkpoint thumbnail must be a non-empty PNG image."));
-    if (!m_latest_checkpoint || m_latest_checkpoint->revision != request.checkpoint ||
-        m_latest_checkpoint->presentation_revision != request.presentation ||
-        m_thumbnail_capture_token != request.capture_token)
+    if (m_pending_thumbnail_captures.empty() ||
+        m_pending_thumbnail_captures.front().request != request)
         return core::Result<void, core::Diagnostics>::failure(
             checkpoint_error("checkpoint.stale_thumbnail",
-                             "Checkpoint thumbnail does not match the retained checkpoint."));
+                             "Checkpoint thumbnail does not match a pending saved checkpoint."));
 
-    auto replacement = *m_latest_checkpoint;
+    auto replacement = m_pending_thumbnail_captures.front().checkpoint;
     replacement.thumbnail = std::move(thumbnail);
     for (const auto& [slot, revision] : m_written_slots) {
         if (revision != replacement.revision)
@@ -540,22 +531,46 @@ RuntimeCheckpointService::attach_thumbnail(const core::CheckpointThumbnailCaptur
     }
     if (m_deferred_autosave_target && m_deferred_autosave_target->revision == replacement.revision)
         m_deferred_autosave_target->thumbnail = replacement.thumbnail;
-    m_latest_checkpoint = std::move(replacement);
-    m_thumbnail_capture_token.reset();
+    if (m_latest_checkpoint && m_latest_checkpoint->revision == replacement.revision)
+        m_latest_checkpoint = replacement;
+    m_pending_thumbnail_captures.pop_front();
     return core::Result<void, core::Diagnostics>::success();
 }
 
-void RuntimeCheckpointService::assign_thumbnail_capture_token() noexcept
+bool RuntimeCheckpointService::discard_thumbnail_capture(
+    const core::CheckpointThumbnailCaptureRequest& request) noexcept
 {
-    if (m_next_thumbnail_capture_token == 0) {
-        m_thumbnail_capture_token.reset();
+    if (m_pending_thumbnail_captures.empty() ||
+        m_pending_thumbnail_captures.front().request != request)
+        return false;
+    m_pending_thumbnail_captures.pop_front();
+    return true;
+}
+
+void RuntimeCheckpointService::queue_thumbnail_capture(
+    const core::LatestSaveCheckpoint& checkpoint) noexcept
+{
+    if (checkpoint.thumbnail || !checkpoint.presentation_revision ||
+        m_next_thumbnail_capture_token == 0)
         return;
-    }
-    m_thumbnail_capture_token = m_next_thumbnail_capture_token;
+    const auto already_queued =
+        std::find_if(m_pending_thumbnail_captures.begin(), m_pending_thumbnail_captures.end(),
+                     [&](const PendingThumbnailCapture& pending) {
+                         return pending.checkpoint.revision == checkpoint.revision;
+                     });
+    if (already_queued != m_pending_thumbnail_captures.end())
+        return;
+
+    const auto token = m_next_thumbnail_capture_token;
     if (m_next_thumbnail_capture_token == std::numeric_limits<std::uint64_t>::max())
         m_next_thumbnail_capture_token = 0;
     else
         ++m_next_thumbnail_capture_token;
+    m_pending_thumbnail_captures.push_back(PendingThumbnailCapture{
+        core::CheckpointThumbnailCaptureRequest{token, checkpoint.revision,
+                                                *checkpoint.presentation_revision},
+        checkpoint,
+    });
 }
 
 } // namespace noveltea::runtime

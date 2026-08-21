@@ -43,3 +43,34 @@ TEST_CASE("Unbarred host uses the same fitted capture path")
     CHECK(close_to(image.pixel(0, 539), std::array<int, 3>{32, 36, 44}));
     CHECK(close_to(image.pixel(959, 539), std::array<int, 3>{32, 36, 44}));
 }
+
+TEST_CASE("Fit screenshot preserves presentation aspect within requested bounds")
+{
+    const Image image = read_ppm(std::filesystem::path(NOVELTEA_PRESENTATION_FIT_READBACK_PPM));
+    REQUIRE(image.width == 480);
+    REQUIRE(image.height == 270);
+
+    CHECK(close_to(image.pixel(5, 5), std::array<int, 3>{255, 59, 48}));
+    CHECK(close_to(image.pixel(240, 135), std::array<int, 3>{32, 36, 44}));
+}
+
+TEST_CASE("Exact screenshot uses requested dimensions without aspect preservation")
+{
+    const Image image = read_ppm(std::filesystem::path(NOVELTEA_PRESENTATION_EXACT_READBACK_PPM));
+    REQUIRE(image.width == 320);
+    REQUIRE(image.height == 200);
+
+    CHECK(close_to(image.pixel(5, 5), std::array<int, 3>{255, 59, 48}));
+    CHECK(close_to(image.pixel(160, 100), std::array<int, 3>{32, 36, 44}));
+}
+
+TEST_CASE("Fill screenshot center-crops the presentation to requested aspect")
+{
+    const Image image = read_ppm(std::filesystem::path(NOVELTEA_PRESENTATION_FILL_READBACK_PPM));
+    REQUIRE(image.width == 320);
+    REQUIRE(image.height == 320);
+
+    // The red top-left orientation marker is outside the centered square source crop.
+    CHECK(close_to(image.pixel(5, 5), std::array<int, 3>{32, 42, 53}));
+    CHECK(close_to(image.pixel(160, 160), std::array<int, 3>{32, 36, 44}));
+}

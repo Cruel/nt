@@ -90,6 +90,12 @@ interface NovelTeaElectronApiContract {
   resolvePlayerTemplate(
     request: import('./project-schema/platform-export-contracts').TemplateResolveRequest,
   ): Promise<import('./project-schema/platform-export-contracts').TemplateResolveResult>;
+  loadUserExportConfig(): Promise<
+    import('./project-schema/platform-export-contracts').UserExportConfig
+  >;
+  saveUserExportConfig(
+    value: import('./project-schema/platform-export-contracts').UserExportConfig,
+  ): Promise<import('./project-schema/platform-export-contracts').UserExportConfig>;
   compileShaders(
     projectSessionId: string,
     shaderProject: unknown,

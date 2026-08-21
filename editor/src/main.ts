@@ -87,7 +87,33 @@ import {
 } from './main/services/template-registry-service';
 import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
 import { downloadPlayerTemplateForRelease } from './main/services/template-download-service';
-import type { CreateProjectRequest } from './shared/editor-tooling';
+import {
+  loadUserExportConfig,
+  saveUserExportConfig,
+} from './main/services/user-export-config-service';
+import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
+import type { AssetImportOptions } from './shared/asset-import';
+import type { ComfyUiConfig } from './shared/comfyui';
+import type {
+  ComfyUiEditImageRequest,
+  ComfyUiGenerateImageRequest,
+} from './shared/comfyui-generation';
+import type {
+  ComfyUiAnalyzeWorkflowImportRequest,
+  ComfyUiImportWorkflowToLibraryRequest,
+  ComfyUiRepairWorkflowInLibraryRequest,
+  ComfyUiVerifyWorkflowLibraryRequest,
+  ComfyUiWorkflowCopyRequest,
+  ComfyUiWorkflowDeleteRequest,
+  ComfyUiWorkflowKey,
+  ComfyUiWorkflowLibraryListRequest,
+  ComfyUiWorkflowRenameRequest,
+} from './shared/comfyui-workflows';
+import type {
+  CreateProjectRequest,
+  PackageExportOptions,
+  ShaderCompileOptions,
+} from './shared/editor-tooling';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 import {
@@ -150,6 +176,7 @@ import {
   saveProjectCopyAsArgumentsSchema,
   saveProjectEditorMetadataArgumentsSchema,
   restoreProjectAssetFilesArgumentsSchema,
+  saveUserExportConfigArgumentsSchema,
   selectDirectoryArgumentsSchema,
   stagePlatformExportArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
@@ -638,6 +665,18 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY,
     (arguments_) => noArgumentsSchema.parse(arguments_),
     () => getDefaultProjectDirectory(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.LOAD_USER_EXPORT_CONFIG,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => loadUserExportConfig(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.SAVE_USER_EXPORT_CONFIG,
+    (arguments_) => saveUserExportConfigArgumentsSchema.parse(arguments_),
+    (config) => saveUserExportConfig(config),
   );
 
   guardedIpc.handle(

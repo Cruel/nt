@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { cp, lstat, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -31,17 +31,42 @@ const agentKitSourcePackageRoot = path.join(
   'node_modules',
   'noveltea-scriptc-agent-kit-source',
 );
+const agentKitProvenancePath = path.join(editorRoot, 'agent-kit-provenance.json');
+const agentKitSystemLayoutSourceRoot = path.join(repositoryRoot, 'engine', 'assets', 'system');
 const agentKitSourcePaths = [
   'CLI.md',
   'GUIDE.md',
   'PROJECT_FORMAT.md',
   'docs/ASSETS_SHADERS.md',
   'docs/AUTHORING.md',
+  'docs/INTERACTIONS.md',
+  'docs/ROOMS.md',
   'docs/LAYOUTS.md',
+  'docs/RMLUI.md',
+  'docs/RCSS_REFERENCE.md',
+  'docs/RMLUI_DATA_BINDING.md',
+  'docs/RMLUI_CUSTOM_COMPONENTS.md',
+  'docs/RMLUI_LUA.md',
   'docs/LUA.md',
   'docs/TESTS.md',
-  'skill/SKILL.md',
 ];
+async function collectUtf8Files(root, directory, files = {}) {
+  const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+  );
+  for (const entry of entries) {
+    const absolutePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      await collectUtf8Files(root, absolutePath, files);
+      continue;
+    }
+    if (!entry.isFile()) throw new Error(`Expected regular file while collecting ${absolutePath}`);
+    const relativePath = path.relative(root, absolutePath).split(path.sep).join('/');
+    files[relativePath] = await readFile(absolutePath, 'utf8');
+  }
+  return files;
+}
+
 const islandBundle = path.join(editorRoot, 'dist-scriptc-island', 'noveltea-scriptc-island.mjs');
 const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
@@ -334,6 +359,11 @@ try {
       ]),
     ),
   );
+  const agentKitProvenance = JSON.parse(await readFile(agentKitProvenancePath, 'utf8'));
+  const agentKitSystemLayoutSourceFiles = await collectUtf8Files(
+    agentKitSystemLayoutSourceRoot,
+    path.join(agentKitSystemLayoutSourceRoot, 'ui'),
+  );
   await writeFile(
     path.join(agentKitSourcePackageRoot, 'package.json'),
     `${JSON.stringify(
@@ -350,11 +380,11 @@ try {
   );
   await writeFile(
     path.join(agentKitSourcePackageRoot, 'index.mjs'),
-    `export const scriptcAgentKitSourceFiles = Object.freeze(${JSON.stringify(agentKitSourceFiles)});\n`,
+    `export const scriptcAgentKitSourceFiles = Object.freeze(${JSON.stringify(agentKitSourceFiles)});\nexport const scriptcAgentKitProvenance = Object.freeze(${JSON.stringify(agentKitProvenance)});\nexport const scriptcAgentKitSystemLayoutSourceFiles = Object.freeze(${JSON.stringify(agentKitSystemLayoutSourceFiles)});\n`,
   );
   await writeFile(
     path.join(agentKitSourcePackageRoot, 'index.d.ts'),
-    'export declare const scriptcAgentKitSourceFiles: Readonly<Record<string, string>>;\n',
+    'export declare const scriptcAgentKitSourceFiles: Readonly<Record<string, string>>;\nexport declare const scriptcAgentKitProvenance: unknown;\nexport declare const scriptcAgentKitSystemLayoutSourceFiles: Readonly<Record<string, string>>;\n',
   );
 
   const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');

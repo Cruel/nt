@@ -88,6 +88,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, request),
   compileShaders: (projectSessionId: string, shaderProject: unknown, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, projectSessionId, shaderProject, options),
+  loadUserExportConfig: () => ipcRenderer.invoke(IPC_CHANNELS.LOAD_USER_EXPORT_CONFIG),
+  saveUserExportConfig: (value) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_USER_EXPORT_CONFIG, value),
   saveProjectContent: (
     projectSessionId: string,
     expectedWorkspaceRevision: string,

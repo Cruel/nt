@@ -110,6 +110,7 @@ public:
 
     void begin_frame(const core::RuntimeClockUpdate& clocks);
     void update_contexts();
+    void set_final_output_framebuffer(std::uint16_t framebuffer);
     void set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game);
     void set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                         bool transition_active);
@@ -156,6 +157,7 @@ private:
                                const VisibleDocumentPredicate& has_visible_document,
                                const LayoutEventDispatch& dispatch_layout_event);
     void reset_pointer_state();
+    void configure_plane_output_framebuffers();
     void render_contexts(bool world_source_only, bool world_target_only, bool include_debug_plane);
 
     const assets::AssetManager* m_assets = nullptr;
@@ -183,8 +185,11 @@ private:
     bool m_world_transition_active = false;
     bool m_world_transition_source_enabled = false;
     bool m_world_transition_target_enabled = false;
+    std::uint16_t m_world_transition_source_framebuffer = UINT16_MAX;
+    std::uint16_t m_world_transition_target_framebuffer = UINT16_MAX;
     std::uint16_t m_world_postprocess_framebuffer = UINT16_MAX;
     std::uint16_t m_full_game_postprocess_framebuffer = UINT16_MAX;
+    std::uint16_t m_final_output_framebuffer = UINT16_MAX;
     bool m_rml_initialized = false;
 };
 

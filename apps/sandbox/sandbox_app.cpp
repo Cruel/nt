@@ -73,6 +73,19 @@ std::optional<RmlUiRasterSnapMode> parse_rmlui_raster_snap_mode(std::string_view
         return RmlUiRasterSnapMode::All;
     return std::nullopt;
 }
+
+std::optional<ToolingScreenshotSizingMode> parse_screenshot_sizing_mode(std::string_view value)
+{
+    if (value == "native")
+        return ToolingScreenshotSizingMode::Native;
+    if (value == "fit")
+        return ToolingScreenshotSizingMode::Fit;
+    if (value == "fill")
+        return ToolingScreenshotSizingMode::Fill;
+    if (value == "exact")
+        return ToolingScreenshotSizingMode::Exact;
+    return std::nullopt;
+}
 } // namespace
 
 App::~App()
@@ -205,6 +218,27 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             if (!value)
                 return false;
             options.screenshot_path = value;
+        } else if (std::strcmp(arg, "--screenshot-mode") == 0) {
+            const char* value = require_value(arg);
+            if (!value)
+                return false;
+            const auto mode = parse_screenshot_sizing_mode(value);
+            if (!mode) {
+                std::fprintf(stderr, "[app] invalid --screenshot-mode value: %s\n", value);
+                return false;
+            }
+            options.screenshot_options.sizing_mode = *mode;
+        } else if (std::strcmp(arg, "--screenshot-size") == 0) {
+            const char* value = require_value(arg);
+            HostSurfaceMetrics surface;
+            if (!value || !parse_surface_size(value, surface)) {
+                std::fprintf(stderr, "[app] invalid --screenshot-size value\n");
+                return false;
+            }
+            options.screenshot_options.width =
+                static_cast<std::uint32_t>(surface.framebuffer_size.width);
+            options.screenshot_options.height =
+                static_cast<std::uint32_t>(surface.framebuffer_size.height);
         } else if (std::strcmp(arg, "--resize-sequence") == 0) {
             const char* value = require_value(arg);
             if (!value || !parse_resize_sequence(value, options.resize_sequence)) {
@@ -264,6 +298,11 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             std::fprintf(stderr, "[app] unknown option: %s\n", arg);
             return false;
         }
+    }
+    if (options.screenshot_options.sizing_mode != ToolingScreenshotSizingMode::Native &&
+        (options.screenshot_options.width == 0 || options.screenshot_options.height == 0)) {
+        std::fprintf(stderr, "[app] resized screenshots require --screenshot-size WIDTHxHEIGHT\n");
+        return false;
     }
     return true;
 }
@@ -385,7 +424,8 @@ bool App::tick_engine()
     const bool screenshot_due = !m_options.screenshot_path.empty() &&
                                 (m_options.frame_limit == 0 || next_frame >= m_options.frame_limit);
     if (screenshot_due) {
-        if (!EngineTooling::request_screenshot(m_engine, m_options.screenshot_path))
+        if (!EngineTooling::request_screenshot(m_engine, m_options.screenshot_path,
+                                               m_options.screenshot_options))
             std::fprintf(stderr, "[app] screenshot request was rejected: %s\n",
                          m_options.screenshot_path.c_str());
         m_options.screenshot_path.clear();

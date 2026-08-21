@@ -884,7 +884,8 @@ export async function saveProjectCopyAs(
         code: 'AGENT_LOCAL_STATE_NOT_IGNORED',
         category: 'Project save',
         path: '/.gitignore',
-        message: 'Add a .noveltea ignore rule to the existing .gitignore file.',
+        message:
+          'Add the missing `/.noveltea/` and/or `/dist/` ignore rules to the existing .gitignore file.',
       });
     const sourceAgents = path.join(sourceRoot, 'AGENTS.md');
     if ((await fsPort.inspect(sourceAgents)) === 'file')

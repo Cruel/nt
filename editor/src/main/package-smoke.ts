@@ -34,7 +34,14 @@ async function characterizeNovelTeaCli(cliPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn(cliPath, ['--json', '--version'], {
       cwd: process.resourcesPath,
-      env: { HOME: process.resourcesPath, LANG: 'C.UTF-8', PATH: '/usr/bin:/bin' },
+      env:
+        process.platform === 'win32'
+          ? {
+              PATH: process.env.SystemRoot ? `${process.env.SystemRoot}\\System32` : '',
+              SystemRoot: process.env.SystemRoot ?? '',
+              USERPROFILE: process.resourcesPath,
+            }
+          : { HOME: process.resourcesPath, LANG: 'C.UTF-8', PATH: '/usr/bin:/bin' },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });

@@ -54,8 +54,8 @@ Engine::Impl::Impl()
     : m_world_presentation_resources(m_assets),
       m_world_presentation(m_world_presentation_resources), m_world_hotspots(m_world_presentation),
       m_world_transitions(m_world_presentation), m_audio(make_miniaudio_backend()),
-      m_screenshot_capture_backend(m_renderer),
-      m_checkpoint_thumbnail_captures(m_screenshot_capture_backend),
+      m_screenshot_service(m_renderer, *m_job_execution.executor),
+      m_checkpoint_thumbnail_captures(m_screenshot_service),
       m_layout_realizer(m_assets, m_runtime_ui),
       m_game_host(host::GameHost::Dependencies{
           .content_assets = m_assets,
@@ -86,6 +86,7 @@ Engine::Impl::Impl()
           .runtime_ui = m_runtime_ui,
           .scripts = m_scripts,
           .renderer = m_renderer,
+          .screenshots = &m_screenshot_service,
           .shader_materials = m_shader_materials,
           .assets = m_assets,
           .world_resources = &m_world_presentation_resources,
@@ -1301,6 +1302,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     m_fps_sample_start_counter = 0;
     m_pending_debug_ui_commands.clear();
     m_checkpoint_thumbnail_captures.reset();
+    m_screenshot_service.reset();
     bool platform_initialized = false;
     bool renderer_initialized = false;
     bool audio_bound = false;
@@ -1629,7 +1631,8 @@ bool Engine::Impl::tick()
         begin_job_shutdown();
     }
 
-    if (m_frame_limit > 0 && m_frame_count >= m_frame_limit) {
+    if (m_frame_limit > 0 && m_frame_count >= m_frame_limit &&
+        !m_screenshot_service.has_pending_requests()) {
         SDL_Log("[engine] frame limit reached: %u", m_frame_count);
         begin_job_shutdown();
     }
@@ -1646,6 +1649,7 @@ void Engine::Impl::service_normal_frame_jobs()
 {
     m_job_execution.executor->pump(kNormalFrameJobBudget);
     (void)m_job_execution.executor->dispatch_owner_completions(kNormalFrameCompletionLimit);
+    m_screenshot_service.poll();
     poll_tooling_postprocess_assets();
 }
 
@@ -1653,6 +1657,7 @@ void Engine::Impl::service_loading_frame_jobs()
 {
     m_job_execution.executor->pump(kLoadingFrameJobBudget);
     (void)m_job_execution.executor->dispatch_owner_completions(kLoadingFrameCompletionLimit);
+    m_screenshot_service.poll();
     poll_tooling_postprocess_assets();
 }
 
@@ -2258,6 +2263,15 @@ void Engine::Impl::render()
         }
     }
 
+    for (;;) {
+        const auto context = checkpoint_thumbnail_capture_context();
+        const auto stale = m_checkpoint_thumbnail_captures.stale_pending_request(context);
+        if (!stale || !m_game_host.discard_checkpoint_thumbnail_capture(*stale))
+            break;
+    }
+    (void)m_checkpoint_thumbnail_captures.request_if_ready(checkpoint_thumbnail_capture_context());
+    m_screenshot_service.poll();
+
     if (m_debug_ui_enabled) {
         m_debug_ui.begin_frame(m_presentation.host);
     }
@@ -2311,6 +2325,7 @@ void Engine::Impl::render()
         m_renderer.retire_postprocess_surface();
     const auto postprocess_scope = m_renderer.active_postprocess_scope();
     const std::uint16_t postprocess_framebuffer = m_renderer.postprocess_framebuffer();
+    m_runtime_ui.set_final_output_framebuffer(m_renderer.screenshot_output_framebuffer());
     m_runtime_ui.set_postprocess_framebuffers(
         postprocess_scope == PostprocessScope::World ? postprocess_framebuffer : UINT16_MAX,
         postprocess_scope == PostprocessScope::FullGameViewport ? postprocess_framebuffer
@@ -2410,9 +2425,8 @@ void Engine::Impl::render()
         m_renderer.draw_world_2d(frame->game_ui_underlay_batch,
                                  WorldCompositionPass::GameUiUnderlay);
     }
-    (void)m_checkpoint_thumbnail_captures.request_if_ready(checkpoint_thumbnail_capture_context());
-    const bool game_viewport_capture_pending = m_renderer.game_viewport_capture_pending();
-    m_runtime_ui.end_frame(!game_viewport_capture_pending);
+    const bool screenshot_capture_frame = m_renderer.screenshot_capture_frame_active();
+    m_runtime_ui.end_frame(!screenshot_capture_frame);
     if (m_runtime_ui.active_text_direct_render_enabled()) {
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
     }
@@ -2441,8 +2455,10 @@ void Engine::Impl::render()
             }
         }
     }
+    if (screenshot_capture_frame)
+        m_renderer.finalize_screenshot_capture();
     if (m_debug_ui_enabled) {
-        auto output = m_debug_ui.end_frame(debug_ui_observations(), !game_viewport_capture_pending);
+        auto output = m_debug_ui.end_frame(debug_ui_observations(), !screenshot_capture_frame);
         for (auto& command : output.commands)
             m_pending_debug_ui_commands.push_back(std::move(command));
     }
@@ -2476,6 +2492,7 @@ bool Engine::Impl::shutdown()
     m_running = false;
     if (!m_initialized) {
         m_checkpoint_thumbnail_captures.reset();
+        m_screenshot_service.reset();
         m_input_router.reset();
         m_pointer_position = {};
         m_pointer_valid = false;
@@ -2490,6 +2507,7 @@ bool Engine::Impl::shutdown()
         m_debug_ui.shutdown();
     }
     m_checkpoint_thumbnail_captures.reset();
+    m_screenshot_service.reset();
     m_game_host.shutdown();
     m_game_host.runtime_layouts().bind_document_host(nullptr);
     m_layout_realizer.clear_session();
@@ -2536,12 +2554,11 @@ void Engine::Impl::request_stop()
     m_platform.request_quit();
 }
 
-bool Engine::Impl::request_screenshot(std::string path)
+bool Engine::Impl::request_screenshot(std::string path, host::ScreenshotRequestOptions options)
 {
     if (!m_initialized || path.empty() || !m_renderer.is_initialized())
         return false;
-    m_renderer.request_screenshot(path);
-    return true;
+    return m_screenshot_service.request_file(std::move(path), options).has_value();
 }
 
 void Engine::Impl::set_preview_running(bool running)
@@ -2625,9 +2642,28 @@ void Engine::shutdown()
 
 void Engine::request_stop() { m_impl->request_stop(); }
 
-bool EngineTooling::request_screenshot(Engine& engine, std::string path)
+bool EngineTooling::request_screenshot(Engine& engine, std::string path,
+                                       ToolingScreenshotOptions options)
 {
-    return engine.m_impl->request_screenshot(std::move(path));
+    host::ScreenshotSizingMode sizing_mode = host::ScreenshotSizingMode::Native;
+    switch (options.sizing_mode) {
+    case ToolingScreenshotSizingMode::Native:
+        break;
+    case ToolingScreenshotSizingMode::Fit:
+        sizing_mode = host::ScreenshotSizingMode::Fit;
+        break;
+    case ToolingScreenshotSizingMode::Fill:
+        sizing_mode = host::ScreenshotSizingMode::Fill;
+        break;
+    case ToolingScreenshotSizingMode::Exact:
+        sizing_mode = host::ScreenshotSizingMode::Exact;
+        break;
+    }
+    return engine.m_impl->request_screenshot(
+        std::move(path), host::ScreenshotRequestOptions{
+                             .sizing = {sizing_mode, options.width, options.height},
+                             .png_compression_level = options.png_compression_level,
+                         });
 }
 
 void EngineTooling::set_preview_running(Engine& engine, bool running)

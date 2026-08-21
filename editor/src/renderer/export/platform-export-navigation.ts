@@ -1,9 +1,5 @@
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
-import {
-  buildPlatformExportProfilesTab,
-  buildPlatformExportTab,
-  buildSettingsTab,
-} from '@/workbench/editor-registry';
+import { buildPlatformExportTab, buildSettingsTab } from '@/workbench/editor-registry';
 import type { WorkbenchNavigationRequest } from '@/workbench/workbench-navigation';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
@@ -13,8 +9,8 @@ function target(tab: WorkbenchNavigationRequest['tab'], id: string): WorkbenchNa
 }
 
 function nonContentTarget(path: string): WorkbenchNavigationRequest | null {
-  if (path.startsWith('/settings/platformExport')) {
-    return target(buildPlatformExportProfilesTab(), 'platformExportProfiles.profile');
+  if (path.startsWith('/export/profiles')) {
+    return target(buildPlatformExportTab(), 'platformExport.profile');
   }
   if (path.startsWith('/editor/export/toolchains') || path.startsWith('/editor/export/signing')) {
     return target(buildSettingsTab(), 'settings.export');

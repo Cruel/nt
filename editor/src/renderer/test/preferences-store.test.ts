@@ -22,8 +22,10 @@ describe('preferences-store', () => {
     expect(state.lastProjectPath).toBe(null);
     expect(state.defaultProjectDirectory).toBe(null);
     expect(state.exportPreferences.defaultOutputDirectory).toBe('');
+    expect(state.exportPreferences.selectedProfileIds).toEqual({});
     expect(state.exportPreferences.profileOutputDirectories).toEqual({});
     expect(state.exportPreferences.profileTemplateTokens).toEqual({});
+    expect(state.exportPreferences.profileSigningProfileIds).toEqual({});
   });
 
   it('updates theme', () => {
@@ -93,19 +95,21 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 
-  it('stores editor-wide export tooling outside project data', () => {
+  it('stores only editor-local export conveniences outside project data', () => {
     usePreferencesStore.getState().setExportPreferences({
       defaultOutputDirectory: '/tmp/exports',
-      androidSdk: '/opt/android-sdk',
-      macosSigningIdentity: 'Developer ID Application',
+      profileTemplateTokens: { release: 'windows/build-1' },
+      profileSigningProfileIds: { release: 'windows-release' },
     });
     expect(usePreferencesStore.getState().exportPreferences).toMatchObject({
       defaultOutputDirectory: '/tmp/exports',
-      androidSdk: '/opt/android-sdk',
-      macosSigningIdentity: 'Developer ID Application',
+      profileTemplateTokens: { release: 'windows/build-1' },
+      profileSigningProfileIds: { release: 'windows-release' },
     });
     const persisted = JSON.parse(localStorage.getItem('noveltea-preferences')!);
-    expect(persisted.state.exportPreferences.androidSdk).toBe('/opt/android-sdk');
+    expect(persisted.state.exportPreferences.profileSigningProfileIds.release).toBe(
+      'windows-release',
+    );
   });
 
   it('persists to localStorage', () => {

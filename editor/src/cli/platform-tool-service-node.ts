@@ -15,6 +15,7 @@ import {
 } from '../main/services/template-registry-service';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
+import { loadUserExportConfig } from '../main/services/user-export-config-service';
 
 function internalToken(token: string): string {
   const match = /^([a-zA-Z0-9._-]+)@([a-zA-Z0-9._-]+)$/.exec(token);
@@ -73,6 +74,7 @@ export function createNovelTeaCliPlatformToolService(
         process.off('SIGTERM', cancel);
       }
     },
+    loadUserConfig: () => loadUserExportConfig(),
     async initializeConfig(destination, force) {
       const resolved = path.resolve(destination);
       const kind = await pathKind(resolved);

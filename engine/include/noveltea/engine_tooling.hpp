@@ -19,6 +19,20 @@ enum class RmlUiRasterSnapMode : std::uint8_t {
     All,
 };
 
+enum class ToolingScreenshotSizingMode : std::uint8_t {
+    Native,
+    Fit,
+    Fill,
+    Exact,
+};
+
+struct ToolingScreenshotOptions {
+    ToolingScreenshotSizingMode sizing_mode = ToolingScreenshotSizingMode::Native;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    int png_compression_level = 6;
+};
+
 namespace assets {
 class AssetManager;
 }
@@ -42,7 +56,8 @@ public:
     [[nodiscard]] static bool initialize(Engine& engine, const PlatformConfig& platform_config,
                                          const EngineConfig& engine_config,
                                          const EngineToolingConfig& tooling_config = {});
-    [[nodiscard]] static bool request_screenshot(Engine& engine, std::string path);
+    [[nodiscard]] static bool request_screenshot(Engine& engine, std::string path,
+                                                 ToolingScreenshotOptions options = {});
     static void set_preview_running(Engine& engine, bool running);
     static void set_show_fps_counter(Engine& engine, bool show);
     static void set_fps_cap(Engine& engine, uint32_t frames_per_second);

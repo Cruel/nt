@@ -45,6 +45,7 @@ import {
   type TemplateResolveResult,
 } from '../../shared/project-schema/platform-export-contracts';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
+import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import type { OpenProjectResponse, PackageExportResponse } from '../../shared/editor-tooling';
 import type { ShaderCompileResponse } from '../../shared/editor-tooling';
 import {
@@ -154,7 +155,7 @@ function plannedPlatformArtifactPaths(
   const paths = [output];
   if (profile.target === 'web' || profile.target === 'windows') paths.push(`${output}.zip`);
   if (profile.target === 'linux') {
-    paths.push(`${output}.tar.gz`);
+    paths.push(profile.desktop.artifact === 'zip' ? `${output}.zip` : `${output}.tar.gz`);
     if (profile.desktop.artifact === 'appimage') paths.push(`${output}.AppImage`);
   }
   if (profile.target === 'macos') {
@@ -252,9 +253,7 @@ export async function exportProjectToPlatform(
     }
 
     const projectRoot = loaded.projectPath;
-    const profiles = parseProjectPlatformExportSettings(
-      (project.settings as Record<string, unknown>).platformExport,
-    );
+    const profiles = parseProjectPlatformExportSettings({ profiles: project.export.profiles });
     const profile = profiles.profiles.find((item) => item.id === request.profileId);
     if (!profile)
       return failure(operationId, [
@@ -292,7 +291,16 @@ export async function exportProjectToPlatform(
       return failure(operationId, collectProjectValidationDiagnostics(validationErrors));
     }
 
-    const targetRuntimeProfile = runtimeExportProfileForPlatform(project, profile.target);
+    const targetRuntimeProfile = {
+      ...runtimeExportProfileForPlatform(project, profile.target),
+      excludeUnusedAssets:
+        request.runtimeOptions?.excludeUnusedAssets ?? profile.excludeUnusedAssets,
+      includeShaderSources:
+        request.runtimeOptions?.includeShaderSources ?? profile.includeShaderSources,
+      stripShaderSources: !(
+        request.runtimeOptions?.includeShaderSources ?? profile.includeShaderSources
+      ),
+    };
     const resolvedIconPath = iconPath(project, projectRoot);
     if (!resolvedIconPath) {
       return failure(operationId, [
@@ -404,7 +412,7 @@ export async function exportProjectToPlatform(
       playerConfigApi: 2,
       shaderVariants: targetRuntimeProfile.shaderVariants,
       graphicsBackends: [],
-      capabilities: profile.capabilityOverrides,
+      capabilities: derivedPlatformCapabilities(profile.target),
       requiredFeatures: [],
       host,
     };
@@ -574,7 +582,7 @@ export async function exportProjectToPlatform(
           uiScale: { ...accessibility.ui_scale },
           textScale: { ...accessibility.text_scale },
         },
-        capabilities: profile.capabilityOverrides,
+        capabilities: derivedPlatformCapabilities(profile.target),
         runtimePackageApi: 2,
         host,
         windowsSigning:

@@ -138,23 +138,25 @@ The following rules are mandatory.
 1. There is one authoritative mutable runtime session per running game.
 2. `CompiledProject` and all compiled programs remain immutable.
 3. `SessionState` remains the sole mutable gameplay-state aggregate.
-4. Flow owns Flow stack, frame, continuation, blocker, and runtime-mode transitions; it does not need
+4. Declared Room, Character, and Interactable access during a live session crosses the session-owned
+   `RuntimeWorld` boundary; that boundary borrows immutable definitions and does not copy or own them.
+5. Flow owns Flow stack, frame, continuation, blocker, and runtime-mode transitions; it does not need
    to mediate every unrelated state mutation.
-5. Lua and other frontends call semantic capabilities, not `Engine`, `SessionState`, renderer,
+6. Lua and other frontends call semantic capabilities, not `Engine`, `SessionState`, renderer,
    RmlUi, audio backend, or platform objects.
-6. Internal runtime commands never leave the runtime merely to return through a host acknowledgement.
-7. External requests are explicit, typed, and tracked only when an external service is genuinely
+7. Internal runtime commands never leave the runtime merely to return through a host acknowledgement.
+8. External requests are explicit, typed, and tracked only when an external service is genuinely
    required.
-8. One outer dispatch transaction produces at most one settled runtime publication.
-9. Runtime UI and presentation projections are distinct typed views of the same settled state.
-10. Presentation/audio operation acceptance occurs before checkpoint settlement for the transaction
+9. One outer dispatch transaction produces at most one settled runtime publication.
+10. Runtime UI and presentation projections are distinct typed views of the same settled state.
+11. Presentation/audio operation acceptance occurs before checkpoint settlement for the transaction
     that created the operation.
-11. No new checkpoint is captured while an outer dispatch transaction is active.
-12. Backend state, Lua VM state, coroutine internals, callbacks, renderer resources, RmlUi documents,
+12. No new checkpoint is captured while an outer dispatch transaction is active.
+13. Backend state, Lua VM state, coroutine internals, callbacks, renderer resources, RmlUi documents,
     audio voices, and platform handles never enter `SessionState` or `SaveState`.
-13. All recoverable failures use typed `Result`, `Diagnostics`, or `ScriptError`; no C++ exception or
+14. All recoverable failures use typed `Result`, `Diagnostics`, or `ScriptError`; no C++ exception or
     compiler RTTI is introduced.
-14. No subsystem may create a parallel mutation generation, save truth, or publication revision that
+15. No subsystem may create a parallel mutation generation, save truth, or publication revision that
     competes with the runtime session.
 
 ## Target composition
@@ -166,6 +168,7 @@ RunningGame
   ├── LoadedCompiledPackage                         immutable
   └── RuntimeSession                               mutable authority
         ├── SessionState
+        ├── RuntimeWorld                              declared/live Gameplay Instance seam
         ├── FlowExecutor
         ├── RuntimeExecutor
         ├── RuntimeCommandGateway
@@ -319,12 +322,35 @@ The state families are organizational value types, not public services. They mus
 
 Source files may be split by state family, but one `SessionState` public contract remains.
 
+### Runtime World boundary
+
+`runtime::RuntimeWorld` is the session-scoped semantic boundary for Gameplay Instance access. In the
+current declared-instance phase it borrows the immutable `CompiledProject` and the authoritative
+`SessionState`; it owns neither and therefore cannot create a second definition registry or mutable
+state authority. Room, Character, and Interactable definition lookup, live Character/Interactable
+world-state lookup, placement validation, and their world mutations cross this boundary in production
+runtime execution.
+
+The current implementation stores the boundary with the session-owned `RuntimeExecutor`, so its
+lifetime is exactly the executor/session lifetime. `RuntimeCommandGateway`, runtime execution, Flow
+validation reached from that executor, Room resolution, presentation projection, and deferred command
+settlement all use the same boundary. Standalone `FlowExecutor` and presentation characterization
+construct local non-owning `RuntimeWorld` wrappers over their explicitly supplied `CompiledProject`
+and `SessionState`, so the same semantic lookup seam is exercised without creating another state
+authority. Candidate save restoration validates serialized references against immutable definitions
+before the new live boundary is constructed.
+
+This phase does not add runtime-created instances or structural creation APIs. Future instance
+creation extends `RuntimeWorld`; it must not make `CompiledProject` mutable or introduce another live
+world registry alongside this boundary.
+
 ## RuntimeSession ownership
 
 `RuntimeSession` owns:
 
 - one `SessionState`;
-- one Flow executor operating on that state;
+- one Runtime World boundary borrowing compiled Gameplay Instance definitions and that state;
+- one Flow executor operating on that state through the Runtime World in running-game composition;
 - one runtime executor operating on compiled definitions and that state;
 - one checkpoint service;
 - one semantic command gateway;
@@ -367,7 +393,8 @@ It is responsible for:
 - executing Scene, Dialogue, Interaction, and Room-transition program units;
 - invoking Lua through `ScriptInvocationPort`;
 - validating feature-specific instruction operands;
-- applying immediate typed state mutations;
+- applying immediate typed state mutations, with Room/Character/Interactable world mutations routed
+  through `RuntimeWorld`;
 - emitting deferred runtime commands where structural mutation must wait;
 - emitting presentation/audio operation requests through the session transaction;
 - returning typed execution outcomes and diagnostics.

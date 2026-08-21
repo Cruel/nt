@@ -195,6 +195,13 @@ Object.defineProperty(window, 'noveltea', {
     downloadPlayerTemplate: vi.fn().mockResolvedValue({ success: false, diagnostics: [] }),
     removePlayerTemplate: vi.fn().mockResolvedValue({ removed: false }),
     resolvePlayerTemplate: vi.fn().mockResolvedValue({ success: false, diagnostics: [] }),
+    loadUserExportConfig: vi.fn().mockResolvedValue({
+      format: 'noveltea.user-export-config',
+      formatVersion: 1,
+      toolchains: {},
+      signingProfiles: [],
+    }),
+    saveUserExportConfig: vi.fn().mockImplementation(async (value) => value),
     compileShaders: vi
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [], outputs: [] }),

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { validateHotspotAuthoringSemantics } from '../../shared/project-schema/authoring-hotspot-validation';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -17,6 +19,22 @@ describe('authoring V2 validation', () => {
         path: '/entrypoint',
         ownerPaths: ['/entrypoint'],
         boundaries: ['authoring', 'runtime-package', 'platform-export'],
+      }),
+    );
+  });
+
+  it('treats an unconfigured hotspot Verb as incomplete authoring rather than a hard error', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    expect(validateHotspotAuthoringSemantics(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'hotspot.authoring.verb.required',
+        severity: 'warning',
+        path: '/interactables/key/data/presentation/hotspots/hotspot/activation/verb',
       }),
     );
   });

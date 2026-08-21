@@ -1,5 +1,8 @@
 #include "host/screenshot_capture.hpp"
 
+#include "noveltea/jobs/inline_job_executor.hpp"
+#include "noveltea/renderer.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <optional>
@@ -11,17 +14,20 @@ namespace {
 
 class FakeScreenshotCaptureBackend final : public ScreenshotCaptureBackend {
 public:
-    [[nodiscard]] bool request_capture(std::uint64_t request_id) override
+    [[nodiscard]] std::optional<std::uint64_t>
+    request_capture(ScreenshotRequestOptions options) override
     {
         if (!accept_requests || requested_id)
-            return false;
+            return std::nullopt;
+        const auto request_id = next_request_id++;
         requested_id = request_id;
-        return true;
+        requested_options = options;
+        return request_id;
     }
 
-    [[nodiscard]] std::optional<ScreenshotCapture> take_capture() override
+    [[nodiscard]] std::optional<ScreenshotCapture> take_capture(std::uint64_t request_id) override
     {
-        if (!completed)
+        if (!completed || requested_id != request_id)
             return std::nullopt;
         auto result = std::move(completed);
         completed.reset();
@@ -29,9 +35,17 @@ public:
         return result;
     }
 
-    [[nodiscard]] bool capture_pending() const noexcept override
+    [[nodiscard]] bool capture_pending(std::uint64_t request_id) const noexcept override
     {
-        return requested_id.has_value();
+        return requested_id == request_id;
+    }
+
+    void cancel_capture(std::uint64_t request_id) noexcept override
+    {
+        if (requested_id != request_id)
+            return;
+        completed.reset();
+        requested_id.reset();
     }
 
     void complete(std::uint32_t width = 640, std::uint32_t height = 360,
@@ -43,12 +57,14 @@ public:
 
     void cancel()
     {
-        completed.reset();
-        requested_id.reset();
+        if (requested_id)
+            cancel_capture(*requested_id);
     }
 
     bool accept_requests = true;
+    std::uint64_t next_request_id = 1;
     std::optional<std::uint64_t> requested_id;
+    std::optional<ScreenshotRequestOptions> requested_options;
     std::optional<ScreenshotCapture> completed;
 };
 
@@ -73,6 +89,47 @@ CheckpointThumbnailCaptureContext capture_context(std::uint64_t generation,
     };
 }
 
+TEST_CASE("screenshot service rejects invalid compression and capture extents")
+{
+    Renderer renderer;
+    jobs::InlineJobExecutor executor;
+    ScreenshotService service(renderer, executor);
+
+    ScreenshotRequestOptions options;
+    options.png_compression_level = -1;
+    CHECK_FALSE(service.request_capture(options));
+
+    options.png_compression_level = 10;
+    CHECK_FALSE(service.request_capture(options));
+
+    options.png_compression_level = 6;
+    options.sizing = {ScreenshotSizingMode::Fit, 0, 270};
+    CHECK_FALSE(service.request_capture(options));
+
+    options.sizing = {ScreenshotSizingMode::Exact, kScreenshotCaptureMaxDimension + 1u, 270};
+    CHECK_FALSE(service.request_capture(options));
+
+    options.sizing = {ScreenshotSizingMode::Exact, 4096, 4097};
+    CHECK_FALSE(service.request_capture(options));
+
+    options.sizing = {ScreenshotSizingMode::Exact, 3840, 2160};
+    const auto four_k = service.request_capture(options);
+    REQUIRE(four_k);
+    service.cancel_capture(*four_k);
+
+    executor.begin_shutdown();
+    CHECK(executor.shutdown_complete());
+}
+
+TEST_CASE("screenshot RGBA allocation arithmetic enforces the capture budget")
+{
+    REQUIRE(screenshot_rgba8_byte_size(3840, 2160));
+    CHECK(*screenshot_rgba8_byte_size(3840, 2160) == 3840u * 2160u * 4u);
+    CHECK(screenshot_rgba8_byte_size(5120, 2880));
+    CHECK_FALSE(screenshot_rgba8_byte_size(4096, 4097));
+    CHECK_FALSE(screenshot_rgba8_byte_size(65535, 65535));
+}
+
 TEST_CASE("checkpoint screenshot capture starts only from the matching stable rendered revision")
 {
     FakeScreenshotCaptureBackend backend;
@@ -86,7 +143,25 @@ TEST_CASE("checkpoint screenshot capture starts only from the matching stable re
     REQUIRE(coordinator.request_if_ready(capture_context(1, request, 7)));
     REQUIRE(backend.requested_id);
     CHECK(*backend.requested_id == 1);
+    REQUIRE(backend.requested_options);
+    CHECK(backend.requested_options->sizing.mode == ScreenshotSizingMode::Fit);
+    CHECK(backend.requested_options->sizing.width == 480);
+    CHECK(backend.requested_options->sizing.height == 270);
+    CHECK(backend.requested_options->png_compression_level == 6);
+    CHECK(backend.requested_options->require_next_frame);
     CHECK(coordinator.capture_in_flight());
+}
+
+TEST_CASE("checkpoint screenshot marks only already-passed presentation revisions stale")
+{
+    FakeScreenshotCaptureBackend backend;
+    CheckpointThumbnailCaptureCoordinator coordinator(backend);
+    const auto request = capture_request(5, 7, 11);
+
+    CHECK_FALSE(coordinator.stale_pending_request(capture_context(1, request, 10)));
+    CHECK_FALSE(coordinator.stale_pending_request(capture_context(1, request, 11)));
+    REQUIRE(coordinator.stale_pending_request(capture_context(1, request, 12)));
+    CHECK(*coordinator.stale_pending_request(capture_context(1, request, 12)) == request);
 }
 
 TEST_CASE("checkpoint screenshot completion does not hold presentation state stable")
@@ -139,7 +214,7 @@ TEST_CASE("backend rejection leaves checkpoint capture optional and retryable")
     CHECK(coordinator.request_if_ready(capture_context(4, request, 12)));
 }
 
-TEST_CASE("DPR resize cancellation releases checkpoint capture for a later request")
+TEST_CASE("backend cancellation releases checkpoint capture for a later request")
 {
     FakeScreenshotCaptureBackend backend;
     CheckpointThumbnailCaptureCoordinator coordinator(backend);

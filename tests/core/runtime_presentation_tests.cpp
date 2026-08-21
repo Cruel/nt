@@ -15,6 +15,7 @@
 
 using namespace noveltea::core;
 namespace compiled = noveltea::core::compiled;
+using noveltea::runtime::RuntimeWorld;
 
 namespace {
 template<class Id> Id id(const char* value) { return std::move(Id::create(value)).value(); }
@@ -44,12 +45,13 @@ CompiledProject hotspot_fixture()
     return std::move(decoded).value();
 }
 
-ResolvedRoomPresentation resolve_room(const CompiledProject& project, const SessionState& state)
+ResolvedRoomPresentation resolve_room(const CompiledProject& project, SessionState& state)
 {
     REQUIRE(state.room_visit());
+    RuntimeWorld world(project, state);
     RoomPresentationResolver resolver;
     auto resolved = resolver.resolve(
-        project, state, *state.room_visit(),
+        project, world, state, *state.room_visit(),
         [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
         [](const TextSource& source) {
             return Result<std::string, Diagnostics>::success(std::visit(
@@ -64,6 +66,21 @@ ResolvedRoomPresentation resolve_room(const CompiledProject& project, const Sess
         });
     REQUIRE(resolved);
     return std::move(resolved).value().presentation;
+}
+
+Result<RuntimePresentationSnapshot, Diagnostics>
+project_snapshot(const CompiledProject& project, SessionState& state,
+                 const ResolvedRoomPresentation* room = nullptr)
+{
+    RuntimeWorld world(project, state);
+    return PresentationProjector::project(project, world, state, room);
+}
+
+RoomPresentationVisualCatalog visual_catalog(const CompiledProject& project, SessionState& state,
+                                             const RoomPresentationResolution& resolution)
+{
+    RuntimeWorld world(project, state);
+    return build_room_presentation_visual_catalog(world, resolution);
 }
 
 SessionState representative_state(const CompiledProject& project)
@@ -144,9 +161,9 @@ const PresentationMountedLayout* find_layout(const RuntimePresentationSnapshot& 
 TEST_CASE("presentation projector assembles the complete effective target")
 {
     const auto project = fixture();
-    const auto state = representative_state(project);
+    auto state = representative_state(project);
     const auto room = resolve_room(project, state);
-    auto projected = PresentationProjector::project(project, state, &room);
+    auto projected = project_snapshot(project, state, &room);
     REQUIRE(projected);
     const auto& snapshot = projected.value();
     CHECK(snapshot.revision.number() == 0);
@@ -213,9 +230,10 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
     REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
     REQUIRE(state.room_visit());
 
+    RuntimeWorld world(project, state);
     RoomPresentationResolver resolver;
     auto resolution = resolver.resolve(
-        project, state, *state.room_visit(),
+        project, world, state, *state.room_visit(),
         [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
         [](const TextSource& source) {
             return Result<std::string, Diagnostics>::success(std::visit(
@@ -231,9 +249,9 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
         });
     REQUIRE(resolution);
     auto focused_baseline = RoomPresentationSnapshotProjector::project(
-        resolution.value(), build_room_presentation_visual_catalog(project, resolution.value()));
+        resolution.value(), visual_catalog(project, state, resolution.value()));
     REQUIRE(focused_baseline);
-    auto runtime = PresentationProjector::project(project, state, &resolution.value().presentation);
+    auto runtime = project_snapshot(project, state, &resolution.value().presentation);
     REQUIRE(runtime);
 
     CHECK(focused_baseline.value().current_room == runtime.value().current_room);
@@ -254,9 +272,10 @@ TEST_CASE(
     REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
     REQUIRE(state.room_visit());
 
+    RuntimeWorld world(project, state);
     RoomPresentationResolver resolver;
     auto resolution = resolver.resolve(
-        project, state, *state.room_visit(),
+        project, world, state, *state.room_visit(),
         [](const Condition& condition) {
             return Result<bool, Diagnostics>::success(std::holds_alternative<Always>(condition));
         },
@@ -296,7 +315,7 @@ TEST_CASE(
     CHECK(alpha->condition_eligible);
     CHECK_FALSE(alpha->activation_available);
 
-    auto runtime = PresentationProjector::project(project, state, &resolution.value().presentation);
+    auto runtime = project_snapshot(project, state, &resolution.value().presentation);
     REQUIRE(runtime);
     REQUIRE(runtime.value().hotspots.size() == 3);
     CHECK(std::count_if(runtime.value().hotspots.begin(), runtime.value().hotspots.end(),
@@ -309,7 +328,7 @@ TEST_CASE(
                       }));
 
     auto focused = RoomPresentationSnapshotProjector::project(
-        resolution.value(), build_room_presentation_visual_catalog(project, resolution.value()));
+        resolution.value(), visual_catalog(project, state, resolution.value()));
     REQUIRE(focused);
     CHECK(focused.value().hotspots.empty());
 }
@@ -319,7 +338,8 @@ TEST_CASE("presentation projector represents absent optional families explicitly
     const auto project = fixture();
     auto created = SessionState::create(project);
     REQUIRE(created);
-    auto projected = PresentationProjector::project(project, created.value());
+    auto& state = created.value();
+    auto projected = project_snapshot(project, state);
     REQUIRE(projected);
     CHECK_FALSE(projected.value().background);
     CHECK(projected.value().actors.empty());
@@ -336,7 +356,7 @@ TEST_CASE("active Room projection requires its complete resolved presentation")
 {
     const auto project = fixture();
     auto state = representative_state(project);
-    auto projected = PresentationProjector::project(project, state);
+    auto projected = project_snapshot(project, state);
     REQUIRE_FALSE(projected);
     CHECK(projected.error().front().code == "presentation.room_resolution_unavailable");
 }
@@ -359,23 +379,23 @@ TEST_CASE("background precedence is Scene current Room named Room session then b
                                  make_background("#003300")));
     REQUIRE(state.set_background(project, scene_owner, make_background("#000044")));
 
-    auto projected = PresentationProjector::project(project, state, &room);
+    auto projected = project_snapshot(project, state, &room);
     REQUIRE(projected);
     CHECK(projected.value().background->color == "#000044");
     REQUIRE(state.remove_background_override(scene_owner));
-    projected = PresentationProjector::project(project, state, &room);
+    projected = project_snapshot(project, state, &room);
     REQUIRE(projected);
     CHECK(projected.value().background->color == "#003300");
     REQUIRE(state.remove_background_override(*state.current_room_presentation_owner()));
-    projected = PresentationProjector::project(project, state, &room);
+    projected = project_snapshot(project, state, &room);
     REQUIRE(projected);
     CHECK(projected.value().background->color == "#220000");
     REQUIRE(state.remove_background_override(room_owner));
-    projected = PresentationProjector::project(project, state, &room);
+    projected = project_snapshot(project, state, &room);
     REQUIRE(projected);
     CHECK(projected.value().background->color == "#112233");
     REQUIRE(state.remove_background_override(state.session_presentation_owner()));
-    projected = PresentationProjector::project(project, state, &room);
+    projected = project_snapshot(project, state, &room);
     REQUIRE(projected);
     CHECK(projected.value().background->color == "#101820");
 }
@@ -394,8 +414,8 @@ TEST_CASE("presentation projector canonicalizes every multi-instance family")
                      id<DesiredAudioInstanceId>("rain-right"), state.session_presentation_owner(),
                      compiled::AudioChannel::Ambient, id<AssetId>("audio-voice"), 0.4}));
     const auto room = resolve_room(project, state);
-    auto first = PresentationProjector::project(project, state, &room);
-    auto second = PresentationProjector::project(project, state, &room);
+    auto first = project_snapshot(project, state, &room);
+    auto second = project_snapshot(project, state, &room);
     REQUIRE(first);
     REQUIRE(second);
     CHECK(first.value() == second.value());
@@ -419,15 +439,16 @@ TEST_CASE("snapshot publisher revisions only complete target changes and is fail
     const auto project = fixture();
     auto state = representative_state(project);
     const auto room = resolve_room(project, state);
+    RuntimeWorld world(project, state);
     RuntimePresentationSnapshotPublisher publisher;
-    REQUIRE(publisher.reproject(project, state, &room).value());
+    REQUIRE(publisher.reproject(project, world, state, &room).value());
     REQUIRE(publisher.published());
     CHECK(publisher.published()->revision.number() == 1);
-    CHECK_FALSE(publisher.reproject(project, state, &room).value());
+    CHECK_FALSE(publisher.reproject(project, world, state, &room).value());
     CHECK(publisher.published()->revision.number() == 1);
 
     state.clear_presented_text();
-    REQUIRE(publisher.reproject(project, state, &room).value());
+    REQUIRE(publisher.reproject(project, world, state, &room).value());
     CHECK(publisher.published()->revision.number() == 2);
     const auto before = *publisher.published();
 
@@ -436,7 +457,8 @@ TEST_CASE("snapshot publisher revisions only complete target changes and is fail
     const std::string json((std::istreambuf_iterator<char>(input)), {});
     auto minimal = decode_compiled_project(nlohmann::json::parse(json), "minimal.json");
     REQUIRE(minimal);
-    auto failed = publisher.reproject(minimal.value(), state, &room);
+    RuntimeWorld minimal_world(minimal.value(), state);
+    auto failed = publisher.reproject(minimal.value(), minimal_world, state, &room);
     REQUIRE_FALSE(failed);
     REQUIRE(failed.error().size() > 1);
     CHECK(std::any_of(failed.error().begin(), failed.error().end(), [](const auto& diagnostic) {

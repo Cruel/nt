@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import {
   emptyEditorProjectState,
   stripEditorProjectState,
@@ -295,6 +296,35 @@ describe('project recovery reconstruction', () => {
     const tagGroups = recovery.saveUnitsById['project:tags']?.atomicTransactionGroupIds;
     expect(recordGroups).toHaveLength(1);
     expect(tagGroups).toEqual(recordGroups);
+  });
+
+  it('keeps platform export profile edits in their dedicated save unit', () => {
+    const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/project',
+      projectFilePath: '/project/project.json',
+    });
+    setLoadedEditorProjectState(project.editor);
+
+    const result = useCommandStore.getState().executeCommand({
+      type: 'project.replaceAtPath',
+      label: 'Update platform export profiles',
+      payload: {
+        path: '/export/profiles',
+        value: [defaultPlatformExportProfile('windows')],
+      },
+      originSaveUnitId: 'project:platform-export-profiles',
+      persistencePolicy: 'manual-save',
+    });
+    expect(result.ok).toBe(true);
+
+    const recovery = buildEditorProjectStateSnapshot().recovery;
+    expect(recovery.saveUnitsById['project:platform-export-profiles']?.affectedPaths).toEqual([
+      '/export/profiles',
+    ]);
+    expect(recovery.saveUnitsById['project:settings']).toBeUndefined();
   });
 
   it('serializes the same dirty command state deterministically', () => {

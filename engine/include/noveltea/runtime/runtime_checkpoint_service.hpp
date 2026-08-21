@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <unordered_map>
 #include <variant>
@@ -71,6 +72,8 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     attach_thumbnail(const core::CheckpointThumbnailCaptureRequest& request,
                      core::SaveCheckpointThumbnail thumbnail);
+    [[nodiscard]] bool
+    discard_thumbnail_capture(const core::CheckpointThumbnailCaptureRequest& request) noexcept;
 
     [[nodiscard]] core::Result<void, core::Diagnostics> record_structural_mutation();
     [[nodiscard]] core::Result<void, core::Diagnostics> record_time_mutation();
@@ -110,7 +113,7 @@ private:
     [[nodiscard]] core::CheckpointSaveOutcome
     write_checkpoint(core::TypedSaveSlotId slot, const core::LatestSaveCheckpoint& checkpoint,
                      core::CheckpointWriteSource source);
-    void assign_thumbnail_capture_token() noexcept;
+    void queue_thumbnail_capture(const core::LatestSaveCheckpoint& checkpoint) noexcept;
     void fulfill_deferred_autosave();
 
     const core::CompiledProject& m_project;
@@ -128,7 +131,11 @@ private:
     std::unordered_map<core::TypedSaveSlotId, core::SaveCheckpointRevision,
                        core::TypedSaveSlotIdHash>
         m_written_slots;
-    std::optional<std::uint64_t> m_thumbnail_capture_token;
+    struct PendingThumbnailCapture {
+        core::CheckpointThumbnailCaptureRequest request;
+        core::LatestSaveCheckpoint checkpoint;
+    };
+    std::deque<PendingThumbnailCapture> m_pending_thumbnail_captures;
     std::uint64_t m_next_thumbnail_capture_token = 1;
     std::uint64_t m_next_checkpoint_revision = 1;
     std::uint64_t m_next_readiness_revision = 2;

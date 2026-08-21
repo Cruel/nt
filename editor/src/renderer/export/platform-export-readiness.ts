@@ -67,6 +67,7 @@ export interface EvaluatePlatformExportReadinessOptions {
   templateState?: PlatformExportTemplateState;
   toolchainState?: PlatformExportToolchainState;
   signingState?: PlatformExportSigningState;
+  signingRequested?: boolean;
   outputDirectory?: string;
   lastSuccessfulIdentity?: LastSuccessfulPlatformExportIdentity;
 }
@@ -98,7 +99,7 @@ function platformOnlyDiagnostics(
 }
 
 function isTargetPath(path: string, target: PlatformExportProfile['target']): boolean {
-  if (path.startsWith('/settings/platformExport')) return true;
+  if (path.startsWith('/export/profiles')) return true;
   if (target === 'android') return path.startsWith('/settings/app/android');
   if (target === 'web') return path.startsWith('/settings/app/web');
   return path.startsWith('/settings/app/desktop');
@@ -238,7 +239,7 @@ function environmentDiagnostics(options: EvaluatePlatformExportReadinessOptions)
       }
     }
   }
-  if (options.profile.signingProfileId) {
+  if (options.signingRequested) {
     const signing = options.signingState;
     const configured =
       options.profile.target === 'windows'

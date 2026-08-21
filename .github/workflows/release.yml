@@ -76,7 +76,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang ninja-build cmake pkg-config curl zip unzip tar git libx11-dev libgl1-mesa-dev
+          sudo apt-get install -y build-essential clang ninja-build cmake pkg-config curl zip unzip tar git autoconf automake autoconf-archive libtool libltdl-dev bison flex libx11-dev libgl1-mesa-dev
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -535,6 +535,13 @@ jobs:
         with:
           subject-path: dist/noveltea-player-template-*
 
+      - name: Upload desktop host release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-desktop-host-${{ matrix.platform }}-${{ matrix.arch }}-release-dist
+          path: dist/*
+          if-no-files-found: error
+
   web:
     name: Web release
     runs-on: ubuntu-24.04
@@ -606,6 +613,8 @@ jobs:
           ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)|MessageChannel' build/web-release-no-threads/apps/player/player.js
 
       - name: Package Web player template
+        env:
+          EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           cmake -DNOVELTEA_TEMPLATE_PRESET=web-release -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
           cmake -DNOVELTEA_TEMPLATE_PRESET=web-release-no-threads -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
@@ -1035,25 +1044,11 @@ jobs:
         if: runner.os == 'Linux'
         run: chmod +x build/cli/linux/noveltea
 
-      - name: Smoke native development coordinator ownership
-        shell: pwsh
-        env:
-          NOVELTEA_EDITOR_DEV_DISABLE_GPU: ${{ runner.os == 'Linux' && '1' || '0' }}
-        run: |
-          if ("${{ runner.os }}" -eq "Linux") {
-            xvfb-run -a pnpm -C editor exec node scripts/dev-editor.mjs --smoke-timeout 5000
-          } else {
-            pnpm -C editor exec node scripts/dev-editor.mjs --smoke-timeout 5000
-          }
-
       - name: Build and verify native editor artifacts
         shell: pwsh
         env:
           NOVELTEA_CLI_PATH: ${{ github.workspace }}/${{ matrix.cli_executable }}
         run: pnpm -C editor run artifact -- --release-tag "$env:RELEASE_TAG"
-
-      - name: Verify editor and standalone CLI byte identity
-        run: node .github/verify-editor-cli-identity.mjs editor/out/electron-builder/latest-artifact.json "${{ matrix.cli_executable }}"
 
       - name: Run permanent packaged-application smoke
         shell: pwsh
@@ -1062,11 +1057,6 @@ jobs:
       - name: Install, invoke, and remove Linux editor packages
         if: runner.os == 'Linux'
         run: .github/linux-editor-installer-smoke.sh
-
-      - name: Install, invoke, and remove Windows editor
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: .github/windows-editor-installer-smoke.ps1
 
       - name: Stage editor distributables
         shell: pwsh

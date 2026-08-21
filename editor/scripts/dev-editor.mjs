@@ -328,6 +328,7 @@ function launchElectron(rendererUrl) {
   delete childEnvironment.ELECTRON_RUN_AS_NODE;
   const electronArguments = ['dist-electron/main/main.cjs'];
   if (process.env.NOVELTEA_EDITOR_DEV_DISABLE_GPU === '1') electronArguments.push('--disable-gpu');
+  if (process.env.NOVELTEA_EDITOR_DEV_NO_SANDBOX === '1') electronArguments.push('--no-sandbox');
   const child = spawnOwned('electron', electronExecutable, electronArguments, {
     cwd: editorRoot,
     env: childEnvironment,

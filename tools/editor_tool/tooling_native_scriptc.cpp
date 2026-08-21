@@ -38,6 +38,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_file_mode_json;
     if (operation == "disk-space")
         return &noveltea_tooling_disk_space_json;
+    if (operation == "create-archive")
+        return &noveltea_tooling_create_archive_json;
     return nullptr;
 }
 

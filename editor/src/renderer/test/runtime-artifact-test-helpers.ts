@@ -5,6 +5,7 @@ import {
   prepareRuntimeArtifact,
   type PrepareRuntimeArtifactResult,
   type RuntimeArtifactAssessment,
+  type RuntimeArtifactPathAdapter,
 } from '../../shared/runtime-artifact-preparation';
 import { rendererRuntimeArtifactPaths } from '../export/runtime-artifact-adapters';
 
@@ -13,6 +14,7 @@ export interface RuntimeArtifactTestOptions {
   profile: ExportProfileData;
   recoveryFingerprint?: unknown;
   shaderOutputs?: readonly ShaderCompileOutput[];
+  paths?: RuntimeArtifactPathAdapter;
 }
 
 export async function prepareRuntimeArtifactForTest(
@@ -26,7 +28,7 @@ export async function prepareRuntimeArtifactForTest(
     profile: options.profile,
     recoveryFingerprint: options.recoveryFingerprint,
     intent: options.shaderOutputs ? 'runtime-package-export' : 'runtime-package-preflight',
-    paths: rendererRuntimeArtifactPaths,
+    paths: options.paths ?? rendererRuntimeArtifactPaths,
     ...(options.shaderOutputs
       ? {
           shaderCompiler: {

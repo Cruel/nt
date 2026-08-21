@@ -175,7 +175,8 @@ async function fixture() {
       buildFlavor: 'release',
       compression: 'default',
       includeDebugSymbols: false,
-      capabilityOverrides: [],
+      excludeUnusedAssets: true,
+      includeShaderSources: false,
       assetMemory: { preset: 'balanced' },
       desktop: { artifact: 'tar', executableName: 'game' },
     },
@@ -224,6 +225,16 @@ function outputBytes(root: string, prefix = ''): Record<string, string> {
 }
 
 describe('platform staging service', () => {
+  it('creates missing output parent directories', async () => {
+    const { root, request } = await fixture();
+    request.outputDirectory = path.join(root, 'dist', 'nested', 'game');
+    expect(fs.existsSync(path.dirname(request.outputDirectory))).toBe(false);
+    const result = await stagePlatformExport(request);
+    expect(result.success, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(fs.existsSync(request.outputDirectory)).toBe(true);
+    expect(fs.existsSync(`${request.outputDirectory}.tar.gz`)).toBe(true);
+  });
+
   it('builds deterministic provenance and replaces a previous output', async () => {
     const { request } = await fixture();
     fs.mkdirSync(request.outputDirectory);
@@ -265,6 +276,20 @@ describe('platform staging service', () => {
         path.join(request.outputDirectory, 'share/icons/hicolor/512x512/apps/com.example.game.png'),
       ),
     ).toBe(true);
+  });
+
+  it('emits a ZIP when the Linux profile selects the ZIP artifact', async () => {
+    const { request } = await fixture();
+    if (request.profile.target !== 'linux') throw new Error('Expected Linux fixture profile.');
+    request.profile = {
+      ...request.profile,
+      desktop: { ...request.profile.desktop, artifact: 'zip' },
+    };
+    const result = await stagePlatformExport(request);
+    expect(result.success, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(result.archivePath).toBe(`${request.outputDirectory}.zip`);
+    expect(fs.readFileSync(result.archivePath!).readUInt32LE(0)).toBe(0x04034b50);
+    expect(fs.existsSync(`${request.outputDirectory}.tar.gz`)).toBe(false);
   });
 
   it('preserves verified template modes when the host filesystem cannot represent them', async () => {
@@ -397,7 +422,8 @@ describe('platform staging service', () => {
         buildFlavor: 'release',
         compression: 'default',
         includeDebugSymbols: false,
-        capabilityOverrides: [],
+        excludeUnusedAssets: true,
+        includeShaderSources: false,
         assetMemory: { preset: 'balanced' },
         web: {
           artifact: 'directory-zip',
@@ -613,7 +639,8 @@ describe('platform staging service', () => {
         buildFlavor: 'release',
         compression: 'default',
         includeDebugSymbols: true,
-        capabilityOverrides: [],
+        excludeUnusedAssets: true,
+        includeShaderSources: false,
         assetMemory: { preset: 'balanced' },
         desktop: { artifact: 'zip', executableName: 'Tea Game' },
       },
@@ -795,7 +822,8 @@ describe('platform staging service', () => {
         buildFlavor: 'release',
         compression: 'default',
         includeDebugSymbols: true,
-        capabilityOverrides: [],
+        excludeUnusedAssets: true,
+        includeShaderSources: false,
         assetMemory: { preset: 'balanced' },
         desktop: { artifact: 'app-bundle', executableName: 'TeaGame' },
       },
@@ -960,7 +988,8 @@ describe('platform staging service', () => {
         buildFlavor: 'release',
         compression: 'default',
         includeDebugSymbols: false,
-        capabilityOverrides: [],
+        excludeUnusedAssets: true,
+        includeShaderSources: false,
         assetMemory: { preset: 'balanced' },
         desktop: { artifact: 'app-bundle', executableName: 'Game' },
       },
@@ -1015,7 +1044,8 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
           buildFlavor: 'release',
           compression: 'default',
           includeDebugSymbols: true,
-          capabilityOverrides: [],
+          excludeUnusedAssets: true,
+          includeShaderSources: false,
           assetMemory: { preset: 'balanced' },
           desktop: { artifact: 'zip', executableName: 'Tea Game 茶' },
         },
@@ -1171,7 +1201,8 @@ describe.runIf(
         buildFlavor: 'release',
         compression: 'default',
         includeDebugSymbols: true,
-        capabilityOverrides: [],
+        excludeUnusedAssets: true,
+        includeShaderSources: false,
         assetMemory: { preset: 'balanced' },
         desktop: { artifact: 'appimage', executableName: 'tea-game' },
       },
@@ -1345,7 +1376,8 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
           buildFlavor: 'release',
           compression: 'default',
           includeDebugSymbols: true,
-          capabilityOverrides: [],
+          excludeUnusedAssets: true,
+          includeShaderSources: false,
           assetMemory: { preset: 'balanced' },
           desktop: { artifact: 'app-bundle', executableName: 'TeaGame' },
         },

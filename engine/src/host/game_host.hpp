@@ -123,6 +123,8 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     attach_checkpoint_thumbnail(const core::CheckpointThumbnailCaptureRequest& request,
                                 core::SaveCheckpointThumbnail thumbnail);
+    [[nodiscard]] bool discard_checkpoint_thumbnail_capture(
+        const core::CheckpointThumbnailCaptureRequest& request) noexcept;
     void replace_running_game(std::unique_ptr<runtime::RunningGame> running_game) noexcept;
     void release_running_game() noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics>

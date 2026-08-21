@@ -39,6 +39,12 @@ enum ViewId : bgfx::ViewId {
     ViewFullGamePostprocessComposite = 238,
     ViewRmlDebugBegin = 239,
     ViewRmlDebugEnd = 254,
+
+    // Screenshot capture suppresses the RmlUi debug plane, so the tail of that range can be reused
+    // for the resize/readback passes on capture frames without consuming additional global views.
+    ViewScreenshotResize = 253,
+    ViewScreenshotReadback = 254,
+    ViewScreenshotPresent = 255,
     ViewDebugUI = 255,
 
     // Legacy/demo aliases remain outside the world compositor contract.

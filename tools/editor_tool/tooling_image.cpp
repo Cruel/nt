@@ -290,6 +290,14 @@ noveltea_tooling_file_mode_json(const std::uint8_t* request, std::uint64_t reque
         !parsed["path"].is_string()) {
         result = {{"ok", false}, {"error", "File mode request requires path."}};
     } else {
+#if defined(_WIN32)
+        if (!parsed.contains("fallback") || !parsed["fallback"].is_number_unsigned() ||
+            parsed["fallback"].get<unsigned>() > 0777u)
+            result = {{"ok", false}, {"error", "Windows file mode request requires fallback."}};
+        else
+            // Windows filesystems do not preserve the POSIX mode declared by player templates.
+            result = parsed["fallback"].get<unsigned>();
+#else
         std::error_code error;
         const auto permissions =
             std::filesystem::status(
@@ -299,6 +307,7 @@ noveltea_tooling_file_mode_json(const std::uint8_t* request, std::uint64_t reque
             result = {{"ok", false}, {"error", "Cannot inspect file mode: " + error.message()}};
         else
             result = static_cast<unsigned>(permissions) & 0777u;
+#endif
     }
     const auto text = result.dump();
     const auto required = static_cast<std::uint64_t>(text.size());

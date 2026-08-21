@@ -32,3 +32,6 @@ pingdotgg/
 refs/
 .cxx
 android/app/libs/*.aar
+
+DESLOPPIFY.md
+docs/desloppify/

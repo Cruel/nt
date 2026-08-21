@@ -1,4 +1,6 @@
 import { publishCompiledArtifact } from './compiled-artifact-publication';
+import { buildAuthoringDependencyGraph } from './authoring-dependency-graph';
+import { collectAuthoringSourceRequirements } from './authoring-source-analysis';
 import type {
   PackageExportOptions,
   ShaderCompileDiagnostic,
@@ -7,8 +9,11 @@ import type {
   ShaderCompileResponse,
 } from './editor-tooling';
 import { parseAssetData } from './project-schema/authoring-assets';
+import { serializeCompiledProjectWireV3 } from './project-schema/compiled-project';
 import type { ExportProfileData, ExportShaderVariant } from './project-schema/authoring-export';
 import type { AuthoringProject } from './project-schema/authoring-project';
+import type { LuaSourceSnapshot } from './project-schema/authoring-lua-analysis';
+import { isSha256Digest, type Sha256Digest } from './project-text-sources';
 import {
   defaultProjectAppIdentity,
   deriveProjectDisplayGeometry,
@@ -61,7 +66,7 @@ interface RuntimeArtifactAssemblyOptions {
   profile: ExportProfileData;
   recoveryFingerprint?: unknown;
   shaderAuthoringOutputs?: readonly VerifiedShaderCompiledOutput[];
-  resolveProjectSource: (projectRoot: string | null, source: string) => string;
+  paths: RuntimeArtifactPathAdapter;
 }
 
 export interface RuntimeArtifactAssessment {
@@ -72,6 +77,7 @@ export interface RuntimeArtifactAssessment {
   shaderMaterialMetadata?: PreparedRuntimeArtifact['shaderMaterialMetadata'];
   requiredShaderBinaryPaths: string[];
   fileEntries: ExportFileEntry[];
+  excludedUnusedAssetCount: number;
   manifestPreview: ExportManifestPreview;
   packageOptions: PreparedRuntimePackageOptions;
   diagnostics: ProjectValidationDiagnostic[];
@@ -97,6 +103,25 @@ export interface RuntimeArtifactShaderCompilerAdapter {
 export interface RuntimeArtifactPathAdapter {
   resolveProjectSource(projectRoot: string | null, source: string): string;
   shaderAssetRoot(projectRoot: string | null): string | undefined;
+  readProjectTextSources?(
+    projectRoot: string | null,
+    entries: readonly {
+      assetId: string;
+      projectRelativePath: string;
+      expectedContentHash: Sha256Digest;
+    }[],
+  ): Promise<
+    readonly (
+      | {
+          status: 'ready';
+          assetId: string;
+          projectRelativePath: string;
+          contentHash: Sha256Digest;
+          text: string;
+        }
+      | { status: 'unavailable'; assetId: string }
+    )[]
+  >;
 }
 
 export const logicalRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
@@ -212,7 +237,6 @@ function runtimeCompilationProject(project: AuthoringProject): AuthoringProject 
     ...runtimeProject.settings,
     app: defaultProjectAppIdentity(runtimeProject),
   };
-  delete (runtimeProject.settings as Record<string, unknown>).platformExport;
   return runtimeProject;
 }
 
@@ -329,6 +353,58 @@ export function hasAuthoringShadersOrMaterials(project: AuthoringProject) {
   return Object.keys(project.shaders).length > 0 || Object.keys(project.materials).length > 0;
 }
 
+async function referencedRuntimeAssetIds(
+  project: AuthoringProject,
+  projectRoot: string | null,
+  paths: RuntimeArtifactPathAdapter,
+): Promise<ReadonlySet<string> | null> {
+  const requiredSourceAssetIds = collectAuthoringSourceRequirements(project);
+  const readEntries = requiredSourceAssetIds.flatMap((assetId) => {
+    const data = parseAssetData(project.assets[assetId]?.data);
+    const hash = data?.contentHash;
+    return data && hash && isSha256Digest(hash)
+      ? [{ assetId, projectRelativePath: data.source.path, expectedContentHash: hash }]
+      : [];
+  });
+
+  if (readEntries.length !== requiredSourceAssetIds.length) return null;
+  if (readEntries.length > 0 && !paths.readProjectTextSources) return null;
+
+  const readResults = paths.readProjectTextSources
+    ? await paths.readProjectTextSources(projectRoot, readEntries)
+    : [];
+  const byAssetId = new Map(readResults.map((entry) => [entry.assetId, entry]));
+  if (readEntries.some(({ assetId }) => byAssetId.get(assetId)?.status !== 'ready')) return null;
+
+  const sources: LuaSourceSnapshot = {
+    entriesByAssetId: new Map(
+      readEntries.map(({ assetId, expectedContentHash, projectRelativePath }) => {
+        const entry = byAssetId.get(assetId)!;
+        if (entry.status !== 'ready')
+          throw new Error('Source-read completeness changed unexpectedly.');
+        return [
+          assetId,
+          {
+            status: 'ready' as const,
+            assetId,
+            projectRelativePath,
+            contentHash: entry.contentHash ?? expectedContentHash,
+            text: entry.text,
+            hadUtf8Bom: false,
+          },
+        ];
+      }),
+    ),
+  };
+  const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources });
+  const referenced = new Set<string>();
+  for (const edge of graph.edgesById.values()) {
+    if (edge.target.kind === 'record' && edge.target.collection === 'assets')
+      referenced.add(edge.target.id);
+  }
+  return referenced;
+}
+
 async function assembleRuntimeArtifact(
   project: AuthoringProject,
   options: RuntimeArtifactAssemblyOptions,
@@ -372,14 +448,35 @@ async function assembleRuntimeArtifact(
   };
 
   const compiledAssets = published.ok ? published.project.project.resources.assets : [];
-  const fileEntries = compiledAssets.flatMap((asset): ExportFileEntry[] => {
+  const referencedAssetIds = options.profile.excludeUnusedAssets
+    ? await referencedRuntimeAssetIds(project, options.projectRoot ?? null, options.paths)
+    : null;
+  const excludedUnusedAssetCount = referencedAssetIds
+    ? compiledAssets.filter((asset) => !referencedAssetIds.has(asset.id)).length
+    : 0;
+  const includedCompiledAssets = compiledAssets.filter((asset) => {
+    if (referencedAssetIds && !referencedAssetIds.has(asset.id)) return false;
+    if (asset.kind === 'shader-source' && !options.profile.includeShaderSources) return false;
+    return true;
+  });
+  const compiledProject = published.ok
+    ? {
+        ...published.project.project,
+        resources: { ...published.project.project.resources, assets: includedCompiledAssets },
+      }
+    : undefined;
+  const gameplayJson = compiledProject
+    ? serializeCompiledProjectWireV3(compiledProject)
+    : undefined;
+  const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
     const authored = parseAssetData(project.assets[asset.id]?.data);
-    if (!authored || (options.profile.kind === 'runtime' && authored.kind === 'shader-source')) {
-      return [];
-    }
+    if (!authored) return [];
     return [
       {
-        source: options.resolveProjectSource(options.projectRoot ?? null, authored.source.path),
+        source: options.paths.resolveProjectSource(
+          options.projectRoot ?? null,
+          authored.source.path,
+        ),
         packagePath: asset.path,
         storage: authored.kind === 'audio' ? 'stored' : 'auto',
         assetId: asset.id,
@@ -474,11 +571,12 @@ async function assembleRuntimeArtifact(
   return {
     ready: published.ok && runtimeBlockers.length === 0,
     compiledArtifactAvailable: published.ok,
-    compiledProject: published.ok ? published.project.project : undefined,
-    gameplayJson: published.ok ? published.project.gameplayJson : undefined,
+    compiledProject,
+    gameplayJson,
     shaderMaterialMetadata,
     requiredShaderBinaryPaths: required,
     fileEntries,
+    excludedUnusedAssetCount,
     manifestPreview,
     packageOptions,
     diagnostics,
@@ -640,7 +738,7 @@ export async function prepareRuntimeArtifact(
     projectRoot: options.projectRoot,
     profile: options.profile,
     recoveryFingerprint: options.recoveryFingerprint,
-    resolveProjectSource: (root, source) => options.paths.resolveProjectSource(root, source),
+    paths: options.paths,
   });
   let shaderDiagnostics: ProjectValidationDiagnostic[] = [];
   let shaderOutputs: ShaderCompileOutput[] = [];
@@ -707,7 +805,7 @@ export async function prepareRuntimeArtifact(
           profile: options.profile,
           recoveryFingerprint: options.recoveryFingerprint,
           shaderAuthoringOutputs: verified.authoringOutputs,
-          resolveProjectSource: (root, source) => options.paths.resolveProjectSource(root, source),
+          paths: options.paths,
         });
       }
     }
@@ -772,13 +870,33 @@ function normalizedPackageFileEntries(
   }));
 }
 
-function expectedFileEntriesForVerification(
-  artifact: PreparedRuntimeArtifact,
+async function expectedFileEntriesForVerification(
+  compiledAssets: PreparedRuntimeArtifact['compiledProject']['resources']['assets'],
   options: VerifyPreparedRuntimeArtifactOptions,
-): { entries: ExportFileEntry[] } | { message: string; path: string } {
+): Promise<
+  | {
+      entries: ExportFileEntry[];
+      compiledAssets: PreparedRuntimeArtifact['compiledProject']['resources']['assets'];
+    }
+  | { message: string; path: string }
+> {
   const entries: ExportFileEntry[] = [];
+  const referencedAssetIds = options.profile.excludeUnusedAssets
+    ? await referencedRuntimeAssetIds(options.project, options.projectRoot, options.paths)
+    : null;
+  if (options.profile.excludeUnusedAssets && referencedAssetIds === null)
+    return {
+      message:
+        'Prepared asset pruning cannot be verified because current source references could not be rederived.',
+      path: '/artifact/compiledProject/resources/assets',
+    };
+  const expectedCompiledAssets = compiledAssets.filter((asset) => {
+    if (referencedAssetIds && !referencedAssetIds.has(asset.id)) return false;
+    if (asset.kind === 'shader-source' && !options.profile.includeShaderSources) return false;
+    return true;
+  });
   const packagePaths = new Set<string>();
-  for (const asset of artifact.compiledProject.resources.assets) {
+  for (const asset of expectedCompiledAssets) {
     const authored = parseAssetData(options.project.assets[asset.id]?.data);
     if (!authored)
       return {
@@ -790,7 +908,8 @@ function expectedFileEntriesForVerification(
         message: `Compiled asset '${asset.id}' does not match its current Project asset record.`,
         path: `/artifact/compiledProject/resources/assets/${asset.id}`,
       };
-    if (options.profile.kind === 'runtime' && authored.kind === 'shader-source') continue;
+    if (referencedAssetIds && !referencedAssetIds.has(asset.id)) continue;
+    if (authored.kind === 'shader-source' && !options.profile.includeShaderSources) continue;
     if (packagePaths.has(asset.path))
       return {
         message: `Prepared package inventory contains duplicate package path '${asset.path}'.`,
@@ -805,7 +924,7 @@ function expectedFileEntriesForVerification(
       kind: authored.kind,
     });
   }
-  return { entries };
+  return { entries, compiledAssets: expectedCompiledAssets };
 }
 
 function runtimePresentationForVerification(
@@ -918,6 +1037,12 @@ export async function verifyPreparedRuntimeArtifact(
       '/artifact/gameplayJson',
     );
   const expectedRuntimeProject = runtimeCompilationProject(options.project);
+  const freshlyPublished = publishCompiledArtifact(expectedRuntimeProject);
+  if (!freshlyPublished.ok)
+    return rejectedEvidence(
+      'Current Project cannot be freshly compiled while verifying the prepared runtime artifact.',
+      '/artifact/compiledProject',
+    );
   if (
     stableStringify(artifact.compiledProject.project) !==
     stableStringify({
@@ -933,9 +1058,20 @@ export async function verifyPreparedRuntimeArtifact(
       '/artifact/compiledProject/project',
     );
 
-  const expectedInventory = expectedFileEntriesForVerification(artifact, options);
+  const expectedInventory = await expectedFileEntriesForVerification(
+    freshlyPublished.project.project.resources.assets,
+    options,
+  );
   if ('message' in expectedInventory)
     return rejectedEvidence(expectedInventory.message, expectedInventory.path);
+  if (
+    stableStringify(artifact.compiledProject.resources.assets) !==
+    stableStringify(expectedInventory.compiledAssets)
+  )
+    return rejectedEvidence(
+      'Prepared Compiled Project asset resources do not match freshly derived pruning evidence.',
+      '/artifact/compiledProject/resources/assets',
+    );
   if (
     stableStringify(normalizedExportFileEntries(artifact.fileEntries)) !==
     stableStringify(normalizedExportFileEntries(expectedInventory.entries))

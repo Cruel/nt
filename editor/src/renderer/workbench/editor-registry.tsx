@@ -487,18 +487,6 @@ export function buildPlatformExportTab(): WorkbenchTab {
   };
 }
 
-export function buildPlatformExportProfilesTab(): WorkbenchTab {
-  return {
-    id: 'tab:platform-export-profiles',
-    title: 'Export Profiles',
-    editorType: 'platform-export-profiles',
-    resource: {
-      kind: 'project',
-      stableId: 'project:platform-export-profiles',
-    },
-  };
-}
-
 export function buildProjectChaptersTab(target?: {
   collection: string;
   entityId: string;
@@ -568,7 +556,6 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'comfyui-workflows') return Workflow;
   if (editorType === 'project-settings') return Wrench;
   if (editorType === 'platform-export') return MonitorPlay;
-  if (editorType === 'platform-export-profiles') return SlidersHorizontal;
   if (editorType === 'project-chapters') return BookOpen;
   if (editorType === 'project-tags') return Tags;
   return FileCode;
