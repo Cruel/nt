@@ -1126,8 +1126,10 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/ROOMS.md']).toContain(
       'normalized to the complete Room background source image',
     );
-    expect(first.files['docs/INTERACTIONS.md']).toContain('Room hotspot');
-    expect(first.files['docs/INTERACTIONS.md']).toContain('arity-`1` Verb');
+    expect(first.files['docs/INTERACTIONS.md']).toContain('Room Hotspots may target');
+    expect(first.files['docs/INTERACTIONS.md']).toContain(
+      'its reference is always owner-qualified',
+    );
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI.md');
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
     expect(first.files['docs/LAYOUTS.md']).toContain(
@@ -1513,11 +1515,11 @@ describe('NovelTea headless CLI', () => {
       [bindNovelTea, 'noveltea', 'noveltea', 4],
       [typedBindings, 'noveltea', 'noveltea', 1],
       [typedBindings, 'game_properties', 'Game', 3],
-      [typedBindings, 'properties', 'noveltea.properties', 3],
+      [typedBindings, 'properties', 'noveltea.properties', 6],
       [typedBindings, 'interactables', 'noveltea.interactables', 4],
       [typedBindings, 'navigation', 'noveltea.navigation', 1],
       [typedBindings, 'flow', 'noveltea.flow', 9],
-      [typedBindings, 'game', 'Game', 10],
+      [typedBindings, 'game', 'Game', 9],
       [capabilityBindings, 'room_presentation', 'noveltea.room_presentation', 2],
       [capabilityBindings, 'random', 'noveltea.random', 3],
       [capabilityBindings, 'map', 'noveltea.map', 5],
@@ -1525,7 +1527,7 @@ describe('NovelTea headless CLI', () => {
       [capabilityBindings, 'presentation', 'noveltea.presentation', 13],
       [capabilityBindings, 'text_log', 'noveltea.text_log', 2],
       [capabilityBindings, 'game', 'Game', 3],
-      [gameplayUiBindings, 'ui', 'Game.ui', 10],
+      [gameplayUiBindings, 'ui', 'Game.ui', 9],
       [shellUiBindings, 'shell', 'Game.shell', 24],
       [shellUiBindings, 'game', 'Game', 1],
     ] as const;

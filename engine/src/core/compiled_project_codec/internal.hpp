@@ -279,6 +279,93 @@ std::optional<Id> decode_reference(Decoder& decoder, const nlohmann::json& value
     return decoded_id && kind ? std::move(decoded_id) : std::nullopt;
 }
 
+inline std::optional<FeatureRef> decode_feature_ref(Decoder& decoder, const nlohmann::json& value,
+                                                    std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Feature reference object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* owner_kind_value = decoder.member(value, "ownerKind", pointer);
+    const auto* feature_value = decoder.member(value, "featureId", pointer);
+    auto owner_kind = owner_kind_value
+                          ? decoder.string(*owner_kind_value, pointer_child(pointer, "ownerKind"))
+                          : std::nullopt;
+    auto feature = feature_value
+                       ? decoder.id<FeatureId>(*feature_value, pointer_child(pointer, "featureId"))
+                       : std::nullopt;
+    if (!owner_kind || !feature)
+        return std::nullopt;
+    if (*owner_kind == "room" &&
+        decoder.object(value, pointer, {"featureId", "ownerKind", "room"})) {
+        const auto* room_value = decoder.member(value, "room", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        if (room)
+            return RoomFeatureRef{std::move(*room), std::move(*feature)};
+    }
+    if (*owner_kind == "interactable" &&
+        decoder.object(value, pointer, {"featureId", "interactable", "ownerKind"})) {
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        if (interactable)
+            return InteractableFeatureRef{std::move(*interactable), std::move(*feature)};
+    }
+    decoder.error(k_code_variant, "Unknown Feature owner kind.",
+                  pointer_child(pointer, "ownerKind"));
+    return std::nullopt;
+}
+
+inline std::optional<InteractionSubject>
+decode_interaction_subject(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected interaction subject object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "character" && decoder.object(value, pointer, {"character", "kind"})) {
+        const auto* character_value = decoder.member(value, "character", pointer);
+        auto character =
+            character_value
+                ? decode_reference<CharacterId>(decoder, *character_value,
+                                                pointer_child(pointer, "character"), "character")
+                : std::nullopt;
+        if (character)
+            return CharacterInteractionSubject{std::move(*character)};
+    }
+    if (*kind == "interactable" && decoder.object(value, pointer, {"interactable", "kind"})) {
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        if (interactable)
+            return InteractableInteractionSubject{std::move(*interactable)};
+    }
+    if (*kind == "feature" && decoder.object(value, pointer, {"feature", "kind"})) {
+        const auto* feature_value = decoder.member(value, "feature", pointer);
+        auto feature = feature_value ? decode_feature_ref(decoder, *feature_value,
+                                                          pointer_child(pointer, "feature"))
+                                     : std::nullopt;
+        if (feature)
+            return FeatureInteractionSubject{std::move(*feature)};
+    }
+    decoder.error(k_code_variant, "Unknown interaction subject kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
 template<class Id>
 std::optional<DefinitionIdentity<Id>>
 decode_definition_identity(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)

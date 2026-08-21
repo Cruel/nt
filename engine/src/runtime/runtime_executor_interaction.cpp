@@ -80,14 +80,6 @@ core::Result<void, RuntimeExecutionError>
 RuntimeExecutor::interact(core::VerbId verb_id,
                           std::vector<core::compiled::InteractionSubject> operands)
 {
-    return interact_with_context(std::move(verb_id), std::move(operands), std::nullopt);
-}
-
-core::Result<void, RuntimeExecutionError>
-RuntimeExecutor::interact_with_context(core::VerbId verb_id,
-                                       std::vector<core::compiled::InteractionSubject> operands,
-                                       std::optional<core::compiled::HotspotRef> hotspot)
-{
     const auto* room_mode = std::get_if<core::RoomMode>(&m_state.mode());
     const auto* verb = m_project.find_verb(verb_id);
     if (room_mode == nullptr || verb == nullptr || !m_state.flow_stack().empty() ||
@@ -122,7 +114,6 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
         core::InteractionRuleProgramRef reference;
         std::size_t exact_operands = 0;
         std::size_t typed_wildcards = 0;
-        bool exact_hotspot = false;
         std::size_t declaration_order = 0;
     };
     std::optional<Candidate> selected;
@@ -156,7 +147,7 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
             if (!matches)
                 continue;
             bool context_matches = std::visit(
-                [this, &room_mode, &operands, &hotspot](const auto& context) {
+                [this, &room_mode, &operands](const auto& context) {
                     using T = std::decay_t<decltype(context)>;
                     if constexpr (std::is_same_v<T, core::compiled::AnyInteractionContext>)
                         return true;
@@ -184,51 +175,49 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
                                                        context.placement.placement_id;
                                         });
                                 }
-                                const auto* interactable =
-                                    std::get_if<core::compiled::InteractableInteractionSubject>(
-                                        &subject);
-                                return interactable != nullptr &&
-                                       std::any_of(
-                                           m_room_presentation->presentation.interactables.begin(),
-                                           m_room_presentation->presentation.interactables.end(),
-                                           [&context, interactable](
-                                               const core::ResolvedRoomInteractable& value) {
-                                               return value.interactable ==
-                                                          interactable->interactable &&
-                                                      value.placement ==
-                                                          context.placement.placement_id;
-                                           });
+                                std::optional<core::InteractableId> interactable_id;
+                                if (const auto* interactable =
+                                        std::get_if<core::compiled::InteractableInteractionSubject>(
+                                            &subject)) {
+                                    interactable_id = interactable->interactable;
+                                } else if (const auto* feature = std::get_if<
+                                               core::compiled::FeatureInteractionSubject>(
+                                               &subject)) {
+                                    const auto* owner = std::get_if<core::InteractableFeatureRef>(
+                                        &feature->feature);
+                                    if (owner == nullptr)
+                                        return false;
+                                    interactable_id = owner->interactable;
+                                } else {
+                                    return false;
+                                }
+                                return std::any_of(
+                                    m_room_presentation->presentation.interactables.begin(),
+                                    m_room_presentation->presentation.interactables.end(),
+                                    [&context, &interactable_id](
+                                        const core::ResolvedRoomInteractable& value) {
+                                        return value.interactable == *interactable_id &&
+                                               value.placement == context.placement.placement_id;
+                                    });
                             });
                     } else if constexpr (std::is_same_v<
                                              T, core::compiled::PredicateInteractionContext>) {
                         auto evaluated = evaluate(context.condition);
                         const auto* value = evaluated.value_if();
                         return value != nullptr && *value;
-                    } else if constexpr (std::is_same_v<T,
-                                                        core::compiled::HotspotInteractionContext>)
-                        return hotspot && context.hotspot == *hotspot;
-                    else
+                    } else
                         return false;
                 },
                 rule.context);
             if (!context_matches)
                 continue;
-            const bool exact_hotspot =
-                std::holds_alternative<core::compiled::HotspotInteractionContext>(rule.context);
-            Candidate candidate{{interaction.identity.id, rule.id},
-                                exact,
-                                typed_wildcards,
-                                exact_hotspot,
-                                current_order};
+            Candidate candidate{
+                {interaction.identity.id, rule.id}, exact, typed_wildcards, current_order};
             if (!selected || candidate.exact_operands > selected->exact_operands ||
                 (candidate.exact_operands == selected->exact_operands &&
                  candidate.typed_wildcards > selected->typed_wildcards) ||
                 (candidate.exact_operands == selected->exact_operands &&
                  candidate.typed_wildcards == selected->typed_wildcards &&
-                 candidate.exact_hotspot && !selected->exact_hotspot) ||
-                (candidate.exact_operands == selected->exact_operands &&
-                 candidate.typed_wildcards == selected->typed_wildcards &&
-                 candidate.exact_hotspot == selected->exact_hotspot &&
                  candidate.declaration_order < selected->declaration_order))
                 selected = std::move(candidate);
         }
@@ -238,110 +227,9 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
         selected ? core::InteractionProgramRef{selected->reference}
                  : core::InteractionProgramRef{core::VerbDefaultProgramRef{verb_id}};
     auto started = m_flow.start_interaction(
-        core::InteractionInvocationContext{verb_id, room_mode->room, std::move(operands),
-                                           std::move(hotspot)},
-        program);
+        core::InteractionInvocationContext{verb_id, room_mode->room, std::move(operands)}, program);
     return started ? core::Result<void, RuntimeExecutionError>::success()
                    : core::Result<void, RuntimeExecutionError>::failure(started.error());
-}
-
-core::Result<void, RuntimeExecutionError>
-RuntimeExecutor::activate_hotspot(const core::compiled::HotspotRef& hotspot)
-{
-    const auto* room_mode = std::get_if<core::RoomMode>(&m_state.mode());
-    if (room_mode == nullptr || !m_state.flow_stack().empty())
-        return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
-            "execution.invalid_hotspot_activation", "Hotspot activation requires idle Room mode"));
-    if (!m_room_presentation || m_room_presentation_dirty ||
-        m_room_presentation->presentation.visit.room != room_mode->room) {
-        auto settled = room_view({});
-        if (!settled)
-            return core::Result<void, RuntimeExecutionError>::failure(settled.error());
-    }
-
-    return std::visit(
-        [this, &hotspot,
-         &room_mode](const auto& reference) -> core::Result<void, RuntimeExecutionError> {
-            using T = std::decay_t<decltype(reference)>;
-            if constexpr (std::is_same_v<T, core::compiled::RoomHotspotRef>) {
-                if (reference.room != room_mode->room)
-                    return core::Result<void, RuntimeExecutionError>::failure(
-                        interaction_error("execution.hotspot_owner_unavailable",
-                                          "Room hotspot owner is not the active Room"));
-                const auto* room = m_world.resolved_configuration(reference.room);
-                if (room == nullptr)
-                    return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
-                        "execution.unknown_hotspot", "Room hotspot definition is missing"));
-                const auto found = std::find_if(
-                    room->hotspots.begin(), room->hotspots.end(),
-                    [&reference](const auto& value) { return value.id == reference.hotspot_id; });
-                if (found == room->hotspots.end())
-                    return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
-                        "execution.unknown_hotspot", "Room hotspot definition is missing"));
-                auto condition = evaluate(found->condition);
-                if (!condition || !*condition.value_if())
-                    return core::Result<void, RuntimeExecutionError>::failure(
-                        condition ? interaction_error("execution.hotspot_unavailable",
-                                                      "Hotspot condition rejected activation")
-                                  : condition.error());
-                if (const auto* verb =
-                        std::get_if<core::compiled::VerbHotspotActivation>(&found->activation))
-                    return interact_with_context(verb->verb, {}, hotspot);
-                const auto& exit =
-                    std::get<core::compiled::RoomExitHotspotActivation>(found->activation);
-                auto navigated = navigate(exit.exit_id);
-                return navigated ? core::Result<void, RuntimeExecutionError>::success()
-                                 : core::Result<void, RuntimeExecutionError>::failure(
-                                       std::move(navigated).error());
-            } else {
-                const auto* owner = m_world.resolved_configuration(reference.interactable);
-                const auto present =
-                    std::find_if(m_room_presentation->presentation.interactables.begin(),
-                                 m_room_presentation->presentation.interactables.end(),
-                                 [&reference](const core::ResolvedRoomInteractable& value) {
-                                     return value.interactable == reference.interactable &&
-                                            value.enabled && value.visible;
-                                 });
-                if (owner == nullptr ||
-                    present == m_room_presentation->presentation.interactables.end())
-                    return core::Result<void, RuntimeExecutionError>::failure(
-                        interaction_error("execution.hotspot_owner_unavailable",
-                                          "Interactable hotspot owner is not visible and enabled "
-                                          "in the active Room"));
-                const core::compiled::InteractableHotspotBehavior* behavior = nullptr;
-                std::visit(
-                    [&behavior, &reference](const auto& collection) {
-                        using C = std::decay_t<decltype(collection)>;
-                        if constexpr (std::is_same_v<C, core::compiled::SpriteAlphaHotspots>) {
-                            if (collection.hotspot.id == reference.hotspot_id)
-                                behavior = &collection.hotspot;
-                        } else {
-                            const auto found =
-                                std::find_if(collection.hotspots.begin(), collection.hotspots.end(),
-                                             [&reference](const auto& value) {
-                                                 return value.id == reference.hotspot_id;
-                                             });
-                            if (found != collection.hotspots.end())
-                                behavior = &*found;
-                        }
-                    },
-                    owner->presentation.hotspots);
-                if (behavior == nullptr)
-                    return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
-                        "execution.unknown_hotspot", "Interactable hotspot definition is missing"));
-                auto condition = evaluate(behavior->condition);
-                if (!condition || !*condition.value_if())
-                    return core::Result<void, RuntimeExecutionError>::failure(
-                        condition ? interaction_error("execution.hotspot_unavailable",
-                                                      "Hotspot condition rejected activation")
-                                  : condition.error());
-                return interact_with_context(
-                    behavior->activation.verb,
-                    {core::compiled::InteractableInteractionSubject{reference.interactable}},
-                    hotspot);
-            }
-        },
-        hotspot);
 }
 
 std::optional<core::FlowRunOutcome>
@@ -505,9 +393,8 @@ RuntimeExecutor::interaction_view(std::string_view)
     if (frame == nullptr)
         return core::Result<core::InteractionView, RuntimeExecutionError>::failure(
             interaction_error("execution.no_interaction_view", "No Interaction is active"));
-    core::InteractionView view{
-        frame->invocation.verb,    frame->invocation.room, frame->invocation.operands,
-        frame->invocation.hotspot, frame->program,         std::nullopt};
+    core::InteractionView view{frame->invocation.verb, frame->invocation.room,
+                               frame->invocation.operands, frame->program, std::nullopt};
     for (auto it = m_gateway.events().rbegin(); it != m_gateway.events().rend(); ++it) {
         const auto* notification = std::get_if<runtime::NotificationEvent>(&*it);
         if (notification != nullptr) {

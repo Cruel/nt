@@ -25,18 +25,20 @@ describe('authoring V2 validation', () => {
     );
   });
 
-  it('treats an unconfigured hotspot Verb as incomplete authoring rather than a hard error', () => {
+  it('treats a new Interactable hotspot as a geometry selector for its owner', () => {
     const project = createAuthoringProject();
-    project.interactables.key = {
-      id: 'key',
-      label: 'Key',
-      data: defaultInteractableData('Key'),
-    };
+    const data = defaultInteractableData('Key');
+    project.interactables.key = { id: 'key', label: 'Key', data };
+
+    expect(data.presentation.hotspots).toMatchObject({
+      kind: 'sprite-alpha',
+      hotspot: { target: { kind: 'owner' } },
+    });
     expect(validateHotspotAuthoringSemantics(project)).toContainEqual(
       expect.objectContaining({
-        code: 'hotspot.authoring.verb.required',
+        code: 'hotspot.authoring.source-image-required',
         severity: 'warning',
-        path: '/interactables/key/data/presentation/hotspots/hotspot/activation/verb',
+        path: '/interactables/key/data/presentation/sprite',
       }),
     );
   });

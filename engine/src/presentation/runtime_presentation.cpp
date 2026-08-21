@@ -738,8 +738,8 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             },
             hotspot.shape);
         result.hotspots.push_back(
-            {hotspot.ref, hotspot.label, hotspot.condition_eligible, hotspot.activation_available,
-             hotspot.activation, shape, hotspot.input_order, hotspot.highlight, *source,
+            {hotspot.ref, hotspot.label, hotspot.condition_eligible, hotspot.target_available,
+             hotspot.target, shape, hotspot.input_order, hotspot.highlight, *source,
              static_cast<std::uint16_t>(*image->width), static_cast<std::uint16_t>(*image->height),
              hotspot.interactable_placement, hotspot.interactable_bounds, hotspot.owner_plane,
              hotspot.owner_order});

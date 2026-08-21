@@ -15,7 +15,7 @@ import {
 } from './authoring-archetypes';
 import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
-import { validateInteractableData } from './authoring-interactables';
+import { parseInteractableData, validateInteractableData } from './authoring-interactables';
 import { validateInteractionData, validateInteractionProgram } from './authoring-interactions';
 import { validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
@@ -25,7 +25,7 @@ import {
   type PropertyAssignments,
   type PropertyOwnerKind,
 } from './authoring-properties';
-import { validateRoomData } from './authoring-rooms';
+import { parseRoomData, validateRoomData } from './authoring-rooms';
 import { validateHotspotAuthoringSemantics } from './authoring-hotspot-validation';
 import { validateTypedProjectSettings } from './authoring-project-settings';
 import { validateSceneData } from './authoring-scenes';
@@ -273,6 +273,52 @@ function effectiveGameplayProject(project: AuthoringProject): AuthoringProject {
       ]),
     ),
   } as AuthoringProject;
+}
+
+function validateFeatures(
+  project: AuthoringProject,
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
+  const validateOwnerFeatures = (
+    features: readonly {
+      id: string;
+      traits: readonly string[];
+      properties: Readonly<PropertyAssignments>;
+    }[],
+    basePath: string,
+  ) => {
+    const seen = new Set<string>();
+    for (const [index, feature] of features.entries()) {
+      const path = `${basePath}/${index}`;
+      if (seen.has(feature.id))
+        diagnostics.push(
+          diagnostic('error', `${path}/id`, `Feature '${feature.id}' is declared more than once.`),
+        );
+      seen.add(feature.id);
+      validateArchetypePropertyConfiguration(
+        project,
+        'feature',
+        feature.traits,
+        feature.properties,
+        path,
+        diagnostics,
+      );
+    }
+  };
+
+  for (const [roomId, record] of Object.entries(project.rooms)) {
+    const room = parseRoomData(record.data);
+    if (room)
+      validateOwnerFeatures(room.features, `/rooms/${escapePathSegment(roomId)}/data/features`);
+  }
+  for (const [interactableId, record] of Object.entries(project.interactables)) {
+    const interactable = parseInteractableData(record.data);
+    if (interactable)
+      validateOwnerFeatures(
+        interactable.features,
+        `/interactables/${escapePathSegment(interactableId)}/data/features`,
+      );
+  }
 }
 
 function validateProperties(
@@ -603,6 +649,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   const effectiveProject = effectiveGameplayProject(project);
   validateProperties(effectiveProject, diagnostics);
   validateTraits(effectiveProject, diagnostics);
+  validateFeatures(effectiveProject, diagnostics);
   validateAssets(effectiveProject, diagnostics);
   diagnostics.push(...validateTypedProjectSettings(effectiveProject));
   for (const [id, record] of Object.entries(effectiveProject.layouts))

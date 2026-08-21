@@ -246,6 +246,23 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
     for (const auto& trait : traits)
         trait_index.emplace(trait.id, &trait);
 
+    auto link_features = [&](std::vector<compiled::wire::FeatureDefinition> values,
+                             const std::string& path) {
+        std::vector<compiled::FeatureDefinition> linked;
+        linked.reserve(values.size());
+        for (std::size_t index = 0; index < values.size(); ++index) {
+            auto& value = values[index];
+            auto identity = link_identity(std::move(value.identity), PropertyOwnerKind::Feature,
+                                          property_index, trait_index, diagnostics, source_path,
+                                          path + "/" + std::to_string(index));
+            if (!identity)
+                continue;
+            linked.push_back(
+                compiled::FeatureDefinition{std::move(*identity), std::move(value.label)});
+        }
+        return linked;
+    };
+
 #define LINK_PROPERTY_DEFINITIONS(wire_member, output_member, output_type, owner_kind, path_text,  \
                                   body)                                                            \
     std::vector<compiled::output_type> output_member;                                              \
@@ -277,20 +294,26 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             std::move(value.idles), std::move(value.initial_world_state)}));
     LINK_PROPERTY_DEFINITIONS(
         rooms, rooms, RoomDefinition, PropertyOwnerKind::Room, "/definitions/rooms",
-        (compiled::RoomDefinition{std::move(*identity), std::move(value.display_name),
-                                  std::move(value.description), std::move(value.background),
-                                  compiled::RoomLifecycle{std::move(value.lifecycle.can_enter),
-                                                          std::move(value.lifecycle.can_leave),
-                                                          std::move(value.lifecycle.hooks)},
-                                  std::move(value.overlays), std::move(value.cast),
-                                  std::move(value.props), std::move(value.environments),
-                                  std::move(value.compose), std::move(value.placements),
-                                  std::move(value.exits), std::move(value.hotspots)}));
-    LINK_PROPERTY_DEFINITIONS(interactables, interactables, InteractableDefinition,
-                              PropertyOwnerKind::Interactable, "/definitions/interactables",
-                              (compiled::InteractableDefinition{
-                                  std::move(*identity), std::move(value.display_name),
-                                  std::move(value.initial_state), std::move(value.presentation)}));
+        (compiled::RoomDefinition{
+            std::move(*identity), std::move(value.display_name), std::move(value.description),
+            std::move(value.background),
+            compiled::RoomLifecycle{std::move(value.lifecycle.can_enter),
+                                    std::move(value.lifecycle.can_leave),
+                                    std::move(value.lifecycle.hooks)},
+            std::move(value.overlays), std::move(value.cast), std::move(value.props),
+            std::move(value.environments), std::move(value.compose), std::move(value.placements),
+            std::move(value.exits),
+            link_features(std::move(value.features),
+                          "/definitions/rooms/" + std::to_string(index) + "/features"),
+            std::move(value.hotspots)}));
+    LINK_PROPERTY_DEFINITIONS(
+        interactables, interactables, InteractableDefinition, PropertyOwnerKind::Interactable,
+        "/definitions/interactables",
+        (compiled::InteractableDefinition{
+            std::move(*identity), std::move(value.display_name),
+            link_features(std::move(value.features),
+                          "/definitions/interactables/" + std::to_string(index) + "/features"),
+            std::move(value.initial_state), std::move(value.presentation)}));
     LINK_DEFINITIONS(
         verbs, verbs, VerbDefinition, VerbId,
         (compiled::VerbDefinition{std::move(identity), std::move(value.action_text), value.arity,

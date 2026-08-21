@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
-import { defaultInteractionData } from '../../shared/project-schema/authoring-interactions';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 
 function imageAsset(overrides: Partial<{ hasAlpha: boolean; orientation: 1 | 6 }> = {}) {
   return {
@@ -46,81 +44,118 @@ function hotspotShader() {
 }
 
 function primaryHotspot(item: ReturnType<typeof defaultInteractableData>) {
-  expect(item.presentation.hotspots.kind).toBe('sprite-alpha');
   if (item.presentation.hotspots.kind !== 'sprite-alpha') throw new Error('Expected sprite alpha');
   return item.presentation.hotspots.hotspot;
 }
 
-describe('hotspot Phase 2 semantic validation', () => {
-  it('validates IDs, source images, orientation, alpha behavior, exits, and Verb arity', () => {
+describe('hotspot semantic validation', () => {
+  it('validates geometry independently from semantic Feature and Exit targets', () => {
     const project = createAuthoringProject();
     project.assets.image = { id: 'image', label: 'Image', data: imageAsset({ hasAlpha: false }) };
-    const roomVerb = defaultVerbData('Open');
-    roomVerb.arity = 1;
-    roomVerb.operandRoles = ['target'];
-    project.verbs.open = { id: 'open', label: 'Open', data: roomVerb };
     const room = defaultRoomData('Room');
     room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {} });
     room.hotspots.push({
-      id: 'door',
-      label: 'Door',
+      id: 'door-region',
+      label: 'Door geometry',
       condition: { kind: 'always' },
       inputOrder: 0,
       highlight: { kind: 'default' },
       shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
-      activation: { kind: 'exit', exitId: 'foreign-exit' },
+      target: { kind: 'owner-feature', featureId: 'missing' },
+    });
+    room.hotspots.push({
+      id: 'exit-region',
+      label: 'Exit geometry',
+      condition: { kind: 'always' },
+      inputOrder: 1,
+      highlight: { kind: 'none' },
+      shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 0.5, height: 0.5 } },
+      target: { kind: 'exit', exitId: 'foreign-exit' },
     });
     project.rooms.room = { id: 'room', label: 'Room', data: room };
 
     const item = defaultInteractableData('Item');
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
-    const primary = primaryHotspot(item);
-    primary.activation.verb = {
-      $ref: { collection: 'verbs', id: 'open' },
-    };
+    item.features.push({ id: 'handle', label: 'Handle', traits: [], properties: {} });
+    primaryHotspot(item).target = { kind: 'owner-feature', featureId: 'missing' };
     project.interactables.item = { id: 'item', label: 'Item', data: item };
 
     expect(codes(project)).toEqual(
       expect.arrayContaining([
+        'hotspot.authoring.target.feature-missing',
         'hotspot.authoring.exit.foreign',
         'hotspot.authoring.alpha.opaque-image',
       ]),
     );
-    expect(codes(project)).not.toContain('hotspot.authoring.verb.arity');
+  });
 
-    project.assets.image.data = imageAsset({ orientation: 6 });
+  it('allows multiple geometry regions to publish the same owner-qualified Feature target', () => {
+    const project = createAuthoringProject();
+    project.assets.image = { id: 'image', label: 'Image', data: imageAsset({ orientation: 6 }) };
+    const item = defaultInteractableData('Coin');
+    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
+    item.features.push({ id: 'face', label: 'Coin Face', traits: [], properties: {} });
+    const primary = primaryHotspot(item);
     item.presentation.hotspots = {
       kind: 'custom',
       hotspots: [
         {
           ...primary,
-          id: 'same',
-          activation: { kind: 'verb', verb: { $ref: { collection: 'verbs', id: 'open' } } },
+          id: 'front',
+          target: { kind: 'owner-feature', featureId: 'face' },
           shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
         },
         {
           ...primary,
-          id: 'same',
-          activation: { kind: 'verb', verb: { $ref: { collection: 'verbs', id: 'open' } } },
-          shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
+          id: 'center',
+          target: { kind: 'owner-feature', featureId: 'face' },
+          shape: { kind: 'rect', bounds: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 } },
         },
       ],
     };
-    expect(codes(project)).toEqual(
-      expect.arrayContaining([
-        'hotspot.authoring.id.duplicate',
-        'hotspot.authoring.image-orientation',
-      ]),
-    );
+    project.interactables.coin = { id: 'coin', label: 'Coin', data: item };
+
+    expect(codes(project)).not.toContain('hotspot.authoring.target.feature-missing');
+    expect(codes(project)).toContain('hotspot.authoring.image-orientation');
+  });
+
+  it('validates cross-owner Feature subject targets by owner and local Feature identity', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Room');
+    room.features.push({ id: 'desk', label: 'Desk', traits: [], properties: {} });
+    room.hotspots.push({
+      id: 'desk-region',
+      label: 'Desk geometry',
+      condition: { kind: 'always' },
+      inputOrder: 0,
+      highlight: { kind: 'none' },
+      shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 1, height: 1 } },
+      target: {
+        kind: 'subject',
+        subject: {
+          kind: 'feature',
+          feature: {
+            ownerKind: 'interactable',
+            interactable: { $ref: { collection: 'interactables', id: 'box' } },
+            featureId: 'lid',
+          },
+        },
+      },
+    });
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+    expect(codes(project)).toContain('hotspot.authoring.target.feature-owner-missing');
+
+    const box = defaultInteractableData('Box');
+    box.features.push({ id: 'lid', label: 'Lid', traits: [], properties: {} });
+    project.interactables.box = { id: 'box', label: 'Box', data: box };
+    expect(codes(project)).not.toContain('hotspot.authoring.target.feature-owner-missing');
+    expect(codes(project)).not.toContain('hotspot.authoring.target.feature-missing');
   });
 
   it('validates highlight Material role and exact hotspot Shader interfaces', () => {
     const project = createAuthoringProject();
     project.assets.image = { id: 'image', label: 'Image', data: imageAsset() };
-    const verb = defaultVerbData('Use');
-    verb.arity = 1;
-    verb.operandRoles = ['target'];
-    project.verbs.use = { id: 'use', label: 'Use', data: verb };
     project.shaders.hotspot = { id: 'hotspot', label: 'Hotspot', data: hotspotShader() };
     const material = defaultMaterialData('Hotspot');
     material.role = 'hotspot-overlay';
@@ -128,11 +163,7 @@ describe('hotspot Phase 2 semantic validation', () => {
     project.materials.hotspot = { id: 'hotspot', label: 'Hotspot', data: material };
     const item = defaultInteractableData('Item');
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
-    const primary = primaryHotspot(item);
-    primary.activation.verb = {
-      $ref: { collection: 'verbs', id: 'use' },
-    };
-    primary.highlight = {
+    primaryHotspot(item).highlight = {
       kind: 'material',
       material: { $ref: { collection: 'materials', id: 'hotspot' } },
     };
@@ -149,52 +180,5 @@ describe('hotspot Phase 2 semantic validation', () => {
     expect(codes(project)).toContain('hotspot.authoring.highlight.uniform-interface');
     project.materials.hotspot.data.role = 'engine-2d';
     expect(codes(project)).toContain('hotspot.authoring.highlight.material-role');
-  });
-
-  it('validates exact hotspot owner, identity, Verb, and operand compatibility', () => {
-    const project = createAuthoringProject();
-    project.assets.image = { id: 'image', label: 'Image', data: imageAsset() };
-    const use = defaultVerbData('Use');
-    use.arity = 1;
-    use.operandRoles = ['target'];
-    project.verbs.use = { id: 'use', label: 'Use', data: use };
-    const item = defaultInteractableData('Item');
-    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
-    primaryHotspot(item).activation.verb = {
-      $ref: { collection: 'verbs', id: 'use' },
-    };
-    project.interactables.item = { id: 'item', label: 'Item', data: item };
-    const interaction = defaultInteractionData();
-    interaction.rules.push({
-      id: 'rule',
-      verb: { $ref: { collection: 'verbs', id: 'use' } },
-      operands: [{ kind: 'any-character' }],
-      context: {
-        kind: 'hotspot',
-        hotspot: {
-          kind: 'interactable-hotspot',
-          interactable: { $ref: { collection: 'interactables', id: 'item' } },
-          hotspotId: 'primary',
-        },
-      },
-      program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
-    });
-    project.interactions.actions = { id: 'actions', label: 'Actions', data: interaction };
-
-    const messages = validateAuthoringProject(project).map((item) => item.message);
-    expect(messages).toContain(
-      "Interactable hotspot rules require exactly one compatible operand for 'item'.",
-    );
-    interaction.rules[0]!.context = {
-      kind: 'hotspot',
-      hotspot: {
-        kind: 'interactable-hotspot',
-        interactable: { $ref: { collection: 'interactables', id: 'item' } },
-        hotspotId: 'missing',
-      },
-    };
-    expect(validateAuthoringProject(project).map((item) => item.message)).toContain(
-      "Missing Interactable hotspot 'missing'.",
-    );
   });
 });

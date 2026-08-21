@@ -4,9 +4,10 @@
 
 A `VerbDefinition` describes an interaction verb with arity zero through two, ordered operand-role labels, action-text template, quick-action behavior, availability condition, and owned default `InteractionProgram`.
 
-Room Verb hotspots bind only zero-arity Verbs. Interactable hotspots bind only one-arity Verbs and use
-their owner as the operand. Availability is resolved into immutable hotspot presentation eligibility,
-then checked again by the canonical runtime activation transaction before execution.
+Verbs do not bind to Hotspots. Hotspots resolve pointer geometry to semantic subjects or Room Exits;
+when a Verb is invoked, its normal arity and subject matching rules apply regardless of how those
+subjects were selected. Verb availability is checked by the canonical Interaction invocation path,
+not by a Hotspot-specific activation transaction.
 
 Verb is immutable interaction vocabulary, not a stateful Property or Trait owner. Availability, programs, arity, text, and quick-action policy are compiled definition data rather than mutable gameplay identity state.
 

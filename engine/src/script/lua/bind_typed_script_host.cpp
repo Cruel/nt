@@ -101,6 +101,83 @@ core::Result<core::PropertyOwnerRef, core::Diagnostics> property_owner(std::stri
     }});
 }
 
+core::Result<core::FeatureRef, core::Diagnostics>
+feature_ref(std::string owner_kind, std::string owner_id, std::string feature_id)
+{
+    using Result = core::Result<core::FeatureRef, core::Diagnostics>;
+    auto feature = parse_id<core::FeatureId>(std::move(feature_id));
+    if (!feature)
+        return Result::failure(feature.error());
+    if (owner_kind == "room") {
+        auto owner = parse_id<core::RoomId>(std::move(owner_id));
+        return owner ? Result::success(core::FeatureRef{core::RoomFeatureRef{
+                           std::move(*owner.value_if()), std::move(*feature.value_if())}})
+                     : Result::failure(owner.error());
+    }
+    if (owner_kind == "interactable") {
+        auto owner = parse_id<core::InteractableId>(std::move(owner_id));
+        return owner ? Result::success(core::FeatureRef{core::InteractableFeatureRef{
+                           std::move(*owner.value_if()), std::move(*feature.value_if())}})
+                     : Result::failure(owner.error());
+    }
+    return Result::failure(core::Diagnostics{core::Diagnostic{
+        .code = "script_host.invalid_feature_owner_kind",
+        .message = "Feature owner kind must be room or interactable",
+    }});
+}
+
+core::Result<core::compiled::InteractionSubject, core::Diagnostics>
+interaction_subject(const sol::table& subject)
+{
+    using Result = core::Result<core::compiled::InteractionSubject, core::Diagnostics>;
+    const sol::object kind_object = subject["kind"];
+    if (!kind_object.is<std::string>())
+        return Result::failure(core::Diagnostics{core::Diagnostic{
+            .code = "runtime.invalid_interaction_operand",
+            .message = "Interaction subjects require a string kind",
+        }});
+    const auto kind = kind_object.as<std::string>();
+    if (kind == "feature") {
+        const sol::object owner_kind = subject["ownerKind"];
+        const sol::object owner_id = subject["ownerId"];
+        const sol::object feature_id = subject["featureId"];
+        if (!owner_kind.is<std::string>() || !owner_id.is<std::string>() ||
+            !feature_id.is<std::string>())
+            return Result::failure(core::Diagnostics{core::Diagnostic{
+                .code = "runtime.invalid_interaction_operand",
+                .message = "Feature subjects require ownerKind, ownerId, and featureId strings",
+            }});
+        auto feature = feature_ref(owner_kind.as<std::string>(), owner_id.as<std::string>(),
+                                   feature_id.as<std::string>());
+        return feature ? Result::success(core::compiled::FeatureInteractionSubject{
+                             std::move(*feature.value_if())})
+                       : Result::failure(feature.error());
+    }
+    const sol::object id_object = subject["id"];
+    if (!id_object.is<std::string>())
+        return Result::failure(core::Diagnostics{core::Diagnostic{
+            .code = "runtime.invalid_interaction_operand",
+            .message = "Character and Interactable subjects require a string id",
+        }});
+    const auto id = id_object.as<std::string>();
+    if (kind == "character") {
+        auto parsed = parse_id<core::CharacterId>(id);
+        return parsed ? Result::success(core::compiled::CharacterInteractionSubject{
+                            std::move(*parsed.value_if())})
+                      : Result::failure(parsed.error());
+    }
+    if (kind == "interactable") {
+        auto parsed = parse_id<core::InteractableId>(id);
+        return parsed ? Result::success(core::compiled::InteractableInteractionSubject{
+                            std::move(*parsed.value_if())})
+                      : Result::failure(parsed.error());
+    }
+    return Result::failure(core::Diagnostics{core::Diagnostic{
+        .code = "runtime.invalid_interaction_operand",
+        .message = "Interaction subject kind must be character, interactable, or feature",
+    }});
+}
+
 sol::object definition_object(sol::state_view lua, const core::ProjectDefinitionSummary& value)
 {
     sol::table result = lua.create_table();
@@ -280,6 +357,77 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(property.error()));
             return mutation(view, host->unset_property(*owner_ref, *property_ref));
+        });
+    properties.set_function(
+        "get_feature",
+        [host](std::string owner_kind, std::string owner_id, std::string feature_id,
+               std::string property_id,
+               sol::this_state state) -> std::tuple<sol::object, bool, sol::object> {
+            sol::state_view view(state);
+            auto feature =
+                feature_ref(std::move(owner_kind), std::move(owner_id), std::move(feature_id));
+            auto property = parse_id<core::PropertyId>(std::move(property_id));
+            if (!feature)
+                return {nil(view), false,
+                        sol::make_object(view, diagnostic_message(feature.error()))};
+            if (!property)
+                return {nil(view), false,
+                        sol::make_object(view, diagnostic_message(property.error()))};
+            auto owner =
+                std::visit([](const auto& reference) { return core::PropertyOwnerRef{reference}; },
+                           *feature.value_if());
+            auto value = host->property(owner, *property.value_if());
+            const auto* lookup = value.value_if();
+            if (lookup == nullptr)
+                return {nil(view), false,
+                        sol::make_object(view, diagnostic_message(value.error()))};
+            if (const auto* present = std::get_if<core::RuntimeValue>(lookup))
+                return {lua_value(view, *present), true, nil(view)};
+            return {nil(view), false, nil(view)};
+        });
+    properties.set_function(
+        "set_feature",
+        [host](std::string owner_kind, std::string owner_id, std::string feature_id,
+               std::string property_id, sol::object value,
+               sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto feature =
+                feature_ref(std::move(owner_kind), std::move(owner_id), std::move(feature_id));
+            auto property = parse_id<core::PropertyId>(std::move(property_id));
+            auto parsed_value = runtime_value(value);
+            if (!feature)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(feature.error()));
+            if (!property)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(property.error()));
+            if (!parsed_value)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(parsed_value.error()));
+            auto owner =
+                std::visit([](const auto& reference) { return core::PropertyOwnerRef{reference}; },
+                           *feature.value_if());
+            return mutation(view, host->set_property(std::move(owner), *property.value_if(),
+                                                     std::move(*parsed_value.value_if())));
+        });
+    properties.set_function(
+        "unset_feature",
+        [host](std::string owner_kind, std::string owner_id, std::string feature_id,
+               std::string property_id, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto feature =
+                feature_ref(std::move(owner_kind), std::move(owner_id), std::move(feature_id));
+            auto property = parse_id<core::PropertyId>(std::move(property_id));
+            if (!feature)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(feature.error()));
+            if (!property)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(property.error()));
+            auto owner =
+                std::visit([](const auto& reference) { return core::PropertyOwnerRef{reference}; },
+                           *feature.value_if());
+            return mutation(view, host->unset_property(owner, *property.value_if()));
         });
     noveltea["properties"] = properties;
 
@@ -470,76 +618,14 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
                                                       .code = "runtime.invalid_interaction_operand",
                                                       .message = "Game.run_action operands must be "
                                                                  "{kind, id} subject tables"}}));
-                    const sol::table subject = object.as<sol::table>();
-                    const sol::object kind_object = subject["kind"];
-                    const sol::object id_object = subject["id"];
-                    if (!kind_object.is<std::string>() || !id_object.is<std::string>())
+                    auto parsed = interaction_subject(object.as<sol::table>());
+                    if (!parsed)
                         return mutation(
-                            view, core::Result<void, core::Diagnostics>::failure(
-                                      core::Diagnostics{core::Diagnostic{
-                                          .code = "runtime.invalid_interaction_operand",
-                                          .message =
-                                              "Interaction subjects require string kind and id"}}));
-                    const auto kind = kind_object.as<std::string>();
-                    const auto id = id_object.as<std::string>();
-                    if (kind == "character") {
-                        auto parsed = parse_id<core::CharacterId>(id);
-                        if (!parsed)
-                            return mutation(view, core::Result<void, core::Diagnostics>::failure(
-                                                      parsed.error()));
-                        operands.emplace_back(core::compiled::CharacterInteractionSubject{
-                            std::move(*parsed.value_if())});
-                    } else if (kind == "interactable") {
-                        auto parsed = parse_id<core::InteractableId>(id);
-                        if (!parsed)
-                            return mutation(view, core::Result<void, core::Diagnostics>::failure(
-                                                      parsed.error()));
-                        operands.emplace_back(core::compiled::InteractableInteractionSubject{
-                            std::move(*parsed.value_if())});
-                    } else {
-                        return mutation(view, core::Result<void, core::Diagnostics>::failure(
-                                                  core::Diagnostics{core::Diagnostic{
-                                                      .code = "runtime.invalid_interaction_operand",
-                                                      .message = "Interaction subject kind must be "
-                                                                 "character or interactable"}}));
-                    }
+                            view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
+                    operands.push_back(std::move(*parsed.value_if()));
                 }
             }
             return mutation(view, host->run_interaction(std::move(*verb_ref), std::move(operands)));
-        });
-    game.set_function(
-        "activate_hotspot",
-        [host](std::string kind, std::string owner_id, std::string hotspot_id,
-               sol::this_state state) -> MutationResult {
-            sol::state_view view(state);
-            auto hotspot = parse_id<core::HotspotId>(std::move(hotspot_id));
-            if (!hotspot)
-                return mutation(view,
-                                core::Result<void, core::Diagnostics>::failure(hotspot.error()));
-            if (kind == "room-hotspot") {
-                auto owner = parse_id<core::RoomId>(std::move(owner_id));
-                return owner ? mutation(view, host->activate_hotspot(core::compiled::RoomHotspotRef{
-                                                  std::move(*owner.value_if()),
-                                                  std::move(*hotspot.value_if())}))
-                             : mutation(view, core::Result<void, core::Diagnostics>::failure(
-                                                  owner.error()));
-            }
-            if (kind == "interactable-hotspot") {
-                auto owner = parse_id<core::InteractableId>(std::move(owner_id));
-                return owner
-                           ? mutation(
-                                 view,
-                                 host->activate_hotspot(core::compiled::InteractableHotspotRef{
-                                     std::move(*owner.value_if()), std::move(*hotspot.value_if())}))
-                           : mutation(view, core::Result<void, core::Diagnostics>::failure(
-                                                owner.error()));
-            }
-            return mutation(
-                view,
-                core::Result<void, core::Diagnostics>::failure(core::Diagnostics{core::Diagnostic{
-                    .code = "runtime.invalid_hotspot_kind",
-                    .message = "Game.activate_hotspot kind must be room-hotspot or "
-                               "interactable-hotspot"}}));
         });
     game.set_function("save", [host](std::uint32_t slot, sol::this_state state) {
         return mutation(sol::state_view(state), host->save(core::TypedSaveSlotId::manual(slot)));
@@ -573,7 +659,6 @@ void clear_typed_script_host(lua_State* state)
     game["select_object"] = sol::lua_nil;
     game["clear_selection"] = sol::lua_nil;
     game["run_action"] = sol::lua_nil;
-    game["activate_hotspot"] = sol::lua_nil;
     game["save"] = sol::lua_nil;
     game["load"] = sol::lua_nil;
     game["autosave"] = sol::lua_nil;

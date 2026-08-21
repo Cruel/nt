@@ -2,9 +2,8 @@ import {
   defaultTestData,
   defaultTestStep,
   testCharacterSubject,
+  testFeatureSubject,
   testInteractableSubject,
-  testInteractableHotspotRef,
-  testRoomHotspotRef,
   testVerbRef,
   type TestData,
   type TestStepData,
@@ -17,7 +16,6 @@ export type RecordedRuntimeInputKind =
   | 'select-subjects'
   | 'clear-subject-selection'
   | 'run-interaction'
-  | 'activate-hotspot'
   | 'ui-click';
 
 export interface RecordedRuntimeActionInput {
@@ -25,21 +23,46 @@ export interface RecordedRuntimeActionInput {
   optionIndex?: number;
   exitId?: string;
   direction?: number;
-  subjects?: Array<{ kind: 'character' | 'interactable'; id: string }>;
+  subjects?: RecordedInteractionSubject[];
   verbId?: string;
-  operands?: Array<{ kind: 'character' | 'interactable'; id: string }>;
-  hotspot?:
-    | { kind: 'room-hotspot'; room: string; hotspotId: string }
-    | { kind: 'interactable-hotspot'; interactable: string; hotspotId: string };
+  operands?: RecordedInteractionSubject[];
   documentId?: string;
   target?: string;
   selector?: string;
 }
 
-function testSubject(subject: { kind: 'character' | 'interactable'; id: string }) {
-  return subject.kind === 'character'
-    ? testCharacterSubject(subject.id)
-    : testInteractableSubject(subject.id);
+export type RecordedInteractionSubject =
+  | { kind: 'character'; id: string }
+  | { kind: 'interactable'; id: string }
+  | {
+      kind: 'feature';
+      ownerKind: 'room' | 'interactable';
+      ownerId: string;
+      featureId: string;
+    };
+
+function validRecordedSubject(subject: RecordedInteractionSubject) {
+  return subject.kind === 'feature'
+    ? !!subject.ownerId.trim() && !!subject.featureId.trim()
+    : !!subject.id.trim();
+}
+
+function testSubject(subject: RecordedInteractionSubject) {
+  if (subject.kind === 'character') return testCharacterSubject(subject.id);
+  if (subject.kind === 'interactable') return testInteractableSubject(subject.id);
+  return testFeatureSubject(
+    subject.ownerKind === 'room'
+      ? {
+          ownerKind: 'room',
+          room: { $ref: { collection: 'rooms', id: subject.ownerId } },
+          featureId: subject.featureId,
+        }
+      : {
+          ownerKind: 'interactable',
+          interactable: { $ref: { collection: 'interactables', id: subject.ownerId } },
+          featureId: subject.featureId,
+        },
+  );
 }
 
 export interface RecordedRuntimeActionDraft {
@@ -121,9 +144,7 @@ export function lowerRecordedRuntimeActionToTestStep(
         {
           ...defaultTestStep('select-subjects', action.label || 'Select subjects'),
           selectSubjects: {
-            subjects: (input.subjects ?? [])
-              .filter((subject) => subject.id.trim())
-              .map(testSubject),
+            subjects: (input.subjects ?? []).filter(validRecordedSubject).map(testSubject),
           },
         },
         action,
@@ -144,31 +165,12 @@ export function lowerRecordedRuntimeActionToTestStep(
           ),
           runInteraction: {
             verb: input.verbId ? testVerbRef(input.verbId) : null,
-            operands: (input.operands ?? [])
-              .filter((subject) => subject.id.trim())
-              .map(testSubject),
+            operands: (input.operands ?? []).filter(validRecordedSubject).map(testSubject),
           },
         },
         action,
         index,
       );
-    case 'activate-hotspot': {
-      const hotspot = input.hotspot;
-      const authored =
-        hotspot?.kind === 'room-hotspot'
-          ? testRoomHotspotRef(hotspot.room, hotspot.hotspotId)
-          : hotspot?.kind === 'interactable-hotspot'
-            ? testInteractableHotspotRef(hotspot.interactable, hotspot.hotspotId)
-            : null;
-      return withStepIdentity(
-        {
-          ...defaultTestStep('activate-hotspot', action.label || 'Activate hotspot'),
-          activateHotspot: { hotspot: authored },
-        },
-        action,
-        index,
-      );
-    }
     case 'ui-click': {
       const selector = input.selector?.trim() || input.target?.trim() || '#nt-title-start';
       return withStepIdentity(

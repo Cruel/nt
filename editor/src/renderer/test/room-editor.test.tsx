@@ -77,7 +77,9 @@ describe('RoomEditor', () => {
   });
   it('uses one temporary add action instead of persistent hotspot interaction modes', () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const room = defaultRoomData('Foyer');
+    room.features.push({ id: 'surface', label: 'Surface', traits: [], properties: {} });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
 

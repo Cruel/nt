@@ -214,38 +214,125 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     if (!resolved)
         return resolved;
 
-    auto& presentation = resolved.value_if()->presentation;
-    const auto activation_available =
-        [&](const compiled::RoomHotspotActivation& activation) -> Result<bool, Diagnostics> {
-        if (const auto* verb = std::get_if<compiled::VerbHotspotActivation>(&activation)) {
-            const auto* definition = project.find_verb(verb->verb);
-            if (definition == nullptr)
-                return Result<bool, Diagnostics>::failure(
-                    error("room_resolution.hotspot_verb_missing",
-                          "Hotspot activation references a missing Verb"));
-            return evaluate(definition->availability);
-        }
-        const auto& exit = std::get<compiled::RoomExitHotspotActivation>(activation);
+    auto& resolution = *resolved.value_if();
+    auto& presentation = resolution.presentation;
+    const auto append_subject = [&](compiled::InteractionSubject subject) {
+        if (std::find(resolution.eligible_subjects.begin(), resolution.eligible_subjects.end(),
+                      subject) == resolution.eligible_subjects.end())
+            resolution.eligible_subjects.push_back(std::move(subject));
+    };
+    for (const auto& feature : room->features)
+        append_subject(compiled::FeatureInteractionSubject{
+            RoomFeatureRef{room->identity.id, feature.identity.id}});
+    for (const auto& interactable : presentation.interactables) {
+        const compiled::InteractionSubject owner =
+            compiled::InteractableInteractionSubject{interactable.interactable};
+        if (std::find(resolution.eligible_subjects.begin(), resolution.eligible_subjects.end(),
+                      owner) == resolution.eligible_subjects.end())
+            continue;
+        const auto* definition = world.resolved_configuration(interactable.interactable);
+        if (definition == nullptr)
+            continue;
+        for (const auto& feature : definition->features)
+            append_subject(compiled::FeatureInteractionSubject{
+                InteractableFeatureRef{interactable.interactable, feature.identity.id}});
+    }
+
+    const auto subject_available = [&](const compiled::InteractionSubject& subject) {
+        return std::find(resolution.eligible_subjects.begin(), resolution.eligible_subjects.end(),
+                         subject) != resolution.eligible_subjects.end();
+    };
+    const auto subject_label =
+        [&](const compiled::InteractionSubject& subject) -> Result<std::string, Diagnostics> {
+        return std::visit(
+            [&](const auto& value) -> Result<std::string, Diagnostics> {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>) {
+                    const auto* definition = project.find_character(value.character);
+                    if (definition != nullptr)
+                        return Result<std::string, Diagnostics>::success(definition->display_name);
+                } else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>) {
+                    const auto* definition = project.find_interactable(value.interactable);
+                    if (definition != nullptr)
+                        return Result<std::string, Diagnostics>::success(definition->display_name);
+                } else {
+                    const auto* definition = project.find_feature(value.feature);
+                    if (definition != nullptr)
+                        return Result<std::string, Diagnostics>::success(definition->label);
+                }
+                return Result<std::string, Diagnostics>::failure(
+                    error("room_resolution.hotspot_target_missing",
+                          "Hotspot target references a missing semantic subject"));
+            },
+            subject);
+    };
+    const auto resolved_target =
+        [&](const compiled::RoomHotspotTarget& target) -> compiled::ResolvedHotspotTarget {
+        return std::visit(
+            [&](const auto& value) -> compiled::ResolvedHotspotTarget {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, compiled::HotspotOwnerFeatureTarget>)
+                    return compiled::InteractionSubject{compiled::FeatureInteractionSubject{
+                        RoomFeatureRef{room->identity.id, value.feature_id}}};
+                else if constexpr (std::is_same_v<T, compiled::HotspotSubjectTarget>)
+                    return value.subject;
+                else
+                    return compiled::RoomExitRef{room->identity.id, value.exit_id};
+            },
+            target);
+    };
+    const auto target_availability =
+        [&](const compiled::ResolvedHotspotTarget& target) -> Result<bool, Diagnostics> {
+        if (const auto* subject = std::get_if<compiled::InteractionSubject>(&target))
+            return Result<bool, Diagnostics>::success(subject_available(*subject));
+        const auto& exit = std::get<compiled::RoomExitRef>(target);
         const auto found = std::find_if(
-            resolved.value_if()->view.exits.begin(), resolved.value_if()->view.exits.end(),
+            resolution.view.exits.begin(), resolution.view.exits.end(),
             [&](const RoomExitView& candidate) { return candidate.exit == exit.exit_id; });
-        if (found == resolved.value_if()->view.exits.end())
+        if (found == resolution.view.exits.end())
             return Result<bool, Diagnostics>::failure(
                 error("room_resolution.hotspot_exit_missing",
-                      "Hotspot activation references a missing Room exit"));
+                      "Hotspot target references a missing Room exit"));
         return Result<bool, Diagnostics>::success(found->enabled);
     };
+    const auto target_label =
+        [&](const compiled::ResolvedHotspotTarget& target) -> Result<std::string, Diagnostics> {
+        if (const auto* subject = std::get_if<compiled::InteractionSubject>(&target))
+            return subject_label(*subject);
+        const auto& exit = std::get<compiled::RoomExitRef>(target);
+        const auto found = std::find_if(
+            resolution.view.exits.begin(), resolution.view.exits.end(),
+            [&](const RoomExitView& candidate) { return candidate.exit == exit.exit_id; });
+        if (found == resolution.view.exits.end())
+            return Result<std::string, Diagnostics>::failure(
+                error("room_resolution.hotspot_exit_missing",
+                      "Hotspot target references a missing Room exit"));
+        return Result<std::string, Diagnostics>::success(found->label);
+    };
+
     for (const auto& hotspot : room->hotspots) {
         auto condition = evaluate(hotspot.condition);
-        auto available = activation_available(hotspot.activation);
-        if (!condition || !available)
+        auto target = resolved_target(hotspot.target);
+        auto available = target_availability(target);
+        auto label = target_label(target);
+        if (!condition || !available || !label)
             return Result<RoomPresentationResolution, Diagnostics>::failure(
-                !condition ? condition.error() : available.error());
-        presentation.hotspots.push_back({compiled::RoomHotspotRef{room->identity.id, hotspot.id},
-                                         hotspot.label, *condition.value_if(),
-                                         *available.value_if(), hotspot.activation, hotspot.shape,
-                                         hotspot.input_order, hotspot.highlight, std::nullopt,
-                                         std::nullopt, PresentationPlane::WorldBackground, 0});
+                !condition   ? condition.error()
+                : !available ? available.error()
+                             : label.error());
+        presentation.hotspots.push_back(
+            {.ref = compiled::RoomHotspotRef{room->identity.id, hotspot.id},
+             .label = std::move(*label.value_if()),
+             .condition_eligible = *condition.value_if(),
+             .target_available = *available.value_if(),
+             .target = std::move(target),
+             .shape = hotspot.shape,
+             .input_order = hotspot.input_order,
+             .highlight = hotspot.highlight,
+             .interactable_placement = std::nullopt,
+             .interactable_bounds = std::nullopt,
+             .owner_plane = PresentationPlane::WorldBackground,
+             .owner_order = 0});
     }
     for (const auto& interactable : presentation.interactables) {
         const auto* definition = world.resolved_configuration(interactable.interactable);
@@ -260,21 +347,40 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                                 std::variant<std::monostate, compiled::RectHotspotShape> shape)
             -> Result<void, Diagnostics> {
             auto condition = evaluate(hotspot.condition);
-            const auto* verb = project.find_verb(hotspot.activation.verb);
-            if (!condition || verb == nullptr)
-                return Result<void, Diagnostics>::failure(
-                    !condition ? condition.error()
-                               : error("room_resolution.hotspot_verb_missing",
-                                       "Hotspot activation references a missing Verb"));
-            auto available = evaluate(verb->availability);
-            if (!available)
-                return Result<void, Diagnostics>::failure(available.error());
+            if (!condition)
+                return Result<void, Diagnostics>::failure(condition.error());
+            auto target = std::visit(
+                [&](const auto& value) -> compiled::ResolvedHotspotTarget {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, compiled::HotspotOwnerTarget>)
+                        return compiled::InteractionSubject{
+                            compiled::InteractableInteractionSubject{interactable.interactable}};
+                    else if constexpr (std::is_same_v<T, compiled::HotspotOwnerFeatureTarget>)
+                        return compiled::InteractionSubject{compiled::FeatureInteractionSubject{
+                            InteractableFeatureRef{interactable.interactable, value.feature_id}}};
+                    else
+                        return value.subject;
+                },
+                hotspot.target);
+            auto available = target_availability(target);
+            auto label = target_label(target);
+            if (!available || !label)
+                return Result<void, Diagnostics>::failure(!available ? available.error()
+                                                                     : label.error());
             presentation.hotspots.push_back(
-                {compiled::InteractableHotspotRef{interactable.interactable, hotspot.id},
-                 hotspot.label, *condition.value_if(), *available.value_if(), hotspot.activation,
-                 std::move(shape), hotspot.input_order, hotspot.highlight,
-                 compiled::RoomPlacementRef{visit.room, interactable.placement}, placement->bounds,
-                 PresentationPlane::WorldContent, placement->order});
+                {.ref = compiled::InteractableHotspotRef{interactable.interactable, hotspot.id},
+                 .label = std::move(*label.value_if()),
+                 .condition_eligible = *condition.value_if(),
+                 .target_available = *available.value_if(),
+                 .target = std::move(target),
+                 .shape = std::move(shape),
+                 .input_order = hotspot.input_order,
+                 .highlight = hotspot.highlight,
+                 .interactable_placement =
+                     compiled::RoomPlacementRef{visit.room, interactable.placement},
+                 .interactable_bounds = placement->bounds,
+                 .owner_plane = PresentationPlane::WorldContent,
+                 .owner_order = placement->order});
             return Result<void, Diagnostics>::success();
         };
         if (const auto* alpha =

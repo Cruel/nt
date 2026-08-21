@@ -182,7 +182,7 @@ Each callback is a thin adapter over the same `RuntimeUiActionGateway` path used
 a second validation implementation.
 
 Map connection navigation intentionally remains on `Game.ui.navigate_map_connection()` while
-`nt-map-view` is provisional. Hotspot activation likewise remains on the existing Lua/runtime API.
+`nt-map-view` is provisional. Hotspot identity is presentation-only: gameplay Layout code acts on the published semantic subject/navigation APIs rather than invoking a Hotspot directly.
 
 ## Custom Runtime Elements
 

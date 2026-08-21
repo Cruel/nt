@@ -6,15 +6,15 @@ import {
   defaultHotspotBehavior,
   hotspotCommonShape,
   rectHotspotShapeSchema,
-  verbHotspotActivationSchema,
 } from './authoring-hotspots';
+import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
 export const interactableMaterialRefSchema = materialRefSchema;
 export const interactableHotspotBehaviorSchema = strict({
   ...hotspotCommonShape,
-  activation: verbHotspotActivationSchema,
+  target: interactableHotspotTargetSchema,
 });
 export const interactableHotspotsSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('sprite-alpha'), hotspot: interactableHotspotBehaviorSchema }),
@@ -23,7 +23,7 @@ export const interactableHotspotsSchema = z.discriminatedUnion('kind', [
     hotspots: z.array(
       strict({
         ...hotspotCommonShape,
-        activation: verbHotspotActivationSchema,
+        target: interactableHotspotTargetSchema,
         shape: rectHotspotShapeSchema,
       }),
     ),
@@ -37,6 +37,7 @@ export const interactableDataSchema = strict({
     material: interactableMaterialRefSchema.nullable(),
     hotspots: interactableHotspotsSchema,
   }),
+  features: z.array(featureDataSchema),
   initialState: strict({
     enabled: z.boolean(),
     visible: z.boolean(),
@@ -44,6 +45,7 @@ export const interactableDataSchema = strict({
 });
 export type InteractableData = z.infer<typeof interactableDataSchema>;
 export type InteractableHotspots = z.infer<typeof interactableHotspotsSchema>;
+export type InteractableFeatureData = z.infer<typeof featureDataSchema>;
 export interface InteractableSchemaDiagnostic {
   severity: 'error' | 'warning' | 'info';
   path: string;
@@ -76,6 +78,7 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
       material: null,
       hotspots: { kind: 'sprite-alpha', hotspot: defaultHotspotBehavior(label) },
     },
+    features: [],
     initialState: { enabled: true, visible: true },
   };
 }

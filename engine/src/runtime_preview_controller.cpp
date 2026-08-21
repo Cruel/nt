@@ -31,6 +31,35 @@ nlohmann::json preview_entity_ref(std::string type, std::string id, std::string 
     return result;
 }
 
+nlohmann::json encode_interaction_subject(const core::compiled::InteractionSubject& subject)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
+                return {{"kind", "character"}, {"id", value.character.text()}};
+            else if constexpr (std::is_same_v<T, core::compiled::InteractableInteractionSubject>)
+                return {{"kind", "interactable"}, {"id", value.interactable.text()}};
+            else
+                return std::visit(
+                    [](const auto& reference) -> nlohmann::json {
+                        using R = std::decay_t<decltype(reference)>;
+                        if constexpr (std::is_same_v<R, core::RoomFeatureRef>)
+                            return {{"kind", "feature"},
+                                    {"ownerKind", "room"},
+                                    {"ownerId", reference.room.text()},
+                                    {"featureId", reference.feature_id.text()}};
+                        else
+                            return {{"kind", "feature"},
+                                    {"ownerKind", "interactable"},
+                                    {"ownerId", reference.interactable.text()},
+                                    {"featureId", reference.feature_id.text()}};
+                    },
+                    value.feature);
+        },
+        subject);
+}
+
 std::string preview_diagnostic_severity(core::ErrorSeverity severity)
 {
     switch (severity) {
@@ -149,39 +178,26 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
 
     nlohmann::json clickable_targets = nlohmann::json::array();
     for (const auto& hotspot : presentation.hotspots) {
-        if (!hotspot.condition_eligible || !hotspot.activation_available)
+        if (!hotspot.condition_eligible || !hotspot.target_available)
             continue;
-        clickable_targets.push_back(
-            {{"kind", "hotspot"},
-             {"hotspot",
-              std::visit(
-                  [](const auto& reference) {
-                      using T = std::decay_t<decltype(reference)>;
-                      if constexpr (std::is_same_v<T, core::compiled::RoomHotspotRef>)
-                          return nlohmann::json{{"kind", "room-hotspot"},
-                                                {"room", reference.room.text()},
-                                                {"hotspotId", reference.hotspot_id.text()}};
-                      else
-                          return nlohmann::json{{"kind", "interactable-hotspot"},
-                                                {"interactable", reference.interactable.text()},
-                                                {"hotspotId", reference.hotspot_id.text()}};
-                  },
-                  hotspot.ref)},
-             {"label", hotspot.label}});
+        clickable_targets.push_back(std::visit(
+            [&hotspot](const auto& target) -> nlohmann::json {
+                using T = std::decay_t<decltype(target)>;
+                if constexpr (std::is_same_v<T, core::compiled::InteractionSubject>)
+                    return {{"kind", "subject"},
+                            {"subject", encode_interaction_subject(target)},
+                            {"label", hotspot.label}};
+                else
+                    return {{"kind", "exit"},
+                            {"exitId", target.exit_id.text()},
+                            {"label", hotspot.label}};
+            },
+            hotspot.target));
     }
 
     nlohmann::json selected_subjects = nlohmann::json::array();
     for (const auto& subject : view.selected_subjects)
-        selected_subjects.push_back(std::visit(
-            [](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
-                    return nlohmann::json{{"kind", "character"}, {"id", value.character.text()}};
-                else
-                    return nlohmann::json{{"kind", "interactable"},
-                                          {"id", value.interactable.text()}};
-            },
-            subject));
+        selected_subjects.push_back(encode_interaction_subject(subject));
 
     nlohmann::json inventory = nlohmann::json::array();
     for (const auto& item : view.inventory.items) {
@@ -347,11 +363,6 @@ bool RuntimePreviewController::run_interaction(
     const std::string& verb_id, std::vector<core::compiled::InteractionSubject> operands)
 {
     return m_preview_host->run_interaction(verb_id, std::move(operands));
-}
-
-bool RuntimePreviewController::activate_hotspot(core::compiled::HotspotRef hotspot)
-{
-    return m_preview_host->activate_hotspot(std::move(hotspot));
 }
 
 std::string RuntimePreviewController::set_variable(const std::string& variable_id,

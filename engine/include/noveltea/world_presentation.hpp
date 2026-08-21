@@ -132,6 +132,7 @@ struct WorldPreparedHotspotSurface {
 
 struct WorldHotspotHitTarget {
     core::compiled::HotspotRef ref;
+    core::compiled::ResolvedHotspotTarget target;
     core::PresentationPlane plane = core::PresentationPlane::WorldBackground;
     WorldDrawFamily family = WorldDrawFamily::Background;
     std::int32_t owner_order = 0;
@@ -184,7 +185,7 @@ struct WorldPointerEvent {
 
 struct WorldPointerEventResult {
     bool consumed = false;
-    std::optional<core::compiled::HotspotRef> activation;
+    std::optional<core::compiled::ResolvedHotspotTarget> target;
 };
 
 class WorldPresentationBackend;
@@ -194,7 +195,7 @@ public:
     explicit WorldHotspotController(WorldPresentationBackend& backend) : m_backend(backend) {}
 
     [[nodiscard]] WorldPointerEventResult handle(const WorldPointerEvent& event);
-    void activation_completed();
+    void target_completed();
     void presentation_changed();
     void cancel() noexcept;
 
@@ -205,10 +206,12 @@ private:
         Vec2 reference_position{};
         std::uint64_t pointer_id = 0;
         bool touch = false;
-        bool activation_canceled = false;
+        bool target_canceled = false;
     };
 
     [[nodiscard]] std::optional<core::compiled::HotspotRef> hit_test(Vec2 point) const;
+    [[nodiscard]] const WorldHotspotHitTarget*
+    hit_target(const core::compiled::HotspotRef& ref) const;
     [[nodiscard]] bool contains(const core::compiled::HotspotRef& ref, Vec2 point) const;
     void set_visual_state(std::optional<core::compiled::HotspotRef> hovered,
                           std::optional<core::compiled::HotspotRef> pressed);

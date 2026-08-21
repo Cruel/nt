@@ -15,33 +15,10 @@ import {
   parseInteractableData,
   type InteractableData,
 } from '../../shared/project-schema/authoring-interactables';
-import {
-  buildAuthoringStructuralDependencyGraph,
-  incomingAuthoringDependencies,
-  nestedNodeKey,
-} from '../../shared/authoring-dependency-graph';
 import { replaceInteractableDataPatches } from './interactable-operations';
 import { replaceRoomDataPatches } from './room-operations';
 
 const error = (message: string, path?: string) => ({ severity: 'error' as const, message, path });
-
-function hotspotReferences(
-  document: unknown,
-  kind: 'room' | 'interactable',
-  ownerId: string,
-  hotspotId: string,
-) {
-  if (!isAuthoringProject(document)) return [];
-  const target = nestedNodeKey(
-    kind === 'room' ? 'rooms' : 'interactables',
-    ownerId,
-    kind === 'room' ? 'room-hotspot' : 'interactable-hotspot',
-    hotspotId,
-  );
-  return incomingAuthoringDependencies(buildAuthoringStructuralDependencyGraph(document), target)
-    .filter((edge) => edge.role === 'hotspot-context')
-    .map((edge) => edge.sourcePath);
-}
 
 function resolvedRoomData(
   document: Parameters<typeof resolveGameplayInstanceRecord>[0],
@@ -101,12 +78,6 @@ export function deleteRoomHotspot(
   roomId: string,
   hotspotId: string,
 ): EntityOperationResult {
-  const references = hotspotReferences(document, 'room', roomId, hotspotId);
-  if (references.length)
-    return {
-      patches: [],
-      diagnostics: [error('Hotspot is referenced and cannot be deleted.', references[0])],
-    };
   return updateRoomHotspots(document, roomId, (data) => ({
     ...data,
     hotspots: data.hotspots.filter((item) => item.id !== hotspotId),
@@ -118,12 +89,6 @@ export function deleteInteractableHotspot(
   interactableId: string,
   hotspotId: string,
 ): EntityOperationResult {
-  const references = hotspotReferences(document, 'interactable', interactableId, hotspotId);
-  if (references.length)
-    return {
-      patches: [],
-      diagnostics: [error('Hotspot is referenced and cannot be deleted.', references[0])],
-    };
   return updateInteractableHotspots(document, interactableId, (data) =>
     data.presentation.hotspots.kind !== 'custom'
       ? null
@@ -199,15 +164,6 @@ export function renameHotspot(
     if (replacement.diagnostics?.some((item) => item.severity === 'error')) return replacement;
     patches.push(...replacement.patches);
   }
-  if (hotspotId !== nextId) {
-    for (const referencePath of hotspotReferences(document, kind, ownerId, hotspotId)) {
-      patches.push({
-        op: 'replace',
-        path: `${referencePath}/hotspotId`,
-        value: nextId,
-      });
-    }
-  }
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }
 
@@ -221,18 +177,6 @@ export function setInteractableHotspotMode(
   const data = resolvedInteractableData(document, interactableId);
   if (!data) return { patches: [], diagnostics: [error('Interactable record is invalid.')] };
   if (data.presentation.hotspots.kind === kind) return { patches: [], affectedPaths: [] };
-  const removed =
-    data.presentation.hotspots.kind === 'sprite-alpha'
-      ? [data.presentation.hotspots.hotspot.id]
-      : data.presentation.hotspots.hotspots.map((item) => item.id);
-  const reference = removed.flatMap((id) =>
-    hotspotReferences(document, 'interactable', interactableId, id),
-  )[0];
-  if (reference)
-    return {
-      patches: [],
-      diagnostics: [error('Mode switch would remove a referenced hotspot.', reference)],
-    };
   const hotspots =
     kind === 'custom'
       ? { kind: 'custom' as const, hotspots: [] }

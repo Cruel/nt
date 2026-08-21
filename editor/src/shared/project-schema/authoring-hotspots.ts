@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
-import { conditionSchema, materialRefSchema, verbRefSchema } from './authoring-flow';
+import { conditionSchema, materialRefSchema } from './authoring-flow';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -43,11 +43,6 @@ export const rectHotspotShapeSchema = strict({
   bounds: imageNormalizedRectSchema,
 });
 
-export const verbHotspotActivationSchema = strict({
-  kind: z.literal('verb'),
-  verb: verbRefSchema.nullable(),
-});
-
 export const roomHotspotRefSchema = strict({
   kind: z.literal('room-hotspot'),
   room: strict({ $ref: strict({ collection: z.literal('rooms'), id: entityIdSchema }) }),
@@ -77,5 +72,5 @@ export const defaultHotspotBehavior = (label: string) => ({
   condition: { kind: 'always' as const },
   inputOrder: 0,
   highlight: { kind: 'default' as const },
-  activation: { kind: 'verb' as const, verb: null },
+  target: { kind: 'owner' as const },
 });

@@ -365,24 +365,26 @@ public:
         const auto identity = std::visit(
             [&](const auto& id) {
                 std::string kind;
+                std::string owner_id;
                 using T = std::decay_t<decltype(id)>;
                 if constexpr (std::is_same_v<T, core::RoomId>)
                     kind = "room";
-                else if constexpr (std::is_same_v<T, core::SceneId>)
-                    kind = "scene";
-                else if constexpr (std::is_same_v<T, core::DialogueId>)
-                    kind = "dialogue";
                 else if constexpr (std::is_same_v<T, core::CharacterId>)
                     kind = "character";
                 else if constexpr (std::is_same_v<T, core::InteractableId>)
                     kind = "interactable";
-                else if constexpr (std::is_same_v<T, core::VerbId>)
-                    kind = "verb";
-                else if constexpr (std::is_same_v<T, core::InteractionId>)
-                    kind = "interaction";
-                else
-                    kind = "map";
-                return kind + "\n" + id.text() + "\n" + property.text();
+                else if constexpr (std::is_same_v<T, core::RoomFeatureRef>) {
+                    kind = "feature";
+                    owner_id = "room:" + id.room.text() + "/feature:" + id.feature_id.text();
+                } else {
+                    kind = "feature";
+                    owner_id = "interactable:" + id.interactable.text() +
+                               "/feature:" + id.feature_id.text();
+                }
+                if constexpr (!std::is_same_v<T, core::RoomFeatureRef> &&
+                              !std::is_same_v<T, core::InteractableFeatureRef>)
+                    owner_id = id.text();
+                return kind + "\n" + owner_id + "\n" + property.text();
             },
             owner);
         if (!m_properties.contains(identity))

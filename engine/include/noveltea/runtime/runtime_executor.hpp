@@ -136,8 +136,6 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics> navigate(const core::RoomExitId& exit);
     [[nodiscard]] core::Result<void, RuntimeExecutionError>
     interact(core::VerbId verb, std::vector<core::compiled::InteractionSubject> operands);
-    [[nodiscard]] core::Result<void, RuntimeExecutionError>
-    activate_hotspot(const core::compiled::HotspotRef& hotspot);
     [[nodiscard]] core::Result<void, core::Diagnostics> start_transient(const core::SceneId& scene);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     start_transient(const core::DialogueId& dialogue);
@@ -219,10 +217,6 @@ private:
     run_room_unit(std::string_view runtime_locale);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_interaction_unit(std::string_view runtime_locale);
-    [[nodiscard]] core::Result<void, RuntimeExecutionError>
-    interact_with_context(core::VerbId verb,
-                          std::vector<core::compiled::InteractionSubject> operands,
-                          std::optional<core::compiled::HotspotRef> hotspot);
     [[nodiscard]] core::Result<std::optional<core::PresentationFlowCompletion>, core::Diagnostics>
     advance_scene_for_presentation(const core::SceneId& scene, const core::SceneStepId& step,
                                    std::optional<core::SceneStepId> next,

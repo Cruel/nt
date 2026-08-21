@@ -249,8 +249,6 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_selection();
     [[nodiscard]] core::Result<void, core::Diagnostics>
     run_interaction(core::VerbId verb, std::vector<core::compiled::InteractionSubject> operands);
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    activate_hotspot(core::compiled::HotspotRef hotspot);
     [[nodiscard]] core::Result<void, core::Diagnostics> save(core::TypedSaveSlotId slot);
     [[nodiscard]] core::Result<void, core::Diagnostics> load(core::TypedSaveSlotId slot);
     [[nodiscard]] core::Result<void, core::Diagnostics> autosave();

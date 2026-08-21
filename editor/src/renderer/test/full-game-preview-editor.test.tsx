@@ -12,7 +12,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
-import type { PreviewHotspotRef } from '../../shared/preview-protocol';
+import type { PreviewClickableTarget } from '../../shared/preview-protocol';
 
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -197,7 +197,7 @@ async function postInputSnapshot(
       enabled: boolean;
     }>;
     dialogueOptions?: Array<{ index: number; label: string; enabled: boolean }>;
-    hotspots?: Array<{ hotspot: PreviewHotspotRef; label: string }>;
+    clickableTargets?: PreviewClickableTarget[];
   } = {},
 ) {
   const waitingKind = options.dialogueOptions?.length
@@ -227,10 +227,7 @@ async function postInputSnapshot(
           navigation: options.navigation ?? [],
           actions: [],
           selectedSubjects: [],
-          clickableTargets: (options.hotspots ?? []).map((target) => ({
-            kind: 'hotspot',
-            ...target,
-          })),
+          clickableTargets: options.clickableTargets ?? [],
         },
         variables: [],
         inventory: [],
@@ -911,7 +908,7 @@ describe('FullGamePreviewEditor', () => {
     expect(screen.queryByText('Delta Value')).not.toBeInTheDocument();
   });
 
-  it('uses runtime-eligible hotspot inputs and records only accepted activations', async () => {
+  it('uses runtime-eligible semantic targets and records only accepted subject selections', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
     project.interactables.hidden = {
@@ -923,23 +920,24 @@ describe('FullGamePreviewEditor', () => {
     const { editorPort, previewPort } = await renderConnectedPreview();
 
     await postInputSnapshot(previewPort);
-    expect(screen.queryByText('Activate Hidden object: Hidden object')).not.toBeInTheDocument();
+    expect(screen.queryByText('Select Hidden object')).not.toBeInTheDocument();
 
     await postInputSnapshot(previewPort, {
-      hotspots: [
+      clickableTargets: [
         {
-          hotspot: { kind: 'room-hotspot', room: 'foyer', hotspotId: 'door' },
+          kind: 'subject',
+          subject: { kind: 'feature', ownerKind: 'room', ownerId: 'foyer', featureId: 'door' },
           label: 'Door',
         },
       ],
     });
-    const activation = screen.getByText('Activate foyer: Door');
+    const selection = screen.getByText('Select Door');
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
-    await user.click(activation);
-    expect(screen.queryByText('1. Activate door')).not.toBeInTheDocument();
+    await user.click(selection);
+    expect(screen.queryByText('1. Select feature:room:foyer:door')).not.toBeInTheDocument();
 
-    const rejected = latestRequest(editorPort, 'runtime-activate-hotspot');
+    const rejected = latestRequest(editorPort, 'runtime-select-subjects');
     expect(rejected).toBeDefined();
     await act(async () => {
       previewPort.postMessage({
@@ -947,14 +945,16 @@ describe('FullGamePreviewEditor', () => {
         type: 'command-result',
         requestId: rejected!.requestId,
         ok: false,
-        error: 'Hotspot is not currently eligible.',
+        error: 'Subject is not currently eligible.',
       });
     });
-    expect(screen.queryByText('1. Activate door')).not.toBeInTheDocument();
+    expect(screen.queryByText('1. Select feature:room:foyer:door')).not.toBeInTheDocument();
 
-    await user.click(activation);
-    await resolveLatest(editorPort, previewPort, 'runtime-activate-hotspot');
-    await waitFor(() => expect(screen.getByText('1. Activate door')).toBeInTheDocument());
+    await user.click(selection);
+    await resolveLatest(editorPort, previewPort, 'runtime-select-subjects');
+    await waitFor(() =>
+      expect(screen.getByText('1. Select feature:room:foyer:door')).toBeInTheDocument(),
+    );
   });
 
   it('records semantic runtime inputs and keeps trace events separate', async () => {

@@ -293,7 +293,7 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     CHECK(std::holds_alternative<SavedInteractionFrame>(interaction.value().flow_stack.front()));
 }
 
-TEST_CASE("save-state version 7 round-trips and validates exact hotspot invocation context")
+TEST_CASE("save-state version 7 round-trips owner-qualified Feature interaction subjects")
 {
     const auto project = load_fixture("interaction-program.json");
     auto state = make_state(project);
@@ -305,44 +305,40 @@ TEST_CASE("save-state version 7 round-trips and validates exact hotspot invocati
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::AfterEnter, 1));
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::Complete));
     REQUIRE(flow.complete_room_transition());
-    const compiled::HotspotRef hotspot =
-        compiled::InteractableHotspotRef{id<InteractableId>("key"), id<HotspotId>("key-alpha")};
+    const compiled::InteractionSubject feature = compiled::FeatureInteractionSubject{
+        InteractableFeatureRef{id<InteractableId>("key"), id<FeatureId>("surface")}};
     REQUIRE(flow.start_interaction(
-        InteractionInvocationContext{
-            id<VerbId>("use"),
-            id<RoomId>("start"),
-            {
-                compiled::InteractableInteractionSubject{id<InteractableId>("key")},
-            },
-            hotspot},
+        InteractionInvocationContext{id<VerbId>("use"), id<RoomId>("start"), {feature}},
         InteractionRuleProgramRef{id<InteractionId>("actions"),
-                                  id<InteractionRuleId>("interactable-hotspot-context")}));
+                                  id<InteractionRuleId>("interactable-feature")}));
     auto snapshot = make_save_state(project, state);
     REQUIRE(snapshot);
     auto encoded = encode_save_state(project, snapshot.value());
     REQUIRE(encoded);
     REQUIRE(encoded.value()["flowStack"].size() == 1);
-    CHECK(encoded.value()["flowStack"][0]["invocation"]["hotspot"] ==
-          nlohmann::json{{"kind", "interactable-hotspot"},
-                         {"interactable", "key"},
-                         {"hotspotId", "key-alpha"}});
+    CHECK_FALSE(encoded.value()["flowStack"][0]["invocation"].contains("hotspot"));
+    CHECK(encoded.value()["flowStack"][0]["invocation"]["operands"][0] ==
+          nlohmann::json{{"kind", "feature"},
+                         {"ownerKind", "interactable"},
+                         {"ownerId", "key"},
+                         {"featureId", "surface"}});
 
-    auto decoded = decode_save_state(project, encoded.value(), "hotspot-save.json");
+    auto decoded = decode_save_state(project, encoded.value(), "feature-save.json");
     REQUIRE(decoded);
     const auto& frame = std::get<SavedInteractionFrame>(decoded.value().flow_stack.front());
-    CHECK(frame.invocation.hotspot == hotspot);
+    REQUIRE(frame.invocation.operands.size() == 1);
+    CHECK(frame.invocation.operands.front() == feature);
 
     auto stale = encoded.value();
-    stale["flowStack"][0]["invocation"]["hotspot"]["hotspotId"] = "missing";
-    CHECK_FALSE(decode_save_state(project, stale, "hotspot-save.json"));
+    stale["flowStack"][0]["invocation"]["operands"][0]["featureId"] = "missing";
+    CHECK_FALSE(decode_save_state(project, stale, "feature-save.json"));
 
-    auto mismatched = encoded.value();
-    mismatched["flowStack"][0]["invocation"]["verb"] = "unlock";
-    CHECK_FALSE(decode_save_state(project, mismatched, "hotspot-save.json"));
+    auto missing_owner = encoded.value();
+    missing_owner["flowStack"][0]["invocation"]["operands"][0]["ownerId"] = "missing";
+    CHECK_FALSE(decode_save_state(project, missing_owner, "feature-save.json"));
 
     auto old_shape = encoded.value();
     old_shape["version"] = 6;
-    old_shape["flowStack"][0]["invocation"].erase("hotspot");
     CHECK_FALSE(decode_save_state(project, old_shape, "save-v6.json"));
 }
 

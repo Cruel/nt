@@ -67,7 +67,7 @@ describe('hotspot Phase 2 current contracts', () => {
         condition: { kind: 'always' },
         inputOrder: 0,
         highlight: { kind: 'default' },
-        activation: { kind: 'verb', verb: null },
+        target: { kind: 'owner' },
       },
     });
     const { hotspots: _roomHotspots, ...roomWithoutHotspots } = room;
@@ -86,6 +86,7 @@ describe('hotspot Phase 2 current contracts', () => {
 
   it('accepts normalized rectangular hotspots and rejects invalid bounds and labels', () => {
     const room = defaultRoomData('Foyer');
+    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {} });
     room.hotspots.push({
       id: 'door',
       label: 'Door',
@@ -93,7 +94,7 @@ describe('hotspot Phase 2 current contracts', () => {
       inputOrder: 4,
       highlight: { kind: 'none' },
       shape: { kind: 'rect', bounds: { x: 0.25, y: 0.1, width: 0.5, height: 0.8 } },
-      activation: { kind: 'verb', verb: null },
+      target: { kind: 'owner-feature', featureId: 'door' },
     });
     expect(roomDataSchema.safeParse(room).success).toBe(true);
     expect(

@@ -126,18 +126,20 @@ describe('diagnostic navigation', () => {
         ?.id,
     ).toBe('room.overlays');
     expect(
-      resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/hotspots/0/activation/verb')
+      resolveProjectDiagnosticTarget(project, '/rooms/foyer/data/hotspots/0/target/featureId')
         ?.target?.id,
     ).toBe('room.hotspot.door-hotspot');
     expect(
       resolveProjectDiagnosticTarget(
         project,
-        '/interactables/door/data/presentation/hotspots/hotspots/0/activation/verb',
+        '/interactables/door/data/presentation/hotspots/hotspots/0/target/featureId',
       )?.target?.id,
     ).toBe('interactable.hotspot.handle');
     expect(
-      resolveProjectDiagnosticTarget(project, '/interactions/inspect/data/rules/0/context/hotspot')
-        ?.target?.id,
+      resolveProjectDiagnosticTarget(
+        project,
+        '/interactions/inspect/data/rules/0/operands/0/subject/feature',
+      )?.target?.id,
     ).toBe('interaction.rule.handle-rule');
     expect(resolveProjectDiagnosticTarget(project, '/project/name')?.target?.id).toBe(
       'projectSettings.field.projectName',

@@ -89,6 +89,28 @@ private:
         return found == m_interactables.end() ? nullptr : &m_input.interactables[found->second];
     }
 
+    const FeatureDefinition* feature(const RoomFeatureRef& reference) const
+    {
+        const auto* owner = room(reference.room);
+        if (!owner)
+            return nullptr;
+        const auto found = std::ranges::find_if(owner->features, [&](const auto& value) {
+            return value.identity.id == reference.feature_id;
+        });
+        return found == owner->features.end() ? nullptr : &*found;
+    }
+
+    const FeatureDefinition* feature(const InteractableFeatureRef& reference) const
+    {
+        const auto* owner = interactable(reference.interactable);
+        if (!owner)
+            return nullptr;
+        const auto found = std::ranges::find_if(owner->features, [&](const auto& value) {
+            return value.identity.id == reference.feature_id;
+        });
+        return found == owner->features.end() ? nullptr : &*found;
+    }
+
     const VerbDefinition* verb(const VerbId& id) const
     {
         const auto found = m_verbs.find(id);
@@ -259,17 +281,54 @@ private:
             owner->presentation.hotspots);
     }
 
-    void validate_hotspot_verb(const VerbHotspotActivation& activation,
-                               const std::size_t required_arity, const std::string& path)
+    void validate_interaction_subject(const InteractionSubject& subject, const std::string& path)
     {
-        const auto* linked = verb(activation.verb);
-        if (!linked) {
-            require(m_verbs, activation.verb, "verb", path + "/verb");
-            return;
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, CharacterInteractionSubject>)
+                    require(m_characters, value.character, "character", path + "/character");
+                else if constexpr (std::is_same_v<T, InteractableInteractionSubject>)
+                    require(m_interactables, value.interactable, "interactable",
+                            path + "/interactable");
+                else
+                    std::visit(
+                        [&](const auto& reference) {
+                            using R = std::decay_t<decltype(reference)>;
+                            if constexpr (std::is_same_v<R, RoomFeatureRef>) {
+                                require(m_rooms, reference.room, "room", path + "/room");
+                                if (!feature(reference))
+                                    error("compiled_project.unresolved_nested_reference",
+                                          "Feature reference does not identify a Feature in its "
+                                          "owning Room.",
+                                          path + "/featureId");
+                            } else {
+                                require(m_interactables, reference.interactable, "interactable",
+                                        path + "/interactable");
+                                if (!feature(reference))
+                                    error("compiled_project.unresolved_nested_reference",
+                                          "Feature reference does not identify a Feature in its "
+                                          "owning Interactable.",
+                                          path + "/featureId");
+                            }
+                        },
+                        value.feature);
+            },
+            subject);
+    }
+
+    template<class Definition>
+    void validate_features(const Definition& owner, const std::string& path)
+    {
+        std::unordered_set<FeatureId> ids;
+        for (std::size_t index = 0; index < owner.features.size(); ++index) {
+            const auto& feature = owner.features[index];
+            const auto feature_path = path + "/features/" + std::to_string(index);
+            if (!ids.insert(feature.identity.id).second)
+                error("compiled_project.duplicate_nested_id", "Duplicate Feature ID.",
+                      feature_path + "/id");
+            validate_assignments(feature, PropertyOwnerKind::Feature, feature_path);
         }
-        if (linked->arity != required_arity)
-            error("compiled_project.hotspot_verb_arity_mismatch",
-                  "Hotspot Verb arity is incompatible with its owner.", path + "/verb");
     }
 
     void validate_hotspot_common(const Condition& condition, const HotspotHighlight& highlight,
@@ -434,7 +493,7 @@ private:
                       "Trait must admit at least one owner kind.", base + "/ownerKinds");
             std::unordered_set<PropertyOwnerKind> owners;
             for (const auto owner : definition.allowed_owners) {
-                if (owner > PropertyOwnerKind::Interactable)
+                if (owner > PropertyOwnerKind::Feature)
                     error("compiled_project.invalid_trait_definition",
                           "Trait owner kind is invalid.", base + "/ownerKinds");
                 if (!owners.insert(owner).second)
@@ -608,6 +667,7 @@ private:
             const auto& value = m_input.rooms[index];
             const auto path = item("/definitions/rooms", index);
             validate_assignments(value, PropertyOwnerKind::Room, path);
+            validate_features(value, path);
             validate_text(value.description, path + "/description");
             validate_background(value.background, path + "/background");
             validate_condition(value.lifecycle.can_enter, path + "/lifecycle/canEnter");
@@ -761,16 +821,22 @@ private:
                           hotspot_path + "/id");
                 validate_hotspot_common(hotspot.condition, hotspot.highlight, hotspot_path);
                 std::visit(
-                    [&](const auto& activation) {
-                        using T = std::decay_t<decltype(activation)>;
-                        if constexpr (std::is_same_v<T, VerbHotspotActivation>)
-                            validate_hotspot_verb(activation, 0, hotspot_path + "/activation");
-                        else if (!exit_ids.contains(activation.exit_id))
+                    [&](const auto& target) {
+                        using T = std::decay_t<decltype(target)>;
+                        if constexpr (std::is_same_v<T, HotspotOwnerFeatureTarget>) {
+                            if (!feature(RoomFeatureRef{value.identity.id, target.feature_id}))
+                                error("compiled_project.unresolved_nested_reference",
+                                      "Room hotspot references a Feature outside its owning Room.",
+                                      hotspot_path + "/target/featureId");
+                        } else if constexpr (std::is_same_v<T, HotspotSubjectTarget>)
+                            validate_interaction_subject(target.subject,
+                                                         hotspot_path + "/target/subject");
+                        else if (!exit_ids.contains(target.exit_id))
                             error("compiled_project.unresolved_nested_reference",
                                   "Room hotspot references an exit outside its owning Room.",
-                                  hotspot_path + "/activation/exitId");
+                                  hotspot_path + "/target/exitId");
                     },
-                    hotspot.activation);
+                    hotspot.target);
             }
         }
     }
@@ -781,6 +847,7 @@ private:
             const auto& value = m_input.interactables[index];
             const auto path = item("/definitions/interactables", index);
             validate_assignments(value, PropertyOwnerKind::Interactable, path);
+            validate_features(value, path);
             validate_location(value.initial_state.location, path + "/initialState/location");
             if (value.presentation.sprite)
                 require(m_assets, *value.presentation.sprite, "asset",
@@ -809,12 +876,29 @@ private:
             std::visit(
                 [&](const auto& definition) {
                     using T = std::decay_t<decltype(definition)>;
+                    const auto validate_target = [&](const auto& hotspot,
+                                                     const std::string& hotspot_path) {
+                        std::visit(
+                            [&](const auto& target) {
+                                using H = std::decay_t<decltype(target)>;
+                                if constexpr (std::is_same_v<H, HotspotOwnerFeatureTarget>) {
+                                    if (!feature(InteractableFeatureRef{value.identity.id,
+                                                                        target.feature_id}))
+                                        error("compiled_project.unresolved_nested_reference",
+                                              "Interactable hotspot references a Feature outside "
+                                              "its owning Interactable.",
+                                              hotspot_path + "/target/featureId");
+                                } else if constexpr (std::is_same_v<H, HotspotSubjectTarget>)
+                                    validate_interaction_subject(target.subject,
+                                                                 hotspot_path + "/target/subject");
+                            },
+                            hotspot.target);
+                    };
                     if constexpr (std::is_same_v<T, SpriteAlphaHotspots>) {
                         const auto& hotspot = definition.hotspot;
-                        validate_hotspot_common(hotspot.condition, hotspot.highlight,
-                                                path + "/presentation/hotspots/hotspot");
-                        validate_hotspot_verb(hotspot.activation, 1,
-                                              path + "/presentation/hotspots/hotspot/activation");
+                        const auto hotspot_path = path + "/presentation/hotspots/hotspot";
+                        validate_hotspot_common(hotspot.condition, hotspot.highlight, hotspot_path);
+                        validate_target(hotspot, hotspot_path);
                     } else {
                         for (std::size_t hotspot_index = 0;
                              hotspot_index < definition.hotspots.size(); ++hotspot_index) {
@@ -826,8 +910,7 @@ private:
                                       "Duplicate Interactable hotspot ID.", hotspot_path + "/id");
                             validate_hotspot_common(hotspot.condition, hotspot.highlight,
                                                     hotspot_path);
-                            validate_hotspot_verb(hotspot.activation, 1,
-                                                  hotspot_path + "/activation");
+                            validate_target(hotspot, hotspot_path);
                         }
                     }
                 },
@@ -867,85 +950,6 @@ private:
                                               rule_path + "/context");
                         else if constexpr (std::is_same_v<T, PredicateInteractionContext>)
                             validate_condition(context.condition, rule_path + "/context/condition");
-                        else if constexpr (std::is_same_v<T, HotspotInteractionContext>)
-                            std::visit(
-                                [&](const auto& reference) {
-                                    using R = std::decay_t<decltype(reference)>;
-                                    if constexpr (std::is_same_v<R, RoomHotspotRef>) {
-                                        require(m_rooms, reference.room, "room",
-                                                rule_path + "/context/hotspot/room");
-                                        const auto* hotspot = room_hotspot(reference);
-                                        if (!hotspot) {
-                                            error("compiled_project.unresolved_nested_reference",
-                                                  "Room hotspot context references a missing "
-                                                  "hotspot.",
-                                                  rule_path + "/context/hotspot/hotspotId");
-                                            return;
-                                        }
-                                        const auto* activation = std::get_if<VerbHotspotActivation>(
-                                            &hotspot->activation);
-                                        if (!activation)
-                                            error("compiled_project.invalid_hotspot_context",
-                                                  "Interaction context cannot target an exit "
-                                                  "hotspot.",
-                                                  rule_path + "/context/hotspot/hotspotId");
-                                        else if (activation->verb != rule.verb)
-                                            error("compiled_project.invalid_hotspot_context",
-                                                  "Interaction Verb must match its Room hotspot.",
-                                                  rule_path + "/verb");
-                                        if (!rule.operands.empty())
-                                            error("compiled_project.invalid_hotspot_context",
-                                                  "Room hotspot Interaction rules must not declare "
-                                                  "operands.",
-                                                  rule_path + "/operands");
-                                    } else {
-                                        require(m_interactables, reference.interactable,
-                                                "interactable",
-                                                rule_path + "/context/hotspot/interactable");
-                                        const auto* hotspot = interactable_hotspot(reference);
-                                        if (!hotspot) {
-                                            error("compiled_project.unresolved_nested_reference",
-                                                  "Interactable hotspot context references a "
-                                                  "missing hotspot.",
-                                                  rule_path + "/context/hotspot/hotspotId");
-                                            return;
-                                        }
-                                        if (hotspot->activation.verb != rule.verb)
-                                            error("compiled_project.invalid_hotspot_context",
-                                                  "Interaction Verb must match its Interactable "
-                                                  "hotspot.",
-                                                  rule_path + "/verb");
-                                        const bool compatible_operand =
-                                            rule.operands.size() == 1 &&
-                                            std::visit(
-                                                [&](const auto& operand) {
-                                                    using O = std::decay_t<decltype(operand)>;
-                                                    if constexpr (std::is_same_v<
-                                                                      O, AnyInteractableOperand> ||
-                                                                  std::is_same_v<
-                                                                      O,
-                                                                      AnyInteractionSubjectOperand>)
-                                                        return true;
-                                                    else if constexpr (std::is_same_v<
-                                                                           O, ExactOperand>) {
-                                                        const auto* subject = std::get_if<
-                                                            InteractableInteractionSubject>(
-                                                            &operand.subject);
-                                                        return subject &&
-                                                               subject->interactable ==
-                                                                   reference.interactable;
-                                                    } else
-                                                        return false;
-                                                },
-                                                rule.operands.front());
-                                        if (!compatible_operand)
-                                            error("compiled_project.invalid_hotspot_context",
-                                                  "Interactable hotspot Interaction rules require "
-                                                  "one compatible operand.",
-                                                  rule_path + "/operands");
-                                    }
-                                },
-                                context.hotspot);
                     },
                     rule.context);
                 for (std::size_t operand = 0; operand < rule.operands.size(); ++operand) {
@@ -953,17 +957,7 @@ private:
                     if (!exact)
                         continue;
                     const auto operand_path = rule_path + "/operands/" + std::to_string(operand);
-                    std::visit(
-                        [this, &operand_path](const auto& subject) {
-                            using T = std::decay_t<decltype(subject)>;
-                            if constexpr (std::is_same_v<T, CharacterInteractionSubject>)
-                                require(m_characters, subject.character, "character",
-                                        operand_path + "/subject/character");
-                            else
-                                require(m_interactables, subject.interactable, "interactable",
-                                        operand_path + "/subject/interactable");
-                        },
-                        exact->subject);
+                    validate_interaction_subject(exact->subject, operand_path + "/subject");
                 }
                 validate_program(rule.program, rule_path + "/program");
             }

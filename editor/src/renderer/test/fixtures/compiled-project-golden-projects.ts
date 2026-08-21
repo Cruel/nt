@@ -233,7 +233,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   moodVariable.defaultValue = 'calm';
   project.variables['mood-variable'] = { id: 'mood-variable', label: 'Mood', data: moodVariable };
 
-  const allOwnerKinds = ['room', 'character', 'interactable'] as const;
+  const allOwnerKinds = ['room', 'character', 'interactable', 'feature'] as const;
   project.properties.affinity = {
     id: 'affinity',
     label: 'Affinity',
@@ -285,6 +285,13 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       { kind: 'configured', propertyId: 'mood', value: 'tense' },
       { kind: 'required', propertyId: 'visit-count' },
     ],
+  };
+  project.traits['feature-enabled'] = {
+    id: 'feature-enabled',
+    label: 'Feature Enabled',
+    description: 'Requires an enabled state for semantic Features.',
+    ownerKinds: ['feature'],
+    properties: [{ kind: 'required', propertyId: 'enabled' }],
   };
 
   const hero = defaultCharacterData('Hero');
@@ -949,6 +956,8 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   };
 
   const inspect = defaultVerbData('Inspect');
+  inspect.arity = 1;
+  inspect.operandRoles = ['target'];
   project.verbs.inspect = { id: 'inspect', label: 'Inspect', data: inspect };
 
   const use = defaultVerbData('Use');
@@ -973,6 +982,14 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   project.verbs.use = { id: 'use', label: 'Use', data: use };
 
   const start = project.rooms.start!.data;
+  start.features = [
+    {
+      id: 'door',
+      label: 'Door',
+      traits: ['feature-enabled'],
+      properties: { enabled: true },
+    },
+  ];
   start.hotspots = [
     {
       id: 'inspect-door',
@@ -981,7 +998,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       inputOrder: 10,
       highlight: { kind: 'default' },
       shape: { kind: 'rect', bounds: { x: 0.7, y: 0.1, width: 0.2, height: 0.5 } },
-      activation: { kind: 'verb', verb: verbReference('inspect') },
+      target: { kind: 'owner-feature', featureId: 'door' },
     },
     {
       id: 'north-door',
@@ -990,11 +1007,19 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       inputOrder: 20,
       highlight: { kind: 'none' },
       shape: { kind: 'rect', bounds: { x: 0.72, y: 0.12, width: 0.16, height: 0.46 } },
-      activation: { kind: 'exit', exitId: 'north-exit' },
+      target: { kind: 'exit', exitId: 'north-exit' },
     },
   ];
 
   const key = project.interactables.key!.data;
+  key.features = [
+    {
+      id: 'surface',
+      label: 'Key Surface',
+      traits: ['feature-enabled'],
+      properties: { enabled: true },
+    },
+  ];
   key.presentation.hotspots = {
     kind: 'sprite-alpha',
     hotspot: {
@@ -1003,10 +1028,13 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       condition: { kind: 'always' },
       inputOrder: 0,
       highlight: { kind: 'default' },
-      activation: { kind: 'verb', verb: verbReference('use') },
+      target: { kind: 'owner-feature', featureId: 'surface' },
     },
   };
   const coin = project.interactables.coin!.data;
+  coin.features = [
+    { id: 'face', label: 'Coin Face', traits: ['feature-enabled'], properties: { enabled: true } },
+  ];
   coin.presentation.hotspots = {
     kind: 'custom',
     hotspots: [
@@ -1019,7 +1047,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           kind: 'material',
           material: { $ref: { collection: 'materials', id: 'hotspot-overlay' } },
         },
-        activation: { kind: 'verb', verb: verbReference('use') },
+        target: { kind: 'owner-feature', featureId: 'face' },
         shape: { kind: 'rect', bounds: { x: 0.1, y: 0.1, width: 0.7, height: 0.7 } },
       },
       {
@@ -1028,7 +1056,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         condition: { kind: 'always' },
         inputOrder: 2,
         highlight: { kind: 'none' },
-        activation: { kind: 'verb', verb: verbReference('use') },
+        target: { kind: 'owner-feature', featureId: 'face' },
         shape: { kind: 'rect', bounds: { x: 0.3, y: 0.3, width: 0.4, height: 0.4 } },
       },
     ],
@@ -1060,36 +1088,37 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   const interaction = defaultInteractionData();
   interaction.rules = [
     {
-      id: 'room-hotspot-context',
+      id: 'room-feature',
       verb: verbReference('inspect'),
-      operands: [],
-      context: {
-        kind: 'hotspot',
-        hotspot: {
-          kind: 'room-hotspot',
-          room: roomReference('start'),
-          hotspotId: 'inspect-door',
+      operands: [
+        {
+          kind: 'exact',
+          subject: {
+            kind: 'feature',
+            feature: { ownerKind: 'room', room: roomReference('start'), featureId: 'door' },
+          },
         },
-      },
+      ],
+      context: { kind: 'active-room', room: roomReference('start') },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     },
     {
-      id: 'interactable-hotspot-context',
+      id: 'interactable-feature',
       verb: verbReference('use'),
       operands: [
         {
           kind: 'exact',
-          subject: { kind: 'interactable', interactable: interactableReference('key') },
+          subject: {
+            kind: 'feature',
+            feature: {
+              ownerKind: 'interactable',
+              interactable: interactableReference('key'),
+              featureId: 'surface',
+            },
+          },
         },
       ],
-      context: {
-        kind: 'hotspot',
-        hotspot: {
-          kind: 'interactable-hotspot',
-          interactable: interactableReference('key'),
-          hotspotId: 'key-alpha',
-        },
-      },
+      context: { kind: 'any' },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     },
     {

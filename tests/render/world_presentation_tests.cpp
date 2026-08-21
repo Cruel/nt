@@ -20,6 +20,11 @@ namespace {
 
 template<class Id> Id id(const char* value) { return std::move(Id::create(value)).value(); }
 
+compiled::ResolvedHotspotTarget semantic_target(const char* value)
+{
+    return compiled::CharacterInteractionSubject{id<CharacterId>(value)};
+}
+
 FlowFrameId flow_frame_id(std::uint64_t value)
 {
     static_assert(sizeof(FlowFrameId) == sizeof(value));
@@ -523,11 +528,11 @@ TEST_CASE("hotspot overlays reuse the prepared owner geometry and update transie
                                                  .material = std::nullopt};
     const compiled::HotspotRef hotspot_ref =
         compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk")};
-    snapshot.hotspots.push_back(
-        {hotspot_ref, "Desk", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
-         compiled::NormalizedRect{0.2, 0.3, 0.4, 0.2}, 5, compiled::DefaultHotspotHighlight{},
-         id<AssetId>("room-image"), 1600, 900, std::nullopt, std::nullopt,
-         PresentationPlane::WorldBackground, 0});
+    snapshot.hotspots.push_back({hotspot_ref, "Desk", true, true, semantic_target("desk"),
+                                 compiled::NormalizedRect{0.2, 0.3, 0.4, 0.2}, 5,
+                                 compiled::DefaultHotspotHighlight{}, id<AssetId>("room-image"),
+                                 1600, 900, std::nullopt, std::nullopt,
+                                 PresentationPlane::WorldBackground, 0});
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -581,9 +586,9 @@ TEST_CASE("no-highlight hotspots stay semantic and allocate no overlay resources
                                                  .material = std::nullopt};
     snapshot.hotspots.push_back(
         {compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("hidden")}, "Hidden", true,
-         true, compiled::VerbHotspotActivation{id<VerbId>("inspect")}, AlphaHotspotShape{}, 0,
-         compiled::NoHotspotHighlight{}, id<AssetId>("room-image"), 1600, 900, std::nullopt,
-         std::nullopt, PresentationPlane::WorldBackground, 0});
+         true, semantic_target("hidden"), AlphaHotspotShape{}, 0, compiled::NoHotspotHighlight{},
+         id<AssetId>("room-image"), 1600, 900, std::nullopt, std::nullopt,
+         PresentationPlane::WorldBackground, 0});
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -609,8 +614,7 @@ TEST_CASE("Interactable hotspot overlays inherit placement geometry and authored
     const compiled::HotspotRef hotspot_ref =
         compiled::InteractableHotspotRef{id<InteractableId>("key"), id<HotspotId>("inspect")};
     snapshot.hotspots.push_back(
-        {hotspot_ref, "Inspect", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
-         AlphaHotspotShape{}, 0,
+        {hotspot_ref, "Inspect", true, true, semantic_target("inspect"), AlphaHotspotShape{}, 0,
          compiled::MaterialHotspotHighlight{id<core::MaterialId>("custom-highlight")},
          id<AssetId>("item"), 400, 200,
          compiled::RoomPlacementRef{id<RoomId>("room"), id<RoomPlacementId>("table")},
@@ -647,9 +651,9 @@ TEST_CASE("failed hotspot preparation preserves the prior world candidate")
     candidate.revision = PresentationSnapshotRevision::from_number(2);
     candidate.hotspots.push_back(
         {compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk")}, "Desk", true, true,
-         compiled::VerbHotspotActivation{id<VerbId>("inspect")}, AlphaHotspotShape{}, 0,
-         compiled::DefaultHotspotHighlight{}, id<AssetId>("room-image"), 1600, 900, std::nullopt,
-         std::nullopt, PresentationPlane::WorldBackground, 0});
+         semantic_target("desk"), AlphaHotspotShape{}, 0, compiled::DefaultHotspotHighlight{},
+         id<AssetId>("room-image"), 1600, 900, std::nullopt, std::nullopt,
+         PresentationPlane::WorldBackground, 0});
     resources.fail_hotspot_resources = true;
     CHECK_FALSE(backend.reconcile(candidate, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -683,13 +687,13 @@ TEST_CASE("world hotspot controller honors draw order input order and background
     const compiled::HotspotRef item =
         compiled::InteractableHotspotRef{id<InteractableId>("item"), id<HotspotId>("item-hotspot")};
     snapshot.hotspots = {
-        {room_low, "Low", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+        {room_low, "Low", true, true, semantic_target("low"),
          compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 1, compiled::NoHotspotHighlight{},
          id<AssetId>("room-image"), 1000, 1000},
-        {room_high, "High", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+        {room_high, "High", true, true, semantic_target("high"),
          compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 5, compiled::NoHotspotHighlight{},
          id<AssetId>("room-image"), 1000, 1000},
-        {item, "Item", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
+        {item, "Item", true, true, semantic_target("item"),
          compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 0, compiled::NoHotspotHighlight{},
          id<AssetId>("item"), 100, 100,
          compiled::RoomPlacementRef{id<RoomId>("room"), id<RoomPlacementId>("item-place")},
@@ -703,20 +707,63 @@ TEST_CASE("world hotspot controller honors draw order input order and background
     REQUIRE(item_down.consumed);
     auto item_up = controller.handle(
         {WorldPointerEventKind::MouseUp, {500.0f, 250.0f}, {500.0f, 250.0f}, 0, true, true});
-    REQUIRE(item_up.activation);
-    CHECK(*item_up.activation == item);
+    REQUIRE(item_up.target);
+    CHECK(*item_up.target == semantic_target("item"));
 
     auto room_down = controller.handle(
         {WorldPointerEventKind::MouseDown, {100.0f, 250.0f}, {100.0f, 250.0f}, 0, true, true});
     REQUIRE(room_down.consumed);
     auto room_up = controller.handle(
         {WorldPointerEventKind::MouseUp, {100.0f, 250.0f}, {100.0f, 250.0f}, 0, true, true});
-    REQUIRE(room_up.activation);
-    CHECK(*room_up.activation == room_high);
+    REQUIRE(room_up.target);
+    CHECK(*room_up.target == semantic_target("high"));
 
     auto cropped = controller.handle(
         {WorldPointerEventKind::MouseDown, {500.0f, 10.0f}, {500.0f, 10.0f}, 0, true, true});
     CHECK(cropped.consumed);
+}
+
+TEST_CASE("multiple hotspot geometries publish the same owner-qualified Feature subject")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 100, 100);
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                                 .fit = compiled::BackgroundFit::Stretch};
+    const compiled::ResolvedHotspotTarget shared = compiled::FeatureInteractionSubject{
+        RoomFeatureRef{id<RoomId>("room"), id<FeatureId>("desk")}};
+    snapshot.hotspots = {
+        {compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk-left")}, "Desk left",
+         true, true, shared, compiled::NormalizedRect{0.0, 0.0, 0.5, 1.0}, 0,
+         compiled::NoHotspotHighlight{}, id<AssetId>("room-image"), 100, 100},
+        {compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk-right")}, "Desk right",
+         true, true, shared, compiled::NormalizedRect{0.5, 0.0, 0.5, 1.0}, 0,
+         compiled::NoHotspotHighlight{}, id<AssetId>("room-image"), 100, 100},
+    };
+    REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
+    controller.presentation_changed();
+
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::MouseDown, {25.0f, 50.0f}, {25.0f, 50.0f}, 0, true, true})
+            .consumed);
+    const auto left = controller.handle(
+        {WorldPointerEventKind::MouseUp, {25.0f, 50.0f}, {25.0f, 50.0f}, 0, true, true});
+    REQUIRE(left.target);
+    CHECK(*left.target == shared);
+
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::MouseDown, {75.0f, 50.0f}, {75.0f, 50.0f}, 0, true, true})
+            .consumed);
+    const auto right = controller.handle(
+        {WorldPointerEventKind::MouseUp, {75.0f, 50.0f}, {75.0f, 50.0f}, 0, true, true});
+    REQUIRE(right.target);
+    CHECK(*right.target == shared);
 }
 
 TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
@@ -740,8 +787,8 @@ TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
     const compiled::HotspotRef alpha =
         compiled::InteractableHotspotRef{id<InteractableId>("item"), id<HotspotId>("alpha")};
     snapshot.hotspots.push_back(
-        {alpha, "Alpha", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
-         AlphaHotspotShape{}, 0, compiled::NoHotspotHighlight{}, id<AssetId>("item"), 2, 1,
+        {alpha, "Alpha", true, true, semantic_target("alpha"), AlphaHotspotShape{}, 0,
+         compiled::NoHotspotHighlight{}, id<AssetId>("item"), 2, 1,
          compiled::RoomPlacementRef{id<RoomId>("room"), id<RoomPlacementId>("item-place")},
          compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, PresentationPlane::WorldContent, 0});
     REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
@@ -769,10 +816,10 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
                                                  .fit = compiled::BackgroundFit::Stretch};
     const compiled::HotspotRef hotspot =
         compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("room")};
-    snapshot.hotspots.push_back(
-        {hotspot, "Room", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
-         compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 0, compiled::DefaultHotspotHighlight{},
-         id<AssetId>("room-image"), 100, 100});
+    snapshot.hotspots.push_back({hotspot, "Room", true, true, semantic_target("room-target"),
+                                 compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 0,
+                                 compiled::DefaultHotspotHighlight{}, id<AssetId>("room-image"),
+                                 100, 100});
     REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
     controller.presentation_changed();
 
@@ -789,7 +836,7 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
     auto canceled = controller.handle(
         {WorldPointerEventKind::MouseUp, {19.0f, 10.0f}, {19.0f, 10.0f}, 0, true, true});
     CHECK(canceled.consumed);
-    CHECK_FALSE(canceled.activation);
+    CHECK_FALSE(canceled.target);
 
     REQUIRE(
         controller
@@ -803,8 +850,8 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
             .consumed);
     auto exact_slop_release = controller.handle(
         {WorldPointerEventKind::MouseUp, {18.0f, 10.0f}, {18.0f, 10.0f}, 0, true, true});
-    REQUIRE(exact_slop_release.activation);
-    CHECK(*exact_slop_release.activation == hotspot);
+    REQUIRE(exact_slop_release.target);
+    CHECK(*exact_slop_release.target == semantic_target("room-target"));
 
     REQUIRE(
         controller
@@ -816,7 +863,7 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
     auto blocked_release = controller.handle(
         {WorldPointerEventKind::MouseUp, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true});
     CHECK_FALSE(blocked_release.consumed);
-    CHECK_FALSE(blocked_release.activation);
+    CHECK_FALSE(blocked_release.target);
 
     REQUIRE(
         controller
@@ -831,11 +878,11 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
     CHECK_FALSE(
         controller
             .handle({WorldPointerEventKind::TouchUp, {30.0f, 30.0f}, {30.0f, 30.0f}, 2, true, true})
-            .activation);
+            .target);
     auto touch_release = controller.handle(
         {WorldPointerEventKind::TouchUp, {20.0f, 20.0f}, {20.0f, 20.0f}, 1, true, true});
-    REQUIRE(touch_release.activation);
-    CHECK(*touch_release.activation == hotspot);
+    REQUIRE(touch_release.target);
+    CHECK(*touch_release.target == semantic_target("room-target"));
 }
 
 TEST_CASE("world hotspot capture revalidates release containment and presentation generation")
@@ -849,10 +896,10 @@ TEST_CASE("world hotspot capture revalidates release containment and presentatio
                                                  .fit = compiled::BackgroundFit::Stretch};
     const compiled::HotspotRef hotspot =
         compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("small")};
-    snapshot.hotspots.push_back(
-        {hotspot, "Small", true, true, compiled::VerbHotspotActivation{id<VerbId>("inspect")},
-         compiled::NormalizedRect{0.0, 0.0, 0.1, 0.1}, 0, compiled::NoHotspotHighlight{},
-         id<AssetId>("room-image"), 100, 100});
+    snapshot.hotspots.push_back({hotspot, "Small", true, true, semantic_target("small-target"),
+                                 compiled::NormalizedRect{0.0, 0.0, 0.1, 0.1}, 0,
+                                 compiled::NoHotspotHighlight{}, id<AssetId>("room-image"), 100,
+                                 100});
     REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
     controller.presentation_changed();
 
@@ -863,7 +910,7 @@ TEST_CASE("world hotspot capture revalidates release containment and presentatio
     auto outside_release = controller.handle(
         {WorldPointerEventKind::MouseUp, {11.0f, 5.0f}, {11.0f, 5.0f}, 0, true, true});
     CHECK(outside_release.consumed);
-    CHECK_FALSE(outside_release.activation);
+    CHECK_FALSE(outside_release.target);
 
     REQUIRE(
         controller
@@ -876,7 +923,7 @@ TEST_CASE("world hotspot capture revalidates release containment and presentatio
     auto surviving_release = controller.handle(
         {WorldPointerEventKind::MouseUp, {5.0f, 5.0f}, {5.0f, 5.0f}, 0, true, true});
     CHECK_FALSE(surviving_release.consumed);
-    CHECK_FALSE(surviving_release.activation);
+    CHECK_FALSE(surviving_release.target);
 
     REQUIRE(
         controller
@@ -889,5 +936,5 @@ TEST_CASE("world hotspot capture revalidates release containment and presentatio
     auto removed_release = controller.handle(
         {WorldPointerEventKind::MouseUp, {5.0f, 5.0f}, {5.0f, 5.0f}, 0, true, true});
     CHECK_FALSE(removed_release.consumed);
-    CHECK_FALSE(removed_release.activation);
+    CHECK_FALSE(removed_release.target);
 }

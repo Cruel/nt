@@ -32,6 +32,12 @@ describe('recorded test draft conversion', () => {
               subjects: [
                 { kind: 'character', id: 'guard' },
                 { kind: 'interactable', id: 'lamp' },
+                {
+                  kind: 'feature',
+                  ownerKind: 'room',
+                  ownerId: 'foyer',
+                  featureId: 'door',
+                },
               ],
             },
           },
@@ -52,15 +58,6 @@ describe('recorded test draft conversion', () => {
                 { kind: 'character', id: 'guard' },
                 { kind: 'interactable', id: 'lamp' },
               ],
-            },
-          },
-          {
-            id: 'hotspot-1',
-            kind: 'activate-hotspot',
-            label: 'Open the door',
-            input: {
-              type: 'activate-hotspot',
-              hotspot: { kind: 'room-hotspot', room: 'foyer', hotspotId: 'door' },
             },
           },
         ],
@@ -88,6 +85,14 @@ describe('recorded test draft conversion', () => {
                 kind: 'interactable',
                 interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
               },
+              {
+                kind: 'feature',
+                feature: {
+                  ownerKind: 'room',
+                  room: { $ref: { collection: 'rooms', id: 'foyer' } },
+                  featureId: 'door',
+                },
+              },
             ],
           },
         },
@@ -104,17 +109,6 @@ describe('recorded test draft conversion', () => {
                 interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
               },
             ],
-          },
-        },
-        {
-          id: 'hotspot-1',
-          input: 'activate-hotspot',
-          activateHotspot: {
-            hotspot: {
-              kind: 'room-hotspot',
-              room: { $ref: { collection: 'rooms', id: 'foyer' } },
-              hotspotId: 'door',
-            },
           },
         },
       ],

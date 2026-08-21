@@ -152,13 +152,13 @@ std::optional<PropertyOwnerRef> property_owner_field(const nlohmann::json& objec
             error("editor_protocol.wrong_type", "Expected an owner object.", owner_path));
         return std::nullopt;
     }
-    exact_fields(*found, {"kind", "id"}, diagnostics, owner_path);
     auto kind = string_field(*found, "kind", diagnostics, owner_path, limits);
     if (!kind)
         return std::nullopt;
 
 #define DECODE_OWNER(kind_text, id_type)                                                           \
     if (*kind == kind_text) {                                                                      \
+        exact_fields(*found, {"kind", "id"}, diagnostics, owner_path);                             \
         auto id = id_field<id_type>(*found, "id", diagnostics, owner_path, limits);                \
         return id ? std::optional<PropertyOwnerRef>{PropertyOwnerRef{std::move(*id)}}              \
                   : std::nullopt;                                                                  \
@@ -167,6 +167,31 @@ std::optional<PropertyOwnerRef> property_owner_field(const nlohmann::json& objec
     DECODE_OWNER("character", CharacterId)
     DECODE_OWNER("interactable", InteractableId)
 #undef DECODE_OWNER
+    if (*kind == "feature") {
+        exact_fields(*found, {"kind", "ownerKind", "ownerId", "featureId"}, diagnostics,
+                     owner_path);
+        auto owner_kind = string_field(*found, "ownerKind", diagnostics, owner_path, limits);
+        auto feature = id_field<FeatureId>(*found, "featureId", diagnostics, owner_path, limits);
+        if (!owner_kind || !feature)
+            return std::nullopt;
+        if (*owner_kind == "room") {
+            auto owner = id_field<RoomId>(*found, "ownerId", diagnostics, owner_path, limits);
+            return owner ? std::optional<PropertyOwnerRef>{RoomFeatureRef{std::move(*owner),
+                                                                          std::move(*feature)}}
+                         : std::nullopt;
+        }
+        if (*owner_kind == "interactable") {
+            auto owner =
+                id_field<InteractableId>(*found, "ownerId", diagnostics, owner_path, limits);
+            return owner ? std::optional<PropertyOwnerRef>{InteractableFeatureRef{
+                               std::move(*owner), std::move(*feature)}}
+                         : std::nullopt;
+        }
+        diagnostics.push_back(error("editor_protocol.invalid_owner_kind",
+                                    "Feature ownerKind must be room or interactable.",
+                                    owner_path + "/ownerKind"));
+        return std::nullopt;
+    }
 
     diagnostics.push_back(error("editor_protocol.invalid_owner_kind",
                                 "Unknown property owner kind.", owner_path + "/kind"));
@@ -672,20 +697,44 @@ subject_array(const nlohmann::json& object, std::string_view key, Diagnostics& d
                                         "Expected an Interaction subject object.", item_path));
             continue;
         }
-        exact_fields(item, {"kind", "id"}, diagnostics, item_path);
         const auto kind = string_field(item, "kind", diagnostics, item_path, limits);
         if (kind && *kind == "character") {
+            exact_fields(item, {"kind", "id"}, diagnostics, item_path);
             auto id = id_field<CharacterId>(item, "id", diagnostics, item_path, limits);
             if (id)
                 result.emplace_back(compiled::CharacterInteractionSubject{std::move(*id)});
         } else if (kind && *kind == "interactable") {
+            exact_fields(item, {"kind", "id"}, diagnostics, item_path);
             auto id = id_field<InteractableId>(item, "id", diagnostics, item_path, limits);
             if (id)
                 result.emplace_back(compiled::InteractableInteractionSubject{std::move(*id)});
+        } else if (kind && *kind == "feature") {
+            exact_fields(item, {"kind", "ownerKind", "ownerId", "featureId"}, diagnostics,
+                         item_path);
+            auto owner_kind = string_field(item, "ownerKind", diagnostics, item_path, limits);
+            auto feature = id_field<FeatureId>(item, "featureId", diagnostics, item_path, limits);
+            if (!owner_kind || !feature)
+                continue;
+            if (*owner_kind == "room") {
+                auto owner = id_field<RoomId>(item, "ownerId", diagnostics, item_path, limits);
+                if (owner)
+                    result.emplace_back(compiled::FeatureInteractionSubject{
+                        RoomFeatureRef{std::move(*owner), std::move(*feature)}});
+            } else if (*owner_kind == "interactable") {
+                auto owner =
+                    id_field<InteractableId>(item, "ownerId", diagnostics, item_path, limits);
+                if (owner)
+                    result.emplace_back(compiled::FeatureInteractionSubject{
+                        InteractableFeatureRef{std::move(*owner), std::move(*feature)}});
+            } else {
+                diagnostics.push_back(error("editor_protocol.invalid_subject_kind",
+                                            "Feature ownerKind must be room or interactable.",
+                                            item_path + "/ownerKind"));
+            }
         } else if (kind) {
             diagnostics.push_back(
                 error("editor_protocol.invalid_subject_kind",
-                      "Interaction subject kind must be character or interactable.",
+                      "Interaction subject kind must be character, interactable, or feature.",
                       item_path + "/kind"));
         }
     }
@@ -699,43 +748,26 @@ nlohmann::json encode_subject(const compiled::InteractionSubject& subject)
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>)
                 return nlohmann::json{{"kind", "character"}, {"id", value.character.text()}};
-            else
+            else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>)
                 return nlohmann::json{{"kind", "interactable"}, {"id", value.interactable.text()}};
+            else
+                return std::visit(
+                    [](const auto& reference) -> nlohmann::json {
+                        using R = std::decay_t<decltype(reference)>;
+                        if constexpr (std::is_same_v<R, RoomFeatureRef>)
+                            return {{"kind", "feature"},
+                                    {"ownerKind", "room"},
+                                    {"ownerId", reference.room.text()},
+                                    {"featureId", reference.feature_id.text()}};
+                        else
+                            return {{"kind", "feature"},
+                                    {"ownerKind", "interactable"},
+                                    {"ownerId", reference.interactable.text()},
+                                    {"featureId", reference.feature_id.text()}};
+                    },
+                    value.feature);
         },
         subject);
-}
-
-std::optional<compiled::HotspotRef> hotspot_field(const nlohmann::json& object,
-                                                  std::string_view key, Diagnostics& diagnostics,
-                                                  std::string_view path,
-                                                  const EditorRuntimeProtocolLimits& limits)
-{
-    const auto found = object.find(key);
-    const auto field_path = std::string(path) + "/" + std::string(key);
-    if (found == object.end() || !found->is_object()) {
-        diagnostics.push_back(
-            error("editor_protocol.wrong_type", "Hotspot must be an object.", field_path));
-        return std::nullopt;
-    }
-    auto kind = string_field(*found, "kind", diagnostics, field_path, limits);
-    auto id = id_field<HotspotId>(*found, "hotspotId", diagnostics, field_path, limits);
-    if (kind && *kind == "room-hotspot") {
-        exact_fields(*found, {"kind", "room", "hotspotId"}, diagnostics, field_path);
-        auto room = id_field<RoomId>(*found, "room", diagnostics, field_path, limits);
-        if (room && id)
-            return compiled::RoomHotspotRef{std::move(*room), std::move(*id)};
-    } else if (kind && *kind == "interactable-hotspot") {
-        exact_fields(*found, {"kind", "interactable", "hotspotId"}, diagnostics, field_path);
-        auto interactable =
-            id_field<InteractableId>(*found, "interactable", diagnostics, field_path, limits);
-        if (interactable && id)
-            return compiled::InteractableHotspotRef{std::move(*interactable), std::move(*id)};
-    } else if (kind) {
-        diagnostics.push_back(error("editor_protocol.invalid_hotspot_kind",
-                                    "Hotspot kind must be room-hotspot or interactable-hotspot.",
-                                    field_path + "/kind"));
-    }
-    return std::nullopt;
 }
 
 Result<RuntimeInputMessage, Diagnostics>
@@ -847,11 +879,6 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
         auto operands = subject_array(*input, "operands", diagnostics, path, limits);
         if (verb && operands)
             return success(InvokeInteractionInput{std::move(*verb), std::move(*operands)});
-    } else if (*type == "activate-hotspot") {
-        exact_fields(*input, {"type", "hotspot"}, diagnostics, path);
-        auto hotspot = hotspot_field(*input, "hotspot", diagnostics, path, limits);
-        if (hotspot)
-            return success(ActivateHotspotInput{std::move(*hotspot)});
     } else if (*type == "set-variable") {
         exact_fields(*input, {"type", "variable", "value"}, diagnostics, path);
         auto variable = id_field<PropertyId>(*input, "variable", diagnostics, path, limits);
@@ -933,9 +960,26 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                         if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>) {
                             encoded["kind"] = "character";
                             encoded["character"] = subject.character.text();
-                        } else {
+                        } else if constexpr (std::is_same_v<
+                                                 T, compiled::InteractableInteractionSubject>) {
                             encoded["kind"] = "interactable";
                             encoded["interactable"] = subject.interactable.text();
+                        } else {
+                            encoded.update(std::visit(
+                                [](const auto& reference) -> nlohmann::json {
+                                    using R = std::decay_t<decltype(reference)>;
+                                    if constexpr (std::is_same_v<R, RoomFeatureRef>)
+                                        return {{"kind", "feature"},
+                                                {"ownerKind", "room"},
+                                                {"ownerId", reference.room.text()},
+                                                {"featureId", reference.feature_id.text()}};
+                                    else
+                                        return {{"kind", "feature"},
+                                                {"ownerKind", "interactable"},
+                                                {"ownerId", reference.interactable.text()},
+                                                {"featureId", reference.feature_id.text()}};
+                                },
+                                subject.feature));
                         }
                     },
                     occupant.subject);
@@ -953,26 +997,9 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
         out["scene"] = {{"id", view.scene->scene.text()},
                         {"hasText", view.scene->text.has_value()},
                         {"hasChoice", view.scene->choice.has_value()}};
-    if (view.interaction) {
-        nlohmann::json hotspot = nullptr;
-        if (view.interaction->hotspot)
-            hotspot = std::visit(
-                [](const auto& reference) -> nlohmann::json {
-                    using H = std::decay_t<decltype(reference)>;
-                    if constexpr (std::is_same_v<H, compiled::RoomHotspotRef>)
-                        return {{"kind", "room-hotspot"},
-                                {"room", reference.room.text()},
-                                {"hotspotId", reference.hotspot_id.text()}};
-                    else
-                        return {{"kind", "interactable-hotspot"},
-                                {"interactable", reference.interactable.text()},
-                                {"hotspotId", reference.hotspot_id.text()}};
-                },
-                *view.interaction->hotspot);
+    if (view.interaction)
         out["interaction"] = {{"verb", view.interaction->verb.text()},
-                              {"operands", nlohmann::json::array()},
-                              {"hotspot", std::move(hotspot)}};
-    }
+                              {"operands", nlohmann::json::array()}};
     if (view.interaction)
         for (const auto& operand : view.interaction->operands)
             out["interaction"]["operands"].push_back(encode_subject(operand));

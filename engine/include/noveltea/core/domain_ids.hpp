@@ -25,6 +25,7 @@ NOVELTEA_DOMAIN_ID(AssetId);
 NOVELTEA_DOMAIN_ID(MaterialId);
 NOVELTEA_DOMAIN_ID(PropertyId);
 NOVELTEA_DOMAIN_ID(TraitId);
+NOVELTEA_DOMAIN_ID(FeatureId);
 NOVELTEA_DOMAIN_ID(SceneStepId);
 NOVELTEA_DOMAIN_ID(TransitionGroupChildId);
 NOVELTEA_DOMAIN_ID(DialogueBlockId);
@@ -49,10 +50,24 @@ NOVELTEA_DOMAIN_ID(MapLocationId);
 NOVELTEA_DOMAIN_ID(MapConnectionId);
 #undef NOVELTEA_DOMAIN_ID
 
+struct RoomFeatureRef {
+    RoomId room;
+    FeatureId feature_id;
+    auto operator<=>(const RoomFeatureRef&) const = default;
+};
+struct InteractableFeatureRef {
+    InteractableId interactable;
+    FeatureId feature_id;
+    auto operator<=>(const InteractableFeatureRef&) const = default;
+};
+using FeatureRef = std::variant<RoomFeatureRef, InteractableFeatureRef>;
+
 enum class PropertyOwnerKind : std::uint8_t {
     Room,
     Character,
-    Interactable
+    Interactable,
+    Feature
 };
-using PropertyOwnerRef = std::variant<RoomId, CharacterId, InteractableId>;
+using PropertyOwnerRef =
+    std::variant<RoomId, CharacterId, InteractableId, RoomFeatureRef, InteractableFeatureRef>;
 } // namespace noveltea::core

@@ -86,14 +86,15 @@ describe('compiled project cross-language golden corpus', () => {
     expectGolden('interaction-program', interactionProgramGoldenProject());
   });
 
-  it('rejects null compiled hotspot Verb activations', () => {
+  it('rejects malformed compiled Feature references', () => {
     const interaction = structuredClone(compileFixture(interactionProgramGoldenProject()));
-    const room = interaction.definitions.rooms.find((candidate) => candidate.id === 'start')!;
-    const activation = room.hotspots.find(
-      (candidate) => candidate.id === 'inspect-door',
-    )!.activation;
-    if (activation.kind !== 'verb') throw new Error('Expected Verb hotspot activation.');
-    (activation as { verb: unknown }).verb = null;
+    const rule = interaction.definitions.interactions
+      .flatMap((definition) => definition.rules)
+      .find((candidate) => candidate.id === 'room-feature')!;
+    const operand = rule.operands[0];
+    if (operand?.kind !== 'exact' || operand.subject.kind !== 'feature')
+      throw new Error('Expected exact Feature operand.');
+    (operand.subject.feature as { featureId: unknown }).featureId = null;
     expect(compiledProjectWireV4Schema.safeParse(interaction).success).toBe(false);
   });
 
@@ -127,7 +128,7 @@ describe('compiled project cross-language golden corpus', () => {
       'inline-lua',
       'interactable',
       'inventory',
-      'interactable-hotspot',
+      'feature',
       'layout',
       'line',
       'localized',
@@ -144,7 +145,6 @@ describe('compiled project cross-language golden corpus', () => {
       'redirect',
       'return',
       'room',
-      'room-hotspot',
       'room-placement',
       'run-lua',
       'run-lua-effect',
@@ -212,7 +212,6 @@ describe('compiled project cross-language golden corpus', () => {
     expect(sorted(new Set(actions.rules.map((rule) => rule.context.kind)))).toEqual([
       'active-room',
       'any',
-      'hotspot',
       'predicate',
       'room-placement',
     ]);
@@ -221,12 +220,12 @@ describe('compiled project cross-language golden corpus', () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: 'inspect-door',
-          activation: { kind: 'verb', verb: { kind: 'verb', id: 'inspect' } },
+          target: { kind: 'owner-feature', featureId: 'door' },
           shape: { kind: 'rect', bounds: { x: 0.7, y: 0.1, width: 0.2, height: 0.5 } },
         }),
         expect.objectContaining({
           id: 'north-door',
-          activation: { kind: 'exit', exitId: 'north-exit' },
+          target: { kind: 'exit', exitId: 'north-exit' },
         }),
       ]),
     );

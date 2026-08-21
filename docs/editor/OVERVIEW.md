@@ -107,8 +107,8 @@ When changing ComfyUI workflows, update the user-facing import doc when behavior
 - `docs/editor/plans/IMPLEMENTATION_PLAN.md` — broad editor implementation plan and workbench/project-service architecture.
 - `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` — workbench shell milestone plan.
 - `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md` — permanent cross-cutting contract
-  for the reusable React hotspot editor, Room composition/placement tools, and compiled/runtime
-  integration.
+  for nested Features, the reusable React Hotspot editor, semantic pointer targets, and
+  compiled/runtime integration.
 Plans should not silently become stale. When planned work is complete or superseded, update its status,
 move durable behavior into a current subsystem document, and archive the implementation history.
 

@@ -1,7 +1,8 @@
 # Runtime Documentation Overview
 
-Hotspot hit testing, exact-context Interaction activation, Room-exit routing, and pointer consumption
-are specified in `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md`.
+Feature subject identity, Hotspot hit testing, semantic target dispatch, Room-exit routing, and
+pointer consumption are specified in
+`docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md`.
 
 ## Purpose
 

@@ -342,6 +342,9 @@ describe('Archetype authoring semantics', () => {
     let project = createAuthoringProject();
     addArchetype(project, 'room-base', 'room', {
       overrides: {
+        '/data/features': [
+          { id: 'desk-surface', label: 'Desk surface', traits: [], properties: {} },
+        ],
         '/data/hotspots': [
           {
             id: 'desk',
@@ -353,7 +356,7 @@ describe('Archetype authoring semantics', () => {
               kind: 'rect',
               bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
             },
-            activation: { kind: 'verb', verb: null },
+            target: { kind: 'owner-feature', featureId: 'desk-surface' },
           },
         ],
         '/data/placements': [
@@ -407,7 +410,7 @@ describe('Archetype authoring semantics', () => {
             condition: { kind: 'always' },
             inputOrder: 0,
             highlight: { kind: 'default' },
-            activation: { kind: 'verb', verb: null },
+            target: { kind: 'owner' },
           },
         },
       },

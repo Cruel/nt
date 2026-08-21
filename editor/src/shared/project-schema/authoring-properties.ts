@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 
-export const propertyOwnerKindValues = ['room', 'character', 'interactable'] as const;
+export const propertyOwnerKindValues = ['room', 'character', 'interactable', 'feature'] as const;
 export const propertyValueTypeValues = ['boolean', 'integer', 'number', 'string', 'enum'] as const;
 
 export const authoredRuntimeValueSchema = z.union([

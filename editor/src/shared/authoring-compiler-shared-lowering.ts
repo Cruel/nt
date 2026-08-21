@@ -11,6 +11,12 @@ import {
   COMPILED_PROJECT_SCHEMA_VERSION,
 } from './project-schema/compiled-project';
 import type { Condition, TextContent } from './project-schema/authoring-flow';
+import type {
+  FeatureData,
+  InteractionSubjectData,
+  InteractableHotspotTarget,
+  RoomHotspotTarget,
+} from './project-schema/authoring-features';
 import {
   systemLayoutRoleValues,
   parseLayoutData,
@@ -109,13 +115,43 @@ function compileHighlight(highlight: {
     : { kind: highlight.kind };
 }
 
-function compileVerbActivation(activation: {
-  kind: 'verb';
-  verb: { $ref: { id: string } } | null;
-}) {
-  return activation.verb
-    ? { kind: 'verb' as const, verb: { kind: 'verb' as const, id: activation.verb.$ref.id } }
-    : null;
+function compileInteractionSubject(subject: InteractionSubjectData) {
+  if (subject.kind === 'character')
+    return { kind: 'character' as const, character: characterRef(subject.character)! };
+  if (subject.kind === 'interactable')
+    return {
+      kind: 'interactable' as const,
+      interactable: { kind: 'interactable' as const, id: subject.interactable.$ref.id },
+    };
+  return {
+    kind: 'feature' as const,
+    feature:
+      subject.feature.ownerKind === 'room'
+        ? {
+            ownerKind: 'room' as const,
+            room: roomRef(subject.feature.room.$ref.id),
+            featureId: subject.feature.featureId,
+          }
+        : {
+            ownerKind: 'interactable' as const,
+            interactable: {
+              kind: 'interactable' as const,
+              id: subject.feature.interactable.$ref.id,
+            },
+            featureId: subject.feature.featureId,
+          },
+  };
+}
+
+function compileRoomHotspotTarget(target: RoomHotspotTarget) {
+  if (target.kind === 'owner-feature') return { ...target };
+  if (target.kind === 'exit') return { ...target };
+  return { kind: 'subject' as const, subject: compileInteractionSubject(target.subject) };
+}
+
+function compileInteractableHotspotTarget(target: InteractableHotspotTarget) {
+  if (target.kind === 'owner' || target.kind === 'owner-feature') return { ...target };
+  return { kind: 'subject' as const, subject: compileInteractionSubject(target.subject) };
 }
 
 function materialRef(ref: { $ref: { id: string } } | null | undefined) {
@@ -160,7 +196,7 @@ function compileCondition(condition: Condition): CompiledCondition {
   };
 }
 
-function propertyAssignments(record: AuthoringRecordBase) {
+function propertyAssignments(record: Pick<AuthoringRecordBase, 'properties'>) {
   return Object.entries(record.properties ?? {})
     .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([propertyId, value]) => ({ propertyId, value }));
@@ -170,11 +206,18 @@ function definitionBase(id: string) {
   return { id };
 }
 
-function propertyBase(id: string, record: AuthoringRecordBase) {
+function propertyBase(id: string, record: Pick<AuthoringRecordBase, 'traits' | 'properties'>) {
   return {
     id,
     traits: [...(record.traits ?? [])].sort(),
     propertyAssignments: propertyAssignments(record),
+  };
+}
+
+function compileFeature(feature: FeatureData) {
+  return {
+    ...propertyBase(feature.id, feature),
+    label: feature.label,
   };
 }
 
@@ -207,39 +250,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
     return { diagnostics };
   }
-
-  for (const [roomId, record] of sortedEntries(project.rooms)) {
-    const effectiveRecord = resolveGameplayInstanceRecord(project, 'room', record);
-    const room = parseRoomData(effectiveRecord?.data);
-    for (const [index, hotspot] of (room?.hotspots ?? []).entries()) {
-      if (hotspot.activation.kind === 'verb' && !hotspot.activation.verb)
-        diagnostics.push({
-          code: 'hotspot.compiled.unbound_verb',
-          path: `/rooms/${roomId}/data/hotspots/${index}/activation/verb`,
-          message: `Room hotspot '${hotspot.id}' must bind a Verb before compilation.`,
-        });
-    }
-  }
-  for (const [interactableId, record] of sortedEntries(project.interactables)) {
-    const effectiveRecord = resolveGameplayInstanceRecord(project, 'interactable', record);
-    const interactable = parseInteractableData(effectiveRecord?.data);
-    const hotspots =
-      interactable?.presentation.hotspots.kind === 'sprite-alpha'
-        ? [interactable.presentation.hotspots.hotspot]
-        : (interactable?.presentation.hotspots.hotspots ?? []);
-    for (const [index, hotspot] of hotspots.entries()) {
-      if (!hotspot.activation.verb)
-        diagnostics.push({
-          code: 'hotspot.compiled.unbound_verb',
-          path:
-            interactable?.presentation.hotspots.kind === 'sprite-alpha'
-              ? `/interactables/${interactableId}/data/presentation/hotspots/hotspot/activation/verb`
-              : `/interactables/${interactableId}/data/presentation/hotspots/hotspots/${index}/activation/verb`,
-          message: `Interactable hotspot '${hotspot.id}' must bind a Verb before compilation.`,
-        });
-    }
-  }
-  if (diagnostics.length > 0) return { diagnostics };
 
   const requireData = <T>(value: T | null, path: string): T | undefined => {
     if (value) return value;
@@ -411,17 +421,15 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           layout: layoutRef(placement.presentation.layout),
         },
       })),
-      hotspots: data.hotspots!.map((hotspot) => ({
+      features: data.features.map(compileFeature),
+      hotspots: data.hotspots.map((hotspot) => ({
         id: hotspot.id,
         label: hotspot.label,
         condition: compileCondition(hotspot.condition),
         inputOrder: hotspot.inputOrder,
         highlight: compileHighlight(hotspot.highlight),
         shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
-        activation:
-          hotspot.activation.kind === 'verb'
-            ? compileVerbActivation(hotspot.activation)!
-            : { kind: 'exit', exitId: hotspot.activation.exitId },
+        target: compileRoomHotspotTarget(hotspot.target),
       })),
       cast: data.cast.map((entry) => ({
         id: entry.id,
@@ -490,6 +498,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     return {
       ...propertyBase(id, record),
       displayName: data.displayName,
+      features: data.features.map(compileFeature),
       presentation: {
         sprite: assetRef(data.presentation.sprite),
         material: materialRef(data.presentation.material),
@@ -501,7 +510,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                   ...hotspotDefinition.hotspot,
                   condition: compileCondition(hotspotDefinition.hotspot.condition),
                   highlight: compileHighlight(hotspotDefinition.hotspot.highlight),
-                  activation: compileVerbActivation(hotspotDefinition.hotspot.activation)!,
+                  target: compileInteractableHotspotTarget(hotspotDefinition.hotspot.target),
                 },
               }
             : {
@@ -512,7 +521,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                   condition: compileCondition(hotspot.condition),
                   inputOrder: hotspot.inputOrder,
                   highlight: compileHighlight(hotspot.highlight),
-                  activation: compileVerbActivation(hotspot.activation)!,
+                  target: compileInteractableHotspotTarget(hotspot.target),
                   shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
                 })),
               },

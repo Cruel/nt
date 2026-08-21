@@ -37,6 +37,7 @@ import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { EditorPreviewSplit } from '@/components/editor-preview-split';
+import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 import {
@@ -1221,52 +1222,62 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         ) : null}
 
         {activeCategory === 'hotspots' ? (
-          <HotspotAuthoringPanel
-            anchorPrefix="room"
-            project={project}
-            projectFilePath={projectFilePath}
-            title={t('hotspots.roomTitle')}
-            assetId={data.background.asset?.$ref.id ?? null}
-            hotspots={data.hotspots}
-            selectedView={hotspotView}
-            arity={0}
-            roomVisibleGuide={{
-              referenceSize: projectSettingsFromProject(project).display.referenceResolution,
-              fit: data.background.fit,
-            }}
-            exits={data.exits.map((exit) => ({ id: exit.id, label: exit.id }))}
-            onViewChange={setHotspotView}
-            onAdd={(bounds) => {
-              const id = nextHotspotId();
-              executeHotspot('room.addHotspot', 'Add room hotspot', {
-                hotspot: {
-                  id,
-                  label: t('hotspots.defaultLabel'),
-                  condition: { kind: 'always' },
-                  inputOrder: Math.min(2147483647, nextHotspotInputOrder + 1),
-                  highlight: { kind: 'default' },
-                  activation: { kind: 'verb', verb: null },
-                  shape: { kind: 'rect', bounds },
-                },
-              });
-              setHotspotView((view) => ({ ...view, selectedHotspotId: id, tool: 'select' }));
-            }}
-            onDelete={(hotspotId) =>
-              executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
-            }
-            onRename={(hotspotId, nextId) =>
-              executeHotspot('room.renameHotspot', 'Rename room hotspot', { hotspotId, nextId })
-            }
-            onUpdate={(hotspotId, hotspot) =>
-              executeHotspot('room.updateHotspot', 'Update room hotspot', { hotspotId, hotspot })
-            }
-            onBounds={(hotspotId, bounds) =>
-              executeHotspot('room.setHotspotBounds', 'Set room hotspot bounds', {
-                hotspotId,
-                bounds,
-              })
-            }
-          />
+          <div className="space-y-4">
+            <FeatureAuthoringPanel
+              project={project}
+              features={data.features}
+              anchorPrefix="room"
+              onChange={(features, label) => commit({ ...data, features }, label)}
+            />
+            <HotspotAuthoringPanel
+              anchorPrefix="room"
+              project={project}
+              projectFilePath={projectFilePath}
+              title={t('hotspots.roomTitle')}
+              assetId={data.background.asset?.$ref.id ?? null}
+              hotspots={data.hotspots}
+              selectedView={hotspotView}
+              ownerKind="room"
+              ownerId={roomId}
+              localFeatures={data.features}
+              roomVisibleGuide={{
+                referenceSize: projectSettingsFromProject(project).display.referenceResolution,
+                fit: data.background.fit,
+              }}
+              exits={data.exits.map((exit) => ({ id: exit.id, label: exit.id }))}
+              onViewChange={setHotspotView}
+              onAdd={(bounds, target) => {
+                const id = nextHotspotId();
+                executeHotspot('room.addHotspot', 'Add room hotspot', {
+                  hotspot: {
+                    id,
+                    label: t('hotspots.defaultLabel'),
+                    condition: { kind: 'always' },
+                    inputOrder: Math.min(2147483647, nextHotspotInputOrder + 1),
+                    highlight: { kind: 'default' },
+                    target,
+                    shape: { kind: 'rect', bounds },
+                  },
+                });
+                setHotspotView((view) => ({ ...view, selectedHotspotId: id, tool: 'select' }));
+              }}
+              onDelete={(hotspotId) =>
+                executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
+              }
+              onRename={(hotspotId, nextId) =>
+                executeHotspot('room.renameHotspot', 'Rename room hotspot', { hotspotId, nextId })
+              }
+              onUpdate={(hotspotId, hotspot) =>
+                executeHotspot('room.updateHotspot', 'Update room hotspot', { hotspotId, hotspot })
+              }
+              onBounds={(hotspotId, bounds) =>
+                executeHotspot('room.setHotspotBounds', 'Set room hotspot bounds', {
+                  hotspotId,
+                  bounds,
+                })
+              }
+            />
+          </div>
         ) : null}
 
         {activeCategory === 'navigation' ? (

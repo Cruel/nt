@@ -2016,14 +2016,25 @@ void Engine::Impl::handle_events()
                      .pointer_id = touch ? normalized.touch_id : 0,
                      .primary = touch || normalized.mouse_button == SDL_BUTTON_LEFT,
                      .admitted = routed.route_diagnostics.gameplay_admitted});
-                if (world.activation) {
-                    if (!dispatch_runtime_input(core::RuntimeInputMessage{
-                            core::ActivateHotspotInput{std::move(*world.activation)}})) {
+                if (world.target) {
+                    const bool accepted = std::visit(
+                        [this](const auto& target) {
+                            using T = std::decay_t<decltype(target)>;
+                            if constexpr (std::is_same_v<T, core::compiled::InteractionSubject>)
+                                return dispatch_runtime_input(core::RuntimeInputMessage{
+                                    core::SelectInteractionSubjectsInput{{target}}});
+                            else
+                                return dispatch_runtime_input(core::RuntimeInputMessage{
+                                    core::NavigateRoomInput{target.exit_id}});
+                        },
+                        *world.target);
+                    if (!accepted) {
                         routed.diagnostics.push_back(
-                            {.code = "host.input.hotspot_activation_rejected",
-                             .message = "The runtime rejected an activated world hotspot"});
+                            {.code = "host.input.hotspot_target_rejected",
+                             .message = "The runtime rejected the semantic target selected by a "
+                                        "world hotspot"});
                     }
-                    m_world_hotspots.activation_completed();
+                    m_world_hotspots.target_completed();
                 }
                 if (world.consumed)
                     routed.disposition = host::HostInputDisposition::Consumed;

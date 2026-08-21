@@ -43,10 +43,23 @@ function refId(ref: { $ref: { id: string } } | null | undefined): string {
 
 function typedSubject(
   subject: TestStepData['selectSubjects']['subjects'][number],
-): Record<string, string> {
-  return subject.kind === 'character'
-    ? { kind: 'character', id: subject.character.$ref.id }
-    : { kind: 'interactable', id: subject.interactable.$ref.id };
+): Record<string, unknown> {
+  if (subject.kind === 'character') return { kind: 'character', id: subject.character.$ref.id };
+  if (subject.kind === 'interactable')
+    return { kind: 'interactable', id: subject.interactable.$ref.id };
+  return subject.feature.ownerKind === 'room'
+    ? {
+        kind: 'feature',
+        ownerKind: 'room',
+        ownerId: subject.feature.room.$ref.id,
+        featureId: subject.feature.featureId,
+      }
+    : {
+        kind: 'feature',
+        ownerKind: 'interactable',
+        ownerId: subject.feature.interactable.$ref.id,
+        featureId: subject.feature.featureId,
+      };
 }
 
 function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
@@ -62,25 +75,6 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
       type: 'invoke-interaction',
       verb: refId(step.runInteraction.verb),
       operands: step.runInteraction.operands.map(typedSubject),
-    };
-  }
-  if (step.input === 'activate-hotspot') {
-    const hotspot = step.activateHotspot.hotspot;
-    if (!hotspot) return null;
-    return {
-      type: 'activate-hotspot',
-      hotspot:
-        hotspot.kind === 'room-hotspot'
-          ? {
-              kind: hotspot.kind,
-              room: hotspot.room.$ref.id,
-              hotspotId: hotspot.hotspotId,
-            }
-          : {
-              kind: hotspot.kind,
-              interactable: hotspot.interactable.$ref.id,
-              hotspotId: hotspot.hotspotId,
-            },
     };
   }
   if (step.input === 'load-save') {

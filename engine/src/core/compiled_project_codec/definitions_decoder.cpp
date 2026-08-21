@@ -67,28 +67,6 @@ decode_hotspot_highlight(Decoder& decoder, const nlohmann::json& value, std::str
     return std::nullopt;
 }
 
-std::optional<VerbHotspotActivation> decode_verb_hotspot_activation(Decoder& decoder,
-                                                                    const nlohmann::json& value,
-                                                                    std::string_view pointer)
-{
-    if (!decoder.object(value, pointer, {"kind", "verb"}))
-        return std::nullopt;
-    const auto* kind_value = decoder.member(value, "kind", pointer);
-    const auto* verb_value = decoder.member(value, "verb", pointer);
-    auto kind =
-        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
-    if (!kind || *kind != "verb") {
-        decoder.error(k_code_variant, "Expected verb hotspot activation.",
-                      pointer_child(pointer, "kind"));
-        return std::nullopt;
-    }
-    auto verb = verb_value ? decode_reference<VerbId>(decoder, *verb_value,
-                                                      pointer_child(pointer, "verb"), "verb")
-                           : std::nullopt;
-    return verb ? std::optional<VerbHotspotActivation>(VerbHotspotActivation{std::move(*verb)})
-                : std::nullopt;
-}
-
 struct DecodedHotspotCommon {
     HotspotId id;
     std::string label;
@@ -96,6 +74,98 @@ struct DecodedHotspotCommon {
     std::int32_t input_order;
     HotspotHighlight highlight;
 };
+
+std::optional<FeatureDefinition> decode_feature(Decoder& decoder, const nlohmann::json& value,
+                                                std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"id", "label", "propertyAssignments", "traits"}))
+        return std::nullopt;
+    auto identity = decode_identity<FeatureId>(decoder, value, pointer);
+    const auto* label_value = decoder.member(value, "label", pointer);
+    auto label =
+        label_value ? decoder.string(*label_value, pointer_child(pointer, "label")) : std::nullopt;
+    if (!identity || !label)
+        return std::nullopt;
+    return FeatureDefinition{std::move(*identity), std::move(*label)};
+}
+
+std::optional<RoomHotspotTarget>
+decode_room_hotspot_target(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Room hotspot target object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "owner-feature" && decoder.object(value, pointer, {"featureId", "kind"})) {
+        const auto* feature_value = decoder.member(value, "featureId", pointer);
+        auto feature = feature_value ? decoder.id<FeatureId>(*feature_value,
+                                                             pointer_child(pointer, "featureId"))
+                                     : std::nullopt;
+        if (feature)
+            return HotspotOwnerFeatureTarget{std::move(*feature)};
+    }
+    if (*kind == "subject" && decoder.object(value, pointer, {"kind", "subject"})) {
+        const auto* subject_value = decoder.member(value, "subject", pointer);
+        auto subject = subject_value ? decode_interaction_subject(decoder, *subject_value,
+                                                                  pointer_child(pointer, "subject"))
+                                     : std::nullopt;
+        if (subject)
+            return HotspotSubjectTarget{std::move(*subject)};
+    }
+    if (*kind == "exit" && decoder.object(value, pointer, {"exitId", "kind"})) {
+        const auto* exit_value = decoder.member(value, "exitId", pointer);
+        auto exit = exit_value
+                        ? decoder.id<RoomExitId>(*exit_value, pointer_child(pointer, "exitId"))
+                        : std::nullopt;
+        if (exit)
+            return RoomExitHotspotTarget{std::move(*exit)};
+    }
+    decoder.error(k_code_variant, "Unknown Room hotspot target kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<InteractableHotspotTarget>
+decode_interactable_hotspot_target(Decoder& decoder, const nlohmann::json& value,
+                                   std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected Interactable hotspot target object.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "owner" && decoder.object(value, pointer, {"kind"}))
+        return HotspotOwnerTarget{};
+    if (*kind == "owner-feature" && decoder.object(value, pointer, {"featureId", "kind"})) {
+        const auto* feature_value = decoder.member(value, "featureId", pointer);
+        auto feature = feature_value ? decoder.id<FeatureId>(*feature_value,
+                                                             pointer_child(pointer, "featureId"))
+                                     : std::nullopt;
+        if (feature)
+            return HotspotOwnerFeatureTarget{std::move(*feature)};
+    }
+    if (*kind == "subject" && decoder.object(value, pointer, {"kind", "subject"})) {
+        const auto* subject_value = decoder.member(value, "subject", pointer);
+        auto subject = subject_value ? decode_interaction_subject(decoder, *subject_value,
+                                                                  pointer_child(pointer, "subject"))
+                                     : std::nullopt;
+        if (subject)
+            return HotspotSubjectTarget{std::move(*subject)};
+    }
+    decoder.error(k_code_variant, "Unknown Interactable hotspot target kind.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
 
 std::optional<DecodedHotspotCommon>
 decode_hotspot_common(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
@@ -494,8 +564,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
 {
     if (!decoder.object(value, pointer,
                         {"background", "description", "displayName", "environments", "exits",
-                         "hotspots", "id", "cast", "compose", "lifecycle", "overlays", "placements",
-                         "props", "propertyAssignments", "traits"}))
+                         "features", "hotspots", "id", "cast", "compose", "lifecycle", "overlays",
+                         "placements", "props", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<RoomId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -505,6 +575,7 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     const auto* overlays_value = decoder.member(value, "overlays", pointer);
     const auto* placements_value = decoder.member(value, "placements", pointer);
     const auto* exits_value = decoder.member(value, "exits", pointer);
+    const auto* features_value = decoder.member(value, "features", pointer);
     const auto* hotspots_value = decoder.member(value, "hotspots", pointer);
     const auto* cast_value = decoder.member(value, "cast", pointer);
     const auto* props_value = decoder.member(value, "props", pointer);
@@ -727,6 +798,15 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       return std::nullopt;
                   })
             : std::nullopt;
+    auto features =
+        features_value
+            ? decoder.array<FeatureDefinition>(
+                  *features_value, pointer_child(pointer, "features"),
+                  [&](const nlohmann::json& feature,
+                      const std::string& item_pointer) -> std::optional<FeatureDefinition> {
+                      return decode_feature(decoder, feature, item_pointer);
+                  })
+            : std::nullopt;
     auto hotspots =
         hotspots_value
             ? decoder.array<RoomHotspot>(
@@ -734,52 +814,31 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                   [&](const nlohmann::json& hotspot,
                       const std::string& item_pointer) -> std::optional<RoomHotspot> {
                       if (!decoder.object(hotspot, item_pointer,
-                                          {"activation", "condition", "highlight", "id",
-                                           "inputOrder", "label", "shape"}))
+                                          {"condition", "highlight", "id", "inputOrder", "label",
+                                           "shape", "target"}))
                           return std::nullopt;
                       auto common = decode_hotspot_common(decoder, hotspot, item_pointer);
                       const auto* shape_value = decoder.member(hotspot, "shape", item_pointer);
-                      const auto* activation_value =
-                          decoder.member(hotspot, "activation", item_pointer);
+                      const auto* target_value = decoder.member(hotspot, "target", item_pointer);
                       auto shape =
                           shape_value
                               ? decode_rect_hotspot_shape(decoder, *shape_value,
                                                           pointer_child(item_pointer, "shape"))
                               : std::nullopt;
-                      std::optional<RoomHotspotActivation> activation;
-                      if (activation_value && activation_value->is_object()) {
-                          const auto activation_pointer = pointer_child(item_pointer, "activation");
-                          const auto* kind_value =
-                              decoder.member(*activation_value, "kind", activation_pointer);
-                          auto kind =
-                              kind_value ? decoder.string(*kind_value,
-                                                          pointer_child(activation_pointer, "kind"))
-                                         : std::nullopt;
-                          if (kind && *kind == "verb") {
-                              auto decoded = decode_verb_hotspot_activation(
-                                  decoder, *activation_value, activation_pointer);
-                              if (decoded)
-                                  activation = std::move(*decoded);
-                          } else if (kind && *kind == "exit" &&
-                                     decoder.object(*activation_value, activation_pointer,
-                                                    {"exitId", "kind"})) {
-                              const auto* exit_value =
-                                  decoder.member(*activation_value, "exitId", activation_pointer);
-                              auto exit = exit_value
-                                              ? decoder.id<RoomExitId>(
-                                                    *exit_value,
-                                                    pointer_child(activation_pointer, "exitId"))
-                                              : std::nullopt;
-                              if (exit)
-                                  activation = RoomExitHotspotActivation{std::move(*exit)};
-                          }
-                      }
-                      if (!common || !shape || !activation)
+                      auto target =
+                          target_value
+                              ? decode_room_hotspot_target(decoder, *target_value,
+                                                           pointer_child(item_pointer, "target"))
+                              : std::nullopt;
+                      if (!common || !shape || !target)
                           return std::nullopt;
-                      return RoomHotspot{std::move(common->id),        std::move(common->label),
-                                         std::move(common->condition), common->input_order,
-                                         std::move(common->highlight), std::move(*shape),
-                                         std::move(*activation)};
+                      return RoomHotspot{std::move(common->id),
+                                         std::move(common->label),
+                                         std::move(common->condition),
+                                         common->input_order,
+                                         std::move(common->highlight),
+                                         std::move(*shape),
+                                         std::move(*target)};
                   })
             : std::nullopt;
     auto cast =
@@ -1049,6 +1108,11 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     if (exits)
         decoder.duplicate_ids(*exits, pointer_child(pointer, "exits"),
                               [](const RoomExit& exit) -> const RoomExitId& { return exit.id; });
+    if (features)
+        decoder.duplicate_ids(*features, pointer_child(pointer, "features"),
+                              [](const FeatureDefinition& feature) -> const FeatureId& {
+                                  return feature.identity.id;
+                              });
     if (hotspots)
         decoder.duplicate_ids(
             *hotspots, pointer_child(pointer, "hotspots"),
@@ -1066,29 +1130,40 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                   return environment.id;
                               });
     if (!identity || !display || !description || !background || !lifecycle || !overlays ||
-        !placements || !exits || !hotspots || !cast || !props || !environments || !compose_ok)
+        !placements || !exits || !features || !hotspots || !cast || !props || !environments ||
+        !compose_ok)
         return std::nullopt;
     return RoomDefinition{std::move(*identity),   std::move(*display),    std::move(*description),
                           std::move(*background), std::move(*lifecycle),  std::move(*overlays),
                           std::move(*cast),       std::move(*props),      std::move(*environments),
                           std::move(compose),     std::move(*placements), std::move(*exits),
-                          std::move(*hotspots)};
+                          std::move(*features),   std::move(*hotspots)};
 }
 
 std::optional<InteractableDefinition>
 decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
-    if (!decoder.object(
-            value, pointer,
-            {"displayName", "id", "initialState", "presentation", "propertyAssignments", "traits"}))
+    if (!decoder.object(value, pointer,
+                        {"displayName", "features", "id", "initialState", "presentation",
+                         "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<InteractableId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
+    const auto* features_value = decoder.member(value, "features", pointer);
     const auto* state_value = decoder.member(value, "initialState", pointer);
     const auto* presentation_value = decoder.member(value, "presentation", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
+    auto features =
+        features_value
+            ? decoder.array<FeatureDefinition>(
+                  *features_value, pointer_child(pointer, "features"),
+                  [&](const nlohmann::json& feature,
+                      const std::string& item_pointer) -> std::optional<FeatureDefinition> {
+                      return decode_feature(decoder, feature, item_pointer);
+                  })
+            : std::nullopt;
     std::optional<InteractableInitialState> state;
     if (state_value && decoder.object(*state_value, pointer_child(pointer, "initialState"),
                                       {"enabled", "location", "visible"})) {
@@ -1146,22 +1221,20 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                 -> std::optional<InteractableHotspotBehavior> {
                 if (!decoder.object(
                         behavior, behavior_pointer,
-                        {"activation", "condition", "highlight", "id", "inputOrder", "label"}))
+                        {"condition", "highlight", "id", "inputOrder", "label", "target"}))
                     return std::nullopt;
                 auto common = decode_hotspot_common(decoder, behavior, behavior_pointer);
-                const auto* activation_value =
-                    decoder.member(behavior, "activation", behavior_pointer);
-                auto activation = activation_value
-                                      ? decode_verb_hotspot_activation(
-                                            decoder, *activation_value,
-                                            pointer_child(behavior_pointer, "activation"))
-                                      : std::nullopt;
-                if (!common || !activation)
+                const auto* target_value = decoder.member(behavior, "target", behavior_pointer);
+                auto target = target_value ? decode_interactable_hotspot_target(
+                                                 decoder, *target_value,
+                                                 pointer_child(behavior_pointer, "target"))
+                                           : std::nullopt;
+                if (!common || !target)
                     return std::nullopt;
                 return InteractableHotspotBehavior{
                     std::move(common->id),        std::move(common->label),
                     std::move(common->condition), common->input_order,
-                    std::move(common->highlight), std::move(*activation)};
+                    std::move(common->highlight), std::move(*target)};
             };
             if (kind && *kind == "sprite-alpha" &&
                 decoder.object(*hotspots_value, hotspots_pointer, {"hotspot", "kind"})) {
@@ -1184,31 +1257,30 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                               [&](const nlohmann::json& item, const std::string& item_pointer)
                                   -> std::optional<InteractableCustomHotspot> {
                                   if (!decoder.object(item, item_pointer,
-                                                      {"activation", "condition", "highlight", "id",
-                                                       "inputOrder", "label", "shape"}))
+                                                      {"condition", "highlight", "id", "inputOrder",
+                                                       "label", "shape", "target"}))
                                       return std::nullopt;
                                   auto common = decode_hotspot_common(decoder, item, item_pointer);
-                                  const auto* activation_value =
-                                      decoder.member(item, "activation", item_pointer);
+                                  const auto* target_value =
+                                      decoder.member(item, "target", item_pointer);
                                   const auto* shape_value =
                                       decoder.member(item, "shape", item_pointer);
-                                  auto activation =
-                                      activation_value
-                                          ? decode_verb_hotspot_activation(
-                                                decoder, *activation_value,
-                                                pointer_child(item_pointer, "activation"))
-                                          : std::nullopt;
+                                  auto target = target_value
+                                                    ? decode_interactable_hotspot_target(
+                                                          decoder, *target_value,
+                                                          pointer_child(item_pointer, "target"))
+                                                    : std::nullopt;
                                   auto shape = shape_value
                                                    ? decode_rect_hotspot_shape(
                                                          decoder, *shape_value,
                                                          pointer_child(item_pointer, "shape"))
                                                    : std::nullopt;
-                                  if (!common || !activation || !shape)
+                                  if (!common || !target || !shape)
                                       return std::nullopt;
                                   InteractableCustomHotspot result{
                                       {std::move(common->id), std::move(common->label),
                                        std::move(common->condition), common->input_order,
-                                       std::move(common->highlight), std::move(*activation)},
+                                       std::move(common->highlight), std::move(*target)},
                                       std::move(*shape)};
                                   return result;
                               })
@@ -1227,10 +1299,15 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
             presentation = InteractablePresentation{std::move(material), std::move(sprite),
                                                     std::move(*hotspots)};
     }
-    if (!identity || !display || !state || !presentation)
+    if (features)
+        decoder.duplicate_ids(*features, pointer_child(pointer, "features"),
+                              [](const FeatureDefinition& feature) -> const FeatureId& {
+                                  return feature.identity.id;
+                              });
+    if (!identity || !display || !features || !state || !presentation)
         return std::nullopt;
-    return InteractableDefinition{std::move(*identity), std::move(*display), std::move(*state),
-                                  std::move(*presentation)};
+    return InteractableDefinition{std::move(*identity), std::move(*display), std::move(*features),
+                                  std::move(*state), std::move(*presentation)};
 }
 
 std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& value,

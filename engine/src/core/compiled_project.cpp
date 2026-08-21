@@ -469,6 +469,37 @@ FIND(script, scripts, ScriptId, compiled::ScriptResource)
 FIND(character, characters, CharacterId, compiled::CharacterDefinition)
 FIND(room, rooms, RoomId, compiled::RoomDefinition)
 FIND(interactable, interactables, InteractableId, compiled::InteractableDefinition)
+
+const compiled::FeatureDefinition*
+CompiledProject::find_feature(const RoomFeatureRef& reference) const noexcept
+{
+    const auto* owner = find_room(reference.room);
+    if (owner == nullptr)
+        return nullptr;
+    const auto found = std::ranges::find_if(owner->features, [&](const auto& feature) {
+        return feature.identity.id == reference.feature_id;
+    });
+    return found == owner->features.end() ? nullptr : &*found;
+}
+
+const compiled::FeatureDefinition*
+CompiledProject::find_feature(const InteractableFeatureRef& reference) const noexcept
+{
+    const auto* owner = find_interactable(reference.interactable);
+    if (owner == nullptr)
+        return nullptr;
+    const auto found = std::ranges::find_if(owner->features, [&](const auto& feature) {
+        return feature.identity.id == reference.feature_id;
+    });
+    return found == owner->features.end() ? nullptr : &*found;
+}
+
+const compiled::FeatureDefinition*
+CompiledProject::find_feature(const FeatureRef& reference) const noexcept
+{
+    return std::visit([this](const auto& value) { return find_feature(value); }, reference);
+}
+
 FIND(verb, verbs, VerbId, compiled::VerbDefinition)
 FIND(interaction, interactions, InteractionId, compiled::InteractionDefinition)
 FIND(scene, scenes, SceneId, compiled::SceneDefinition)

@@ -466,7 +466,7 @@
     "moveToPlacement": "Mover para posicionamento"
   },
   "hotspots": {
-    "subtitle": "Clique em um hotspot para selecioná-lo, arraste o espaço vazio da imagem para mover a visão ou adicione uma nova região clicável.",
+    "subtitle": "Hotspots definem a geometria do ponteiro e selecionam um alvo semântico; o comportamento pertence ao sujeito selecionado.",
     "invalidImage": "Selecione um recurso de imagem válido com dimensões antes de editar hotspots.",
     "add": "Adicionar hotspot",
     "cancelAdd": "Cancelar adição",
@@ -477,17 +477,18 @@
       "inputOrder": "Ordem de entrada",
       "highlight": "Destaque",
       "highlightMaterial": "Material de destaque",
-      "activation": "Ativação",
-      "verb": "Verbo ({{count}} operandos)",
-      "exit": "Saída",
       "condition": "Condição",
       "variable": "Variável",
       "operator": "Operador",
       "value": "Valor",
-      "luaPredicate": "Predicado Lua"
+      "luaPredicate": "Predicado Lua",
+      "target": "Alvo"
     },
-    "highlight": { "default": "Padrão", "material": "Material", "none": "Nenhum" },
-    "activation": { "verb": "Verbo", "exit": "Saída da sala" },
+    "highlight": {
+      "default": "Padrão",
+      "material": "Material",
+      "none": "Nenhum"
+    },
     "condition": {
       "always": "Sempre",
       "variable": "Comparação de variável",
@@ -503,13 +504,7 @@
       "truthy": "Verdadeiro",
       "falsy": "Falso"
     },
-    "unbound": "Não vinculado",
-    "selectOwner": "Selecionar proprietário do hotspot",
-    "searchOwners": "Pesquisar salas ou interagíveis",
-    "noOwners": "Nenhum proprietário de hotspot correspondente.",
-    "openOwner": "Abrir hotspot",
     "searchRecords": "Pesquisar registros",
-    "selectVerb": "Selecionar verbo",
     "selectMaterial": "Selecionar material de hotspot",
     "noMatchingRecords": "Nenhum registro compatível.",
     "defaultLabel": "Hotspot",
@@ -521,13 +516,34 @@
       "alphaTitle": "Hotspot alfa padrão",
       "customTitle": "Hotspots personalizados"
     },
-    "context": {
-      "hotspot": "Hotspot",
-      "room": "Sala",
-      "interactable": "Interagível",
-      "invalid": "Inválido: {{id}}"
-    },
     "delete": "Excluir hotspot",
-    "selectPrompt": "Selecione um hotspot para editar seu comportamento."
+    "selectPrompt": "Selecione um hotspot para editar sua geometria e seu alvo semântico.",
+    "targets": {
+      "owner": "Este interagível",
+      "localFeature": "Feature: {{label}}",
+      "exit": "Saída: {{label}}",
+      "character": "Personagem: {{label}}",
+      "interactable": "Interagível: {{label}}",
+      "feature": "Feature de {{owner}}: {{label}}",
+      "invalid": "Alvo inválido ou indisponível"
+    }
+  },
+  "features": {
+    "title": "Features",
+    "subtitle": "Partes semânticas estáveis pertencentes a este registro. Features podem conter Traits e Properties e participar de Interactions.",
+    "add": "Adicionar Feature",
+    "empty": "Nenhuma Feature declarada.",
+    "defaultLabel": "Feature",
+    "delete": "Excluir Feature",
+    "fields": {
+      "id": "ID",
+      "label": "Rótulo",
+      "traits": "Traits",
+      "properties": "Properties"
+    },
+    "addTrait": "Adicionar Trait",
+    "addProperty": "Adicionar Property",
+    "removeProperty": "Remover",
+    "invalidProperty": "Declaração de Property ausente"
   }
 }
