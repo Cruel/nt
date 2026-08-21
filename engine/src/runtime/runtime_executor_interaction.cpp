@@ -284,7 +284,7 @@ RuntimeExecutor::activate_hotspot(const core::compiled::HotspotRef& hotspot)
                     return core::Result<void, RuntimeExecutionError>::failure(
                         interaction_error("execution.hotspot_owner_unavailable",
                                           "Room hotspot owner is not the active Room"));
-                const auto* room = m_world.room(reference.room);
+                const auto* room = m_world.resolved_configuration(reference.room);
                 if (room == nullptr)
                     return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
                         "execution.unknown_hotspot", "Room hotspot definition is missing"));
@@ -310,7 +310,7 @@ RuntimeExecutor::activate_hotspot(const core::compiled::HotspotRef& hotspot)
                                  : core::Result<void, RuntimeExecutionError>::failure(
                                        std::move(navigated).error());
             } else {
-                const auto* owner = m_world.interactable(reference.interactable);
+                const auto* owner = m_world.resolved_configuration(reference.interactable);
                 const auto present =
                     std::find_if(m_room_presentation->presentation.interactables.begin(),
                                  m_room_presentation->presentation.interactables.end(),
@@ -551,7 +551,7 @@ RuntimeExecutor::inventory_view(std::string_view runtime_locale)
     for (const auto& state : m_state.interactables()) {
         if (!std::holds_alternative<core::compiled::InventoryLocation>(state.location))
             continue;
-        const auto* definition = m_world.interactable(state.interactable);
+        const auto* definition = m_world.resolved_configuration(state.interactable);
         if (definition == nullptr)
             return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
                 interaction_error("execution.invalid_inventory",

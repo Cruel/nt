@@ -37,14 +37,14 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
     if (input.target_visit_index == 0)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
             "room_navigation.invalid_visit", "Prepared Room visit index must be non-zero"));
-    const auto* target = world.room(input.target_room);
+    const auto* target = world.resolved_configuration(input.target_room);
     if (target == nullptr)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
             "room_navigation.missing_target", "Prepared Room navigation target is missing"));
 
     const compiled::RoomDefinition* source = nullptr;
     if (input.source_room) {
-        source = world.room(*input.source_room);
+        source = world.resolved_configuration(*input.source_room);
         if (source == nullptr)
             return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
                 "room_navigation.missing_source", "Prepared Room navigation source is missing"));
@@ -97,7 +97,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     const RoomVisitContext& visit, RoomPresentationConditionEvaluator evaluate,
     RoomPresentationTextResolver resolve_text, RoomCompositionCallback* composition) const
 {
-    const auto* room = world.room(visit.room);
+    const auto* room = world.resolved_configuration(visit.room);
     if (room == nullptr || visit.visit_index == 0)
         return Result<RoomPresentationResolution, Diagnostics>::failure(error(
             "room_resolution.invalid_visit", "Room resolution requires a valid active visit"));
@@ -129,7 +129,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     };
 
     for (const auto& character_state : state.character_world()) {
-        const auto* character = world.character(character_state.character);
+        const auto* character = world.resolved_configuration(character_state.character);
         if (character != nullptr)
             definition.character_defaults.push_back(
                 {character->identity.id, character->defaults.pose_id,
@@ -248,7 +248,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                                          std::nullopt, PresentationPlane::WorldBackground, 0});
     }
     for (const auto& interactable : presentation.interactables) {
-        const auto* definition = world.interactable(interactable.interactable);
+        const auto* definition = world.resolved_configuration(interactable.interactable);
         if (definition == nullptr || !definition->presentation.sprite)
             continue;
         const auto placement = std::find_if(

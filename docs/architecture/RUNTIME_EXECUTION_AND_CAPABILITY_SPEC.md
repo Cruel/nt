@@ -340,9 +340,22 @@ and `SessionState`, so the same semantic lookup seam is exercised without creati
 authority. Candidate save restoration validates serialized references against immutable definitions
 before the new live boundary is constructed.
 
-This phase does not add runtime-created instances or structural creation APIs. Future instance
-creation extends `RuntimeWorld`; it must not make `CompiledProject` mutable or introduce another live
-world registry alongside this boundary.
+`RuntimeWorld::resolved_configuration(...)` is the named production boundary for effective immutable
+Room, Character, and Interactable configuration. In the current pre-Archetype contract, structural
+configuration is already local to the compiled definition, so resolution returns a borrowed const
+view of that definition; the view is valid for the borrowed `CompiledProject` lifetime and is neither
+copied into `SessionState` nor cached as mutable runtime data. Gameplay Instance Property reads use
+`RuntimeWorld::resolve_property(...)`, which preserves the current same-type Property inheritance,
+authored defaults, and session override semantics while keeping that lookup policy behind the same
+world boundary. Property overrides themselves remain authoritative mutable `SessionState`, not part
+of immutable configuration.
+
+This seam is deliberately representation-independent for runtime consumers. Removing universal
+same-type inheritance or replacing it with compiler-resolved Archetype configuration changes the
+resolver implementation and compiled definition construction, not every runtime consumer. This phase
+does not add an alternate authoring/compiled shape, a second configuration registry, runtime-created
+instances, or structural creation APIs. Future instance creation extends `RuntimeWorld`; it must not
+make `CompiledProject` mutable or introduce another live world registry alongside this boundary.
 
 ## RuntimeSession ownership
 

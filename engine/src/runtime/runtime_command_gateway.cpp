@@ -142,7 +142,7 @@ RuntimeCommandGateway::definition(core::ProjectDefinitionKind kind, std::string 
     case core::ProjectDefinitionKind::Room: {
         auto parsed = core::RoomId::create(std::move(id));
         const auto* parsed_id = parsed.value_if();
-        const auto* value = parsed_id ? m_world.room(*parsed_id) : nullptr;
+        const auto* value = parsed_id ? m_world.resolved_configuration(*parsed_id) : nullptr;
         return value ? Result::success(summary(kind, *value))
                      : Result::failure(gateway_error("runtime.unknown_room",
                                                      "Room definition is missing or invalid"));
@@ -166,7 +166,7 @@ RuntimeCommandGateway::definition(core::ProjectDefinitionKind kind, std::string 
     case core::ProjectDefinitionKind::Character: {
         auto parsed = core::CharacterId::create(std::move(id));
         const auto* parsed_id = parsed.value_if();
-        const auto* value = parsed_id ? m_world.character(*parsed_id) : nullptr;
+        const auto* value = parsed_id ? m_world.resolved_configuration(*parsed_id) : nullptr;
         return value ? Result::success(summary(kind, *value))
                      : Result::failure(gateway_error("runtime.unknown_character",
                                                      "Character definition is missing or invalid"));
@@ -174,7 +174,7 @@ RuntimeCommandGateway::definition(core::ProjectDefinitionKind kind, std::string 
     case core::ProjectDefinitionKind::Interactable: {
         auto parsed = core::InteractableId::create(std::move(id));
         const auto* parsed_id = parsed.value_if();
-        const auto* value = parsed_id ? m_world.interactable(*parsed_id) : nullptr;
+        const auto* value = parsed_id ? m_world.resolved_configuration(*parsed_id) : nullptr;
         return value ? Result::success(summary(kind, *value))
                      : Result::failure(
                            gateway_error("runtime.unknown_interactable",
@@ -261,8 +261,19 @@ core::Result<core::PropertyLookupResult, core::Diagnostics>
 RuntimeCommandGateway::property(const core::PropertyOwnerRef& owner,
                                 const core::PropertyId& property_id) const
 {
-    core::PropertyResolver resolver(m_project, m_state);
-    return resolver.get(owner, property_id);
+    return std::visit(
+        [this, &property_id](
+            const auto& id) -> core::Result<core::PropertyLookupResult, core::Diagnostics> {
+            using T = std::decay_t<decltype(id)>;
+            if constexpr (std::is_same_v<T, core::RoomId> || std::is_same_v<T, core::CharacterId> ||
+                          std::is_same_v<T, core::InteractableId>) {
+                return m_world.resolve_property(id, property_id);
+            } else {
+                core::PropertyResolver resolver(m_project, m_state);
+                return resolver.get(core::PropertyOwnerRef{id}, property_id);
+            }
+        },
+        owner);
 }
 
 core::Result<void, core::Diagnostics>
@@ -354,7 +365,7 @@ core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::request_interactable_location(core::InteractableId interactable,
                                                      core::compiled::InteractableLocation target)
 {
-    if (m_world.interactable(interactable) == nullptr)
+    if (m_world.resolved_configuration(interactable) == nullptr)
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_interactable", "Interactable definition is missing"));
     if (const auto* placement = std::get_if<core::compiled::RoomPlacementRef>(&target)) {
@@ -372,7 +383,7 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_interactabl
     core::InteractableId interactable, std::optional<core::compiled::InteractableLocation> location,
     std::optional<bool> enabled, std::optional<bool> visible)
 {
-    if (m_world.interactable(interactable) == nullptr)
+    if (m_world.resolved_configuration(interactable) == nullptr)
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_interactable", "Interactable definition is missing"));
     if (location) {
@@ -391,7 +402,7 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_character_w
     core::CharacterId character, std::optional<core::CharacterWorldLocation> location,
     std::optional<bool> enabled, std::optional<bool> visible)
 {
-    if (m_world.character(character) == nullptr)
+    if (m_world.resolved_configuration(character) == nullptr)
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_character", "Character definition is missing"));
     if (location) {
@@ -433,7 +444,7 @@ RuntimeCommandGateway::request_navigation(core::compiled::RoomExitRef exit)
     if (!mode)
         return mode;
     const auto* active = std::get_if<core::RoomMode>(&m_state.mode());
-    const auto* room = active == nullptr ? nullptr : m_world.room(active->room);
+    const auto* room = active == nullptr ? nullptr : m_world.resolved_configuration(active->room);
     if (room == nullptr || exit.room != active->room) {
         return core::Result<void, core::Diagnostics>::failure(gateway_error(
             "runtime.invalid_navigation", "Navigation exit is not in the active Room"));
@@ -513,7 +524,7 @@ RuntimeCommandGateway::request_tail_replacement(core::FlowTarget target)
             else if constexpr (std::is_same_v<T, core::DialogueId>)
                 return m_project.find_dialogue(value) != nullptr;
             else if constexpr (std::is_same_v<T, core::RoomId>)
-                return m_world.room(value) != nullptr;
+                return m_world.resolved_configuration(value) != nullptr;
             else
                 return true;
         },
@@ -817,7 +828,7 @@ RuntimeCommandGateway::presentation_owner(RuntimePresentationOwnerScope scope,
     case RuntimePresentationOwnerScope::Room:
         if (!room && m_state.room_visit())
             room = m_state.room_visit()->room;
-        if (!room || m_world.room(*room) == nullptr)
+        if (!room || m_world.resolved_configuration(*room) == nullptr)
             return core::Result<core::PresentationOwner, core::Diagnostics>::failure(
                 gateway_error("runtime.room_owner_unavailable",
                               "A Room presentation owner requires a valid Room"));
@@ -998,7 +1009,7 @@ RuntimeCommandGateway::select_interactable(core::InteractableId interactable)
     auto available = require_services("Game.select_interactable");
     if (!available)
         return available;
-    if (m_world.interactable(interactable) == nullptr) {
+    if (m_world.resolved_configuration(interactable) == nullptr) {
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_interactable", "Interactable definition is missing"));
     }
@@ -1032,9 +1043,9 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
                 [this](const auto& value) {
                     using T = std::decay_t<decltype(value)>;
                     if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
-                        return m_world.character(value.character) != nullptr;
+                        return m_world.resolved_configuration(value.character) != nullptr;
                     else
-                        return m_world.interactable(value.interactable) != nullptr;
+                        return m_world.resolved_configuration(value.interactable) != nullptr;
                 },
                 operand))
             return core::Result<void, core::Diagnostics>::failure(

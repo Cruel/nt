@@ -1,4 +1,5 @@
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/property_resolver.hpp"
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/runtime/runtime_world.hpp"
 
@@ -48,12 +49,12 @@ TEST_CASE("runtime world resolves declared gameplay instances without owning def
     const auto hero = id<core::CharacterId>("hero");
     const auto key = id<core::InteractableId>("key");
 
-    CHECK(world.room(start) == project.find_room(start));
-    CHECK(world.character(hero) == project.find_character(hero));
-    CHECK(world.interactable(key) == project.find_interactable(key));
-    CHECK(world.room(id<core::RoomId>("missing")) == nullptr);
-    CHECK(world.character(id<core::CharacterId>("missing")) == nullptr);
-    CHECK(world.interactable(id<core::InteractableId>("missing")) == nullptr);
+    CHECK(world.resolved_configuration(start) == project.find_room(start));
+    CHECK(world.resolved_configuration(hero) == project.find_character(hero));
+    CHECK(world.resolved_configuration(key) == project.find_interactable(key));
+    CHECK(world.resolved_configuration(id<core::RoomId>("missing")) == nullptr);
+    CHECK(world.resolved_configuration(id<core::CharacterId>("missing")) == nullptr);
+    CHECK(world.resolved_configuration(id<core::InteractableId>("missing")) == nullptr);
 
     REQUIRE(world.character_state(hero) != nullptr);
     REQUIRE(world.interactable_state(key) != nullptr);
@@ -74,8 +75,8 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
     const auto hall = id<core::RoomId>("hall");
     const auto coin_placement = id<core::RoomPlacementId>("coin-placement");
 
-    const auto* hero_definition = world.character(hero);
-    const auto* key_definition = world.interactable(key);
+    const auto* hero_definition = world.resolved_configuration(hero);
+    const auto* key_definition = world.resolved_configuration(key);
     REQUIRE(hero_definition != nullptr);
     REQUIRE(key_definition != nullptr);
     CHECK(hero_definition->initial_world_state.visible);
@@ -97,8 +98,45 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
 
     CHECK(hero_definition->initial_world_state.visible);
     CHECK(key_definition->initial_state.visible);
-    CHECK(world.character(hero) == hero_definition);
-    CHECK(world.interactable(key) == key_definition);
+    CHECK(world.resolved_configuration(hero) == hero_definition);
+    CHECK(world.resolved_configuration(key) == key_definition);
+}
+
+TEST_CASE(
+    "runtime world resolves gameplay instance properties through current configuration semantics")
+{
+    const auto project = load_fixture("inheritance-properties-localization.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto hall = id<core::RoomId>("hall");
+    const auto tower = id<core::RoomId>("tower");
+    const auto visit_count = id<core::PropertyId>("visit-count");
+
+    const auto inherited = world.resolve_property(tower, visit_count);
+    REQUIRE(inherited);
+    REQUIRE(inherited.value_if() != nullptr);
+    const auto* inherited_value = std::get_if<core::RuntimeValue>(inherited.value_if());
+    REQUIRE(inherited_value != nullptr);
+    REQUIRE(std::get_if<std::int64_t>(inherited_value) != nullptr);
+    CHECK(*std::get_if<std::int64_t>(inherited_value) == 7);
+
+    core::PropertyResolver properties(project, state);
+    REQUIRE(properties.set(core::PropertyOwnerRef{hall}, visit_count,
+                           core::RuntimeValue{std::int64_t{11}}));
+    const auto overridden = world.resolve_property(tower, visit_count);
+    REQUIRE(overridden);
+    REQUIRE(overridden.value_if() != nullptr);
+    const auto* overridden_value = std::get_if<core::RuntimeValue>(overridden.value_if());
+    REQUIRE(overridden_value != nullptr);
+    REQUIRE(std::get_if<std::int64_t>(overridden_value) != nullptr);
+    CHECK(*std::get_if<std::int64_t>(overridden_value) == 11);
+
+    const auto missing = world.resolve_property(id<core::RoomId>("missing"), visit_count);
+    REQUIRE_FALSE(missing);
+    CHECK(missing.error().front().code == "runtime.unknown_property_owner");
 }
 
 } // namespace

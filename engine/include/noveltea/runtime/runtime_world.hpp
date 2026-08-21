@@ -17,11 +17,19 @@ public:
     RuntimeWorld(const RuntimeWorld&) = delete;
     RuntimeWorld& operator=(const RuntimeWorld&) = delete;
 
-    [[nodiscard]] const core::compiled::RoomDefinition* room(const core::RoomId& id) const noexcept;
+    [[nodiscard]] const core::compiled::RoomDefinition*
+    resolved_configuration(const core::RoomId& id) const noexcept;
     [[nodiscard]] const core::compiled::CharacterDefinition*
-    character(const core::CharacterId& id) const noexcept;
+    resolved_configuration(const core::CharacterId& id) const noexcept;
     [[nodiscard]] const core::compiled::InteractableDefinition*
-    interactable(const core::InteractableId& id) const noexcept;
+    resolved_configuration(const core::InteractableId& id) const noexcept;
+
+    [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
+    resolve_property(const core::RoomId& id, const core::PropertyId& property) const;
+    [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
+    resolve_property(const core::CharacterId& id, const core::PropertyId& property) const;
+    [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
+    resolve_property(const core::InteractableId& id, const core::PropertyId& property) const;
 
     [[nodiscard]] const core::CharacterWorldState*
     character_state(const core::CharacterId& id) const noexcept;

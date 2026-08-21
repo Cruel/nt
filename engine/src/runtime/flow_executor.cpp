@@ -216,19 +216,19 @@ FlowBlockerKind flow_blocker_kind(const FlowBlocker& blocker) noexcept
 
 const compiled::RoomDefinition* FlowExecutor::room_definition(const RoomId& room) const noexcept
 {
-    return m_world->room(room);
+    return m_world->resolved_configuration(room);
 }
 
 const compiled::CharacterDefinition*
 FlowExecutor::character_definition(const CharacterId& character) const noexcept
 {
-    return m_world->character(character);
+    return m_world->resolved_configuration(character);
 }
 
 const compiled::InteractableDefinition*
 FlowExecutor::interactable_definition(const InteractableId& interactable) const noexcept
 {
-    return m_world->interactable(interactable);
+    return m_world->resolved_configuration(interactable);
 }
 
 Result<void, Diagnostics> FlowExecutor::fail(Diagnostics diagnostics)

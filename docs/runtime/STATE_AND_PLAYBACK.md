@@ -7,7 +7,11 @@
 the mutable execution composition: `SessionState`, the `RuntimeWorld` Gameplay Instance boundary,
 feature state/views, `FlowExecutor`, script gateway, playback state, and pending typed operations.
 `RuntimeWorld` is stored with the session-owned runtime executor and borrows both `CompiledProject`
-and `SessionState`; it does not copy definitions or create a second mutable state authority.
+and `SessionState`; it does not copy definitions or create a second mutable state authority. Runtime
+consumers obtain immutable Room, Character, and Interactable configuration only through
+`RuntimeWorld::resolved_configuration(...)`, and gameplay-instance Property reads use
+`RuntimeWorld::resolve_property(...)` so the current inheritance representation remains private to
+the world/property-resolution seam.
 
 Gameplay mode is represented by typed Room, Flow, or Ended state. Presentation loading/error UI is
 not persisted gameplay mode.
