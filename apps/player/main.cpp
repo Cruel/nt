@@ -40,7 +40,7 @@ extern "C" void noveltea_web_report_loading_progress(std::uint32_t operation, st
 
 namespace {
 
-#if !defined(__EMSCRIPTEN__) && !defined(SDL_PLATFORM_ANDROID)
+#if !defined(SDL_PLATFORM_ANDROID)
 std::filesystem::path filesystem_path_from_utf8(std::string_view value)
 {
 #if defined(_WIN32)
