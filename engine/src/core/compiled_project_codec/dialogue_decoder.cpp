@@ -280,11 +280,11 @@ decode_dialogue_program(Decoder& decoder, const nlohmann::json& value, std::stri
 std::optional<DialogueDefinition> decode_dialogue(Decoder& decoder, const nlohmann::json& value,
                                                   std::string_view pointer)
 {
-    if (!decoder.object(value, pointer,
-                        {"completion", "defaultSpeaker", "displayName", "id", "program",
-                         "propertyAssignments", "settings", "traits"}))
+    if (!decoder.object(
+            value, pointer,
+            {"completion", "defaultSpeaker", "displayName", "id", "program", "settings"}))
         return std::nullopt;
-    auto identity = decode_identity<DialogueId>(decoder, value, pointer);
+    auto identity = decode_definition_identity<DialogueId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
     const auto* speaker_value = decoder.member(value, "defaultSpeaker", pointer);
     const auto* settings_value = decoder.member(value, "settings", pointer);

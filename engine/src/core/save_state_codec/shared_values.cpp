@@ -47,20 +47,10 @@ nlohmann::json encode_owner(const PropertyOwnerRef& owner)
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, RoomId>)
                 return nlohmann::json{{"kind", "room"}, {"id", value.text()}};
-            else if constexpr (std::is_same_v<T, SceneId>)
-                return nlohmann::json{{"kind", "scene"}, {"id", value.text()}};
-            else if constexpr (std::is_same_v<T, DialogueId>)
-                return nlohmann::json{{"kind", "dialogue"}, {"id", value.text()}};
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return nlohmann::json{{"kind", "character"}, {"id", value.text()}};
-            else if constexpr (std::is_same_v<T, InteractableId>)
-                return nlohmann::json{{"kind", "interactable"}, {"id", value.text()}};
-            else if constexpr (std::is_same_v<T, VerbId>)
-                return nlohmann::json{{"kind", "verb"}, {"id", value.text()}};
-            else if constexpr (std::is_same_v<T, InteractionId>)
-                return nlohmann::json{{"kind", "interaction"}, {"id", value.text()}};
             else
-                return nlohmann::json{{"kind", "map"}, {"id", value.text()}};
+                return nlohmann::json{{"kind", "interactable"}, {"id", value.text()}};
         },
         owner);
 }
@@ -79,32 +69,12 @@ std::optional<PropertyOwnerRef> decode_owner(Decoder& d, const nlohmann::json& v
         auto result = d.id<RoomId>(*id, child(pointer, "id"));
         return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
     }
-    if (*name == "scene") {
-        auto result = d.id<SceneId>(*id, child(pointer, "id"));
-        return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
-    }
-    if (*name == "dialogue") {
-        auto result = d.id<DialogueId>(*id, child(pointer, "id"));
-        return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
-    }
     if (*name == "character") {
         auto result = d.id<CharacterId>(*id, child(pointer, "id"));
         return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
     }
     if (*name == "interactable") {
         auto result = d.id<InteractableId>(*id, child(pointer, "id"));
-        return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
-    }
-    if (*name == "verb") {
-        auto result = d.id<VerbId>(*id, child(pointer, "id"));
-        return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
-    }
-    if (*name == "interaction") {
-        auto result = d.id<InteractionId>(*id, child(pointer, "id"));
-        return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
-    }
-    if (*name == "map") {
-        auto result = d.id<MapId>(*id, child(pointer, "id"));
         return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
     }
     d.error(k_variant, "Unknown property owner kind '" + *name + "'.", child(pointer, "kind"));

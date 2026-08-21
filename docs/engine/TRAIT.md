@@ -2,7 +2,7 @@
 
 Traits are discoverable capability/configuration declarations backed entirely by ordinary identity-scoped Properties. They do not introduce a second value namespace, a generic component bag, structural inheritance, or executable inheritance.
 
-Current authoring and compiled gameplay schemas remain `noveltea.authoring.project` V4 and `noveltea.compiled.project` V4. Issue #68 replaces the retired universal same-type `extends` shape in those already-selected versions; normal readers reject the retired field rather than maintaining a compatibility path.
+Current authoring and compiled gameplay schemas remain `noveltea.authoring.project` V4 and `noveltea.compiled.project` V4. The current V4 contracts contain only the Trait form; normal readers reject the retired universal same-type `extends` shape rather than maintaining a compatibility path.
 
 ## Declaration
 
@@ -20,16 +20,16 @@ A Property member is exactly one of:
 
 Trait members always reference existing identity-scoped Property declarations. Their configured values use the same `RuntimeValue` scalar vocabulary, type/nullability/enum validation, and owner-kind restrictions as direct Property assignments.
 
-Traits currently attach to Room, Scene, Dialogue, Character, Interactable, Verb, Interaction, and Map identities. Assets, Layouts, Script Modules, Shaders, Materials, Variables/Global Properties, Tests, and the Project root are not Trait owners.
+Traits currently attach only to stateful Gameplay Instances: Room, Character, and Interactable. Scene, Dialogue, Verb, Interaction, and Map are immutable program/vocabulary definitions rather than stateful Property- or Trait-bearing identities. Assets, Layouts, Script Modules, Shaders, Materials, Variables/Global Properties, Tests, and the Project root are also not Trait owners.
 
 Traits cannot attach Traits and cannot inherit from another Trait. A Trait never contributes structural fields such as Room exits, Scene instructions, Dialogue blocks, Character poses, Interactable presentation, Interaction rules, Verb programs, or Map topology.
 
 ## Resolution and precedence
 
-For an identity-scoped Property on definition `D`, runtime lookup is exactly:
+For an identity-scoped Property on Gameplay Instance `I`, runtime lookup is exactly:
 
-1. `D`'s sparse runtime override in `SessionState`;
-2. `D`'s own authored Property assignment;
+1. `I`'s sparse runtime override in `SessionState`;
+2. `I`'s own authored Property assignment;
 3. a configured value supplied by an attached Trait;
 4. the Property declaration default;
 5. a typed missing-value result.
@@ -40,7 +40,7 @@ Two attached Traits may configure the same Property only when they provide the s
 
 ## Discovery, Lua, tests, and saves
 
-The compiled project retains Trait declarations and per-definition Trait attachments. This metadata remains discoverable to editor dependency/search tooling and to runtime code that needs capability identity, while the actual values continue to resolve through the Property system.
+The compiled project retains Trait declarations and Trait attachments on declared Room, Character, and Interactable instances. This metadata remains discoverable to editor dependency/search tooling and to runtime code that needs capability identity, while the actual values continue to resolve through the Property system.
 
 Lua does not have a separate Trait-value API. Trait-backed values are read and mutated through the same typed Property APIs described in `docs/engine/VARIABLE.md`, including `noveltea.properties.get`, `set`, and `unset`. Conditions, focused previews, test playback, and runtime execution use the same Property resolution seam.
 

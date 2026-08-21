@@ -206,18 +206,7 @@ export function createDefaultAuthoringRecord(
     data: defaultDataForCollection(collection, label, options.data),
   };
   if (options.description?.trim()) record.description = options.description;
-  if (
-    [
-      'characters',
-      'rooms',
-      'interactables',
-      'verbs',
-      'interactions',
-      'dialogues',
-      'scenes',
-      'maps',
-    ].includes(collection)
-  ) {
+  if (['characters', 'rooms', 'interactables'].includes(collection)) {
     record.traits = [];
     record.properties = {};
   }

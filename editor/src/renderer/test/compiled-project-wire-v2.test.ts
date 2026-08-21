@@ -178,8 +178,6 @@ function representativeWireFixture() {
       verbs: [
         {
           id: 'look',
-          traits: [],
-          propertyAssignments: [],
           arity: 0,
           operandRoles: [],
           quickAction: true,
@@ -195,8 +193,6 @@ function representativeWireFixture() {
       interactions: [
         {
           id: 'look-key',
-          traits: [],
-          propertyAssignments: [],
           rules: [
             {
               id: 'look-key-rule',
@@ -221,8 +217,6 @@ function representativeWireFixture() {
       scenes: [
         {
           id: 'opening',
-          traits: [],
-          propertyAssignments: [],
           displayName: 'Opening',
           defaultLayout: null,
           defaultBackground: { asset: null, material: null, color: '#000000', fit: 'cover' },
@@ -235,8 +229,6 @@ function representativeWireFixture() {
       dialogues: [
         {
           id: 'intro',
-          traits: [],
-          propertyAssignments: [],
           displayName: 'Intro',
           defaultSpeaker: { kind: 'character', id: 'hero' },
           settings: { showDisabledChoices: true, logMode: 'everything' },
@@ -269,8 +261,6 @@ function representativeWireFixture() {
       maps: [
         {
           id: 'house-map',
-          traits: [],
-          propertyAssignments: [],
           presentation: { title: null, background: null, layout: null, initialMode: 'full-map' },
           locations: [
             {
@@ -375,6 +365,24 @@ describe('CompiledProject Wire V4', () => {
     ).toBe(false);
   });
 
+  it('rejects Property and Trait state on immutable program definitions', () => {
+    const fixture = representativeWireFixture();
+    const sceneWithState = {
+      ...fixture,
+      definitions: {
+        ...fixture.definitions,
+        scenes: [{ ...fixture.definitions.scenes[0]!, traits: [], propertyAssignments: [] }],
+      },
+    };
+    expect(compiledProjectWireV4Schema.safeParse(sceneWithState).success).toBe(false);
+
+    const propertyWithProgramOwner = {
+      ...fixture,
+      properties: [{ ...fixture.properties[0]!, ownerKinds: ['scene'] }],
+    };
+    expect(compiledProjectWireV4Schema.safeParse(propertyWithProgramOwner).success).toBe(false);
+  });
+
   it('rejects the provisional V1 display shape and version', () => {
     const fixture = representativeWireFixture();
     const provisional = {
@@ -475,8 +483,6 @@ describe('CompiledProject Wire V4', () => {
     const fixture = parseCompiledProjectWireV4(representativeWireFixture());
     fixture.definitions.scenes.push({
       id: 'after-opening',
-      traits: [],
-      propertyAssignments: [],
       displayName: 'After opening',
       defaultLayout: null,
       defaultBackground: { asset: null, material: null, color: null, fit: 'cover' },

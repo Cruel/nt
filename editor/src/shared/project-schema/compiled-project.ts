@@ -95,16 +95,7 @@ const propertyBearingDefinition = {
   propertyAssignments: z.array(propertyAssignmentSchema),
 };
 
-const propertyOwnerKindSchema = z.enum([
-  'room',
-  'scene',
-  'dialogue',
-  'character',
-  'interactable',
-  'verb',
-  'interaction',
-  'map',
-]);
+const propertyOwnerKindSchema = z.enum(['room', 'character', 'interactable']);
 
 const traitPropertySchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('required'), propertyId: id }),
@@ -457,11 +448,11 @@ const interactionRuleSchema = strict({
   verb: verbReferenceSchema,
 });
 const interactionDefinitionSchema = strict({
-  ...propertyBearingDefinition,
+  id,
   rules: z.array(interactionRuleSchema),
 });
 const verbDefinitionSchema = strict({
-  ...propertyBearingDefinition,
+  id,
   actionText: compiledTextSchema,
   arity: z.union([z.literal(0), z.literal(1), z.literal(2)]),
   availability: compiledConditionSchema,
@@ -626,7 +617,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
 ]);
 export const sceneProgramSchema = strict({ instructions: z.array(sceneInstructionSchema) });
 const sceneDefinitionSchema = strict({
-  ...propertyBearingDefinition,
+  id,
   defaultBackground: strict({
     asset: assetReferenceSchema.nullable(),
     color: z.string().nullable(),
@@ -689,7 +680,7 @@ export const dialogueProgramSchema = strict({
   entryBlockId: id,
 });
 const dialogueDefinitionSchema = strict({
-  ...propertyBearingDefinition,
+  id,
   completion: compiledFlowTargetSchema,
   defaultSpeaker: characterReferenceSchema.nullable(),
   displayName: z.string(),
@@ -716,7 +707,7 @@ const mapLocationSchema = strict({
   ]),
 });
 const mapDefinitionSchema = strict({
-  ...propertyBearingDefinition,
+  id,
   connections: z.array(
     strict({
       exit: strict({ exitId: id, room: roomReferenceSchema }),

@@ -867,7 +867,7 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         ok, error_message = noveltea.properties.unset("room", "hall", "mood")
         assert(ok and error_message == nil)
         ok, error_message = noveltea.properties.set("dialogue", "intro", "note", nil)
-        assert(ok and error_message == nil)
+        assert(not ok and type(error_message) == "string")
         mood, present, property_error = noveltea.properties.get("unknown", "hall", "mood")
         assert(not present and type(property_error) == "string")
 

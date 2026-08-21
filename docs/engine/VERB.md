@@ -8,7 +8,7 @@ Room Verb hotspots bind only zero-arity Verbs. Interactable hotspots bind only o
 their owner as the operand. Availability is resolved into immutable hotspot presentation eligibility,
 then checked again by the canonical runtime activation transaction before execution.
 
-Verb is property-bearing and may attach supported Traits backed by ordinary Properties. Traits do not merge availability, programs, arity, text, or any other Verb structure.
+Verb is immutable interaction vocabulary, not a stateful Property or Trait owner. Availability, programs, arity, text, and quick-action policy are compiled definition data rather than mutable gameplay identity state.
 
 ## Availability and default fallback
 
@@ -24,9 +24,9 @@ Runtime controls expose arity, resolved action text, local availability, and `qu
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring version 3:** collection-specific Verb record with Trait attachments, typed properties, arity/roles, text template, availability, and default program.
-- **Compiled:** linked `VerbDefinition` with retained Trait IDs, typed condition/program, and property assignments.
-- **Mutable:** only property overrides and execution frames/results in `SessionState`; the definition is immutable.
+- **Authoring version 3:** collection-specific Verb record with arity/roles, text template, availability, and default program.
+- **Compiled:** linked immutable `VerbDefinition` with typed condition/program.
+- **Mutable:** only interaction execution frames/results in `SessionState`; the Verb definition itself has no Property/Trait state.
 - **Tooling only:** labels/notes not explicitly runtime-visible, categories, tags, colors, sort keys, and editor preview state.
 
 ## Current authoring implementation
@@ -34,4 +34,4 @@ Runtime controls expose arity, resolved action text, local availability, and `qu
 The editor implements the strict current Verb schema and creation/detail path. A Verb records arity,
 ordered role labels, action text, quick-action state, availability, and a closed default Interaction
 Program whose instructions carry stable nested IDs. Validation rejects role-count/arity mismatches,
-duplicate instruction IDs, invalid Trait attachments, and invalid program references. The compiler lowers each Verb's own availability condition, default program, Trait IDs, and property assignments. `runtime::RuntimeExecutor` performs the local default/undefined-interaction fallback described above; no runtime export adapter exists.
+duplicate instruction IDs and invalid program references. The compiler lowers each Verb's own availability condition and default program. `runtime::RuntimeExecutor` performs the local default/undefined-interaction fallback described above; no runtime export adapter exists.

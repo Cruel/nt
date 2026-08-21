@@ -164,13 +164,8 @@ std::optional<PropertyOwnerRef> property_owner_field(const nlohmann::json& objec
                   : std::nullopt;                                                                  \
     }
     DECODE_OWNER("room", RoomId)
-    DECODE_OWNER("scene", SceneId)
-    DECODE_OWNER("dialogue", DialogueId)
     DECODE_OWNER("character", CharacterId)
     DECODE_OWNER("interactable", InteractableId)
-    DECODE_OWNER("verb", VerbId)
-    DECODE_OWNER("interaction", InteractionId)
-    DECODE_OWNER("map", MapId)
 #undef DECODE_OWNER
 
     diagnostics.push_back(error("editor_protocol.invalid_owner_kind",

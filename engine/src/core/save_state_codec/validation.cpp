@@ -8,20 +8,10 @@ bool owner_exists(const CompiledProject& project, const PropertyOwnerRef& owner)
             using T = std::decay_t<decltype(id)>;
             if constexpr (std::is_same_v<T, RoomId>)
                 return project.find_room(id) != nullptr;
-            else if constexpr (std::is_same_v<T, SceneId>)
-                return project.find_scene(id) != nullptr;
-            else if constexpr (std::is_same_v<T, DialogueId>)
-                return project.find_dialogue(id) != nullptr;
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return project.find_character(id) != nullptr;
-            else if constexpr (std::is_same_v<T, InteractableId>)
-                return project.find_interactable(id) != nullptr;
-            else if constexpr (std::is_same_v<T, VerbId>)
-                return project.find_verb(id) != nullptr;
-            else if constexpr (std::is_same_v<T, InteractionId>)
-                return project.find_interaction(id) != nullptr;
             else
-                return project.find_map(id) != nullptr;
+                return project.find_interactable(id) != nullptr;
         },
         owner);
 }

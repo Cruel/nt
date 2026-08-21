@@ -6,7 +6,7 @@ Scene is the canonical visual-novel orchestration component; new code never uses
 `SceneDefinition` owns immutable metadata and a specialized flat `SceneProgram`. Scene is not a
 universal command stream, graph VM, keyframe timeline, or polymorphic controller.
 
-Scene is property-bearing and may attach supported Traits backed by ordinary Properties. Trait attachment does not merge steps, defaults, programs, resources, or continuations.
+Scene is an immutable orchestration definition, not a stateful Property or Trait owner. Mutable Scene execution state belongs to each Scene frame/invocation in the Runtime Session.
 
 ## Program
 
@@ -84,12 +84,9 @@ realization and leaves the already-published target authoritative.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific Scene record with Trait attachments, typed property assignments,
-  strict ordered steps, and explicit terminal continuation.
-- **Compiled:** `SceneDefinition` plus `SceneProgram`, linked typed references, retained Trait IDs,
-  property assignments, and compiler-marked safe points.
-- **Mutable:** Scene `FlowFrame`, actor state, logical waits, visit/history data, and property overrides
-  in `SessionState`.
+- **Authoring V2:** collection-specific Scene record with strict ordered steps and explicit terminal continuation.
+- **Compiled:** immutable `SceneDefinition` plus `SceneProgram`, linked typed references, and compiler-marked safe points.
+- **Mutable:** Scene `FlowFrame`, actor state, logical waits, and invocation-local execution data in `SessionState`; the Scene definition itself has no Property/Trait state.
 - **Tooling only:** comments, selected step, timeline/graph coordinates, preview playback/background,
   categories, tags, colors, and sort keys.
 

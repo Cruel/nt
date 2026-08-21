@@ -113,8 +113,9 @@ The primary sidebar changes based on activity:
 - Settings: workspace/editor preferences shortcuts.
 
 The Project explorer should support hierarchy, filtering, type grouping,
-creation actions, context menus, color labels/tags, reference previews, and
-parent assignment where applicable.
+creation actions, context menus, color labels/tags, and reference previews.
+Subsystem-specific relationships such as material inheritance belong in their
+own editors rather than a generic gameplay parent-assignment surface.
 
 ### Editor Workbench
 
@@ -288,7 +289,7 @@ Keep authoring-only data distinct from runtime data:
   included diagnostics/debug metadata for dev exports.
 - Export should strip editor-only fields from runtime packages.
 
-## Identity, References, and Inheritance
+## Identity, References, and Composition
 
 ### Entity Identity
 
@@ -296,7 +297,7 @@ Every persistent authoring record should have:
 
 - Stable string ID.
 - Human display name.
-- Optional parent ID where supported.
+- Optional composition/configuration references where supported.
 - Optional tags/categories.
 - Optional user color/label.
 - Optional description/notes.
@@ -323,36 +324,11 @@ The editor should maintain a reference index for:
 - Missing reference diagnostics.
 - Dependency-aware asset/material export.
 
-### Inheritance
+### Composition and limited inheritance
 
-Inheritance should be explicit and opt-in per entity type.
+Gameplay definitions do not use universal same-type parent/`extends` inheritance. Room, Character, and Interactable capabilities/configuration compose through Traits backed by ordinary Properties, while Scene, Dialogue, Verb, Interaction, and Map remain immutable non-Property-bearing program/vocabulary definitions. Future reusable instance configuration belongs in the explicit Archetype model rather than a generic parent field.
 
-Good candidates:
-
-- Materials.
-- Characters.
-- Character poses/expressions.
-- Rooms.
-- Inventory items.
-- Actions/interactions.
-- Layout/style presets.
-- Asset import presets.
-
-Questionable or deferred candidates:
-
-- Dialogue graph nodes.
-- Scene timeline events.
-- Test steps.
-
-Inheritance rules:
-
-- Parent must be same type or from an explicitly allowed base type.
-- Cycles are invalid.
-- The editor should show inherited values distinctly.
-- Overridden values should be clear.
-- Reset-to-inherited should be available per field.
-- Merged/computed values should be inspectable.
-- Validation should report missing parents and invalid cycles.
+Inheritance is permitted only where a specific subsystem contract defines it. Material inheritance is the current explicit example: its editor should distinguish inherited and overridden material values, support reset-to-inherited where applicable, and validate missing parents and cycles. Do not generalize that mechanism into gameplay entity inheritance, Layout inheritance, or asset/import inheritance without a separately approved contract.
 
 ## Command, Transaction, Undo, and Redo Model
 
@@ -1022,11 +998,12 @@ Status: complete.
 Milestone 3 defined the new-engine-first editor authoring schema v1 independent
 of old project-format compatibility concerns. The editor now has shared
 TypeScript/zod schema metadata, top-level authoring collections, `layouts`
-collection naming, project creation defaults, entity ID validation, parent and
-inheritance reference conventions, local authoring validation diagnostics,
-authoring project tree grouping, unsaved new-project dirty state, disabled
-playback/export until authoring-to-runtime conversion exists, and a reference
-index skeleton for entrypoint, parent, inheritance, and explicit `$ref` usages.
+collection naming, project creation defaults, entity ID validation, local
+authoring validation diagnostics, authoring project tree grouping, unsaved
+new-project dirty state, disabled playback/export until authoring-to-runtime
+conversion exists, and a reference index skeleton for entrypoint and explicit
+`$ref` usages. Current gameplay composition uses Traits/Properties and future
+Archetypes; generic gameplay parent relationships are not part of the model.
 
 ### Milestone 4: Project Explorer and Entity Operations
 
@@ -1034,12 +1011,13 @@ Status: complete.
 
 Milestone 4 made basic authoring operations available before specialized entity
 editors. The editor now has authoring-aware entity commands for create, rename
-ID, duplicate, reference-aware delete, metadata updates, and same-collection
-parent assignment; rename rewrites supported references transactionally;
-reference-aware deletes require force when usages exist; the project explorer has
-row/folder actions and lightweight operation dialogs; raw JSON tabs expose Find
-Usages; and a global References bottom panel shows entrypoint, parent,
-inheritance, and explicit `$ref` usages with source-record open actions.
+ID, duplicate, reference-aware delete, and metadata updates; rename rewrites
+supported references transactionally; reference-aware deletes require force when
+usages exist; the project explorer has row/folder actions and lightweight operation
+dialogs; raw JSON tabs expose Find Usages; and a global References bottom panel
+shows current typed references with source-record open actions. Material
+inheritance remains a subsystem-specific relationship rather than a generic
+entity operation.
 
 ### Milestone 5: Preview Manager Foundation
 

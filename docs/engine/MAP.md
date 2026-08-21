@@ -10,13 +10,13 @@ The compiler derives each connection's target Room from the referenced exit and 
 
 Selecting a Room location changes map focus only. Selecting a connection navigates only when its exit belongs to the active Room and always uses the normal Room navigation pipeline. V1 grants no implicit fast travel. Minimap/full-map mode, pan, zoom, visibility, focus, and highlighting are presentation state, not alternate gameplay topology.
 
-Map is property-bearing and may attach supported Traits backed by ordinary Properties. Trait attachment does not merge locations, connections, resources, or presentation settings.
+Map is immutable presentation/selection vocabulary over authoritative Room topology, not a stateful Property or Trait owner. Runtime map focus, visibility, mode, pan, and zoom are presentation/session state rather than custom Property state on the Map definition.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific Map record with Trait attachments, typed properties, locations, exit-backed connections, and presentation settings.
-- **Compiled:** linked `MapDefinition`, validated Room/exit references, retained Trait IDs, resources, and property assignments.
-- **Mutable:** property overrides plus logical map focus/visibility only when gameplay requires persistence.
+- **Authoring V2:** collection-specific Map record with locations, exit-backed connections, and presentation settings.
+- **Compiled:** linked immutable `MapDefinition` with validated Room/exit references and resources.
+- **Mutable:** logical map focus/visibility and other presentation state only when gameplay requires persistence; the Map definition has no Property/Trait state.
 - **Tooling only:** editor pan/zoom, selection, graph coordinates distinct from authored display positions, categories, tags, colors, and sort keys.
 
 ## Current implementation

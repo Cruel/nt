@@ -30,6 +30,10 @@ struct TraitDeclaration {
     std::vector<TraitProperty> properties;
 };
 
+template<class Id> struct DefinitionIdentity {
+    Id id;
+};
+
 template<class Id> struct PropertyBearingDefinition {
     Id id;
     std::vector<TraitId> traits;
@@ -88,7 +92,7 @@ struct InteractableDefinition {
 };
 
 struct VerbDefinition {
-    PropertyBearingDefinition<VerbId> identity;
+    DefinitionIdentity<VerbId> identity;
     TextContent action_text;
     std::uint8_t arity;
     Condition availability;
@@ -97,11 +101,11 @@ struct VerbDefinition {
     bool quick_action;
 };
 struct InteractionDefinition {
-    PropertyBearingDefinition<InteractionId> identity;
+    DefinitionIdentity<InteractionId> identity;
     std::vector<InteractionRule> rules;
 };
 struct SceneDefinition {
-    PropertyBearingDefinition<SceneId> identity;
+    DefinitionIdentity<SceneId> identity;
     std::string display_name;
     BackgroundPresentation default_background;
     std::optional<LayoutId> default_layout;
@@ -109,7 +113,7 @@ struct SceneDefinition {
     FlowTarget continuation;
 };
 struct DialogueDefinition {
-    PropertyBearingDefinition<DialogueId> identity;
+    DefinitionIdentity<DialogueId> identity;
     std::string display_name;
     std::optional<CharacterId> default_speaker;
     DialogueProgram program;
@@ -117,7 +121,7 @@ struct DialogueDefinition {
     FlowTarget completion;
 };
 struct MapDefinition {
-    PropertyBearingDefinition<MapId> identity;
+    DefinitionIdentity<MapId> identity;
     std::vector<MapConnection> connections;
     std::vector<MapLocation> locations;
     MapPresentation presentation;

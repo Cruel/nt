@@ -3,6 +3,7 @@ import { defaultCharacterData } from '../../shared/project-schema/authoring-char
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { validateHotspotAuthoringSemantics } from '../../shared/project-schema/authoring-hotspot-validation';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   authoringValidationSucceeded,
@@ -132,6 +133,58 @@ describe('authoring V2 validation', () => {
           message: "Trait 'room-state' cannot be attached to character.",
         }),
       ]),
+    );
+  });
+
+  it('limits Property and Trait owner kinds to stateful Gameplay Instances', () => {
+    const project = createAuthoringProject();
+    const diagnostics = validateAuthoringProject({
+      ...project,
+      properties: {
+        'scene-state': {
+          id: 'scene-state',
+          label: 'Scene state',
+          type: 'string',
+          nullable: false,
+          ownerKinds: ['scene'],
+        },
+      },
+      traits: {
+        'scene-trait': {
+          id: 'scene-trait',
+          label: 'Scene Trait',
+          ownerKinds: ['scene'],
+          properties: [{ kind: 'required', propertyId: 'scene-state' }],
+        },
+      },
+    });
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'error',
+          path: '/properties/scene-state/ownerKinds/0',
+        }),
+        expect.objectContaining({ severity: 'error', path: '/traits/scene-trait/ownerKinds/0' }),
+      ]),
+    );
+  });
+
+  it('rejects Property and Trait fields on immutable program definitions', () => {
+    const project = createAuthoringProject();
+    const diagnostics = validateAuthoringProject({
+      ...project,
+      scenes: {
+        opening: {
+          id: 'opening',
+          label: 'Opening',
+          traits: [],
+          properties: {},
+          data: defaultSceneData('Opening'),
+        },
+      },
+    });
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'error', path: '/scenes/opening' }),
     );
   });
 

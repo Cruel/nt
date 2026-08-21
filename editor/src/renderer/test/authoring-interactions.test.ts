@@ -31,8 +31,6 @@ describe('authoring interactions', () => {
     project.verbs.look = {
       id: 'look',
       label: 'Look',
-      traits: [],
-      properties: {},
       data: defaultVerbData('Look'),
     };
     const data = defaultInteractionData();
@@ -56,8 +54,6 @@ describe('authoring interactions', () => {
     const diagnostics = validateInteractionData(project, 'rules', {
       id: 'rules',
       label: 'Rules',
-      traits: [],
-      properties: {},
       data,
     });
 
@@ -117,8 +113,6 @@ describe('authoring interactions', () => {
     project.verbs.use = {
       id: 'use',
       label: 'Use',
-      traits: [],
-      properties: {},
       data: { ...defaultVerbData('Use'), arity: 1, operandRoles: ['target'] },
     };
     const interaction = defaultInteractionData();
@@ -140,8 +134,6 @@ describe('authoring interactions', () => {
     project.interactions.use = {
       id: 'use',
       label: 'Use',
-      traits: [],
-      properties: {},
       data: interaction,
     };
 

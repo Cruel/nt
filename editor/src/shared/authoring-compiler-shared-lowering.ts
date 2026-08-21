@@ -165,6 +165,10 @@ function propertyAssignments(record: AuthoringRecordBase) {
     .map(([propertyId, value]) => ({ propertyId, value }));
 }
 
+function definitionBase(id: string) {
+  return { id };
+}
+
 function propertyBase(id: string, record: AuthoringRecordBase) {
   return {
     id,
@@ -557,7 +561,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     const data = requireData(parseVerbData(record.data), `/verbs/${id}/data`);
     if (data)
       verbs.push({
-        ...propertyBase(id, record),
+        ...definitionBase(id),
         arity: data.arity,
         operandRoles: [...data.operandRoles],
         actionText: compileText(data.actionText),
@@ -568,7 +572,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   const interactions: SharedInteractionDefinition[] = [];
   for (const [id, record] of sortedEntries(project.interactions)) {
     const data = requireData(parseInteractionData(record.data), `/interactions/${id}/data`);
-    if (data) interactions.push({ ...propertyBase(id, record) });
+    if (data) interactions.push({ ...definitionBase(id) });
   }
 
   const scenes: SharedSceneDefinition[] = [];
@@ -576,7 +580,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     const data = requireData(parseSceneData(record.data), `/scenes/${id}/data`);
     if (!data) continue;
     scenes.push({
-      ...propertyBase(id, record),
+      ...definitionBase(id),
       displayName: data.displayName,
       defaultBackground: {
         asset: assetRef(data.defaultBackground.asset),
@@ -593,7 +597,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     const data = requireData(parseDialogueData(record.data), `/dialogues/${id}/data`);
     if (data)
       dialogues.push({
-        ...propertyBase(id, record),
+        ...definitionBase(id),
         displayName: data.displayName,
         defaultSpeaker: characterRef(data.defaultSpeaker),
         settings: { ...data.settings },
@@ -605,7 +609,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     const data = requireData(parseMapData(record.data), `/maps/${id}/data`);
     if (!data) continue;
     maps.push({
-      ...propertyBase(id, record),
+      ...definitionBase(id),
       presentation: {
         title: data.presentation.title ? compileText(data.presentation.title) : null,
         background: assetRef(data.presentation.background),

@@ -434,7 +434,7 @@ private:
                       "Trait must admit at least one owner kind.", base + "/ownerKinds");
             std::unordered_set<PropertyOwnerKind> owners;
             for (const auto owner : definition.allowed_owners) {
-                if (owner > PropertyOwnerKind::Map)
+                if (owner > PropertyOwnerKind::Interactable)
                     error("compiled_project.invalid_trait_definition",
                           "Trait owner kind is invalid.", base + "/ownerKinds");
                 if (!owners.insert(owner).second)
@@ -840,7 +840,6 @@ private:
         for (std::size_t index = 0; index < m_input.verbs.size(); ++index) {
             const auto& value = m_input.verbs[index];
             const auto path = item("/definitions/verbs", index);
-            validate_assignments(value, PropertyOwnerKind::Verb, path);
             validate_text(value.action_text, path + "/actionText");
             validate_condition(value.availability, path + "/availability");
             validate_program(value.default_program, path + "/defaultProgram");
@@ -848,7 +847,6 @@ private:
         for (std::size_t index = 0; index < m_input.interactions.size(); ++index) {
             const auto& value = m_input.interactions[index];
             const auto path = item("/definitions/interactions", index);
-            validate_assignments(value, PropertyOwnerKind::Interaction, path);
             for (std::size_t rule_index = 0; rule_index < value.rules.size(); ++rule_index) {
                 const auto& rule = value.rules[rule_index];
                 const auto rule_path = path + "/rules/" + std::to_string(rule_index);
@@ -977,7 +975,6 @@ private:
         for (std::size_t scene_index = 0; scene_index < m_input.scenes.size(); ++scene_index) {
             const auto& scene = m_input.scenes[scene_index];
             const auto path = item("/definitions/scenes", scene_index);
-            validate_assignments(scene, PropertyOwnerKind::Scene, path);
             validate_background(scene.default_background, path + "/defaultBackground");
             if (scene.default_layout)
                 require(m_layouts, *scene.default_layout, "layout", path + "/defaultLayout");
@@ -1222,7 +1219,6 @@ private:
              ++dialogue_index) {
             const auto& value = m_input.dialogues[dialogue_index];
             const auto path = item("/definitions/dialogues", dialogue_index);
-            validate_assignments(value, PropertyOwnerKind::Dialogue, path);
             if (value.default_speaker)
                 require(m_characters, *value.default_speaker, "character",
                         path + "/defaultSpeaker");
@@ -1345,7 +1341,6 @@ private:
         for (std::size_t map_index = 0; map_index < m_input.maps.size(); ++map_index) {
             const auto& value = m_input.maps[map_index];
             const auto path = item("/definitions/maps", map_index);
-            validate_assignments(value, PropertyOwnerKind::Map, path);
             std::unordered_map<MapLocationId, const MapLocation*> locations;
             for (std::size_t location_index = 0; location_index < value.locations.size();
                  ++location_index) {

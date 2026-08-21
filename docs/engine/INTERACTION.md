@@ -22,13 +22,13 @@ explicit wildcards, active-Room context, Room-placement proximity, and predicate
 more exact operands win; declaration order is the final tie-break and equal-specificity authoring
 ties are warned. The selected rule runs first. An `Unhandled` result then attempts the selected Verb's own default program once, while `Handled` applies the program FlowTarget and `Failed` aborts. If that Verb default is also `Unhandled`, the final V1 undefined-interaction policy is a typed `Nothing happens.` notification because the current compiled wire does not define an authored project-level fallback program.
 
-Interaction is property-bearing and may attach supported Traits backed by ordinary Properties. Trait attachment does not merge or inherit rules or programs.
+Interaction is immutable rule/program vocabulary, not a stateful Property or Trait owner. Runtime command matching and execution state belong to the Runtime Session rather than to the Interaction definition.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring version 3:** collection-specific Interaction records with Trait attachments, typed properties, ordered rules, exact/wildcard operands, generic/exact-hotspot context, and strict programs.
-- **Compiled:** linked `InteractionRule`/`InteractionProgram`, retained Trait IDs, stable rule order, and property assignments.
-- **Mutable:** Interaction flow frames, changed variables/interactable state, and property overrides in `SessionState`.
+- **Authoring version 3:** collection-specific Interaction records with ordered rules, exact/wildcard operands, generic/exact-hotspot context, and strict programs.
+- **Compiled:** linked immutable `InteractionRule`/`InteractionProgram` with stable rule order.
+- **Mutable:** Interaction flow frames plus the gameplay state changed by executed effects in `SessionState`; the Interaction definition itself has no Property/Trait state.
 - **Tooling only:** categories, tags, colors, sort keys, notes, graph layout, selection, and previews.
 
 ## Current authoring implementation

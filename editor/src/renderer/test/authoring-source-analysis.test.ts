@@ -1305,8 +1305,6 @@ describe('typed source registry and graph evidence', () => {
       id: 'unsupported',
       label: 'Unsupported',
       data: unsupported,
-      properties: {},
-      traits: [],
     } as never;
     const validation = validateAuthoringProject(project);
     expect(
