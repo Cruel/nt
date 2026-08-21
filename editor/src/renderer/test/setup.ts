@@ -251,9 +251,9 @@ Object.defineProperty(window, 'noveltea', {
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
     onProjectWorkspaceChanged: vi.fn().mockReturnValue(() => {}),
-    resolveProjectAssetUrl: vi.fn().mockResolvedValue({
-      url: 'data:image/png;base64,bW9jaw==',
-      absolutePath: '/mock/project/assets/images/logo.png',
+    resolveProjectOriginalAssetUrl: vi.fn().mockResolvedValue({
+      ok: true,
+      url: 'noveltea-asset://source/session/logo',
     }),
     requestImageThumbnail: vi.fn().mockResolvedValue({
       ok: true,

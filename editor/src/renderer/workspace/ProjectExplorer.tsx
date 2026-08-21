@@ -797,6 +797,7 @@ function ExplorerContextMenu({
   const setStatusMessage = useWorkspaceStore((store) => store.setStatusMessage);
   const setActiveNodeId = useProjectExplorerStore((store) => store.setActiveNodeId);
   const projectFilePath = useProjectStore((store) => store.projectFilePath);
+  const projectSessionId = useProjectStore((store) => store.projectSessionId);
   const executeCommand = useCommandStore((store) => store.executeCommand);
   const setHiddenCollectionKeys = useProjectExplorerStore((store) => store.setHiddenCollectionKeys);
   const hiddenCollectionKeys = useProjectExplorerStore((store) => store.hiddenCollectionKeys);
@@ -873,13 +874,13 @@ function ExplorerContextMenu({
   }
 
   async function importAssetsFromFolder() {
-    if (!projectFilePath) {
+    if (!projectFilePath || !projectSessionId) {
       const message = 'Save the project before importing assets.';
       setStatusMessage(message);
       showAlert({ title: 'Asset import unavailable', message });
       return;
     }
-    const result = await window.noveltea.importAssets(projectFilePath, { allowMultiple: true });
+    const result = await window.noveltea.importAssets(projectSessionId, { allowMultiple: true });
     if (!result.success || result.assets.length === 0) {
       const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset import canceled.';
       setStatusMessage(message);
@@ -899,7 +900,7 @@ function ExplorerContextMenu({
     );
     if (!applied) {
       await window.noveltea.trashProjectAssetFiles(
-        projectFilePath,
+        projectSessionId,
         result.assets.map((asset) => asset.projectRelativePath),
       );
     }

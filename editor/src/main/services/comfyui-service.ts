@@ -1,10 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import { promises as fs } from 'node:fs';
+import http from 'node:http';
+import net from 'node:net';
 import path from 'node:path';
 import sharp from 'sharp';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
-import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
+import { COMFYUI_IPC_LIMITS, normalizeComfyUiServerUrl } from '../../shared/comfyui';
 import type {
   ComfyUiCancelJobResponse,
   ComfyUiEditImageRequest,
@@ -24,8 +27,14 @@ import {
   type ComfyUiWorkflowListEntry,
   type ComfyUiWorkflowListResponse,
 } from '../../shared/comfyui-workflows';
-import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
+import { projectOriginalAssetBoundaryCode } from '../../shared/project-original-asset';
+import {
+  PROJECT_TRUST_FAILURE,
+  type ProjectTrustFailureCode,
+} from '../../shared/project-trust-boundary';
+import type { ActiveProjectSessionService } from './active-project-session-service';
+import { resolveContainedOriginalAsset } from './project-original-asset-service';
 
 interface WorkflowNode {
   class_type?: string;
@@ -640,6 +649,7 @@ async function writeGeneratedAsset(
   projectFilePath: string,
   bytes: Buffer,
   prefix: 'generated' | 'edit',
+  assertAuthorityCurrent: () => void,
 ): Promise<{
   metadata: ImportedAssetMetadata;
   absolutePath: string;
@@ -648,17 +658,46 @@ async function writeGeneratedAsset(
 }> {
   const projectRoot = projectRootFromFile(projectFilePath);
   const generatedDir = path.join(projectRoot, 'assets', 'generated');
+  const imageMetadata = await sharp(bytes, { failOn: 'error' })
+    .metadata()
+    .then((metadata) => {
+      if (!metadata.width || !metadata.height)
+        throw new Error('Generated image dimensions could not be determined.');
+      return {
+        width: metadata.width,
+        height: metadata.height,
+        hasAlpha: metadata.hasAlpha,
+        orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+      };
+    });
+  assertAuthorityCurrent();
   await fs.mkdir(generatedDir, { recursive: true });
+  assertAuthorityCurrent();
   let absolutePath = path.join(generatedDir, safeGeneratedName(prefix));
   while (true) {
     try {
       await fs.access(absolutePath);
       absolutePath = path.join(generatedDir, safeGeneratedName(prefix));
     } catch {
+      assertAuthorityCurrent();
       break;
     }
+    assertAuthorityCurrent();
   }
-  await fs.writeFile(absolutePath, bytes);
+  const temporaryPath = `${absolutePath}.${randomUUID()}.tmp`;
+  let published = false;
+  try {
+    assertAuthorityCurrent();
+    await fs.writeFile(temporaryPath, bytes, { flag: 'wx' });
+    assertAuthorityCurrent();
+    await fs.rename(temporaryPath, absolutePath);
+    published = true;
+    assertAuthorityCurrent();
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    if (published) await fs.rm(absolutePath, { force: true }).catch(() => undefined);
+    throw error;
+  }
   const projectRelativePath = slashPath(path.relative(projectRoot, absolutePath));
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   const originalName = path.basename(absolutePath);
@@ -677,18 +716,7 @@ async function writeGeneratedAsset(
       byteSize: bytes.byteLength,
       contentHash,
       importedAt: new Date().toISOString(),
-      imageMetadata: await sharp(bytes, { failOn: 'error' })
-        .metadata()
-        .then((metadata) => {
-          if (!metadata.width || !metadata.height)
-            throw new Error('Generated image dimensions could not be determined.');
-          return {
-            width: metadata.width,
-            height: metadata.height,
-            hasAlpha: metadata.hasAlpha,
-            orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
-          };
-        }),
+      imageMetadata,
     },
   };
 }
@@ -996,28 +1024,290 @@ function descriptorViewPath(image: ComfyImageDescriptor) {
   return `/view?${params.toString()}`;
 }
 
-async function uploadImage(
+const COMFYUI_UPLOAD_RESPONSE_MAX_BYTES = 1024 * 1024;
+
+interface LoopbackUploadTarget {
+  url: URL;
+  address: string;
+  family: 4 | 6;
+}
+
+class ComfyUiBoundaryFailure extends Error {
+  constructor(
+    readonly code: ProjectTrustFailureCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ComfyUiBoundaryFailure';
+  }
+}
+
+function remoteUploadDenied(message: string): never {
+  throw new ComfyUiBoundaryFailure(PROJECT_TRUST_FAILURE.REMOTE_UPLOAD_DENIED, message);
+}
+
+function stripIpv6Brackets(hostname: string): string {
+  return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+}
+
+export function isLoopbackAddress(address: string): boolean {
+  const normalized = stripIpv6Brackets(address).toLowerCase();
+  if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') return true;
+  const mapped = normalized.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/)?.[1];
+  const ipv4 = mapped ?? normalized;
+  if (net.isIP(ipv4) !== 4) return false;
+  const octets = ipv4.split('.').map(Number);
+  return (
+    octets.length === 4 && octets[0] === 127 && octets.every((value) => value >= 0 && value <= 255)
+  );
+}
+
+interface ValidatedLoopbackUploadTarget {
+  url: URL;
+  hostname: string;
+  literalFamily: 0 | 4 | 6;
+}
+
+function validateLoopbackUploadTarget(config: ComfyUiConfig): ValidatedLoopbackUploadTarget {
+  let base: URL;
+  try {
+    base = new URL(normalizeComfyUiServerUrl(config.serverUrl));
+  } catch {
+    remoteUploadDenied('ComfyUI source upload URL is invalid.');
+  }
+  if (base.protocol !== 'http:')
+    remoteUploadDenied('ComfyUI source upload requires loopback HTTP.');
+  if (base.username || base.password)
+    remoteUploadDenied('ComfyUI source upload URL cannot contain credentials.');
+  const hostname = stripIpv6Brackets(base.hostname);
+  const literalFamily = net.isIP(hostname) as 0 | 4 | 6;
+  if (literalFamily) {
+    if (!isLoopbackAddress(hostname))
+      remoteUploadDenied('ComfyUI source upload target must be loopback.');
+  } else if (hostname.toLowerCase() !== 'localhost') {
+    remoteUploadDenied(
+      'ComfyUI source upload hostname must be localhost or a loopback IP literal.',
+    );
+  }
+  return { url: new URL('/upload/image', base), hostname, literalFamily };
+}
+
+async function resolveValidatedLoopbackUploadTarget(
+  validated: ValidatedLoopbackUploadTarget,
+): Promise<LoopbackUploadTarget> {
+  if (validated.literalFamily) {
+    return {
+      url: validated.url,
+      address: validated.hostname,
+      family: validated.literalFamily,
+    };
+  }
+  let resolved: Array<{ address: string; family: number }>;
+  try {
+    resolved = await lookup(validated.hostname, { all: true, verbatim: true });
+  } catch {
+    remoteUploadDenied('ComfyUI localhost could not be resolved safely.');
+  }
+  if (!resolved.length || resolved.some((entry) => !isLoopbackAddress(entry.address)))
+    remoteUploadDenied('ComfyUI localhost resolution is ambiguous or non-loopback.');
+  const selected = resolved[0]!;
+  return {
+    url: validated.url,
+    address: selected.address,
+    family: selected.family as 4 | 6,
+  };
+}
+
+export async function resolveLoopbackUploadTarget(
   config: ComfyUiConfig,
-  projectFilePath: string,
-  sourceProjectRelativePath: string,
+): Promise<LoopbackUploadTarget> {
+  return resolveValidatedLoopbackUploadTarget(validateLoopbackUploadTarget(config));
+}
+
+export async function readBoundedComfyUiSourceImage(
+  sessions: ActiveProjectSessionService,
+  projectSessionId: string,
+  sourceAssetId: string,
+): Promise<{ bytes: Buffer; mimeType: string }> {
+  const resolved = await resolveContainedOriginalAsset(sessions, projectSessionId, sourceAssetId, {
+    maxBytes: COMFYUI_IPC_LIMITS.sourceUploadBytes,
+    requireKind: 'image',
+  });
+  if (typeof resolved === 'string') {
+    const boundaryCode = projectOriginalAssetBoundaryCode(resolved);
+    throw new ComfyUiBoundaryFailure(
+      boundaryCode === 'invalid-request' ? PROJECT_TRUST_FAILURE.UNAUTHORIZED_ASSET : boundaryCode,
+      `ComfyUI source image rejected: ${resolved}.`,
+    );
+  }
+  const bytes = Buffer.allocUnsafe(resolved.size);
+  const hash = createHash('sha256');
+  let total = 0;
+  try {
+    while (total < resolved.size) {
+      const read = await resolved.handle.read(bytes, total, resolved.size - total, total);
+      if (read.bytesRead === 0) break;
+      hash.update(bytes.subarray(total, total + read.bytesRead));
+      total += read.bytesRead;
+    }
+    const growthProbe = Buffer.allocUnsafe(1);
+    const extra = await resolved.handle.read(growthProbe, 0, 1, resolved.size);
+    if (total !== resolved.size || extra.bytesRead !== 0)
+      throw new ComfyUiBoundaryFailure(
+        PROJECT_TRUST_FAILURE.SOURCE_REVISION_MISMATCH,
+        'ComfyUI source image changed while buffering.',
+      );
+    if (`sha256:${hash.digest('hex')}` !== resolved.contentHash)
+      throw new ComfyUiBoundaryFailure(
+        PROJECT_TRUST_FAILURE.SOURCE_REVISION_MISMATCH,
+        'ComfyUI source image revision changed while buffering.',
+      );
+    if (!sessions.isCurrent(projectSessionId))
+      throw new ComfyUiBoundaryFailure(
+        PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+        'Project session is stale or unknown.',
+      );
+    return { bytes, mimeType: resolved.mimeType };
+  } finally {
+    await resolved.handle.close().catch(() => undefined);
+  }
+}
+
+function sourceUploadName(sourceAssetId: string, mimeType: string): string {
+  const extension =
+    mimeType === 'image/jpeg'
+      ? '.jpg'
+      : mimeType === 'image/svg+xml'
+        ? '.svg'
+        : `.${mimeType.slice('image/'.length)}`;
+  const safeId = sourceAssetId.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 96) || 'source';
+  return `${safeId}${extension}`;
+}
+
+async function postLoopbackComfyUiImage(
+  config: ComfyUiConfig,
+  target: LoopbackUploadTarget,
+  bytes: Buffer,
+  name: string,
+  mimeType: string,
 ): Promise<string> {
-  if (!isSafeProjectAssetPath(sourceProjectRelativePath))
-    throw new Error('Source image path is not a safe project asset path.');
-  const projectRoot = projectRootFromFile(projectFilePath);
-  const absolute = path.resolve(projectRoot, sourceProjectRelativePath);
-  const relative = path.relative(projectRoot, absolute);
-  if (relative.startsWith('..') || path.isAbsolute(relative))
-    throw new Error('Source image path escapes the project.');
-  const bytes = await fs.readFile(absolute);
-  const form = new FormData();
-  const name = path.basename(sourceProjectRelativePath);
-  form.append('image', new Blob([bytes]), name);
-  form.append('overwrite', 'true');
-  const result = await fetchJson(config, '/upload/image', { method: 'POST', body: form });
-  if (!result.ok) throw new Error(result.error);
-  const value = result.value as { name?: string; subfolder?: string; type?: string };
-  if (!value.name) return name;
-  return value.subfolder ? `${value.subfolder}/${value.name}` : value.name;
+  const boundary = `----noveltea-${randomUUID()}`;
+  const prefix = Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="image"; filename="${name}"\r\nContent-Type: ${mimeType}\r\n\r\n`,
+  );
+  const suffix = Buffer.from(
+    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="overwrite"\r\n\r\ntrue\r\n--${boundary}--\r\n`,
+  );
+  const contentLength = prefix.byteLength + bytes.byteLength + suffix.byteLength;
+  return new Promise<string>((resolve, reject) => {
+    const request = http.request(
+      {
+        protocol: 'http:',
+        host: target.address,
+        family: target.family,
+        port: target.url.port || 80,
+        path: `${target.url.pathname}${target.url.search}`,
+        method: 'POST',
+        headers: {
+          Host: target.url.host,
+          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+          'Content-Length': contentLength,
+        },
+        timeout: config.requestTimeoutMs,
+      },
+      (response) => {
+        const status = response.statusCode ?? 0;
+        if (status >= 300 && status < 400) {
+          response.resume();
+          reject(
+            new ComfyUiBoundaryFailure(
+              PROJECT_TRUST_FAILURE.REMOTE_UPLOAD_DENIED,
+              'ComfyUI source upload redirects are not allowed.',
+            ),
+          );
+          return;
+        }
+        const chunks: Buffer[] = [];
+        let total = 0;
+        response.on('data', (chunk: Buffer) => {
+          total += chunk.byteLength;
+          if (total > COMFYUI_UPLOAD_RESPONSE_MAX_BYTES) {
+            response.destroy(new Error('ComfyUI source upload response is too large.'));
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        });
+        response.on('end', () => {
+          if (status < 200 || status >= 300) {
+            reject(new Error(`ComfyUI returned HTTP ${status} for source upload.`));
+            return;
+          }
+          try {
+            const value = JSON.parse(Buffer.concat(chunks, total).toString('utf8')) as {
+              name?: string;
+              subfolder?: string;
+            };
+            if (!value.name) {
+              resolve(name);
+              return;
+            }
+            resolve(value.subfolder ? `${value.subfolder}/${value.name}` : value.name);
+          } catch {
+            reject(new Error('ComfyUI source upload returned invalid JSON.'));
+          }
+        });
+      },
+    );
+    request.on('socket', (socket) => {
+      socket.once('connect', () => {
+        if (!socket.remoteAddress || !isLoopbackAddress(socket.remoteAddress))
+          request.destroy(
+            new ComfyUiBoundaryFailure(
+              PROJECT_TRUST_FAILURE.REMOTE_UPLOAD_DENIED,
+              'ComfyUI source upload connection is not loopback.',
+            ),
+          );
+      });
+    });
+    request.on('timeout', () => request.destroy(new Error('ComfyUI source upload timed out.')));
+    request.on('error', reject);
+    request.write(prefix);
+    request.write(bytes);
+    request.end(suffix);
+  });
+}
+
+export async function uploadComfyUiSourceImage(
+  sessions: ActiveProjectSessionService,
+  projectSessionId: string,
+  config: ComfyUiConfig,
+  sourceAssetId: string,
+): Promise<string> {
+  const validatedTarget = validateLoopbackUploadTarget(config);
+  if (!sessions.isCurrent(projectSessionId))
+    throw new ComfyUiBoundaryFailure(
+      PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+      'Project session is stale or unknown.',
+    );
+  const source = await readBoundedComfyUiSourceImage(sessions, projectSessionId, sourceAssetId);
+  if (!sessions.isCurrent(projectSessionId))
+    throw new ComfyUiBoundaryFailure(
+      PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+      'Project session is stale or unknown.',
+    );
+  const target = await resolveValidatedLoopbackUploadTarget(validatedTarget);
+  if (!sessions.isCurrent(projectSessionId))
+    throw new ComfyUiBoundaryFailure(
+      PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+      'Project session is stale or unknown.',
+    );
+  return postLoopbackComfyUiImage(
+    config,
+    target,
+    source.bytes,
+    sourceUploadName(sourceAssetId, source.mimeType),
+    source.mimeType,
+  );
 }
 
 async function runImageJob(
@@ -1030,30 +1320,39 @@ async function runImageJob(
   mode: 'generated' | 'edit',
   owner: ComfyUiProgressOwner | null,
   clientJobId?: string,
+  isAuthorityCurrent: () => boolean = () => true,
+  projectSessionId?: string,
 ): Promise<ComfyUiImageJobResponse> {
   const clientId = randomUUID();
   const promptId = clientJobId ?? randomUUID();
   const createdAt = new Date().toISOString();
   const queueMode = mode === 'generated' ? 'generate' : 'edit';
   const progressMetadata = {
-    projectFilePath,
+    projectSessionId,
     workflowLabel: definition.label,
     role: definition.role,
     mode: queueMode,
     promptSummary: prompt.trim().slice(0, 120) || '(empty prompt)',
     createdAt,
   } satisfies Partial<ComfyUiQueueProgress>;
+  const assertAuthorityCurrent = () => {
+    if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
+  };
   try {
+    assertAuthorityCurrent();
     await validateWorkflowRequirements(config, definition);
+    assertAuthorityCurrent();
     const submitted = await submitPrompt(config, workflow, promptId, clientId);
     const actualPromptId = submitted.prompt_id ?? promptId;
     const selectedOutputNodeIds = resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
-    const emit = (progress: ComfyUiQueueProgress) =>
+    const emit = (progress: ComfyUiQueueProgress) => {
+      if (!isAuthorityCurrent()) return;
       owner?.webContents.send(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, {
         ...progressMetadata,
         ...progress,
         updatedAt: new Date().toISOString(),
       });
+    };
     emit({
       promptId: actualPromptId,
       workflowId: definition.id,
@@ -1071,6 +1370,7 @@ async function runImageJob(
       actualPromptId,
       selectedOutputNodeIds,
     );
+    assertAuthorityCurrent();
     if (!descriptors.length) {
       const outputDetail = selectedOutputNodeIds.length
         ? ` from selected output node${selectedOutputNodeIds.length === 1 ? '' : 's'} ${selectedOutputNodeIds.join(', ')}`
@@ -1080,7 +1380,14 @@ async function runImageJob(
     const assets = [];
     for (const descriptor of descriptors) {
       const bytes = await fetchBytes(config, descriptorViewPath(descriptor));
-      const written = await writeGeneratedAsset(projectFilePath, bytes, mode);
+      assertAuthorityCurrent();
+      const written = await writeGeneratedAsset(
+        projectFilePath,
+        bytes,
+        mode,
+        assertAuthorityCurrent,
+      );
+      assertAuthorityCurrent();
       assets.push({
         asset: written.metadata,
         previewUrl: written.previewUrl,
@@ -1106,18 +1413,19 @@ async function runImageJob(
     return { ok: true, success: true, promptId: actualPromptId, assets, diagnostics: [] };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'ComfyUI image job failed.';
-    owner?.webContents.send(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, {
-      ...progressMetadata,
-      promptId,
-      workflowId: definition.id,
-      state: 'error',
-      queueRemaining: null,
-      currentNode: null,
-      progressValue: null,
-      progressMax: null,
-      message,
-      updatedAt: new Date().toISOString(),
-    });
+    if (isAuthorityCurrent())
+      owner?.webContents.send(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, {
+        ...progressMetadata,
+        promptId,
+        workflowId: definition.id,
+        state: 'error',
+        queueRemaining: null,
+        currentNode: null,
+        progressValue: null,
+        progressMax: null,
+        message,
+        updatedAt: new Date().toISOString(),
+      });
     return {
       ok: false,
       success: false,
@@ -1133,6 +1441,8 @@ export async function generateComfyUiImage(
   owner: ComfyUiProgressOwner | null,
   config: ComfyUiConfig,
   request: ComfyUiGenerateImageRequest,
+  isAuthorityCurrent: () => boolean = () => true,
+  projectSessionId?: string,
 ): Promise<ComfyUiImageJobResponse> {
   if (!config.enabled)
     return {
@@ -1149,6 +1459,15 @@ export async function generateComfyUiImage(
       assets: [],
       diagnostics: [],
       error: 'Save the project before generating images.',
+    };
+  if (!isAuthorityCurrent())
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: 'Project session is stale or unknown.',
+      failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
     };
   const { definition, workflow: template } = await resolveComfyUiWorkflowPackage(
     request.projectFilePath,
@@ -1207,13 +1526,19 @@ export async function generateComfyUiImage(
     'generated',
     owner,
     request.clientJobId,
+    isAuthorityCurrent,
+    projectSessionId,
   );
 }
 
 export async function editComfyUiImage(
   owner: ComfyUiProgressOwner | null,
+  sessions: ActiveProjectSessionService,
+  projectSessionId: string,
+  projectFilePath: string,
   config: ComfyUiConfig,
   request: ComfyUiEditImageRequest,
+  isAuthorityCurrent: () => boolean = () => true,
 ): Promise<ComfyUiImageJobResponse> {
   if (!config.enabled)
     return {
@@ -1223,7 +1548,7 @@ export async function editComfyUiImage(
       diagnostics: [],
       error: 'ComfyUI is disabled.',
     };
-  if (!request.projectFilePath)
+  if (!projectFilePath)
     return {
       ok: false,
       success: false,
@@ -1231,8 +1556,17 @@ export async function editComfyUiImage(
       diagnostics: [],
       error: 'Save the project before editing images.',
     };
+  if (!isAuthorityCurrent())
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: 'Project session is stale or unknown.',
+      failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+    };
   const { definition, workflow: template } = await resolveComfyUiWorkflowPackage(
-    request.projectFilePath,
+    projectFilePath,
     request,
   );
   if (definition.role !== 'image.edit')
@@ -1245,11 +1579,43 @@ export async function editComfyUiImage(
     };
   const workflow = cloneWorkflow(template);
   assertWorkflowBindingsValid(workflow, definition);
-  const uploadReference = await uploadImage(
-    config,
-    request.projectFilePath,
-    request.sourceProjectRelativePath,
-  );
+  if (!isAuthorityCurrent())
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: 'Project session is stale or unknown.',
+      failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+    };
+  let uploadReference: string;
+  try {
+    uploadReference = await uploadComfyUiSourceImage(
+      sessions,
+      projectSessionId,
+      config,
+      request.sourceAssetId,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ComfyUI source image upload failed.';
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [{ severity: 'error', category: 'comfyui', path: '/', message }],
+      error: message,
+      ...(error instanceof ComfyUiBoundaryFailure ? { failureCode: error.code } : {}),
+    };
+  }
+  if (!isAuthorityCurrent())
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: 'Project session is stale or unknown.',
+      failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
+    };
   const seed = generatedSeed(request.seed);
   setWorkflowInput(workflow, definition.bindings.sourceImage, uploadReference);
   setWorkflowInput(workflow, definition.bindings.prompt, request.prompt);
@@ -1278,12 +1644,14 @@ export async function editComfyUiImage(
     config,
     definition,
     workflow,
-    request.projectFilePath,
+    projectFilePath,
     request.prompt,
     seed,
     'edit',
     owner,
     request.clientJobId,
+    isAuthorityCurrent,
+    projectSessionId,
   );
 }
 

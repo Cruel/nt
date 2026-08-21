@@ -1,3 +1,6 @@
+import { EDITOR_IPC_FAILURE } from './editor-ipc-boundary';
+import { PROJECT_TRUST_FAILURE, type ProjectTrustFailureCode } from './project-trust-boundary';
+
 export const PROJECT_TEXT_SOURCE_LIMITS = Object.freeze({
   maxEntries: 256,
   maxSourceBytes: 2 * 1024 * 1024,
@@ -30,11 +33,40 @@ export type ProjectTextSourceReadEntry =
       projectRelativePath: string;
       expectedContentHash: string | null;
       code: string;
+      boundaryCode: ProjectTextSourceBoundaryCode;
       message: string;
     };
 
 export interface ReadProjectTextSourcesResponse {
   entries: readonly ProjectTextSourceReadEntry[];
+}
+
+export type ProjectTextSourceBoundaryCode =
+  | ProjectTrustFailureCode
+  | typeof EDITOR_IPC_FAILURE.INVALID_REQUEST;
+
+export function projectTextSourceBoundaryCode(code: string): ProjectTextSourceBoundaryCode {
+  switch (code) {
+    case 'stale-session':
+      return PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION;
+    case 'unsafe-path':
+      return PROJECT_TRUST_FAILURE.UNSAFE_PATH;
+    case 'symlink-escape':
+      return PROJECT_TRUST_FAILURE.SYMLINK_ESCAPE;
+    case 'not-file':
+      return PROJECT_TRUST_FAILURE.NOT_REGULAR_FILE;
+    case 'source-limit':
+    case 'aggregate-limit':
+    case 'request-limit':
+      return PROJECT_TRUST_FAILURE.SOURCE_TOO_LARGE;
+    case 'hash-mismatch':
+    case 'read-failed':
+    case 'invalid-utf8':
+      return PROJECT_TRUST_FAILURE.SOURCE_REVISION_MISMATCH;
+    case 'invalid-request':
+    default:
+      return EDITOR_IPC_FAILURE.INVALID_REQUEST;
+  }
 }
 
 export function isSha256Digest(value: string): value is Sha256Digest {

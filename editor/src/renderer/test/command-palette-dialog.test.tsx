@@ -16,7 +16,7 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   usePreferencesStore.getState().resetToDefaults();
   clearWorkbenchRevealTargets();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockClear();
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockClear();
   vi.mocked(window.noveltea.requestImageThumbnail).mockClear();
 });
 
@@ -38,6 +38,7 @@ describe('CommandPaletteDialog', () => {
       document: project,
       projectPath: '/mock',
       projectFilePath: '/mock/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
 
     render(
@@ -48,7 +49,8 @@ describe('CommandPaletteDialog', () => {
     await waitFor(() => expect(screen.getByAltText('Logo')).toBeInTheDocument());
     expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
       source: {
-        projectFilePath: '/mock/project.json',
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        assetId: 'logo',
         projectRelativePath: 'assets/images/logo.png',
         width: 256,
         height: 256,
@@ -56,7 +58,7 @@ describe('CommandPaletteDialog', () => {
       },
       variant: { kind: 'profile', profile: 'list' },
     });
-    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalled();
+    expect(window.noveltea.resolveProjectOriginalAssetUrl).not.toHaveBeenCalled();
     expect(screen.getByAltText('Logo')).toHaveAttribute(
       'src',
       expect.stringContaining('noveltea-thumbnail:'),

@@ -5,7 +5,7 @@ import {
 } from './project-validation';
 
 export const EDITOR_PROJECT_STATE_SCHEMA = 'noveltea.editor.project-state' as const;
-export const EDITOR_PROJECT_STATE_SCHEMA_VERSION = 2 as const;
+export const EDITOR_PROJECT_STATE_SCHEMA_VERSION = 3 as const;
 
 const workbenchResourceKindSchema = z.enum(['record', 'preview', 'tool', 'project', 'raw']);
 
@@ -18,7 +18,6 @@ export const editorWorkbenchResourceSchema = z
     testId: z.string().optional(),
     explorerNodeId: z.string().optional(),
     generationMode: z.enum(['generate', 'edit']).optional(),
-    sourceProjectRelativePath: z.string().optional(),
   })
   .strict();
 

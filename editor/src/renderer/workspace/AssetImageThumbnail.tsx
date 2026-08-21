@@ -10,7 +10,7 @@ export interface AssetImageThumbnailRequest {
   profile: ImageThumbnailProfile;
 }
 
-export type AssetImageThumbnailSource = Omit<ImageThumbnailSource, 'projectFilePath'>;
+type AssetImageThumbnailSource = Omit<ImageThumbnailSource, 'projectSessionId'>;
 
 interface AssetImageThumbnailProps {
   label: string;
@@ -27,7 +27,7 @@ export function AssetImageThumbnail({
   requestMode = 'eager',
   className = 'h-9 w-12',
 }: AssetImageThumbnailProps) {
-  const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const containerRef = useRef<HTMLSpanElement>(null);
   const [intersecting, setIntersecting] = useState(requestMode === 'eager');
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
@@ -47,10 +47,11 @@ export function AssetImageThumbnail({
   }, [requestMode]);
 
   const thumbnailRequest = useMemo(() => {
-    if (!projectFilePath || !intersecting) return null;
+    if (!projectSessionId || !intersecting) return null;
     return {
       source: {
-        projectFilePath,
+        projectSessionId,
+        assetId: source.assetId,
         projectRelativePath: source.projectRelativePath,
         ...(contentHash ? { contentHash } : {}),
         width: source.width,
@@ -63,8 +64,9 @@ export function AssetImageThumbnail({
   }, [
     contentHash,
     intersecting,
-    projectFilePath,
+    projectSessionId,
     request.profile,
+    source.assetId,
     source.height,
     source.orientation,
     source.projectRelativePath,

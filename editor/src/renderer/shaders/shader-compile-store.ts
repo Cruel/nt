@@ -6,6 +6,7 @@ import type {
   ShaderCompileResponse,
 } from '../../shared/editor-tooling';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { useProjectStore } from '../project/project-store';
 import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import {
   canonicalRuntimeShaderOutputPath,
@@ -53,8 +54,14 @@ export const useShaderCompileStore = create<ShaderCompileStoreState>()((set, get
       error: null,
     });
     try {
+      const projectSessionId = useProjectStore.getState().projectSessionId;
+      if (!projectSessionId)
+        throw new Error('Shader compilation requires an active Project session.');
       const response = parseShaderCompileResponse(
-        await window.noveltea.compileShaders(shaderProject, options),
+        await window.noveltea.compileShaders(projectSessionId, shaderProject, {
+          forceRebuild: options.forceRebuild,
+          shaderVariants: options.shaderVariants,
+        }),
       );
       const currentProject = evidence.currentProject();
       const verifiedOutputs: ShaderCompileOutput[] = [];

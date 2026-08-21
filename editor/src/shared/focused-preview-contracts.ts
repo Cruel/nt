@@ -74,7 +74,6 @@ export const FOCUSED_EDITOR_DOCUMENT_LIMITS = {
 
 const manifestBase = {
   usageRoles: z.array(z.string()),
-  fetchProjectRelativePath: z.string().min(1),
   logicalPath: z.string().min(1),
   contentHash: sha256Schema,
   byteSize: z.number().int().nonnegative().safe(),
@@ -105,7 +104,7 @@ const projectLogicalPathSchema = z
 
 const authoringManifestBase = {
   ...manifestBase,
-  fetchProjectRelativePath: safeProjectRelativePathSchema,
+  fetchUrl: z.string().startsWith('noveltea-asset://source/'),
   logicalPath: projectLogicalPathSchema,
   resourceId: z.string().regex(/^asset:.+$/),
   sourceKind: z.literal('authoring-asset'),
@@ -282,10 +281,13 @@ export const focusedRecordPreviewDocumentSchema = strict({
         message: 'Duplicate focused resourceId.',
       });
     resourceIds.add(entry.resourceId);
+    const fetchAuthority =
+      entry.sourceKind === 'authoring-asset' ? entry.fetchUrl : entry.fetchProjectRelativePath;
     for (const [map, path, label] of [
-      [fetchPaths, entry.fetchProjectRelativePath, 'fetch path'],
+      [fetchPaths, fetchAuthority, 'fetch authority'],
       [logicalPaths, entry.logicalPath, 'logical path'],
     ] as const) {
+      if (!path) continue;
       const prior = map.get(path);
       if (prior && prior !== entry.resourceId)
         context.addIssue({
@@ -307,7 +309,7 @@ export type FocusedRecordPreviewDocument = z.infer<typeof focusedRecordPreviewDo
 
 export const focusedEditorDocumentRequestEnvelopeSchema = strict({
   protocol: z.literal('noveltea.focused-editor-document'),
-  protocolVersion: z.literal(1),
+  protocolVersion: z.literal(2),
   requestId: z.string().min(1),
   applySequence: z.number().int().nonnegative().safe(),
   projectInstanceId: z.string().min(1),

@@ -98,6 +98,7 @@ async function copyAssetIntoProject(
     path: string;
     expectedRevision: ProjectWorkspaceExpectedRevision;
   }>,
+  assertAuthority?: () => void,
 ): Promise<ImportedAssetMetadata> {
   const projectRoot = projectRootFromFile(projectFilePath);
   const sourceAbsolute = path.resolve(sourcePath);
@@ -118,6 +119,7 @@ async function copyAssetIntoProject(
     ? path.join(targetDirectory, targetFilename)
     : await uniqueDestination(targetDirectory, targetFilename);
   const bytes = await fs.readFile(sourceAbsolute);
+  assertAuthority?.();
   await writeProjectAssetFileTransaction(
     projectRoot,
     slashPath(path.relative(projectRoot, destination)),
@@ -158,6 +160,7 @@ export async function importAssets(
   owner: BrowserWindow | null,
   projectFilePath: string,
   options: AssetImportOptions = {},
+  assertAuthority?: () => void,
 ): Promise<AssetImportResponse> {
   if (!owner)
     return {
@@ -175,6 +178,7 @@ export async function importAssets(
       diagnostics: [],
       error: 'Asset import requires a saved project file.',
     };
+  assertAuthority?.();
   const result = await dialog.showOpenDialog(owner, {
     title: 'Import NovelTea Assets',
     properties: options.allowMultiple === false ? ['openFile'] : ['openFile', 'multiSelections'],
@@ -188,11 +192,15 @@ export async function importAssets(
       error: 'Asset import canceled.',
     };
   }
+  assertAuthority?.();
   const assets: ImportedAssetMetadata[] = [];
   const diagnostics: AssetImportResponse['diagnostics'] = [];
   for (const filePath of result.filePaths) {
     try {
-      assets.push(await copyAssetIntoProject(projectFilePath, filePath));
+      assertAuthority?.();
+      assets.push(
+        await copyAssetIntoProject(projectFilePath, filePath, undefined, assertAuthority),
+      );
     } catch (error) {
       diagnostics.push({
         severity: 'error',
@@ -213,6 +221,7 @@ export async function reimportAsset(
   owner: BrowserWindow | null,
   projectFilePath: string,
   projectRelativePath: string,
+  assertAuthority?: () => void,
 ): Promise<AssetReimportResponse> {
   if (!owner)
     return { ok: false, success: false, diagnostics: [], error: 'No editor window is available.' };
@@ -223,6 +232,7 @@ export async function reimportAsset(
       diagnostics: [],
       error: 'Asset reimport requires a saved project file.',
     };
+  assertAuthority?.();
   const projectRoot = projectRootFromFile(projectFilePath);
   let replacementExpectedRevision: ProjectWorkspaceExpectedRevision;
   try {
@@ -238,6 +248,7 @@ export async function reimportAsset(
       error: error instanceof Error ? error.message : 'Asset reimport precondition failed.',
     };
   }
+  assertAuthority?.();
   const result = await dialog.showOpenDialog(owner, {
     title: 'Reimport Asset',
     properties: ['openFile'],
@@ -246,10 +257,16 @@ export async function reimportAsset(
     return { ok: false, success: false, diagnostics: [], error: 'Asset reimport canceled.' };
   }
   try {
-    const asset = await copyAssetIntoProject(projectFilePath, result.filePaths[0], {
-      path: projectRelativePath,
-      expectedRevision: replacementExpectedRevision,
-    });
+    assertAuthority?.();
+    const asset = await copyAssetIntoProject(
+      projectFilePath,
+      result.filePaths[0],
+      {
+        path: projectRelativePath,
+        expectedRevision: replacementExpectedRevision,
+      },
+      assertAuthority,
+    );
     return { ok: true, success: true, asset, diagnostics: [] };
   } catch (error) {
     return {

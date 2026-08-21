@@ -95,6 +95,7 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
 
     coordinator.submit({
       project: createAuthoringProject(),
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
       projectInstanceId: 'project-one',
       projectRevision: 1,
       affectedPaths: ['/'],
@@ -121,6 +122,7 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
 
     coordinator.submit({
       project: createAuthoringProject(),
+      projectSessionId: '22222222-2222-4222-8222-222222222222',
       projectInstanceId: 'project-two',
       projectRevision: 1,
       affectedPaths: ['/'],
@@ -144,6 +146,7 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
 
     coordinator.submit({
       project: createAuthoringProject(),
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
       projectInstanceId: 'project-one',
       projectRevision: 1,
       affectedPaths: ['/'],

@@ -51,7 +51,11 @@ import {
   startProjectWorkspaceWatcher,
   stopProjectWorkspaceWatcher,
 } from './main/services/project-workspace-watcher-service';
-import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
+import {
+  createProjectOriginalAssetProtocolHandler,
+  PROJECT_ORIGINAL_ASSET_SCHEME,
+  resolveProjectOriginalAssetUrl,
+} from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
 import {
   compileShaders,
@@ -118,23 +122,67 @@ import {
 } from './main/image-thumbnail-protocol';
 import { ImageThumbnailService } from './main/services/image-thumbnail-service';
 import {
+  isStrictlyContainedPath,
   resolveEditorCacheRoot,
   resolveSystemCachePath,
 } from './main/services/image-thumbnail-cache-paths';
 import {
+  auditProjectAssetsArgumentsSchema,
+  cancelImageThumbnailPrewarmArgumentsSchema,
+  cancelPlatformExportArgumentsSchema,
+  comfyUiAnalyzeWorkflowArgumentsSchema,
+  comfyUiCancelJobArgumentsSchema,
+  comfyUiConfigArgumentsSchema,
+  comfyUiCopyWorkflowArgumentsSchema,
+  comfyUiDeleteWorkflowArgumentsSchema,
+  comfyUiEditImageArgumentsSchema,
+  comfyUiGenerateImageArgumentsSchema,
+  comfyUiImportWorkflowArgumentsSchema,
+  comfyUiListWorkflowLibraryArgumentsSchema,
+  comfyUiRenameWorkflowArgumentsSchema,
+  comfyUiRepairWorkflowArgumentsSchema,
+  comfyUiRevealWorkflowArgumentsSchema,
+  comfyUiVerifyWorkflowArgumentsSchema,
+  compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
   createProjectArgumentsSchema,
+  downloadPlayerTemplateArgumentsSchema,
+  exportPackageArgumentsSchema,
+  exportProjectToPlatformArgumentsSchema,
+  imageThumbnailArgumentsSchema,
+  imageThumbnailPrewarmArgumentsSchema,
+  importAssetsArgumentsSchema,
+  inspectPlayerTemplateArgumentsSchema,
+  installPlayerTemplateArgumentsSchema,
+  listPlaybackTestsArgumentsSchema,
+  listPlayerTemplatesArgumentsSchema,
   installEditorNavigationPolicy,
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  previewExportedPackageArgumentsSchema,
+  previewSessionArgumentsSchema,
+  projectAssetPathsArgumentsSchema,
+  projectAssetUrlArgumentsSchema,
+  projectSessionArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
+  reimportAssetArgumentsSchema,
+  removePlayerTemplateArgumentsSchema,
+  resolvePlayerTemplateArgumentsSchema,
+  runPlaybackSpecArgumentsSchema,
+  runPlaybackTestArgumentsSchema,
+  saveProjectContentArgumentsSchema,
+  saveProjectCopyAsArgumentsSchema,
+  saveProjectEditorMetadataArgumentsSchema,
+  restoreProjectAssetFilesArgumentsSchema,
   saveUserExportConfigArgumentsSchema,
   selectDirectoryArgumentsSchema,
+  stagePlatformExportArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
+  validateProjectArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
 
 configureSharpPlatformImageService();
@@ -168,6 +216,16 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
+  {
+    scheme: PROJECT_ORIGINAL_ASSET_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
   ...(process.argv.includes(PACKAGE_SMOKE_FLAG)
     ? [
         {
@@ -194,10 +252,25 @@ const enginePreviewServer = new EnginePreviewServer();
 const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
+const activeProjectSessions = new ActiveProjectSessionService();
 const imageThumbnailService = new ImageThumbnailService(
   packageSmokeCacheRoot
     ? path.resolve(packageSmokeCacheRoot)
     : resolveEditorCacheRoot(resolveSystemCachePath(app.getPath('home'))),
+  {
+    resolveProjectAsset: (source) => {
+      const { root, asset } = activeProjectSessions.requireActiveAsset(
+        source.projectSessionId,
+        source.assetId,
+      );
+      return {
+        root,
+        kind: asset.kind,
+        sourcePath: asset.sourcePath,
+        contentHash: asset.contentHash,
+      };
+    },
+  },
 );
 imageThumbnailService.cache.onEpochChanged((cacheEpoch) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -298,7 +371,28 @@ function rememberPreviewProjectRoot<
   return result;
 }
 
-const activeProjectSessions = new ActiveProjectSessionService();
+function requireProjectContainedPath(projectRoot: string, candidate: string, label: string): void {
+  const resolved = path.resolve(candidate);
+  if (!isStrictlyContainedPath(projectRoot, resolved)) {
+    throw new Error(`${label} must stay within the active Project.`);
+  }
+}
+
+function assertPackageProjectAuthority(
+  projectRoot: string,
+  options: {
+    shaderAssetRoot?: string;
+    assetRoots?: Array<{ root: string }>;
+    fileEntries?: Array<{ source: string }>;
+  },
+): void {
+  if (options.shaderAssetRoot)
+    requireProjectContainedPath(projectRoot, options.shaderAssetRoot, 'Shader asset root');
+  for (const assetRoot of options.assetRoots ?? [])
+    requireProjectContainedPath(projectRoot, assetRoot.root, 'Asset root');
+  for (const entry of options.fileEntries ?? [])
+    requireProjectContainedPath(projectRoot, entry.source, 'Package file source');
+}
 
 function getEditorWindowSettingsPath() {
   return path.join(app.getPath('userData'), 'editor-window-settings.json');
@@ -539,6 +633,10 @@ void app.whenReady().then(async () => {
     IMAGE_THUMBNAIL_SCHEME,
     createImageThumbnailProtocolHandler(imageThumbnailService.imageCacheRoot),
   );
+  protocol.handle(
+    PROJECT_ORIGINAL_ASSET_SCHEME,
+    createProjectOriginalAssetProtocolHandler(activeProjectSessions),
+  );
   if (isDev) installLocalDocumentIsolationHeaders();
   if (!isDev) registerPackagedEditorProtocol();
   configureTemplateRegistryRoot(
@@ -654,22 +752,26 @@ void app.whenReady().then(async () => {
     (itemPath: string) => shell.showItemInFolder(itemPath),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE,
-    (_event: Electron.IpcMainInvokeEvent, packagePath: string) => ({
-      ok: false,
-      success: false,
-      packagePath,
-      diagnostics: [
-        {
-          severity: 'warning',
-          category: 'preview',
-          path: packagePath || '/',
-          message: 'Preview from exported package is not wired to the engine preview server yet.',
-        },
-      ],
-      error: 'Preview from exported package is not wired to the engine preview server yet.',
-    }),
+    (arguments_) => previewExportedPackageArgumentsSchema.parse(arguments_),
+    (projectSessionId, packagePath) => {
+      activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return {
+        ok: false,
+        success: false,
+        packagePath,
+        diagnostics: [
+          {
+            severity: 'warning' as const,
+            category: 'preview',
+            path: packagePath,
+            message: 'Preview from exported package is not wired to the engine preview server yet.',
+          },
+        ],
+        error: 'Preview from exported package is not wired to the engine preview server yet.',
+      };
+    },
   );
 
   guardedIpc.handle(
@@ -755,9 +857,25 @@ void app.whenReady().then(async () => {
     },
   );
 
-  ipcMain.handle(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, () => enginePreviewServer.getSession());
+  guardedIpc.handle(
+    IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION,
+    (arguments_) => previewSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.json'));
+      return enginePreviewServer.getSession();
+    },
+  );
 
-  ipcMain.handle(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, () => enginePreviewServer.reload());
+  guardedIpc.handle(
+    IPC_CHANNELS.RELOAD_ENGINE_PREVIEW,
+    (arguments_) => previewSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.json'));
+      return enginePreviewServer.reload();
+    },
+  );
 
   guardedIpc.handle(
     IPC_CHANNELS.OPEN_PROJECT,
@@ -788,224 +906,460 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.CLOSE_ACTIVE_PROJECT,
     (arguments_) => noArgumentsSchema.parse(arguments_),
-    () => activeProjectSessions.closeActiveProject(),
+    async () => {
+      await stopProjectWorkspaceWatcher();
+      activeProjectSessions.closeActiveProject();
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.VALIDATE_PROJECT,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown) => validateProject(project),
+    (arguments_) => validateProjectArgumentsSchema.parse(arguments_),
+    (project) => validateProject(project),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.LIST_PLAYBACK_TESTS,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown) => listPlaybackTests(project),
+    (arguments_) => listPlaybackTestsArgumentsSchema.parse(arguments_),
+    (project) => listPlaybackTests(project),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RUN_PLAYBACK_TEST,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, testId: string) =>
-      runPlaybackTest(project, testId),
+    (arguments_) => runPlaybackTestArgumentsSchema.parse(arguments_),
+    (project, testId) => runPlaybackTest(project, testId),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RUN_PLAYBACK_SPEC,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, spec: unknown) =>
-      runPlaybackSpec(project, spec),
+    (arguments_) => runPlaybackSpecArgumentsSchema.parse(arguments_),
+    (project, spec) => runPlaybackSpec(project, spec),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, spec: unknown) =>
-      runUiPlaybackSpec(project, spec),
+    (arguments_) => runPlaybackSpecArgumentsSchema.parse(arguments_),
+    (project, spec) => runUiPlaybackSpec(project, spec),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.EXPORT_PACKAGE,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown, outputPath: string, options: unknown) =>
-      exportPackage(project, outputPath, options as PackageExportOptions),
+    (arguments_) => exportPackageArgumentsSchema.parse(arguments_),
+    (projectSessionId, project, outputPath, options) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      assertPackageProjectAuthority(projectRoot, options);
+      return exportPackage(project, outputPath, options);
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.STAGE_PLATFORM_EXPORT,
-    (_event: Electron.IpcMainInvokeEvent, request: PlatformStageRequest) =>
-      stagePlatformExport(request),
+    (arguments_) => stagePlatformExportArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      requireProjectContainedPath(projectRoot, request.packagePath, 'Runtime package source');
+      if (request.iconSourcePath)
+        requireProjectContainedPath(projectRoot, request.iconSourcePath, 'Platform icon source');
+      if (request.systemAssetsRoot)
+        requireProjectContainedPath(projectRoot, request.systemAssetsRoot, 'System assets root');
+      return stagePlatformExport(request);
+    },
   );
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM,
-    (event: Electron.IpcMainInvokeEvent, request) =>
-      exportProjectToPlatform(request, (progress) =>
-        event.sender.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
-      ),
+    (arguments_) => exportProjectToPlatformArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      if (request.preparedRuntimeArtifact)
+        assertPackageProjectAuthority(projectRoot, request.preparedRuntimeArtifact.packageOptions);
+      return exportProjectToPlatform(
+        {
+          ...request,
+          projectPath: path.join(projectRoot, 'project.json'),
+          projectRoot,
+        },
+        (progress) =>
+          mainWindow?.webContents.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
+      );
+    },
   );
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.CANCEL_PLATFORM_EXPORT,
-    (_event: Electron.IpcMainInvokeEvent, operationId: string) => cancelPlatformExport(operationId),
+    (arguments_) => cancelPlatformExportArgumentsSchema.parse(arguments_),
+    (projectSessionId, operationId) => {
+      activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return cancelPlatformExport(operationId);
+    },
   );
-  ipcMain.handle(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, (_event, query = {}) =>
-    listPlayerTemplates(query),
+  guardedIpc.handle(
+    IPC_CHANNELS.LIST_PLAYER_TEMPLATES,
+    (arguments_) => listPlayerTemplatesArgumentsSchema.parse(arguments_),
+    (query) => listPlayerTemplates(query),
   );
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.INSPECT_PLAYER_TEMPLATE,
-    (_event, templateId: string, buildId: string) => inspectPlayerTemplate(templateId, buildId),
+    (arguments_) => inspectPlayerTemplateArgumentsSchema.parse(arguments_),
+    (templateId, buildId) => inspectPlayerTemplate(templateId, buildId),
   );
-  ipcMain.handle(IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE, (_event, request) =>
-    installPlayerTemplate(request),
+  guardedIpc.handle(
+    IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE,
+    (arguments_) => installPlayerTemplateArgumentsSchema.parse(arguments_),
+    (request) => installPlayerTemplate(request),
   );
-  ipcMain.handle(IPC_CHANNELS.DOWNLOAD_PLAYER_TEMPLATE, (_event, request) =>
-    downloadPlayerTemplateForRelease(`v${NOVELTEA_VERSION}`, request),
+  guardedIpc.handle(
+    IPC_CHANNELS.DOWNLOAD_PLAYER_TEMPLATE,
+    (arguments_) => downloadPlayerTemplateArgumentsSchema.parse(arguments_),
+    (request) => downloadPlayerTemplateForRelease(`v${NOVELTEA_VERSION}`, request),
   );
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE,
-    (_event, templateId: string, buildId: string) => removePlayerTemplate(templateId, buildId),
+    (arguments_) => removePlayerTemplateArgumentsSchema.parse(arguments_),
+    (templateId, buildId) => removePlayerTemplate(templateId, buildId),
   );
-  ipcMain.handle(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, (_event, request) =>
-    resolvePlayerTemplate(request),
+  guardedIpc.handle(
+    IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE,
+    (arguments_) => resolvePlayerTemplateArgumentsSchema.parse(arguments_),
+    (request) => resolvePlayerTemplate(request),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMPILE_SHADERS,
-    (_event: Electron.IpcMainInvokeEvent, shaderProject: unknown, options: unknown) =>
-      compileShaders(shaderProject, options as ShaderCompileOptions),
+    (arguments_) => compileShadersArgumentsSchema.parse(arguments_),
+    (projectSessionId, shaderProject, options) => {
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return compileShaders(shaderProject, {
+        ...options,
+        projectRoot,
+        outputRoot: path.join(projectRoot, '.noveltea', 'build'),
+        cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),
+      });
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_CONTENT,
+    (arguments_) => saveProjectContentArgumentsSchema.parse(arguments_),
     async (
-      _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
-      expectedWorkspaceRevision: string,
-      contentProject: unknown,
-      editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
-      scriptSourcePaths: Record<string, string>,
-      commitOptions: import('./shared/editor-tooling').ProjectWorkspaceCommitOptions | undefined,
-    ) =>
-      rememberPreviewProjectRoot(
-        await saveProjectContent(
-          projectFilePath,
+      projectSessionId,
+      expectedWorkspaceRevision,
+      contentProject,
+      editorState,
+      scriptSourcePaths,
+      commitOptions,
+    ) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        const result = await saveProjectContent(
+          projectRoot,
           expectedWorkspaceRevision,
           contentProject,
           editorState,
           scriptSourcePaths,
           commitOptions,
-        ),
-      ),
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+        const refreshed = await activeProjectSessions.refreshSuccessfulSessionResult(
+          projectSessionId,
+          result,
+        );
+        return rememberPreviewProjectRoot(refreshed);
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
-      expectedWorkspaceRevision: string,
-      editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
-      expectedFileRevisions: Record<string, `sha256:${string}`> | undefined,
-    ) =>
-      saveProjectEditorMetadata(
-        projectFilePath,
-        expectedWorkspaceRevision,
-        editorState,
-        expectedFileRevisions,
-      ),
+    (arguments_) => saveProjectEditorMetadataArgumentsSchema.parse(arguments_),
+    async (projectSessionId, expectedWorkspaceRevision, editorState, expectedFileRevisions) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        const result = await saveProjectEditorMetadata(
+          projectRoot,
+          expectedWorkspaceRevision,
+          editorState,
+          expectedFileRevisions,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+        if (result.success) {
+          await activeProjectSessions.refreshActiveProject(
+            projectSessionId,
+            path.join(projectRoot, 'project.json'),
+          );
+        }
+        return result;
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
-    async (
-      _event: Electron.IpcMainInvokeEvent,
-      project: unknown,
-      defaultPath: string | null,
-      currentProjectFilePath: string | null,
-      workingProjectAssetPaths: string[],
-      scriptSourcePaths: Record<string, string>,
-    ) =>
-      saveProjectCopyAs(
-        mainWindow,
-        project,
-        defaultPath,
-        currentProjectFilePath,
-        workingProjectAssetPaths,
-        scriptSourcePaths,
-      ),
+    (arguments_) => saveProjectCopyAsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, project, workingProjectAssetPaths, scriptSourcePaths) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await saveProjectCopyAs(
+          mainWindow,
+          projectRoot,
+          project,
+          workingProjectAssetPaths,
+          scriptSourcePaths,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.IMPORT_ASSETS,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, options: unknown) =>
-      importAssets(mainWindow, projectFilePath, options as AssetImportOptions),
+    (arguments_) => importAssetsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, options) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await importAssets(mainWindow, path.join(projectRoot, 'project.json'), options, () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          assets: [],
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.REIMPORT_ASSET,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
-      reimportAsset(mainWindow, projectFilePath, projectRelativePath),
+    (arguments_) => reimportAssetArgumentsSchema.parse(arguments_),
+    async (projectSessionId, projectRelativePath) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await reimportAsset(
+          mainWindow,
+          path.join(projectRoot, 'project.json'),
+          projectRelativePath,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.AUDIT_PROJECT_ASSETS,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, project: unknown) =>
-      auditProjectAssets(projectFilePath, project),
+    (arguments_) => auditProjectAssetsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, project) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await auditProjectAssets(path.join(projectRoot, 'project.json'), project, () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Project session is stale or unknown.';
+        return {
+          ok: false,
+          success: false,
+          untrackedFiles: [],
+          skippedUnstableFiles: [],
+          diagnostics: [{ severity: 'error' as const, path: '/assets', message }],
+          error: message,
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
-      projectRelativePaths: string[],
-    ) => importUntrackedProjectAssets(projectFilePath, projectRelativePaths),
+    (arguments_) => projectAssetPathsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, projectRelativePaths) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await importUntrackedProjectAssets(
+          path.join(projectRoot, 'project.json'),
+          projectRelativePaths,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
-      projectRelativePaths: string[],
-    ) => trashProjectAssetFiles(projectFilePath, projectRelativePaths),
+    (arguments_) => projectAssetPathsArgumentsSchema.parse(arguments_),
+    async (projectSessionId, projectRelativePaths) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await trashProjectAssetFiles(
+          path.join(projectRoot, 'project.json'),
+          projectRelativePaths,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      projectFilePath: string,
-      moves: Parameters<typeof restoreProjectAssetFiles>[1],
-    ) => restoreProjectAssetFiles(projectFilePath, moves),
+    (arguments_) => restoreProjectAssetFilesArgumentsSchema.parse(arguments_),
+    async (projectSessionId, moves) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await restoreProjectAssetFiles(path.join(projectRoot, 'project.json'), moves, () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.PURGE_PROJECT_TRASH,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string) =>
-      purgeProjectTrash(projectFilePath),
+    (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
+    async (projectSessionId) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await purgeProjectTrash(path.join(projectRoot, 'project.json'), () =>
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER,
-    (_event: Electron.IpcMainInvokeEvent, projectRoot: string) =>
-      startProjectWorkspaceWatcher(mainWindow, projectRoot),
+    (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return startProjectWorkspaceWatcher(
+          mainWindow,
+          projectSessionId,
+          projectRoot,
+          (sessionId) => activeProjectSessions.isCurrent(sessionId),
+          async (sessionId, projectFilePath, project) => {
+            await activeProjectSessions.refreshActiveProject(sessionId, projectFilePath, project);
+          },
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Project session is stale or unknown.';
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [{ severity: 'error' as const, path: '/project.json', message }],
+          error: message,
+        };
+      }
+    },
   );
 
-  ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER, () => stopProjectWorkspaceWatcher());
-
-  ipcMain.handle(
-    IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
-      resolveProjectAssetUrl(projectFilePath, projectRelativePath),
+  guardedIpc.handle(
+    IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER,
+    (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
+    (projectSessionId) => {
+      try {
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return stopProjectWorkspaceWatcher(projectSessionId);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Project session is stale or unknown.';
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [{ severity: 'error' as const, path: '/project.json', message }],
+          error: message,
+        };
+      }
+    },
   );
 
-  ipcMain.handle(IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL, (_event, request: unknown) =>
-    imageThumbnailService.request(request, 'interactive'),
+  guardedIpc.handle(
+    IPC_CHANNELS.RESOLVE_PROJECT_ORIGINAL_ASSET_URL,
+    (arguments_) => projectAssetUrlArgumentsSchema.parse(arguments_),
+    (projectSessionId, assetId) =>
+      resolveProjectOriginalAssetUrl(activeProjectSessions, projectSessionId, assetId),
   );
 
-  ipcMain.handle(IPC_CHANNELS.PREWARM_IMAGE_THUMBNAILS, (_event, request: unknown) =>
-    imageThumbnailService.prewarm(request),
+  guardedIpc.handle(
+    IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL,
+    (arguments_) => imageThumbnailArgumentsSchema.parse(arguments_),
+    (request) => imageThumbnailService.request(request, 'interactive'),
   );
 
-  ipcMain.handle(IPC_CHANNELS.CANCEL_IMAGE_THUMBNAIL_PREWARM, (_event, request: unknown) =>
-    imageThumbnailService.cancelPrewarm(request),
+  guardedIpc.handle(
+    IPC_CHANNELS.PREWARM_IMAGE_THUMBNAILS,
+    (arguments_) => imageThumbnailPrewarmArgumentsSchema.parse(arguments_),
+    (request) => imageThumbnailService.prewarm(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.CLEAR_EDITOR_CACHE, () => imageThumbnailService.clearEditorCache());
+  guardedIpc.handle(
+    IPC_CHANNELS.CANCEL_IMAGE_THUMBNAIL_PREWARM,
+    (arguments_) => cancelImageThumbnailPrewarmArgumentsSchema.parse(arguments_),
+    (request) => imageThumbnailService.cancelPrewarm(request),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.CLEAR_EDITOR_CACHE,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => imageThumbnailService.clearEditorCache(),
+  );
 
   guardedIpc.handle(
     IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES,
@@ -1013,94 +1367,166 @@ void app.whenReady().then(async () => {
     (request: ReadProjectTextSourcesRequest) => activeProjectSessions.read(request),
   );
 
-  ipcMain.handle(
+  const comfyUiProjectFilePath = (projectSessionId: string | null) =>
+    projectSessionId
+      ? path.join(activeProjectSessions.requireActiveProjectRoot(projectSessionId), 'project.json')
+      : undefined;
+  const requireComfyUiProjectFilePath = (projectSessionId: string | null) => {
+    if (!projectSessionId)
+      throw new Error('ComfyUI Project operation requires an active Project session.');
+    return comfyUiProjectFilePath(projectSessionId)!;
+  };
+
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_CHECK_CONNECTION,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => checkComfyUiConnection(config),
+    (arguments_) => comfyUiConfigArgumentsSchema.parse(arguments_),
+    (config) => checkComfyUiConnection(config),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_GET_QUEUE,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => getComfyUiQueue(config),
+    (arguments_) => comfyUiConfigArgumentsSchema.parse(arguments_),
+    (config) => getComfyUiQueue(config),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowLibraryListRequest = {}) =>
-      listComfyUiWorkflowLibrary(request),
+    (arguments_) => comfyUiListWorkflowLibraryArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      listComfyUiWorkflowLibrary({
+        ...request,
+        projectFilePath: comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_COPY_WORKFLOW,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowCopyRequest) =>
-      copyComfyUiWorkflow(request),
+    (arguments_) => comfyUiCopyWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) => {
+      const requiresProject =
+        request.targetSource === 'project' || request.workflowKey.startsWith('project:');
+      return copyComfyUiWorkflow({
+        ...request,
+        projectFilePath: requiresProject
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      });
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowDeleteRequest) =>
-      deleteComfyUiWorkflow(request),
+    (arguments_) => comfyUiDeleteWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      deleteComfyUiWorkflow({
+        ...request,
+        projectFilePath: request.workflowKey.startsWith('project:')
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowRenameRequest) =>
-      renameComfyUiWorkflow(request),
+    (arguments_) => comfyUiRenameWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      renameComfyUiWorkflow({
+        ...request,
+        projectFilePath: request.workflowKey.startsWith('project:')
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiImportWorkflowToLibraryRequest) =>
-      importComfyUiWorkflowToLibrary(request),
+    (arguments_) => comfyUiImportWorkflowArgumentsSchema.parse(arguments_),
+    (request) => importComfyUiWorkflowToLibrary(request),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiRepairWorkflowInLibraryRequest) =>
-      repairComfyUiWorkflowInLibrary(request),
+    (arguments_) => comfyUiRepairWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      repairComfyUiWorkflowInLibrary({
+        ...request,
+        projectFilePath: request.workflowKey.startsWith('project:')
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      workflowKey: ComfyUiWorkflowKey,
-      projectFilePath?: string | null,
-    ) => revealComfyUiWorkflow(workflowKey, projectFilePath),
+    (arguments_) => comfyUiRevealWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, workflowKey) =>
+      revealComfyUiWorkflow(
+        workflowKey,
+        workflowKey.startsWith('project:')
+          ? requireComfyUiProjectFilePath(projectSessionId)
+          : comfyUiProjectFilePath(projectSessionId),
+      ),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiVerifyWorkflowLibraryRequest) =>
-      verifyComfyUiWorkflowLibrary(request),
+    (arguments_) => comfyUiVerifyWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      verifyComfyUiWorkflowLibrary({
+        ...request,
+        projectFilePath: comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT,
-    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiAnalyzeWorkflowImportRequest) =>
-      analyzeComfyUiWorkflowImport(request),
+    (arguments_) => comfyUiAnalyzeWorkflowArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      analyzeComfyUiWorkflowImport({
+        ...request,
+        projectFilePath: comfyUiProjectFilePath(projectSessionId),
+      }),
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_GENERATE_IMAGE,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      config: ComfyUiConfig,
-      request: ComfyUiGenerateImageRequest,
-    ) => generateComfyUiImage(mainWindow, config, request),
+    (arguments_) => comfyUiGenerateImageArgumentsSchema.parse(arguments_),
+    (projectSessionId, config, request) => {
+      const projectFilePath = requireComfyUiProjectFilePath(projectSessionId);
+      return generateComfyUiImage(
+        mainWindow,
+        config,
+        { ...request, projectFilePath },
+        () => activeProjectSessions.isCurrent(projectSessionId),
+        projectSessionId,
+      );
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_EDIT_IMAGE,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      config: ComfyUiConfig,
-      request: ComfyUiEditImageRequest,
-    ) => editComfyUiImage(mainWindow, config, request),
+    (arguments_) => comfyUiEditImageArgumentsSchema.parse(arguments_),
+    (projectSessionId, config, request) => {
+      const projectFilePath = requireComfyUiProjectFilePath(projectSessionId);
+      return editComfyUiImage(
+        mainWindow,
+        activeProjectSessions,
+        projectSessionId,
+        projectFilePath,
+        config,
+        request,
+        () => activeProjectSessions.isCurrent(projectSessionId),
+      );
+    },
   );
 
-  ipcMain.handle(
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_CANCEL_JOB,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => cancelComfyUiJob(config),
+    (arguments_) => comfyUiCancelJobArgumentsSchema.parse(arguments_),
+    (projectSessionId, config) => {
+      activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return cancelComfyUiJob(config);
+    },
   );
 
   const window = createWindow();

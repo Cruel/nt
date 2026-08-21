@@ -104,6 +104,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   usePackageExportStore.getState().clear();
   useProjectStore.getState().clearProject();
+  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   useCommandStore.getState().resetCommandHistory();
   usePreferencesStore.getState().resetToDefaults();
   useTemplateRegistryStore.setState({

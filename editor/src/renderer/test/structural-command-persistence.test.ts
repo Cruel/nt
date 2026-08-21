@@ -30,7 +30,10 @@ type LoadProjectDocumentInput = Parameters<
 >[0];
 
 async function loadProjectDocumentWithGraph(input: LoadProjectDocumentInput) {
-  useProjectStore.getState().loadProjectDocument(input);
+  useProjectStore.getState().loadProjectDocument({
+    ...input,
+    projectSessionId: input.projectSessionId ?? 'test-project-session',
+  });
   await publishCurrentGraph();
 }
 
@@ -681,7 +684,7 @@ describe('structural command persistence', () => {
     });
     await flushStructuralCommandPersistence();
 
-    expect(window.noveltea.trashProjectAssetFiles).toHaveBeenCalledWith('/mock/project/game.json', [
+    expect(window.noveltea.trashProjectAssetFiles).toHaveBeenCalledWith('test-project-session', [
       asset.projectRelativePath,
     ]);
     expect(useProjectStore.getState().document).toMatchObject({ assets: {} });

@@ -42,7 +42,7 @@ describe('editor project state defaults', () => {
     });
   });
 
-  it('accepts persisted image-generation tab resources in v2 metadata', () => {
+  it('accepts persisted image-generation tab resources in v3 metadata', () => {
     const parsed = parseEditorProjectState({
       ...emptyEditorProjectState(),
       workbench: {
@@ -95,7 +95,7 @@ describe('editor project state defaults', () => {
     );
   });
 
-  it.each([undefined, 3])('discards metadata with schema version %s', (schemaVersion) => {
+  it.each([undefined, 2, 4])('discards metadata with schema version %s', (schemaVersion) => {
     const parsed = parseEditorProjectStateWithDiagnostics({
       schema: 'noveltea.editor.project-state',
       schemaVersion,
@@ -107,7 +107,7 @@ describe('editor project state defaults', () => {
         code: 'editor.metadata.schema-version.unsupported',
         path: '/editor/schemaVersion',
         ownerPaths: ['/editor/schemaVersion'],
-        message: expect.stringContaining('expected version 2'),
+        message: expect.stringContaining('expected version 3'),
       }),
     );
   });

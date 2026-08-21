@@ -71,6 +71,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
   const projectDocument = useProjectStore((state) => state.document);
   const project = useProjectStore((state) => state.admittedProject);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
   const projectRevision = useProjectStore((state) => state.projectRevision);
   const publication = useProjectStore((state) => state.lastMutationPublication);
@@ -142,6 +143,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
     if (!lease || !project || !projectInstanceId || !root) return;
     coordinatorRef.current?.submit({
       project,
+      projectSessionId,
       projectInstanceId,
       projectRevision,
       affectedPaths:
@@ -179,6 +181,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
     sourceAnalysis,
     lease,
     project,
+    projectSessionId,
     projectInstanceId,
     projectRevision,
     publication,

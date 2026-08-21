@@ -43,7 +43,7 @@ describe('image thumbnail Phase 1 characterization', () => {
           /\.[cm]?[jt]sx?$/.test(entry.name) &&
           !absolute.includes(`${path.sep}test${path.sep}`)
         ) {
-          if (fs.readFileSync(absolute, 'utf8').includes('.resolveProjectAssetUrl(')) {
+          if (fs.readFileSync(absolute, 'utf8').includes('.resolveProjectOriginalAssetUrl(')) {
             discovered.push(path.relative(path.resolve('.'), absolute));
           }
         }

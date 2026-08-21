@@ -21,7 +21,10 @@ There are two Emscripten HTML hosts:
 
 There are two communication layers:
 
-- Electron IPC: used for privileged preview setup and editor-tooling helper calls.
+- Electron IPC: used for privileged preview setup and editor-tooling helper calls. Preview-session
+  creation/reload is guarded by the owning editor-frame boundary and the current opaque
+  `projectSessionId`; main derives the Project manifest from that session rather than accepting a
+  renderer-selected Project root.
 - MessageChannel: used for live editor-to-engine commands and engine-to-editor
   events.
 
@@ -482,7 +485,7 @@ The focused native envelope is closed and versioned:
 ```ts
 {
   protocol: 'noveltea.focused-editor-document',
-  protocolVersion: 1,
+  protocolVersion: 2,
   requestId,
   applySequence,
   projectInstanceId,
@@ -506,8 +509,10 @@ The focused native envelope is closed and versioned:
 }
 ```
 
-The editor-facing manifest additionally carries `fetchProjectRelativePath` and semantic usage roles.
-Those fields are used only by the web staging layer and are omitted from the native projection.
+The editor-facing manifest carries semantic usage roles plus one source-owned fetch authority.
+Authoring Assets require the main-owned `noveltea-asset://source/` URL in `fetchUrl`; compiled Shader
+outputs require `fetchProjectRelativePath`. These fields are used only by the web staging layer and
+are omitted from the native projection.
 Compiled Shader entries identify the stage and one closed renderer variant (`glsl-120`, `essl-100`,
 or `essl-300`) and carry verified binary hash, byte size, and compile-input fingerprint metadata in
 the authoring record/cache output. Metadata-bearing outputs are admitted only when their fingerprint

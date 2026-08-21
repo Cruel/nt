@@ -138,7 +138,7 @@ function manifestEntry(name: string, retainAlphaCoverage = false) {
     assetId: name,
     kind: 'binary',
     usageRoles: [],
-    fetchProjectRelativePath: `assets/${name}.bin`,
+    fetchUrl: `noveltea-asset://source/session/${name}`,
     logicalPath: `project:/${name}.bin`,
     contentHash: `sha256:${(name === 'a' ? 'a' : 'b').repeat(64)}`,
     byteSize: 1,
@@ -217,6 +217,27 @@ describe('Phase 7 focused resource publication', () => {
     await expect(staging).rejects.toThrow('fetch aborted');
     expect(committed).toEqual(committedResources());
     expect(harness.state()).toEqual({ projectInstanceId: 'project-one', generation: 4 });
+  });
+
+  it('fetches bounded Asset protocol URLs directly for focused Room resources', async () => {
+    const memoryFs = new MemoryFs();
+    const committed = new Map<string, CommittedResource>();
+    const requested: string[] = [];
+    const harness = focusedStageHarness(memoryFs, committed, async (input) => {
+      requested.push(
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+      );
+      return new Response(new Uint8Array(), { status: 200 });
+    });
+    const entry = {
+      ...manifestEntry('room-background'),
+      fetchUrl: 'noveltea-asset://source/11111111-1111-4111-8111-111111111111/room-background',
+      contentHash: `sha256:${'0'.repeat(64)}`,
+      byteSize: 0,
+    };
+
+    await expect(harness.stage({ applySequence: 7 }, document([entry]), 5)).resolves.toBe(5);
+    expect(requested).toEqual([entry.fetchUrl]);
   });
 
   it('rolls every logical link back when a multi-resource publication fails', async () => {

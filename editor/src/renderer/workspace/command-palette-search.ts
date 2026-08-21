@@ -24,6 +24,7 @@ export interface SelectorPreview {
   kind: 'image';
   label: string;
   source: {
+    assetId: string;
     projectRelativePath: string;
     contentHash?: string;
     width: number;
@@ -218,6 +219,7 @@ export function buildCommandPaletteItems(
                 kind: 'image',
                 label: title,
                 source: {
+                  assetId: entityId,
                   projectRelativePath: assetData.source.path,
                   contentHash: assetData.contentHash,
                   width: assetData.imageMetadata.width,

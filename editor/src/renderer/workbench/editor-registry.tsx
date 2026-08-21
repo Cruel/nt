@@ -329,7 +329,6 @@ export function buildPlaceholderEntityTabForRecord(
 export function buildImageGenerationTab(
   options: {
     sourceAssetId?: string;
-    sourceProjectRelativePath?: string;
     mode?: 'generate' | 'edit';
   } = {},
 ): WorkbenchTab {
@@ -344,7 +343,6 @@ export function buildImageGenerationTab(
       collection: 'assets',
       entityId: options.sourceAssetId,
       generationMode: options.mode ?? 'generate',
-      sourceProjectRelativePath: options.sourceProjectRelativePath,
     },
   };
 }

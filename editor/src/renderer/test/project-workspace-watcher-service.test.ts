@@ -104,8 +104,7 @@ describe('project workspace watcher policy', () => {
   it('never reconciles authoring state for an asset-only batch', () => {
     const revision = `sha256:${'a'.repeat(64)}`;
     const event = {
-      projectRoot: '/project',
-      manifestPath: '/project/project.json',
+      projectSessionId: 'session-a',
       changedPaths: ['assets/images/new.png'],
       authoringChangedPaths: [],
       assetChangedPaths: ['assets/images/new.png'],
@@ -124,8 +123,7 @@ describe('project workspace watcher policy', () => {
   it('reconciles an authoring batch only when its canonical revision changed', () => {
     const revision = `sha256:${'a'.repeat(64)}`;
     const event = {
-      projectRoot: '/project',
-      manifestPath: '/project/project.json',
+      projectSessionId: 'session-a',
       changedPaths: ['records/rooms/hall.json'],
       authoringChangedPaths: ['records/rooms/hall.json'],
       assetChangedPaths: [],

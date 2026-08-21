@@ -13,8 +13,7 @@ export interface ProjectWorkspaceWatchCandidate {
 }
 
 export interface ProjectWorkspaceWatchEvent {
-  readonly projectRoot: string;
-  readonly manifestPath: string;
+  readonly projectSessionId: string;
   readonly changedPaths: readonly string[];
   readonly authoringChangedPaths: readonly string[];
   readonly assetChangedPaths: readonly string[];

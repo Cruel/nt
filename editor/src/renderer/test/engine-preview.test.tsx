@@ -7,6 +7,7 @@ import { useEnginePreviewHost } from '@/hooks/use-engine-preview-host';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-location';
@@ -52,6 +53,7 @@ beforeEach(() => {
     statusMessage: 'Preview disconnected',
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
+  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   vi.mocked(window.noveltea.getEnginePreviewSession).mockClear();
   vi.mocked(window.noveltea.reloadEnginePreview).mockClear();
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({

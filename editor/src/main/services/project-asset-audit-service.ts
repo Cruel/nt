@@ -205,10 +205,15 @@ async function trashPathFor(projectFilePath: string, projectRelativePath: string
   return { trashRelativePath, absolute };
 }
 
-async function moveAssetToTrash(projectFilePath: string, projectRelativePath: string) {
+async function moveAssetToTrash(
+  projectFilePath: string,
+  projectRelativePath: string,
+  assertAuthority?: () => void,
+) {
   const safe = safeAssetRelativePath(projectFilePath, projectRelativePath);
   if (!safe) throw new Error('Only files inside assets/ can be moved to project trash.');
   const destination = await trashPathFor(projectFilePath, safe.relative);
+  assertAuthority?.();
   await moveProjectAssetFileTransaction(
     projectRootFromFile(projectFilePath),
     safe.relative,
@@ -222,6 +227,7 @@ async function moveAssetToTrash(projectFilePath: string, projectRelativePath: st
 export async function auditProjectAssets(
   projectFilePath: string,
   project: unknown,
+  assertAuthority?: () => void,
 ): Promise<ProjectAssetAuditResponse> {
   if (!projectFilePath)
     return {
@@ -232,6 +238,7 @@ export async function auditProjectAssets(
       diagnostics: [diagnostic('/assets', 'Asset audit requires a saved project file.')],
       error: 'Project file path is required.',
     };
+  assertAuthority?.();
   const projectRoot = projectRootFromFile(projectFilePath);
   const assetsRoot = path.join(projectRoot, 'assets');
   const referenced = referencedAssetPaths(project);
@@ -240,6 +247,7 @@ export async function auditProjectAssets(
   const diagnostics: ProjectAssetAuditResponse['diagnostics'] = [];
   try {
     const files = await walkFiles(assetsRoot);
+    assertAuthority?.();
     const candidates = files
       .map((absolutePath) => ({
         absolutePath,
@@ -256,6 +264,7 @@ export async function auditProjectAssets(
         }
       }),
     );
+    assertAuthority?.();
     for (const result of inspected) {
       if ('file' in result && result.file) untrackedFiles.push(result.file);
       else if ('unstable' in result) skippedUnstableFiles.push(result.relative);
@@ -295,11 +304,13 @@ export async function auditProjectAssets(
 export async function importUntrackedProjectAssets(
   projectFilePath: string,
   projectRelativePaths: string[],
+  assertAuthority?: () => void,
 ): Promise<ProjectAssetFileOperationResponse> {
   const assets: ImportedAssetMetadata[] = [];
   const diagnostics: ProjectAssetFileOperationResponse['diagnostics'] = [];
   for (const relativePath of projectRelativePaths) {
     try {
+      assertAuthority?.();
       assets.push(await metadataForExistingAsset(projectFilePath, relativePath));
     } catch (error) {
       diagnostics.push(
@@ -322,12 +333,14 @@ export async function importUntrackedProjectAssets(
 export async function trashProjectAssetFiles(
   projectFilePath: string,
   projectRelativePaths: string[],
+  assertAuthority?: () => void,
 ): Promise<ProjectAssetFileOperationResponse> {
   const moved: NonNullable<ProjectAssetFileOperationResponse['moved']> = [];
   const diagnostics: ProjectAssetFileOperationResponse['diagnostics'] = [];
   for (const relativePath of projectRelativePaths) {
     try {
-      moved.push(await moveAssetToTrash(projectFilePath, relativePath));
+      assertAuthority?.();
+      moved.push(await moveAssetToTrash(projectFilePath, relativePath, assertAuthority));
     } catch (error) {
       diagnostics.push(
         diagnostic(
@@ -349,12 +362,14 @@ export async function trashProjectAssetFiles(
 export async function restoreProjectAssetFiles(
   projectFilePath: string,
   moves: ProjectAssetTrashMove[],
+  assertAuthority?: () => void,
 ): Promise<ProjectAssetFileOperationResponse> {
   const projectRoot = projectRootFromFile(projectFilePath);
   const restored: ProjectAssetTrashMove[] = [];
   const diagnostics: ProjectAssetFileOperationResponse['diagnostics'] = [];
   for (const move of moves) {
     try {
+      assertAuthority?.();
       const sourceSafe = safeProjectRelativePath(projectFilePath, move.trashRelativePath);
       const targetSafe = safeAssetRelativePath(projectFilePath, move.projectRelativePath);
       if (!sourceSafe || !targetSafe) throw new Error('Restore path escapes the project.');
@@ -366,6 +381,7 @@ export async function restoreProjectAssetFiles(
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
+      assertAuthority?.();
       await moveProjectAssetFileTransaction(
         projectRoot,
         move.trashRelativePath,
@@ -394,8 +410,10 @@ export async function restoreProjectAssetFiles(
 
 export async function purgeProjectTrash(
   projectFilePath: string | null | undefined,
+  assertAuthority?: () => void,
 ): Promise<ProjectAssetFileOperationResponse> {
   if (!projectFilePath) return { ok: true, success: true, diagnostics: [] };
+  assertAuthority?.();
   const trashRoot = path.join(projectRootFromFile(projectFilePath), '.noveltea', 'trash');
   try {
     await fs.rm(trashRoot, { recursive: true, force: true });

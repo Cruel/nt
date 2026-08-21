@@ -14,6 +14,7 @@ export const PROJECT_WORKSPACE_WATCH_POLL_INTERVAL_MS = 50;
 export const PROJECT_WORKSPACE_WATCH_QUIET_PERIOD_MS = 150;
 
 interface ActiveWatcher {
+  projectSessionId: string;
   projectRoot: string;
   watcher: FSWatcher;
   timer: NodeJS.Timeout | null;
@@ -151,8 +152,17 @@ export function refreshProjectWorkspaceWatchAssetSourcePaths(
   assetSourcePaths(project).forEach((assetPath) => target.add(assetPath));
 }
 
-async function flushWatcher(owner: BrowserWindow, watcher: ActiveWatcher) {
-  if (activeWatcher !== watcher) return;
+async function flushWatcher(
+  owner: BrowserWindow,
+  watcher: ActiveWatcher,
+  isSessionCurrent: (projectSessionId: string) => boolean,
+  refreshSession: (
+    projectSessionId: string,
+    projectFilePath: string,
+    project?: AuthoringProject,
+  ) => Promise<void>,
+) {
+  if (activeWatcher !== watcher || !isSessionCurrent(watcher.projectSessionId)) return;
   watcher.timer = null;
   // Opening a workspace performs transaction recovery. Never invoke it while another NovelTea
   // writer still owns the project; the journal/lock watcher will schedule the committed state.
@@ -166,12 +176,23 @@ async function flushWatcher(owner: BrowserWindow, watcher: ActiveWatcher) {
   const manifestPath = path.join(watcher.projectRoot, 'project.json');
   const assembled = await assembleCandidate(watcher.projectRoot);
   const candidate = assembled.candidate;
+  if (candidate.success) {
+    try {
+      await refreshSession(watcher.projectSessionId, manifestPath, assembled.project ?? undefined);
+    } catch {
+      return;
+    }
+  }
   if (assembled.project)
     refreshProjectWorkspaceWatchAssetSourcePaths(watcher.assetSourcePaths, assembled.project);
-  if (activeWatcher !== watcher || owner.isDestroyed()) return;
+  if (
+    activeWatcher !== watcher ||
+    !isSessionCurrent(watcher.projectSessionId) ||
+    owner.isDestroyed()
+  )
+    return;
   owner.webContents.send(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, {
-    projectRoot: watcher.projectRoot,
-    manifestPath,
+    projectSessionId: watcher.projectSessionId,
     changedPaths,
     authoringChangedPaths,
     assetChangedPaths,
@@ -179,8 +200,18 @@ async function flushWatcher(owner: BrowserWindow, watcher: ActiveWatcher) {
   } satisfies ProjectWorkspaceWatchEvent);
 }
 
-function scheduleWatcher(owner: BrowserWindow, watcher: ActiveWatcher, filePath: string) {
-  if (activeWatcher !== watcher) return;
+function scheduleWatcher(
+  owner: BrowserWindow,
+  watcher: ActiveWatcher,
+  filePath: string,
+  isSessionCurrent: (projectSessionId: string) => boolean,
+  refreshSession: (
+    projectSessionId: string,
+    projectFilePath: string,
+    project?: AuthoringProject,
+  ) => Promise<void>,
+) {
+  if (activeWatcher !== watcher || !isSessionCurrent(watcher.projectSessionId)) return;
   const relative = projectRelative(watcher.projectRoot, filePath);
   const route = classifyProjectWorkspaceWatchPath(
     watcher.projectRoot,
@@ -192,28 +223,32 @@ function scheduleWatcher(owner: BrowserWindow, watcher: ActiveWatcher, filePath:
   else if (route === 'asset') watcher.assetChangedPaths.add(relative);
   watcher.timer = scheduleProjectWorkspaceQuietFlush(
     watcher.timer,
-    () => void flushWatcher(owner, watcher),
+    () => void flushWatcher(owner, watcher, isSessionCurrent, refreshSession),
   );
 }
 
 export async function startProjectWorkspaceWatcher(
   owner: BrowserWindow | null,
+  projectSessionId: string,
   projectRootValue: string,
+  isSessionCurrent: (projectSessionId: string) => boolean,
+  refreshSession: (
+    projectSessionId: string,
+    projectFilePath: string,
+    project?: AuthoringProject,
+  ) => Promise<void>,
 ): Promise<ProjectAssetFileOperationResponse> {
+  if (!owner || !projectSessionId || !projectRootValue || !isSessionCurrent(projectSessionId))
+    return staleWatcherResponse();
+
   await stopProjectWorkspaceWatcher();
-  if (!owner || !projectRootValue) {
-    const message = 'No project window or project root is available.';
-    return {
-      ok: false,
-      success: false,
-      diagnostics: [{ severity: 'error', path: '/project.json', message }],
-      error: message,
-    };
-  }
+  if (!isSessionCurrent(projectSessionId)) return staleWatcherResponse();
   const projectRoot = path.resolve(projectRootValue);
   const transactionsRoot = path.join(projectRoot, '.noveltea', 'transactions');
   await fs.mkdir(transactionsRoot, { recursive: true });
+  if (!isSessionCurrent(projectSessionId)) return staleWatcherResponse();
   const opened = await createNodeProjectWorkspaceService().open(projectRoot);
+  if (!isSessionCurrent(projectSessionId)) return staleWatcherResponse();
   const knownAssetSourcePaths = new Set(opened.ok ? assetSourcePaths(opened.snapshot.project) : []);
   const watcher = chokidar.watch(projectRoot, {
     ignoreInitial: true,
@@ -225,6 +260,7 @@ export async function startProjectWorkspaceWatcher(
     ignored: (filePath) => shouldIgnoreProjectWorkspaceWatchPath(projectRoot, filePath),
   });
   const state: ActiveWatcher = {
+    projectSessionId,
     projectRoot,
     watcher,
     timer: null,
@@ -232,7 +268,8 @@ export async function startProjectWorkspaceWatcher(
     assetChangedPaths: new Set(),
     assetSourcePaths: knownAssetSourcePaths,
   };
-  const schedule = (filePath: string) => scheduleWatcher(owner, state, filePath);
+  const schedule = (filePath: string) =>
+    scheduleWatcher(owner, state, filePath, isSessionCurrent, refreshSession);
   watcher.on('add', schedule);
   watcher.on('change', schedule);
   watcher.on('unlink', schedule);
@@ -242,11 +279,25 @@ export async function startProjectWorkspaceWatcher(
   return { ok: true, success: true, diagnostics: [] };
 }
 
-export async function stopProjectWorkspaceWatcher(): Promise<ProjectAssetFileOperationResponse> {
+export async function stopProjectWorkspaceWatcher(
+  projectSessionId?: string,
+): Promise<ProjectAssetFileOperationResponse> {
   if (!activeWatcher) return { ok: true, success: true, diagnostics: [] };
+  if (projectSessionId && activeWatcher.projectSessionId !== projectSessionId)
+    return staleWatcherResponse();
   const watcher = activeWatcher;
   activeWatcher = null;
   if (watcher.timer) clearTimeout(watcher.timer);
   await watcher.watcher.close();
   return { ok: true, success: true, diagnostics: [] };
+}
+
+function staleWatcherResponse(): ProjectAssetFileOperationResponse {
+  const message = 'Project session is stale or unknown.';
+  return {
+    ok: false,
+    success: false,
+    diagnostics: [{ severity: 'error', path: '/project.json', message }],
+    error: message,
+  };
 }
