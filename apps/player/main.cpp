@@ -41,7 +41,8 @@ extern "C" void noveltea_web_report_loading_progress(std::uint32_t operation, st
 namespace {
 
 #if !defined(SDL_PLATFORM_ANDROID)
-std::filesystem::path filesystem_path_from_utf8(std::string_view value)
+// Reachability depends on platform and NDEBUG; web release builds compile none of its call sites.
+[[maybe_unused]] std::filesystem::path filesystem_path_from_utf8(std::string_view value)
 {
 #if defined(_WIN32)
     if (value.empty())
