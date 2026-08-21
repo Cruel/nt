@@ -104,8 +104,7 @@ const projectLogicalPathSchema = z
 
 const authoringManifestBase = {
   ...manifestBase,
-  fetchProjectRelativePath: safeProjectRelativePathSchema.optional(),
-  fetchUrl: z.string().startsWith('noveltea-asset://source/').optional(),
+  fetchUrl: z.string().startsWith('noveltea-asset://source/'),
   logicalPath: projectLogicalPathSchema,
   resourceId: z.string().regex(/^asset:.+$/),
   sourceKind: z.literal('authoring-asset'),
@@ -131,12 +130,6 @@ const authoringManifestEntrySchema = z
         code: 'custom',
         path: ['resourceId'],
         message: 'Authoring resourceId must equal asset:<assetId>.',
-      });
-    if (Boolean(entry.fetchProjectRelativePath) === Boolean(entry.fetchUrl))
-      context.addIssue({
-        code: 'custom',
-        path: ['fetchUrl'],
-        message: 'Authoring resources must provide exactly one fetch authority.',
       });
   });
 
@@ -289,9 +282,7 @@ export const focusedRecordPreviewDocumentSchema = strict({
       });
     resourceIds.add(entry.resourceId);
     const fetchAuthority =
-      entry.sourceKind === 'authoring-asset'
-        ? (entry.fetchUrl ?? entry.fetchProjectRelativePath)
-        : entry.fetchProjectRelativePath;
+      entry.sourceKind === 'authoring-asset' ? entry.fetchUrl : entry.fetchProjectRelativePath;
     for (const [map, path, label] of [
       [fetchPaths, fetchAuthority, 'fetch authority'],
       [logicalPaths, entry.logicalPath, 'logical path'],
@@ -318,7 +309,7 @@ export type FocusedRecordPreviewDocument = z.infer<typeof focusedRecordPreviewDo
 
 export const focusedEditorDocumentRequestEnvelopeSchema = strict({
   protocol: z.literal('noveltea.focused-editor-document'),
-  protocolVersion: z.literal(1),
+  protocolVersion: z.literal(2),
   requestId: z.string().min(1),
   applySequence: z.number().int().nonnegative().safe(),
   projectInstanceId: z.string().min(1),

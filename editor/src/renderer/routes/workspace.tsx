@@ -610,9 +610,9 @@ export function WorkspacePage() {
     if (!(await flushProjectEditorMetadata('close-project'))) return;
     if (projectSessionId) await window.noveltea.stopProjectWorkspaceWatcher(projectSessionId);
     if (projectSessionId) await window.noveltea.purgeProjectTrash(projectSessionId);
+    await cancelAndClearComfyUiProjectJobs(projectFilePath);
     await window.noveltea.closeActiveProject();
     refreshRecentProjectEntry(project, projectPath, projectFilePath);
-    await cancelAndClearComfyUiProjectJobs(projectFilePath);
     if (projectFilePath) clearAssetTrashProject(projectFilePath);
     clearLocalEditorSessionSnapshot();
     setLastProjectPath(null);
@@ -644,8 +644,8 @@ export function WorkspacePage() {
       if (!(await flushProjectEditorMetadata('switch-project'))) return;
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0)
         saveLocalEditorSessionSnapshot(projectFilePath ?? null);
-      await window.noveltea.closeActiveProject();
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
+      await window.noveltea.closeActiveProject();
       const loaded = await window.noveltea.openProject(dir);
       if (!loaded.success || !loaded.contentProject || !loaded.editorState) {
         clearProjectDocument();

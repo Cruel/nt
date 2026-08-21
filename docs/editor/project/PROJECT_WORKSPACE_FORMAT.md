@@ -59,7 +59,7 @@ and every removal verifies the expected owner token.
 ## Local state
 
 `.noveltea/` is ignored via the root-scoped `/.noveltea/` `.gitignore` rule. Optional
-`.noveltea/editor/state.json` uses `noveltea.editor.local-state` version `2`; it stores recovery,
+`.noveltea/editor/state.json` uses `noveltea.editor.local-state` version `3`; it stores recovery,
 export identity, workbench, explorer, bottom panel, tab state, and drafts. It never duplicates
 tracked organization fields. On open, `ProjectWorkspaceService` composes those ignored fields with
 tracked `editor.json` chapters/tags/recordMetadata into the internal `AuthoringProject.editor` state;

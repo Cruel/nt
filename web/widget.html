@@ -628,7 +628,7 @@ thead, tbody, tfoot {
       const proposedGeneration = proposedFocusedResourceGeneration(document);
       const envelope = {
         protocol: 'noveltea.focused-editor-document',
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestId: message.requestId,
         applySequence: message.applySequence,
         projectInstanceId: document.projectInstanceId,
@@ -826,7 +826,11 @@ thead, tbody, tfoot {
         resourceIds.add(entry.resourceId);
         const hasAssetFetchUrl = typeof entry.fetchUrl === 'string' && entry.fetchUrl.startsWith('noveltea-asset://source/');
         const hasProjectFetchPath = safeProjectAssetPath(entry.fetchProjectRelativePath);
-        if (!focusedLogicalRelativePath(entry.logicalPath) || (hasAssetFetchUrl === hasProjectFetchPath)) {
+        const hasCanonicalFetchAuthority =
+          entry.sourceKind === 'authoring-asset'
+            ? hasAssetFetchUrl && !hasProjectFetchPath
+            : hasProjectFetchPath && !hasAssetFetchUrl;
+        if (!focusedLogicalRelativePath(entry.logicalPath) || !hasCanonicalFetchAuthority) {
           throw new Error(`Focused preview resource fetch authority is invalid: ${String(entry.logicalPath || entry.fetchProjectRelativePath || entry.fetchUrl)}.`);
         }
         if (!/^sha256:[0-9a-f]{64}$/.test(entry.contentHash || '')) throw new Error('Focused preview resource hash is invalid.');
@@ -883,7 +887,9 @@ thead, tbody, tfoot {
       const fetched = [];
       for (const entry of changed) {
         if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before staging completed.');
-        const fetchUrl = entry.fetchUrl || projectAssetFetchUrl(entry.fetchProjectRelativePath);
+        const fetchUrl = entry.sourceKind === 'authoring-asset'
+          ? entry.fetchUrl
+          : projectAssetFetchUrl(entry.fetchProjectRelativePath);
         const response = await fetch(fetchUrl, { cache: 'no-store', signal });
         if (!response.ok) throw new Error(`Focused preview resource fetch failed: ${entry.resourceId} (${response.status}).`);
         const bytes = await readBoundedResponse(response, entry.byteSize, focusedDocumentLimits.maxResourceBytes);

@@ -17,6 +17,7 @@ import {
 } from '../../shared/focused-preview-contracts';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
@@ -85,6 +86,7 @@ export async function canonicalFocusedPreviewInputRevision(
 
 function assetManifestEntry(
   project: AuthoringProject,
+  projectSessionId: string,
   assetId: string,
   usageRole: string,
 ): PreviewResourceManifestEntry {
@@ -98,7 +100,7 @@ function assetManifestEntry(
     sourceKind: 'authoring-asset' as const,
     assetId,
     usageRoles: [usageRole],
-    fetchProjectRelativePath: parsed.source.path,
+    fetchUrl: projectOriginalAssetUrl(projectSessionId, assetId),
     logicalPath: `project:/${parsed.source.path}`,
     contentHash: parsed.contentHash as `sha256:${string}`,
     byteSize: parsed.byteSize,
@@ -181,6 +183,7 @@ function canonicalManifest(
 
 async function materialProjection(
   project: AuthoringProject,
+  projectSessionId: string,
   initialMaterialIds: readonly string[],
   variant: ShaderVariant,
 ): Promise<{
@@ -217,7 +220,9 @@ async function materialProjection(
     if (resolved.data.shader) shaderIds.add(resolved.data.shader.$ref.id);
     for (const texture of resolved.data.textures)
       if ('$ref' in texture.source)
-        resources.push(assetManifestEntry(project, texture.source.$ref.id, 'material-texture'));
+        resources.push(
+          assetManifestEntry(project, projectSessionId, texture.source.$ref.id, 'material-texture'),
+        );
   }
 
   const shaders: Record<string, unknown> = {};
@@ -277,6 +282,8 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
   topologyDependent: false,
   owningPath: (root) => `/layouts/${root.recordId}`,
   build: async (context) => {
+    if (!context.projectSessionId)
+      throw new Error('Layout preview requires an active Project session.');
     const layout = parseLayoutData(context.project.layouts[context.root.recordId]?.data);
     if (!layout) throw new Error(`Layout '${context.root.recordId}' is missing or invalid.`);
     const settings = projectSettingsFromProject(context.project);
@@ -289,7 +296,14 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
       ['lua-source', layout.lua],
     ] as const)
       if (source.sourceMode === 'asset' && source.sourceAsset)
-        resources.push(assetManifestEntry(context.project, source.sourceAsset.$ref.id, name));
+        resources.push(
+          assetManifestEntry(
+            context.project,
+            context.projectSessionId,
+            source.sourceAsset.$ref.id,
+            name,
+          ),
+        );
     for (const [name, refs] of [
       ['layout-script', layout.dependencies.scripts],
       ['layout-template', layout.dependencies.templates],
@@ -298,9 +312,12 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
       ['layout-font', layout.dependencies.fonts],
     ] as const)
       for (const ref of refs ?? [])
-        resources.push(assetManifestEntry(context.project, ref.$ref.id, name));
+        resources.push(
+          assetManifestEntry(context.project, context.projectSessionId, ref.$ref.id, name),
+        );
     const material = await materialProjection(
       context.project,
+      context.projectSessionId,
       layout.dependencies.materials.map((ref) => ref.$ref.id),
       context.hostCapabilities.activeShaderVariant,
     );

@@ -138,7 +138,7 @@ function manifestEntry(name: string, retainAlphaCoverage = false) {
     assetId: name,
     kind: 'binary',
     usageRoles: [],
-    fetchProjectRelativePath: `assets/${name}.bin`,
+    fetchUrl: `noveltea-asset://source/session/${name}`,
     logicalPath: `project:/${name}.bin`,
     contentHash: `sha256:${(name === 'a' ? 'a' : 'b').repeat(64)}`,
     byteSize: 1,
@@ -231,7 +231,6 @@ describe('Phase 7 focused resource publication', () => {
     });
     const entry = {
       ...manifestEntry('room-background'),
-      fetchProjectRelativePath: undefined,
       fetchUrl: 'noveltea-asset://source/11111111-1111-4111-8111-111111111111/room-background',
       contentHash: `sha256:${'0'.repeat(64)}`,
       byteSize: 0,

@@ -8,6 +8,7 @@ import {
   compareProjectWorkspaceUnicodeCodePoints,
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
+  projectWorkspaceLocalStateFile,
 } from '../../shared/project-workspace';
 import {
   FINAL_WORKSPACE_FIXTURE_ROOT,
@@ -178,7 +179,7 @@ describe('ProjectWorkspaceService', () => {
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/AGENTS.md`);
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.gitignore`);
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.noveltea/editor/state.json`);
-    expect(opened.editorState).toMatchObject({ schemaVersion: 2 });
+    expect(opened.editorState).toMatchObject({ schemaVersion: 3 });
   });
 
   it('loads the current segmented workspace without Electron', async () => {
@@ -197,6 +198,28 @@ describe('ProjectWorkspaceService', () => {
       '/tests',
       '/editor/recordMetadata/tests',
     ]);
+  });
+
+  it('discards editor local state from the retired version-2 contract', async () => {
+    const files = filesFor();
+    const localStatePath = '/projects/headless/.noveltea/editor/state.json';
+    files[localStatePath] = projectWorkspaceLocalStateFile(
+      createAuthoringProject().editor,
+      `sha256:${'0'.repeat(64)}`,
+    )
+      .replace('"schemaVersion": 3', '"schemaVersion": 2')
+      .replace('"visible": true', '"visible": false');
+
+    const opened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(files),
+    ).open('/projects/headless');
+
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.editorState).toMatchObject({
+      schemaVersion: 3,
+      bottomPanel: { visible: true },
+    });
   });
 
   it('returns the full composed editor state while keeping contentProject editor-free', async () => {

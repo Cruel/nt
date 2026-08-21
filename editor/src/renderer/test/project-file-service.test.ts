@@ -416,7 +416,7 @@ describe('project-file-service workspace-v1', () => {
       JSON.parse(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8')),
     ).toMatchObject({
       schema: 'noveltea.editor.local-state',
-      schemaVersion: 2,
+      schemaVersion: 3,
       workspaceRevision: result.workspaceRevision,
       bottomPanel: { visible: false },
       recovery: {

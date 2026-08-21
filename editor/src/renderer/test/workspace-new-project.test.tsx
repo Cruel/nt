@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { WorkspacePage } from '@/routes/workspace';
 import { useCommandStore } from '@/commands/command-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
+import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useProjectStore } from '@/project/project-store';
 import { defaultComfyUiConfig } from '../../shared/comfyui';
 import {
@@ -88,6 +89,7 @@ beforeEach(() => {
     statusMessage: 'Preview disconnected',
   });
   useCommandStore.getState().resetCommandHistory();
+  useComfyUiQueueStore.setState({ jobsByPromptId: {}, localJobsByPromptId: {}, order: [] });
   useRecentProjectsStore.setState({ recentProjects: [] });
   setLoadedEditorProjectState(emptyEditorProjectState());
   useComfyUiStore.setState({
@@ -750,6 +752,90 @@ describe('WorkspacePage new project modal', () => {
       state: 'ready',
       message: 'ComfyUI ready',
     });
+  });
+
+  it('cancels running ComfyUI work before revoking the Project session on close', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
+    });
+    useWorkspaceStore.setState({
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      project,
+    });
+    render(<WorkspacePage />);
+    act(() =>
+      useComfyUiQueueStore.getState().updateProgress({
+        promptId: 'running-job',
+        workflowId: 'workflow',
+        state: 'running',
+        queueRemaining: 0,
+        currentNode: null,
+        progressValue: null,
+        progressMax: null,
+        message: 'Running',
+        projectFilePath: '/mock/project/project.json',
+      }),
+    );
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'close-project' }),
+      );
+    });
+
+    await waitFor(() => expect(window.noveltea.closeActiveProject).toHaveBeenCalledOnce());
+    expect(window.noveltea.cancelComfyUiJob).toHaveBeenCalledWith(
+      'opened-project-session',
+      expect.any(Object),
+    );
+    expect(vi.mocked(window.noveltea.cancelComfyUiJob).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(window.noveltea.closeActiveProject).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('cancels running ComfyUI work before revoking the Project session on switch', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: 'opened-project-session',
+    });
+    useWorkspaceStore.setState({
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      project,
+    });
+    render(<WorkspacePage />);
+    act(() =>
+      useComfyUiQueueStore.getState().updateProgress({
+        promptId: 'running-job',
+        workflowId: 'workflow',
+        state: 'running',
+        queueRemaining: 0,
+        currentNode: null,
+        progressValue: null,
+        progressMax: null,
+        message: 'Running',
+        projectFilePath: '/mock/project/project.json',
+      }),
+    );
+    dispatchOpenProject('/mock/next-project');
+
+    await waitFor(() =>
+      expect(window.noveltea.openProject).toHaveBeenCalledWith('/mock/next-project'),
+    );
+    expect(window.noveltea.cancelComfyUiJob).toHaveBeenCalledWith(
+      'opened-project-session',
+      expect.any(Object),
+    );
+    expect(vi.mocked(window.noveltea.cancelComfyUiJob).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(window.noveltea.closeActiveProject).mock.invocationCallOrder[0]!,
+    );
   });
 
   it('persists dirty recovery metadata on close without saving dirty content', async () => {

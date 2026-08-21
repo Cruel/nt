@@ -81,7 +81,7 @@ describe('Phase 1 shared contracts', () => {
       assetId: 'image',
       kind: 'image',
       usageRoles: ['room-background'],
-      fetchProjectRelativePath: 'assets/image.png',
+      fetchUrl: 'noveltea-asset://source/session/image',
       logicalPath: 'project:/assets/image.png',
       contentHash: hash,
       byteSize: 12,
@@ -102,6 +102,13 @@ describe('Phase 1 shared contracts', () => {
     expect(() =>
       previewResourceManifestEntrySchema.parse({ ...manifest, sampling: undefined }),
     ).toThrow();
+    expect(() =>
+      previewResourceManifestEntrySchema.parse({
+        ...manifest,
+        fetchUrl: undefined,
+        fetchProjectRelativePath: 'assets/image.png',
+      }),
+    ).toThrow();
     const nearestManifest = previewResourceManifestEntrySchema.parse({
       ...manifest,
       sampling: 'nearest',
@@ -116,7 +123,7 @@ describe('Phase 1 shared contracts', () => {
     ).toThrow();
     const request = focusedEditorDocumentRequestEnvelopeSchema.parse({
       protocol: 'noveltea.focused-editor-document',
-      protocolVersion: 1,
+      protocolVersion: 2,
       requestId: 'request-1',
       applySequence: 1,
       projectInstanceId: 'project',
@@ -128,7 +135,10 @@ describe('Phase 1 shared contracts', () => {
       resources: projectNativeManifest([manifest]),
       data: {},
     });
-    expect(encodeFocusedEditorDocumentRequest(request)).toContain('"protocolVersion":1');
+    expect(encodeFocusedEditorDocumentRequest(request)).toContain('"protocolVersion":2');
+    expect(() =>
+      focusedEditorDocumentRequestEnvelopeSchema.parse({ ...request, protocolVersion: 1 }),
+    ).toThrow();
     expect(() =>
       previewResourceManifestEntrySchema.parse({ ...manifest, unknown: true }),
     ).toThrow();

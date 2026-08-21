@@ -649,6 +649,7 @@ async function writeGeneratedAsset(
   projectFilePath: string,
   bytes: Buffer,
   prefix: 'generated' | 'edit',
+  assertAuthorityCurrent: () => void,
 ): Promise<{
   metadata: ImportedAssetMetadata;
   absolutePath: string;
@@ -657,17 +658,46 @@ async function writeGeneratedAsset(
 }> {
   const projectRoot = projectRootFromFile(projectFilePath);
   const generatedDir = path.join(projectRoot, 'assets', 'generated');
+  const imageMetadata = await sharp(bytes, { failOn: 'error' })
+    .metadata()
+    .then((metadata) => {
+      if (!metadata.width || !metadata.height)
+        throw new Error('Generated image dimensions could not be determined.');
+      return {
+        width: metadata.width,
+        height: metadata.height,
+        hasAlpha: metadata.hasAlpha,
+        orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+      };
+    });
+  assertAuthorityCurrent();
   await fs.mkdir(generatedDir, { recursive: true });
+  assertAuthorityCurrent();
   let absolutePath = path.join(generatedDir, safeGeneratedName(prefix));
   while (true) {
     try {
       await fs.access(absolutePath);
       absolutePath = path.join(generatedDir, safeGeneratedName(prefix));
     } catch {
+      assertAuthorityCurrent();
       break;
     }
+    assertAuthorityCurrent();
   }
-  await fs.writeFile(absolutePath, bytes);
+  const temporaryPath = `${absolutePath}.${randomUUID()}.tmp`;
+  let published = false;
+  try {
+    assertAuthorityCurrent();
+    await fs.writeFile(temporaryPath, bytes, { flag: 'wx' });
+    assertAuthorityCurrent();
+    await fs.rename(temporaryPath, absolutePath);
+    published = true;
+    assertAuthorityCurrent();
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    if (published) await fs.rm(absolutePath, { force: true }).catch(() => undefined);
+    throw error;
+  }
   const projectRelativePath = slashPath(path.relative(projectRoot, absolutePath));
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   const originalName = path.basename(absolutePath);
@@ -686,18 +716,7 @@ async function writeGeneratedAsset(
       byteSize: bytes.byteLength,
       contentHash,
       importedAt: new Date().toISOString(),
-      imageMetadata: await sharp(bytes, { failOn: 'error' })
-        .metadata()
-        .then((metadata) => {
-          if (!metadata.width || !metadata.height)
-            throw new Error('Generated image dimensions could not be determined.');
-          return {
-            width: metadata.width,
-            height: metadata.height,
-            hasAlpha: metadata.hasAlpha,
-            orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
-          };
-        }),
+      imageMetadata,
     },
   };
 }
@@ -1316,10 +1335,13 @@ async function runImageJob(
     promptSummary: prompt.trim().slice(0, 120) || '(empty prompt)',
     createdAt,
   } satisfies Partial<ComfyUiQueueProgress>;
+  const assertAuthorityCurrent = () => {
+    if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
+  };
   try {
-    if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
+    assertAuthorityCurrent();
     await validateWorkflowRequirements(config, definition);
-    if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
+    assertAuthorityCurrent();
     const submitted = await submitPrompt(config, workflow, promptId, clientId);
     const actualPromptId = submitted.prompt_id ?? promptId;
     const selectedOutputNodeIds = resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
@@ -1348,7 +1370,7 @@ async function runImageJob(
       actualPromptId,
       selectedOutputNodeIds,
     );
-    if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
+    assertAuthorityCurrent();
     if (!descriptors.length) {
       const outputDetail = selectedOutputNodeIds.length
         ? ` from selected output node${selectedOutputNodeIds.length === 1 ? '' : 's'} ${selectedOutputNodeIds.join(', ')}`
@@ -1358,9 +1380,14 @@ async function runImageJob(
     const assets = [];
     for (const descriptor of descriptors) {
       const bytes = await fetchBytes(config, descriptorViewPath(descriptor));
-      if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
-      const written = await writeGeneratedAsset(projectFilePath, bytes, mode);
-      if (!isAuthorityCurrent()) throw new Error('Project session is stale or unknown.');
+      assertAuthorityCurrent();
+      const written = await writeGeneratedAsset(
+        projectFilePath,
+        bytes,
+        mode,
+        assertAuthorityCurrent,
+      );
+      assertAuthorityCurrent();
       assets.push({
         asset: written.metadata,
         previewUrl: written.previewUrl,
