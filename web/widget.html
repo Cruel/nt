@@ -628,7 +628,7 @@ thead, tbody, tfoot {
       const proposedGeneration = proposedFocusedResourceGeneration(document);
       const envelope = {
         protocol: 'noveltea.focused-editor-document',
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestId: message.requestId,
         applySequence: message.applySequence,
         projectInstanceId: document.projectInstanceId,
@@ -824,8 +824,14 @@ thead, tbody, tfoot {
           throw new Error(`Focused preview resourceId is missing or duplicated: '${entry.resourceId || ''}'.`);
         }
         resourceIds.add(entry.resourceId);
-        if (!focusedLogicalRelativePath(entry.logicalPath) || !safeProjectAssetPath(entry.fetchProjectRelativePath)) {
-          throw new Error(`Focused preview resource path is unsafe: ${String(entry.logicalPath || entry.fetchProjectRelativePath)}.`);
+        const hasAssetFetchUrl = typeof entry.fetchUrl === 'string' && entry.fetchUrl.startsWith('noveltea-asset://source/');
+        const hasProjectFetchPath = safeProjectAssetPath(entry.fetchProjectRelativePath);
+        const hasCanonicalFetchAuthority =
+          entry.sourceKind === 'authoring-asset'
+            ? hasAssetFetchUrl && !hasProjectFetchPath
+            : hasProjectFetchPath && !hasAssetFetchUrl;
+        if (!focusedLogicalRelativePath(entry.logicalPath) || !hasCanonicalFetchAuthority) {
+          throw new Error(`Focused preview resource fetch authority is invalid: ${String(entry.logicalPath || entry.fetchProjectRelativePath || entry.fetchUrl)}.`);
         }
         if (!/^sha256:[0-9a-f]{64}$/.test(entry.contentHash || '')) throw new Error('Focused preview resource hash is invalid.');
         if (!Number.isSafeInteger(entry.byteSize) || entry.byteSize < 0 || entry.byteSize > focusedDocumentLimits.maxResourceBytes) {
@@ -833,7 +839,7 @@ thead, tbody, tfoot {
         }
         total += entry.byteSize;
         if (total > focusedDocumentLimits.maxTotalResourceBytes) throw new Error('Focused preview resources exceed the aggregate limit.');
-        for (const [paths, path, label] of [[logicalPaths, entry.logicalPath, 'logical path'], [fetchPaths, entry.fetchProjectRelativePath, 'fetch path']]) {
+        for (const [paths, path, label] of [[logicalPaths, entry.logicalPath, 'logical path'], [fetchPaths, entry.fetchProjectRelativePath || entry.fetchUrl, 'fetch authority']]) {
           const previous = paths.get(path);
           if (previous && previous !== entry.resourceId) throw new Error(`Conflicting focused preview ${label} '${path}'.`);
           paths.set(path, entry.resourceId);
@@ -881,11 +887,14 @@ thead, tbody, tfoot {
       const fetched = [];
       for (const entry of changed) {
         if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before staging completed.');
-        const response = await fetch(projectAssetFetchUrl(entry.fetchProjectRelativePath), { cache: 'no-store', signal });
-        if (!response.ok) throw new Error(`Focused preview resource fetch failed: ${entry.fetchProjectRelativePath} (${response.status}).`);
+        const fetchUrl = entry.sourceKind === 'authoring-asset'
+          ? entry.fetchUrl
+          : projectAssetFetchUrl(entry.fetchProjectRelativePath);
+        const response = await fetch(fetchUrl, { cache: 'no-store', signal });
+        if (!response.ok) throw new Error(`Focused preview resource fetch failed: ${entry.resourceId} (${response.status}).`);
         const bytes = await readBoundedResponse(response, entry.byteSize, focusedDocumentLimits.maxResourceBytes);
         const actualHash = await sha256Prefixed(bytes);
-        if (actualHash !== entry.contentHash) throw new Error(`Focused preview resource hash mismatch: ${entry.fetchProjectRelativePath}.`);
+        if (actualHash !== entry.contentHash) throw new Error(`Focused preview resource hash mismatch: ${entry.resourceId}.`);
         fetched.push({ entry, bytes });
       }
       if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before filesystem commit.');

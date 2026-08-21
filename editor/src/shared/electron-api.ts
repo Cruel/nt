@@ -21,7 +21,10 @@ interface NovelTeaElectronApiContract {
   selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>;
   selectTemplateArchivePath(): Promise<string | null>;
   showItemInFolder(path: string): Promise<void>;
-  previewExportedPackage(packagePath: string): Promise<PackagePreviewResponse>;
+  previewExportedPackage(
+    projectSessionId: string,
+    packagePath: string,
+  ): Promise<PackagePreviewResponse>;
   openExternal(url: string): Promise<void>;
   zoomIn(): Promise<number>;
   zoomOut(): Promise<number>;
@@ -34,8 +37,8 @@ interface NovelTeaElectronApiContract {
   onEditorShortcut(callback: (command: EditorShortcutCommand) => void): () => void;
   isAppWindowMaximized(): Promise<boolean>;
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
-  getEnginePreviewSession(): Promise<EnginePreviewSession>;
-  reloadEnginePreview(): Promise<EnginePreviewSession>;
+  getEnginePreviewSession(projectSessionId: string): Promise<EnginePreviewSession>;
+  reloadEnginePreview(projectSessionId: string): Promise<EnginePreviewSession>;
   createProject(request: CreateProjectRequest): Promise<SaveProjectResponse>;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
   closeActiveProject(): Promise<void>;
@@ -45,22 +48,31 @@ interface NovelTeaElectronApiContract {
   runPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
   runUiPlaybackSpec(project: unknown, spec: unknown): Promise<PlaybackReportResponse>;
   exportPackage(
+    projectSessionId: string,
     project: unknown,
     outputPath: string,
-    options?: PackageExportOptions,
+    options: import('./project-schema/prepared-runtime-artifact').PreparedRuntimePackageOptions,
   ): Promise<PackageExportResponse>;
   stagePlatformExport(
+    projectSessionId: string,
     request: import('./project-schema/platform-export-contracts').PlatformStageRequest,
   ): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
   exportProjectToPlatform(
-    request: import('./project-schema/platform-export-contracts').ProjectPlatformExportRequest,
+    projectSessionId: string,
+    request: Omit<
+      import('./project-schema/platform-export-contracts').ProjectPlatformExportRequest,
+      'projectPath' | 'projectRoot'
+    >,
   ): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
   onPlatformExportProgress(
     callback: (
       event: import('./project-schema/platform-export-contracts').PlatformExportProgressEvent,
     ) => void,
   ): () => void;
-  cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>;
+  cancelPlatformExport(
+    projectSessionId: string,
+    operationId: string,
+  ): Promise<{ cancelled: boolean }>;
   listPlayerTemplates(
     query?: import('./project-schema/platform-export-contracts').TemplateRegistryQuery,
   ): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate[]>;
@@ -85,11 +97,12 @@ interface NovelTeaElectronApiContract {
     value: import('./project-schema/platform-export-contracts').UserExportConfig,
   ): Promise<import('./project-schema/platform-export-contracts').UserExportConfig>;
   compileShaders(
+    projectSessionId: string,
     shaderProject: unknown,
-    options?: ShaderCompileOptions,
+    options?: Pick<ShaderCompileOptions, 'forceRebuild' | 'shaderVariants'>,
   ): Promise<ShaderCompileResponse>;
   saveProjectContent(
-    projectFilePath: string,
+    projectSessionId: string,
     expectedWorkspaceRevision: string,
     contentProject: unknown,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
@@ -97,44 +110,51 @@ interface NovelTeaElectronApiContract {
     commitOptions?: import('./editor-tooling').ProjectWorkspaceCommitOptions,
   ): Promise<SaveProjectResponse>;
   saveProjectEditorMetadata(
-    projectFilePath: string,
+    projectSessionId: string,
     expectedWorkspaceRevision: string,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
     expectedFileRevisions?: Record<string, `sha256:${string}`>,
   ): Promise<SaveProjectEditorMetadataResponse>;
   saveProjectCopyAs(
+    projectSessionId: string,
     project: unknown,
-    defaultPath?: string | null,
-    currentProjectFilePath?: string | null,
     workingProjectAssetPaths?: string[],
     scriptSourcePaths?: Record<string, string>,
   ): Promise<SaveProjectResponse>;
-  importAssets(projectFilePath: string, options?: AssetImportOptions): Promise<AssetImportResponse>;
+  importAssets(
+    projectSessionId: string,
+    options?: AssetImportOptions,
+  ): Promise<AssetImportResponse>;
   reimportAsset(
-    projectFilePath: string,
+    projectSessionId: string,
     projectRelativePath: string,
   ): Promise<AssetReimportResponse>;
-  auditProjectAssets(projectFilePath: string, project: unknown): Promise<ProjectAssetAuditResponse>;
+  auditProjectAssets(
+    projectSessionId: string,
+    project: unknown,
+  ): Promise<ProjectAssetAuditResponse>;
   importUntrackedProjectAssets(
-    projectFilePath: string,
+    projectSessionId: string,
     projectRelativePaths: string[],
   ): Promise<ProjectAssetFileOperationResponse>;
   trashProjectAssetFiles(
-    projectFilePath: string,
+    projectSessionId: string,
     projectRelativePaths: string[],
   ): Promise<ProjectAssetFileOperationResponse>;
   restoreProjectAssetFiles(
-    projectFilePath: string,
+    projectSessionId: string,
     moves: ProjectAssetTrashMove[],
   ): Promise<ProjectAssetFileOperationResponse>;
-  purgeProjectTrash(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
-  startProjectWorkspaceWatcher(projectRoot: string): Promise<ProjectAssetFileOperationResponse>;
-  stopProjectWorkspaceWatcher(): Promise<ProjectAssetFileOperationResponse>;
+  purgeProjectTrash(projectSessionId: string): Promise<ProjectAssetFileOperationResponse>;
+  startProjectWorkspaceWatcher(
+    projectSessionId: string,
+  ): Promise<ProjectAssetFileOperationResponse>;
+  stopProjectWorkspaceWatcher(projectSessionId: string): Promise<ProjectAssetFileOperationResponse>;
   onProjectWorkspaceChanged(callback: (event: ProjectWorkspaceWatchEvent) => void): () => void;
-  resolveProjectAssetUrl(
-    projectFilePath: string,
-    projectRelativePath: string,
-  ): Promise<ProjectAssetUrlResponse | null>;
+  resolveProjectOriginalAssetUrl(
+    projectSessionId: string,
+    assetId: string,
+  ): Promise<ProjectOriginalAssetUrlResponse>;
   requestImageThumbnail(
     request: import('./image-thumbnails').ImageThumbnailRequest,
   ): Promise<import('./image-thumbnails').ImageThumbnailResult>;
@@ -154,40 +174,54 @@ interface NovelTeaElectronApiContract {
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
   listComfyUiWorkflowLibrary(
-    request?: ComfyUiWorkflowLibraryListRequest,
+    projectSessionId: string | null,
+    request?: Omit<ComfyUiWorkflowLibraryListRequest, 'projectFilePath'>,
   ): Promise<ComfyUiWorkflowLibraryListResponse>;
-  copyComfyUiWorkflow(request: ComfyUiWorkflowCopyRequest): Promise<ComfyUiWorkflowCopyResponse>;
+  copyComfyUiWorkflow(
+    projectSessionId: string | null,
+    request: Omit<ComfyUiWorkflowCopyRequest, 'projectFilePath'>,
+  ): Promise<ComfyUiWorkflowCopyResponse>;
   deleteComfyUiWorkflow(
-    request: ComfyUiWorkflowDeleteRequest,
+    projectSessionId: string | null,
+    request: Omit<ComfyUiWorkflowDeleteRequest, 'projectFilePath'>,
   ): Promise<ComfyUiWorkflowDeleteResponse>;
   renameComfyUiWorkflow(
-    request: import('./comfyui-workflows').ComfyUiWorkflowRenameRequest,
+    projectSessionId: string | null,
+    request: Omit<import('./comfyui-workflows').ComfyUiWorkflowRenameRequest, 'projectFilePath'>,
   ): Promise<import('./comfyui-workflows').ComfyUiWorkflowRenameResponse>;
   importComfyUiWorkflowToLibrary(
     request: ComfyUiImportWorkflowToLibraryRequest,
   ): Promise<ComfyUiImportWorkflowToLibraryResponse>;
   repairComfyUiWorkflowInLibrary(
-    request: ComfyUiRepairWorkflowInLibraryRequest,
+    projectSessionId: string | null,
+    request: Omit<ComfyUiRepairWorkflowInLibraryRequest, 'projectFilePath'>,
   ): Promise<ComfyUiRepairWorkflowInLibraryResponse>;
   revealComfyUiWorkflow(
+    projectSessionId: string | null,
     workflowKey: ComfyUiWorkflowKey,
-    projectFilePath?: string | null,
   ): Promise<boolean>;
   verifyComfyUiWorkflowLibrary(
-    request: ComfyUiVerifyWorkflowLibraryRequest,
+    projectSessionId: string | null,
+    request: Omit<ComfyUiVerifyWorkflowLibraryRequest, 'projectFilePath'>,
   ): Promise<ComfyUiVerifyWorkflowLibraryResponse>;
   analyzeComfyUiWorkflowImport(
-    request: ComfyUiAnalyzeWorkflowImportRequest,
+    projectSessionId: string | null,
+    request: Omit<ComfyUiAnalyzeWorkflowImportRequest, 'projectFilePath'>,
   ): Promise<ComfyUiAnalyzeWorkflowImportResponse>;
   generateComfyUiImage(
+    projectSessionId: string,
     config: ComfyUiConfig,
-    request: ComfyUiGenerateImageRequest,
+    request: Omit<ComfyUiGenerateImageRequest, 'projectFilePath'>,
   ): Promise<ComfyUiImageJobResponse>;
   editComfyUiImage(
+    projectSessionId: string,
     config: ComfyUiConfig,
     request: ComfyUiEditImageRequest,
   ): Promise<ComfyUiImageJobResponse>;
-  cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse>;
+  cancelComfyUiJob(
+    projectSessionId: string,
+    config: ComfyUiConfig,
+  ): Promise<ComfyUiCancelJobResponse>;
   onComfyUiProgress(callback: (progress: ComfyUiQueueProgress) => void): () => void;
 }
 
@@ -235,12 +269,11 @@ import type {
   ProjectAssetTrashMove,
 } from './project-asset-audit';
 import type { ProjectWorkspaceWatchEvent } from './project-workspace-watch';
-import type { ProjectAssetUrlResponse } from './project-asset-url';
+import type { ProjectOriginalAssetUrlResponse } from './project-original-asset';
 import type {
   CreateProjectRequest,
   OpenProjectResponse,
   SaveProjectEditorMetadataResponse,
-  PackageExportOptions,
   PackageExportResponse,
   PackagePreviewResponse,
   PlaybackReportResponse,

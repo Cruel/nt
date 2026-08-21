@@ -1,10 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
-import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
+import {
+  isSafeProjectAssetPath,
+  parseAssetData,
+  type AssetKind,
+} from '../../shared/project-schema/authoring-assets';
+import {
+  parseAuthoringProject,
+  type AuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import {
   isSha256Digest,
   PROJECT_TEXT_SOURCE_LIMITS,
+  projectTextSourceBoundaryCode,
   type ProjectTextSourceReadEntry,
   type ReadProjectTextSourcesRequest,
   type ReadProjectTextSourcesResponse,
@@ -22,8 +31,39 @@ class TextSourceReadFailure extends Error {
   }
 }
 
+interface ActiveProjectAssetAuthorization {
+  assetId: string;
+  kind: AssetKind;
+  sourcePath: string;
+  byteSize?: number;
+  contentHash?: string;
+}
+
+interface ActiveProjectSession {
+  id: string;
+  root: string;
+  assets: ReadonlyMap<string, ActiveProjectAssetAuthorization>;
+}
+
+function admittedAssets(project: unknown): ReadonlyMap<string, ActiveProjectAssetAuthorization> {
+  const parsed: AuthoringProject = parseAuthoringProject(project);
+  const assets = new Map<string, ActiveProjectAssetAuthorization>();
+  for (const [assetId, record] of Object.entries(parsed.assets)) {
+    const data = parseAssetData(record.data);
+    if (data)
+      assets.set(assetId, {
+        assetId,
+        kind: data.kind,
+        sourcePath: data.source.path,
+        byteSize: data.byteSize,
+        contentHash: data.contentHash,
+      });
+  }
+  return assets;
+}
+
 export class ActiveProjectSessionService {
-  private active: { id: string; root: string } | null = null;
+  private active: ActiveProjectSession | null = null;
   private projectActivationGeneration = 0;
 
   beginProjectActivation(): number {
@@ -34,19 +74,71 @@ export class ActiveProjectSessionService {
   async activateProjectFile(
     projectFilePath: string,
     expectedActivationGeneration?: number,
+    contentProject?: unknown,
   ): Promise<string> {
     const canonicalProjectFile = await fs.realpath(path.resolve(projectFilePath));
     const projectFileStat = await fs.stat(canonicalProjectFile);
     if (!projectFileStat.isFile()) throw new Error('Project manifest is not a regular file.');
     this.assertProjectActivationCurrent(expectedActivationGeneration);
     const canonicalRoot = path.dirname(canonicalProjectFile);
-    if (this.active?.root === canonicalRoot) return this.active.id;
-    this.active = { id: randomUUID(), root: canonicalRoot };
+    const assets = contentProject === undefined ? new Map() : admittedAssets(contentProject);
+    if (this.active?.root === canonicalRoot) {
+      if (contentProject !== undefined) this.active = { ...this.active, assets };
+      return this.active.id;
+    }
+    this.active = { id: randomUUID(), root: canonicalRoot, assets };
     return this.active.id;
   }
 
   currentSessionId(): string | null {
     return this.active?.id ?? null;
+  }
+
+  requireActiveProjectRoot(projectSessionId: string): string {
+    const active = this.active;
+    if (!active || projectSessionId !== active.id) {
+      throw new Error('Project session is stale or unknown.');
+    }
+    return active.root;
+  }
+
+  isCurrent(projectSessionId: string): boolean {
+    return this.active?.id === projectSessionId;
+  }
+
+  requireActiveAsset(
+    projectSessionId: string,
+    assetId: string,
+  ): { root: string; asset: ActiveProjectAssetAuthorization } {
+    const active = this.active;
+    if (!active || projectSessionId !== active.id) {
+      throw new Error('Project session is stale or unknown.');
+    }
+    const asset = active.assets.get(assetId);
+    if (!asset) throw new Error('Asset is not admitted by the active Project session.');
+    return { root: active.root, asset };
+  }
+
+  async refreshActiveProject(
+    projectSessionId: string,
+    projectFilePath: string,
+    contentProject?: unknown,
+  ): Promise<string> {
+    const active = this.active;
+    if (!active || projectSessionId !== active.id) {
+      throw new Error('Project session is stale or unknown.');
+    }
+    const canonicalProjectFile = await fs.realpath(path.resolve(projectFilePath));
+    const projectFileStat = await fs.stat(canonicalProjectFile);
+    if (!projectFileStat.isFile()) throw new Error('Project manifest is not a regular file.');
+    const canonicalRoot = path.dirname(canonicalProjectFile);
+    if (canonicalRoot !== active.root) {
+      throw new Error('Project result does not belong to the active Project session.');
+    }
+    const assets = contentProject === undefined ? active.assets : admittedAssets(contentProject);
+    if (this.active !== active) throw new Error('Project session is stale or unknown.');
+    if (contentProject !== undefined) this.active = { ...active, assets };
+    return active.id;
   }
 
   async attachToSuccessfulResult<
@@ -59,8 +151,24 @@ export class ActiveProjectSessionService {
     const projectSessionId = await this.activateProjectFile(
       result.projectFilePath,
       activationGeneration,
+      'contentProject' in result ? result.contentProject : undefined,
     );
     this.assertProjectActivationCurrent(activationGeneration);
+    return { ...result, projectSessionId };
+  }
+
+  async refreshSuccessfulSessionResult<
+    Result extends { ok?: boolean; success?: boolean; projectFilePath?: string },
+  >(projectSessionId: string, result: Result): Promise<Result & { projectSessionId?: string }> {
+    if (result.success !== true || result.ok === false) return result;
+    if (!result.projectFilePath) {
+      throw new Error('Successful Project persistence result omitted the Project manifest path.');
+    }
+    await this.refreshActiveProject(
+      projectSessionId,
+      result.projectFilePath,
+      'contentProject' in result ? result.contentProject : undefined,
+    );
     return { ...result, projectSessionId };
   }
 
@@ -294,6 +402,7 @@ function unavailable(
     projectRelativePath: entry.projectRelativePath,
     expectedContentHash: entry.expectedContentHash ?? null,
     code,
+    boundaryCode: projectTextSourceBoundaryCode(code),
     message,
   };
 }

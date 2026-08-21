@@ -5,6 +5,7 @@ import { defaultExportProfile } from '../../shared/project-schema/authoring-expo
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { useProjectStore } from '../project/project-store';
 import {
   prepareRuntimeArtifact,
   type RuntimeArtifactShaderCompilerAdapter,
@@ -71,12 +72,12 @@ const factories: Array<[string, AdapterFactory]> = [
 ];
 
 describe.each(factories)('%s shader compiler adapter', (_name, adapterFactory) => {
-  beforeEach(() =>
-    vi
-      .mocked(window.noveltea.compileShaders)
+  beforeEach(() => {
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+    vi.mocked(window.noveltea.compileShaders)
       .mockReset()
-      .mockResolvedValue({ ok: true, success: true, diagnostics: [], outputs: [] }),
-  );
+      .mockResolvedValue({ ok: true, success: true, diagnostics: [], outputs: [] });
+  });
 
   it('prepares through the shared interface on success', async () => {
     const project = shaderProject();

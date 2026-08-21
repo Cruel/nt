@@ -10,7 +10,7 @@ export type ComfyUiQueueItemState = 'queued' | 'running' | 'finalizing' | 'error
 
 export type ComfyUiLocalJobRequest =
   | { kind: 'generate'; request: ComfyUiGenerateImageRequest }
-  | { kind: 'edit'; request: ComfyUiEditImageRequest };
+  | { kind: 'edit'; projectFilePath: string; request: ComfyUiEditImageRequest };
 
 export type ComfyUiLocalJob = ComfyUiLocalJobRequest & {
   promptId: string;
@@ -146,12 +146,14 @@ export const useComfyUiQueueStore = create<ComfyUiQueueStore>()((set, get) => ({
             promptId,
             tabId: options.tabId,
             config: options.config,
+            projectFilePath: options.projectFilePath,
             request: { ...options.request, clientJobId: promptId },
           };
     const itemRequest = localJob.request;
     const item: ComfyUiQueueItem = {
       promptId,
-      projectFilePath: itemRequest.projectFilePath,
+      projectFilePath:
+        localJob.kind === 'edit' ? localJob.projectFilePath : localJob.request.projectFilePath,
       workflowId: itemRequest.workflowId ?? itemRequest.workflowKey ?? null,
       workflowLabel: options.workflowLabel,
       role: options.role,

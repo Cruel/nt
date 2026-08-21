@@ -118,11 +118,13 @@ describe('command palette search', () => {
       kind: 'image',
       label: 'Sarah Portrait',
       source: {
+        assetId: 'logo',
         projectRelativePath: 'assets/sarah.png',
         contentHash: undefined,
         width: 640,
         height: 960,
         orientation: 1,
+        sampling: undefined,
       },
     });
   });

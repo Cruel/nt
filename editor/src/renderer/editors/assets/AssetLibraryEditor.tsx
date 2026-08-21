@@ -96,7 +96,6 @@ function AssetContextMenu({
             openTab(
               buildImageGenerationTab({
                 sourceAssetId: asset.id,
-                sourceProjectRelativePath: asset.data.source.path,
                 mode: 'edit',
               }),
             );

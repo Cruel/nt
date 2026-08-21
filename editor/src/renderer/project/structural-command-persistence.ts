@@ -513,14 +513,14 @@ function assetTransitionFor(
 
 async function trashStagedAssetsAfterFailure(
   commandId: string,
-  projectFilePath: string,
+  projectSessionId: string,
   plan: AutoCommitPlan,
 ): Promise<ToolDiagnostic[]> {
   const paths = plan.filesystemOperations.flatMap((operation) =>
     operation.kind === 'staged-project-assets' ? operation.projectRelativePaths : [],
   );
   if (paths.length === 0) return [];
-  const result = await window.noveltea.trashProjectAssetFiles(projectFilePath, paths);
+  const result = await window.noveltea.trashProjectAssetFiles(projectSessionId, paths);
   if (result.moved?.length) filesystemStateByCommandId.set(commandId, result.moved);
   if (result.ok && result.moved?.length === paths.length) return [];
   return fileOperationFailure(
@@ -555,6 +555,7 @@ export async function persistAutoCommitPlan(
     !projectState.document ||
     !projectState.savedDocument ||
     !projectState.projectFilePath ||
+    !projectState.projectSessionId ||
     !projectState.workspaceRevision
   ) {
     return {
@@ -590,7 +591,7 @@ export async function persistAutoCommitPlan(
   if (plan.persistenceTarget === 'editor-metadata') {
     const editorState: EditorProjectState = { ...snapshot, recovery: remappedRecovery };
     const response = await window.noveltea.saveProjectEditorMetadata(
-      projectState.projectFilePath,
+      projectState.projectSessionId,
       projectState.workspaceRevision,
       editorState,
       { ...projectState.fileRevisions },
@@ -663,7 +664,7 @@ export async function persistAutoCommitPlan(
     delete scriptSourcePaths[match[1]];
   }
   const response = await window.noveltea.saveProjectContent(
-    projectState.projectFilePath,
+    projectState.projectSessionId,
     projectState.workspaceRevision,
     candidateContent,
     editorState,
@@ -680,7 +681,7 @@ export async function persistAutoCommitPlan(
   if (!response.success) {
     const cleanupDiagnostics =
       direction === 'forward'
-        ? await trashStagedAssetsAfterFailure(commandId, projectState.projectFilePath, plan)
+        ? await trashStagedAssetsAfterFailure(commandId, projectState.projectSessionId, plan)
         : [];
     return {
       status: 'failed',

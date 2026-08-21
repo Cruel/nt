@@ -17,11 +17,19 @@ import {
   verifyComfyUiWorkflowLibrary,
 } from '@/comfyui/comfyui-service';
 import { defaultComfyUiConfig } from '../../shared/comfyui';
+import { useProjectStore } from '@/project/project-store';
 
 const config = defaultComfyUiConfig();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useProjectStore.getState().clearProject();
+  useProjectStore.getState().loadProjectDocument({
+    document: {},
+    projectPath: '/mock/project',
+    projectFilePath: '/mock/project/game.json',
+    projectSessionId: '11111111-1111-4111-8111-111111111111',
+  });
 });
 
 describe('comfyui-service', () => {
@@ -61,50 +69,59 @@ describe('comfyui-service', () => {
       prompt: 'tea',
     });
     await editComfyUiImage(config, {
-      projectFilePath: '/mock/project/game.json',
       workflowId: 'flux2-klein-image-edit',
-      sourceProjectRelativePath: 'assets/generated/generated.png',
+      sourceAssetId: 'generated',
       prompt: 'night',
     });
     await cancelComfyUiJob(config);
 
     expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(config);
     expect(window.noveltea.getComfyUiQueue).toHaveBeenCalledWith(config);
-    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenCalledWith({
-      projectFilePath: '/mock/project/game.json',
-      includeOverridden: true,
-    });
+    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      { includeOverridden: true },
+    );
     expect(window.noveltea.copyComfyUiWorkflow).toHaveBeenCalledWith(
+      null,
       expect.objectContaining({ workflowKey: 'built-in:custom.manifest.json' }),
     );
     expect(window.noveltea.deleteComfyUiWorkflow).toHaveBeenCalledWith(
+      null,
       expect.objectContaining({ workflowKey: 'editor:custom.manifest.json' }),
     );
     expect(window.noveltea.importComfyUiWorkflowToLibrary).toHaveBeenCalledWith(
       expect.objectContaining({ workflowFileName: 'custom.workflow.json' }),
     );
     expect(window.noveltea.repairComfyUiWorkflowInLibrary).toHaveBeenCalledWith(
+      null,
       expect.objectContaining({ workflowKey: 'editor:custom.manifest.json' }),
     );
     expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
       'editor:custom.manifest.json',
-      '/mock/project/game.json',
     );
     expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(
-      expect.objectContaining({ projectFilePath: '/mock/project/game.json' }),
+      '11111111-1111-4111-8111-111111111111',
+      expect.objectContaining({ config }),
     );
     expect(window.noveltea.analyzeComfyUiWorkflowImport).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
       expect.objectContaining({ workflowJsonText: '{}' }),
     );
     expect(window.noveltea.generateComfyUiImage).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
       config,
       expect.objectContaining({ prompt: 'tea' }),
     );
     expect(window.noveltea.editComfyUiImage).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
       config,
       expect.objectContaining({ prompt: 'night' }),
     );
-    expect(window.noveltea.cancelComfyUiJob).toHaveBeenCalledWith(config);
+    expect(window.noveltea.cancelComfyUiJob).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      config,
+    );
   });
 
   it('subscribes to progress events through preload', () => {

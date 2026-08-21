@@ -12,8 +12,13 @@ import http from 'node:http';
 import path from 'node:path';
 import sharp from 'sharp';
 import type { CreateRaw } from 'sharp';
+import { assetDataFromImportMetadata } from '../shared/project-schema/authoring-assets';
+import { isAuthoringProject } from '../shared/project-schema/authoring-project';
 import { NOVELTEA_VERSION } from '../shared/product-version';
 import type { EnginePreviewServer } from './engine-preview-server';
+import { openProject } from './services/editor-tool-service';
+import { createProject, saveProjectContent } from './services/project-file-service';
+import { importUntrackedProjectAssets } from './services/project-asset-audit-service';
 
 export const PACKAGE_SMOKE_FLAG = '--noveltea-package-smoke';
 export const PACKAGE_SMOKE_PREFIX = 'NOVELTEA_PACKAGE_SMOKE_RESULT=';
@@ -141,11 +146,16 @@ async function characterizeProductionThumbnailProtocol(
     path.join(app.getPath('temp'), 'noveltea-thumbnail-package-smoke-'),
   );
   try {
-    const projectFilePath = path.join(fixtureRoot, 'project.json');
-    const sourceDirectory = path.join(fixtureRoot, 'assets', 'images');
+    const projectRoot = path.join(fixtureRoot, 'project');
+    const created = await createProject({
+      projectName: 'Package Smoke Thumbnail',
+      projectDirectory: projectRoot,
+    });
+    if (!created.success || !created.projectFilePath) return false;
+    const projectFilePath = created.projectFilePath;
+    const sourceDirectory = path.join(projectRoot, 'assets', 'images');
     const sourcePath = path.join(sourceDirectory, 'source.png');
     await fs.promises.mkdir(sourceDirectory, { recursive: true });
-    await fs.promises.writeFile(projectFilePath, '{}');
     const sourceBytes = await sharp({
       create: {
         width: 3,
@@ -157,30 +167,73 @@ async function characterizeProductionThumbnailProtocol(
       .png()
       .toBuffer();
     await fs.promises.writeFile(sourcePath, sourceBytes);
-    const request = {
-      source: {
-        projectFilePath,
-        projectRelativePath: 'assets/images/source.png',
-        contentHash: `sha256:${crypto.createHash('sha256').update(sourceBytes).digest('hex')}`,
-        width: 3,
-        height: 2,
-        orientation: 1,
-      },
-      variant: { kind: 'profile', profile: 'list' },
+    const imported = await importUntrackedProjectAssets(projectFilePath, [
+      'assets/images/source.png',
+    ]);
+    const opened = await openProject(projectRoot);
+    if (
+      !imported.success ||
+      !imported.assets?.[0] ||
+      !opened.success ||
+      !opened.workspaceRevision ||
+      !opened.editorState ||
+      !isAuthoringProject(opened.contentProject)
+    )
+      return false;
+    const assetId = 'package-smoke-image';
+    opened.contentProject.assets[assetId] = {
+      id: assetId,
+      label: 'Package Smoke Image',
+      data: assetDataFromImportMetadata(imported.assets[0]),
     };
-    const requestLiteral = JSON.stringify(request);
+    const saved = await saveProjectContent(
+      projectRoot,
+      opened.workspaceRevision,
+      opened.contentProject,
+      opened.editorState,
+      opened.scriptSourcePaths ?? {},
+    );
+    if (!saved.success) return false;
+    const openedLiteral = JSON.stringify(projectRoot);
+    const source = {
+      projectRelativePath: 'assets/images/source.png',
+      contentHash: `sha256:${crypto.createHash('sha256').update(sourceBytes).digest('hex')}`,
+      width: 3,
+      height: 2,
+      orientation: 1,
+    };
+    const sourceLiteral = JSON.stringify(source);
+    const assetIdLiteral = JSON.stringify(assetId);
     const proof = (await window.webContents.executeJavaScript(
       `(async () => {
-        const first = await window.noveltea.requestImageThumbnail(${requestLiteral});
-        if (!first.ok) return { first, second: null, loaded: false, width: 0, height: 0 };
+        const opened = await window.noveltea.openProject(${openedLiteral});
+        if (!opened.success || !opened.projectSessionId) return { first: { ok: false }, second: null, loaded: false, width: 0, height: 0 };
+        const request = {
+          source: {
+            projectSessionId: opened.projectSessionId,
+            assetId: ${assetIdLiteral},
+            ...${sourceLiteral},
+          },
+          variant: { kind: 'profile', profile: 'list' },
+        };
+        const original = await window.noveltea.resolveProjectOriginalAssetUrl(opened.projectSessionId, ${assetIdLiteral});
+        if (!original.ok) return { first: { ok: false }, second: null, original, originalLoaded: false, loaded: false, width: 0, height: 0 };
+        const originalImage = await new Promise((resolve) => {
+          const element = new Image();
+          element.onload = () => resolve({ loaded: true, width: element.naturalWidth, height: element.naturalHeight });
+          element.onerror = () => resolve({ loaded: false, width: 0, height: 0 });
+          element.src = original.url;
+        });
+        const first = await window.noveltea.requestImageThumbnail(request);
+        if (!first.ok) return { first, second: null, original, originalLoaded: originalImage.loaded, loaded: false, width: 0, height: 0 };
         const image = await new Promise((resolve) => {
           const element = new Image();
           element.onload = () => resolve({ loaded: true, width: element.naturalWidth, height: element.naturalHeight });
           element.onerror = () => resolve({ loaded: false, width: 0, height: 0 });
           element.src = first.url;
         });
-        const second = await window.noveltea.requestImageThumbnail(${requestLiteral});
-        return { first, second, ...image };
+        const second = await window.noveltea.requestImageThumbnail(request);
+        return { first, second, original, originalLoaded: originalImage.loaded, originalWidth: originalImage.width, originalHeight: originalImage.height, ...image };
       })()`,
       true,
     )) as {
@@ -196,6 +249,10 @@ async function characterizeProductionThumbnailProtocol(
         cacheKey?: string;
         cacheStatus?: string;
       } | null;
+      original?: { ok: boolean; url?: string };
+      originalLoaded?: boolean;
+      originalWidth?: number;
+      originalHeight?: number;
       loaded: boolean;
       width: number;
       height: number;
@@ -208,6 +265,11 @@ async function characterizeProductionThumbnailProtocol(
       proof.second.cacheStatus !== 'hit' ||
       proof.first.cacheKey !== proof.second.cacheKey ||
       proof.first.url !== proof.second.url ||
+      !proof.original?.ok ||
+      !proof.original.url?.startsWith('noveltea-asset://source/') ||
+      !proof.originalLoaded ||
+      proof.originalWidth !== 3 ||
+      proof.originalHeight !== 2 ||
       !proof.loaded ||
       proof.width !== 3 ||
       proof.height !== 2
@@ -215,10 +277,17 @@ async function characterizeProductionThumbnailProtocol(
       return false;
     }
     const response = await net.fetch(proof.first.url);
+    const originalResponse = await net.fetch(proof.original!.url!);
     return (
       response.ok &&
       response.headers.get('content-type') === 'image/webp' &&
       response.headers.get('cache-control') === 'public, max-age=31536000, immutable' &&
+      originalResponse.ok &&
+      originalResponse.headers.get('content-type') === 'image/png' &&
+      originalResponse.headers.get('content-length') === String(sourceBytes.byteLength) &&
+      originalResponse.headers.get('cache-control') === 'no-store' &&
+      originalResponse.headers.get('x-content-type-options') === 'nosniff' &&
+      (await originalResponse.arrayBuffer()).byteLength === sourceBytes.byteLength &&
       response.headers.get('cross-origin-resource-policy') === 'cross-origin' &&
       response.headers.get('access-control-allow-origin') === '*' &&
       response.headers.get('x-content-type-options') === 'nosniff' &&

@@ -1573,9 +1573,9 @@ decode_focused_editor_document_request_text(std::string_view request_text,
         diagnostics.push_back(error("editor_preview.invalid_protocol",
                                     "Focused preview protocol is unsupported.", "/protocol"));
     const auto protocol_version = json_access::member_as<int>(document, "protocolVersion");
-    if (!protocol_version || *protocol_version != 1)
+    if (!protocol_version || *protocol_version != 2)
         diagnostics.push_back(error("editor_preview.invalid_protocol_version",
-                                    "Focused preview protocolVersion must be 1.",
+                                    "Focused preview protocolVersion must be 2.",
                                     "/protocolVersion"));
     if (auto value = string("requestId"))
         result.request_id = std::move(*value);

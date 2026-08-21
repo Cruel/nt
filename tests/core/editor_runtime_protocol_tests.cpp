@@ -307,7 +307,7 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
             {"textScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}}}}}}};
     const auto envelope = [&](std::string kind, nlohmann::json data) {
         return nlohmann::json{{"protocol", "noveltea.focused-editor-document"},
-                              {"protocolVersion", 1},
+                              {"protocolVersion", 2},
                               {"requestId", "fixture-request"},
                               {"applySequence", 7},
                               {"projectInstanceId", "fixture-project"},
@@ -382,7 +382,7 @@ TEST_CASE("focused preview manifest image sampling is explicit and discriminated
 {
     const std::string revision = "sha256:" + std::string(64, 'a');
     auto request = nlohmann::json{{"protocol", "noveltea.focused-editor-document"},
-                                  {"protocolVersion", 1},
+                                  {"protocolVersion", 2},
                                   {"requestId", "sampling"},
                                   {"applySequence", 1},
                                   {"projectInstanceId", "project"},
@@ -407,6 +407,10 @@ TEST_CASE("focused preview manifest image sampling is explicit and discriminated
     REQUIRE(linear);
     REQUIRE(linear.value().resources.front().sampling);
     CHECK(*linear.value().resources.front().sampling == "linear");
+
+    request["protocolVersion"] = 1;
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
+    request["protocolVersion"] = 2;
 
     request["resources"][0]["sampling"] = "nearest";
     auto nearest = decode_focused_editor_document_request_text(request.dump());
@@ -459,7 +463,7 @@ TEST_CASE("focused editor envelope enforces nested source and collection limits"
 {
     const std::string revision = "sha256:" + std::string(64, 'a');
     nlohmann::json request = {{"protocol", "noveltea.focused-editor-document"},
-                              {"protocolVersion", 1},
+                              {"protocolVersion", 2},
                               {"requestId", "limits"},
                               {"applySequence", 1},
                               {"projectInstanceId", "project"},

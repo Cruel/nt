@@ -1,13 +1,29 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import {
+  cancelPlatformExportArgumentsSchema,
+  comfyUiConfigArgumentsSchema,
+  comfyUiEditImageArgumentsSchema,
+  comfyUiGenerateImageArgumentsSchema,
+  comfyUiImportWorkflowArgumentsSchema,
+  comfyUiListWorkflowLibraryArgumentsSchema,
+  comfyUiRepairWorkflowArgumentsSchema,
+  compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
   createProjectArgumentsSchema,
+  exportProjectToPlatformArgumentsSchema,
+  inspectPlayerTemplateArgumentsSchema,
   installEditorNavigationPolicy,
+  installPlayerTemplateArgumentsSchema,
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  previewSessionArgumentsSchema,
+  projectAssetUrlArgumentsSchema,
   readProjectTextSourcesArgumentsSchema,
+  saveProjectContentArgumentsSchema,
+  saveProjectCopyAsArgumentsSchema,
+  saveProjectEditorMetadataArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
@@ -21,6 +37,8 @@ import {
   normalizeEditorIpcBoundaryError,
 } from '../../shared/editor-ipc-boundary';
 import { selectDirectoryArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import type { ReadProjectTextSourcesRequest } from '../../shared/project-text-sources';
 
 class FakeIpcMain implements EditorIpcMain {
@@ -182,6 +200,372 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(service).not.toHaveBeenCalled();
+  });
+
+  it('guards original Asset URL requests before Project filesystem work', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const service = vi.fn(
+      (projectSessionId: string, assetId: string) => `${projectSessionId}:${assetId}`,
+    );
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'original-asset',
+      (arguments_) => projectAssetUrlArgumentsSchema.parse(arguments_),
+      service,
+    );
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+
+    await expect(ipcMain.invoke('original-asset', harness.event, sessionId, 'logo')).resolves.toBe(
+      `${sessionId}:logo`,
+    );
+    for (const arguments_ of [
+      [sessionId],
+      ['not-a-session', 'logo'],
+      [sessionId, ''],
+      [sessionId, 'x'.repeat(513)],
+      [sessionId, 'logo', '/alternate/project/path'],
+    ] as const) {
+      service.mockClear();
+      await expect(
+        ipcMain.invoke('original-asset', harness.event, ...arguments_),
+      ).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(service).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    service.mockClear();
+    await expect(
+      ipcMain.invoke('original-asset', other.event, sessionId, 'logo'),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(service).not.toHaveBeenCalled();
+  });
+
+  it('guards preview and shader requests before active-Project side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const previewService = vi.fn((projectSessionId: string) => projectSessionId);
+    const shaderService = vi.fn(
+      (projectSessionId: string, _shaderProject: unknown, _options: unknown) => projectSessionId,
+    );
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'preview-session',
+      (arguments_) => previewSessionArgumentsSchema.parse(arguments_),
+      previewService,
+    );
+    registrar.handle(
+      'compile-shaders',
+      (arguments_) => compileShadersArgumentsSchema.parse(arguments_),
+      shaderService,
+    );
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const shaderProject = { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} };
+
+    await expect(ipcMain.invoke('preview-session', harness.event, sessionId)).resolves.toBe(
+      sessionId,
+    );
+    await expect(
+      ipcMain.invoke('compile-shaders', harness.event, sessionId, shaderProject, {
+        forceRebuild: true,
+        shaderVariants: ['glsl-120'],
+      }),
+    ).resolves.toBe(sessionId);
+
+    for (const [channel, arguments_] of [
+      ['preview-session', []],
+      ['preview-session', [sessionId, 'extra']],
+      ['compile-shaders', [sessionId, shaderProject, { projectRoot: '/alternate' }]],
+      ['compile-shaders', [sessionId, { ...shaderProject, extra: true }, {}]],
+      ['compile-shaders', [sessionId, shaderProject, { shaderVariants: ['x'.repeat(257)] }]],
+      ['compile-shaders', [sessionId, shaderProject, {}, 'extra']],
+    ] as const) {
+      previewService.mockClear();
+      shaderService.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(previewService).not.toHaveBeenCalled();
+      expect(shaderService).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(
+      ipcMain.invoke('compile-shaders', other.event, sessionId, shaderProject, {}),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(shaderService).not.toHaveBeenCalled();
+  });
+
+  it('guards Project export authority and bounds template operations before side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const exportService = vi.fn((projectSessionId: string, _request: unknown) => projectSessionId);
+    const cancelService = vi.fn(
+      (projectSessionId: string, _operationId: string) => projectSessionId,
+    );
+    const inspectService = vi.fn((templateId: string, _buildId: string) => templateId);
+    const installService = vi.fn((request: unknown) => request);
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'platform-export',
+      (arguments_) => exportProjectToPlatformArgumentsSchema.parse(arguments_),
+      exportService,
+    );
+    registrar.handle(
+      'cancel-export',
+      (arguments_) => cancelPlatformExportArgumentsSchema.parse(arguments_),
+      cancelService,
+    );
+    registrar.handle(
+      'inspect-template',
+      (arguments_) => inspectPlayerTemplateArgumentsSchema.parse(arguments_),
+      inspectService,
+    );
+    registrar.handle(
+      'install-template',
+      (arguments_) => installPlayerTemplateArgumentsSchema.parse(arguments_),
+      installService,
+    );
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const request = {
+      project: createAuthoringProject({ name: 'Export' }),
+      profileId: 'linux-release',
+      outputDirectory: '/exports/story',
+    };
+
+    await expect(
+      ipcMain.invoke('platform-export', harness.event, sessionId, request),
+    ).resolves.toBe(sessionId);
+    await expect(
+      ipcMain.invoke('cancel-export', harness.event, sessionId, 'editor-export-1'),
+    ).resolves.toBe(sessionId);
+    await expect(
+      ipcMain.invoke('inspect-template', harness.event, 'linux-x64', 'build-1'),
+    ).resolves.toBe('linux-x64');
+    await expect(
+      ipcMain.invoke('install-template', harness.event, { archivePath: '/tmp/template.tar' }),
+    ).resolves.toEqual({ archivePath: '/tmp/template.tar' });
+
+    for (const [channel, arguments_] of [
+      ['platform-export', [sessionId, { ...request, projectRoot: '/alternate-project' }]],
+      ['platform-export', [sessionId, { ...request, projectPath: '/alternate/project.json' }]],
+      ['cancel-export', ['not-a-session', 'editor-export-1']],
+      ['inspect-template', ['x'.repeat(513), 'build-1']],
+      ['install-template', [{ archivePath: '/tmp/template.tar', unexpected: true }]],
+      ['install-template', [{ archivePath: 'x'.repeat(32_769) }]],
+    ] as const) {
+      exportService.mockClear();
+      cancelService.mockClear();
+      inspectService.mockClear();
+      installService.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(exportService).not.toHaveBeenCalled();
+      expect(cancelService).not.toHaveBeenCalled();
+      expect(inspectService).not.toHaveBeenCalled();
+      expect(installService).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(
+      ipcMain.invoke('platform-export', other.event, sessionId, request),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(exportService).not.toHaveBeenCalled();
+  });
+
+  it('strictly guards ComfyUI control, workflow, and generation requests before side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const configService = vi.fn((config: unknown) => config);
+    const listService = vi.fn(
+      (projectSessionId: string | null, _request: unknown) => projectSessionId,
+    );
+    const generateService = vi.fn(
+      (projectSessionId: string, _config: unknown, _request: unknown) => projectSessionId,
+    );
+    const editService = vi.fn(
+      (projectSessionId: string, _config: unknown, _request: unknown) => projectSessionId,
+    );
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'comfy-config',
+      (arguments_) => comfyUiConfigArgumentsSchema.parse(arguments_),
+      configService,
+    );
+    registrar.handle(
+      'comfy-list',
+      (arguments_) => comfyUiListWorkflowLibraryArgumentsSchema.parse(arguments_),
+      listService,
+    );
+    registrar.handle(
+      'comfy-generate',
+      (arguments_) => comfyUiGenerateImageArgumentsSchema.parse(arguments_),
+      generateService,
+    );
+    registrar.handle(
+      'comfy-edit',
+      (arguments_) => comfyUiEditImageArgumentsSchema.parse(arguments_),
+      editService,
+    );
+
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const config = {
+      enabled: true,
+      serverUrl: 'http://127.0.0.1:8188',
+      defaultWorkflowId: 'image-generate',
+      defaultWorkflows: { 'image.generate': 'image-generate' },
+      requestTimeoutMs: 15_000,
+      connectionCheckIntervalMs: 10_000,
+    };
+
+    await expect(ipcMain.invoke('comfy-config', harness.event, config)).resolves.toEqual(config);
+    await expect(
+      ipcMain.invoke('comfy-list', harness.event, sessionId, { includeOverridden: true }),
+    ).resolves.toBe(sessionId);
+    await expect(
+      ipcMain.invoke('comfy-generate', harness.event, sessionId, config, {
+        workflowId: 'image-generate',
+        prompt: 'tea house',
+        width: 1024,
+        height: 1024,
+        steps: 20,
+        cfg: 7.5,
+      }),
+    ).resolves.toBe(sessionId);
+    await expect(
+      ipcMain.invoke('comfy-edit', harness.event, sessionId, config, {
+        workflowId: 'image-edit',
+        sourceAssetId: 'source-image',
+        prompt: 'make it night',
+        steps: 4,
+      }),
+    ).resolves.toBe(sessionId);
+
+    for (const [channel, arguments_] of [
+      ['comfy-config', [{ ...config, serverUrl: 'file:///tmp/comfy' }]],
+      ['comfy-config', [{ ...config, requestTimeoutMs: Number.POSITIVE_INFINITY }]],
+      ['comfy-list', [sessionId, { includeOverridden: true, projectFilePath: '/alternate' }]],
+      [
+        'comfy-generate',
+        [sessionId, config, { workflowId: 'image-generate', prompt: 'tea', cfg: Number.NaN }],
+      ],
+      [
+        'comfy-generate',
+        [sessionId, config, { workflowId: 'image-generate', prompt: 'x'.repeat(65_537) }],
+      ],
+      ['comfy-generate', [sessionId, config, { workflowId: 'é'.repeat(129), prompt: 'tea' }]],
+      [
+        'comfy-generate',
+        [sessionId, config, { workflowId: 'image-generate', prompt: 'é'.repeat(32_769) }],
+      ],
+      [
+        'comfy-generate',
+        [
+          sessionId,
+          config,
+          { workflowId: 'image-generate', prompt: 'tea', projectFilePath: '/alternate' },
+        ],
+      ],
+      [
+        'comfy-edit',
+        [
+          sessionId,
+          config,
+          {
+            workflowId: 'image-edit',
+            sourceAssetId: 'source-image',
+            sourceProjectRelativePath: 'assets/images/source.png',
+            prompt: 'night',
+          },
+        ],
+      ],
+      [
+        'comfy-edit',
+        [
+          sessionId,
+          { ...config, serverUrl: 'http://192.168.1.50:8188' },
+          {
+            workflowId: 'image-edit',
+            sourceAssetId: 'source-image',
+            projectFilePath: '/alternate/project.json',
+            prompt: 'night',
+          },
+        ],
+      ],
+    ] as const) {
+      configService.mockClear();
+      listService.mockClear();
+      generateService.mockClear();
+      editService.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(configService).not.toHaveBeenCalled();
+      expect(listService).not.toHaveBeenCalled();
+      expect(generateService).not.toHaveBeenCalled();
+      expect(editService).not.toHaveBeenCalled();
+    }
+
+    const other = trustedHarness();
+    await expect(
+      ipcMain.invoke('comfy-generate', other.event, sessionId, config, {
+        workflowId: 'image-generate',
+        prompt: 'tea house',
+      }),
+    ).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
+    );
+    expect(generateService).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed or oversized nested ComfyUI workflow manifests at the IPC parser', () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    expect(
+      comfyUiImportWorkflowArgumentsSchema.safeParse([
+        {
+          workflowFileName: 'custom.workflow.json',
+          manifestFileName: 'custom.manifest.json',
+          workflowJsonText: '{}',
+          manifest: {},
+          overwrite: false,
+        },
+      ]).success,
+    ).toBe(false);
+    expect(
+      comfyUiRepairWorkflowArgumentsSchema.safeParse([
+        sessionId,
+        {
+          workflowKey: 'project:custom.manifest.json',
+          manifest: { unexpected: 'x'.repeat(1024 * 1024) },
+          overwrite: true,
+        },
+      ]).success,
+    ).toBe(false);
   });
 
   it('strictly admits bounded app, window, dialog, and shell requests before side effects', async () => {
@@ -464,6 +848,86 @@ describe('editor top-level navigation policy', () => {
     listener?.(navigation);
 
     expect(navigation.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it('strictly guards Project persistence requests before persistence side effects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const saveContent = vi.fn((..._arguments: unknown[]) => 'content-saved');
+    const saveMetadata = vi.fn((..._arguments: unknown[]) => 'metadata-saved');
+    const saveCopy = vi.fn((..._arguments: unknown[]) => 'copy-saved');
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+    });
+    registrar.handle(
+      'save-content',
+      (arguments_) => saveProjectContentArgumentsSchema.parse(arguments_),
+      saveContent,
+    );
+    registrar.handle(
+      'save-metadata',
+      (arguments_) => saveProjectEditorMetadataArgumentsSchema.parse(arguments_),
+      saveMetadata,
+    );
+    registrar.handle(
+      'save-copy',
+      (arguments_) => saveProjectCopyAsArgumentsSchema.parse(arguments_),
+      saveCopy,
+    );
+
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const project = createAuthoringProject({ name: 'Persistence Boundary' });
+    const editorState = emptyEditorProjectState();
+
+    await expect(
+      ipcMain.invoke(
+        'save-content',
+        harness.event,
+        sessionId,
+        'workspace-revision',
+        project,
+        editorState,
+        {},
+        undefined,
+      ),
+    ).resolves.toBe('content-saved');
+    await expect(
+      ipcMain.invoke(
+        'save-metadata',
+        harness.event,
+        sessionId,
+        'workspace-revision',
+        editorState,
+        {},
+      ),
+    ).resolves.toBe('metadata-saved');
+    await expect(
+      ipcMain.invoke('save-copy', harness.event, sessionId, project, [], {}),
+    ).resolves.toBe('copy-saved');
+
+    for (const [channel, arguments_] of [
+      [
+        'save-content',
+        [sessionId, 'workspace-revision', project, editorState, {}, undefined, 'extra'],
+      ],
+      [
+        'save-metadata',
+        [sessionId, 'workspace-revision', { ...editorState, unexpected: true }, {}],
+      ],
+      ['save-copy', [sessionId, project, ['../escape.png'], {}]],
+    ] as const) {
+      saveContent.mockClear();
+      saveMetadata.mockClear();
+      saveCopy.mockClear();
+      await expect(ipcMain.invoke(channel, harness.event, ...arguments_)).rejects.toSatisfy(
+        (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+      );
+      expect(saveContent).not.toHaveBeenCalled();
+      expect(saveMetadata).not.toHaveBeenCalled();
+      expect(saveCopy).not.toHaveBeenCalled();
+    }
   });
 
   it('denies every new-window request', () => {

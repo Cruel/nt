@@ -20,8 +20,8 @@ const api: NovelTeaElectronApi = {
     invokeGuarded(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, defaultPath),
   selectTemplateArchivePath: () => invokeGuarded(IPC_CHANNELS.SELECT_TEMPLATE_ARCHIVE_PATH),
   showItemInFolder: (path: string) => invokeGuarded(IPC_CHANNELS.SHOW_ITEM_IN_FOLDER, path),
-  previewExportedPackage: (packagePath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE, packagePath),
+  previewExportedPackage: (projectSessionId: string, packagePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE, projectSessionId, packagePath),
   openExternal: (url: string) => invokeGuarded(IPC_CHANNELS.OPEN_EXTERNAL, url),
   zoomIn: () => invokeGuarded(IPC_CHANNELS.ZOOM_IN),
   zoomOut: () => invokeGuarded(IPC_CHANNELS.ZOOM_OUT),
@@ -44,8 +44,10 @@ const api: NovelTeaElectronApi = {
   isAppWindowMaximized: () => invokeGuarded(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED),
   setNativeWindowFrame: (nativeFrame: boolean) =>
     invokeGuarded(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, nativeFrame),
-  getEnginePreviewSession: () => ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION),
-  reloadEnginePreview: () => ipcRenderer.invoke(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW),
+  getEnginePreviewSession: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, projectSessionId),
+  reloadEnginePreview: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, projectSessionId),
   createProject: (request) => invokeGuarded(IPC_CHANNELS.CREATE_PROJECT, request),
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
@@ -58,19 +60,20 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RUN_PLAYBACK_SPEC, project, spec),
   runUiPlaybackSpec: (project: unknown, spec: unknown) =>
     ipcRenderer.invoke(IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC, project, spec),
-  exportPackage: (project: unknown, outputPath: string, options = {}) =>
-    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PACKAGE, project, outputPath, options),
-  stagePlatformExport: (request) => ipcRenderer.invoke(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, request),
-  exportProjectToPlatform: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM, request),
+  exportPackage: (projectSessionId: string, project: unknown, outputPath: string, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PACKAGE, projectSessionId, project, outputPath, options),
+  stagePlatformExport: (projectSessionId: string, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, projectSessionId, request),
+  exportProjectToPlatform: (projectSessionId: string, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM, projectSessionId, request),
   onPlatformExportProgress: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown) =>
       callback(progress as never);
     ipcRenderer.on(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, listener);
   },
-  cancelPlatformExport: (operationId: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, operationId),
+  cancelPlatformExport: (projectSessionId: string, operationId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, projectSessionId, operationId),
   listPlayerTemplates: (query = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, query),
   inspectPlayerTemplate: (templateId, buildId) =>
@@ -83,12 +86,12 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE, templateId, buildId),
   resolvePlayerTemplate: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, request),
+  compileShaders: (projectSessionId: string, shaderProject: unknown, options = {}) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, projectSessionId, shaderProject, options),
   loadUserExportConfig: () => ipcRenderer.invoke(IPC_CHANNELS.LOAD_USER_EXPORT_CONFIG),
   saveUserExportConfig: (value) => ipcRenderer.invoke(IPC_CHANNELS.SAVE_USER_EXPORT_CONFIG, value),
-  compileShaders: (shaderProject: unknown, options = {}) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, shaderProject, options),
   saveProjectContent: (
-    projectFilePath: string,
+    projectSessionId: string,
     expectedWorkspaceRevision: string,
     contentProject: unknown,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
@@ -97,7 +100,7 @@ const api: NovelTeaElectronApi = {
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_CONTENT,
-      projectFilePath,
+      projectSessionId,
       expectedWorkspaceRevision,
       contentProject,
       editorState,
@@ -105,71 +108,65 @@ const api: NovelTeaElectronApi = {
       commitOptions,
     ),
   saveProjectEditorMetadata: (
-    projectFilePath: string,
+    projectSessionId: string,
     expectedWorkspaceRevision: string,
     editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
     expectedFileRevisions: Record<string, `sha256:${string}`> = {},
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
-      projectFilePath,
+      projectSessionId,
       expectedWorkspaceRevision,
       editorState,
       expectedFileRevisions,
     ),
   saveProjectCopyAs: (
+    projectSessionId: string,
     project: unknown,
-    defaultPath: string | null = null,
-    currentProjectFilePath: string | null = null,
     workingProjectAssetPaths: string[] = [],
     scriptSourcePaths: Record<string, string> = {},
   ) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
+      projectSessionId,
       project,
-      defaultPath,
-      currentProjectFilePath,
       workingProjectAssetPaths,
       scriptSourcePaths,
     ),
-  importAssets: (projectFilePath: string, options = {}) =>
-    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_ASSETS, projectFilePath, options),
-  reimportAsset: (projectFilePath: string, projectRelativePath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.REIMPORT_ASSET, projectFilePath, projectRelativePath),
-  auditProjectAssets: (projectFilePath: string, project: unknown) =>
-    ipcRenderer.invoke(IPC_CHANNELS.AUDIT_PROJECT_ASSETS, projectFilePath, project),
-  importUntrackedProjectAssets: (projectFilePath: string, projectRelativePaths: string[]) =>
+  importAssets: (projectSessionId: string, options = {}) =>
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_ASSETS, projectSessionId, options),
+  reimportAsset: (projectSessionId: string, projectRelativePath: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.REIMPORT_ASSET, projectSessionId, projectRelativePath),
+  auditProjectAssets: (projectSessionId: string, project: unknown) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUDIT_PROJECT_ASSETS, projectSessionId, project),
+  importUntrackedProjectAssets: (projectSessionId: string, projectRelativePaths: string[]) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS,
-      projectFilePath,
+      projectSessionId,
       projectRelativePaths,
     ),
-  trashProjectAssetFiles: (projectFilePath: string, projectRelativePaths: string[]) =>
+  trashProjectAssetFiles: (projectSessionId: string, projectRelativePaths: string[]) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,
-      projectFilePath,
+      projectSessionId,
       projectRelativePaths,
     ),
-  restoreProjectAssetFiles: (projectFilePath: string, moves) =>
-    ipcRenderer.invoke(IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES, projectFilePath, moves),
-  purgeProjectTrash: (projectFilePath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.PURGE_PROJECT_TRASH, projectFilePath),
-  startProjectWorkspaceWatcher: (projectRoot: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER, projectRoot),
-  stopProjectWorkspaceWatcher: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER),
+  restoreProjectAssetFiles: (projectSessionId: string, moves) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES, projectSessionId, moves),
+  purgeProjectTrash: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PURGE_PROJECT_TRASH, projectSessionId),
+  startProjectWorkspaceWatcher: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.START_PROJECT_WORKSPACE_WATCHER, projectSessionId),
+  stopProjectWorkspaceWatcher: (projectSessionId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.STOP_PROJECT_WORKSPACE_WATCHER, projectSessionId),
   onProjectWorkspaceChanged: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, event: unknown) =>
       callback(event as never);
     ipcRenderer.on(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, listener);
   },
-  resolveProjectAssetUrl: (projectFilePath: string, projectRelativePath: string) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
-      projectFilePath,
-      projectRelativePath,
-    ),
+  resolveProjectOriginalAssetUrl: (projectSessionId: string, assetId: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PROJECT_ORIGINAL_ASSET_URL, projectSessionId, assetId),
   requestImageThumbnail: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.REQUEST_IMAGE_THUMBNAIL, request),
   prewarmImageThumbnails: (request) =>
@@ -188,28 +185,30 @@ const api: NovelTeaElectronApi = {
   checkComfyUiConnection: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CHECK_CONNECTION, config),
   getComfyUiQueue: (config) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),
-  listComfyUiWorkflowLibrary: (request = {}) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY, request),
-  copyComfyUiWorkflow: (request) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_COPY_WORKFLOW, request),
-  deleteComfyUiWorkflow: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW, request),
-  renameComfyUiWorkflow: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW, request),
+  listComfyUiWorkflowLibrary: (projectSessionId, request = {}) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY, projectSessionId, request),
+  copyComfyUiWorkflow: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_COPY_WORKFLOW, projectSessionId, request),
+  deleteComfyUiWorkflow: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW, projectSessionId, request),
+  renameComfyUiWorkflow: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW, projectSessionId, request),
   importComfyUiWorkflowToLibrary: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY, request),
-  repairComfyUiWorkflowInLibrary: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY, request),
-  revealComfyUiWorkflow: (workflowKey, projectFilePath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW, workflowKey, projectFilePath),
-  verifyComfyUiWorkflowLibrary: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY, request),
-  analyzeComfyUiWorkflowImport: (request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT, request),
-  generateComfyUiImage: (config, request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GENERATE_IMAGE, config, request),
-  editComfyUiImage: (config, request) =>
-    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_EDIT_IMAGE, config, request),
-  cancelComfyUiJob: (config) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CANCEL_JOB, config),
+  repairComfyUiWorkflowInLibrary: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY, projectSessionId, request),
+  revealComfyUiWorkflow: (projectSessionId, workflowKey) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW, projectSessionId, workflowKey),
+  verifyComfyUiWorkflowLibrary: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY, projectSessionId, request),
+  analyzeComfyUiWorkflowImport: (projectSessionId, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT, projectSessionId, request),
+  generateComfyUiImage: (projectSessionId, config, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GENERATE_IMAGE, projectSessionId, config, request),
+  editComfyUiImage: (projectSessionId, config, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_EDIT_IMAGE, projectSessionId, config, request),
+  cancelComfyUiJob: (projectSessionId, config) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CANCEL_JOB, projectSessionId, config),
   onComfyUiProgress: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown) =>
       callback(progress as never);

@@ -3,10 +3,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PackageExportPanel } from '@/export/PackageExportPanel';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { usePackageExportStore } from '@/export/package-export-store';
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
 beforeEach(() => {
   usePackageExportStore.getState().clear();
+  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   useWorkspaceStore.getState().setLastExportResult(null);
   vi.mocked(window.noveltea.previewExportedPackage).mockResolvedValue({
     ok: false,
@@ -123,7 +125,10 @@ describe('PackageExportPanel', () => {
 
     fireEvent.click(screen.getByText('Preview Package'));
     await waitFor(() =>
-      expect(window.noveltea.previewExportedPackage).toHaveBeenCalledWith('/project/out.ntpkg'),
+      expect(window.noveltea.previewExportedPackage).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        '/project/out.ntpkg',
+      ),
     );
     expect(screen.getByText('Preview from exported package is not wired.')).toBeInTheDocument();
   });

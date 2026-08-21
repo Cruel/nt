@@ -155,7 +155,7 @@ Use shadcn Base UI components whenever an appropriate component exists. Keep gen
 
 Compact image-asset UI must use the cached thumbnail contract in
 `docs/editor/IMAGE_THUMBNAIL_CACHE.md`. Do not route reduced cards/results through
-`resolveProjectAssetUrl`, and do not conflate direct-image derivatives with engine-rendered entity
+`resolveProjectOriginalAssetUrl`, and do not conflate direct-image derivatives with engine-rendered entity
 preview thumbnails.
 
 Editors that divide a large form into a left category rail must use

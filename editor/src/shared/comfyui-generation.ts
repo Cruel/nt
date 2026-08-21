@@ -1,5 +1,6 @@
 import type { ImportedAssetMetadata } from './asset-import';
 import type { ToolDiagnostic } from './editor-tooling';
+import type { ProjectTrustFailureCode } from './project-trust-boundary';
 import type { ComfyUiWorkflowId, ComfyUiWorkflowKey } from './comfyui-workflows';
 
 export interface ComfyUiGenerateImageRequest {
@@ -17,11 +18,9 @@ export interface ComfyUiGenerateImageRequest {
 }
 
 export interface ComfyUiEditImageRequest {
-  projectFilePath: string;
   workflowId?: ComfyUiWorkflowId;
   workflowKey?: ComfyUiWorkflowKey;
-  sourceAssetId?: string;
-  sourceProjectRelativePath: string;
+  sourceAssetId: string;
   prompt: string;
   clientJobId?: string;
   negativePrompt?: string;
@@ -49,6 +48,7 @@ export interface ComfyUiImageJobResponse {
   assets: ComfyUiGeneratedAsset[];
   diagnostics: ToolDiagnostic[];
   error?: string;
+  failureCode?: ProjectTrustFailureCode;
 }
 
 export interface ComfyUiCancelJobResponse {

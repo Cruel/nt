@@ -1,3 +1,4 @@
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { PackageExportResponse, ToolDiagnostic } from '../../shared/editor-tooling';
@@ -7,6 +8,7 @@ import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparatio
 import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
+  createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import { type PackageExportWorkflowResult, usePackageExportStore } from './package-export-store';
@@ -113,8 +115,28 @@ export async function runPackageExportWorkflow(
 
   exportStore.setStage('writing-package');
   workspace.setStatusMessage('Writing runtime package');
+  const projectSessionId = useProjectStore.getState().projectSessionId;
+  if (!projectSessionId) {
+    const diagnostics = [
+      createProjectValidationDiagnostic({
+        code: 'runtime-export.active-project-session-required',
+        severity: 'error',
+        path: '/',
+        message: 'Runtime package export requires the active saved Project session.',
+        category: 'Runtime package export',
+        boundaries: ['runtime-package'],
+        ownerPaths: ['/'],
+      }),
+    ];
+    const result = failureResult('failed', options, diagnostics);
+    exportStore.finish(result);
+    workspace.setLastExportResult(result);
+    workspace.setStatusMessage(diagnostics[0]!.message);
+    return result;
+  }
   const response = normalizePackageResponse(
     await window.noveltea.exportPackage(
+      projectSessionId,
       prepared.artifact.compiledProject,
       options.outputPath,
       prepared.artifact.packageOptions,

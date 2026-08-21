@@ -148,8 +148,7 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     expect(await screen.findByText('Built-in Portrait')).toBeInTheDocument();
     expect(screen.getByText('Built-in')).toBeInTheDocument();
-    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith({
-      projectFilePath: null,
+    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(null, {
       includeOverridden: true,
     });
   });
@@ -159,6 +158,7 @@ describe('ComfyUiWorkflowsEditor', () => {
       document: createAuthoringProject(),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
@@ -166,10 +166,10 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(await screen.findByText('Base Workflow')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Base Workflow' }));
     expect(await screen.findByRole('menuitem', { name: 'Copy to Project' })).toBeEnabled();
-    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith({
-      projectFilePath: '/mock/project/game.json',
-      includeOverridden: true,
-    });
+    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      { includeOverridden: true },
+    );
   });
 
   it('runs workflow copy, reveal, delete, and refresh actions through the library API', async () => {
@@ -177,6 +177,7 @@ describe('ComfyUiWorkflowsEditor', () => {
       document: createAuthoringProject(),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
       response([entry({ source: 'editor', id: 'custom', label: 'Custom Workflow' })]),
@@ -188,35 +189,36 @@ describe('ComfyUiWorkflowsEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy to Project' }));
     await screen.findByText('Workflow copied.');
-    expect(window.noveltea.copyComfyUiWorkflow).toHaveBeenCalledWith({
-      workflowKey: 'editor:custom.manifest.json',
-      targetSource: 'project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    expect(window.noveltea.copyComfyUiWorkflow).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      {
+        workflowKey: 'editor:custom.manifest.json',
+        targetSource: 'project',
+      },
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Reveal in folder' }));
     await screen.findByText('Opened workflow in folder.');
     expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
       'editor:custom.manifest.json',
-      '/mock/project/game.json',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete workflow' }));
     await screen.findByText('Workflow deleted.');
     expect(window.confirm).toHaveBeenCalledWith("Delete workflow 'Custom Workflow'?");
-    expect(window.noveltea.deleteComfyUiWorkflow).toHaveBeenCalledWith({
-      workflowKey: 'editor:custom.manifest.json',
-      projectFilePath: '/mock/project/game.json',
-    });
+    expect(window.noveltea.deleteComfyUiWorkflow).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      { workflowKey: 'editor:custom.manifest.json' },
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => {
       expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(
-        expect.objectContaining({
-          projectFilePath: '/mock/project/game.json',
-        }),
+        '11111111-1111-4111-8111-111111111111',
+        expect.any(Object),
       );
     });
   });
@@ -265,10 +267,9 @@ describe('ComfyUiWorkflowsEditor', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
 
     await screen.findByText('Workflow renamed.');
-    expect(window.noveltea.renameComfyUiWorkflow).toHaveBeenCalledWith({
+    expect(window.noveltea.renameComfyUiWorkflow).toHaveBeenCalledWith(null, {
       workflowKey: 'editor:custom.manifest.json',
       label: 'Renamed Workflow',
-      projectFilePath: null,
     });
   });
 });

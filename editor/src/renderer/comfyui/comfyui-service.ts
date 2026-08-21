@@ -1,3 +1,4 @@
+import { useProjectStore } from '../project/project-store';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import type {
   ComfyUiCancelJobResponse,
@@ -31,28 +32,57 @@ export async function getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQue
   return window.noveltea.getComfyUiQueue(config);
 }
 
+function currentProjectSessionId(required = false): string | null {
+  const projectSessionId = useProjectStore.getState().projectSessionId;
+  if (required && !projectSessionId)
+    throw new Error('ComfyUI operation requires an active Project session.');
+  return projectSessionId;
+}
+
 export async function listComfyUiWorkflowLibrary(
   request: ComfyUiWorkflowLibraryListRequest = {},
 ): Promise<ComfyUiWorkflowLibraryListResponse> {
-  return window.noveltea.listComfyUiWorkflowLibrary(request);
+  const { projectFilePath, ...ipcRequest } = request;
+  return window.noveltea.listComfyUiWorkflowLibrary(
+    projectFilePath ? currentProjectSessionId() : null,
+    ipcRequest,
+  );
 }
 
 export async function copyComfyUiWorkflow(
   request: ComfyUiWorkflowCopyRequest,
 ): Promise<ComfyUiWorkflowCopyResponse> {
-  return window.noveltea.copyComfyUiWorkflow(request);
+  const { projectFilePath, ...ipcRequest } = request;
+  const requiresProject =
+    Boolean(projectFilePath) ||
+    request.targetSource === 'project' ||
+    request.workflowKey.startsWith('project:');
+  return window.noveltea.copyComfyUiWorkflow(
+    requiresProject ? currentProjectSessionId(true) : null,
+    ipcRequest,
+  );
 }
 
 export async function deleteComfyUiWorkflow(
   request: ComfyUiWorkflowDeleteRequest,
 ): Promise<ComfyUiWorkflowDeleteResponse> {
-  return window.noveltea.deleteComfyUiWorkflow(request);
+  const { projectFilePath, ...ipcRequest } = request;
+  const requiresProject = Boolean(projectFilePath) || request.workflowKey.startsWith('project:');
+  return window.noveltea.deleteComfyUiWorkflow(
+    requiresProject ? currentProjectSessionId(true) : null,
+    ipcRequest,
+  );
 }
 
 export async function renameComfyUiWorkflow(
   request: import('../../shared/comfyui-workflows').ComfyUiWorkflowRenameRequest,
 ): Promise<import('../../shared/comfyui-workflows').ComfyUiWorkflowRenameResponse> {
-  return window.noveltea.renameComfyUiWorkflow(request);
+  const { projectFilePath, ...ipcRequest } = request;
+  const requiresProject = Boolean(projectFilePath) || request.workflowKey.startsWith('project:');
+  return window.noveltea.renameComfyUiWorkflow(
+    requiresProject ? currentProjectSessionId(true) : null,
+    ipcRequest,
+  );
 }
 
 export async function importComfyUiWorkflowToLibrary(
@@ -64,44 +94,62 @@ export async function importComfyUiWorkflowToLibrary(
 export async function repairComfyUiWorkflowInLibrary(
   request: ComfyUiRepairWorkflowInLibraryRequest,
 ): Promise<ComfyUiRepairWorkflowInLibraryResponse> {
-  return window.noveltea.repairComfyUiWorkflowInLibrary(request);
+  const { projectFilePath, ...ipcRequest } = request;
+  const requiresProject = Boolean(projectFilePath) || request.workflowKey.startsWith('project:');
+  return window.noveltea.repairComfyUiWorkflowInLibrary(
+    requiresProject ? currentProjectSessionId(true) : null,
+    ipcRequest,
+  );
 }
 
 export async function revealComfyUiWorkflow(
   workflowKey: ComfyUiWorkflowKey,
   projectFilePath?: string | null,
 ): Promise<boolean> {
-  return window.noveltea.revealComfyUiWorkflow(workflowKey, projectFilePath);
+  const requiresProject = Boolean(projectFilePath) || workflowKey.startsWith('project:');
+  return window.noveltea.revealComfyUiWorkflow(
+    requiresProject ? currentProjectSessionId(true) : null,
+    workflowKey,
+  );
 }
 
 export async function verifyComfyUiWorkflowLibrary(
   request: ComfyUiVerifyWorkflowLibraryRequest,
 ): Promise<ComfyUiVerifyWorkflowLibraryResponse> {
-  return window.noveltea.verifyComfyUiWorkflowLibrary(request);
+  const { projectFilePath, ...ipcRequest } = request;
+  return window.noveltea.verifyComfyUiWorkflowLibrary(
+    projectFilePath ? currentProjectSessionId() : null,
+    ipcRequest,
+  );
 }
 
 export async function analyzeComfyUiWorkflowImport(
   request: ComfyUiAnalyzeWorkflowImportRequest,
 ): Promise<ComfyUiAnalyzeWorkflowImportResponse> {
-  return window.noveltea.analyzeComfyUiWorkflowImport(request);
+  const { projectFilePath, ...ipcRequest } = request;
+  return window.noveltea.analyzeComfyUiWorkflowImport(
+    projectFilePath ? currentProjectSessionId() : null,
+    ipcRequest,
+  );
 }
 
 export async function generateComfyUiImage(
   config: ComfyUiConfig,
   request: ComfyUiGenerateImageRequest,
 ): Promise<ComfyUiImageJobResponse> {
-  return window.noveltea.generateComfyUiImage(config, request);
+  const { projectFilePath: _projectFilePath, ...ipcRequest } = request;
+  return window.noveltea.generateComfyUiImage(currentProjectSessionId(true)!, config, ipcRequest);
 }
 
 export async function editComfyUiImage(
   config: ComfyUiConfig,
   request: ComfyUiEditImageRequest,
 ): Promise<ComfyUiImageJobResponse> {
-  return window.noveltea.editComfyUiImage(config, request);
+  return window.noveltea.editComfyUiImage(currentProjectSessionId(true)!, config, request);
 }
 
 export async function cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse> {
-  return window.noveltea.cancelComfyUiJob(config);
+  return window.noveltea.cancelComfyUiJob(currentProjectSessionId(true)!, config);
 }
 
 export function subscribeComfyUiProgress(

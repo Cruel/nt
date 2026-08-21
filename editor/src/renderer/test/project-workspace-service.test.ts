@@ -8,6 +8,7 @@ import {
   compareProjectWorkspaceUnicodeCodePoints,
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
+  projectWorkspaceLocalStateFile,
 } from '../../shared/project-workspace';
 import {
   FINAL_WORKSPACE_FIXTURE_ROOT,
@@ -178,7 +179,7 @@ describe('ProjectWorkspaceService', () => {
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/AGENTS.md`);
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.gitignore`);
     expect(files).toHaveProperty(`${FINAL_WORKSPACE_FIXTURE_ROOT}/.noveltea/editor/state.json`);
-    expect(opened.editorState).toMatchObject({ schemaVersion: 2 });
+    expect(opened.editorState).toMatchObject({ schemaVersion: 3 });
   });
 
   it('loads the current segmented workspace without Electron', async () => {
@@ -223,6 +224,13 @@ describe('ProjectWorkspaceService', () => {
     const opened = await new ProjectWorkspaceService(
       new InMemoryProjectWorkspaceFileSystem(files),
     ).open('/projects/headless');
+
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.editorState).toMatchObject({
+      schemaVersion: 3,
+      bottomPanel: { visible: true },
+    });
     expect(opened.ok).toBe(false);
     if (opened.ok) return;
 

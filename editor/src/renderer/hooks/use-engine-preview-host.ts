@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useProjectStore } from '@/project/project-store';
 import type { EnginePreviewSession } from '../../shared/preview-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
@@ -24,18 +25,23 @@ export function useEnginePreviewHost({
   wheelPolicy = 'preview-input',
   audioEnabled = false,
 }: EnginePreviewHostOptions) {
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const [session, setSession] = useState<EnginePreviewSession | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  const loadSession = useCallback(async (reload = false) => {
-    const nextSession = reload
-      ? await window.noveltea.reloadEnginePreview()
-      : await window.noveltea.getEnginePreviewSession();
-    setSession(nextSession);
-    setIframeKey((key) => key + 1);
-    return nextSession;
-  }, []);
+  const loadSession = useCallback(
+    async (reload = false) => {
+      if (!projectSessionId) throw new Error('Engine preview requires an active Project session.');
+      const nextSession = reload
+        ? await window.noveltea.reloadEnginePreview(projectSessionId)
+        : await window.noveltea.getEnginePreviewSession(projectSessionId);
+      setSession(nextSession);
+      setIframeKey((key) => key + 1);
+      return nextSession;
+    },
+    [projectSessionId],
+  );
 
   const iframeSrc = useMemo(() => {
     if (!session) return null;

@@ -325,6 +325,7 @@ describe('dirty tab close guard', () => {
       document: saved,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+      projectSessionId: 'test-project-session',
     });
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
     openTestTabs();
@@ -335,7 +336,7 @@ describe('dirty tab close guard', () => {
 
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(2);
     expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[0]).toBe(
-      '/mock/project/game.json',
+      'test-project-session',
     );
     expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls.at(-1)?.[2]).toMatchObject({
       rooms: {
@@ -380,6 +381,7 @@ describe('dirty tab close guard', () => {
       document: saved,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+      projectSessionId: 'test-project-session',
     });
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
     openTestTab();
@@ -405,6 +407,7 @@ describe('dirty tab close guard', () => {
       document: project,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+      projectSessionId: 'test-project-session',
     });
     openTestTab();
     useDraftDirtyStore.getState().setDraftDirty(tab.id, {

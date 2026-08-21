@@ -90,7 +90,6 @@ function promptTitle(prompt: string) {
 function sourceFromTab(tab: WorkbenchEditorProps['tab']) {
   return {
     sourceAssetId: tab.resource?.entityId ?? undefined,
-    sourceProjectRelativePath: tab.resource?.sourceProjectRelativePath,
     mode: tab.resource?.generationMode === 'edit' ? 'edit' : 'generate',
   } as const;
 }
@@ -135,6 +134,7 @@ function optionalText(value: string) {
 export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const comfyUiConfig = useComfyUiStore((state) => state.config);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
@@ -490,16 +490,16 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   useEffect(() => {
     let canceled = false;
     setSourcePreviewUrl(null);
-    if (!projectFilePath || !sourceAsset?.path || sourceAsset.kind !== 'image') return;
+    if (!projectSessionId || !sourceAsset?.id || sourceAsset.kind !== 'image') return;
     void window.noveltea
-      .resolveProjectAssetUrl(projectFilePath, sourceAsset.path)
+      .resolveProjectOriginalAssetUrl(projectSessionId, sourceAsset.id)
       .then((response) => {
-        if (!canceled) setSourcePreviewUrl(response?.url ?? null);
+        if (!canceled) setSourcePreviewUrl(response.ok ? response.url : null);
       });
     return () => {
       canceled = true;
     };
-  }, [projectFilePath, sourceAsset?.kind, sourceAsset?.path]);
+  }, [projectSessionId, sourceAsset?.id, sourceAsset?.kind]);
 
   function generate() {
     if (!projectFilePath) {
@@ -571,10 +571,9 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       setMessage(editValidationIssue);
       return;
     }
-    const sourceProjectRelativePath = selectedRevision?.projectRelativePath ?? sourceAsset?.path;
     const sourceAssetId = selectedRevision?.assetId ?? sourceAsset?.id;
-    if (!sourceProjectRelativePath) {
-      setMessage('Generate or select an image before editing.');
+    if (!sourceAssetId) {
+      setMessage('Add the source image to the Project before editing it.');
       return;
     }
     const editNegativePromptValue = editFields.negativePrompt
@@ -590,12 +589,11 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       workflowLabel: selectedEditWorkflow.label,
       role: selectedEditWorkflow.role,
       promptSummary: promptTitle(editPrompt),
+      projectFilePath,
       request: {
-        projectFilePath,
         workflowId: selectedEditWorkflow.id,
         workflowKey: selectedEditWorkflow.workflowKey,
         sourceAssetId,
-        sourceProjectRelativePath,
         prompt: editPrompt.trim(),
         ...(editNegativePromptValue !== undefined
           ? { negativePrompt: editNegativePromptValue }
@@ -641,8 +639,8 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   }
 
   async function removeRevision(revision: GeneratedImageRevision) {
-    if (!revision.assetAddedAt && projectFilePath) {
-      const result = await window.noveltea.trashProjectAssetFiles(projectFilePath, [
+    if (!revision.assetAddedAt && projectSessionId) {
+      const result = await window.noveltea.trashProjectAssetFiles(projectSessionId, [
         revision.projectRelativePath,
       ]);
       if (!result.success) {

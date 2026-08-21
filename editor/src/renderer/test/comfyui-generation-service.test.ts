@@ -201,6 +201,66 @@ afterEach(() => {
 });
 
 describe('comfyui generation service', () => {
+  it('rejects stale Project authority before workflow or network work begins', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await generateComfyUiImage(
+      null,
+      config(),
+      {
+        projectFilePath: '/missing/project.json',
+        workflowId: 'custom',
+        prompt: 'tea house',
+      },
+      () => false,
+      '11111111-1111-4111-8111-111111111111',
+    );
+
+    expect(response).toMatchObject({
+      success: false,
+      error: 'Project session is stale or unknown.',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not publish a generated Asset when Project authority is revoked during the write', async () => {
+    const project = projectFilePath();
+    writeWorkflowPair(project, manifest(false), workflow());
+    vi.stubGlobal('fetch', mockComfyUiFetch([]));
+    vi.stubGlobal('WebSocket', CompletedWebSocket);
+    const generatedDirectory = path.join(path.dirname(project), 'assets', 'generated');
+    let observedStagedWrite = false;
+    const isAuthorityCurrent = () => {
+      if (!fs.existsSync(generatedDirectory)) return true;
+      const hasStagedWrite = fs
+        .readdirSync(generatedDirectory)
+        .some((name) => name.endsWith('.tmp'));
+      if (hasStagedWrite) observedStagedWrite = true;
+      return !hasStagedWrite;
+    };
+
+    const response = await generateComfyUiImage(
+      null,
+      config(),
+      {
+        projectFilePath: project,
+        workflowId: 'custom',
+        prompt: 'tea house',
+        clientJobId: 'job-1',
+      },
+      isAuthorityCurrent,
+      '11111111-1111-4111-8111-111111111111',
+    );
+
+    expect(observedStagedWrite).toBe(true);
+    expect(response).toMatchObject({
+      success: false,
+      error: 'Project session is stale or unknown.',
+    });
+    expect(fs.readdirSync(generatedDirectory)).toEqual([]);
+  });
+
   it('mutates bound negative prompt and cfg inputs before submitting a prompt', async () => {
     const project = projectFilePath();
     writeWorkflowPair(project, manifest(true), workflow());

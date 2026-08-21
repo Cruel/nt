@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { useProjectStore } from '@/project/project-store';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 
 describe('shader compile store', () => {
   beforeEach(() => {
     useShaderCompileStore.getState().clear();
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     vi.mocked(window.noveltea.compileShaders).mockReset();
   });
 

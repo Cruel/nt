@@ -63,6 +63,7 @@ beforeEach(() => {
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
   useProjectStore.getState().clearProject();
+  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   usePendingInputStore.getState().resetPendingInputs();
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
@@ -82,6 +83,7 @@ afterEach(() => {
 });
 
 async function renderConnectedPreview() {
+  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   render(<FullGamePreviewEditor />);
   const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
   await waitFor(() => {
@@ -111,6 +113,7 @@ async function renderConnectedPreview() {
 }
 
 async function renderConnectedPreviewInPane(hidden = false) {
+  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   const view = render(
     <div
       data-workbench-editor-pane="tab:full-game-preview"
@@ -439,6 +442,7 @@ describe('FullGamePreviewEditor', () => {
     edited.project = { ...edited.project, name: 'Changed Project' };
     await act(async () => {
       useProjectStore.getState().loadUnsavedProjectDocument(edited);
+      useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
     expect(
       await screen.findByText('Project changed since this Play session was loaded.'),
@@ -476,6 +480,7 @@ describe('FullGamePreviewEditor', () => {
     blocked.entrypoint = null;
     await act(async () => {
       useProjectStore.getState().loadUnsavedProjectDocument(blocked);
+      useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
 
     expect(
@@ -490,6 +495,7 @@ describe('FullGamePreviewEditor', () => {
 
     await act(async () => {
       useProjectStore.getState().loadUnsavedProjectDocument(project);
+      useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
     await waitFor(() =>
       expect(

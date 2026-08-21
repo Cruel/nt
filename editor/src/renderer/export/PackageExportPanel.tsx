@@ -321,7 +321,12 @@ export function PackageExportPanel() {
 
   async function previewPackage() {
     if (!result?.outputPath) return;
-    const response = await window.noveltea.previewExportedPackage(result.outputPath);
+    const projectSessionId = useProjectStore.getState().projectSessionId;
+    if (!projectSessionId) return;
+    const response = await window.noveltea.previewExportedPackage(
+      projectSessionId,
+      result.outputPath,
+    );
     const next = {
       ...result,
       diagnostics: [...result.diagnostics, ...(response.diagnostics ?? [])],

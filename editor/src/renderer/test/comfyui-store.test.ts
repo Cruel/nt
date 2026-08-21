@@ -154,6 +154,7 @@ describe('useComfyUiStore', () => {
       document: {},
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     vi.mocked(window.noveltea.checkComfyUiConnection).mockResolvedValue({
       state: 'ready',
@@ -213,7 +214,8 @@ describe('useComfyUiStore', () => {
       expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledTimes(1),
     );
     expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(
-      expect.objectContaining({ projectFilePath: '/mock/project/game.json' }),
+      '11111111-1111-4111-8111-111111111111',
+      expect.any(Object),
     );
 
     await useComfyUiStore.getState().checkConnection();

@@ -14,7 +14,6 @@ export interface WorkbenchResource {
   testId?: string;
   explorerNodeId?: string;
   generationMode?: 'generate' | 'edit';
-  sourceProjectRelativePath?: string;
 }
 
 export interface WorkbenchTab {

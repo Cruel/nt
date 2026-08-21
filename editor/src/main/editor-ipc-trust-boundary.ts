@@ -1,5 +1,37 @@
 import { z } from 'zod';
 import { EDITOR_IPC_FAILURE, EditorIpcBoundaryError } from '../shared/editor-ipc-boundary';
+import {
+  imageThumbnailPrewarmRequestSchema,
+  imageThumbnailRequestSchema,
+  cancelImageThumbnailPrewarmRequestSchema,
+} from '../shared/image-thumbnails';
+import {
+  COMFYUI_IPC_LIMITS,
+  comfyUiConfigSchema,
+  comfyUiPromptSchema,
+  comfyUiWorkflowIdSchema,
+  comfyUiWorkflowLabelSchema,
+  utf8ByteLength,
+} from '../shared/comfyui';
+import {
+  parseComfyUiWorkflowDefinition,
+  type ComfyUiWorkflowKey,
+} from '../shared/comfyui-workflows';
+import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
+import { isSafeProjectAssetPath } from '../shared/project-schema/authoring-assets';
+import { editorProjectStateSchema } from '../shared/project-schema/editor-project-state';
+import { compiledProjectWireV3Schema } from '../shared/project-schema/compiled-project';
+import { preparedRuntimeArtifactSchema } from '../shared/project-schema/prepared-runtime-artifact';
+import {
+  exportCapabilityValues,
+  normalizedPlatformDisplayMetadataSchema,
+  platformExportProfileSchema,
+  playerAccessibilityMetadataSchema,
+  playerDisplayMetadataSchema,
+  templateCompatibilityRequirementsSchema,
+  templateDownloadRequestSchema,
+} from '../shared/project-schema/platform-export-contracts';
+import { shaderMaterialProjectWireSchema } from '../shared/project-schema/shader-material-project';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../shared/project-text-sources';
 import { userExportConfigSchema } from '../shared/project-schema/platform-export-contracts';
 
@@ -11,6 +43,18 @@ const MAX_PROJECT_SESSION_ID_LENGTH = 256;
 const MAX_PROJECT_NAME_LENGTH = 512;
 const MAX_TEXT_SOURCE_READ_KEY_LENGTH = 1_024;
 const MAX_PROJECT_PATH_LENGTH = 32_768;
+const MAX_ASSET_OPERATION_PATHS = 10_000;
+const MAX_SAVE_SOURCE_PATHS = 10_000;
+const MAX_SAVE_UNITS = 10_000;
+const MAX_SAVE_LABEL_LENGTH = 1_024;
+const MAX_PLAYBACK_TEST_ID_LENGTH = 1_024;
+const MAX_PLAYBACK_STEPS = 100_000;
+const MAX_SHADER_VARIANTS = 256;
+const MAX_SHADER_VARIANT_LENGTH = 256;
+const MAX_EXPORT_IDENTIFIER_LENGTH = 512;
+const MAX_EXPORT_COLLECTION_ENTRIES = 10_000;
+const MAX_EXPORT_ARGUMENTS = 1_024;
+const MAX_EXPORT_ARGUMENT_LENGTH = 32_768;
 const sha256DigestSchema = z.custom<`sha256:${string}`>(
   (value) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value),
 );
@@ -237,4 +281,606 @@ export const readProjectTextSourcesArgumentsSchema = z.tuple([
         .max(PROJECT_TEXT_SOURCE_LIMITS.maxEntries),
     })
     .strict(),
+]);
+
+const projectSessionIdSchema = z.string().uuid().max(MAX_PROJECT_SESSION_ID_LENGTH);
+const projectRelativePathSchema = z
+  .string()
+  .min(1)
+  .max(MAX_PROJECT_PATH_LENGTH)
+  .refine(isSafeProjectAssetPath);
+
+export const importAssetsArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.object({ allowMultiple: z.boolean().optional() }).strict(),
+]);
+
+export const reimportAssetArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  projectRelativePathSchema,
+]);
+
+export const auditProjectAssetsArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  authoringProjectSchema,
+]);
+
+export const projectAssetPathsArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
+]);
+
+export const restoreProjectAssetFilesArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z
+    .array(
+      z
+        .object({
+          projectRelativePath: projectRelativePathSchema,
+          trashRelativePath: projectRelativePathSchema,
+        })
+        .strict(),
+    )
+    .max(MAX_ASSET_OPERATION_PATHS),
+]);
+
+const projectRevisionMapSchema = z.record(projectRelativePathSchema, sha256DigestSchema);
+const scriptSourcePathsSchema = z
+  .record(z.string().min(1).max(512), projectRelativePathSchema)
+  .refine((value) => Object.keys(value).length <= MAX_SAVE_SOURCE_PATHS);
+const projectWorkspaceCommitOptionsSchema = z
+  .object({
+    expectedFileRevisions: projectRevisionMapSchema,
+    saveUnitIds: z.array(z.string().min(1).max(1_024)).max(MAX_SAVE_UNITS).optional(),
+    baselineProject: authoringProjectSchema.optional(),
+    affectedPaths: z
+      .array(z.string().min(1).max(MAX_PROJECT_PATH_LENGTH))
+      .max(MAX_SAVE_UNITS)
+      .optional(),
+    operationLabel: z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
+    structural: z.boolean().optional(),
+    assetTransition: z
+      .union([
+        z
+          .object({
+            kind: z.literal('trash'),
+            projectRelativePaths: z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal('restore'),
+            moves: z
+              .array(
+                z
+                  .object({
+                    projectRelativePath: projectRelativePathSchema,
+                    trashRelativePath: projectRelativePathSchema,
+                  })
+                  .strict(),
+              )
+              .max(MAX_ASSET_OPERATION_PATHS),
+          })
+          .strict(),
+      ])
+      .optional(),
+  })
+  .strict();
+
+export const saveProjectContentArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.string().min(1).max(512),
+  authoringProjectSchema,
+  editorProjectStateSchema,
+  scriptSourcePathsSchema,
+  z.union([projectWorkspaceCommitOptionsSchema, z.undefined()]),
+]);
+export const saveProjectEditorMetadataArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.string().min(1).max(512),
+  editorProjectStateSchema,
+  projectRevisionMapSchema,
+]);
+export const saveProjectCopyAsArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  authoringProjectSchema,
+  z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
+  scriptSourcePathsSchema,
+]);
+export const projectSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
+export const projectAssetUrlArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.string().min(1).max(512),
+]);
+export const imageThumbnailArgumentsSchema = z.tuple([imageThumbnailRequestSchema]);
+export const imageThumbnailPrewarmArgumentsSchema = z.tuple([imageThumbnailPrewarmRequestSchema]);
+export const cancelImageThumbnailPrewarmArgumentsSchema = z.tuple([
+  cancelImageThumbnailPrewarmRequestSchema,
+]);
+
+const playbackSubjectSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('character'),
+      id: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('interactable'),
+      id: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+    })
+    .strict(),
+]);
+const playbackInputSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('advance-time'),
+      microseconds: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    })
+    .strict(),
+  z.object({ type: z.literal('continue') }).strict(),
+  z
+    .object({
+      type: z.literal('select-subjects'),
+      subjects: z.array(playbackSubjectSchema).max(10_000),
+    })
+    .strict(),
+  z.object({ type: z.literal('clear-selection') }).strict(),
+  z
+    .object({
+      type: z.literal('invoke-interaction'),
+      verb: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+      operands: z.array(playbackSubjectSchema).max(64),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('activate-hotspot'),
+      hotspot: z.discriminatedUnion('kind', [
+        z
+          .object({
+            kind: z.literal('room-hotspot'),
+            room: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+            hotspotId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal('interactable-hotspot'),
+            interactable: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+            hotspotId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+          })
+          .strict(),
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('load'),
+      slot: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('autosave') }).strict(),
+        z
+          .object({
+            kind: z.literal('manual'),
+            number: z.number().int().nonnegative().max(0xffff_ffff),
+          })
+          .strict(),
+      ]),
+    })
+    .strict(),
+]);
+const playbackSpecSchema = z
+  .object({
+    schema: z.literal('noveltea.editor.playback'),
+    version: z.literal(2),
+    id: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+    steps: z
+      .array(
+        z.object({ index: z.number().int().nonnegative(), input: playbackInputSchema }).strict(),
+      )
+      .max(MAX_PLAYBACK_STEPS),
+  })
+  .strict();
+
+export const validateProjectArgumentsSchema = z.tuple([authoringProjectSchema]);
+export const listPlaybackTestsArgumentsSchema = z.tuple([authoringProjectSchema]);
+export const runPlaybackTestArgumentsSchema = z.tuple([
+  authoringProjectSchema,
+  z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+]);
+export const runPlaybackSpecArgumentsSchema = z.tuple([
+  compiledProjectWireV3Schema,
+  playbackSpecSchema,
+]);
+export const previewSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
+export const previewExportedPackageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
+]);
+export const compileShadersArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  shaderMaterialProjectWireSchema,
+  z
+    .object({
+      forceRebuild: z.boolean().optional(),
+      shaderVariants: z
+        .array(z.string().min(1).max(MAX_SHADER_VARIANT_LENGTH))
+        .max(MAX_SHADER_VARIANTS)
+        .optional(),
+    })
+    .strict(),
+]);
+
+const boundedExportStringSchema = z.string().min(1).max(MAX_EXPORT_ARGUMENT_LENGTH);
+const boundedExportIdentifierSchema = z.string().min(1).max(MAX_EXPORT_IDENTIFIER_LENGTH);
+const boundedExportArgumentsSchema = z
+  .array(z.string().max(MAX_EXPORT_ARGUMENT_LENGTH))
+  .max(MAX_EXPORT_ARGUMENTS);
+
+export const exportPackageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  compiledProjectWireV3Schema,
+  boundedExportStringSchema,
+  preparedRuntimeArtifactSchema.shape.packageOptions,
+]);
+
+const platformStageRequestSchema = z
+  .object({
+    operationId: boundedExportIdentifierSchema,
+    profile: platformExportProfileSchema,
+    templateToken: boundedExportStringSchema,
+    outputDirectory: boundedExportStringSchema,
+    packagePath: boundedExportStringSchema,
+    iconSourcePath: boundedExportStringSchema.optional(),
+    systemAssetsRoot: boundedExportStringSchema.optional(),
+    runtimePackageEvidence: z
+      .object({
+        sourceFingerprint: boundedExportIdentifierSchema,
+        packageSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+      })
+      .strict(),
+    identity: z
+      .object({
+        displayName: boundedExportIdentifierSchema,
+        shortName: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        applicationId: boundedExportIdentifierSchema,
+        saveNamespace: boundedExportIdentifierSchema,
+        versionName: boundedExportIdentifierSchema,
+        defaultLocale: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        themeColor: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        backgroundColor: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        webManifestId: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH).optional(),
+        linuxDesktopId: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        macosCategory: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+        macosMicrophoneUsageDescription: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH).optional(),
+        androidVersionCode: z.number().int().positive().optional(),
+        androidAllowBackup: z.boolean().optional(),
+        androidIsGame: z.boolean().optional(),
+        localized: z
+          .record(
+            z.string().min(1).max(MAX_EXPORT_IDENTIFIER_LENGTH),
+            z
+              .object({
+                displayName: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+                shortName: z.string().max(MAX_EXPORT_IDENTIFIER_LENGTH).optional(),
+                description: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH).optional(),
+              })
+              .strict(),
+          )
+          .optional(),
+      })
+      .strict(),
+    display: normalizedPlatformDisplayMetadataSchema,
+    runtimeDisplay: playerDisplayMetadataSchema,
+    accessibility: playerAccessibilityMetadataSchema,
+    capabilities: z
+      .array(z.enum(exportCapabilityValues))
+      .max(MAX_EXPORT_COLLECTION_ENTRIES)
+      .optional(),
+    runtimePackageApi: z.number().int().nonnegative(),
+    host: z
+      .object({
+        platform: z.enum(['windows', 'linux', 'macos']),
+        availableTools: z.array(boundedExportStringSchema).max(MAX_EXPORT_ARGUMENTS),
+      })
+      .strict()
+      .optional(),
+    windowsSigning: z
+      .object({
+        command: boundedExportStringSchema,
+        args: boundedExportArgumentsSchema,
+        verifyCommand: boundedExportStringSchema.optional(),
+        verifyArgs: boundedExportArgumentsSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    linuxAppImageTool: boundedExportStringSchema.optional(),
+    macosSigning: z
+      .object({
+        identity: boundedExportStringSchema,
+        entitlementsPath: boundedExportStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    macosNotarization: z
+      .object({ command: boundedExportStringSchema, args: boundedExportArgumentsSchema })
+      .strict()
+      .optional(),
+    macosDmg: z
+      .object({ command: boundedExportStringSchema, args: boundedExportArgumentsSchema })
+      .strict()
+      .optional(),
+    androidToolchain: z
+      .object({
+        androidSdk: boundedExportStringSchema.optional(),
+        androidNdk: boundedExportStringSchema.optional(),
+        javaHome: boundedExportStringSchema.optional(),
+        cmake: boundedExportStringSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    androidSigning: z
+      .object({
+        keystorePath: boundedExportStringSchema,
+        keyAlias: boundedExportIdentifierSchema,
+        storePassword: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH),
+        keyPassword: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const stagePlatformExportArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  platformStageRequestSchema,
+]);
+
+const projectPlatformExportIpcRequestSchema = z
+  .object({
+    project: authoringProjectSchema,
+    profileId: boundedExportIdentifierSchema,
+    outputDirectory: boundedExportStringSchema,
+    operationId: boundedExportIdentifierSchema.optional(),
+    templateToken: boundedExportStringSchema.optional(),
+    checkOnly: z.boolean().optional(),
+    force: z.boolean().optional(),
+    allowUntrustedTemplate: z.boolean().optional(),
+    allowIdentityChange: z.boolean().optional(),
+    sign: z.boolean().optional(),
+    preparedRuntimeArtifact: preparedRuntimeArtifactSchema.optional(),
+    localState: z
+      .object({
+        androidSdk: boundedExportStringSchema.optional(),
+        androidNdk: boundedExportStringSchema.optional(),
+        javaHome: boundedExportStringSchema.optional(),
+        cmake: boundedExportStringSchema.optional(),
+        signing: z
+          .object({
+            windows: z
+              .object({
+                command: boundedExportStringSchema,
+                args: boundedExportArgumentsSchema,
+                verifyCommand: boundedExportStringSchema,
+                verifyArgs: boundedExportArgumentsSchema,
+              })
+              .strict()
+              .optional(),
+            macos: z
+              .object({
+                identity: boundedExportStringSchema,
+                entitlementsPath: boundedExportStringSchema.optional(),
+                notarizationCommand: boundedExportStringSchema.optional(),
+                notarizationArgs: boundedExportArgumentsSchema.optional(),
+              })
+              .strict()
+              .optional(),
+            android: z
+              .object({
+                keystorePath: boundedExportStringSchema,
+                keyAlias: boundedExportIdentifierSchema,
+                storePasswordReference: boundedExportIdentifierSchema,
+                keyPasswordReference: boundedExportIdentifierSchema,
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const exportProjectToPlatformArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  projectPlatformExportIpcRequestSchema,
+]);
+export const cancelPlatformExportArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  boundedExportIdentifierSchema,
+]);
+
+export const listPlayerTemplatesArgumentsSchema = z.tuple([
+  z
+    .object({
+      platform: z.enum(['windows', 'linux', 'macos', 'web', 'android']).optional(),
+      architecture: boundedExportIdentifierSchema.optional(),
+      buildFlavor: z.enum(['debug', 'release']).optional(),
+    })
+    .strict(),
+]);
+export const inspectPlayerTemplateArgumentsSchema = z.tuple([
+  boundedExportIdentifierSchema,
+  boundedExportIdentifierSchema,
+]);
+export const installPlayerTemplateArgumentsSchema = z.tuple([
+  z
+    .object({
+      archivePath: boundedExportStringSchema,
+      force: z.boolean().optional(),
+      archiveSha256: z
+        .string()
+        .regex(/^[0-9a-f]{64}$/u)
+        .optional(),
+      origin: z.string().max(MAX_EXPORT_ARGUMENT_LENGTH).optional(),
+      officialProvenance: z
+        .object({
+          archiveSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+          descriptorSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+          source: boundedExportStringSchema,
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+]);
+export const downloadPlayerTemplateArgumentsSchema = z.tuple([templateDownloadRequestSchema]);
+export const removePlayerTemplateArgumentsSchema = inspectPlayerTemplateArgumentsSchema;
+export const resolvePlayerTemplateArgumentsSchema = z.tuple([
+  z.object({ requirements: templateCompatibilityRequirementsSchema }).strict(),
+]);
+
+const comfyUiSessionSchema = projectSessionIdSchema.nullable();
+const comfyUiWorkflowKeySchema = z.custom<ComfyUiWorkflowKey>(
+  (value) =>
+    typeof value === 'string' &&
+    value.length > 0 &&
+    utf8ByteLength(value) <= COMFYUI_IPC_LIMITS.workflowIdBytes &&
+    /^(?:built-in|editor|project):[^\\/]+$/u.test(value),
+);
+const comfyUiGenerationControlsSchema = {
+  clientJobId: comfyUiWorkflowIdSchema.optional(),
+  negativePrompt: comfyUiPromptSchema.optional(),
+  seed: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  steps: z.number().int().positive().max(10_000).optional(),
+  cfg: z.number().finite().min(0).max(1_000).optional(),
+} as const;
+
+const comfyUiWorkflowManifestSchema = z.unknown().superRefine((value, context) => {
+  try {
+    const serialized = JSON.stringify(value);
+    if (
+      serialized === undefined ||
+      utf8ByteLength(serialized) > COMFYUI_IPC_LIMITS.workflowManifestBytes
+    ) {
+      context.addIssue({ code: 'custom', message: 'ComfyUI workflow manifest exceeds its limit.' });
+      return;
+    }
+    const definition = parseComfyUiWorkflowDefinition(value);
+    if (utf8ByteLength(definition.id) > COMFYUI_IPC_LIMITS.workflowIdBytes) {
+      context.addIssue({ code: 'custom', message: 'ComfyUI workflow id exceeds its limit.' });
+    }
+    if (utf8ByteLength(definition.label) > COMFYUI_IPC_LIMITS.workflowLabelBytes) {
+      context.addIssue({ code: 'custom', message: 'ComfyUI workflow label exceeds its limit.' });
+    }
+  } catch {
+    context.addIssue({ code: 'custom', message: 'ComfyUI workflow manifest is invalid.' });
+  }
+});
+
+export const comfyUiConfigArgumentsSchema = z.tuple([comfyUiConfigSchema]);
+export const comfyUiListWorkflowLibraryArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      includeOverridden: z.boolean().optional(),
+      comfyUiVersion: comfyUiWorkflowIdSchema.optional(),
+    })
+    .strict(),
+]);
+export const comfyUiCopyWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      workflowKey: comfyUiWorkflowKeySchema,
+      targetSource: z.enum(['editor', 'project']),
+      replace: z.boolean().optional(),
+    })
+    .strict(),
+]);
+export const comfyUiDeleteWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z.object({ workflowKey: comfyUiWorkflowKeySchema }).strict(),
+]);
+export const comfyUiRenameWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      workflowKey: comfyUiWorkflowKeySchema,
+      label: comfyUiWorkflowLabelSchema,
+    })
+    .strict(),
+]);
+export const comfyUiImportWorkflowArgumentsSchema = z.tuple([
+  z
+    .object({
+      workflowFileName: comfyUiWorkflowLabelSchema,
+      manifestFileName: comfyUiWorkflowLabelSchema,
+      workflowJsonText: z.string().max(COMFYUI_IPC_LIMITS.workflowJsonLength),
+      manifest: comfyUiWorkflowManifestSchema,
+      overwrite: z.boolean(),
+      config: comfyUiConfigSchema.optional(),
+    })
+    .strict(),
+]);
+export const comfyUiRepairWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      workflowKey: comfyUiWorkflowKeySchema,
+      manifest: comfyUiWorkflowManifestSchema,
+      overwrite: z.literal(true),
+    })
+    .strict(),
+]);
+export const comfyUiRevealWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  comfyUiWorkflowKeySchema,
+]);
+export const comfyUiVerifyWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z.object({ config: comfyUiConfigSchema, force: z.boolean().optional() }).strict(),
+]);
+export const comfyUiAnalyzeWorkflowArgumentsSchema = z.tuple([
+  comfyUiSessionSchema,
+  z
+    .object({
+      workflowJsonText: z.string().max(COMFYUI_IPC_LIMITS.workflowJsonLength),
+      config: comfyUiConfigSchema.optional(),
+    })
+    .strict(),
+]);
+export const comfyUiGenerateImageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  comfyUiConfigSchema,
+  z
+    .object({
+      workflowId: comfyUiWorkflowIdSchema.optional(),
+      workflowKey: comfyUiWorkflowKeySchema.optional(),
+      prompt: comfyUiPromptSchema,
+      width: z.number().int().positive().max(16_384).optional(),
+      height: z.number().int().positive().max(16_384).optional(),
+      ...comfyUiGenerationControlsSchema,
+    })
+    .strict(),
+]);
+export const comfyUiEditImageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  comfyUiConfigSchema,
+  z
+    .object({
+      workflowId: comfyUiWorkflowIdSchema.optional(),
+      workflowKey: comfyUiWorkflowKeySchema.optional(),
+      sourceAssetId: comfyUiWorkflowIdSchema,
+      prompt: comfyUiPromptSchema,
+      ...comfyUiGenerationControlsSchema,
+    })
+    .strict(),
+]);
+export const comfyUiCancelJobArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  comfyUiConfigSchema,
 ]);

@@ -76,11 +76,18 @@ Interactive work has priority over queued prewarm work.
 
 ## Lifecycle and prewarming
 
-Project open publishes the editor document without waiting for thumbnail work. The renderer submits
-`list`-profile prewarm batches for admitted image revisions, replaces ownership when the active project
-generation changes, and incrementally schedules imported, generated, and explicitly reimported
-revisions. Prewarming generates cache files only; it does not create browser `Image` objects or hold
-decoded thumbnails in renderer memory.
+Project open publishes the editor document without waiting for thumbnail work. Thumbnail and prewarm
+requests carry the active `projectSessionId`, Asset id, Project-relative source identity, and bounded
+presentation metadata. Main resolves the Asset from the session-owned admitted snapshot rather than
+accepting a renderer Project root. It rejects stale sessions, unknown/non-image Assets, and admitted
+source or revision mismatches before source bytes are read, then applies canonical-root, realpath,
+regular-file, and containment checks. Intrinsic dimensions and orientation are verified against the
+decoded source before publication. Authority is re-checked after asynchronous path admission.
+
+The renderer submits `list`-profile prewarm batches for admitted image revisions, replaces ownership
+when the active Project session changes, and incrementally schedules imported, generated, and
+explicitly reimported revisions. Prewarming generates cache files only; it does not create browser
+`Image` objects or hold decoded thumbnails in renderer memory.
 
 Assets-page cards request `card` derivatives only after the shared visibility service admits them.
 Command Palette and ordinary selector surfaces request `list`; the larger Room image selector and
@@ -95,8 +102,9 @@ Explicit reimport owns content-hash publication and therefore thumbnail invalida
 
 The request contract reports stable error codes:
 
-`invalid_request`, `unsafe_source_path`, `source_missing`, `source_revision_mismatch`,
-`source_metadata_invalid`, `unsupported_image`, `svg_external_resource`, `decode_failed`,
+`invalid_request`, `stale_project_session`, `unauthorized_asset`, `unsafe_source_path`,
+`source_missing`, `source_revision_mismatch`, `source_metadata_invalid`, `unsupported_image`,
+`svg_external_resource`, `decode_failed`,
 `encode_failed`, `generation_timeout`, `cache_write_failed`, and `cache_cleared`.
 
 Cache-clear, timeout, and cache-write failures are retryable. Missing, corrupt, unsafe, unsupported,
@@ -110,16 +118,32 @@ the cache epoch, cancels or invalidates work owned by the clearing main process,
 renderers. It is independent from Reset All Settings. V1 intentionally has no age/size eviction:
 cache use is append-only across source revisions until this explicit clear action.
 
-## Retained original-image consumers
+## Session-scoped original Asset streaming
 
-The following production consumers intentionally continue through `resolveProjectAssetUrl` because
-they require full source pixels rather than a reduced editor thumbnail:
+Full-size image and audio consumers use `resolveProjectOriginalAssetUrl(projectSessionId, assetId)`. The
+renderer cannot provide a Project root, manifest path, or source path. Main resolves the admitted
+Asset snapshot owned by the active Project session and returns only a `noveltea-asset://` protocol
+URL.
+
+The protocol repeats authorization for every request. It accepts only admitted image/audio Assets
+under `assets/`, requires the activated canonical Project root to still resolve to itself, canonicalizes
+the source target, permits symlinks only when their real target remains contained, requires a regular
+file, and verifies the admitted byte size and `sha256:` revision with a bounded read before streaming.
+Files larger than 128 MiB are rejected. Successful responses
+stream from the verified open file with authoritative `Content-Type` and `Content-Length`,
+`Cache-Control: no-store`, and `X-Content-Type-Options: nosniff`; filesystem paths are never returned
+to the renderer. Switching or closing the Project invalidates previously issued URLs.
+
+The following production consumers intentionally use original-source streaming because they require
+full source pixels or audio rather than a reduced editor thumbnail. Room composition and focused
+Room preview both use the active Project session plus Asset id; focused Room resource staging fetches
+the `noveltea-asset://` URL directly and never publishes a Room Asset source path to the preview host.
 
 | Consumer | Full-source purpose |
 | --- | --- |
 | `editors/assets/AssetPreview.tsx` | Noncompact asset detail. |
-| `editors/comfyui/ImageGenerationEditor.tsx` | Image editing and source-image workflow. |
-| `components/hotspots/HotspotAuthoringPanel.tsx` | Hotspot authoring and hit-region alignment. |
+| `editors/comfyui/ImageGenerationEditor.tsx` | Image-edit preview uses the session-scoped original URL; edit submission carries only the admitted Asset id and main performs a separate 32 MiB loopback-only upload. |
+| `components/hotspots/HotspotAuthoringPanel.tsx` | Hotspot authoring and hit-region alignment; requires an admitted image Asset and uses its original-resolution protocol stream so normalized hotspot geometry is never authored against a thumbnail. |
 | `editors/rooms/RoomEditor.tsx` | Room composition and engine-preview input. |
 
 New compact image surfaces should use `AssetImageThumbnail`; additions to the full-source list must

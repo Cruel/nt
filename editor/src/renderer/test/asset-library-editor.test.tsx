@@ -45,9 +45,9 @@ function project() {
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   clearWorkbenchTabStates();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
-    url: 'data:image/png;base64,bW9jaw==',
-    absolutePath: '/mock/project/assets/images/logo.png',
+  vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
+    ok: true,
+    url: 'noveltea-asset://source/session/logo',
   });
   vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue({
     ok: true,
@@ -69,13 +69,15 @@ describe('AssetLibraryEditor', () => {
       document: project(),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     render(<AssetLibraryEditor tab={tab} />);
 
     await waitFor(() =>
       expect(window.noveltea.requestImageThumbnail).toHaveBeenCalledWith({
         source: {
-          projectFilePath: '/mock/project/game.json',
+          projectSessionId: '11111111-1111-4111-8111-111111111111',
+          assetId: 'logo',
           projectRelativePath: 'assets/images/logo.png',
           contentHash: `sha256:${'b'.repeat(64)}`,
           width: 256,
@@ -86,14 +88,14 @@ describe('AssetLibraryEditor', () => {
       }),
     );
     await waitFor(() =>
-      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
-        '/mock/project/game.json',
-        'assets/audio/click.mp3',
+      expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        'click',
       ),
     );
-    expect(window.noveltea.resolveProjectAssetUrl).not.toHaveBeenCalledWith(
-      '/mock/project/game.json',
-      'assets/images/logo.png',
+    expect(window.noveltea.resolveProjectOriginalAssetUrl).not.toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      'logo',
     );
     expect(screen.getByAltText('Logo')).toHaveAttribute(
       'src',
