@@ -27,6 +27,7 @@ export interface AssetNode {
     | 'shader'
     | 'material'
     | 'layout'
+    | 'archetype'
     | 'character'
     | 'scene'
     | 'test'

@@ -1,4 +1,5 @@
 import { parseAssetData } from './authoring-assets';
+import { resolveGameplayInstanceRecord } from './authoring-archetypes';
 import {
   parseCharacterData,
   validateCharacterData,
@@ -128,8 +129,11 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
 
 export function characterPreviewRevision(project: AuthoringProject, characterId: string): string {
   const record = project.characters[characterId];
-  const data = parseCharacterData(record?.data);
-  if (!record || !data) return `${characterId}:missing-or-invalid`;
+  const effectiveRecord = record
+    ? resolveGameplayInstanceRecord(project, 'character', record)
+    : null;
+  const data = parseCharacterData(effectiveRecord?.data);
+  if (!record || !effectiveRecord || !data) return `${characterId}:missing-or-invalid`;
   return JSON.stringify({
     characterId,
     label: record.label,
@@ -143,8 +147,11 @@ export function buildCharacterPreviewDocumentData(
   characterId: string,
 ): Record<string, unknown> {
   const record = project.characters[characterId];
-  const data = parseCharacterData(record?.data);
-  if (!record || !data) {
+  const effectiveRecord = record
+    ? resolveGameplayInstanceRecord(project, 'character', record)
+    : null;
+  const data = parseCharacterData(effectiveRecord?.data);
+  if (!record || !effectiveRecord || !data) {
     return {
       schema: CHARACTER_PREVIEW_SCHEMA,
       characterId,
@@ -176,6 +183,6 @@ export function buildCharacterPreviewDocumentData(
     expression: expressionPayload(project, expression),
     resolvedSprite,
     resolvedMaterial,
-    diagnostics: validateCharacterData(project, characterId, record),
+    diagnostics: validateCharacterData(project, characterId, effectiveRecord),
   };
 }

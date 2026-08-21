@@ -6,6 +6,8 @@ A `CharacterDefinition` is immutable runtime content describing authored identit
 
 Character is a Property-bearing definition kind and may attach compatible Traits. Trait members remain ordinary Properties; poses, expressions, dialogue style, and other structural fields never merge through Traits. Editor categories and tags are unrelated to Trait attachment.
 
+A declared Character authoring record may attach one same-kind Archetype. Archetype chains contribute immutable Character configuration, Trait attachments, and Property assignments, while `initialWorldState` remains local to the declared Character and is never inherited. The editor resolves effective configuration for editing and preview, and the compiler flattens it into the single `CharacterDefinition`; no Archetype identity or mutable state reaches runtime.
+
 ## Identity and references
 
 `CharacterId`, pose IDs, expression IDs, and idle IDs are stable lowercase kebab-case IDs. Character references are typed by their field. Scene actor cues address scene-local `ActorSlotId` values; each slot references one `CharacterId`, allowing the same definition in multiple slots. Dialogue speaker fields reference `CharacterId` directly.

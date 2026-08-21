@@ -7,10 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import {
   characterAssetRef,
   characterIdleKindValues,
@@ -123,12 +125,16 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const characterId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const record = characterId && project ? project.characters[characterId] : null;
-  const parsedData = parseCharacterData(record?.data);
+  const effectiveRecord =
+    project && record ? resolveGameplayInstanceRecord(project, 'character', record) : record;
+  const parsedData = parseCharacterData(effectiveRecord?.data);
   const data = parsedData ?? defaultCharacterData(record?.label ?? characterId ?? 'Character');
   const diagnostics = useMemo(
     () =>
-      project && record && characterId ? validateCharacterData(project, characterId, record) : [],
-    [project, record, characterId],
+      project && effectiveRecord && characterId
+        ? validateCharacterData(project, characterId, effectiveRecord)
+        : [],
+    [project, effectiveRecord, characterId],
   );
   const diagnosticItems = useMemo(
     () =>
@@ -391,6 +397,16 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           Character data was invalid; showing editable defaults until you apply a change.
         </div>
       ) : null}
+
+      <div className="mt-4">
+        <GameplayArchetypeControls
+          project={project}
+          collection="characters"
+          entityId={characterId}
+          record={record}
+          kind="character"
+        />
+      </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_320px]">
         <div className="space-y-4">

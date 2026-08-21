@@ -1,5 +1,6 @@
 import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
+import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
 import { parseCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
   parseInteractionData,
@@ -15,6 +16,7 @@ import { parseVerbData, type VerbData } from '../../shared/project-schema/author
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import { overridesForGameplayInstanceEdit } from './archetype-operations';
 
 export interface ReplaceRoomDataPayload {
   roomId: string;
@@ -189,15 +191,31 @@ export function replaceRoomDataPatches(
       patches: [],
       diagnostics: [error('Room data is invalid.', pathForRoomData(payload.roomId))],
     };
-  const previous = parseRoomData(record.data);
+  const previousRecord = resolveGameplayInstanceRecord(document, 'room', record) ?? record;
+  const previous = parseRoomData(previousRecord.data);
   const changes = previous ? placementChanges(previous, incoming) : null;
   const data = changes ? repairLocalPlacementReferences(incoming, changes) : incoming;
   const diagnostics = validateRoomData(document, payload.roomId, { ...record, data });
   const failure = diagnostics.find((item) => item.severity === 'error');
   if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
+  const overrides = overridesForGameplayInstanceEdit(document, 'rooms', payload.roomId, {
+    ...record,
+    data,
+  });
+  if (overrides === null)
+    return {
+      patches: [],
+      diagnostics: [error('Room Archetype configuration cannot be resolved.')],
+    };
   const patches: JsonPatchOperation[] = [
     { op: 'replace', path: pathForRoomData(payload.roomId), value: toJsonValue(data) },
   ];
+  if (record.archetype)
+    patches.push({
+      op: Object.prototype.hasOwnProperty.call(record, 'archetypeOverrides') ? 'replace' : 'add',
+      path: buildJsonPointer(['rooms', payload.roomId, 'archetypeOverrides']),
+      value: toJsonValue(overrides),
+    });
 
   if (previous && changes) {
     for (const [interactionId, interactionRecord] of Object.entries(document.interactions)) {

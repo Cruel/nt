@@ -6,6 +6,7 @@ import {
 } from '../../shared/project-schema/authoring-characters';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
+import { overridesForGameplayInstanceEdit } from './archetype-operations';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
 export interface ReplaceCharacterDataPayload {
@@ -48,10 +49,27 @@ export function replaceCharacterDataPatches(
   const diagnostics = validateCharacterData(document, payload.characterId, { ...record, data });
   const failure = diagnostics.find((item) => item.severity === 'error');
   if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
-  const patch: JsonPatchOperation = {
-    op: 'replace',
-    path: pathForCharacterData(payload.characterId),
-    value: toJsonValue(data),
-  };
-  return { patches: [patch], affectedPaths: [patch.path] };
+  const overrides = overridesForGameplayInstanceEdit(document, 'characters', payload.characterId, {
+    ...record,
+    data,
+  });
+  if (overrides === null)
+    return {
+      patches: [],
+      diagnostics: [error('Character Archetype configuration cannot be resolved.')],
+    };
+  const patches: JsonPatchOperation[] = [
+    {
+      op: 'replace',
+      path: pathForCharacterData(payload.characterId),
+      value: toJsonValue(data),
+    },
+  ];
+  if (record.archetype)
+    patches.push({
+      op: Object.prototype.hasOwnProperty.call(record, 'archetypeOverrides') ? 'replace' : 'add',
+      path: buildJsonPointer(['characters', payload.characterId, 'archetypeOverrides']),
+      value: toJsonValue(overrides),
+    });
+  return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }

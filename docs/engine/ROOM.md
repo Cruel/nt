@@ -9,6 +9,11 @@ description, ordered enter/leave hooks, exits, and generic `RoomPlacement` ancho
 Property-bearing identity and may attach compatible Traits; Trait members are ordinary Properties and
 do not merge exits, placements, overlays, resources, or programs.
 
+A declared Room authoring record may attach one same-kind Archetype. The editor resolves the complete
+single-base Archetype chain for editing and preview, stores instance edits as explicit overrides, and
+materializes the effective Room configuration when the Archetype is detached. The compiler emits only
+the flattened `RoomDefinition`; Archetypes never become runtime Room identities or mutable state.
+
 `SessionState` owns mutable Room state: the active and previous Room, visit counts, presentation
 state, and sparse property overrides. Categories, tags, selections, graph coordinates, and preview
 state are editor-only metadata.

@@ -326,7 +326,7 @@ The editor should maintain a reference index for:
 
 ### Composition and limited inheritance
 
-Gameplay definitions do not use universal same-type parent/`extends` inheritance. Room, Character, and Interactable capabilities/configuration compose through Traits backed by ordinary Properties, while Scene, Dialogue, Verb, Interaction, and Map remain immutable non-Property-bearing program/vocabulary definitions. Future reusable instance configuration belongs in the explicit Archetype model rather than a generic parent field.
+Gameplay definitions do not use universal same-type parent/`extends` inheritance. Room, Character, and Interactable capabilities/configuration compose through Traits backed by ordinary Properties, while Scene, Dialogue, Verb, Interaction, and Map remain immutable non-Property-bearing program/vocabulary definitions. Reusable declared-instance configuration uses the explicit same-kind Archetype model rather than a generic parent field; the authoring compiler fully resolves Archetype chains before runtime.
 
 Inheritance is permitted only where a specific subsystem contract defines it. Material inheritance is the current explicit example: its editor should distinguish inherited and overridden material values, support reset-to-inherited where applicable, and validate missing parents and cycles. Do not generalize that mechanism into gameplay entity inheritance, Layout inheritance, or asset/import inheritance without a separately approved contract.
 
@@ -1002,8 +1002,8 @@ collection naming, project creation defaults, entity ID validation, local
 authoring validation diagnostics, authoring project tree grouping, unsaved
 new-project dirty state, disabled playback/export until authoring-to-runtime
 conversion exists, and a reference index skeleton for entrypoint and explicit
-`$ref` usages. Current gameplay composition uses Traits/Properties and future
-Archetypes; generic gameplay parent relationships are not part of the model.
+`$ref` usages. Current gameplay composition uses Traits/Properties plus explicit same-kind
+Archetypes for declared Room, Character, and Interactable configuration; generic gameplay parent relationships are not part of the model.
 
 ### Milestone 4: Project Explorer and Entity Operations
 

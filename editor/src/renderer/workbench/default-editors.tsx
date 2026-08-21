@@ -17,6 +17,7 @@ import {
   User,
   Workflow,
 } from 'lucide-react';
+import { ArchetypeEditor } from '@/editors/archetypes/ArchetypeEditor';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
@@ -110,6 +111,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     component: LayoutEditor,
     previewHostPolicy: 'dedicated-while-open',
     previewPersistence: 'derived',
+  },
+  {
+    type: 'archetype-detail',
+    label: 'Archetype Detail',
+    icon: Puzzle,
+    component: ArchetypeEditor,
   },
   {
     type: 'character-detail',

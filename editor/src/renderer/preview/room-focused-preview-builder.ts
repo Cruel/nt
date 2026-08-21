@@ -14,6 +14,10 @@ import type {
 import { effectivePreviewDisplay } from '../../shared/preview-display';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
+  gameplayInstanceKindForCollection,
+  resolveGameplayInstanceRecord,
+} from '../../shared/project-schema/authoring-archetypes';
+import {
   parseCharacterData,
   type CharacterData,
 } from '../../shared/project-schema/authoring-characters';
@@ -493,7 +497,11 @@ function recordForOwner(
   id: string,
 ): AuthoringRecordBase | null {
   const collection = `${kind}s` as AuthoringCollectionKey;
-  return (project[collection] as Record<string, AuthoringRecordBase> | undefined)?.[id] ?? null;
+  const record =
+    (project[collection] as Record<string, AuthoringRecordBase> | undefined)?.[id] ?? null;
+  if (!record) return null;
+  const gameplayKind = gameplayInstanceKindForCollection(collection);
+  return gameplayKind ? resolveGameplayInstanceRecord(project, gameplayKind, record) : record;
 }
 
 function resolvedProperty(
@@ -818,9 +826,10 @@ export async function buildFocusedRoomPreview(
 ): Promise<FocusedRoomPreviewBuildResult> {
   const { project, projectSessionId, roomId, graph, sourceAnalysis, activeShaderVariant } = options;
   const diagnostics: Diagnostic[] = [];
-  const record = project.rooms[roomId];
+  const sourceRecord = project.rooms[roomId];
+  const record = recordForOwner(project, 'room', roomId);
   const room = parseRoomData(record?.data);
-  if (!record || !room) throw new Error(`Room '${roomId}' is missing or invalid.`);
+  if (!sourceRecord || !record || !room) throw new Error(`Room '${roomId}' is missing or invalid.`);
   const closure = roomClosure(graph, roomId);
   const analysisOwnerKeys = closureAnalysisOwnerKeys(graph, closure);
   const relevantSourceAnalysis = sourceAnalysis.filter((artifact) =>
@@ -839,8 +848,8 @@ export async function buildFocusedRoomPreview(
 
   const persistentCharacters = Object.entries(project.characters)
     .sort(([a], [b]) => a.localeCompare(b))
-    .flatMap(([characterId, characterRecord]) => {
-      const data = parseCharacterData(characterRecord.data);
+    .flatMap(([characterId]) => {
+      const data = parseCharacterData(recordForOwner(project, 'character', characterId)?.data);
       const location = data?.initialWorldState.location;
       if (!data || location?.kind !== 'room-placement' || location.placement.room !== roomId)
         return [];
@@ -866,7 +875,7 @@ export async function buildFocusedRoomPreview(
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
     .flatMap((instance) => {
       const definition = parseInteractableData(
-        project.interactables[instance.interactable.$ref.id]?.data,
+        recordForOwner(project, 'interactable', instance.interactable.$ref.id)?.data,
       );
       if (!definition) return [];
       return [
@@ -909,7 +918,7 @@ export async function buildFocusedRoomPreview(
     },
     room: {
       roomId,
-      recordLabel: record.label,
+      recordLabel: sourceRecord.label,
       displayName: room.displayName,
       visit: { visitIndex: 1, sourceRoomId: null, entryExitId: null },
     },
@@ -934,7 +943,9 @@ export async function buildFocusedRoomPreview(
       })),
       persistentCharacters,
       cast: room.cast.flatMap((entry) => {
-        const character = parseCharacterData(project.characters[entry.character.$ref.id]?.data);
+        const character = parseCharacterData(
+          recordForOwner(project, 'character', entry.character.$ref.id)?.data,
+        );
         if (!character) {
           diagnostics.push(
             diagnostic(
@@ -1075,7 +1086,7 @@ export async function buildFocusedRoomPreview(
     new Set(
       interactables.flatMap((interactable) => {
         const source = parseInteractableData(
-          project.interactables[interactable.interactableId]?.data,
+          recordForOwner(project, 'interactable', interactable.interactableId)?.data,
         );
         return source?.presentation.hotspots.kind === 'sprite-alpha' && interactable.spriteAssetId
           ? [interactable.spriteAssetId]

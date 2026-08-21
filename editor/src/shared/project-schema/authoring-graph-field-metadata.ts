@@ -218,9 +218,11 @@ const PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES =
   reviewedWithoutLegacyExport.slice(exportInsertReviewedIndex);
 
 // #68 replaces the universal same-type `extends` leaf on Property-bearing records with a Trait
-// attachment array and adds top-level Trait declarations. Preserve every previously reviewed field
-// effect by path, then classify only the new Trait leaves explicitly as owner contributions. This is
-// deliberately a one-time atomic contract replacement at the already-selected authoring version.
+// attachment array and adds top-level Trait declarations. #69 then adds explicit Archetype records
+// plus one Archetype attachment/override map on declared Gameplay Instances. Preserve every
+// previously reviewed field effect by path, then classify only the new Trait and Archetype leaves
+// explicitly as owner contributions. Both are atomic contract replacements at the already-selected
+// authoring version.
 const legacyTraitBearingRoots = new Set([
   'characters',
   'dialogues',
@@ -238,9 +240,20 @@ const retiredPropertyBearingRoots = [
   'scenes',
   'verbs',
 ] as const;
+function isArchetypeContractLeaf(path: JsonPointer): boolean {
+  if (path.startsWith('/archetypes/')) return true;
+  const segments = parseJsonPointer(path);
+  return (
+    segments.length >= 3 &&
+    ['characters', 'rooms', 'interactables'].includes(segments[0] ?? '') &&
+    segments[1] === '*' &&
+    (segments[2] === 'archetype' || segments[2] === 'archetypeOverrides')
+  );
+}
+
 const legacySchemaLeafPaths = [
   ...sortedSchemaLeafPaths
-    .filter((path) => !path.startsWith('/traits/'))
+    .filter((path) => !path.startsWith('/traits/') && !isArchetypeContractLeaf(path))
     .map((path) => {
       const segments = parseJsonPointer(path);
       return segments.length === 4 &&
@@ -270,7 +283,7 @@ const legacyReviewedEffects = new Map(
 const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
   .filter((path) => !explicitFieldEffect(path))
   .map((path) => {
-    if (path.startsWith('/traits/')) return 'o';
+    if (path.startsWith('/traits/') || isArchetypeContractLeaf(path)) return 'o';
     const segments = parseJsonPointer(path);
     if (
       segments.length === 4 &&
@@ -332,12 +345,13 @@ export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string,
 // corresponding fingerprint in the same change. This intentionally has no generated fallback.
 export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =
   Object.freeze({
+    archetypes: 'f71e0c56',
     assets: 'e718127a',
-    characters: 'f9e51e22',
+    characters: 'd476b8e2',
     dialogues: 'bfadec81',
     entrypoint: 'a61673d4',
     export: 'b9fd529f',
-    interactables: 'c2651b54',
+    interactables: 'f71f6864',
     interactions: '27039017',
     layouts: '87e0b859',
     localization: '3f6d0d11',
@@ -345,7 +359,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: 'ccd353f5',
+    rooms: '8e0d43cf',
     scenes: '911d4458',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',

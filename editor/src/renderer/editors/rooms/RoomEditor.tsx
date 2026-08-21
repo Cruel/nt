@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import {
   AlertTriangle,
   ArrowRight,
@@ -97,6 +98,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { RoomExitDirectionSelector } from './RoomExitDirectionSelector';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 
 const backgroundFitLabels = {
@@ -686,7 +688,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(document) ? document : null;
   const record = roomId && project ? project.rooms[roomId] : null;
-  const data = parseRoomData(record?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
+  const effectiveRecord =
+    project && record ? resolveGameplayInstanceRecord(project, 'room', record) : record;
+  const data =
+    parseRoomData(effectiveRecord?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const imageAssetItems = useMemo(
     () =>
@@ -1050,6 +1055,15 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           >
             <div className="border-b px-3 py-2.5">
               <h3 className="text-sm font-semibold">Room details</h3>
+            </div>
+            <div className="p-3 pb-0">
+              <GameplayArchetypeControls
+                project={project}
+                collection="rooms"
+                entityId={roomId}
+                record={record}
+                kind="room"
+              />
             </div>
             <div className="grid gap-3 p-3 md:grid-cols-2">
               <div className="space-y-1.5">

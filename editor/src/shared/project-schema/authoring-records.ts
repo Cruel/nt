@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { assetDataSchema } from './authoring-assets';
+import { archetypeDataSchema, archetypeRefSchema } from './authoring-archetypes';
 import { entityIdSchema } from './authoring-common';
 import { characterDataSchema } from './authoring-characters';
 import { interactableDataSchema } from './authoring-interactables';
@@ -24,6 +25,8 @@ const recordIdentityShape = {
 };
 
 const propertyRecordShape = {
+  archetype: archetypeRefSchema.nullable().optional(),
+  archetypeOverrides: z.record(z.string(), z.json()).optional(),
   traits: z.array(entityIdSchema).optional(),
   properties: propertyAssignmentsSchema.optional(),
 };
@@ -41,6 +44,7 @@ export const variableRecordSchema = recordSchema(variableDataSchema.strict());
 export const shaderRecordSchema = recordSchema(shaderDataSchema.strict());
 export const materialRecordSchema = recordSchema(materialDataSchema.strict());
 export const layoutRecordSchema = recordSchema(layoutDataSchema.strict());
+export const archetypeRecordSchema = recordSchema(archetypeDataSchema);
 export const characterRecordSchema = propertyRecordSchema(characterDataSchema.strict());
 export const roomRecordSchema = propertyRecordSchema(roomDataSchema.strict());
 export const interactableRecordSchema = propertyRecordSchema(interactableDataSchema.strict());
@@ -58,6 +62,7 @@ export const authoringRecordSchemas = {
   shaders: shaderRecordSchema,
   materials: materialRecordSchema,
   layouts: layoutRecordSchema,
+  archetypes: archetypeRecordSchema,
   characters: characterRecordSchema,
   rooms: roomRecordSchema,
   interactables: interactableRecordSchema,
@@ -76,6 +81,7 @@ export const authoringCollectionSchemas = {
   shaders: z.record(entityIdSchema, authoringRecordSchemas.shaders),
   materials: z.record(entityIdSchema, authoringRecordSchemas.materials),
   layouts: z.record(entityIdSchema, authoringRecordSchemas.layouts),
+  archetypes: z.record(entityIdSchema, authoringRecordSchemas.archetypes),
   characters: z.record(entityIdSchema, authoringRecordSchemas.characters),
   rooms: z.record(entityIdSchema, authoringRecordSchemas.rooms),
   interactables: z.record(entityIdSchema, authoringRecordSchemas.interactables),
@@ -93,6 +99,7 @@ export type VariableAuthoringRecord = z.infer<typeof variableRecordSchema>;
 export type ShaderAuthoringRecord = z.infer<typeof shaderRecordSchema>;
 export type MaterialAuthoringRecord = z.infer<typeof materialRecordSchema>;
 export type LayoutAuthoringRecord = z.infer<typeof layoutRecordSchema>;
+export type ArchetypeAuthoringRecord = z.infer<typeof archetypeRecordSchema>;
 export type CharacterAuthoringRecord = z.infer<typeof characterRecordSchema>;
 export type RoomAuthoringRecord = z.infer<typeof roomRecordSchema>;
 export type InteractableAuthoringRecord = z.infer<typeof interactableRecordSchema>;
@@ -110,6 +117,7 @@ export type AuthoringRecord =
   | ShaderAuthoringRecord
   | MaterialAuthoringRecord
   | LayoutAuthoringRecord
+  | ArchetypeAuthoringRecord
   | CharacterAuthoringRecord
   | RoomAuthoringRecord
   | InteractableAuthoringRecord

@@ -1,7 +1,6 @@
-import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue } from '@/project/json-value';
 import type { JsonPatchOperation } from '@/project/json-patch';
 import type { EntityOperationResult } from './entity-operations';
+import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   parseRoomData,
@@ -21,6 +20,8 @@ import {
   incomingAuthoringDependencies,
   nestedNodeKey,
 } from '../../shared/authoring-dependency-graph';
+import { replaceInteractableDataPatches } from './interactable-operations';
+import { replaceRoomDataPatches } from './room-operations';
 
 const error = (message: string, path?: string) => ({ severity: 'error' as const, message, path });
 
@@ -42,20 +43,24 @@ function hotspotReferences(
     .map((edge) => edge.sourcePath);
 }
 
-function roomPatch(roomId: string, data: RoomData): JsonPatchOperation {
-  return {
-    op: 'replace',
-    path: buildJsonPointer(['rooms', roomId, 'data']),
-    value: toJsonValue(data),
-  };
+function resolvedRoomData(
+  document: Parameters<typeof resolveGameplayInstanceRecord>[0],
+  roomId: string,
+) {
+  const record = document.rooms[roomId];
+  return record
+    ? parseRoomData(resolveGameplayInstanceRecord(document, 'room', record)?.data)
+    : null;
 }
 
-function interactablePatch(interactableId: string, data: InteractableData): JsonPatchOperation {
-  return {
-    op: 'replace',
-    path: buildJsonPointer(['interactables', interactableId, 'data']),
-    value: toJsonValue(data),
-  };
+function resolvedInteractableData(
+  document: Parameters<typeof resolveGameplayInstanceRecord>[0],
+  interactableId: string,
+) {
+  const record = document.interactables[interactableId];
+  return record
+    ? parseInteractableData(resolveGameplayInstanceRecord(document, 'interactable', record)?.data)
+    : null;
 }
 
 export function updateRoomHotspots(
@@ -65,13 +70,12 @@ export function updateRoomHotspots(
 ): EntityOperationResult {
   if (!isAuthoringProject(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
-  const data = parseRoomData(document.rooms[roomId]?.data);
+  const data = resolvedRoomData(document, roomId);
   if (!data)
     return { patches: [], diagnostics: [error('Room record does not exist or is invalid.')] };
   const next = update(data);
   if (!next) return { patches: [], diagnostics: [error('Hotspot operation was refused.')] };
-  const patch = roomPatch(roomId, next);
-  return { patches: [patch], affectedPaths: [patch.path] };
+  return replaceRoomDataPatches(document, { roomId, data: next });
 }
 
 export function updateInteractableHotspots(
@@ -81,7 +85,7 @@ export function updateInteractableHotspots(
 ): EntityOperationResult {
   if (!isAuthoringProject(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
-  const data = parseInteractableData(document.interactables[interactableId]?.data);
+  const data = resolvedInteractableData(document, interactableId);
   if (!data)
     return {
       patches: [],
@@ -89,8 +93,7 @@ export function updateInteractableHotspots(
     };
   const next = update(data);
   if (!next) return { patches: [], diagnostics: [error('Hotspot operation was refused.')] };
-  const patch = interactablePatch(interactableId, next);
-  return { patches: [patch], affectedPaths: [patch.path] };
+  return replaceInteractableDataPatches(document, { interactableId, data: next });
 }
 
 export function deleteRoomHotspot(
@@ -148,23 +151,26 @@ export function renameHotspot(
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const patches: JsonPatchOperation[] = [];
   if (kind === 'room') {
-    const data = parseRoomData(document.rooms[ownerId]?.data);
+    const data = resolvedRoomData(document, ownerId);
     if (!data)
       return { patches: [], diagnostics: [error('Room record does not exist or is invalid.')] };
     if (!data.hotspots.some((item) => item.id === hotspotId))
       return { patches: [], diagnostics: [error('Hotspot does not exist.')] };
     if (hotspotId !== nextId && data.hotspots.some((item) => item.id === nextId))
       return { patches: [], diagnostics: [error('Hotspot ID is invalid or already exists.')] };
-    patches.push(
-      roomPatch(ownerId, {
+    const replacement = replaceRoomDataPatches(document, {
+      roomId: ownerId,
+      data: {
         ...data,
         hotspots: data.hotspots.map((item) =>
           item.id === hotspotId ? { ...item, id: nextId } : item,
         ),
-      }),
-    );
+      },
+    });
+    if (replacement.diagnostics?.some((item) => item.severity === 'error')) return replacement;
+    patches.push(...replacement.patches);
   } else {
-    const data = parseInteractableData(document.interactables[ownerId]?.data);
+    const data = resolvedInteractableData(document, ownerId);
     if (!data) return { patches: [], diagnostics: [error('Interactable record is invalid.')] };
     const items =
       data.presentation.hotspots.kind === 'sprite-alpha'
@@ -186,9 +192,12 @@ export function renameHotspot(
               item.id === hotspotId ? { ...item, id: nextId } : item,
             ),
           };
-    patches.push(
-      interactablePatch(ownerId, { ...data, presentation: { ...data.presentation, hotspots } }),
-    );
+    const replacement = replaceInteractableDataPatches(document, {
+      interactableId: ownerId,
+      data: { ...data, presentation: { ...data.presentation, hotspots } },
+    });
+    if (replacement.diagnostics?.some((item) => item.severity === 'error')) return replacement;
+    patches.push(...replacement.patches);
   }
   if (hotspotId !== nextId) {
     for (const referencePath of hotspotReferences(document, kind, ownerId, hotspotId)) {
@@ -209,7 +218,7 @@ export function setInteractableHotspotMode(
 ): EntityOperationResult {
   if (!isAuthoringProject(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
-  const data = parseInteractableData(document.interactables[interactableId]?.data);
+  const data = resolvedInteractableData(document, interactableId);
   if (!data) return { patches: [], diagnostics: [error('Interactable record is invalid.')] };
   if (data.presentation.hotspots.kind === kind) return { patches: [], affectedPaths: [] };
   const removed =
@@ -228,11 +237,13 @@ export function setInteractableHotspotMode(
     kind === 'custom'
       ? { kind: 'custom' as const, hotspots: [] }
       : { kind: 'sprite-alpha' as const, hotspot: defaultHotspotBehavior(data.displayName) };
-  const patch = interactablePatch(interactableId, {
-    ...data,
-    presentation: { ...data.presentation, hotspots },
+  return replaceInteractableDataPatches(document, {
+    interactableId,
+    data: {
+      ...data,
+      presentation: { ...data.presentation, hotspots },
+    },
   });
-  return { patches: [patch], affectedPaths: [patch.path] };
 }
 
 export function validBounds(value: unknown) {

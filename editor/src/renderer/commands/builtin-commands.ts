@@ -32,6 +32,13 @@ import {
   setVariableDefaultValuePatches,
   setVariableTypePatches,
 } from '@/project/variable-operations';
+import {
+  clearGameplayInstanceArchetypeOverridesPatches,
+  replaceArchetypeConfigurationPatches,
+  setArchetypeBasePatches,
+  setArchetypeKindPatches,
+  setGameplayInstanceArchetypePatches,
+} from '@/project/archetype-operations';
 import { replaceCharacterDataPatches } from '@/project/character-operations';
 import { replaceInteractableDataPatches } from '@/project/interactable-operations';
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
@@ -91,6 +98,7 @@ import {
 } from '@/project/project-chapters-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
+import { gameplayInstanceKindValues } from '../../shared/project-schema/authoring-archetypes';
 import { imageAssetMetadataSchema } from '../../shared/project-schema/authoring-assets';
 import { roomHotspotDataSchema } from '../../shared/project-schema/authoring-rooms';
 import { roomNormalizedRectSchema } from '../../shared/project-schema/authoring-rooms';
@@ -726,6 +734,28 @@ const materialSetBaseSchema = z.object({
   baseMaterialId: entityIdSchema.nullable(),
 });
 const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
+const gameplayInstanceCollectionSchema = z.enum(['rooms', 'characters', 'interactables']);
+const gameplayInstanceArchetypeSchema = z.object({
+  collection: gameplayInstanceCollectionSchema,
+  entityId: entityIdSchema,
+  archetypeId: entityIdSchema.nullable(),
+});
+const gameplayInstanceArchetypeOverridesSchema = z.object({
+  collection: gameplayInstanceCollectionSchema,
+  entityId: entityIdSchema,
+});
+const archetypeConfigurationSchema = z.object({
+  archetypeId: entityIdSchema,
+  configuration: z.unknown(),
+});
+const archetypeBaseSchema = z.object({
+  archetypeId: entityIdSchema,
+  baseArchetypeId: entityIdSchema.nullable(),
+});
+const archetypeKindSchema = z.object({
+  archetypeId: entityIdSchema,
+  instanceKind: z.enum(gameplayInstanceKindValues),
+});
 const characterReplaceDataSchema = z.object({ characterId: entityIdSchema, data: z.unknown() });
 const interactableReplaceDataSchema = z.object({
   interactableId: entityIdSchema,
@@ -1123,6 +1153,34 @@ export const layoutReplaceDataCommand: CommandHandler = ({ document, payload }) 
     replaceLayoutDataPatches(document, parsed),
   );
 
+export const gameplayInstanceSetArchetypeCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(gameplayInstanceArchetypeSchema, payload, (parsed) =>
+    setGameplayInstanceArchetypePatches(document, parsed),
+  );
+
+export const gameplayInstanceClearArchetypeOverridesCommand: CommandHandler = ({
+  document,
+  payload,
+}) =>
+  parseEntityCommand(gameplayInstanceArchetypeOverridesSchema, payload, (parsed) =>
+    clearGameplayInstanceArchetypeOverridesPatches(document, parsed),
+  );
+
+export const archetypeReplaceConfigurationCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(archetypeConfigurationSchema, payload, (parsed) =>
+    replaceArchetypeConfigurationPatches(document, parsed as never),
+  );
+
+export const archetypeSetBaseCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(archetypeBaseSchema, payload, (parsed) =>
+    setArchetypeBasePatches(document, parsed),
+  );
+
+export const archetypeSetKindCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(archetypeKindSchema, payload, (parsed) =>
+    setArchetypeKindPatches(document, parsed),
+  );
+
 export const characterReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(characterReplaceDataSchema, payload, (parsed) =>
     replaceCharacterDataPatches(document, parsed),
@@ -1475,6 +1533,11 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'variable.setType': variableSetTypeCommand,
     'variable.setDefaultValue': variableSetDefaultValueCommand,
     'layout.replaceData': layoutReplaceDataCommand,
+    'gameplay-instance.setArchetype': gameplayInstanceSetArchetypeCommand,
+    'gameplay-instance.clearArchetypeOverrides': gameplayInstanceClearArchetypeOverridesCommand,
+    'archetype.replaceConfiguration': archetypeReplaceConfigurationCommand,
+    'archetype.setBase': archetypeSetBaseCommand,
+    'archetype.setKind': archetypeSetKindCommand,
     'character.replaceData': characterReplaceDataCommand,
     'interactable.replaceData': interactableReplaceDataCommand,
     'dialogue.replaceData': dialogueReplaceDataCommand,
@@ -1575,6 +1638,16 @@ export function labelForCommand(type: string): string {
       return 'Set variable default value';
     case 'layout.replaceData':
       return 'Update layout';
+    case 'gameplay-instance.setArchetype':
+      return 'Set Archetype';
+    case 'gameplay-instance.clearArchetypeOverrides':
+      return 'Reset Archetype overrides';
+    case 'archetype.replaceConfiguration':
+      return 'Update Archetype configuration';
+    case 'archetype.setBase':
+      return 'Set base Archetype';
+    case 'archetype.setKind':
+      return 'Set Archetype kind';
     case 'character.replaceData':
       return 'Update character';
     case 'interactable.replaceData':

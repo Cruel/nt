@@ -5,6 +5,7 @@ import {
   serializeAuthoringDependencyNodeKey,
 } from '../../shared/authoring-dependency-graph';
 import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE } from '../../shared/preview-display';
+import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -134,6 +135,35 @@ describe('graph-driven Room v2 builder', () => {
       logicalPath: 'project:/assets/images/background.png',
     });
     expect(resource).not.toHaveProperty('fetchProjectRelativePath');
+  });
+
+  it('resolves attached Archetypes before building focused Room preview data', async () => {
+    const project = fixture();
+    const inheritedRoom = structuredClone(project.rooms.bedroom!.data);
+    inheritedRoom.displayName = 'Inherited Bedroom';
+    inheritedRoom.placements[0]!.bounds = { x: 0.4, y: 0.3, width: 0.2, height: 0.25 };
+    project.archetypes['room-base'] = {
+      id: 'room-base',
+      label: 'Room Base',
+      data: {
+        ...defaultArchetypeData('room'),
+        overrides: { '/data': inheritedRoom },
+      },
+    };
+    project.rooms.bedroom!.archetype = {
+      $ref: { collection: 'archetypes', id: 'room-base' },
+    };
+    project.rooms.bedroom!.archetypeOverrides = {};
+    project.rooms.bedroom!.data.displayName = 'Stale local Bedroom';
+
+    const result = await build(project);
+    expect(result.data.room.displayName).toBe('Inherited Bedroom');
+    expect(result.data.world.placements[0]?.bounds).toEqual({
+      x: 0.4,
+      y: 0.3,
+      width: 0.2,
+      height: 0.25,
+    });
   });
 
   it('includes incoming persistent Character and Interactable placement relationships', async () => {

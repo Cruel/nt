@@ -9,6 +9,7 @@ This table is the authoritative current ownership map. Authoring records are edi
 | Project root/settings | Editor project/compiler | Compiled root, settings, startup hook, entrypoint, indexes | Immutable project-owned configuration; root is not an entity |
 | Properties | Typed declarations and owner assignments | Global and identity-scoped `PropertyDefinition`s plus retained direct assignments | One sparse typed override store; every override is checkpoint/save state |
 | Traits | Capability/configuration declarations over ordinary Properties | `TraitDefinition`s plus per-definition Trait attachments | Immutable metadata/configuration; values resolve through the Property system |
+| Archetypes | Same-kind reusable Room/Character/Interactable configuration chains | Fully flattened into the attached declared instance; no Archetype wire/runtime collection | Authoring-only blueprint; no runtime identity, Location, or mutable state |
 | Variables | Editor-facing Global Property declarations/defaults | Lowered into `properties[]` with `scope: global` | Same Global Property resolver/override store; no separate Variable runtime state |
 | Characters | Character records | `CharacterDefinition` | Immutable definition; presented instances are `ActorState` |
 | Scenes | Scene records and strict steps | `SceneDefinition` + `SceneProgram` | Scene flow frame and logical waits |
@@ -59,7 +60,15 @@ Editor categories/tags organize source only. Traits attach only to stateful Game
 
 Identity Property resolution is: target runtime override, owner direct authored assignment, configured value from an attached Trait, declaration default, then typed missing. Global Property resolution is its runtime override followed by its required authored default. Unset removes one override and resumes lookup; explicit nullable null remains a value. Identity values never propagate between definitions. Every runtime Property override serializes once at its actual target; authored assignments, Trait configuration, defaults, and other effective values do not.
 
-Compilation rejects missing or owner-incompatible Trait attachments, incompatible configured values, conflicting Trait providers, and unsatisfied required members. Verb availability and default programs are definition-local; an unhandled selected Interaction program falls back only to that Verb's own default program before the project undefined-interaction fallback. Universal same-type gameplay `extends` is retired.
+Compilation rejects missing or owner-incompatible Trait attachments, incompatible configured values, conflicting Trait providers, and unsatisfied required members. Universal same-type gameplay `extends` is retired.
+
+## Archetypes
+
+Declared Rooms, Characters, and Interactables may attach at most one same-kind Archetype. An Archetype may itself name at most one same-kind base Archetype, producing a single acyclic chain. Archetypes contribute immutable structural configuration, Trait attachments, and direct authored Property assignments; the declared instance may author explicit overrides on top of the resolved chain. Character `initialWorldState` and Interactable `initialState` are instance-local and are never inherited. Clearing an override reveals the next Archetype value, while detaching materializes the current effective configuration into the declared instance.
+
+Archetypes are authoring-only blueprints. They do not become `CharacterDefinition`, `RoomDefinition`, or `InteractableDefinition` identities, cannot own Location or runtime mutable state, and are not serialized into saves. The authoring compiler resolves the entire chain and emits only the flattened declared-instance definition into compiled V4. Runtime inspection therefore observes exactly the effective compiled Room/Character/Interactable configuration through the existing immutable-definition/`RuntimeWorld::resolved_configuration(...)` boundary; no runtime Archetype lookup exists.
+
+Verb availability and default programs are definition-local; an unhandled selected Interaction program falls back only to that Verb's own default program before the project undefined-interaction fallback.
 
 ## Startup, continuation, Lua, and saving
 

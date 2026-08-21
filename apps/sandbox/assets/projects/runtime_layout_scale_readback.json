@@ -137,7 +137,6 @@
       {
         "id": "probe",
         "displayName": "Scale Probe",
-        "traits": [],
         "defaultBackground": {
           "asset": null,
           "color": "#101820",
@@ -173,8 +172,7 @@
             }
           ]
         },
-        "continuation": { "kind": "end" },
-        "propertyAssignments": []
+        "continuation": { "kind": "end" }
       }
     ]
   }

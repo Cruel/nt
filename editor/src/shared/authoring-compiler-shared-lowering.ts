@@ -1,4 +1,5 @@
 import { parseAssetData } from './project-schema/authoring-assets';
+import { resolveGameplayInstanceRecord } from './project-schema/authoring-archetypes';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import type {
   CompiledCondition,
@@ -208,7 +209,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   }
 
   for (const [roomId, record] of sortedEntries(project.rooms)) {
-    const room = parseRoomData(record.data);
+    const effectiveRecord = resolveGameplayInstanceRecord(project, 'room', record);
+    const room = parseRoomData(effectiveRecord?.data);
     for (const [index, hotspot] of (room?.hotspots ?? []).entries()) {
       if (hotspot.activation.kind === 'verb' && !hotspot.activation.verb)
         diagnostics.push({
@@ -219,7 +221,8 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }
   }
   for (const [interactableId, record] of sortedEntries(project.interactables)) {
-    const interactable = parseInteractableData(record.data);
+    const effectiveRecord = resolveGameplayInstanceRecord(project, 'interactable', record);
+    const interactable = parseInteractableData(effectiveRecord?.data);
     const hotspots =
       interactable?.presentation.hotspots.kind === 'sprite-alpha'
         ? [interactable.presentation.hotspots.hotspot]
@@ -323,10 +326,11 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
 
   const characters: SharedCharacterDefinition[] = [];
   for (const [id, record] of sortedEntries(project.characters)) {
-    const data = requireData(parseCharacterData(record.data), `/characters/${id}/data`);
-    if (!data) continue;
+    const effectiveRecord = resolveGameplayInstanceRecord(project, 'character', record);
+    const data = requireData(parseCharacterData(effectiveRecord?.data), `/characters/${id}/data`);
+    if (!data || !effectiveRecord) continue;
     characters.push({
-      ...propertyBase(id, record),
+      ...propertyBase(id, effectiveRecord),
       displayName: data.displayName,
       dialogue: { ...data.dialogue },
       defaults: {
@@ -378,10 +382,11 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
 
   const rooms: SharedRoomDefinition[] = [];
   for (const [id, record] of sortedEntries(project.rooms)) {
-    const data = requireData(parseRoomData(record.data), `/rooms/${id}/data`);
-    if (!data) continue;
+    const effectiveRecord = resolveGameplayInstanceRecord(project, 'room', record);
+    const data = requireData(parseRoomData(effectiveRecord?.data), `/rooms/${id}/data`);
+    if (!data || !effectiveRecord) continue;
     rooms.push({
-      ...propertyBase(id, record),
+      ...propertyBase(id, effectiveRecord),
       displayName: data.displayName,
       background: {
         asset: assetRef(data.background.asset),
@@ -522,14 +527,17 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       left.id.localeCompare(right.id),
     )) {
       const definitionRecord = project.interactables[instance.interactable.$ref.id];
+      const effectiveRecord = definitionRecord
+        ? resolveGameplayInstanceRecord(project, 'interactable', definitionRecord)
+        : null;
       const data = requireData(
-        parseInteractableData(definitionRecord?.data),
+        parseInteractableData(effectiveRecord?.data),
         `/rooms/${roomId}/data/interactables/${instance.id}/interactable`,
       );
-      if (!data || !definitionRecord) continue;
+      if (!data || !effectiveRecord) continue;
       instantiatedDefinitions.add(instance.interactable.$ref.id);
       interactables.push(
-        compileInteractable(instance.id, definitionRecord, data, {
+        compileInteractable(instance.id, effectiveRecord, data, {
           enabled: instance.enabled,
           visible: instance.visible,
           location: {
@@ -545,10 +553,14 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   }
   for (const [id, record] of sortedEntries(project.interactables)) {
     if (instantiatedDefinitions.has(id)) continue;
-    const data = requireData(parseInteractableData(record.data), `/interactables/${id}/data`);
-    if (!data) continue;
+    const effectiveRecord = resolveGameplayInstanceRecord(project, 'interactable', record);
+    const data = requireData(
+      parseInteractableData(effectiveRecord?.data),
+      `/interactables/${id}/data`,
+    );
+    if (!data || !effectiveRecord) continue;
     interactables.push(
-      compileInteractable(id, record, data, {
+      compileInteractable(id, effectiveRecord, data, {
         enabled: data.initialState.enabled,
         visible: data.initialState.visible,
         location: { kind: 'nowhere' },
