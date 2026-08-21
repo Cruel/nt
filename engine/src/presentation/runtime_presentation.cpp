@@ -35,7 +35,7 @@ void validate_asset(const CompiledProject& project, const std::optional<AssetId>
 const compiled::RoomPlacement* find_placement(const runtime::RuntimeWorld& world,
                                               const compiled::RoomPlacementRef& ref) noexcept
 {
-    const auto* room = world.room(ref.room);
+    const auto* room = world.resolved_configuration(ref.room);
     if (room == nullptr)
         return nullptr;
     const auto found =
@@ -48,7 +48,7 @@ void validate_text_and_choice(const CompiledProject& project, const runtime::Run
                               const SessionState& state, Diagnostics& diagnostics)
 {
     if (state.presented_text() && state.presented_text()->speaker &&
-        world.character(*state.presented_text()->speaker) == nullptr)
+        world.resolved_configuration(*state.presented_text()->speaker) == nullptr)
         diagnostics.push_back(
             unresolved("presented-text speaker", state.presented_text()->speaker->text()));
 
@@ -164,7 +164,7 @@ void validate_actor_key(const CompiledProject& project, const runtime::RuntimeWo
         [&project, &world, &diagnostics](const auto& value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, RoomCastActorKey>) {
-                if (world.room(value.room) == nullptr)
+                if (world.resolved_configuration(value.room) == nullptr)
                     diagnostics.push_back(unresolved("actor Room", value.room.text()));
             } else if constexpr (std::is_same_v<T, SceneActorKey>) {
                 if (project.find_scene(value.owner.scene) == nullptr)
@@ -232,7 +232,7 @@ void append_actor(const CompiledProject& project, const runtime::RuntimeWorld& w
                   Diagnostics& diagnostics)
 {
     validate_actor_key(project, world, actor.key, diagnostics);
-    const auto* character = world.character(actor.character);
+    const auto* character = world.resolved_configuration(actor.character);
     if (character == nullptr) {
         diagnostics.push_back(unresolved("Character", actor.character.text()));
         return;
@@ -324,7 +324,7 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
     }
 
     for (const auto& interactable : room.interactables) {
-        const auto* definition = world.interactable(interactable.interactable);
+        const auto* definition = world.resolved_configuration(interactable.interactable);
         const compiled::RoomPlacementRef placement{room.visit.room, interactable.placement};
         const auto* placement_definition = find_placement(world, placement);
         if (definition == nullptr) {
@@ -418,13 +418,13 @@ build_room_visual_catalog_impl(const runtime::RuntimeWorld& world,
                                const RoomPresentationResolution& resolution)
 {
     RoomPresentationVisualCatalog catalog;
-    const auto* room = world.room(resolution.presentation.visit.room);
+    const auto* room = world.resolved_configuration(resolution.presentation.visit.room);
     if (room != nullptr) {
         for (const auto& placement : room->placements)
             catalog.placements.push_back({placement.id, placement.bounds, placement.order});
     }
     for (const auto& actor : resolution.presentation.actors) {
-        const auto* character = world.character(actor.character);
+        const auto* character = world.resolved_configuration(actor.character);
         if (character == nullptr)
             continue;
         const auto expression =
@@ -452,7 +452,7 @@ build_room_visual_catalog_impl(const runtime::RuntimeWorld& world,
                                       std::move(idle)});
     }
     for (const auto& interactable : resolution.presentation.interactables) {
-        const auto* definition = world.interactable(interactable.interactable);
+        const auto* definition = world.resolved_configuration(interactable.interactable);
         if (definition != nullptr)
             catalog.interactables.push_back({interactable.interactable,
                                              definition->presentation.sprite,

@@ -1,43 +1,68 @@
 #include "noveltea/runtime/runtime_world.hpp"
 
+#include "noveltea/core/property_resolver.hpp"
+
 #include <algorithm>
 #include <utility>
 
 namespace noveltea::runtime {
 
-const core::compiled::RoomDefinition* RuntimeWorld::room(const core::RoomId& id) const noexcept
+const core::compiled::RoomDefinition*
+RuntimeWorld::resolved_configuration(const core::RoomId& id) const noexcept
 {
     return m_project.find_room(id);
 }
 
 const core::compiled::CharacterDefinition*
-RuntimeWorld::character(const core::CharacterId& id) const noexcept
+RuntimeWorld::resolved_configuration(const core::CharacterId& id) const noexcept
 {
     return m_project.find_character(id);
 }
 
 const core::compiled::InteractableDefinition*
-RuntimeWorld::interactable(const core::InteractableId& id) const noexcept
+RuntimeWorld::resolved_configuration(const core::InteractableId& id) const noexcept
 {
     return m_project.find_interactable(id);
+}
+
+core::Result<core::PropertyLookupResult, core::Diagnostics>
+RuntimeWorld::resolve_property(const core::RoomId& id, const core::PropertyId& property) const
+{
+    core::PropertyResolver resolver(m_project, m_state);
+    return resolver.get(core::PropertyOwnerRef{id}, property);
+}
+
+core::Result<core::PropertyLookupResult, core::Diagnostics>
+RuntimeWorld::resolve_property(const core::CharacterId& id, const core::PropertyId& property) const
+{
+    core::PropertyResolver resolver(m_project, m_state);
+    return resolver.get(core::PropertyOwnerRef{id}, property);
+}
+
+core::Result<core::PropertyLookupResult, core::Diagnostics>
+RuntimeWorld::resolve_property(const core::InteractableId& id,
+                               const core::PropertyId& property) const
+{
+    core::PropertyResolver resolver(m_project, m_state);
+    return resolver.get(core::PropertyOwnerRef{id}, property);
 }
 
 const core::CharacterWorldState*
 RuntimeWorld::character_state(const core::CharacterId& id) const noexcept
 {
-    return character(id) == nullptr ? nullptr : m_state.character_world(id);
+    return resolved_configuration(id) == nullptr ? nullptr : m_state.character_world(id);
 }
 
 const core::InteractableState*
 RuntimeWorld::interactable_state(const core::InteractableId& id) const noexcept
 {
-    return interactable(id) == nullptr ? nullptr : m_state.interactable(id);
+    return resolved_configuration(id) == nullptr ? nullptr : m_state.interactable(id);
 }
 
 bool RuntimeWorld::has_room_placement(
     const core::compiled::RoomPlacementRef& placement) const noexcept
 {
-    const auto* definition = room(placement.room);
+    const auto* definition = resolved_configuration(placement.room);
     return definition != nullptr &&
            std::any_of(definition->placements.begin(), definition->placements.end(),
                        [&placement](const core::compiled::RoomPlacement& candidate) {

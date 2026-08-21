@@ -672,7 +672,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::ActorCueInstruction>) {
-                    const auto* character = m_world.character(value.character);
+                    const auto* character = m_world.resolved_configuration(value.character);
                     if (character == nullptr)
                         return fault(execution_error("execution.invalid_actor_character",
                                                      "Actor cue Character is missing"));
@@ -1085,7 +1085,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                 } else if constexpr (std::is_same_v<
                                                          C, core::compiled::
                                                                 TransitionGroupActorMutation>) {
-                                    const auto* character = m_world.character(item.character);
+                                    const auto* character =
+                                        m_world.resolved_configuration(item.character);
                                     if (character == nullptr)
                                         return core::Result<core::TransitionGroupTargetMutation,
                                                             core::Diagnostics>::

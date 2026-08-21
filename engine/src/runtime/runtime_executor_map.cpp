@@ -26,7 +26,7 @@ const core::compiled::MapLocation* find_location(const core::compiled::MapDefini
 const core::compiled::RoomExit* find_exit(const RuntimeWorld& world,
                                           const core::compiled::RoomExitRef& reference)
 {
-    const auto* room = world.room(reference.room);
+    const auto* room = world.resolved_configuration(reference.room);
     if (room == nullptr)
         return nullptr;
     const auto found = std::find_if(room->exits.begin(), room->exits.end(),

@@ -57,19 +57,21 @@ HookSelection select_hook(const RuntimeWorld& world, const core::RoomTransitionF
     std::optional<core::compiled::RoomHookKind> kind;
     switch (transition.position.stage) {
     case core::RoomTransitionStage::BeforeLeave:
-        room = transition.source_room ? world.room(*transition.source_room) : nullptr;
+        room = transition.source_room ? world.resolved_configuration(*transition.source_room)
+                                      : nullptr;
         kind = core::compiled::RoomHookKind::BeforeLeave;
         break;
     case core::RoomTransitionStage::BeforeEnter:
-        room = world.room(transition.target_room);
+        room = world.resolved_configuration(transition.target_room);
         kind = core::compiled::RoomHookKind::BeforeEnter;
         break;
     case core::RoomTransitionStage::AfterLeave:
-        room = transition.source_room ? world.room(*transition.source_room) : nullptr;
+        room = transition.source_room ? world.resolved_configuration(*transition.source_room)
+                                      : nullptr;
         kind = core::compiled::RoomHookKind::AfterLeave;
         break;
     case core::RoomTransitionStage::AfterEnter:
-        room = world.room(transition.target_room);
+        room = world.resolved_configuration(transition.target_room);
         kind = core::compiled::RoomHookKind::AfterEnter;
         break;
     default:
@@ -211,7 +213,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         return fault(execution_error("execution.invalid_room_transition",
                                      "Active flow frame is not a Room transition"));
     const core::RoomTransitionFrame transition = *active;
-    const auto* target = m_world.room(transition.target_room);
+    const auto* target = m_world.resolved_configuration(transition.target_room);
     if (target == nullptr)
         return fault(
             execution_error("execution.invalid_room_target", "Room transition target is missing"));
@@ -242,8 +244,9 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
 
     switch (transition.position.stage) {
     case core::RoomTransitionStage::SourceCanLeave: {
-        const auto* source =
-            transition.source_room ? m_world.room(*transition.source_room) : nullptr;
+        const auto* source = transition.source_room
+                                 ? m_world.resolved_configuration(*transition.source_room)
+                                 : nullptr;
         if (source == nullptr)
             return fault(execution_error("execution.invalid_room_source",
                                          "Room transition source is missing"));
@@ -254,8 +257,9 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
                         0, false});
     }
     case core::RoomTransitionStage::ExitCondition: {
-        const auto* source =
-            transition.source_room ? m_world.room(*transition.source_room) : nullptr;
+        const auto* source = transition.source_room
+                                 ? m_world.resolved_configuration(*transition.source_room)
+                                 : nullptr;
         const auto* exit = source != nullptr && transition.selected_exit
                                ? find_exit(*source, transition.selected_exit->exit_id)
                                : nullptr;
@@ -410,7 +414,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
 core::Result<void, core::Diagnostics> RuntimeExecutor::navigate(const core::RoomExitId& exit)
 {
     const auto* mode = std::get_if<core::RoomMode>(&m_state.mode());
-    const auto* room = mode == nullptr ? nullptr : m_world.room(mode->room);
+    const auto* room = mode == nullptr ? nullptr : m_world.resolved_configuration(mode->room);
     const auto* selected = room == nullptr ? nullptr : find_exit(*room, exit);
     if (mode == nullptr || room == nullptr || selected == nullptr || !m_state.flow_stack().empty())
         return core::Result<void, core::Diagnostics>::failure(execution_error(

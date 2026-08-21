@@ -137,7 +137,12 @@ Overrides are stored once by `(PropertyTargetRef, PropertyId)`, where the target
 global target or an admitted identity. Setting an ancestor identity override therefore immediately
 affects unshadowed descendants; unsetting removes only that override. Global lookup resolves the same
 override store before its required authored default. The initial runtime must use bounded direct chain
-traversal rather than an invalidatable resolved-value cache.
+traversal rather than an invalidatable resolved-value cache. Production Room, Character, and
+Interactable reads reach that traversal through `RuntimeWorld::resolve_property(...)`; runtime
+consumers do not inspect `extends` or parent indexes directly. Their non-Property configuration is
+obtained through `RuntimeWorld::resolved_configuration(...)`, which currently borrows the immutable
+compiled definition and provides the seam where later compiler-resolved Archetype configuration can
+replace this representation without scattering lookup policy.
 
 Only declared custom properties inherit by default. Structural fields, programs, graphs, placements,
 exits, and resources remain local. Verb alone has V1 behavioral inheritance: availability conditions
