@@ -42,8 +42,8 @@ compiled::CompiledProjectInput project_input()
         .value_type = NumberPropertyType{},
         .nullable = false,
         .default_value = RuntimeValue{1.0},
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Save,
         .label = "Ambient light",
         .description = "Room lighting intensity.",
     });
@@ -71,7 +71,6 @@ compiled::CompiledProjectInput project_input()
         .entrypoint = child_id,
         .startup_hook = std::nullopt,
         .localization = {"en", std::nullopt, {compiled::LocalizationCatalog{"en", {}}}},
-        .variables = {},
         .properties = std::move(properties),
         .assets = {},
         .layouts = {},
@@ -127,7 +126,7 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<4, compiled::SceneInstruction>,
                                   compiled::AudioCueInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<5, compiled::SceneInstruction>,
-                                  compiled::SetVariableSceneInstruction>);
+                                  compiled::SetGlobalPropertySceneInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<6, compiled::SceneInstruction>,
                                   compiled::RunLuaSceneInstruction>);
     STATIC_REQUIRE(std::is_same_v<std::variant_alternative_t<7, compiled::SceneInstruction>,
@@ -167,9 +166,6 @@ TEST_CASE("compiled project publishes immutable collections and checked indexes"
     STATIC_REQUIRE(!std::is_default_constructible_v<CompiledProject>);
     STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().rooms()),
                                   const std::vector<compiled::RoomDefinition>&>);
-    STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_variable(
-                                      std::declval<const VariableId&>())),
-                                  const compiled::VariableDefinition*>);
     STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_property(
                                       std::declval<const PropertyId&>())),
                                   const PropertyDefinition*>);
@@ -266,15 +262,18 @@ TEST_CASE("compiled project construction rejects structurally invalid public inp
     REQUIRE_FALSE(invalid_room_result);
     CHECK(invalid_room_result.error().front().code == "compiled.invalid_model");
 
-    auto invalid_variable = project_input();
-    invalid_variable.variables.push_back(compiled::VariableDefinition{
-        .id = id<VariableId>("flag"),
+    auto invalid_global = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("flag"),
         .value_type = BooleanPropertyType{},
-        .default_value = RuntimeValue{std::string("not-a-boolean")},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Global,
+        .allowed_owners = {},
+        .label = "Flag",
+        .description = "Global flag.",
     });
-    auto invalid_variable_result = CompiledProject::create(std::move(invalid_variable));
-    REQUIRE_FALSE(invalid_variable_result);
-    CHECK(invalid_variable_result.error().front().code == "compiled.invalid_model");
+    REQUIRE_FALSE(invalid_global);
+    CHECK(invalid_global.error().front().code == "domain.invalid_property_definition");
 }
 
 TEST_CASE("compiled project construction rejects duplicate and invalid inheritance indexes")

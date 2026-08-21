@@ -17,10 +17,16 @@
 
 namespace noveltea::core {
 
-enum class PropertyPersistence : std::uint8_t {
-    Session,
-    Save
+enum class PropertyScope : std::uint8_t {
+    Global,
+    Identity
 };
+
+struct GlobalPropertyTarget {
+    bool operator==(const GlobalPropertyTarget&) const = default;
+};
+using PropertyTargetRef = std::variant<GlobalPropertyTarget, RoomId, SceneId, DialogueId,
+                                       CharacterId, InteractableId, VerbId, InteractionId, MapId>;
 
 struct BooleanPropertyType {};
 struct IntegerPropertyType {};
@@ -37,8 +43,8 @@ struct PropertyDefinitionInput {
     PropertyValueType value_type;
     bool nullable;
     std::optional<RuntimeValue> default_value;
+    PropertyScope scope;
     std::vector<PropertyOwnerKind> allowed_owners;
-    PropertyPersistence persistence;
     std::string label{};
     std::string description{};
 };
@@ -53,11 +59,12 @@ public:
     {
         return m_default_value;
     }
+    [[nodiscard]] PropertyScope scope() const noexcept { return m_scope; }
+    [[nodiscard]] bool is_global() const noexcept { return m_scope == PropertyScope::Global; }
     [[nodiscard]] const std::vector<PropertyOwnerKind>& allowed_owners() const noexcept
     {
         return m_allowed_owners;
     }
-    [[nodiscard]] PropertyPersistence persistence() const noexcept { return m_persistence; }
     [[nodiscard]] const std::string& label() const noexcept { return m_label; }
     [[nodiscard]] const std::string& description() const noexcept { return m_description; }
 
@@ -67,7 +74,7 @@ private:
     explicit PropertyDefinition(PropertyDefinitionInput input)
         : m_id(std::move(input.id)), m_value_type(std::move(input.value_type)),
           m_nullable(input.nullable), m_default_value(std::move(input.default_value)),
-          m_allowed_owners(std::move(input.allowed_owners)), m_persistence(input.persistence),
+          m_scope(input.scope), m_allowed_owners(std::move(input.allowed_owners)),
           m_label(std::move(input.label)), m_description(std::move(input.description))
     {
     }
@@ -75,8 +82,8 @@ private:
     PropertyValueType m_value_type;
     bool m_nullable;
     std::optional<RuntimeValue> m_default_value;
+    PropertyScope m_scope;
     std::vector<PropertyOwnerKind> m_allowed_owners;
-    PropertyPersistence m_persistence;
     std::string m_label;
     std::string m_description;
 };
@@ -102,26 +109,26 @@ private:
 class PropertyOverride {
 public:
     PropertyOverride() = delete;
-    [[nodiscard]] const PropertyOwnerRef& owner() const noexcept { return m_owner; }
+    [[nodiscard]] const PropertyTargetRef& target() const noexcept { return m_target; }
     [[nodiscard]] const PropertyId& property_id() const noexcept { return m_property_id; }
     [[nodiscard]] const RuntimeValue& value() const noexcept { return m_value; }
     [[nodiscard]] const RuntimeValue& override_value() const noexcept { return m_value; }
 
 private:
     friend Result<PropertyOverride, Diagnostics>
-    make_property_override(PropertyOwnerRef, const PropertyDefinition&, RuntimeValue);
-    PropertyOverride(PropertyOwnerRef owner, PropertyId property_id, RuntimeValue value)
-        : m_owner(std::move(owner)), m_property_id(std::move(property_id)),
+    make_property_override(PropertyTargetRef, const PropertyDefinition&, RuntimeValue);
+    PropertyOverride(PropertyTargetRef target, PropertyId property_id, RuntimeValue value)
+        : m_target(std::move(target)), m_property_id(std::move(property_id)),
           m_value(std::move(value))
     {
     }
-    PropertyOwnerRef m_owner;
+    PropertyTargetRef m_target;
     PropertyId m_property_id;
     RuntimeValue m_value;
 };
 
 struct MissingPropertyValue {
-    PropertyOwnerRef owner;
+    PropertyTargetRef target;
     PropertyId property_id;
 };
 using PropertyLookupResult = std::variant<RuntimeValue, MissingPropertyValue>;
@@ -151,6 +158,27 @@ using PropertyLookupResult = std::variant<RuntimeValue, MissingPropertyValue>;
                 static_assert(std::is_same_v<T, void>, "Unhandled property owner type");
         },
         owner);
+}
+
+[[nodiscard]] inline PropertyTargetRef property_target(const PropertyOwnerRef& owner)
+{
+    return std::visit([](const auto& id) { return PropertyTargetRef{id}; }, owner);
+}
+
+[[nodiscard]] inline std::optional<PropertyOwnerKind>
+property_target_owner_kind(const PropertyTargetRef& target) noexcept
+{
+    if (std::holds_alternative<GlobalPropertyTarget>(target))
+        return std::nullopt;
+    return std::visit(
+        [](const auto& value) -> std::optional<PropertyOwnerKind> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
+                return std::nullopt;
+            else
+                return property_owner_kind(PropertyOwnerRef{value});
+        },
+        target);
 }
 
 [[nodiscard]] inline bool runtime_value_is_finite(const RuntimeValue& value) noexcept
@@ -190,10 +218,14 @@ using PropertyLookupResult = std::variant<RuntimeValue, MissingPropertyValue>;
 [[nodiscard]] inline Result<PropertyDefinition, Diagnostics>
 make_property_definition(PropertyDefinitionInput input)
 {
-    if (input.allowed_owners.empty() || input.persistence > PropertyPersistence::Save)
+    if (input.scope > PropertyScope::Identity ||
+        (input.scope == PropertyScope::Global &&
+         (!input.default_value || !input.allowed_owners.empty())) ||
+        (input.scope == PropertyScope::Identity && input.allowed_owners.empty()))
         return Result<PropertyDefinition, Diagnostics>::failure(Diagnostics{
             Diagnostic{.code = "domain.invalid_property_definition",
-                       .message = "Property requires valid persistence and an owner kind"}});
+                       .message = "Global Properties require a default and no owner kinds; "
+                                  "identity Properties require at least one owner kind"}});
     for (const auto owner : input.allowed_owners) {
         if (owner > PropertyOwnerKind::Map)
             return Result<PropertyDefinition, Diagnostics>::failure(
@@ -246,17 +278,22 @@ make_property_assignment(PropertyOwnerKind owner_kind, const PropertyDefinition&
 }
 
 [[nodiscard]] inline Result<PropertyOverride, Diagnostics>
-make_property_override(PropertyOwnerRef owner, const PropertyDefinition& definition,
+make_property_override(PropertyTargetRef target, const PropertyDefinition& definition,
                        RuntimeValue value)
 {
-    if (!std::binary_search(definition.allowed_owners().begin(), definition.allowed_owners().end(),
-                            property_owner_kind(owner)) ||
-        !property_value_matches(definition, value))
-        return Result<PropertyOverride, Diagnostics>::failure(
-            Diagnostics{Diagnostic{.code = "domain.invalid_property_override",
-                                   .message = "Property override does not match its declaration"}});
+    const auto owner_kind = property_target_owner_kind(target);
+    const bool target_allowed =
+        definition.is_global()
+            ? !owner_kind.has_value()
+            : owner_kind.has_value() &&
+                  std::binary_search(definition.allowed_owners().begin(),
+                                     definition.allowed_owners().end(), *owner_kind);
+    if (!target_allowed || !property_value_matches(definition, value))
+        return Result<PropertyOverride, Diagnostics>::failure(Diagnostics{
+            Diagnostic{.code = "domain.invalid_property_override",
+                       .message = "Property override does not match its declaration or target"}});
     return Result<PropertyOverride, Diagnostics>::success(
-        PropertyOverride(std::move(owner), definition.id(), std::move(value)));
+        PropertyOverride(std::move(target), definition.id(), std::move(value)));
 }
 
 } // namespace noveltea::core

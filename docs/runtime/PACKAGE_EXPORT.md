@@ -8,7 +8,7 @@ Hotspot package ownership and runtime-derived mask behavior are specified in
 Runtime exports are ZIP-based `.ntpkg` files with safe relative paths. The authoritative documents
 are separate:
 
-- `gameplay.json`: canonical `noveltea.compiled.project` version 3.
+- `gameplay.json`: canonical `noveltea.compiled.project` version 4.
 - `manifest.json`: runtime-package format version 2 with package identity, canonical reference
   resolution, world raster policy, accessibility policies, platform launch data, inventory, sizes, and
   optional checksums.

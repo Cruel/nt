@@ -650,7 +650,6 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       label: 'Mood',
       type: 'string',
       nullable: false,
-      persistence: 'Save',
       ownerKinds: ['room'],
       defaultValue: 'neutral',
     };

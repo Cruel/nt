@@ -85,28 +85,55 @@ CompiledProject project()
         .value_type = EnumPropertyType{{"calm", "tense", "bright"}},
         .nullable = false,
         .default_value = RuntimeValue{std::string{"calm"}},
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Save,
     });
     auto note = make_property_definition(PropertyDefinitionInput{
         .id = id<PropertyId>("note"),
         .value_type = StringPropertyType{},
         .nullable = true,
         .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Session,
     });
     auto light = make_property_definition(PropertyDefinitionInput{
         .id = id<PropertyId>("light"),
         .value_type = NumberPropertyType{},
         .nullable = false,
         .default_value = RuntimeValue{1.0},
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Session,
+    });
+    auto flag = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("flag"),
+        .value_type = BooleanPropertyType{},
+        .nullable = false,
+        .default_value = RuntimeValue{false},
+        .scope = PropertyScope::Global,
+        .allowed_owners = {},
+    });
+    auto count = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("count"),
+        .value_type = IntegerPropertyType{},
+        .nullable = false,
+        .default_value = RuntimeValue{std::int64_t{2}},
+        .scope = PropertyScope::Global,
+        .allowed_owners = {},
+    });
+    auto weather = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("weather"),
+        .value_type = EnumPropertyType{{"calm", "tense"}},
+        .nullable = false,
+        .default_value = RuntimeValue{std::string{"calm"}},
+        .scope = PropertyScope::Global,
+        .allowed_owners = {},
     });
     REQUIRE(mood);
     REQUIRE(note);
     REQUIRE(light);
+    REQUIRE(flag);
+    REQUIRE(count);
+    REQUIRE(weather);
 
     auto root_mood = make_property_assignment(PropertyOwnerKind::Room, mood.value(),
                                               RuntimeValue{std::string{"tense"}});
@@ -131,6 +158,9 @@ CompiledProject project()
     properties.push_back(std::move(mood).value());
     properties.push_back(std::move(note).value());
     properties.push_back(std::move(light).value());
+    properties.push_back(std::move(flag).value());
+    properties.push_back(std::move(count).value());
+    properties.push_back(std::move(weather).value());
 
     std::vector<compiled::RoomDefinition> rooms;
     rooms.push_back(room(root, std::nullopt, std::move(root_assignments)));
@@ -149,11 +179,6 @@ CompiledProject project()
         .entrypoint = child,
         .startup_hook = std::nullopt,
         .localization = {"en", std::nullopt, {compiled::LocalizationCatalog{"en", {}}}},
-        .variables = {{id<VariableId>("flag"), BooleanPropertyType{}, RuntimeValue{false}},
-                      {id<VariableId>("count"), IntegerPropertyType{},
-                       RuntimeValue{std::int64_t{2}}},
-                      {id<VariableId>("weather"), EnumPropertyType{{"calm", "tense"}},
-                       RuntimeValue{std::string{"calm"}}}},
         .properties = std::move(properties),
         .assets = {},
         .layouts = {},
@@ -181,7 +206,7 @@ const RuntimeValue& resolved_value(const Result<PropertyLookupResult, Diagnostic
 }
 } // namespace
 
-TEST_CASE("session state initializes declared variables and enforces their types")
+TEST_CASE("global properties resolve authored defaults and enforce their types")
 {
     const auto compiled_project = project();
     auto state_result = SessionState::create(compiled_project);
@@ -195,20 +220,19 @@ TEST_CASE("session state initializes declared variables and enforces their types
     CHECK_FALSE(transition->source_room);
     CHECK(transition->target_room == id<RoomId>("hall"));
     CHECK(transition->position.stage == RoomTransitionStage::TargetCanEnter);
-    CHECK(state.variable(compiled_project, id<VariableId>("flag")).value() == RuntimeValue{false});
-    CHECK(state.variable(compiled_project, id<VariableId>("count")).value() ==
+    PropertyResolver resolver(compiled_project, state);
+    CHECK(resolved_value(resolver.get_global(id<PropertyId>("flag"))) == RuntimeValue{false});
+    CHECK(resolved_value(resolver.get_global(id<PropertyId>("count"))) ==
           RuntimeValue{std::int64_t{2}});
 
-    CHECK(state.set_variable(compiled_project, id<VariableId>("flag"), RuntimeValue{true}));
-    CHECK(state.variable(compiled_project, id<VariableId>("flag")).value() == RuntimeValue{true});
-    CHECK_FALSE(state.set_variable(compiled_project, id<VariableId>("flag"),
-                                   RuntimeValue{std::int64_t{1}}));
-    CHECK(state.set_variable(compiled_project, id<VariableId>("weather"),
-                             RuntimeValue{std::string{"tense"}}));
-    CHECK_FALSE(state.set_variable(compiled_project, id<VariableId>("weather"),
-                                   RuntimeValue{std::string{"rain"}}));
-    CHECK_FALSE(
-        state.set_variable(compiled_project, id<VariableId>("missing"), RuntimeValue{true}));
+    CHECK(resolver.set_global(id<PropertyId>("flag"), RuntimeValue{true}));
+    CHECK(resolved_value(resolver.get_global(id<PropertyId>("flag"))) == RuntimeValue{true});
+    CHECK_FALSE(resolver.set_global(id<PropertyId>("flag"), RuntimeValue{std::int64_t{1}}));
+    CHECK(resolver.set_global(id<PropertyId>("weather"), RuntimeValue{std::string{"tense"}}));
+    CHECK_FALSE(resolver.set_global(id<PropertyId>("weather"), RuntimeValue{std::string{"rain"}}));
+    CHECK_FALSE(resolver.set_global(id<PropertyId>("missing"), RuntimeValue{true}));
+    REQUIRE(resolver.unset_global(id<PropertyId>("flag")));
+    CHECK(resolved_value(resolver.get_global(id<PropertyId>("flag"))) == RuntimeValue{false});
 }
 
 TEST_CASE("property resolution follows local authored ancestor default and missing order")
@@ -234,7 +258,7 @@ TEST_CASE("property resolution follows local authored ancestor default and missi
     REQUIRE(missing);
     const auto* missing_value = std::get_if<MissingPropertyValue>(&missing.value());
     REQUIRE(missing_value != nullptr);
-    CHECK(missing_value->owner == PropertyOwnerRef{id<RoomId>("garden")});
+    CHECK(missing_value->target == property_target(PropertyOwnerRef{id<RoomId>("garden")}));
     CHECK(missing_value->property_id == id<PropertyId>("note"));
     CHECK(state.property_override_count() == 0);
 }

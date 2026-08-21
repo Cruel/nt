@@ -164,6 +164,9 @@ template<class Id> nlohmann::json encode_optional_id(const std::optional<Id>& va
 nlohmann::json encode_owner(const PropertyOwnerRef& owner);
 std::optional<PropertyOwnerRef> decode_owner(Decoder& d, const nlohmann::json& value,
                                              std::string_view pointer);
+nlohmann::json encode_property_target(const PropertyTargetRef& target);
+std::optional<PropertyTargetRef> decode_property_target(Decoder& d, const nlohmann::json& value,
+                                                        std::string_view pointer);
 nlohmann::json encode_location(const compiled::InteractableLocation& location);
 std::optional<compiled::InteractableLocation>
 decode_location(Decoder& d, const nlohmann::json& value, std::string_view pointer);

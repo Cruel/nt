@@ -20,7 +20,7 @@ public:
     [[nodiscard]] virtual core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
     definition(core::ProjectDefinitionKind kind, std::string id) const = 0;
     [[nodiscard]] virtual core::Result<core::RuntimeValue, core::Diagnostics>
-    variable(const core::VariableId& id) const = 0;
+    global_property(const core::PropertyId& id) const = 0;
     [[nodiscard]] virtual core::Result<core::PropertyLookupResult, core::Diagnostics>
     property(const core::PropertyOwnerRef& owner, const core::PropertyId& property) const = 0;
     [[nodiscard]] virtual core::Result<core::compiled::InteractableLocation, core::Diagnostics>

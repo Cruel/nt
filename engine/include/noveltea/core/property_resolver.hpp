@@ -14,6 +14,12 @@ public:
     {
     }
 
+    [[nodiscard]] Result<PropertyLookupResult, Diagnostics>
+    get_global(const PropertyId& property) const;
+    [[nodiscard]] Result<void, Diagnostics> set_global(const PropertyId& property,
+                                                       RuntimeValue value);
+    [[nodiscard]] Result<void, Diagnostics> unset_global(const PropertyId& property);
+
     [[nodiscard]] Result<PropertyLookupResult, Diagnostics> get(const PropertyOwnerRef& owner,
                                                                 const PropertyId& property) const;
     [[nodiscard]] Result<void, Diagnostics> set(PropertyOwnerRef owner, const PropertyId& property,
@@ -23,7 +29,9 @@ public:
 
 private:
     [[nodiscard]] Result<const PropertyDefinition*, Diagnostics>
-    validate(const PropertyOwnerRef& owner, const PropertyId& property) const;
+    validate_global(const PropertyId& property) const;
+    [[nodiscard]] Result<const PropertyDefinition*, Diagnostics>
+    validate_identity(const PropertyOwnerRef& owner, const PropertyId& property) const;
     [[nodiscard]] bool owner_exists(const PropertyOwnerRef& owner) const noexcept;
 
     const CompiledProject& m_project;

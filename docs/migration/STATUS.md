@@ -5,7 +5,7 @@
 NovelTea has one shipped gameplay path:
 
 ```text
-noveltea.authoring.project version 3 -> compileAuthoringProject -> noveltea.compiled.project version 3
+noveltea.authoring.project version 4 -> compileAuthoringProject -> noveltea.compiled.project version 4
   -> LoadedCompiledPackage -> RunningGame -> RuntimeSession
 ```
 

@@ -12,7 +12,6 @@ export const propertyOwnerKindValues = [
   'map',
 ] as const;
 export const propertyValueTypeValues = ['boolean', 'integer', 'number', 'string', 'enum'] as const;
-export const propertyPersistenceValues = ['Session', 'Save'] as const;
 
 export const authoredRuntimeValueSchema = z.union([
   z.null(),
@@ -31,7 +30,6 @@ export const propertyDefinitionSchema = z
     defaultValue: authoredRuntimeValueSchema.optional(),
     enumValues: z.array(z.string().min(1)).optional(),
     ownerKinds: z.array(z.enum(propertyOwnerKindValues)).min(1),
-    persistence: z.enum(propertyPersistenceValues),
   })
   .strict()
   .superRefine((definition, context) => {

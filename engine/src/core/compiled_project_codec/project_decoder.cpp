@@ -39,8 +39,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     Decoder decoder(std::move(source_path));
     if (!decoder.object(document, "",
                         {"definitions", "entrypoint", "localization", "project", "properties",
-                         "resources", "schema", "schemaVersion", "settings", "startupHook",
-                         "variables"}))
+                         "resources", "schema", "schemaVersion", "settings", "startupHook"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -50,7 +49,6 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* entrypoint_value = decoder.member(document, "entrypoint", "");
     const auto* startup_value = decoder.member(document, "startupHook", "");
     const auto* localization_value = decoder.member(document, "localization", "");
-    const auto* variables_value = decoder.member(document, "variables", "");
     const auto* properties_value = decoder.member(document, "properties", "");
     const auto* resources_value = decoder.member(document, "resources", "");
     const auto* definitions_value = decoder.member(document, "definitions", "");
@@ -60,7 +58,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         if (*schema == "noveltea.runtime.project")
             decoder.error("compiled_project.unsupported_provisional_schema",
                           "The provisional 'noveltea.runtime.project' schema is unsupported; "
-                          "expected 'noveltea.compiled.project' version 3.",
+                          "expected 'noveltea.compiled.project' version 4.",
                           "/schema");
         else
             decoder.error("compiled_project.unsupported_schema",
@@ -70,8 +68,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     auto version = version_value
                        ? decoder.unsigned_integer<std::uint32_t>(*version_value, "/schemaVersion")
                        : std::nullopt;
-    if (version && *version != 3) {
-        decoder.error("compiled_project.unsupported_version", "Only schema version 3 is supported.",
+    if (version && *version != 4) {
+        decoder.error("compiled_project.unsupported_version", "Only schema version 4 is supported.",
                       "/schemaVersion");
         version.reset();
     }
@@ -100,13 +98,6 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     auto localization = localization_value
                             ? decode_localization(decoder, *localization_value, "/localization")
                             : std::nullopt;
-    auto variables = variables_value
-                         ? decoder.array<VariableDeclaration>(
-                               *variables_value, "/variables",
-                               [&](const nlohmann::json& item, const std::string& pointer) {
-                                   return decode_variable(decoder, item, pointer);
-                               })
-                         : std::nullopt;
     auto properties = properties_value
                           ? decoder.array<PropertyDeclaration>(
                                 *properties_value, "/properties",
@@ -174,10 +165,6 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 #undef NOVELTEA_DECODE_DEFINITION
     }
 
-    if (variables)
-        decoder.duplicate_ids(
-            *variables, "/variables",
-            [](const VariableDeclaration& value) -> const VariableId& { return value.id; });
     if (properties)
         decoder.duplicate_ids(
             *properties, "/properties",
@@ -209,7 +196,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 #undef NOVELTEA_DUPLICATE_DEFINITION
 
     const bool complete = schema && version && identity && settings && entrypoint && startup_ok &&
-                          localization && variables && properties && assets && layouts && scripts &&
+                          localization && properties && assets && layouts && scripts &&
                           characters && rooms && interactables && verbs && interactions && scenes &&
                           dialogues && maps;
     if (!complete || decoder.failed())
@@ -217,10 +204,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     return Result<SharedProject, Diagnostics>::success(SharedProject{
         std::move(*identity), std::move(*settings), std::move(*entrypoint), std::move(startup),
-        std::move(*localization), std::move(*variables), std::move(*properties), std::move(*assets),
-        std::move(*layouts), std::move(*scripts), std::move(*characters), std::move(*rooms),
-        std::move(*interactables), std::move(*verbs), std::move(*interactions), std::move(*scenes),
-        std::move(*dialogues), std::move(*maps)});
+        std::move(*localization), std::move(*properties), std::move(*assets), std::move(*layouts),
+        std::move(*scripts), std::move(*characters), std::move(*rooms), std::move(*interactables),
+        std::move(*verbs), std::move(*interactions), std::move(*scenes), std::move(*dialogues),
+        std::move(*maps)});
 }
 
 } // namespace noveltea::core::compiled::wire

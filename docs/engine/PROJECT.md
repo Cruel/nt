@@ -8,10 +8,10 @@ mutation target.
 
 Tracked authoring uses workspace v1 (`noveltea.project.workspace` version 1) rooted at a project
 directory with `project.json` plus segmented record/source files. `ProjectWorkspaceService` strictly
-assembles that tree into the internal `noveltea.authoring.project` version 3 model used by editor,
+assembles that tree into the internal `noveltea.authoring.project` version 4 model used by editor,
 compiler, graph, preview, and tests. That internal identity is not a persisted monolithic project
 format. Native runtime code never parses authoring workspace source. Compilation emits strict
-canonical `noveltea.compiled.project` version 3.
+canonical `noveltea.compiled.project` version 4.
 
 ## Collections
 

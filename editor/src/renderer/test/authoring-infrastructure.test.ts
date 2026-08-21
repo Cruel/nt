@@ -68,7 +68,6 @@ describe('authoring V2 infrastructure', () => {
       nullable: false,
       defaultValue: 'main',
       ownerKinds: ['room'],
-      persistence: 'Save',
     };
     project.rooms.area = {
       id: 'area',

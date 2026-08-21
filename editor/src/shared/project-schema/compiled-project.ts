@@ -5,10 +5,10 @@ import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 /**
  * The sole gameplay JSON contract for the native decoder. This is
- * deliberately independent of the editable AuthoringProject V3 shape.
+ * deliberately independent of the editable AuthoringProject V4 shape.
  */
 export const COMPILED_PROJECT_SCHEMA = 'noveltea.compiled.project' as const;
-export const COMPILED_PROJECT_SCHEMA_VERSION = 3 as const;
+export const COMPILED_PROJECT_SCHEMA_VERSION = 4 as const;
 
 const strict = <Shape extends z.ZodRawShape>(shape: Shape) => z.object(shape).strict();
 const id = entityIdSchema;
@@ -31,7 +31,7 @@ const materialReferenceSchema = typedReference('material');
 const roomReferenceSchema = typedReference('room');
 const sceneReferenceSchema = typedReference('scene');
 const scriptReferenceSchema = typedReference('script');
-const variableReferenceSchema = typedReference('variable');
+const propertyReferenceSchema = typedReference('property');
 const verbReferenceSchema = typedReference('verb');
 
 export const compiledTextSourceSchema = z.discriminatedUnion('kind', [
@@ -48,7 +48,7 @@ export const compiledTextSchema = strict({
 export const compiledConditionSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('always') }),
   strict({
-    kind: z.literal('variable-comparison'),
+    kind: z.literal('global-property-comparison'),
     operator: z.enum([
       'equal',
       'not-equal',
@@ -60,16 +60,16 @@ export const compiledConditionSchema = z.discriminatedUnion('kind', [
       'falsy',
     ]),
     value: runtimeValueSchema.optional(),
-    variable: variableReferenceSchema,
+    property: propertyReferenceSchema,
   }),
   strict({ kind: z.literal('lua-predicate'), source: z.string().min(1) }),
 ]);
 
 export const compiledEffectSchema = z.discriminatedUnion('kind', [
   strict({
-    kind: z.literal('set-variable'),
+    kind: z.literal('set-global-property'),
+    property: propertyReferenceSchema,
     value: runtimeValueSchema,
-    variable: variableReferenceSchema,
   }),
   strict({ kind: z.literal('run-lua-effect'), source: z.string().min(1) }),
 ]);
@@ -95,35 +95,41 @@ const propertyBearingDefinition = {
   propertyAssignments: z.array(propertyAssignmentSchema),
 };
 
-const propertyDefinitionSchema = strict({
-  defaultValue: runtimeValueSchema.optional(),
+const propertyDefinitionCommon = {
   description: z.string(),
   enumValues: z.array(z.string().min(1)),
   id,
   label: z.string().min(1),
   nullable: z.boolean(),
-  ownerKinds: z.array(
-    z.enum([
-      'room',
-      'scene',
-      'dialogue',
-      'character',
-      'interactable',
-      'verb',
-      'interaction',
-      'map',
-    ]),
-  ),
-  persistence: z.enum(['Session', 'Save']),
   type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
-});
+};
 
-const variableDefinitionSchema = strict({
-  defaultValue: z.union([z.boolean(), finiteNumber, z.string()]),
-  enumValues: z.array(z.string().min(1)),
-  id,
-  type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
-});
+const propertyDefinitionSchema = z.discriminatedUnion('scope', [
+  strict({
+    ...propertyDefinitionCommon,
+    defaultValue: runtimeValueSchema,
+    scope: z.literal('global'),
+  }),
+  strict({
+    ...propertyDefinitionCommon,
+    defaultValue: runtimeValueSchema.optional(),
+    ownerKinds: z
+      .array(
+        z.enum([
+          'room',
+          'scene',
+          'dialogue',
+          'character',
+          'interactable',
+          'verb',
+          'interaction',
+          'map',
+        ]),
+      )
+      .min(1),
+    scope: z.literal('identity'),
+  }),
+]);
 
 const vector2Schema = strict({ x: finiteNumber, y: finiteNumber });
 const normalizedRectSchema = strict({
@@ -544,9 +550,9 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
   }),
   strict({
     ...sceneInstructionCommon,
-    kind: z.literal('set-variable'),
+    kind: z.literal('set-global-property'),
+    property: propertyReferenceSchema,
     value: runtimeValueSchema,
-    variable: variableReferenceSchema,
   }),
   strict({
     ...sceneInstructionCommon,
@@ -833,7 +839,7 @@ export const compiledDiagnosticSchema = strict({
   sortKey: strict({ code: z.string(), jsonPointer: z.string(), sourcePath: z.string() }),
 });
 
-export const compiledProjectWireV3Schema = strict({
+export const compiledProjectWireV4Schema = strict({
   definitions: strict({
     characters: z.array(characterDefinitionSchema),
     dialogues: z.array(dialogueDefinitionSchema),
@@ -867,7 +873,6 @@ export const compiledProjectWireV3Schema = strict({
   schemaVersion: z.literal(COMPILED_PROJECT_SCHEMA_VERSION),
   settings: runtimeSettingsSchema,
   startupHook: strict({ source: z.string() }).nullable(),
-  variables: z.array(variableDefinitionSchema),
 }).superRefine((project, context) => {
   const collections = [
     { path: ['definitions', 'characters'], records: project.definitions.characters },
@@ -882,7 +887,6 @@ export const compiledProjectWireV3Schema = strict({
     { path: ['resources', 'assets'], records: project.resources.assets },
     { path: ['resources', 'layouts'], records: project.resources.layouts },
     { path: ['resources', 'scripts'], records: project.resources.scripts },
-    { path: ['variables'], records: project.variables },
   ];
   collections.forEach(({ path, records }) => {
     const ids = new Set<string>();
@@ -928,10 +932,10 @@ export type SceneProgram = z.infer<typeof sceneProgramSchema>;
 export type DialogueProgram = z.infer<typeof dialogueProgramSchema>;
 export type CompiledDiagnostic = z.infer<typeof compiledDiagnosticSchema>;
 export type CompiledHotspotRef = z.infer<typeof compiledHotspotRefSchema>;
-export type CompiledProjectWireV3 = z.infer<typeof compiledProjectWireV3Schema>;
+export type CompiledProjectWireV4 = z.infer<typeof compiledProjectWireV4Schema>;
 
-export function parseCompiledProjectWireV3(value: unknown): CompiledProjectWireV3 {
-  return compiledProjectWireV3Schema.parse(value);
+export function parseCompiledProjectWireV4(value: unknown): CompiledProjectWireV4 {
+  return compiledProjectWireV4Schema.parse(value);
 }
 
 function compareUnicodeCodePoints(left: string, right: string): number {
@@ -1029,6 +1033,6 @@ function canonicalizeJson(value: CanonicalJson): CanonicalJson {
  * normalizes negative zero, and deliberately preserves every array's order.
  * Compiler stages own definition sorting and authored-sequence preservation.
  */
-export function serializeCompiledProjectWireV3(value: unknown): string {
-  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV3(value)));
+export function serializeCompiledProjectWireV4(value: unknown): string {
+  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV4(value)));
 }

@@ -2,7 +2,7 @@ import { parseAssetData } from './project-schema/authoring-assets';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import type {
   CompiledCondition,
-  CompiledProjectWireV3,
+  CompiledProjectWireV4,
   CompiledText,
 } from './project-schema/compiled-project';
 import {
@@ -27,8 +27,8 @@ import { parseScriptModuleData } from './project-schema/authoring-script-modules
 import { parseVariableData } from './project-schema/authoring-variables';
 import { parseVerbData } from './project-schema/authoring-verbs';
 
-type WireDefinitions = CompiledProjectWireV3['definitions'];
-type WireResources = CompiledProjectWireV3['resources'];
+type WireDefinitions = CompiledProjectWireV4['definitions'];
+type WireResources = CompiledProjectWireV4['resources'];
 
 export type SharedCharacterDefinition = WireDefinitions['characters'][number];
 export type SharedRoomDefinition = Omit<WireDefinitions['rooms'][number], 'lifecycle'> & {
@@ -53,18 +53,17 @@ export type SharedMapDefinition = WireDefinitions['maps'][number];
 /**
  * Deterministic, non-publishable intermediate. Specialized programs and
  * continuations extend it before the strict wire validator is allowed to see
- * a CompiledProjectWireV3.
+ * the current compiled-project wire shape.
  */
 export interface CompiledProjectSharedDraft {
   schema: typeof COMPILED_PROJECT_SCHEMA;
   schemaVersion: typeof COMPILED_PROJECT_SCHEMA_VERSION;
-  project: CompiledProjectWireV3['project'];
-  settings: CompiledProjectWireV3['settings'];
-  startupHook: CompiledProjectWireV3['startupHook'];
-  entrypoint: CompiledProjectWireV3['entrypoint'];
-  properties: CompiledProjectWireV3['properties'];
-  variables: CompiledProjectWireV3['variables'];
-  localization: CompiledProjectWireV3['localization'];
+  project: CompiledProjectWireV4['project'];
+  settings: CompiledProjectWireV4['settings'];
+  startupHook: CompiledProjectWireV4['startupHook'];
+  entrypoint: CompiledProjectWireV4['entrypoint'];
+  properties: CompiledProjectWireV4['properties'];
+  localization: CompiledProjectWireV4['localization'];
   resources: WireResources;
   definitions: {
     characters: SharedCharacterDefinition[];
@@ -152,9 +151,9 @@ function compileCondition(condition: Condition): CompiledCondition {
     return { kind: 'lua-predicate', source: condition.source };
   }
   return {
-    kind: condition.kind,
+    kind: 'global-property-comparison',
     operator: condition.operator,
-    variable: { kind: 'variable', id: condition.variable.$ref.id },
+    property: { kind: 'property', id: condition.variable.$ref.id },
     ...(condition.value === undefined ? {} : { value: condition.value }),
   };
 }
@@ -185,7 +184,7 @@ function compileLayoutSource(source: LayoutSourceData) {
 
 function compileEntrypoint(
   entrypoint: NonNullable<AuthoringProject['entrypoint']>,
-): CompiledProjectWireV3['entrypoint'] {
+): CompiledProjectWireV4['entrypoint'] {
   if (entrypoint.kind === 'room') return { kind: 'room', room: roomRef(entrypoint.id) };
   if (entrypoint.kind === 'scene')
     return { kind: 'scene', scene: { kind: 'scene', id: entrypoint.id } };
@@ -628,28 +627,43 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
   }
 
-  const properties = sortedEntries(project.properties).map(([id, definition]) => ({
-    id,
-    label: definition.label,
-    description: definition.description ?? '',
-    type: definition.type,
-    nullable: definition.nullable,
-    ...(definition.defaultValue === undefined ? {} : { defaultValue: definition.defaultValue }),
-    enumValues: [...(definition.enumValues ?? [])],
-    ownerKinds: [...definition.ownerKinds],
-    persistence: definition.persistence,
-  }));
+  const properties: CompiledProjectWireV4['properties'] = sortedEntries(project.properties).map(
+    ([id, definition]) => ({
+      id,
+      label: definition.label,
+      description: definition.description ?? '',
+      type: definition.type,
+      nullable: definition.nullable,
+      ...(definition.defaultValue === undefined ? {} : { defaultValue: definition.defaultValue }),
+      enumValues: [...(definition.enumValues ?? [])],
+      ownerKinds: [...definition.ownerKinds],
+      scope: 'identity' as const,
+    }),
+  );
 
-  const variables: CompiledProjectWireV3['variables'] = [];
+  const propertyIds = new Set(properties.map((property) => property.id));
   for (const [id, record] of sortedEntries(project.variables)) {
     const data = requireData(parseVariableData(record.data), `/variables/${id}/data`);
-    if (data)
-      variables.push({
-        id,
-        type: data.type,
-        defaultValue: data.defaultValue,
-        enumValues: [...(data.enumValues ?? [])],
+    if (!data) continue;
+    if (propertyIds.has(id)) {
+      diagnostics.push({
+        code: 'authoring.compile.global-property-id-collision',
+        path: `/variables/${id}/id`,
+        message: `Variable '${id}' conflicts with a Property declaration using the same ID.`,
       });
+      continue;
+    }
+    propertyIds.add(id);
+    properties.push({
+      id,
+      label: record.label,
+      description: record.description ?? '',
+      type: data.type,
+      nullable: false,
+      defaultValue: data.defaultValue,
+      enumValues: [...(data.enumValues ?? [])],
+      scope: 'global',
+    });
   }
 
   if (diagnostics.length > 0) return { diagnostics };
@@ -687,7 +701,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     startupHook: project.startupHook ? { source: project.startupHook.source } : null,
     entrypoint: compileEntrypoint(project.entrypoint),
     properties,
-    variables,
     localization: {
       defaultLocale: project.localization.defaultLocale,
       fallbackLocale: project.localization.fallbackLocale,

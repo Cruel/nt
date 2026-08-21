@@ -135,12 +135,9 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
     auto validation = validate_save_state_impl(project, save, {});
     if (!validation)
         return Result<nlohmann::json, Diagnostics>::failure(validation.error());
-    nlohmann::json variables = nlohmann::json::array();
-    for (const auto& value : save.variables)
-        variables.push_back({{"id", value.id.text()}, {"value", encode_value(value.value)}});
     nlohmann::json overrides = nlohmann::json::array();
     for (const auto& value : save.property_overrides)
-        overrides.push_back({{"owner", encode_owner(value.owner)},
+        overrides.push_back({{"target", encode_property_target(value.target)},
                              {"property", value.property.text()},
                              {"value", encode_value(value.value)}});
     nlohmann::json interactables = nlohmann::json::array();
@@ -192,7 +189,6 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
            {"projectVersion", save.metadata.project_version}}},
          {"playTimeMs", save.play_time.count()},
          {"randomState", save.random_state},
-         {"variables", std::move(variables)},
          {"propertyOverrides", std::move(overrides)},
          {"characters", std::move(characters)},
          {"interactables", std::move(interactables)},
@@ -214,32 +210,15 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
 {
     Decoder d(std::move(source_path));
     d.object(document, "",
-             {"schema",
-              "version",
-              "metadata",
-              "playTimeMs",
-              "randomState",
-              "variables",
-              "propertyOverrides",
-              "characters",
-              "interactables",
-              "activeRoomVisit",
-              "roomVisits",
-              "dialogueLineHistory",
-              "dialogueChoiceHistory",
-              "textLog",
-              "logicalTimers",
-              "pendingTimerCompletions",
-              "presentation",
-              "mode",
-              "flowStack",
-              "blocker"});
+             {"schema", "version", "metadata", "playTimeMs", "randomState", "propertyOverrides",
+              "characters", "interactables", "activeRoomVisit", "roomVisits", "dialogueLineHistory",
+              "dialogueChoiceHistory", "textLog", "logicalTimers", "pendingTimerCompletions",
+              "presentation", "mode", "flowStack", "blocker"});
     const auto* schema = d.member(document, "schema", "");
     const auto* version = d.member(document, "version", "");
     const auto* metadata = d.member(document, "metadata", "");
     const auto* play_time = d.member(document, "playTimeMs", "");
     const auto* random_state = d.member(document, "randomState", "");
-    const auto* variables = d.member(document, "variables", "");
     const auto* overrides = d.member(document, "propertyOverrides", "");
     const auto* characters = d.member(document, "characters", "");
     const auto* interactables = d.member(document, "interactables", "");
@@ -281,37 +260,23 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
         d.error(k_value, "Play time is outside the supported range.", "/playTimeMs");
         milliseconds.reset();
     }
-    auto saved_variables = decode_array<SavedVariable>(
-        d, variables, "/variables",
-        [&d](const nlohmann::json& value,
-             const std::string& pointer) -> std::optional<SavedVariable> {
-            if (!d.object(value, pointer, {"id", "value"}))
-                return std::nullopt;
-            const auto* id = d.member(value, "id", pointer);
-            const auto* saved = d.member(value, "value", pointer);
-            auto variable = id ? d.id<VariableId>(*id, child(pointer, "id")) : std::nullopt;
-            auto runtime = saved ? decode_value(d, *saved, child(pointer, "value")) : std::nullopt;
-            return variable && runtime ? std::optional<SavedVariable>(SavedVariable{
-                                             std::move(*variable), std::move(*runtime)})
-                                       : std::nullopt;
-        });
     auto saved_overrides = decode_array<SavedPropertyOverride>(
         d, overrides, "/propertyOverrides",
         [&d](const nlohmann::json& value,
              const std::string& pointer) -> std::optional<SavedPropertyOverride> {
-            if (!d.object(value, pointer, {"owner", "property", "value"}))
+            if (!d.object(value, pointer, {"property", "target", "value"}))
                 return std::nullopt;
-            const auto* owner = d.member(value, "owner", pointer);
+            const auto* target = d.member(value, "target", pointer);
             const auto* property = d.member(value, "property", pointer);
             const auto* saved = d.member(value, "value", pointer);
-            auto owner_ref =
-                owner ? decode_owner(d, *owner, child(pointer, "owner")) : std::nullopt;
+            auto target_ref = target ? decode_property_target(d, *target, child(pointer, "target"))
+                                     : std::nullopt;
             auto property_id =
                 property ? d.id<PropertyId>(*property, child(pointer, "property")) : std::nullopt;
             auto runtime = saved ? decode_value(d, *saved, child(pointer, "value")) : std::nullopt;
-            return owner_ref && property_id && runtime
+            return target_ref && property_id && runtime
                        ? std::optional<SavedPropertyOverride>(SavedPropertyOverride{
-                             std::move(*owner_ref), std::move(*property_id), std::move(*runtime)})
+                             std::move(*target_ref), std::move(*property_id), std::move(*runtime)})
                        : std::nullopt;
         });
     auto saved_interactables = decode_array<InteractableState>(
@@ -484,8 +449,8 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
             return decode_frame(d, value, pointer);
         });
     auto saved_blocker = blocker ? decode_blocker(d, *blocker, "/blocker") : std::nullopt;
-    if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state || !saved_variables ||
-        !saved_overrides || !saved_characters || !saved_interactables || !saved_active_room_visit ||
+    if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state || !saved_overrides ||
+        !saved_characters || !saved_interactables || !saved_active_room_visit ||
         !saved_room_visits || !saved_line_history || !saved_choice_history || !saved_log ||
         !saved_timers || !saved_completions || !saved_presentation || !saved_mode ||
         !saved_frames || !saved_blocker)
@@ -494,7 +459,6 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
         SaveState{std::move(*saved_metadata),
                   std::chrono::milliseconds(*milliseconds),
                   *saved_random_state,
-                  std::move(*saved_variables),
                   std::move(*saved_overrides),
                   std::move(*saved_characters),
                   std::move(*saved_interactables),

@@ -1,4 +1,5 @@
 #include "noveltea/core/shared_evaluator.hpp"
+#include "noveltea/core/property_resolver.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -31,45 +32,39 @@ long double number_value(const RuntimeValue& value) noexcept
     return static_cast<long double>(*std::get_if<double>(&value));
 }
 
-bool values_match_declaration(const compiled::VariableDefinition& declaration,
-                              const RuntimeValue& left, const RuntimeValue& right) noexcept
+bool values_match_declaration(const PropertyDefinition& declaration, const RuntimeValue& left,
+                              const RuntimeValue& right) noexcept
 {
-    if (!finite_number(left) || !finite_number(right))
-        return false;
-    return std::visit(
-        [&left, &right](const auto& type) {
-            using T = std::decay_t<decltype(type)>;
-            if constexpr (std::is_same_v<T, BooleanPropertyType>)
-                return std::holds_alternative<bool>(left) && std::holds_alternative<bool>(right);
-            else if constexpr (std::is_same_v<T, IntegerPropertyType>)
-                return std::holds_alternative<std::int64_t>(left) &&
-                       std::holds_alternative<std::int64_t>(right);
-            else if constexpr (std::is_same_v<T, NumberPropertyType>)
-                return is_number(left) && is_number(right);
-            else if constexpr (std::is_same_v<T, StringPropertyType>)
-                return std::holds_alternative<std::string>(left) &&
-                       std::holds_alternative<std::string>(right);
-            else {
-                const auto* left_text = std::get_if<std::string>(&left);
-                const auto* right_text = std::get_if<std::string>(&right);
-                return left_text != nullptr && right_text != nullptr &&
-                       std::find(type.values.begin(), type.values.end(), *left_text) !=
-                           type.values.end() &&
-                       std::find(type.values.begin(), type.values.end(), *right_text) !=
-                           type.values.end();
-            }
-        },
-        declaration.value_type);
+    return finite_number(left) && finite_number(right) &&
+           property_value_matches(declaration, left) && property_value_matches(declaration, right);
 }
 
-Result<bool, Diagnostics> compare_values(const compiled::VariableDefinition& declaration,
-                                         const VariableValueComparison& comparison,
+Result<bool, Diagnostics> compare_values(const PropertyDefinition& declaration,
+                                         const GlobalPropertyValueComparison& comparison,
                                          const RuntimeValue& current)
 {
     if (!values_match_declaration(declaration, current, comparison.value))
         return Result<bool, Diagnostics>::failure(evaluation_error(
             "execution.invalid_comparison_value",
-            "Variable comparison contains a missing, non-finite, or type-incompatible value"));
+            "Global Property comparison contains a non-finite or type-incompatible value"));
+
+    const bool equality = [&]() {
+        if (is_number(current) && is_number(comparison.value))
+            return number_value(current) == number_value(comparison.value);
+        return current == comparison.value;
+    }();
+    if (comparison.operation == ValueComparisonOperator::Equal)
+        return Result<bool, Diagnostics>::success(equality);
+    if (comparison.operation == ValueComparisonOperator::NotEqual)
+        return Result<bool, Diagnostics>::success(!equality);
+
+    if (std::holds_alternative<std::monostate>(current) ||
+        std::holds_alternative<std::monostate>(comparison.value) ||
+        std::holds_alternative<BooleanPropertyType>(declaration.value_type()) ||
+        std::holds_alternative<EnumPropertyType>(declaration.value_type()))
+        return Result<bool, Diagnostics>::failure(evaluation_error(
+            "execution.invalid_comparison_operator",
+            "Ordered comparison is incompatible with the Global Property declaration"));
 
     int order = 0;
     if (is_number(current)) {
@@ -79,38 +74,21 @@ Result<bool, Diagnostics> compare_values(const compiled::VariableDefinition& dec
     } else if (const auto* left = std::get_if<std::string>(&current)) {
         const auto& right = *std::get_if<std::string>(&comparison.value);
         order = *left < right ? -1 : (*left > right ? 1 : 0);
-    } else if (const auto* left = std::get_if<bool>(&current)) {
-        const bool right = *std::get_if<bool>(&comparison.value);
-        order = *left == right ? 0 : (*left ? 1 : -1);
     } else {
         return Result<bool, Diagnostics>::failure(evaluation_error(
-            "execution.invalid_comparison_value", "Null variables cannot be compared"));
+            "execution.invalid_comparison_value", "Global Property values are not orderable"));
     }
 
-    switch (comparison.operation) {
-    case ValueComparisonOperator::Equal:
-        return Result<bool, Diagnostics>::success(order == 0);
-    case ValueComparisonOperator::NotEqual:
-        return Result<bool, Diagnostics>::success(order != 0);
-    case ValueComparisonOperator::Less:
-    case ValueComparisonOperator::LessEqual:
-    case ValueComparisonOperator::Greater:
-    case ValueComparisonOperator::GreaterEqual:
-        if (std::holds_alternative<BooleanPropertyType>(declaration.value_type) ||
-            std::holds_alternative<EnumPropertyType>(declaration.value_type))
-            return Result<bool, Diagnostics>::failure(evaluation_error(
-                "execution.invalid_comparison_operator",
-                "Ordered comparison is incompatible with the variable declaration"));
-        if (comparison.operation == ValueComparisonOperator::Less)
-            return Result<bool, Diagnostics>::success(order < 0);
-        if (comparison.operation == ValueComparisonOperator::LessEqual)
-            return Result<bool, Diagnostics>::success(order <= 0);
-        if (comparison.operation == ValueComparisonOperator::Greater)
-            return Result<bool, Diagnostics>::success(order > 0);
+    if (comparison.operation == ValueComparisonOperator::Less)
+        return Result<bool, Diagnostics>::success(order < 0);
+    if (comparison.operation == ValueComparisonOperator::LessEqual)
+        return Result<bool, Diagnostics>::success(order <= 0);
+    if (comparison.operation == ValueComparisonOperator::Greater)
+        return Result<bool, Diagnostics>::success(order > 0);
+    if (comparison.operation == ValueComparisonOperator::GreaterEqual)
         return Result<bool, Diagnostics>::success(order >= 0);
-    }
     return Result<bool, Diagnostics>::failure(evaluation_error(
-        "execution.invalid_comparison_operator", "Variable comparison operator is invalid"));
+        "execution.invalid_comparison_operator", "Global Property comparison operator is invalid"));
 }
 
 const std::string* localized_value(const compiled::Localization& localization,
@@ -136,33 +114,40 @@ Result<bool, Diagnostics> SharedPrimitiveEvaluator::evaluate(const Condition& co
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, Always>) {
                 return Result<bool, Diagnostics>::success(true);
-            } else if constexpr (std::is_same_v<T, VariableComparison>) {
+            } else if constexpr (std::is_same_v<T, GlobalPropertyComparison>) {
                 return std::visit(
                     [this](const auto& comparison) -> Result<bool, Diagnostics> {
-                        const auto* declaration = m_project.find_variable(comparison.variable_id);
-                        if (declaration == nullptr)
-                            return Result<bool, Diagnostics>::failure(
-                                evaluation_error("execution.unknown_variable",
-                                                 "Condition references an undeclared variable '" +
-                                                     comparison.variable_id.text() + "'"));
-                        auto current = m_state.variable(m_project, comparison.variable_id);
-                        const auto* current_value = current.value_if();
-                        if (current_value == nullptr)
+                        const auto* declaration = m_project.find_property(comparison.property_id);
+                        if (declaration == nullptr || !declaration->is_global())
+                            return Result<bool, Diagnostics>::failure(evaluation_error(
+                                "execution.unknown_global_property",
+                                "Condition references an undeclared Global Property '" +
+                                    comparison.property_id.text() + "'"));
+                        PropertyResolver resolver(m_project, m_state);
+                        auto current = resolver.get_global(comparison.property_id);
+                        const auto* lookup = current.value_if();
+                        if (lookup == nullptr)
                             return Result<bool, Diagnostics>::failure(current.error());
+                        const auto* current_value = std::get_if<RuntimeValue>(lookup);
+                        if (current_value == nullptr)
+                            return Result<bool, Diagnostics>::failure(evaluation_error(
+                                "execution.missing_global_property",
+                                "Global Property unexpectedly resolved without a value"));
                         using C = std::decay_t<decltype(comparison)>;
-                        if constexpr (std::is_same_v<C, VariableValueComparison>) {
+                        if constexpr (std::is_same_v<C, GlobalPropertyValueComparison>) {
                             return compare_values(*declaration, comparison, *current_value);
                         } else {
                             const auto* boolean = std::get_if<bool>(current_value);
                             if (boolean == nullptr)
-                                return Result<bool, Diagnostics>::failure(evaluation_error(
-                                    "execution.invalid_truthiness_value",
-                                    "Truthy and Falsy conditions require a Boolean variable"));
+                                return Result<bool, Diagnostics>::failure(
+                                    evaluation_error("execution.invalid_truthiness_value",
+                                                     "Truthy and Falsy conditions require a "
+                                                     "Boolean Global Property"));
                             if (comparison.operation != TruthinessOperator::Truthy &&
                                 comparison.operation != TruthinessOperator::Falsy)
-                                return Result<bool, Diagnostics>::failure(
-                                    evaluation_error("execution.invalid_comparison_operator",
-                                                     "Variable truthiness operator is invalid"));
+                                return Result<bool, Diagnostics>::failure(evaluation_error(
+                                    "execution.invalid_comparison_operator",
+                                    "Global Property truthiness operator is invalid"));
                             const bool expected =
                                 comparison.operation == TruthinessOperator::Truthy;
                             return Result<bool, Diagnostics>::success(*boolean == expected);
@@ -183,9 +168,10 @@ Result<void, Diagnostics> SharedPrimitiveEvaluator::apply(const Effect& effect)
     return std::visit(
         [this](const auto& value) -> Result<void, Diagnostics> {
             using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, SetVariable>)
-                return m_state.set_variable(m_project, value.variable_id, value.value);
-            else
+            if constexpr (std::is_same_v<T, SetGlobalProperty>) {
+                PropertyResolver resolver(m_project, m_state);
+                return resolver.set_global(value.property_id, value.value);
+            } else
                 return Result<void, Diagnostics>::failure(evaluation_error(
                     "execution.lua_effect_requires_script_runtime",
                     "RunLuaEffect requires the yield-capable script invocation boundary"));

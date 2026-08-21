@@ -343,8 +343,6 @@ std::optional<ProjectIdentity> decode_project_identity(Decoder&, const nlohmann:
 std::optional<Entrypoint> decode_entrypoint(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<Localization> decode_localization(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<RuntimeSettings> decode_settings(Decoder&, const nlohmann::json&, std::string_view);
-std::optional<VariableDeclaration> decode_variable(Decoder&, const nlohmann::json&,
-                                                   std::string_view);
 std::optional<PropertyDeclaration> decode_property(Decoder&, const nlohmann::json&,
                                                    std::string_view);
 std::optional<AssetResource> decode_asset(Decoder&, const nlohmann::json&, std::string_view);

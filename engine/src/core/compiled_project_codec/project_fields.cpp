@@ -443,46 +443,41 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                            std::move(*text),    std::move(*title),         std::move(*transition)};
 }
 
-std::optional<VariableDeclaration> decode_variable(Decoder& decoder, const nlohmann::json& value,
-                                                   std::string_view pointer)
-{
-    if (!decoder.object(value, pointer, {"defaultValue", "enumValues", "id", "type"}))
-        return std::nullopt;
-    const auto* id_value = decoder.member(value, "id", pointer);
-    const auto* type_value = decoder.member(value, "type", pointer);
-    const auto* enum_value = decoder.member(value, "enumValues", pointer);
-    const auto* default_value = decoder.member(value, "defaultValue", pointer);
-    auto id =
-        id_value ? decoder.id<VariableId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
-    std::vector<std::string> enum_values;
-    auto type = type_value && enum_value
-                    ? decode_value_type(decoder, *type_value, *enum_value, pointer, enum_values)
-                    : std::nullopt;
-    auto default_runtime = default_value
-                               ? decode_runtime_value(decoder, *default_value,
-                                                      pointer_child(pointer, "defaultValue"), false)
-                               : std::nullopt;
-    if (!id || !type || !default_runtime)
-        return std::nullopt;
-    return VariableDeclaration{std::move(*id), std::move(*type), std::move(*default_runtime),
-                               std::move(enum_values)};
-}
-
 std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohmann::json& value,
                                                    std::string_view pointer)
 {
-    if (!decoder.object(value, pointer,
-                        {"defaultValue", "description", "enumValues", "id", "label", "nullable",
-                         "ownerKinds", "persistence", "type"}))
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected an object.", std::string(pointer));
         return std::nullopt;
+    }
+    const auto* scope_value = decoder.member(value, "scope", pointer);
+    auto scope =
+        scope_value
+            ? decoder.enumeration<PropertyScope>(
+                  *scope_value, pointer_child(pointer, "scope"),
+                  {{"global", PropertyScope::Global}, {"identity", PropertyScope::Identity}})
+            : std::nullopt;
+    if (!scope)
+        return std::nullopt;
+
+    const bool global = *scope == PropertyScope::Global;
+    if (!decoder.object(value, pointer,
+                        global
+                            ? std::initializer_list<std::string_view>{"defaultValue", "description",
+                                                                      "enumValues", "id", "label",
+                                                                      "nullable", "scope", "type"}
+                            : std::initializer_list<std::string_view>{
+                                  "defaultValue", "description", "enumValues", "id", "label",
+                                  "nullable", "ownerKinds", "scope", "type"}))
+        return std::nullopt;
+
     const auto* id_value = decoder.member(value, "id", pointer);
     const auto* type_value = decoder.member(value, "type", pointer);
     const auto* enum_value = decoder.member(value, "enumValues", pointer);
     const auto* description_value = decoder.member(value, "description", pointer);
     const auto* label_value = decoder.member(value, "label", pointer);
     const auto* nullable_value = decoder.member(value, "nullable", pointer);
-    const auto* owners_value = decoder.member(value, "ownerKinds", pointer);
-    const auto* persistence_value = decoder.member(value, "persistence", pointer);
+    const auto* owners_value = global ? nullptr : decoder.member(value, "ownerKinds", pointer);
     auto id =
         id_value ? decoder.id<PropertyId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
     std::vector<std::string> enum_values;
@@ -497,42 +492,45 @@ std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohm
     auto nullable = nullable_value
                         ? decoder.boolean(*nullable_value, pointer_child(pointer, "nullable"))
                         : std::nullopt;
-    auto owners = owners_value
-                      ? decoder.array<PropertyOwnerKind>(
-                            *owners_value, pointer_child(pointer, "ownerKinds"),
-                            [&](const nlohmann::json& owner, const std::string& owner_pointer) {
-                                return decoder.enumeration<PropertyOwnerKind>(
-                                    owner, owner_pointer,
-                                    {{"room", PropertyOwnerKind::Room},
-                                     {"scene", PropertyOwnerKind::Scene},
-                                     {"dialogue", PropertyOwnerKind::Dialogue},
-                                     {"character", PropertyOwnerKind::Character},
-                                     {"interactable", PropertyOwnerKind::Interactable},
-                                     {"verb", PropertyOwnerKind::Verb},
-                                     {"interaction", PropertyOwnerKind::Interaction},
-                                     {"map", PropertyOwnerKind::Map}});
-                            })
-                      : std::nullopt;
-    auto persistence =
-        persistence_value
-            ? decoder.enumeration<PropertyPersistence>(
-                  *persistence_value, pointer_child(pointer, "persistence"),
-                  {{"Session", PropertyPersistence::Session}, {"Save", PropertyPersistence::Save}})
-            : std::nullopt;
+    std::optional<std::vector<PropertyOwnerKind>> owners = std::vector<PropertyOwnerKind>{};
+    if (!global) {
+        owners = owners_value
+                     ? decoder.array<PropertyOwnerKind>(
+                           *owners_value, pointer_child(pointer, "ownerKinds"),
+                           [&](const nlohmann::json& owner, const std::string& owner_pointer) {
+                               return decoder.enumeration<PropertyOwnerKind>(
+                                   owner, owner_pointer,
+                                   {{"room", PropertyOwnerKind::Room},
+                                    {"scene", PropertyOwnerKind::Scene},
+                                    {"dialogue", PropertyOwnerKind::Dialogue},
+                                    {"character", PropertyOwnerKind::Character},
+                                    {"interactable", PropertyOwnerKind::Interactable},
+                                    {"verb", PropertyOwnerKind::Verb},
+                                    {"interaction", PropertyOwnerKind::Interaction},
+                                    {"map", PropertyOwnerKind::Map}});
+                           })
+                     : std::nullopt;
+    }
+    const auto* default_value = global ? decoder.member(value, "defaultValue", pointer)
+                                       : json_access::member(value, "defaultValue");
     std::optional<RuntimeValue> default_runtime;
-    bool default_ok = true;
-    if (const auto* default_value = json_access::member(value, "defaultValue")) {
+    bool default_ok = !global;
+    if (default_value != nullptr) {
         default_runtime =
             decode_runtime_value(decoder, *default_value, pointer_child(pointer, "defaultValue"));
         default_ok = default_runtime.has_value();
     }
-    if (!id || !type || !description || !label || !nullable || !owners || !persistence ||
-        !default_ok)
+    if (!id || !type || !description || !label || !nullable || !owners || !default_ok)
         return std::nullopt;
-    return PropertyDeclaration{
-        std::move(*id),         std::move(*type),   *nullable,    std::move(default_runtime),
-        std::move(enum_values), std::move(*owners), *persistence, std::move(*label),
-        std::move(*description)};
+    return PropertyDeclaration{std::move(*id),
+                               std::move(*type),
+                               *nullable,
+                               std::move(default_runtime),
+                               *scope,
+                               std::move(enum_values),
+                               std::move(*owners),
+                               std::move(*label),
+                               std::move(*description)};
 }
 
 std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json& value,

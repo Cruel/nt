@@ -918,12 +918,12 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
                              []() { return core::Result<void, core::Diagnostics>::success(); },
                          .preview_running = preview_running});
 
-    REQUIRE(preview.execute_lua({.source = "assert(type(noveltea.variables.get) == 'function'); "
+    REQUIRE(preview.execute_lua({.source = "assert(type(Game.prop) == 'function'); "
                                            "assert(type(noveltea.project.room) == 'function')",
                                  .chunk_name = "preview-tooling-test"}));
     REQUIRE(preview.preview_diagnostics().empty());
 
-    auto cleared = scripts.execute("local value, err = noveltea.variables.get('missing'); "
+    auto cleared = scripts.execute("local value, err = Game.prop('missing'); "
                                    "assert(value == nil and err ~= nil)",
                                    "preview-tooling-cleared-test");
     REQUIRE(cleared);

@@ -8,13 +8,32 @@
 namespace noveltea::core {
 namespace {
 
+std::string property_target_text(const PropertyTargetRef& target)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
+                return std::string{"global"};
+            else
+                return value.text();
+        },
+        target);
+}
+
+Diagnostics property_error(std::string code, const PropertyTargetRef& target,
+                           const PropertyId& property, std::string message)
+{
+    return Diagnostics{Diagnostic{.code = std::move(code),
+                                  .message = "Property '" + property.text() + "' on target '" +
+                                             property_target_text(target) + "' " +
+                                             std::move(message)}};
+}
+
 Diagnostics property_error(std::string code, const PropertyOwnerRef& owner,
                            const PropertyId& property, std::string message)
 {
-    const std::string owner_id = std::visit([](const auto& id) { return id.text(); }, owner);
-    return Diagnostics{Diagnostic{.code = std::move(code),
-                                  .message = "Property '" + property.text() + "' on owner '" +
-                                             owner_id + "' " + std::move(message)}};
+    return property_error(std::move(code), property_target(owner), property, std::move(message));
 }
 
 template<class Id, class Definition, class FindDefinition, class FindParent>
@@ -24,16 +43,16 @@ resolve_chain(const CompiledProject& project, const SessionState& state, Id curr
               const std::vector<Definition>& definitions, FindDefinition find_definition,
               FindParent find_parent)
 {
-    const PropertyOwnerRef requested_owner{current};
+    const PropertyTargetRef requested_target{current};
     for (std::size_t depth = 0; depth <= definitions.size(); ++depth) {
         const auto* definition = (project.*find_definition)(current);
         if (definition == nullptr)
             return Result<PropertyLookupResult, Diagnostics>::failure(
-                property_error("runtime.unknown_property_owner", PropertyOwnerRef{current},
+                property_error("runtime.unknown_property_owner", PropertyTargetRef{current},
                                property, "does not identify a compiled definition"));
 
-        const PropertyOwnerRef current_owner{current};
-        if (const auto* value = state.property_override(current_owner, property))
+        const PropertyTargetRef current_target{current};
+        if (const auto* value = state.property_override(current_target, property))
             return Result<PropertyLookupResult, Diagnostics>::success(*value);
 
         const auto assignment = std::find_if(definition->identity.property_assignments.begin(),
@@ -48,30 +67,49 @@ resolve_chain(const CompiledProject& project, const SessionState& state, Id curr
             return Result<PropertyLookupResult, Diagnostics>::success(
                 declaration.default_value()
                     ? PropertyLookupResult{*declaration.default_value()}
-                    : PropertyLookupResult{MissingPropertyValue{requested_owner, property}});
+                    : PropertyLookupResult{MissingPropertyValue{requested_target, property}});
 
         const auto parent_index = (project.*find_parent)(current);
         if (!parent_index || *parent_index >= definitions.size())
             return Result<PropertyLookupResult, Diagnostics>::failure(
-                property_error("runtime.invalid_property_inheritance", current_owner, property,
+                property_error("runtime.invalid_property_inheritance", current_target, property,
                                "has an invalid retained parent index"));
         current = definitions[*parent_index].identity.id;
     }
 
     return Result<PropertyLookupResult, Diagnostics>::failure(
-        property_error("runtime.invalid_property_inheritance", requested_owner, property,
+        property_error("runtime.invalid_property_inheritance", requested_target, property,
                        "exceeded the bounded inheritance depth"));
 }
 
 } // namespace
 
 Result<const PropertyDefinition*, Diagnostics>
-PropertyResolver::validate(const PropertyOwnerRef& owner, const PropertyId& property) const
+PropertyResolver::validate_global(const PropertyId& property) const
+{
+    const PropertyTargetRef target{GlobalPropertyTarget{}};
+    const auto* declaration = m_project.find_property(property);
+    if (declaration == nullptr)
+        return Result<const PropertyDefinition*, Diagnostics>::failure(
+            property_error("runtime.unknown_property", target, property, "is not declared"));
+    if (!declaration->is_global())
+        return Result<const PropertyDefinition*, Diagnostics>::failure(property_error(
+            "runtime.property_scope_mismatch", target, property, "is not a Global Property"));
+    return Result<const PropertyDefinition*, Diagnostics>::success(declaration);
+}
+
+Result<const PropertyDefinition*, Diagnostics>
+PropertyResolver::validate_identity(const PropertyOwnerRef& owner, const PropertyId& property) const
 {
     const auto* declaration = m_project.find_property(property);
     if (declaration == nullptr)
         return Result<const PropertyDefinition*, Diagnostics>::failure(
             property_error("runtime.unknown_property", owner, property, "is not declared"));
+
+    if (declaration->is_global())
+        return Result<const PropertyDefinition*, Diagnostics>::failure(
+            property_error("runtime.property_scope_mismatch", owner, property,
+                           "is Global and cannot be read through an identity"));
 
     if (!std::binary_search(declaration->allowed_owners().begin(),
                             declaration->allowed_owners().end(), property_owner_kind(owner)))
@@ -112,10 +150,59 @@ bool PropertyResolver::owner_exists(const PropertyOwnerRef& owner) const noexcep
         owner);
 }
 
+Result<PropertyLookupResult, Diagnostics>
+PropertyResolver::get_global(const PropertyId& property) const
+{
+    const auto validated = validate_global(property);
+    if (!validated)
+        return Result<PropertyLookupResult, Diagnostics>::failure(validated.error());
+    const auto* declaration_value = validated.value_if();
+    if (declaration_value == nullptr)
+        return Result<PropertyLookupResult, Diagnostics>::failure(property_error(
+            "runtime.invalid_property_state", PropertyTargetRef{GlobalPropertyTarget{}}, property,
+            "lost its validated declaration"));
+    const auto* declaration = *declaration_value;
+    const PropertyTargetRef target{GlobalPropertyTarget{}};
+    if (const auto* value = m_state.property_override(target, property))
+        return Result<PropertyLookupResult, Diagnostics>::success(*value);
+    if (!declaration->default_value())
+        return Result<PropertyLookupResult, Diagnostics>::failure(property_error(
+            "runtime.invalid_property_state", target, property, "has no authored global default"));
+    return Result<PropertyLookupResult, Diagnostics>::success(*declaration->default_value());
+}
+
+Result<void, Diagnostics> PropertyResolver::set_global(const PropertyId& property,
+                                                       RuntimeValue value)
+{
+    const auto validated = validate_global(property);
+    if (!validated)
+        return Result<void, Diagnostics>::failure(validated.error());
+    const auto* declaration = validated.value_if();
+    if (declaration == nullptr)
+        return Result<void, Diagnostics>::failure(property_error(
+            "runtime.invalid_property_state", PropertyTargetRef{GlobalPropertyTarget{}}, property,
+            "lost its validated declaration"));
+    auto override = make_property_override(PropertyTargetRef{GlobalPropertyTarget{}}, **declaration,
+                                           std::move(value));
+    if (!override)
+        return Result<void, Diagnostics>::failure(override.error());
+    m_state.store_property_override(std::move(*override.value_if()));
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> PropertyResolver::unset_global(const PropertyId& property)
+{
+    const auto validated = validate_global(property);
+    if (!validated)
+        return Result<void, Diagnostics>::failure(validated.error());
+    m_state.erase_property_override(PropertyTargetRef{GlobalPropertyTarget{}}, property);
+    return Result<void, Diagnostics>::success();
+}
+
 Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOwnerRef& owner,
                                                                 const PropertyId& property) const
 {
-    const auto validated = validate(owner, property);
+    const auto validated = validate_identity(owner, property);
     if (!validated)
         return Result<PropertyLookupResult, Diagnostics>::failure(validated.error());
     const auto* declaration_value = validated.value_if();
@@ -167,14 +254,14 @@ Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOw
 Result<void, Diagnostics> PropertyResolver::set(PropertyOwnerRef owner, const PropertyId& property,
                                                 RuntimeValue value)
 {
-    const auto validated = validate(owner, property);
+    const auto validated = validate_identity(owner, property);
     if (!validated)
         return Result<void, Diagnostics>::failure(validated.error());
     const auto* declaration = validated.value_if();
     if (declaration == nullptr)
         return Result<void, Diagnostics>::failure(property_error(
             "runtime.invalid_property_state", owner, property, "lost its validated declaration"));
-    auto override = make_property_override(std::move(owner), **declaration, std::move(value));
+    auto override = make_property_override(property_target(owner), **declaration, std::move(value));
     if (!override)
         return Result<void, Diagnostics>::failure(override.error());
     auto* override_value = override.value_if();
@@ -189,10 +276,10 @@ Result<void, Diagnostics> PropertyResolver::set(PropertyOwnerRef owner, const Pr
 Result<void, Diagnostics> PropertyResolver::unset(const PropertyOwnerRef& owner,
                                                   const PropertyId& property)
 {
-    const auto validated = validate(owner, property);
+    const auto validated = validate_identity(owner, property);
     if (!validated)
         return Result<void, Diagnostics>::failure(validated.error());
-    m_state.erase_property_override(owner, property);
+    m_state.erase_property_override(property_target(owner), property);
     return Result<void, Diagnostics>::success();
 }
 

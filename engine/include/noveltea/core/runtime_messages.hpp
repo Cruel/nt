@@ -68,8 +68,8 @@ struct ActivateHotspotInput {
     bool operator==(const ActivateHotspotInput&) const = default;
 };
 struct SetVariableDebugInput {
-    VariableId variable;
-    RuntimeValue value;
+    PropertyId variable;
+    std::optional<RuntimeValue> value;
     bool operator==(const SetVariableDebugInput&) const = default;
 };
 struct SetPropertyDebugInput {

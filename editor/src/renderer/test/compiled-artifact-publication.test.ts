@@ -4,7 +4,7 @@ import { publishCompiledArtifact } from '../../shared/compiled-artifact-publicat
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { prepareRuntimeAssessmentForTest } from './runtime-artifact-test-helpers';
-import { serializeCompiledProjectWireV3 } from '../../shared/project-schema/compiled-project';
+import { serializeCompiledProjectWireV4 } from '../../shared/project-schema/compiled-project';
 import { minimalGoldenProject } from './fixtures/compiled-project-golden-projects';
 
 describe('compiled artifact publication', () => {
@@ -31,10 +31,10 @@ describe('compiled artifact publication', () => {
     expect(exported.ready).toBe(true);
     if (!published.ok || !exported.compiledProject) return;
 
-    const previewBytes = serializeCompiledProjectWireV3(exported.compiledProject);
-    const playbackBytes = serializeCompiledProjectWireV3(exported.compiledProject);
-    const packageBytes = serializeCompiledProjectWireV3(exported.compiledProject);
-    const cliBytes = serializeCompiledProjectWireV3(exported.compiledProject);
+    const previewBytes = serializeCompiledProjectWireV4(exported.compiledProject);
+    const playbackBytes = serializeCompiledProjectWireV4(exported.compiledProject);
+    const packageBytes = serializeCompiledProjectWireV4(exported.compiledProject);
+    const cliBytes = serializeCompiledProjectWireV4(exported.compiledProject);
     expect(previewBytes).toBe(published.project.gameplayJson);
     expect(playbackBytes).toBe(previewBytes);
     expect(packageBytes).toBe(previewBytes);

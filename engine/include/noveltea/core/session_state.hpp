@@ -73,15 +73,12 @@ protected:
 
 class GameplayState {
 protected:
-    GameplayState(std::unordered_map<VariableId, RuntimeValue> variables,
-                  std::vector<CharacterWorldState> characters,
+    GameplayState(std::vector<CharacterWorldState> characters,
                   std::vector<InteractableState> interactables)
-        : m_variables(std::move(variables)), m_character_world(std::move(characters)),
-          m_interactables(std::move(interactables))
+        : m_character_world(std::move(characters)), m_interactables(std::move(interactables))
     {
     }
 
-    std::unordered_map<VariableId, RuntimeValue> m_variables;
     std::vector<PropertyOverride> m_property_overrides;
     std::vector<CharacterWorldState> m_character_world;
     std::vector<InteractableState> m_interactables;
@@ -175,12 +172,7 @@ public:
     }
     [[nodiscard]] std::vector<LogicalTimerCompletion> take_timer_completions() noexcept;
 
-    [[nodiscard]] Result<RuntimeValue, Diagnostics> variable(const CompiledProject& project,
-                                                             const VariableId& id) const;
-    [[nodiscard]] Result<void, Diagnostics> set_variable(const CompiledProject& project,
-                                                         const VariableId& id, RuntimeValue value);
-
-    [[nodiscard]] const RuntimeValue* property_override(const PropertyOwnerRef& owner,
+    [[nodiscard]] const RuntimeValue* property_override(const PropertyTargetRef& target,
                                                         const PropertyId& property) const noexcept;
     [[nodiscard]] std::size_t property_override_count() const noexcept
     {
@@ -386,13 +378,12 @@ private:
                                                           const SessionState&);
 
     SessionState(RuntimeMode mode, FlowStack flow_stack,
-                 std::unordered_map<VariableId, RuntimeValue> variables,
                  std::vector<CharacterWorldState> characters,
                  std::vector<InteractableState> interactables, std::uint64_t next_frame_id,
                  PresentationSessionId presentation_session,
                  ShellPresentationScopeId shell_presentation_scope)
         : FlowState(std::move(mode), std::move(flow_stack), next_frame_id),
-          GameplayState(std::move(variables), std::move(characters), std::move(interactables)),
+          GameplayState(std::move(characters), std::move(interactables)),
           PresentationState(presentation_session, shell_presentation_scope)
     {
     }
@@ -400,7 +391,7 @@ private:
     [[nodiscard]] static Result<RoomVisitInstanceId, Diagnostics> allocate_room_visit_instance_id();
 
     void store_property_override(PropertyOverride value);
-    void erase_property_override(const PropertyOwnerRef& owner,
+    void erase_property_override(const PropertyTargetRef& target,
                                  const PropertyId& property) noexcept;
 };
 

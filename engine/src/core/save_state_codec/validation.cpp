@@ -26,6 +26,19 @@ bool owner_exists(const CompiledProject& project, const PropertyOwnerRef& owner)
         owner);
 }
 
+bool target_exists(const CompiledProject& project, const PropertyTargetRef& target)
+{
+    return std::visit(
+        [&project](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
+                return true;
+            else
+                return owner_exists(project, PropertyOwnerRef{value});
+        },
+        target);
+}
+
 template<class T> const auto* instruction_by_id(const std::vector<T>& values, const auto& id)
 {
     const auto found = std::find_if(values.begin(), values.end(), [&id](const T& value) {
@@ -152,34 +165,17 @@ bool valid_destination(const CompiledProject& project, const ReturnDestination& 
     return true;
 }
 
-bool value_matches_type(const PropertyValueType& type, const RuntimeValue& value)
+std::string target_text(const PropertyTargetRef& target)
 {
-    if (!runtime_value_is_finite(value) || std::holds_alternative<std::monostate>(value))
-        return false;
     return std::visit(
-        [&value](const auto& item) {
-            using T = std::decay_t<decltype(item)>;
-            if constexpr (std::is_same_v<T, BooleanPropertyType>)
-                return std::holds_alternative<bool>(value);
-            else if constexpr (std::is_same_v<T, IntegerPropertyType>)
-                return std::holds_alternative<std::int64_t>(value);
-            else if constexpr (std::is_same_v<T, NumberPropertyType>)
-                return std::holds_alternative<std::int64_t>(value) ||
-                       std::holds_alternative<double>(value);
-            else if constexpr (std::is_same_v<T, StringPropertyType>)
-                return std::holds_alternative<std::string>(value);
-            else {
-                const auto* string = std::get_if<std::string>(&value);
-                return string != nullptr && std::find(item.values.begin(), item.values.end(),
-                                                      *string) != item.values.end();
-            }
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
+                return std::string{"global"};
+            else
+                return value.text();
         },
-        type);
-}
-
-std::string owner_text(const PropertyOwnerRef& owner)
-{
-    return std::visit([](const auto& id) { return id.text(); }, owner);
+        target);
 }
 
 bool valid_scene_position(const compiled::SceneDefinition& scene,
@@ -653,28 +649,15 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         error("save_codec.project_mismatch", "Save metadata does not match the loaded project.");
     if (save.play_time.count() < 0)
         error("save_codec.invalid_time", "Play time cannot be negative.");
-    std::unordered_set<std::string> variable_ids;
-    for (const auto& item : save.variables) {
-        const auto* definition = project.find_variable(item.id);
-        if (!variable_ids.insert(item.id.text()).second)
-            error("save_codec.duplicate_record", "Variable appears more than once.");
-        if (!definition)
-            error("save_codec.invalid_reference", "Save references an unknown variable.");
-        else if (!value_matches_type(definition->value_type, item.value))
-            error("save_codec.invalid_value", "Variable value does not match its declaration.");
-    }
-    if (save.variables.size() != project.variables().size())
-        error("save_codec.incomplete_variables", "Save must contain every declared variable.");
     std::unordered_set<std::string> overrides;
     for (const auto& item : save.property_overrides) {
-        const auto key = std::to_string(item.owner.index()) + ":" + owner_text(item.owner) + ":" +
-                         item.property.text();
+        const auto key = std::to_string(item.target.index()) + ":" + target_text(item.target) +
+                         ":" + item.property.text();
         const auto* definition = project.find_property(item.property);
         if (!overrides.insert(key).second)
             error("save_codec.duplicate_record", "Property override appears more than once.");
-        if (!owner_exists(project, item.owner) || !definition ||
-            definition->persistence() != PropertyPersistence::Save ||
-            !make_property_override(item.owner, *definition, item.value))
+        if (!target_exists(project, item.target) || !definition ||
+            !make_property_override(item.target, *definition, item.value))
             error("save_codec.invalid_property_override",
                   "Property override is not permitted by the loaded project.");
     }

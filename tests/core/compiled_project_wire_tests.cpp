@@ -85,8 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.variables.size() == 5);
-    CHECK(project.properties.size() == 5);
+    CHECK(project.properties.size() == 10);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
     CHECK(project.scripts.size() == 2);
@@ -164,7 +163,8 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
             std::get<ShowTextInstruction>(opening.program.instructions[4]).wait));
         CHECK(std::holds_alternative<AudioCompletionWait>(
             std::get<AudioCueInstruction>(opening.program.instructions[6]).wait));
-        CHECK(std::holds_alternative<SetVariableSceneInstruction>(opening.program.instructions[7]));
+        CHECK(std::holds_alternative<SetGlobalPropertySceneInstruction>(
+            opening.program.instructions[7]));
         CHECK(std::holds_alternative<RunLuaSceneInstruction>(opening.program.instructions[8]));
         CHECK(std::get<WaitDurationInstruction>(opening.program.instructions[9]).wait.duration() ==
               std::chrono::milliseconds(1500));
@@ -446,19 +446,19 @@ TEST_CASE("compiled project shared primitives decode closed variants strictly")
 {
     auto condition = decode_condition(
         nlohmann::json::parse(
-            R"({"kind":"variable-comparison","operator":"greater-equal","value":2,"variable":{"id":"count","kind":"variable"}})",
+            R"({"kind":"global-property-comparison","operator":"greater-equal","value":2,"property":{"id":"count","kind":"property"}})",
             nullptr, false),
         "primitive.json", "/condition");
     REQUIRE(condition);
-    CHECK(std::holds_alternative<VariableComparison>(condition.value()));
+    CHECK(std::holds_alternative<GlobalPropertyComparison>(condition.value()));
 
     auto effect = decode_effect(
         nlohmann::json::parse(
-            R"({"kind":"set-variable","value":true,"variable":{"id":"flag","kind":"variable"}})",
+            R"({"kind":"set-global-property","property":{"id":"flag","kind":"property"},"value":true})",
             nullptr, false),
         "primitive.json", "/effect");
     REQUIRE(effect);
-    CHECK(std::holds_alternative<SetVariable>(effect.value()));
+    CHECK(std::holds_alternative<SetGlobalProperty>(effect.value()));
 
     auto target = decode_flow_target(
         nlohmann::json::parse(R"({"kind":"dialogue","dialogue":{"id":"intro","kind":"dialogue"}})",
@@ -584,19 +584,21 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         CHECK(has_code(result.error(), "compiled_project.invalid_number"));
     }
 
-    SECTION("null variable default")
+    SECTION("missing Global Property default")
     {
         auto document = fixture("comprehensive");
-        auto* variables = path_member(document, {"variables"});
-        REQUIRE(variables != nullptr);
-        auto* variable = json_access::element(*variables, 0);
-        REQUIRE(variable != nullptr);
-        (*variable)["defaultValue"] = nullptr;
+        auto* properties = path_member(document, {"properties"});
+        REQUIRE(properties != nullptr);
+        auto* property = json_access::element(*properties, 5);
+        REQUIRE(property != nullptr);
+        REQUIRE((*property)["id"] == "count");
+        REQUIRE((*property)["scope"] == "global");
+        property->erase("defaultValue");
         auto result = decode_shared_project(document, "comprehensive.json");
         REQUIRE_FALSE(result);
-        const auto* diagnostic = find_code(result.error(), "compiled_project.type");
+        const auto* diagnostic = find_code(result.error(), "compiled_project.missing_field");
         REQUIRE(diagnostic != nullptr);
-        CHECK(diagnostic->json_pointer == "/variables/0/defaultValue");
+        CHECK(diagnostic->json_pointer == "/properties/5/defaultValue");
     }
 
     SECTION("duplicate collection ID")
@@ -641,8 +643,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
         noveltea::core::decode_compiled_project(fixture("comprehensive"), "comprehensive.json");
     REQUIRE(comprehensive);
     const auto& complete = comprehensive.value();
-    CHECK(complete.variables().size() == 5);
-    CHECK(complete.properties().size() == 5);
+    CHECK(complete.properties().size() == 10);
     CHECK(complete.assets().size() == 9);
     CHECK(complete.layouts().size() == 2);
     CHECK(complete.scripts().size() == 2);
@@ -654,8 +655,10 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     CHECK(complete.scenes().size() == 1);
     CHECK(complete.dialogues().size() == 1);
     CHECK(complete.maps().size() == 1);
-    CHECK(complete.find_variable(VariableId::create("count").value()) != nullptr);
+    CHECK(complete.find_property(PropertyId::create("count").value()) != nullptr);
+    CHECK(complete.find_property(PropertyId::create("count").value())->is_global());
     CHECK(complete.find_property(PropertyId::create("mood").value()) != nullptr);
+    CHECK_FALSE(complete.find_property(PropertyId::create("mood").value())->is_global());
     const auto image_asset_id = AssetId::create("image-main").value();
     REQUIRE(complete.find_asset(image_asset_id) != nullptr);
     REQUIRE(complete.find_asset(image_asset_id)->sampling);
@@ -991,15 +994,15 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "domain.invalid_property_definition"));
     }
 
-    SECTION("invalid property persistence")
+    SECTION("retired property persistence field")
     {
         auto document = fixture("inheritance-properties-localization");
         auto* property = path_member(document, {"properties", "0"});
         REQUIRE(property != nullptr);
-        (*property)["persistence"] = "Forever";
+        (*property)["persistence"] = "Save";
         auto result = noveltea::core::decode_compiled_project(document, "properties.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled_project.unknown_value"));
+        CHECK(has_code(result.error(), "compiled_project.unknown_field"));
     }
 
     SECTION("unresolved property declaration")
@@ -1014,7 +1017,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
     }
 
-    SECTION("variable assignment mismatch")
+    SECTION("Global Property assignment mismatch")
     {
         auto document = fixture("scene-program");
         auto* instruction =
@@ -1023,7 +1026,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         (*instruction)["value"] = "wrong-type";
         auto result = noveltea::core::decode_compiled_project(document, "scene.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled_project.variable_type_mismatch"));
+        CHECK(has_code(result.error(), "compiled_project.property_type_mismatch"));
     }
 
     SECTION("playing audio cue requires an audio Asset")
@@ -1072,15 +1075,17 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(awaited.error(), "compiled_project.invalid_audio_cue"));
     }
 
-    SECTION("variable default enum membership")
+    SECTION("Global Property default enum membership")
     {
         auto document = fixture("inheritance-properties-localization");
-        auto* variable = path_member(document, {"variables", "2"});
-        REQUIRE(variable != nullptr);
-        (*variable)["defaultValue"] = "angry";
-        auto result = noveltea::core::decode_compiled_project(document, "variables.json");
+        auto* property = path_member(document, {"properties", "7"});
+        REQUIRE(property != nullptr);
+        REQUIRE((*property)["id"] == "mood-variable");
+        REQUIRE((*property)["scope"] == "global");
+        (*property)["defaultValue"] = "angry";
+        auto result = noveltea::core::decode_compiled_project(document, "properties.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled.invalid_model"));
+        CHECK(has_code(result.error(), "domain.invalid_property_definition"));
     }
 
     SECTION("condition comparison type mismatch")
@@ -1093,7 +1098,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         (*condition)["value"] = "not-an-integer";
         auto result = noveltea::core::decode_compiled_project(document, "condition.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled_project.variable_type_mismatch"));
+        CHECK(has_code(result.error(), "compiled_project.property_type_mismatch"));
     }
 
     SECTION("missing Scene branch target")

@@ -2,7 +2,7 @@ import type {
   CompiledCondition,
   CompiledEffect,
   CompiledFlowTarget,
-  CompiledProjectWireV3,
+  CompiledProjectWireV4,
   CompiledText,
   SceneProgram,
 } from './project-schema/compiled-project';
@@ -27,7 +27,7 @@ export interface ProgramLoweringDiagnostic {
   message: string;
 }
 
-type WireDefinitions = CompiledProjectWireV3['definitions'];
+type WireDefinitions = CompiledProjectWireV4['definitions'];
 
 /** Non-publishable Scene/Room draft. Dialogue and Interaction programs are lowered separately. */
 export interface CompiledProjectSceneRoomDraft extends Omit<
@@ -79,9 +79,9 @@ function compileCondition(condition: Condition): CompiledCondition {
     return { kind: 'lua-predicate', source: condition.source };
   }
   return {
-    kind: condition.kind,
+    kind: 'global-property-comparison',
     operator: condition.operator,
-    variable: { kind: 'variable', id: condition.variable.$ref.id },
+    property: { kind: 'property', id: condition.variable.$ref.id },
     ...(condition.value === undefined ? {} : { value: condition.value }),
   };
 }
@@ -89,8 +89,8 @@ function compileCondition(condition: Condition): CompiledCondition {
 function compileEffect(effect: Effect): CompiledEffect {
   if (effect.kind === 'run-lua-effect') return { ...effect };
   return {
-    kind: 'set-variable',
-    variable: { kind: 'variable', id: effect.variable.$ref.id },
+    kind: 'set-global-property',
+    property: { kind: 'property', id: effect.variable.$ref.id },
     value: effect.value,
   };
 }
@@ -225,8 +225,8 @@ function compileSceneStep(
     case 'set-variable':
       return {
         ...base,
-        kind: 'set-variable',
-        variable: { kind: 'variable', id: step.variable.$ref.id },
+        kind: 'set-global-property',
+        property: { kind: 'property', id: step.variable.$ref.id },
         value: step.value,
       };
     case 'run-lua':

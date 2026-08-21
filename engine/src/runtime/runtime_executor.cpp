@@ -869,10 +869,10 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                       value.channel}},
                         core::AudioOperationPurpose::Gameplay, true});
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
-                } else if constexpr (std::is_same_v<T,
-                                                    core::compiled::SetVariableSceneInstruction>) {
+                } else if constexpr (std::is_same_v<
+                                         T, core::compiled::SetGlobalPropertySceneInstruction>) {
                     auto changed =
-                        apply(core::Effect{core::SetVariable{value.variable, value.value}});
+                        apply(core::Effect{core::SetGlobalProperty{value.property, value.value}});
                     if (!changed) {
                         if (const auto* diagnostics =
                                 std::get_if<core::Diagnostics>(&changed.error()))

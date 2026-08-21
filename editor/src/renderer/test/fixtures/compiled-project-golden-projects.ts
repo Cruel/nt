@@ -250,7 +250,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     nullable: false,
     defaultValue: true,
     ownerKinds: [...allOwnerKinds],
-    persistence: 'Session',
   };
   project.properties['visit-count'] = {
     id: 'visit-count',
@@ -259,7 +258,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     nullable: false,
     defaultValue: 0,
     ownerKinds: ['room'],
-    persistence: 'Save',
   };
   project.properties.opacity = {
     id: 'opacity',
@@ -268,7 +266,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     nullable: false,
     defaultValue: 1,
     ownerKinds: ['scene'],
-    persistence: 'Session',
   };
   project.properties.note = {
     id: 'note',
@@ -277,7 +274,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     nullable: true,
     defaultValue: null,
     ownerKinds: ['dialogue'],
-    persistence: 'Save',
   };
   project.properties.mood = {
     id: 'mood',
@@ -288,7 +284,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     defaultValue: 'calm',
     enumValues: ['calm', 'tense'],
     ownerKinds: ['room'],
-    persistence: 'Save',
   };
 
   const hero = defaultCharacterData('Hero');

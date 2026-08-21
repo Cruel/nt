@@ -111,6 +111,39 @@ std::optional<PropertyOwnerRef> decode_owner(Decoder& d, const nlohmann::json& v
     return std::nullopt;
 }
 
+nlohmann::json encode_property_target(const PropertyTargetRef& target)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
+                return {{"kind", "global"}};
+            else
+                return encode_owner(PropertyOwnerRef{value});
+        },
+        target);
+}
+
+std::optional<PropertyTargetRef> decode_property_target(Decoder& d, const nlohmann::json& value,
+                                                        std::string_view pointer)
+{
+    if (!value.is_object()) {
+        d.error(k_type, "Expected a Property target object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind = d.member(value, "kind", pointer);
+    auto name = kind ? d.string(*kind, child(pointer, "kind")) : std::nullopt;
+    if (!name)
+        return std::nullopt;
+    if (*name == "global") {
+        if (!d.object(value, pointer, {"kind"}))
+            return std::nullopt;
+        return PropertyTargetRef{GlobalPropertyTarget{}};
+    }
+    auto owner = decode_owner(d, value, pointer);
+    return owner ? std::optional<PropertyTargetRef>{property_target(*owner)} : std::nullopt;
+}
+
 nlohmann::json encode_location(const compiled::InteractableLocation& location)
 {
     return std::visit(

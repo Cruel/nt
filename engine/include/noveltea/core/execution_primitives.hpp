@@ -21,30 +21,31 @@ enum class TruthinessOperator : std::uint8_t {
     Truthy,
     Falsy
 };
-struct VariableValueComparison {
-    VariableId variable_id;
+struct GlobalPropertyValueComparison {
+    PropertyId property_id;
     ValueComparisonOperator operation;
     RuntimeValue value;
 };
-struct VariableTruthiness {
-    VariableId variable_id;
+struct GlobalPropertyTruthiness {
+    PropertyId property_id;
     TruthinessOperator operation;
 };
-using VariableComparison = std::variant<VariableValueComparison, VariableTruthiness>;
+using GlobalPropertyComparison =
+    std::variant<GlobalPropertyValueComparison, GlobalPropertyTruthiness>;
 struct Always {};
 struct LuaPredicate {
     std::string source;
 };
-using Condition = std::variant<Always, VariableComparison, LuaPredicate>;
+using Condition = std::variant<Always, GlobalPropertyComparison, LuaPredicate>;
 
-struct SetVariable {
-    VariableId variable_id;
+struct SetGlobalProperty {
+    PropertyId property_id;
     RuntimeValue value;
 };
 struct RunLuaEffect {
     std::string source;
 };
-using Effect = std::variant<SetVariable, RunLuaEffect>;
+using Effect = std::variant<SetGlobalProperty, RunLuaEffect>;
 
 struct ReturnFlow {};
 struct EndFlow {};

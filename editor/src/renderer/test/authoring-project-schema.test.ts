@@ -11,12 +11,12 @@ import {
   stripEditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 
-describe('authoring project V2 schema', () => {
-  it('creates a complete empty V3 project root', () => {
+describe('authoring project V4 schema', () => {
+  it('creates a complete empty V4 project root', () => {
     const project = createAuthoringProject({ id: 'demo-project', name: 'Demo Project' });
     expect(project).toMatchObject({
       schema: 'noveltea.authoring.project',
-      schemaVersion: 3,
+      schemaVersion: 4,
       project: { id: 'demo-project', name: 'Demo Project' },
       startupHook: null,
       entrypoint: null,

@@ -859,7 +859,7 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
             return success(ActivateHotspotInput{std::move(*hotspot)});
     } else if (*type == "set-variable") {
         exact_fields(*input, {"type", "variable", "value"}, diagnostics, path);
-        auto variable = id_field<VariableId>(*input, "variable", diagnostics, path, limits);
+        auto variable = id_field<PropertyId>(*input, "variable", diagnostics, path, limits);
         const auto found = input->find("value");
         if (found == input->end())
             diagnostics.push_back(error("editor_protocol.missing_field", "Missing value.",

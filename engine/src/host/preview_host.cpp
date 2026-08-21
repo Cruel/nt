@@ -478,7 +478,7 @@ bool PreviewHost::activate_hotspot(core::compiled::HotspotRef hotspot)
 PreviewMutationResult PreviewHost::set_variable(const std::string& variable_id,
                                                 core::RuntimeValue value)
 {
-    auto id = core::VariableId::create(variable_id);
+    auto id = core::PropertyId::create(variable_id);
     if (!id)
         return mutation_result(false, "set-variable", variable_id, "invalid variable id");
     const bool accepted = dispatch(core::RuntimeInputMessage{
@@ -488,15 +488,15 @@ PreviewMutationResult PreviewHost::set_variable(const std::string& variable_id,
 
 PreviewMutationResult PreviewHost::reset_variable(const std::string& variable_id)
 {
-    auto id = core::VariableId::create(variable_id);
+    auto id = core::PropertyId::create(variable_id);
     const auto* running_game = m_dependencies.game_host.running_game();
     if (!id || !running_game)
         return mutation_result(false, "reset-variable", variable_id, "invalid variable id");
-    const auto* definition = running_game->package().project().find_variable(*id.value_if());
-    if (!definition)
+    const auto* definition = running_game->package().project().find_property(*id.value_if());
+    if (!definition || !definition->is_global())
         return mutation_result(false, "reset-variable", variable_id, "unknown variable");
-    const bool accepted = dispatch(core::RuntimeInputMessage{
-        core::SetVariableDebugInput{*id.value_if(), definition->default_value}});
+    const bool accepted = dispatch(
+        core::RuntimeInputMessage{core::SetVariableDebugInput{*id.value_if(), std::nullopt}});
     return mutation_result(accepted, "reset-variable", variable_id);
 }
 

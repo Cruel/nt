@@ -24,21 +24,14 @@ template<class Id> struct PropertyBearingDefinition {
     std::vector<PropertyAssignment> property_assignments;
 };
 
-struct VariableDeclaration {
-    VariableId id;
-    PropertyValueType value_type;
-    RuntimeValue default_value;
-    std::vector<std::string> enum_values;
-};
-
 struct PropertyDeclaration {
     PropertyId id;
     PropertyValueType value_type;
     bool nullable;
     std::optional<RuntimeValue> default_value;
+    PropertyScope scope;
     std::vector<std::string> enum_values;
     std::vector<PropertyOwnerKind> allowed_owners;
-    PropertyPersistence persistence;
     std::string label;
     std::string description;
 };
@@ -124,7 +117,6 @@ struct SharedProject {
     Entrypoint entrypoint;
     std::optional<StartupHook> startup_hook;
     Localization localization;
-    std::vector<VariableDeclaration> variables;
     std::vector<PropertyDeclaration> properties;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;

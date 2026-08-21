@@ -2,13 +2,13 @@
 
 ## Collection disposition
 
-This table is the authoritative V3 ownership map. Authoring records are editor-owned source; wire values are strict `noveltea.compiled.project` V3 data; mutable values belong to `SessionState` unless marked tooling-only.
+This table is the authoritative current ownership map. Authoring records are editor-owned source; wire values are strict `noveltea.compiled.project` V4 data; mutable values belong to `SessionState` unless marked tooling-only.
 
 | V2 collection/section | Authoring owner | Compiled representation | Runtime disposition |
 | --- | --- | --- | --- |
 | Project root/settings | Editor project/compiler | Compiled root, settings, startup hook, entrypoint, indexes | Immutable project-owned configuration; root is not an entity |
-| Properties | Typed declarations and owner assignments | `PropertyDefinition`s and retained assignments/parent edges | Typed live overrides; Session or Save persistence |
-| Variables | Global typed declarations/defaults | Variable definitions and initial values | Mutable globals in session/save state |
+| Properties | Typed declarations and owner assignments | Global and identity-scoped `PropertyDefinition`s plus retained assignments/parent edges | One sparse typed override store; every override is checkpoint/save state |
+| Variables | Editor-facing Global Property declarations/defaults | Lowered into `properties[]` with `scope: global` | Same Global Property resolver/override store; no separate Variable runtime state |
 | Characters | Character records | `CharacterDefinition` | Immutable definition; presented instances are `ActorState` |
 | Scenes | Scene records and strict steps | `SceneDefinition` + `SceneProgram` | Scene flow frame and logical waits |
 | Dialogues | Dialogue graph records | `DialogueDefinition` + `DialogueProgram` | Dialogue frame, show-once/history state |
@@ -56,7 +56,7 @@ root flow started from Room mode may Return to its captured Room.
 
 Editor categories/tags organize source only. Runtime `extends` is an immutable same-collection edge on Room, Scene, Dialogue, Character, Interactable, Verb, Interaction, and Map. Compilation rejects missing parents, self-parenting, cross-collection edges, and cycles, but never flattens valid edges.
 
-Property resolution is: owner runtime override, owner authored assignment, then the same two locations on each nearest ancestor, then declaration default, then typed missing. Unset removes one override and resumes lookup. Ancestor changes are immediately visible to unshadowed descendants. Save-policy overrides serialize once on the actual owner; inherited values and Session-policy overrides do not.
+Identity Property resolution is: target runtime override, owner authored assignment, then the same two locations on each nearest ancestor, then declaration default, then typed missing. Global Property resolution is its runtime override followed by its required authored default. Unset removes one override and resumes lookup; explicit nullable null remains a value. Ancestor changes are immediately visible to unshadowed descendants. Every runtime Property override serializes once at its actual target; authored defaults and inherited/effective values do not.
 
 Structural and executable fields never inherit except Verb behavior: availability conditions all pass root-to-child, and default programs fall back child-to-root through Handled/Unhandled/Failed before the project undefined-interaction fallback.
 

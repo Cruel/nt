@@ -74,7 +74,7 @@ describe('Prepared Runtime Artifact module', () => {
     expect(result.ready).toBe(true);
     expect(result.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project',
-      schemaVersion: 3,
+      schemaVersion: 4,
       project: { name: 'Export Demo', version: '2.0.0', author: 'NovelTea' },
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
       definitions: {

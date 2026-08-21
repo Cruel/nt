@@ -89,7 +89,7 @@ not persisted into an authoring test.
 
 ## Export and package behavior
 
-Hotspot authoring data compiles into strict `noveltea.compiled.project` version 3. Referenced images, shader
+Hotspot authoring data compiles into strict `noveltea.compiled.project` version 4. Referenced images, shader
 variants, materials, and built-in hotspot resources are included by the existing closure and package
 writers. Runtime-generated custom masks are derived resources and are not serialized as independent
 authoring assets. Web and Android fixture materialization must work without caller-supplied output
