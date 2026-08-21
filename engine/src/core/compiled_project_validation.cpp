@@ -16,7 +16,6 @@ public:
 #define INDEX(member, id_expression)                                                               \
     for (std::size_t index = 0; index < input.member.size(); ++index)                              \
     m_##member.emplace(id_expression, index)
-        INDEX(variables, input.variables[index].id);
         INDEX(properties, input.properties[index].id());
         INDEX(assets, input.assets[index].id);
         INDEX(layouts, input.layouts[index].id);
@@ -64,10 +63,10 @@ private:
         return std::string(collection) + "/" + std::to_string(index);
     }
 
-    const VariableDefinition* variable(const VariableId& id) const
+    const PropertyDefinition* property(const PropertyId& id) const
     {
-        const auto found = m_variables.find(id);
-        return found == m_variables.end() ? nullptr : &m_input.variables[found->second];
+        const auto found = m_properties.find(id);
+        return found == m_properties.end() ? nullptr : &m_input.properties[found->second];
     }
 
     const RoomDefinition* room(const RoomId& id) const
@@ -100,31 +99,6 @@ private:
         return found == m_assets.end() ? nullptr : &m_input.assets[found->second];
     }
 
-    static bool value_matches(const PropertyValueType& type, const RuntimeValue& value)
-    {
-        if (!runtime_value_is_finite(value) || std::holds_alternative<std::monostate>(value))
-            return false;
-        return std::visit(
-            [&value](const auto& typed) {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, BooleanPropertyType>)
-                    return std::holds_alternative<bool>(value);
-                else if constexpr (std::is_same_v<T, IntegerPropertyType>)
-                    return std::holds_alternative<std::int64_t>(value);
-                else if constexpr (std::is_same_v<T, NumberPropertyType>)
-                    return std::holds_alternative<std::int64_t>(value) ||
-                           std::holds_alternative<double>(value);
-                else if constexpr (std::is_same_v<T, StringPropertyType>)
-                    return std::holds_alternative<std::string>(value);
-                else {
-                    const auto* text = std::get_if<std::string>(&value);
-                    return text != nullptr && std::find(typed.values.begin(), typed.values.end(),
-                                                        *text) != typed.values.end();
-                }
-            },
-            type);
-    }
-
     void validate_text(const TextContent& text, const std::string& path)
     {
         const auto* localized = std::get_if<LocalizedTextKey>(&text.source);
@@ -137,33 +111,40 @@ private:
 
     void validate_condition(const Condition& condition, const std::string& path)
     {
-        const auto* comparison = std::get_if<VariableComparison>(&condition);
+        const auto* comparison = std::get_if<GlobalPropertyComparison>(&condition);
         if (!comparison)
             return;
         std::visit(
             [&](const auto& typed) {
-                const auto* declaration = variable(typed.variable_id);
+                const auto* declaration = property(typed.property_id);
                 if (!declaration) {
-                    require(m_variables, typed.variable_id, "variable", path + "/variable");
+                    require(m_properties, typed.property_id, "property", path + "/property");
+                    return;
+                }
+                if (!declaration->is_global()) {
+                    error("compiled_project.property_scope_mismatch",
+                          "Condition requires Global Property '" + typed.property_id.text() + "'.",
+                          path + "/property");
                     return;
                 }
                 using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, VariableValueComparison>) {
-                    if (!value_matches(declaration->value_type, typed.value))
-                        error("compiled_project.variable_type_mismatch",
-                              "Comparison value does not match variable '" +
-                                  typed.variable_id.text() + "'.",
+                if constexpr (std::is_same_v<T, GlobalPropertyValueComparison>) {
+                    if (!property_value_matches(*declaration, typed.value))
+                        error("compiled_project.property_type_mismatch",
+                              "Comparison value does not match Global Property '" +
+                                  typed.property_id.text() + "'.",
                               path + "/value");
                     const bool ordered = typed.operation != ValueComparisonOperator::Equal &&
                                          typed.operation != ValueComparisonOperator::NotEqual;
                     const bool orderable =
-                        std::holds_alternative<IntegerPropertyType>(declaration->value_type) ||
-                        std::holds_alternative<NumberPropertyType>(declaration->value_type) ||
-                        std::holds_alternative<StringPropertyType>(declaration->value_type);
-                    if (ordered && !orderable)
-                        error("compiled_project.invalid_variable_operator",
-                              "Ordered comparison is incompatible with variable '" +
-                                  typed.variable_id.text() + "'.",
+                        std::holds_alternative<IntegerPropertyType>(declaration->value_type()) ||
+                        std::holds_alternative<NumberPropertyType>(declaration->value_type()) ||
+                        std::holds_alternative<StringPropertyType>(declaration->value_type());
+                    if (ordered &&
+                        (!orderable || std::holds_alternative<std::monostate>(typed.value)))
+                        error("compiled_project.invalid_property_operator",
+                              "Ordered comparison is incompatible with Global Property '" +
+                                  typed.property_id.text() + "'.",
                               path + "/operator");
                 }
             },
@@ -172,18 +153,24 @@ private:
 
     void validate_effect(const Effect& effect, const std::string& path)
     {
-        const auto* assignment = std::get_if<SetVariable>(&effect);
+        const auto* assignment = std::get_if<SetGlobalProperty>(&effect);
         if (!assignment)
             return;
-        const auto* declaration = variable(assignment->variable_id);
+        const auto* declaration = property(assignment->property_id);
         if (!declaration) {
-            require(m_variables, assignment->variable_id, "variable", path + "/variable");
+            require(m_properties, assignment->property_id, "property", path + "/property");
             return;
         }
-        if (!value_matches(declaration->value_type, assignment->value))
-            error("compiled_project.variable_type_mismatch",
-                  "Assigned value does not match variable '" + assignment->variable_id.text() +
-                      "'.",
+        if (!declaration->is_global()) {
+            error("compiled_project.property_scope_mismatch",
+                  "Effect requires Global Property '" + assignment->property_id.text() + "'.",
+                  path + "/property");
+            return;
+        }
+        if (!property_value_matches(*declaration, assignment->value))
+            error("compiled_project.property_type_mismatch",
+                  "Assigned value does not match Global Property '" +
+                      assignment->property_id.text() + "'.",
                   path + "/value");
     }
 
@@ -974,14 +961,18 @@ private:
                                     "compiled_project.invalid_audio_cue",
                                     "Persistent desired audio cannot wait for playback completion.",
                                     instruction_path + "/waitForCompletion");
-                        } else if constexpr (std::is_same_v<T, SetVariableSceneInstruction>) {
-                            const auto* declaration = variable(instruction.variable);
+                        } else if constexpr (std::is_same_v<T, SetGlobalPropertySceneInstruction>) {
+                            const auto* declaration = property(instruction.property);
                             if (!declaration)
-                                require(m_variables, instruction.variable, "variable",
-                                        instruction_path + "/variable");
-                            else if (!value_matches(declaration->value_type, instruction.value))
-                                error("compiled_project.variable_type_mismatch",
-                                      "Scene assignment does not match its variable.",
+                                require(m_properties, instruction.property, "property",
+                                        instruction_path + "/property");
+                            else if (!declaration->is_global())
+                                error("compiled_project.property_scope_mismatch",
+                                      "Scene assignment requires a Global Property.",
+                                      instruction_path + "/property");
+                            else if (!property_value_matches(*declaration, instruction.value))
+                                error("compiled_project.property_type_mismatch",
+                                      "Scene assignment does not match its Global Property.",
                                       instruction_path + "/value");
                         } else if constexpr (std::is_same_v<T, ConditionalBranchInstruction>) {
                             for (std::size_t branch = 0; branch < instruction.branches.size();
@@ -1318,7 +1309,6 @@ private:
     Diagnostics m_diagnostics;
     std::unordered_set<std::string> m_default_localization_keys;
 #define MAP(member, id_type) std::unordered_map<id_type, std::size_t> m_##member
-    MAP(variables, VariableId);
     MAP(properties, PropertyId);
     MAP(assets, AssetId);
     MAP(layouts, LayoutId);

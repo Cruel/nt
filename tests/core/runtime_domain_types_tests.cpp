@@ -28,8 +28,8 @@ PropertyDefinition number_property(bool nullable = false)
         .value_type = NumberPropertyType{},
         .nullable = nullable,
         .default_value = RuntimeValue{1.0},
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Scene, PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Save,
     });
     return std::move(result).value();
 }
@@ -58,13 +58,14 @@ TEST_CASE("strong domain IDs reject invalid text and remain type separated")
 TEST_CASE("shared execution concepts are closed variants")
 {
     STATIC_REQUIRE(std::variant_size_v<TextSource> == 3);
-    STATIC_REQUIRE(std::variant_size_v<VariableComparison> == 2);
+    STATIC_REQUIRE(std::variant_size_v<GlobalPropertyComparison> == 2);
     STATIC_REQUIRE(std::variant_size_v<Condition> == 3);
     STATIC_REQUIRE(std::variant_size_v<Effect> == 2);
     STATIC_REQUIRE(std::variant_size_v<FlowTarget> == 5);
     STATIC_REQUIRE(std::variant_size_v<WaitSpec> == 7);
     STATIC_REQUIRE(std::variant_size_v<ActiveWait> == 6);
     STATIC_REQUIRE(std::variant_size_v<PropertyOwnerRef> == 8);
+    STATIC_REQUIRE(std::variant_size_v<PropertyTargetRef> == 9);
     STATIC_REQUIRE(std::variant_size_v<PropertyValueType> == 5);
     STATIC_REQUIRE(std::variant_size_v<NestedOwnerPath> == 8);
 }
@@ -84,14 +85,15 @@ TEST_CASE("compiled wait intent is separate from typed active wait handles")
     CHECK(AudioHandle::create(4));
 }
 
-TEST_CASE("variable truthiness cannot carry a comparison value")
+TEST_CASE("Global Property truthiness cannot carry a comparison value")
 {
-    const auto variable = id<VariableId>("lights-on");
-    VariableComparison truthiness = VariableTruthiness{variable, TruthinessOperator::Truthy};
-    CHECK(std::holds_alternative<VariableTruthiness>(truthiness));
-    VariableComparison equality =
-        VariableValueComparison{variable, ValueComparisonOperator::Equal, RuntimeValue{true}};
-    CHECK(std::holds_alternative<VariableValueComparison>(equality));
+    const auto property = id<PropertyId>("lights-on");
+    GlobalPropertyComparison truthiness =
+        GlobalPropertyTruthiness{property, TruthinessOperator::Truthy};
+    CHECK(std::holds_alternative<GlobalPropertyTruthiness>(truthiness));
+    GlobalPropertyComparison equality =
+        GlobalPropertyValueComparison{property, ValueComparisonOperator::Equal, RuntimeValue{true}};
+    CHECK(std::holds_alternative<GlobalPropertyValueComparison>(equality));
 }
 
 TEST_CASE("property owner mapping is exhaustive and independent of enum ordering")
@@ -122,14 +124,16 @@ TEST_CASE("property factories enforce owner scalar type nullability and finitene
     CHECK(make_property_assignment(PropertyOwnerKind::Room, definition,
                                    RuntimeValue{std::int64_t{2}}));
     CHECK_FALSE(make_property_assignment(PropertyOwnerKind::Map, definition, RuntimeValue{2.0}));
-    CHECK(make_property_override(room, definition, RuntimeValue{2.0}));
-    CHECK(make_property_override(scene, definition, RuntimeValue{std::int64_t{2}}));
-    CHECK_FALSE(make_property_override(map, definition, RuntimeValue{2.0}));
-    CHECK_FALSE(make_property_override(room, definition, RuntimeValue{std::string{"bright"}}));
-    CHECK_FALSE(make_property_override(room, definition, RuntimeValue{}));
-    CHECK_FALSE(make_property_override(room, definition,
+    CHECK(make_property_override(property_target(room), definition, RuntimeValue{2.0}));
+    CHECK(
+        make_property_override(property_target(scene), definition, RuntimeValue{std::int64_t{2}}));
+    CHECK_FALSE(make_property_override(property_target(map), definition, RuntimeValue{2.0}));
+    CHECK_FALSE(make_property_override(property_target(room), definition,
+                                       RuntimeValue{std::string{"bright"}}));
+    CHECK_FALSE(make_property_override(property_target(room), definition, RuntimeValue{}));
+    CHECK_FALSE(make_property_override(property_target(room), definition,
                                        RuntimeValue{std::numeric_limits<double>::infinity()}));
-    CHECK_FALSE(make_property_override(room, definition,
+    CHECK_FALSE(make_property_override(property_target(room), definition,
                                        RuntimeValue{std::numeric_limits<double>::quiet_NaN()}));
 
     const auto nullable = number_property(true);
@@ -143,8 +147,8 @@ TEST_CASE("enum properties constrain and canonicalize string values")
         .value_type = EnumPropertyType{{"rain", "clear"}},
         .nullable = false,
         .default_value = RuntimeValue{std::string{"clear"}},
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Session,
     });
     REQUIRE(definition);
     const auto* enumeration = std::get_if<EnumPropertyType>(&definition.value().value_type());
@@ -163,8 +167,8 @@ TEST_CASE("invalid property definitions fail through Result")
         .value_type = BooleanPropertyType{},
         .nullable = false,
         .default_value = RuntimeValue{true},
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Room, PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Session,
     });
     CHECK_FALSE(duplicate_owners);
 
@@ -173,8 +177,8 @@ TEST_CASE("invalid property definitions fail through Result")
         .value_type = EnumPropertyType{{"same", "same"}},
         .nullable = false,
         .default_value = std::nullopt,
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Session,
     });
     CHECK_FALSE(duplicate_enum);
 
@@ -183,10 +187,20 @@ TEST_CASE("invalid property definitions fail through Result")
         .value_type = BooleanPropertyType{},
         .nullable = false,
         .default_value = RuntimeValue{std::string{"yes"}},
+        .scope = PropertyScope::Identity,
         .allowed_owners = {PropertyOwnerKind::Room},
-        .persistence = PropertyPersistence::Session,
     });
     CHECK_FALSE(bad_default);
+
+    auto global_without_default = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("missing-global-default"),
+        .value_type = BooleanPropertyType{},
+        .nullable = false,
+        .default_value = std::nullopt,
+        .scope = PropertyScope::Global,
+        .allowed_owners = {},
+    });
+    CHECK_FALSE(global_without_default);
 }
 
 TEST_CASE("diagnostic boundary values validate their representation")

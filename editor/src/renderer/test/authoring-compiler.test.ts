@@ -85,7 +85,6 @@ describe('authoring compiler framework', () => {
       defaultValue: 'calm',
       enumValues: ['calm', 'tense'],
       ownerKinds: ['room'],
-      persistence: 'Save',
     };
     project.variables.visited = {
       id: 'visited',
@@ -150,10 +149,14 @@ describe('authoring compiler framework', () => {
       id: 'hero',
     });
     expect(draft.properties).toEqual([
-      expect.objectContaining({ id: 'mood', enumValues: ['calm', 'tense'] }),
-    ]);
-    expect(draft.variables).toEqual([
-      { id: 'visited', type: 'boolean', defaultValue: false, enumValues: [] },
+      expect.objectContaining({ id: 'mood', scope: 'identity', enumValues: ['calm', 'tense'] }),
+      expect.objectContaining({
+        id: 'visited',
+        scope: 'global',
+        type: 'boolean',
+        defaultValue: false,
+        enumValues: [],
+      }),
     ]);
     expect(draft.resources.assets).toEqual([
       {
@@ -330,7 +333,7 @@ describe('authoring compiler framework', () => {
       'call-dialogue',
       'show-text',
       'audio-cue',
-      'set-variable',
+      'set-global-property',
       'run-lua',
       'wait-duration',
       'wait-input',
@@ -349,7 +352,7 @@ describe('authoring compiler framework', () => {
       {
         hook: 'before-enter',
         effects: [
-          { kind: 'set-variable', variable: { kind: 'variable', id: 'flag' }, value: true },
+          { kind: 'set-global-property', property: { kind: 'property', id: 'flag' }, value: true },
         ],
       },
       { hook: 'after-enter', effects: [{ kind: 'run-lua-effect', source: 'after_enter()' }] },
@@ -357,7 +360,7 @@ describe('authoring compiler framework', () => {
       {
         hook: 'after-leave',
         effects: [
-          { kind: 'set-variable', variable: { kind: 'variable', id: 'flag' }, value: false },
+          { kind: 'set-global-property', property: { kind: 'property', id: 'flag' }, value: false },
         ],
       },
     ]);

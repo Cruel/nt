@@ -369,22 +369,23 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
             std::move(*id), std::move(condition), *action, std::move(asset), *channel, *fade, *loop,
             *volume,        std::move(wait)};
     }
-    if (*kind == "set-variable") {
-        SCENE_FIELDS("value", "variable");
-        const auto* variable_value = decoder.member(value, "variable", pointer);
+    if (*kind == "set-global-property") {
+        SCENE_FIELDS("property", "value");
+        const auto* property_value = decoder.member(value, "property", pointer);
         const auto* assignment_value = decoder.member(value, "value", pointer);
-        auto variable =
-            variable_value
-                ? decode_reference<VariableId>(decoder, *variable_value,
-                                               pointer_child(pointer, "variable"), "variable")
+        auto property =
+            property_value
+                ? decode_reference<PropertyId>(decoder, *property_value,
+                                               pointer_child(pointer, "property"), "property")
                 : std::nullopt;
         auto assignment = assignment_value ? decode_runtime_value(decoder, *assignment_value,
                                                                   pointer_child(pointer, "value"))
                                            : std::nullopt;
-        return variable && assignment ? std::optional<SceneInstruction>(SetVariableSceneInstruction{
-                                            std::move(*id), std::move(condition),
-                                            std::move(*variable), std::move(*assignment)})
-                                      : std::nullopt;
+        return property && assignment
+                   ? std::optional<SceneInstruction>(SetGlobalPropertySceneInstruction{
+                         std::move(*id), std::move(condition), std::move(*property),
+                         std::move(*assignment)})
+                   : std::nullopt;
     }
     if (*kind == "run-lua") {
         SCENE_FIELDS("autosaveSafePoint", "mayYield", "source");

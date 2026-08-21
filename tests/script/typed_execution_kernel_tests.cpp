@@ -78,31 +78,29 @@ TEST_CASE("typed execution kernel composes Scene primitives Lua waits and host s
     REQUIRE(condition);
     CHECK(condition.value());
 
-    const auto count = core::VariableId::create("count").value();
-    auto assigned = kernel->apply(core::SetVariable{count, std::int64_t{9}});
+    const auto count = core::PropertyId::create("count").value();
+    auto assigned = kernel->apply(core::SetGlobalProperty{count, std::int64_t{9}});
     REQUIRE(assigned);
     CHECK(std::holds_alternative<core::WaitCompleted>(assigned.value()));
-    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{9}});
+    CHECK(kernel->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{9}});
 
-    auto lua_condition =
-        kernel->evaluate(core::LuaPredicate{"noveltea.variables.get('count') == 9"});
+    auto lua_condition = kernel->evaluate(core::LuaPredicate{"Game.prop('count') == 9"});
     REQUIRE(lua_condition);
     CHECK(lua_condition.value());
 
-    auto text = kernel->resolve(
-        core::LuaTextExpression{"'count=' .. noveltea.variables.get('count')"}, "en");
+    auto text = kernel->resolve(core::LuaTextExpression{"'count=' .. Game.prop('count')"}, "en");
     REQUIRE(text);
     CHECK(text.value() == "count=9");
 
     auto suspended =
-        kernel->apply(core::RunLuaEffect{"noveltea.variables.set('count', 10); coroutine.yield(); "
+        kernel->apply(core::RunLuaEffect{"Game.set_prop('count', 10); coroutine.yield(); "
                                          "noveltea.notify('resumed')"},
                       "kernel-suspension");
     REQUIRE(suspended);
     const auto* wait = std::get_if<ScriptInvocationSuspended>(&suspended.value());
     REQUIRE(wait != nullptr);
     CHECK(kernel->state().blocker().has_value());
-    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{10}});
+    CHECK(kernel->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{10}});
 
     auto resumed = kernel->resume_script(wait->owner, wait->invocation);
     REQUIRE(resumed);
@@ -204,7 +202,7 @@ TEST_CASE("typed execution kernel preserves exact blocker ownership and fail-sto
                             std::chrono::milliseconds{20}));
 
     auto bad_effect = kernel->apply(
-        core::SetVariable{core::VariableId::create("missing").value(), std::int64_t{1}});
+        core::SetGlobalProperty{core::PropertyId::create("missing").value(), std::int64_t{1}});
     REQUIRE_FALSE(bad_effect);
     CHECK(std::holds_alternative<core::Diagnostics>(bad_effect.error()));
 
@@ -308,7 +306,7 @@ TEST_CASE(
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    CHECK(kernel->state().variable(project, core::VariableId::create("flag").value()).value() ==
+    CHECK(kernel->gateway().global_property(core::PropertyId::create("flag").value()).value() ==
           core::RuntimeValue{true});
 
     auto script = kernel->run_until_blocked(1, "en");
@@ -360,7 +358,7 @@ TEST_CASE(
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    CHECK(kernel->state().variable(project, core::VariableId::create("ratio").value()).value() ==
+    CHECK(kernel->gateway().global_property(core::PropertyId::create("ratio").value()).value() ==
           core::RuntimeValue{0.75});
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));

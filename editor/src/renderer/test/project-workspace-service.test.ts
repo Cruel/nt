@@ -49,7 +49,6 @@ describe('ProjectWorkspaceService', () => {
       type: 'string' as const,
       nullable: false,
       ownerKinds: ['room'] as 'room'[],
-      persistence: 'Save' as const,
     });
     first.properties = Object.fromEntries(entries.map((id) => [id, definition(id)]));
     second.properties = Object.fromEntries(

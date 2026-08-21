@@ -1,3 +1,4 @@
+#include <noveltea/core/property_resolver.hpp>
 #include <noveltea/core/shared_evaluator.hpp>
 
 #include <catch2/catch_test_macros.hpp>
@@ -20,6 +21,21 @@ template<class Id> Id id(std::string value)
 TextContent text(std::string value)
 {
     return TextContent{InlineText{std::move(value)}, TextMarkup::Plain};
+}
+
+PropertyDefinition global_property(std::string name, PropertyValueType type,
+                                   RuntimeValue default_value)
+{
+    auto definition = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>(std::move(name)),
+        .value_type = std::move(type),
+        .nullable = false,
+        .default_value = std::move(default_value),
+        .scope = PropertyScope::Global,
+        .allowed_owners = {},
+    });
+    REQUIRE(definition);
+    return std::move(definition).value();
 }
 
 CompiledProject make_project()
@@ -51,15 +67,14 @@ CompiledProject make_project()
                           compiled::LocalizationCatalog{
                               "fr", {{"greeting", "Bonjour"}, {"fallback-only", "Secours"}}},
                           compiled::LocalizationCatalog{"de", {{"greeting", "Hallo"}}}}},
-        .variables = {{id<VariableId>("flag"), BooleanPropertyType{}, RuntimeValue{false}},
-                      {id<VariableId>("count"), IntegerPropertyType{},
-                       RuntimeValue{std::int64_t{3}}},
-                      {id<VariableId>("ratio"), NumberPropertyType{}, RuntimeValue{1.5}},
-                      {id<VariableId>("name"), StringPropertyType{},
-                       RuntimeValue{std::string{"beta"}}},
-                      {id<VariableId>("mood"), EnumPropertyType{{"calm", "tense"}},
-                       RuntimeValue{std::string{"calm"}}}},
-        .properties = {},
+        .properties = {global_property("flag", BooleanPropertyType{}, RuntimeValue{false}),
+                       global_property("count", IntegerPropertyType{},
+                                       RuntimeValue{std::int64_t{3}}),
+                       global_property("ratio", NumberPropertyType{}, RuntimeValue{1.5}),
+                       global_property("name", StringPropertyType{},
+                                       RuntimeValue{std::string{"beta"}}),
+                       global_property("mood", EnumPropertyType{{"calm", "tense"}},
+                                       RuntimeValue{std::string{"calm"}})},
         .assets = {},
         .layouts = {},
         .scripts = {},
@@ -100,7 +115,7 @@ const WaitBlocked& blocked_wait(const Result<WaitEvaluation, Diagnostics>& resul
 }
 } // namespace
 
-TEST_CASE("shared condition evaluation covers every non-script comparison form")
+TEST_CASE("shared condition evaluation covers every non-script Global Property comparison form")
 {
     const auto project = make_project();
     auto state = make_state(project);
@@ -109,38 +124,40 @@ TEST_CASE("shared condition evaluation covers every non-script comparison form")
 
     CHECK(condition_value(evaluator, Always{}));
     CHECK_FALSE(condition_value(
-        evaluator, VariableTruthiness{id<VariableId>("flag"), TruthinessOperator::Truthy}));
+        evaluator, GlobalPropertyTruthiness{id<PropertyId>("flag"), TruthinessOperator::Truthy}));
+    CHECK(condition_value(
+        evaluator, GlobalPropertyTruthiness{id<PropertyId>("flag"), TruthinessOperator::Falsy}));
+    CHECK(condition_value(evaluator, GlobalPropertyValueComparison{id<PropertyId>("count"),
+                                                                   ValueComparisonOperator::Equal,
+                                                                   RuntimeValue{std::int64_t{3}}}));
+    CHECK(condition_value(evaluator, GlobalPropertyValueComparison{
+                                         id<PropertyId>("count"), ValueComparisonOperator::NotEqual,
+                                         RuntimeValue{std::int64_t{4}}}));
+    CHECK(condition_value(evaluator, GlobalPropertyValueComparison{id<PropertyId>("count"),
+                                                                   ValueComparisonOperator::Less,
+                                                                   RuntimeValue{std::int64_t{4}}}));
+    CHECK(
+        condition_value(evaluator, GlobalPropertyValueComparison{id<PropertyId>("count"),
+                                                                 ValueComparisonOperator::LessEqual,
+                                                                 RuntimeValue{std::int64_t{3}}}));
+    CHECK(condition_value(evaluator, GlobalPropertyValueComparison{id<PropertyId>("ratio"),
+                                                                   ValueComparisonOperator::Greater,
+                                                                   RuntimeValue{std::int64_t{1}}}));
     CHECK(condition_value(evaluator,
-                          VariableTruthiness{id<VariableId>("flag"), TruthinessOperator::Falsy}));
-    CHECK(condition_value(evaluator, VariableValueComparison{id<VariableId>("count"),
-                                                             ValueComparisonOperator::Equal,
-                                                             RuntimeValue{std::int64_t{3}}}));
-    CHECK(condition_value(evaluator, VariableValueComparison{id<VariableId>("count"),
-                                                             ValueComparisonOperator::NotEqual,
-                                                             RuntimeValue{std::int64_t{4}}}));
-    CHECK(condition_value(evaluator, VariableValueComparison{id<VariableId>("count"),
-                                                             ValueComparisonOperator::Less,
-                                                             RuntimeValue{std::int64_t{4}}}));
-    CHECK(condition_value(evaluator, VariableValueComparison{id<VariableId>("count"),
-                                                             ValueComparisonOperator::LessEqual,
-                                                             RuntimeValue{std::int64_t{3}}}));
-    CHECK(condition_value(evaluator, VariableValueComparison{id<VariableId>("ratio"),
-                                                             ValueComparisonOperator::Greater,
-                                                             RuntimeValue{std::int64_t{1}}}));
-    CHECK(condition_value(evaluator, VariableValueComparison{id<VariableId>("name"),
-                                                             ValueComparisonOperator::GreaterEqual,
-                                                             RuntimeValue{std::string{"alpha"}}}));
+                          GlobalPropertyValueComparison{id<PropertyId>("name"),
+                                                        ValueComparisonOperator::GreaterEqual,
+                                                        RuntimeValue{std::string{"alpha"}}}));
 
     auto missing = evaluator.evaluate(
-        VariableTruthiness{id<VariableId>("missing"), TruthinessOperator::Truthy});
+        GlobalPropertyTruthiness{id<PropertyId>("missing"), TruthinessOperator::Truthy});
     REQUIRE_FALSE(missing);
-    CHECK(missing.error().front().code == "execution.unknown_variable");
-    auto invalid_truthiness =
-        evaluator.evaluate(VariableTruthiness{id<VariableId>("count"), TruthinessOperator::Truthy});
+    CHECK(missing.error().front().code == "execution.unknown_global_property");
+    auto invalid_truthiness = evaluator.evaluate(
+        GlobalPropertyTruthiness{id<PropertyId>("count"), TruthinessOperator::Truthy});
     REQUIRE_FALSE(invalid_truthiness);
     CHECK(invalid_truthiness.error().front().code == "execution.invalid_truthiness_value");
-    auto invalid_order = evaluator.evaluate(VariableValueComparison{
-        id<VariableId>("mood"), ValueComparisonOperator::Less, RuntimeValue{std::string{"tense"}}});
+    auto invalid_order = evaluator.evaluate(GlobalPropertyValueComparison{
+        id<PropertyId>("mood"), ValueComparisonOperator::Less, RuntimeValue{std::string{"tense"}}});
     REQUIRE_FALSE(invalid_order);
     CHECK(invalid_order.error().front().code == "execution.invalid_comparison_operator");
     auto script = evaluator.evaluate(LuaPredicate{"return true"});
@@ -148,22 +165,25 @@ TEST_CASE("shared condition evaluation covers every non-script comparison form")
     CHECK(script.error().front().code == "execution.lua_condition_requires_script_runtime");
 }
 
-TEST_CASE("shared effects mutate only declared type-compatible variables")
+TEST_CASE("shared effects mutate only declared type-compatible Global Properties")
 {
     const auto project = make_project();
     auto state = make_state(project);
     FlowExecutor executor(project, state);
     SharedPrimitiveEvaluator evaluator(project, state, executor);
+    PropertyResolver resolver(project, state);
 
-    REQUIRE(evaluator.apply(SetVariable{id<VariableId>("flag"), RuntimeValue{true}}));
-    CHECK(state.variable(project, id<VariableId>("flag")).value() == RuntimeValue{true});
-    CHECK_FALSE(
-        evaluator.apply(SetVariable{id<VariableId>("flag"), RuntimeValue{std::string{"true"}}}));
-    CHECK_FALSE(evaluator.apply(SetVariable{id<VariableId>("missing"), RuntimeValue{true}}));
+    REQUIRE(evaluator.apply(SetGlobalProperty{id<PropertyId>("flag"), RuntimeValue{true}}));
+    CHECK(std::get<RuntimeValue>(resolver.get_global(id<PropertyId>("flag")).value()) ==
+          RuntimeValue{true});
+    CHECK_FALSE(evaluator.apply(
+        SetGlobalProperty{id<PropertyId>("flag"), RuntimeValue{std::string{"true"}}}));
+    CHECK_FALSE(evaluator.apply(SetGlobalProperty{id<PropertyId>("missing"), RuntimeValue{true}}));
     auto script = evaluator.apply(RunLuaEffect{"flag = true"});
     REQUIRE_FALSE(script);
     CHECK(script.error().front().code == "execution.lua_effect_requires_script_runtime");
-    CHECK(state.variable(project, id<VariableId>("flag")).value() == RuntimeValue{true});
+    CHECK(std::get<RuntimeValue>(resolver.get_global(id<PropertyId>("flag")).value()) ==
+          RuntimeValue{true});
 }
 
 TEST_CASE("shared text resolution handles inline locale fallback and script boundaries")

@@ -129,7 +129,7 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'nnaanannnnnnannyonnnnnnnnonoonoonnonnnnvoonnnnonoonnnoonoyopooonnsssssssssvnsnoonsnooonnnsoonnssssss' +
   'sssovsnnonnoooonnsssssssssvnsnoonsnoooonnsssssssssovsnnoonnnnoyopoonnnnoooonoyopnsssssssssvnsnoonooo' +
   'oonoooonoooonsnoonooonnsssssssssovsnoonoonnoonoyopoooooooooooonnnoonsnnnoonnoonsnnnnsssssssssnnnnyol' +
-  'yyooooononsssssssssovsnnnoonnnnoonoonsssssssssovsnnoyoponnnnnnnoonnoonnnnnnnnnnyonnnnnnnnyonnnnoonno' +
+  'yyooooononsssssssssovsnnnoonnnnoonoonsssssssssovsnnoyoponnnnnnnoonnoonnnnnnnnnnyonnnnnnnnyonnnoonno' +
   'ooosssssssssvnsnoononnonnsssssssssoonsssssssssovsnnoonnnnnsssssssssvnsnooooonnnnnnsssssssssvnsnoonon' +
   'oonnnnsssssssssvnsnoonooononnnsnoonsnoonsnoonsnoosssssssssnnsnoosssssssssnnsnoosssssssssvnsnooooonnn' +
   'nnnonnsssssssssovsnoooosssssssssvnsnooooononnoyopoooonnoooonnnoonsssssssssvnsnoooonoonoooonnnooooonn' +
@@ -272,7 +272,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     maps: '67896f92',
     materials: '546711ca',
     project: 'da3be83d',
-    properties: '1ff9b7f3',
+    properties: 'c35941e2',
     rooms: '075a2c6a',
     scenes: 'd05f7981',
     schema: '63fb9bb9',

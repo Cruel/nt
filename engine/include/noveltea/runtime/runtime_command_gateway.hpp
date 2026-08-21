@@ -68,9 +68,11 @@ public:
     [[nodiscard]] core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
     definition(core::ProjectDefinitionKind kind, std::string id) const;
     [[nodiscard]] core::Result<core::RuntimeValue, core::Diagnostics>
-    variable(const core::VariableId& id) const;
-    [[nodiscard]] core::Result<void, core::Diagnostics> set_variable(const core::VariableId& id,
-                                                                     core::RuntimeValue value);
+    global_property(const core::PropertyId& id) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_global_property(const core::PropertyId& id, core::RuntimeValue value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    unset_global_property(const core::PropertyId& id);
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
     property(const core::PropertyOwnerRef& owner, const core::PropertyId& property) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>

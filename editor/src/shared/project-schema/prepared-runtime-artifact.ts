@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { PackageExportOptions } from '../editor-tooling';
 import { assetKindValues, type AssetKind } from './authoring-assets';
 import { exportProfileSchema, type ExportProfileData } from './authoring-export';
-import { compiledProjectWireV3Schema, type CompiledProjectWireV3 } from './compiled-project';
+import { compiledProjectWireV4Schema, type CompiledProjectWireV4 } from './compiled-project';
 import type { ProjectValidationDiagnostic } from './project-validation';
 import { shaderMaterialProjectWireSchema } from './shader-material-project';
 
@@ -59,7 +59,7 @@ export interface PreparedRuntimeArtifact {
   sourceFingerprint: string;
   recoveryFingerprint?: unknown;
   profile: ExportProfileData;
-  compiledProject: CompiledProjectWireV3;
+  compiledProject: CompiledProjectWireV4;
   gameplayJson: string;
   shaderMaterialMetadata?: z.infer<typeof shaderMaterialProjectWireSchema>;
   requiredShaderBinaryPaths: string[];
@@ -170,7 +170,7 @@ export const preparedRuntimeArtifactSchema = z
     sourceFingerprint: z.string().regex(/^fnv1a:[0-9a-f]{8}$/),
     recoveryFingerprint: z.unknown().optional(),
     profile: exportProfileSchema,
-    compiledProject: compiledProjectWireV3Schema,
+    compiledProject: compiledProjectWireV4Schema,
     gameplayJson: z.string(),
     shaderMaterialMetadata: shaderMaterialProjectWireSchema.optional(),
     requiredShaderBinaryPaths: z.array(z.string()),

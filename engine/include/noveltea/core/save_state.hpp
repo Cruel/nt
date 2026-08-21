@@ -14,20 +14,15 @@
 namespace noveltea::core {
 
 struct SaveStateMetadata {
-    static constexpr std::uint32_t current_format_version = 7;
+    static constexpr std::uint32_t current_format_version = 8;
 
     std::uint32_t format_version = current_format_version;
     ProjectId project;
     std::string project_version;
 };
 
-struct SavedVariable {
-    VariableId id;
-    RuntimeValue value;
-};
-
 struct SavedPropertyOverride {
-    PropertyOwnerRef owner;
+    PropertyTargetRef target;
     PropertyId property;
     RuntimeValue value;
 };
@@ -206,7 +201,6 @@ struct SaveState {
     SaveStateMetadata metadata;
     std::chrono::milliseconds play_time{0};
     std::uint64_t random_state = 0;
-    std::vector<SavedVariable> variables;
     std::vector<SavedPropertyOverride> property_overrides;
     std::vector<CharacterWorldState> characters;
     std::vector<InteractableState> interactables;

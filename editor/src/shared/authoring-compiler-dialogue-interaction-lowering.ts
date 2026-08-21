@@ -2,7 +2,7 @@ import type {
   CompiledCondition,
   CompiledEffect,
   CompiledFlowTarget,
-  CompiledProjectWireV3,
+  CompiledProjectWireV4,
   CompiledText,
   InteractionProgram,
 } from './project-schema/compiled-project';
@@ -23,7 +23,7 @@ import type {
 
 export interface CompleteProgramLoweringResult {
   diagnostics: ProgramLoweringDiagnostic[];
-  draft?: CompiledProjectWireV3;
+  draft?: CompiledProjectWireV4;
 }
 
 function compileText(text: TextContent): CompiledText {
@@ -45,9 +45,9 @@ function compileCondition(condition: Condition): CompiledCondition {
     return { kind: 'lua-predicate', source: condition.source };
   }
   return {
-    kind: condition.kind,
+    kind: 'global-property-comparison',
     operator: condition.operator,
-    variable: { kind: 'variable', id: condition.variable.$ref.id },
+    property: { kind: 'property', id: condition.variable.$ref.id },
     ...(condition.value === undefined ? {} : { value: condition.value }),
   };
 }
@@ -55,8 +55,8 @@ function compileCondition(condition: Condition): CompiledCondition {
 function compileEffect(effect: Effect): CompiledEffect {
   if (effect.kind === 'run-lua-effect') return { ...effect };
   return {
-    kind: 'set-variable',
-    variable: { kind: 'variable', id: effect.variable.$ref.id },
+    kind: 'set-global-property',
+    property: { kind: 'property', id: effect.variable.$ref.id },
     value: effect.value,
   };
 }
@@ -144,7 +144,7 @@ export function lowerDialogueAndInteractionPrograms(
   partial: CompiledProjectSceneRoomDraft,
 ): CompleteProgramLoweringResult {
   const diagnostics: ProgramLoweringDiagnostic[] = [];
-  const dialogues: CompiledProjectWireV3['definitions']['dialogues'] = [];
+  const dialogues: CompiledProjectWireV4['definitions']['dialogues'] = [];
   for (const dialogue of partial.definitions.dialogues) {
     const data = parseDialogueData(project.dialogues[dialogue.id]?.data);
     if (!data) {
@@ -155,7 +155,7 @@ export function lowerDialogueAndInteractionPrograms(
       });
       continue;
     }
-    const blocks: CompiledProjectWireV3['definitions']['dialogues'][number]['program']['blocks'] =
+    const blocks: CompiledProjectWireV4['definitions']['dialogues'][number]['program']['blocks'] =
       [];
     for (const block of data.blocks) {
       if (block.type === 'comment') continue;
@@ -237,7 +237,7 @@ export function lowerDialogueAndInteractionPrograms(
     });
   }
 
-  const verbs: CompiledProjectWireV3['definitions']['verbs'] = [];
+  const verbs: CompiledProjectWireV4['definitions']['verbs'] = [];
   for (const verb of partial.definitions.verbs) {
     const data = parseVerbData(project.verbs[verb.id]?.data);
     if (!data) {
@@ -255,7 +255,7 @@ export function lowerDialogueAndInteractionPrograms(
     });
   }
 
-  const interactions: CompiledProjectWireV3['definitions']['interactions'] = [];
+  const interactions: CompiledProjectWireV4['definitions']['interactions'] = [];
   for (const interaction of partial.definitions.interactions) {
     const data = parseInteractionData(project.interactions[interaction.id]?.data);
     if (!data) {

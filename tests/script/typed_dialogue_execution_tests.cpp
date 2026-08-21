@@ -249,7 +249,7 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
 
     complete_input(*kernel);
     REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(100, "en")));
-    CHECK(kernel->state().variable(project, core::VariableId::create("flag").value()).value() ==
+    CHECK(kernel->gateway().global_property(core::PropertyId::create("flag").value()).value() ==
           core::RuntimeValue{true});
     CHECK(kernel->state().presented_text()->text == "Welcome.");
     REQUIRE(kernel->gateway().command_queue().size() == 1);
@@ -284,7 +284,7 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
     CHECK(kernel->state().text_log().size() == 2);
 
     REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(100, "en")));
-    CHECK(kernel->state().variable(project, core::VariableId::create("count").value()).value() ==
+    CHECK(kernel->gateway().global_property(core::PropertyId::create("count").value()).value() ==
           core::RuntimeValue{std::int64_t{4}});
     CHECK(kernel->state().presented_text()->text == "Final line.");
     REQUIRE(kernel->gateway().command_queue().size() == 1);

@@ -193,7 +193,7 @@ TEST_CASE("capability profiles are closed engine-selected values")
     const auto expression = describe(RuntimeCapabilityProfile::SynchronousExpression);
     CHECK_FALSE(expression.may_yield);
     CHECK(expression.command_groups == 0);
-    CHECK((expression.query_groups & capability_bit(RuntimeCapabilityGroup::Variables)) != 0);
+    CHECK((expression.query_groups & capability_bit(RuntimeCapabilityGroup::Properties)) != 0);
 
     const auto composition = describe(RuntimeCapabilityProfile::RoomComposition);
     CHECK(composition.admits_room_composition_draft);
@@ -201,7 +201,7 @@ TEST_CASE("capability profiles are closed engine-selected values")
 
     const auto shell = describe(RuntimeCapabilityProfile::ShellLayoutEvent);
     CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Game)) != 0);
-    CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Variables)) == 0);
+    CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Properties)) == 0);
     CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Presentation)) == 0);
     CHECK_FALSE(shell.may_yield);
 
@@ -241,7 +241,7 @@ TEST_CASE("capability sets are lightweight non-owning query and command views")
     const auto shell = issuer.issue(RuntimeCapabilityProfile::ShellLayoutEvent);
     REQUIRE(shell.has_value());
     CHECK(shell->can_command(RuntimeCapabilityGroup::Save));
-    CHECK_FALSE(shell->can_command(RuntimeCapabilityGroup::Variables));
+    CHECK_FALSE(shell->can_command(RuntimeCapabilityGroup::Properties));
     CHECK_FALSE(shell->can_command(RuntimeCapabilityGroup::Presentation));
 
     const auto gameplay_layout = issuer.issue(RuntimeCapabilityProfile::GameplayLayoutEvent);
@@ -255,7 +255,7 @@ TEST_CASE("capability sets are lightweight non-owning query and command views")
     const auto composition = issuer.issue_room_composition(draft);
     CHECK(composition.profile() == RuntimeCapabilityProfile::RoomComposition);
     CHECK(composition.room_composition_draft() == &draft);
-    CHECK_FALSE(composition.can_command(RuntimeCapabilityGroup::Variables));
+    CHECK_FALSE(composition.can_command(RuntimeCapabilityGroup::Properties));
     CHECK_FALSE(composition.can_query(RuntimeCapabilityGroup::Random));
     draft.close();
     CHECK(composition.room_composition_draft() == nullptr);

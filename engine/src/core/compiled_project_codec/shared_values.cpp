@@ -112,26 +112,26 @@ std::optional<Condition> decode_condition_impl(Decoder& decoder, const nlohmann:
                           : std::nullopt;
         return source ? std::optional<Condition>(LuaPredicate{std::move(*source)}) : std::nullopt;
     }
-    if (*kind == "variable-comparison") {
-        decoder.object(value, pointer, {"kind", "operator", "value", "variable"});
+    if (*kind == "global-property-comparison") {
+        decoder.object(value, pointer, {"kind", "operator", "property", "value"});
         const auto* operation_value = decoder.member(value, "operator", pointer);
-        const auto* variable_value = decoder.member(value, "variable", pointer);
+        const auto* property_value = decoder.member(value, "property", pointer);
         auto operation = operation_value
                              ? decoder.string(*operation_value, pointer_child(pointer, "operator"))
                              : std::nullopt;
-        auto variable =
-            variable_value
-                ? decode_reference<VariableId>(decoder, *variable_value,
-                                               pointer_child(pointer, "variable"), "variable")
+        auto property =
+            property_value
+                ? decode_reference<PropertyId>(decoder, *property_value,
+                                               pointer_child(pointer, "property"), "property")
                 : std::nullopt;
-        if (!operation || !variable)
+        if (!operation || !property)
             return std::nullopt;
         if (*operation == "truthy" || *operation == "falsy") {
             if (json_access::member(value, "value"))
                 decoder.error(k_code_unknown, "Truthiness comparisons do not accept 'value'.",
                               pointer_child(pointer, "value"));
-            return Condition{VariableComparison{VariableTruthiness{
-                std::move(*variable),
+            return Condition{GlobalPropertyComparison{GlobalPropertyTruthiness{
+                std::move(*property),
                 *operation == "truthy" ? TruthinessOperator::Truthy : TruthinessOperator::Falsy}}};
         }
         const auto* comparison_value = decoder.member(value, "value", pointer);
@@ -148,8 +148,8 @@ std::optional<Condition> decode_condition_impl(Decoder& decoder, const nlohmann:
              {"greater-equal", ValueComparisonOperator::GreaterEqual}});
         if (!comparison || !comparison_operator)
             return std::nullopt;
-        return Condition{VariableComparison{VariableValueComparison{
-            std::move(*variable), *comparison_operator, std::move(*comparison)}}};
+        return Condition{GlobalPropertyComparison{GlobalPropertyValueComparison{
+            std::move(*property), *comparison_operator, std::move(*comparison)}}};
     }
     decoder.object(value, pointer, {"kind"});
     decoder.error(k_code_variant, "Unknown condition variant '" + *kind + "'.",
@@ -169,20 +169,20 @@ std::optional<Effect> decode_effect_impl(Decoder& decoder, const nlohmann::json&
         kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
     if (!kind)
         return std::nullopt;
-    if (*kind == "set-variable") {
-        decoder.object(value, pointer, {"kind", "value", "variable"});
-        const auto* variable_value = decoder.member(value, "variable", pointer);
+    if (*kind == "set-global-property") {
+        decoder.object(value, pointer, {"kind", "property", "value"});
+        const auto* property_value = decoder.member(value, "property", pointer);
         const auto* assignment_value = decoder.member(value, "value", pointer);
-        auto variable =
-            variable_value
-                ? decode_reference<VariableId>(decoder, *variable_value,
-                                               pointer_child(pointer, "variable"), "variable")
+        auto property =
+            property_value
+                ? decode_reference<PropertyId>(decoder, *property_value,
+                                               pointer_child(pointer, "property"), "property")
                 : std::nullopt;
         auto assignment = assignment_value ? decode_runtime_value(decoder, *assignment_value,
                                                                   pointer_child(pointer, "value"))
                                            : std::nullopt;
-        if (variable && assignment)
-            return Effect{SetVariable{std::move(*variable), std::move(*assignment)}};
+        if (property && assignment)
+            return Effect{SetGlobalProperty{std::move(*property), std::move(*assignment)}};
         return std::nullopt;
     }
     if (*kind == "run-lua-effect") {

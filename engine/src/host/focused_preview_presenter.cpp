@@ -345,11 +345,11 @@ public:
     }
 
     core::Result<core::RuntimeValue, core::Diagnostics>
-    variable(const core::VariableId& id) const override
+    global_property(const core::PropertyId& id) const override
     {
         if (!m_variables.contains(id.text()))
             return core::Result<core::RuntimeValue, core::Diagnostics>::failure(
-                unadmitted("Variable read"));
+                unadmitted("Global Property read"));
         const auto found = std::find_if(m_state.variables.begin(), m_state.variables.end(),
                                         [&](const auto& value) { return value.id == id.text(); });
         if (found == m_state.variables.end())
@@ -400,7 +400,7 @@ public:
                        "Admitted focused property is missing from deterministic query state")});
         if (found->missing)
             return core::Result<core::PropertyLookupResult, core::Diagnostics>::success(
-                core::MissingPropertyValue{owner, property});
+                core::MissingPropertyValue{core::property_target(owner), property});
         return core::Result<core::PropertyLookupResult, core::Diagnostics>::success(found->value);
     }
 

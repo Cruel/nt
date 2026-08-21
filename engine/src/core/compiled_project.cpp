@@ -64,33 +64,6 @@ bool valid_background(const compiled::BackgroundPresentation& value) noexcept
     return enum_at_most(value.fit, compiled::BackgroundFit::Center);
 }
 
-bool valid_variable(const compiled::VariableDefinition& variable) noexcept
-{
-    if (!runtime_value_is_finite(variable.default_value) ||
-        std::holds_alternative<std::monostate>(variable.default_value))
-        return false;
-    return std::visit(
-        [&variable](const auto& type) {
-            using T = std::decay_t<decltype(type)>;
-            if constexpr (std::is_same_v<T, BooleanPropertyType>)
-                return std::holds_alternative<bool>(variable.default_value);
-            else if constexpr (std::is_same_v<T, IntegerPropertyType>)
-                return std::holds_alternative<std::int64_t>(variable.default_value);
-            else if constexpr (std::is_same_v<T, NumberPropertyType>)
-                return std::holds_alternative<std::int64_t>(variable.default_value) ||
-                       std::holds_alternative<double>(variable.default_value);
-            else if constexpr (std::is_same_v<T, StringPropertyType>)
-                return std::holds_alternative<std::string>(variable.default_value);
-            else {
-                const auto* string = std::get_if<std::string>(&variable.default_value);
-                return string != nullptr && !type.values.empty() &&
-                       std::find(type.values.begin(), type.values.end(), *string) !=
-                           type.values.end();
-            }
-        },
-        variable.value_type);
-}
-
 bool valid_interactable_location(const compiled::InteractableLocation&) noexcept { return true; }
 
 bool valid_interaction_program(const compiled::InteractionProgram& program) noexcept
@@ -250,12 +223,6 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
                                                       return entry.key.empty();
                                                   })) {
             diagnostics = invalid_model("Localization catalog is invalid");
-            return false;
-        }
-    }
-    for (const auto& variable : input.variables) {
-        if (!valid_variable(variable)) {
-            diagnostics = invalid_model("Variable declaration has an invalid default value");
             return false;
         }
     }
@@ -480,10 +447,6 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
     return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics))
 
     BUILD_INDEX(
-        VariableId, variables,
-        [](const compiled::VariableDefinition& value) -> const VariableId& { return value.id; },
-        "variable");
-    BUILD_INDEX(
         PropertyId, properties,
         [](const PropertyDefinition& value) -> const PropertyId& { return value.id(); },
         "property");
@@ -536,21 +499,17 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
 CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     : m_identity(std::move(input.identity)), m_settings(std::move(input.settings)),
       m_entrypoint(std::move(input.entrypoint)), m_startup_hook(std::move(input.startup_hook)),
-      m_localization(std::move(input.localization)), m_variables(std::move(input.variables)),
-      m_properties(std::move(input.properties)), m_assets(std::move(input.assets)),
-      m_layouts(std::move(input.layouts)), m_scripts(std::move(input.scripts)),
-      m_characters(std::move(input.characters)), m_rooms(std::move(input.rooms)),
-      m_interactables(std::move(input.interactables)), m_verbs(std::move(input.verbs)),
-      m_interactions(std::move(input.interactions)), m_scenes(std::move(input.scenes)),
-      m_dialogues(std::move(input.dialogues)), m_maps(std::move(input.maps))
+      m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),
+      m_assets(std::move(input.assets)), m_layouts(std::move(input.layouts)),
+      m_scripts(std::move(input.scripts)), m_characters(std::move(input.characters)),
+      m_rooms(std::move(input.rooms)), m_interactables(std::move(input.interactables)),
+      m_verbs(std::move(input.verbs)), m_interactions(std::move(input.interactions)),
+      m_scenes(std::move(input.scenes)), m_dialogues(std::move(input.dialogues)),
+      m_maps(std::move(input.maps))
 {
     Diagnostics unused;
 #define INDEX(id_type, singular, plural, expression, label)                                        \
     build_index(m_##plural, m_##singular##_index, expression, label, unused)
-    INDEX(
-        VariableId, variable, variables,
-        [](const compiled::VariableDefinition& value) -> const VariableId& { return value.id; },
-        "variable");
     INDEX(
         PropertyId, property, properties,
         [](const PropertyDefinition& value) -> const PropertyId& { return value.id(); },
@@ -598,7 +557,6 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     {                                                                                              \
         return checked_find(id, m_##name##_index, m_##plural);                                     \
     }
-FIND(variable, variables, VariableId, compiled::VariableDefinition)
 FIND(property, properties, PropertyId, PropertyDefinition)
 FIND(asset, assets, AssetId, compiled::AssetResource)
 FIND(layout, layouts, LayoutId, compiled::LayoutResource)

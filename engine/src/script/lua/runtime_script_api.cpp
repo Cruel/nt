@@ -105,16 +105,22 @@ RuntimeScriptApi::definition(core::ProjectDefinitionKind kind, std::string id) c
                            provider->definition(kind, std::move(id)));
 }
 core::Result<core::RuntimeValue, core::Diagnostics>
-RuntimeScriptApi::variable(const core::VariableId& id) const
+RuntimeScriptApi::global_property(const core::PropertyId& id) const
 {
-    NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Variables, "Variable read",
-                           provider->variable(id));
+    NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Properties, "Global Property read",
+                           provider->global_property(id));
 }
-core::Result<void, core::Diagnostics> RuntimeScriptApi::set_variable(const core::VariableId& id,
-                                                                     core::RuntimeValue value)
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_global_property(const core::PropertyId& id, core::RuntimeValue value)
 {
-    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Variables, "Variable write",
-                          gateway->set_variable(id, std::move(value)));
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Properties, "Global Property write",
+                          gateway->set_global_property(id, std::move(value)));
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::unset_global_property(const core::PropertyId& id)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Properties, "Global Property unset",
+                          gateway->unset_global_property(id));
 }
 core::Result<core::PropertyLookupResult, core::Diagnostics>
 RuntimeScriptApi::property(const core::PropertyOwnerRef& owner,

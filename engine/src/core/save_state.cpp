@@ -158,7 +158,6 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                      project.identity().version},
         .play_time = session.m_play_time,
         .random_state = session.m_random_state,
-        .variables = {},
         .property_overrides = {},
         .characters = session.m_character_world,
         .interactables = session.m_interactables,
@@ -183,18 +182,10 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .blocker = std::nullopt,
     };
 
-    save.variables.reserve(project.variables().size());
-    for (const auto& definition : project.variables()) {
-        const auto value = session.m_variables.find(definition.id);
-        if (value != session.m_variables.end())
-            save.variables.push_back(SavedVariable{definition.id, value->second});
-    }
-    for (const auto& value : session.m_property_overrides) {
-        const auto* definition = project.find_property(value.property_id());
-        if (definition != nullptr && definition->persistence() == PropertyPersistence::Save)
-            save.property_overrides.push_back(
-                SavedPropertyOverride{value.owner(), value.property_id(), value.override_value()});
-    }
+    save.property_overrides.reserve(session.m_property_overrides.size());
+    for (const auto& value : session.m_property_overrides)
+        save.property_overrides.push_back(
+            SavedPropertyOverride{value.target(), value.property_id(), value.override_value()});
     save.room_visits.reserve(session.m_room_visits.size());
     for (const auto& [room, count] : session.m_room_visits)
         save.room_visits.push_back(SavedRoomVisits{room, count});

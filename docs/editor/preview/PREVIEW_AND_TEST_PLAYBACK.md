@@ -5,8 +5,7 @@
 Full-game preview, authoring-test playback, and `.ntpkg` export use `prepareRuntimeArtifact` as their
 single project-derived compilation and runtime-readiness interface. Play and test-playback intents
 are effect-free; shader compiler effects are reserved for explicit export intents. The published
-value is canonical `noveltea.compiled.project` V2
-wire revision, schema version 3, plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
+value is canonical `noveltea.compiled.project` V4 plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 
 Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
@@ -30,7 +29,7 @@ path as packaged playback;
 `runtime::RuntimeSession`.
 
 The transport message name is an external protocol operation, not a schema name. Its `project`
-payload must be `noveltea.compiled.project` version 3.
+payload must be `noveltea.compiled.project` version 4.
 
 Live commands lower to stable typed inputs for start/stop/reset/time, continue, dialogue choice,
 navigation, selection, interaction, declared variable changes, inventory location changes, room

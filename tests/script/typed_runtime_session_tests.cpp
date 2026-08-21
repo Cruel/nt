@@ -100,8 +100,8 @@ core::CompiledProject make_transition_group_project(std::string source_name,
                                 {"skippable", true},
                                 {"waitForCompletion", wait_for_completion}},
                                {{"id", "after-transition"},
-                                {"kind", "set-variable"},
-                                {"variable", {{"kind", "variable"}, {"id", "count"}}},
+                                {"kind", "set-global-property"},
+                                {"property", {{"kind", "property"}, {"id", "count"}}},
                                 {"value", 9}}});
     return decode_document(std::move(document), std::move(source_name));
 }
@@ -121,8 +121,8 @@ core::CompiledProject make_animated_room_project(std::string source_name)
             if (hook["hook"] != "after-enter")
                 continue;
             hook["effects"] =
-                nlohmann::json::array({{{"kind", "set-variable"},
-                                        {"variable", {{"kind", "variable"}, {"id", "count"}}},
+                nlohmann::json::array({{{"kind", "set-global-property"},
+                                        {"property", {{"kind", "property"}, {"id", "count"}}},
                                         {"value", room_id == "start" ? 7 : 8}}});
         }
     }
@@ -398,13 +398,13 @@ TEST_CASE(
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
     CHECK(has_output_kind(started, DispatchArtifactKind::Publication));
 
-    const auto count = make_id<core::VariableIdTag>("count");
+    const auto count = make_id<core::PropertyIdTag>("count");
     auto changed = dispatch_settled(
         *fixture.session,
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{7}}});
     CHECK(changed.disposition == runtime::RuntimeInputDisposition::Handled);
-    REQUIRE(fixture.session->gateway().variable(count));
-    CHECK(fixture.session->gateway().variable(count).value() ==
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{7}});
 
     const auto slot = core::TypedSaveSlotId::manual(4);
@@ -432,7 +432,7 @@ TEST_CASE(
     CHECK(fixture.presentation.terminations.empty());
     CHECK(*fixture.session->checkpoint_service().latest_checkpoint() ==
           retained_before_failed_load);
-    CHECK(fixture.session->gateway().variable(count).value() ==
+    CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{9}});
 
     auto loaded =
@@ -441,8 +441,8 @@ TEST_CASE(
     REQUIRE(fixture.presentation.terminations.size() == 1);
     CHECK(fixture.presentation.terminations.front() ==
           core::PresentationCancellationReason::CheckpointLoad);
-    REQUIRE(fixture.session->gateway().variable(count));
-    CHECK(fixture.session->gateway().variable(count).value() ==
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{7}});
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->encoded_save == saved_bytes);
@@ -587,10 +587,14 @@ TEST_CASE("typed Room navigation input commits the default Cut transition")
 TEST_CASE("failed Room recomposition republishes diagnostics with the prior complete target")
 {
     auto document = load_document("minimal.json");
-    document["variables"] = nlohmann::json::array({{{"id", "flag"},
-                                                    {"type", "boolean"},
-                                                    {"defaultValue", false},
-                                                    {"enumValues", nlohmann::json::array()}}});
+    document["properties"] = nlohmann::json::array({{{"id", "flag"},
+                                                     {"label", "Flag"},
+                                                     {"description", ""},
+                                                     {"type", "boolean"},
+                                                     {"nullable", false},
+                                                     {"defaultValue", false},
+                                                     {"enumValues", nlohmann::json::array()},
+                                                     {"scope", "global"}}});
     document["definitions"]["rooms"][0]["description"] = {
         {"markup", "plain"},
         {"source", {{"kind", "lua-expression"}, {"source", "room_description()"}}}};
@@ -616,7 +620,7 @@ TEST_CASE("failed Room recomposition republishes diagnostics with the prior comp
     REQUIRE(scripts.execute("function room_description() error('composition failed') end",
                             "room-recomposition-failure"));
     auto failed = session->dispatch(core::RuntimeInputMessage{
-        core::SetVariableDebugInput{make_id<core::VariableIdTag>("flag"), true}});
+        core::SetVariableDebugInput{make_id<core::PropertyIdTag>("flag"), true}});
     REQUIRE(failed.publication);
     CHECK(failed.disposition == runtime::RuntimeInputDisposition::Handled);
     CHECK(failed.publication->revision.number() == previous.revision.number() + 1);
@@ -830,7 +834,7 @@ TEST_CASE("successful structural mutations capture once and true no-ops stay cle
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
-    const auto count = make_id<core::VariableIdTag>("count");
+    const auto count = make_id<core::PropertyIdTag>("count");
     const auto before = fixture.session->checkpoint_service().generations();
 
     REQUIRE(dispatch_settled(
@@ -864,7 +868,7 @@ TEST_CASE("runtime dispatch publishes coherent envelopes with independent target
     CHECK_FALSE(no_op.publication.has_value());
 
     auto changed = fixture.session->dispatch(core::RuntimeInputMessage{
-        core::SetVariableDebugInput{make_id<core::VariableIdTag>("count"), std::int64_t{7}}});
+        core::SetVariableDebugInput{make_id<core::PropertyIdTag>("count"), std::int64_t{7}}});
     REQUIRE(changed.publication);
     CHECK(changed.publication->revision.number() == initial.publication->revision.number() + 1);
     CHECK(changed.publication->presentation.revision == initial.publication->presentation.revision);
@@ -947,7 +951,7 @@ TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier
     CHECK(operation->common.revisions.source.number() == 1);
     CHECK(operation->common.revisions.target == started.publication->presentation.revision);
     CHECK(presentation.reconciled_snapshots.size() == 2);
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
     CHECK_FALSE(session->checkpoint_service().readiness().can_capture());
     CHECK(std::any_of(
@@ -960,7 +964,7 @@ TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier
     auto completed = session->dispatch(core::RuntimeInputMessage{core::CompletePresentationInput{
         operation->common.id, operation->completion->owner, operation->completion->blocker}});
     REQUIRE(completed.diagnostics.empty());
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{9}});
 }
 
@@ -987,13 +991,13 @@ TEST_CASE("disposable TransitionGroup emits and ends the transaction before adja
     REQUIRE(operation != nullptr);
     CHECK_FALSE(operation->completion);
     CHECK(presentation.status.active_barriers.empty());
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
 
     auto continued = session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(continued.diagnostics.empty());
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{9}});
 }
 
@@ -1045,7 +1049,7 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
         test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
-    const auto count = make_id<core::VariableIdTag>("count");
+    const auto count = make_id<core::PropertyIdTag>("count");
 
     auto entered = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(entered.diagnostics.empty());
@@ -1061,14 +1065,14 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     CHECK_FALSE(entered.presentation_predecessor->current_room);
     CHECK(initial->target.target_room == make_id<core::RoomIdTag>("start"));
     CHECK(entered.publication->presentation.current_room == make_id<core::RoomIdTag>("start"));
-    CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{2}});
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{2}});
 
     presentation.status = {core::CheckpointStatusRevision::from_number(3), {}};
     auto initial_completed =
         session->dispatch(core::RuntimeInputMessage{core::CompletePresentationInput{
             initial->common.id, initial->completion.owner, initial->completion.blocker}});
     REQUIRE(initial_completed.diagnostics.empty());
-    CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{7}});
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{7}});
 
     REQUIRE(session->gateway().request_navigation(core::compiled::RoomExitRef{
         make_id<core::RoomIdTag>("start"), make_id<core::RoomExitIdTag>("north-exit")}));
@@ -1090,7 +1094,7 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     REQUIRE(navigated.publication->gameplay_ui.room);
     CHECK(navigated.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("hall"));
     CHECK(navigated.publication->gameplay_ui.room->description.empty());
-    CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{7}});
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{7}});
     CHECK(std::none_of(navigated.publication->presentation.layouts.begin(),
                        navigated.publication->presentation.layouts.end(), [](const auto& layout) {
                            const auto* overlay =
@@ -1111,7 +1115,7 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
         session->dispatch(core::RuntimeInputMessage{core::CompletePresentationInput{
             navigation->common.id, navigation->completion.owner, navigation->completion.blocker}});
     REQUIRE(navigation_completed.diagnostics.empty());
-    CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{8}});
+    CHECK(session->gateway().global_property(count).value() == core::RuntimeValue{std::int64_t{8}});
     REQUIRE(navigation_completed.publication);
     REQUIRE(navigation_completed.publication->gameplay_ui.room);
     CHECK(navigation_completed.publication->gameplay_ui.room->room ==
@@ -1206,14 +1210,14 @@ TEST_CASE("runtime events retain order while script audio is accepted directly")
 TEST_CASE("runtime script API survives reset and load without kernel-owned Lua closures")
 {
     Fixture fixture;
-    const auto count = make_id<core::VariableIdTag>("count");
+    const auto count = make_id<core::PropertyIdTag>("count");
     const auto initial_generation = fixture.session->gateway().generation();
 
     REQUIRE(execute_session_lua(
-        fixture, "local ok, err = noveltea.variables.set('count', 12); assert(ok and err == nil)",
+        fixture, "local ok, err = Game.set_prop('count', 12); assert(ok and err == nil)",
         "script-api-before-reset"));
-    REQUIRE(fixture.session->gateway().variable(count));
-    CHECK(fixture.session->gateway().variable(count).value() ==
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{12}});
 
     const auto slot = core::TypedSaveSlotId::manual(7);
@@ -1230,10 +1234,10 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
     const auto reset_generation = fixture.session->gateway().generation();
     CHECK(reset_generation.number() == initial_generation.number() + 1);
     REQUIRE(execute_session_lua(
-        fixture, "local ok, err = noveltea.variables.set('count', 21); assert(ok and err == nil)",
+        fixture, "local ok, err = Game.set_prop('count', 21); assert(ok and err == nil)",
         "script-api-after-reset"));
-    REQUIRE(fixture.session->gateway().variable(count));
-    CHECK(fixture.session->gateway().variable(count).value() ==
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{21}});
 
     REQUIRE(execute_session_lua(fixture, "local ok = Game.load(7); assert(ok)",
@@ -1241,8 +1245,8 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
     (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     const auto loaded_generation = fixture.session->gateway().generation();
     CHECK(loaded_generation.number() == reset_generation.number() + 1);
-    REQUIRE(fixture.session->gateway().variable(count));
-    CHECK(fixture.session->gateway().variable(count).value() ==
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{12}});
 }
 
@@ -1258,11 +1262,11 @@ TEST_CASE("runtime script API remains attached after a failed typed load")
     REQUIRE_FALSE(failed.diagnostics.empty());
 
     REQUIRE(execute_session_lua(
-        fixture, "local ok, err = noveltea.variables.set('count', 33); assert(ok and err == nil)",
+        fixture, "local ok, err = Game.set_prop('count', 33); assert(ok and err == nil)",
         "script-api-after-failed-load"));
-    const auto count = make_id<core::VariableIdTag>("count");
-    REQUIRE(fixture.session->gateway().variable(count));
-    CHECK(fixture.session->gateway().variable(count).value() ==
+    const auto count = make_id<core::PropertyIdTag>("count");
+    REQUIRE(fixture.session->gateway().global_property(count));
+    CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{33}});
 }
 
@@ -1367,7 +1371,7 @@ TEST_CASE("runtime script API teardown leaves inert bindings without a stale tar
     Fixture fixture;
     fixture.session.reset();
     REQUIRE(fixture.runtime.execute(
-        "local value, variable_error = noveltea.variables.get('count')\n"
+        "local value, variable_error = Game.prop('count')\n"
         "local ok, save_error = Game.save(1)\n"
         "teardown_inert = value == nil and type(variable_error) == 'string' and not ok and "
         "type(save_error) == 'string'",
@@ -1885,8 +1889,8 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
           {"mayYield", false},
           {"source", "local ok, err = Game.pause(); assert(ok and err == nil)"}},
          {{"id", "after-pause"},
-          {"kind", "set-variable"},
-          {"variable", {{"kind", "variable"}, {"id", "count"}}},
+          {"kind", "set-global-property"},
+          {"property", {{"kind", "property"}, {"id", "count"}}},
           {"value", 77}}});
     auto project = decode_document(std::move(document), "typed-pause-in-flow.json");
     test_support::MemoryScriptSource sources;
@@ -1902,7 +1906,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
     auto paused = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(paused.diagnostics.empty());
     CHECK(published_view(paused).gameplay_paused);
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
 
     runtime::RuntimeCapabilityIssuer issuer(session->gateway(), session->gateway().generation());
@@ -1920,7 +1924,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
     REQUIRE(resumed.diagnostics.empty());
     CHECK_FALSE(published_view(resumed).gameplay_paused);
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{77}});
 }
 
@@ -2017,7 +2021,7 @@ TEST_CASE(
         "assert(not ok and err ~= nil)",
         "typed-audio-immediate"));
     auto settled = immediate.session->dispatch(core::RuntimeInputMessage{
-        core::SetVariableDebugInput{make_id<core::VariableIdTag>("count"), std::int64_t{2}}});
+        core::SetVariableDebugInput{make_id<core::PropertyIdTag>("count"), std::int64_t{2}}});
     REQUIRE(settled.diagnostics.empty());
     REQUIRE(execute_session_lua(
         immediate,
@@ -2044,9 +2048,9 @@ TEST_CASE(
           {"autosaveSafePoint", false},
           {"mayYield", true},
           {"source", "local ok, err = audio.play_and_wait('audio-voice', 'voice', {volume=0.4}); "
-                     "assert(ok and err == nil); noveltea.variables.set('count', 50); "
+                     "assert(ok and err == nil); Game.set_prop('count', 50); "
                      "ok, err = audio.stop_and_wait('voice', {fade_ms=5}); "
-                     "assert(ok and err == nil); noveltea.variables.set('count', 77)"}}});
+                     "assert(ok and err == nil); Game.set_prop('count', 77)"}}});
     auto project = decode_document(std::move(document), "typed-audio-await.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
@@ -2074,13 +2078,13 @@ TEST_CASE(
     CHECK(stale.disposition == runtime::RuntimeInputDisposition::Failed);
     REQUIRE(stale.diagnostics.size() == 1);
     CHECK(stale.diagnostics.front().code == "runtime.stale_audio_completion");
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
 
     auto completed = session->dispatch(
         core::RuntimeInputMessage{core::CompleteAudioInput{operation, owner, completion}});
     REQUIRE(completed.diagnostics.empty());
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{50}});
     REQUIRE(presentation.audio_operations.size() == 2);
     const auto* second = &presentation.audio_operations.back();
@@ -2093,7 +2097,7 @@ TEST_CASE(
     auto stopped = session->dispatch(core::RuntimeInputMessage{
         core::CompleteAudioInput{second_operation, second_owner, second_completion}});
     REQUIRE(stopped.diagnostics.empty());
-    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().global_property(make_id<core::PropertyIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{77}});
 }
 

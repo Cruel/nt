@@ -211,19 +211,45 @@ RuntimeCommandGateway::definition(core::ProjectDefinitionKind kind, std::string 
 }
 
 core::Result<core::RuntimeValue, core::Diagnostics>
-RuntimeCommandGateway::variable(const core::VariableId& id) const
+RuntimeCommandGateway::global_property(const core::PropertyId& id) const
 {
-    return m_state.variable(m_project, id);
+    core::PropertyResolver resolver(m_project, m_state);
+    auto resolved = resolver.get_global(id);
+    const auto* lookup = resolved.value_if();
+    if (lookup == nullptr)
+        return core::Result<core::RuntimeValue, core::Diagnostics>::failure(resolved.error());
+    const auto* value = std::get_if<core::RuntimeValue>(lookup);
+    if (value == nullptr)
+        return core::Result<core::RuntimeValue, core::Diagnostics>::failure(gateway_error(
+            "runtime.missing_global_property", "Global Property resolved without a value"));
+    return core::Result<core::RuntimeValue, core::Diagnostics>::success(*value);
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::set_variable(const core::VariableId& id, core::RuntimeValue value)
+RuntimeCommandGateway::set_global_property(const core::PropertyId& id, core::RuntimeValue value)
 {
-    const auto before = m_state.variable(m_project, id);
-    auto changed = m_state.set_variable(m_project, id, std::move(value));
+    const auto before = global_property(id);
+    core::PropertyResolver resolver(m_project, m_state);
+    auto changed = resolver.set_global(id, std::move(value));
     if (!changed)
         return changed;
-    const auto after = m_state.variable(m_project, id);
+    const auto after = global_property(id);
+    const auto* before_value = before.value_if();
+    const auto* after_value = after.value_if();
+    if (before_value == nullptr || after_value == nullptr || *before_value != *after_value)
+        record_structural_mutation();
+    return changed;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::unset_global_property(const core::PropertyId& id)
+{
+    const auto before = global_property(id);
+    core::PropertyResolver resolver(m_project, m_state);
+    auto changed = resolver.unset_global(id);
+    if (!changed)
+        return changed;
+    const auto after = global_property(id);
     const auto* before_value = before.value_if();
     const auto* after_value = after.value_if();
     if (before_value == nullptr || after_value == nullptr || *before_value != *after_value)
@@ -243,13 +269,14 @@ core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::set_property(core::PropertyOwnerRef owner, core::PropertyId property_id,
                                     core::RuntimeValue value)
 {
-    const auto* before = m_state.property_override(owner, property_id);
+    const auto target = core::property_target(owner);
+    const auto* before = m_state.property_override(target, property_id);
     const auto before_value = before ? std::optional<core::RuntimeValue>{*before} : std::nullopt;
     core::PropertyResolver resolver(m_project, m_state);
     auto changed = resolver.set(owner, property_id, std::move(value));
     if (!changed)
         return changed;
-    const auto* after = m_state.property_override(owner, property_id);
+    const auto* after = m_state.property_override(target, property_id);
     if (before_value != (after ? std::optional<core::RuntimeValue>{*after} : std::nullopt))
         record_structural_mutation();
     return changed;
@@ -259,7 +286,8 @@ core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::unset_property(const core::PropertyOwnerRef& owner,
                                       const core::PropertyId& property_id)
 {
-    const bool existed = m_state.property_override(owner, property_id) != nullptr;
+    const bool existed =
+        m_state.property_override(core::property_target(owner), property_id) != nullptr;
     core::PropertyResolver resolver(m_project, m_state);
     auto changed = resolver.unset(owner, property_id);
     if (changed && existed)

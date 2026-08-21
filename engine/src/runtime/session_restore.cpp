@@ -97,9 +97,6 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_flow_stack.clear();
     state->m_blocker.reset();
     state->m_execution_fault.reset();
-    state->m_variables.clear();
-    for (const auto& variable : save.variables)
-        state->m_variables.emplace(variable.id, variable.value);
     state->m_property_overrides.clear();
     for (const auto& saved_override : save.property_overrides) {
         const auto* definition = project.find_property(saved_override.property);
@@ -107,7 +104,7 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
             return Result<SessionState, Diagnostics>::failure(restore_error(
                 "save_restore.invalid_property", "Validated property declaration disappeared."));
         auto restored =
-            make_property_override(saved_override.owner, *definition, saved_override.value);
+            make_property_override(saved_override.target, *definition, saved_override.value);
         auto* value = restored.value_if();
         if (value == nullptr)
             return Result<SessionState, Diagnostics>::failure(restored.error());

@@ -180,34 +180,46 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
     bind_definition_reader(project, "map", core::ProjectDefinitionKind::Map, host);
     noveltea["project"] = project;
 
-    sol::table variables = lua.create_table();
-    variables.set_function("get", [host](std::string id, sol::this_state state) -> ObjectResult {
-        sol::state_view view(state);
-        auto parsed = parse_id<core::VariableId>(std::move(id));
-        const auto* parsed_id = parsed.value_if();
-        if (parsed_id == nullptr)
-            return failure(view, parsed.error());
-        auto value = host->variable(*parsed_id);
-        const auto* runtime = value.value_if();
-        return runtime ? ObjectResult{lua_value(view, *runtime), nil(view)}
-                       : failure(view, value.error());
-    });
-    variables.set_function(
-        "set", [host](std::string id, sol::object value, sol::this_state state) -> MutationResult {
+    sol::table game_properties = lua["Game"].get_or_create<sol::table>();
+    game_properties.set_function(
+        "prop", [host](std::string id, sol::this_state state) -> ObjectResult {
             sol::state_view view(state);
-            auto parsed_id = parse_id<core::VariableId>(std::move(id));
+            auto parsed = parse_id<core::PropertyId>(std::move(id));
+            const auto* parsed_id = parsed.value_if();
+            if (parsed_id == nullptr)
+                return failure(view, parsed.error());
+            auto value = host->global_property(*parsed_id);
+            const auto* runtime = value.value_if();
+            return runtime ? ObjectResult{lua_value(view, *runtime), nil(view)}
+                           : failure(view, value.error());
+        });
+    game_properties.set_function(
+        "set_prop",
+        [host](std::string id, sol::object value, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto parsed_id = parse_id<core::PropertyId>(std::move(id));
             auto parsed_value = runtime_value(value);
-            auto* variable_id = parsed_id.value_if();
+            auto* property_id = parsed_id.value_if();
             auto* runtime = parsed_value.value_if();
-            if (variable_id == nullptr)
+            if (property_id == nullptr)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(parsed_id.error()));
             if (runtime == nullptr)
                 return mutation(
                     view, core::Result<void, core::Diagnostics>::failure(parsed_value.error()));
-            return mutation(view, host->set_variable(std::move(*variable_id), std::move(*runtime)));
+            return mutation(
+                view, host->set_global_property(std::move(*property_id), std::move(*runtime)));
         });
-    noveltea["variables"] = variables;
+    game_properties.set_function(
+        "unset_prop", [host](std::string id, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto parsed_id = parse_id<core::PropertyId>(std::move(id));
+            auto* property_id = parsed_id.value_if();
+            if (property_id == nullptr)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(parsed_id.error()));
+            return mutation(view, host->unset_global_property(*property_id));
+        });
 
     sol::table properties = lua.create_table();
     properties.set_function(
@@ -551,13 +563,15 @@ void clear_typed_script_host(lua_State* state)
     sol::state_view lua(state);
     sol::table noveltea = lua["noveltea"].get_or_create<sol::table>();
     noveltea["project"] = sol::lua_nil;
-    noveltea["variables"] = sol::lua_nil;
     noveltea["properties"] = sol::lua_nil;
     noveltea["interactables"] = sol::lua_nil;
     noveltea["navigation"] = sol::lua_nil;
     noveltea["flow"] = sol::lua_nil;
     noveltea["notify"] = sol::lua_nil;
     sol::table game = lua["Game"].get_or_create<sol::table>();
+    game["prop"] = sol::lua_nil;
+    game["set_prop"] = sol::lua_nil;
+    game["unset_prop"] = sol::lua_nil;
     game["continue"] = sol::lua_nil;
     game["choose"] = sol::lua_nil;
     game["navigate"] = sol::lua_nil;

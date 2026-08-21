@@ -85,7 +85,6 @@ describe('authoring V2 validation', () => {
       nullable: false,
       defaultValue: 0,
       ownerKinds: ['room'],
-      persistence: 'Save',
     };
     project.rooms.room = {
       id: 'room',

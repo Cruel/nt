@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import {
-  compiledProjectWireV3Schema,
-  type CompiledProjectWireV3,
+  compiledProjectWireV4Schema,
+  type CompiledProjectWireV4,
 } from '../../shared/project-schema/compiled-project';
 import {
   comprehensiveGoldenProject,
@@ -23,7 +23,7 @@ function golden(name: string): string {
   ).trimEnd();
 }
 
-function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWireV3 {
+function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWireV4 {
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
   if (!result.ok) throw new Error('Golden project did not compile.');
@@ -33,7 +33,7 @@ function compileFixture(project: ReturnType<typeof minimalGoldenProject>): Compi
 function expectGolden(
   name: string,
   project: ReturnType<typeof minimalGoldenProject>,
-): CompiledProjectWireV3 {
+): CompiledProjectWireV4 {
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
   if (!result.ok) throw new Error('Golden project did not compile.');
@@ -97,7 +97,7 @@ describe('compiled project cross-language golden corpus', () => {
     )!.activation;
     if (activation.kind !== 'verb') throw new Error('Expected Verb hotspot activation.');
     (activation as { verb: unknown }).verb = null;
-    expect(compiledProjectWireV3Schema.safeParse(interaction).success).toBe(false);
+    expect(compiledProjectWireV4Schema.safeParse(interaction).success).toBe(false);
   });
 
   it('covers the closed decoder vocabulary rather than only nominal collection records', () => {
@@ -156,11 +156,11 @@ describe('compiled project cross-language golden corpus', () => {
       'set-background',
       'set-interactable-state',
       'set-layout',
-      'set-variable',
+      'set-global-property',
       'show-text',
       'transition-group',
-      'variable',
-      'variable-comparison',
+      'property',
+      'global-property-comparison',
       'verb',
       'wait-duration',
       'wait-input',
@@ -178,7 +178,7 @@ describe('compiled project cross-language golden corpus', () => {
         'call-dialogue',
         'show-text',
         'audio-cue',
-        'set-variable',
+        'set-global-property',
         'run-lua',
         'wait-duration',
         'wait-input',
@@ -309,23 +309,30 @@ describe('compiled project cross-language golden corpus', () => {
     expect(
       sorted(new Set(resources.resources.scripts.map((script) => script.source.kind))),
     ).toEqual(['asset', 'inline-lua']);
-    expect(sorted(new Set(comprehensive.variables.map((variable) => variable.type)))).toEqual([
+    const globalProperties = comprehensive.properties.filter(
+      (property) => property.scope === 'global',
+    );
+    const identityProperties = comprehensive.properties.filter(
+      (property) => property.scope === 'identity',
+    );
+    expect(sorted(new Set(globalProperties.map((property) => property.type)))).toEqual([
       'boolean',
       'enum',
       'integer',
       'number',
       'string',
     ]);
-    expect(sorted(new Set(comprehensive.properties.map((property) => property.type)))).toEqual([
+    expect(sorted(new Set(identityProperties.map((property) => property.type)))).toEqual([
       'boolean',
       'enum',
       'integer',
       'number',
       'string',
     ]);
-    expect(
-      sorted(new Set(comprehensive.properties.map((property) => property.persistence))),
-    ).toEqual(['Save', 'Session']);
+    expect(sorted(new Set(comprehensive.properties.map((property) => property.scope)))).toEqual([
+      'global',
+      'identity',
+    ]);
   });
 
   it('ignores editor metadata and authoring collection insertion order', () => {

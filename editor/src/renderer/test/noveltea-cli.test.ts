@@ -1512,7 +1512,7 @@ describe('NovelTea headless CLI', () => {
     const groups = [
       [bindNovelTea, 'noveltea', 'noveltea', 4],
       [typedBindings, 'noveltea', 'noveltea', 1],
-      [typedBindings, 'variables', 'noveltea.variables', 2],
+      [typedBindings, 'game_properties', 'Game', 3],
       [typedBindings, 'properties', 'noveltea.properties', 3],
       [typedBindings, 'interactables', 'noveltea.interactables', 4],
       [typedBindings, 'navigation', 'noveltea.navigation', 1],

@@ -73,12 +73,12 @@ public:
             {{.code = "test.unadmitted", .message = "Definition is not admitted"}});
     }
     [[nodiscard]] core::Result<core::RuntimeValue, core::Diagnostics>
-    variable(const core::VariableId& id) const override
+    global_property(const core::PropertyId& id) const override
     {
         if (id.text() == "count")
             return core::Result<core::RuntimeValue, core::Diagnostics>::success(std::int64_t{2});
         return core::Result<core::RuntimeValue, core::Diagnostics>::failure(
-            {{.code = "test.unadmitted", .message = "Variable is not admitted"}});
+            {{.code = "test.unadmitted", .message = "Global Property is not admitted"}});
     }
     [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
     property(const core::PropertyOwnerRef&, const core::PropertyId&) const override
@@ -426,8 +426,8 @@ TEST_CASE("Runtime and focused query providers produce equivalent condition and 
     auto environment = fixture.runtime.create_environment();
     REQUIRE(environment);
 
-    const core::LuaPredicate condition{"noveltea.variables.get('count') == 0"};
-    const core::LuaTextExpression text{"'count=' .. noveltea.variables.get('count')"};
+    const core::LuaPredicate condition{"Game.prop('count') == 0"};
+    const core::LuaTextExpression text{"'count=' .. Game.prop('count')"};
     auto runtime_condition = runtime_invoker.evaluate(condition);
     auto runtime_text = runtime_invoker.resolve(text);
     REQUIRE(runtime_condition);
@@ -466,7 +466,7 @@ TEST_CASE("Runtime and focused query providers produce equivalent condition and 
 
     auto unadmitted = fixture.runtime.invoke_in_environment(
         environment.value(),
-        {.source = "assert(noveltea.variables.get('secret'))",
+        {.source = "assert(Game.prop('secret'))",
          .chunk_name = "focused-unadmitted-query",
          .owner = std::nullopt,
          .invocation = std::nullopt,
@@ -841,17 +841,17 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         local missing, missing_error = noveltea.project.room("missing")
         assert(missing == nil and type(missing_error) == "string")
 
-        local count, count_error = noveltea.variables.get("count")
+        local count, count_error = Game.prop("count")
         assert(count_error == nil and count == 2)
-        local ok, error_message = noveltea.variables.set("count", 7)
+        local ok, error_message = Game.set_prop("count", 7)
         assert(ok and error_message == nil)
-        ok, error_message = noveltea.variables.set("count", "seven")
+        ok, error_message = Game.set_prop("count", "seven")
         assert(not ok and type(error_message) == "string")
-        ok, error_message = noveltea.variables.set("missing", 1)
+        ok, error_message = Game.set_prop("missing", 1)
         assert(not ok and type(error_message) == "string")
-        ok, error_message = noveltea.variables.set("count", {})
+        ok, error_message = Game.set_prop("count", {})
         assert(not ok and type(error_message) == "string")
-        ok, error_message = noveltea.variables.set("ratio", math.huge)
+        ok, error_message = Game.set_prop("ratio", math.huge)
         assert(not ok and type(error_message) == "string")
 
         local mood, present, property_error = noveltea.properties.get("room", "hall", "mood")
@@ -914,7 +914,7 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     INFO(execution_error);
     REQUIRE(executed);
 
-    REQUIRE(invoker.gateway().variable(core::VariableId::create("count").value()).value() ==
+    REQUIRE(invoker.gateway().global_property(core::PropertyId::create("count").value()).value() ==
             core::RuntimeValue{std::int64_t{7}});
     std::vector<runtime::DeferredRuntimeCommand> commands;
     while (auto command = invoker.gateway().command_queue().pop_front())
@@ -1000,16 +1000,16 @@ TEST_CASE("runtime script API enforces capability profiles and stale generations
 
     script::RuntimeScriptApi api;
     api.replace_capabilities(*expression);
-    const auto count = core::VariableId::create("count").value();
-    REQUIRE(api.variable(count));
+    const auto count = core::PropertyId::create("count").value();
+    REQUIRE(api.global_property(count));
 
-    auto denied = api.set_variable(count, std::int64_t{9});
+    auto denied = api.set_global_property(count, std::int64_t{9});
     REQUIRE_FALSE(denied);
     REQUIRE_FALSE(denied.error().empty());
     CHECK(denied.error().front().code == "runtime.script_capability_denied");
 
     gateway.invalidate();
-    auto stale = api.variable(count);
+    auto stale = api.global_property(count);
     REQUIRE_FALSE(stale);
     REQUIRE_FALSE(stale.error().empty());
     CHECK(stale.error().front().code == "runtime.script_capability_stale");
@@ -1026,10 +1026,10 @@ TEST_CASE("script invocation capabilities are scoped to the active frontend call
     core::FlowExecutor flow(project, state);
     ScriptInvocationHarness invoker(fixture.runtime, project, state, flow);
 
-    auto evaluated = invoker.evaluate(core::LuaPredicate{"noveltea.variables.get('count') == 0"});
+    auto evaluated = invoker.evaluate(core::LuaPredicate{"Game.prop('count') == 0"});
     REQUIRE(evaluated);
 
-    auto escaped = fixture.runtime.execute("local value, err = noveltea.variables.get('count'); "
+    auto escaped = fixture.runtime.execute("local value, err = Game.prop('count'); "
                                            "assert(value == nil and type(err) == 'string')",
                                            "capability-after-return");
     REQUIRE(escaped);

@@ -7,7 +7,7 @@ NovelTea has one gameplay artifact and one native gameplay model:
 ```text
 AuthoringProject V2
   -> compileAuthoringProject
-  -> noveltea.compiled.project v3 (canonical gameplay.json)
+  -> noveltea.compiled.project v4 (canonical gameplay.json)
   -> decode_compiled_project
   -> CompiledProject
   -> runtime::RunningGame
@@ -69,7 +69,7 @@ The public application path supplies `EngineConfig::compiled_project` during ini
 and tooling paths use private `PreviewHost`/`EngineTooling` adapters. Both reach the same private
 `Engine::Impl::load_compiled_project(logical_path)` orchestration, which accepts either:
 
-1. canonical `noveltea.compiled.project` V3 JSON for preview/smoke use; or
+1. canonical `noveltea.compiled.project` V4 JSON for preview/smoke use; or
 2. a final `.ntpkg` ZIP containing `gameplay.json`, `manifest.json`, and optional
    `shader-materials.json`.
 

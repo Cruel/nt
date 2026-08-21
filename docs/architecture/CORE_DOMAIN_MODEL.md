@@ -13,7 +13,7 @@ The editor owns `AuthoringProject` V2 and the pure TypeScript authoring compiler
 optimized for editing and may contain source organization and tooling metadata. The C++ runtime never
 parses an authoring project.
 
-The compiler emits strict, deterministic `noveltea.compiled.project` V3 gameplay JSON. The C++ package
+The compiler emits strict, deterministic `noveltea.compiled.project` V4 gameplay JSON. The C++ package
 boundary validates and links that untrusted document into an immutable native `CompiledProject`.
 `runtime::RunningGame` owns the loaded `CompiledProject` by value inside `LoadedCompiledPackage` and
 one `runtime::RuntimeSession` for the loaded session's lifetime. Runtime services and execution frames use lifetime-bounded const
@@ -112,11 +112,12 @@ non-yielding startup hook runs successfully before the entrypoint starts.
 
 ## Properties and runtime inheritance
 
-Project globals are declared typed variables. Definition-scoped extensibility uses declared typed
-properties, never arbitrary JSON fields. A `PropertyDefinition` owns a globally unique `PropertyId`,
-scalar type, nullability, optional default, allowed property-owner kinds, and Session or Save
-persistence. Values use the closed `RuntimeValue` scalar set: null, boolean, signed integer,
-floating-point number, and string. Absence and explicit nullable null are distinct.
+Project globals and identity-scoped custom state use one typed Property system. Variable is only the
+editor-facing authoring term for a Global Property. A `PropertyDefinition` owns a globally unique
+`PropertyId`, scalar type, nullability, scope, optional identity-scoped default, and admitted owner
+kinds where applicable. Global Properties require authored defaults. Values use the closed
+`RuntimeValue` scalar set: null, boolean, signed integer, floating-point number, and string. Absence,
+an explicit nullable null override, and removing an override are distinct states.
 
 Room, Scene, Dialogue, Character, Interactable, Verb, Interaction, and Map may carry typed authored
 assignments and an optional same-collection `extends` edge. Categories and tags are editor-only and
@@ -132,9 +133,11 @@ Property lookup for definition `D` is exactly:
 4. the property's declared default;
 5. a typed missing-value result.
 
-Overrides are stored once by `(PropertyOwnerRef, PropertyId)`. Setting an ancestor override therefore
-immediately affects unshadowed descendants; unsetting removes only that override. The initial runtime
-must use bounded direct chain traversal rather than an invalidatable resolved-value cache.
+Overrides are stored once by `(PropertyTargetRef, PropertyId)`, where the target is either the explicit
+global target or an admitted identity. Setting an ancestor identity override therefore immediately
+affects unshadowed descendants; unsetting removes only that override. Global lookup resolves the same
+override store before its required authored default. The initial runtime must use bounded direct chain
+traversal rather than an invalidatable resolved-value cache.
 
 Only declared custom properties inherit by default. Structural fields, programs, graphs, placements,
 exits, and resources remain local. Verb alone has V1 behavioral inheritance: availability conditions
@@ -142,22 +145,23 @@ all pass root-to-child; default programs are attempted child-to-root; `Unhandled
 `Handled` stops, and `Failed` aborts. The project undefined-interaction fallback runs only after the
 root is `Unhandled`.
 
-## Variables, session state, and saves
+## Properties, session state, and saves
 
-Variable declarations define globally scoped typed variables and initial values. `SessionState` owns
-live variables, property overrides, active flow frames and logical positions, visits/history,
-show-once markers, actor state, unique-interactable location/state, queues, timers, and other mutable
-progress. Backend resources, renderer state, RmlUi state, audio internals, tween internals, and Lua VM
-or coroutine state are excluded.
+`SessionState` owns one sparse Property override collection for both Global and identity-scoped custom
+state, plus active flow frames and logical positions, visits/history, show-once markers, actor state,
+unique-interactable location/state, queues, timers, and other mutable progress. Authored Property
+defaults remain immutable in `CompiledProject`; backend resources, renderer state, RmlUi state, audio
+internals, tween internals, and Lua VM or coroutine state are excluded.
 
-`SaveState` is the explicitly versioned persisted subset of `SessionState`. Save-policy property
-overrides are serialized once on their actual owner; inherited values and Session-policy overrides
-are never materialized into a save. Stable flow positions and remaining logical duration waits may be
-saved. Visual/audio operations restore to documented logical post-step state rather than backend
-snapshots. Saving fails with structured diagnostics at nonserializable suspension points; autosaves
-occur only at compiler-marked safe points.
+`SaveState` V8 is the explicitly versioned persisted subset of `SessionState`. Every authoritative
+Property override is serialized once at its actual target; authored defaults and inherited/effective
+values are never materialized into a save. There is no Session-versus-Save Property class. A missing
+override record means unset, while an admitted nullable null is an explicit saved override. Stable flow
+positions and remaining logical duration waits may be saved. Visual/audio operations restore to
+documented logical post-step state rather than backend snapshots. Saving fails with structured
+diagnostics at nonserializable suspension points; autosaves occur only at compiler-marked safe points.
 
-Lua accesses variables and definition properties only through typed host APIs. Conditions and text
+Lua accesses Global Properties and identity-scoped Properties only through typed host APIs. Conditions and text
 expressions are synchronous and cannot yield. Effect scripts and explicit script instructions may
 yield through engine-owned typed correlation handles bound to a flow frame. Native coroutine state is
 never serialized; only an engine-defined serializable wait token can make a suspended script

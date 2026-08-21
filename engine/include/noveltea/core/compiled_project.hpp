@@ -67,12 +67,6 @@ struct Localization {
     std::vector<LocalizationCatalog> catalogs;
 };
 
-struct VariableDefinition {
-    VariableId id;
-    PropertyValueType value_type;
-    RuntimeValue default_value;
-};
-
 enum class AssetKind : std::uint8_t {
     Image,
     Font,
@@ -681,10 +675,10 @@ struct AudioCueInstruction {
     double volume;
     AudioInstructionWait wait;
 };
-struct SetVariableSceneInstruction {
+struct SetGlobalPropertySceneInstruction {
     SceneStepId id;
     std::optional<Condition> condition;
-    VariableId variable;
+    PropertyId property;
     RuntimeValue value;
 };
 struct RunLuaSceneInstruction {
@@ -797,7 +791,7 @@ struct TransitionGroupInstruction {
 };
 using SceneInstruction =
     std::variant<SetBackgroundInstruction, ActorCueInstruction, CallDialogueSceneInstruction,
-                 ShowTextInstruction, AudioCueInstruction, SetVariableSceneInstruction,
+                 ShowTextInstruction, AudioCueInstruction, SetGlobalPropertySceneInstruction,
                  RunLuaSceneInstruction, WaitDurationInstruction, WaitInputInstruction,
                  ConditionalBranchInstruction, ChoiceSceneInstruction, SetLayoutInstruction,
                  TransitionGroupInstruction>;
@@ -929,7 +923,6 @@ struct CompiledProjectInput {
     Entrypoint entrypoint;
     std::optional<StartupHook> startup_hook;
     Localization localization;
-    std::vector<VariableDefinition> variables;
     std::vector<PropertyDefinition> properties;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;
@@ -967,10 +960,6 @@ public:
         return m_localization;
     }
 
-    [[nodiscard]] const std::vector<compiled::VariableDefinition>& variables() const noexcept
-    {
-        return m_variables;
-    }
     [[nodiscard]] const std::vector<PropertyDefinition>& properties() const noexcept
     {
         return m_properties;
@@ -1021,8 +1010,6 @@ public:
         return m_maps;
     }
 
-    [[nodiscard]] const compiled::VariableDefinition*
-    find_variable(const VariableId& id) const noexcept;
     [[nodiscard]] const PropertyDefinition* find_property(const PropertyId& id) const noexcept;
     [[nodiscard]] const compiled::AssetResource* find_asset(const AssetId& id) const noexcept;
     [[nodiscard]] const compiled::LayoutResource* find_layout(const LayoutId& id) const noexcept;
@@ -1061,7 +1048,6 @@ private:
     compiled::Entrypoint m_entrypoint;
     std::optional<compiled::StartupHook> m_startup_hook;
     compiled::Localization m_localization;
-    std::vector<compiled::VariableDefinition> m_variables;
     std::vector<PropertyDefinition> m_properties;
     std::vector<compiled::AssetResource> m_assets;
     std::vector<compiled::LayoutResource> m_layouts;
@@ -1076,7 +1062,6 @@ private:
     std::vector<compiled::MapDefinition> m_maps;
 
 #define NOVELTEA_COMPILED_INDEX(type, name) std::unordered_map<type, std::size_t> m_##name##_index
-    NOVELTEA_COMPILED_INDEX(VariableId, variable);
     NOVELTEA_COMPILED_INDEX(PropertyId, property);
     NOVELTEA_COMPILED_INDEX(AssetId, asset);
     NOVELTEA_COMPILED_INDEX(LayoutId, layout);

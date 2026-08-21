@@ -675,7 +675,6 @@ describe('authoring structural dependency graph and queries', () => {
       nullable: false,
       defaultValue: 'neutral',
       ownerKinds: ['room'],
-      persistence: 'Save',
     };
     project.localization.defaultLocale = 'en';
     project.localization.fallbackLocale = 'fr';

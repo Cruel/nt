@@ -455,7 +455,7 @@ TEST_CASE("typed Room navigation preserves lifecycle order and exact yielding ho
     CHECK(hall_presentation.value().background->fit == core::compiled::BackgroundFit::Contain);
 
     drive_to_room(*kernel, id<core::RoomId>("hall"));
-    CHECK(kernel->state().variable(project, id<core::VariableId>("count")).value() ==
+    CHECK(kernel->gateway().global_property(id<core::PropertyId>("count")).value() ==
           core::RuntimeValue{std::int64_t{3}});
     auto view = kernel->room_view("en");
     REQUIRE(view);
@@ -490,7 +490,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         REQUIRE(created);
         auto kernel = std::move(created).value();
         drive_to_room(*kernel, id<core::RoomId>("start"));
-        REQUIRE(kernel->apply(core::SetVariable{id<core::VariableId>("flag"), false}));
+        REQUIRE(kernel->apply(core::SetGlobalProperty{id<core::PropertyId>("flag"), false}));
         REQUIRE(kernel->navigate(id<core::RoomExitId>("north-exit")));
         REQUIRE(std::holds_alternative<core::FlowBudgetYieldOutcome>(
             kernel->run_until_blocked(1, "en")));
@@ -600,7 +600,7 @@ TEST_CASE("typed Room flow targets run lifecycle and live property inheritance h
                                       {"defaultValue", "default-map"},
                                       {"enumValues", nlohmann::json::array()},
                                       {"ownerKinds", nlohmann::json::array({"room"})},
-                                      {"persistence", "Session"}});
+                                      {"scope", "identity"}});
     room_document(document, "start")["propertyAssignments"].push_back(
         {{"propertyId", "map"}, {"value", "house"}});
     room_document(document, "tower")["extends"] = "start";

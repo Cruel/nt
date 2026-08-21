@@ -76,20 +76,20 @@ local value, present, err = noveltea.properties.get(owner_kind, owner_id, proper
 
 `Game.ui.*` and `Game.shell.*` are Layout-event helpers and return plain success booleans (or a direct state table for `Game.shell.state()`), not the `(value, error)` convention.
 
-Runtime scalar values accepted by `noveltea.variables.set` and `noveltea.properties.set` are exactly `nil`, boolean, finite number/integer, or string. Tables/functions/userdata are not generic persisted runtime values.
+Runtime scalar values accepted by `Game.set_prop` and `noveltea.properties.set` are exactly `nil`, boolean, finite number/integer, or string. Tables/functions/userdata are not generic persisted runtime values.
 
 ## Invocation capability profiles
 
 NovelTea selects capabilities from the invocation site. Code must not assume that every globally visible function is authorized in every context.
 
-| Invocation             | Author-visible authority                                                                                                    | Yield?                                            |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Gameplay Script        | All normal gameplay queries and mutations below; definition lookup remains query-only.                                      | Yes, when the invocation itself is yield-capable. |
-| Synchronous expression | Query-only access to definitions, Variables, Properties, Room/Character/Interactable state, Game state, and Text Log state. | No.                                               |
-| Room composition       | Same query surface as a synchronous expression plus the two `noveltea.room_presentation.*` draft visibility commands.       | No.                                               |
-| Gameplay Layout event  | Normal gameplay queries/mutations plus current `Game.ui.*` Layout input helpers.                                            | No.                                               |
-| Shell Layout event     | Narrow runtime capability surface for Save/Game operations plus current `Game.shell.*` shell helpers.                       | No.                                               |
-| Tooling/preview host   | Engine/editor-owned tooling profile.                                                                                        | Do not depend on it in shipped game code.         |
+| Invocation             | Author-visible authority                                                                                              | Yield?                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Gameplay Script        | All normal gameplay queries and mutations below; definition lookup remains query-only.                                | Yes, when the invocation itself is yield-capable. |
+| Synchronous expression | Query-only access to definitions, Properties, Room/Character/Interactable state, Game state, and Text Log state.      | No.                                               |
+| Room composition       | Same query surface as a synchronous expression plus the two `noveltea.room_presentation.*` draft visibility commands. | No.                                               |
+| Gameplay Layout event  | Normal gameplay queries/mutations plus current `Game.ui.*` Layout input helpers.                                      | No.                                               |
+| Shell Layout event     | Narrow runtime capability surface for Save/Game operations plus current `Game.shell.*` shell helpers.                 | No.                                               |
+| Tooling/preview host   | Engine/editor-owned tooling profile.                                                                                  | Do not depend on it in shipped game code.         |
 
 A function can therefore exist in the Lua table but fail because the current invocation does not possess that capability, because its capability generation is stale, or because the target is not currently valid. Handle returned errors instead of using API presence as an authority check.
 
@@ -134,12 +134,17 @@ This is not a generic project-record reflection API. Definitions cannot be mutat
 
 ## Variables and Properties
 
+Variable is the editor-facing name for a Global Property. At runtime there is one Property system; globals are addressed through `Game` and identity-scoped Properties use the owner-qualified API.
+
 ```text
-noveltea.variables.get(variable_id) -> value, error
-noveltea.variables.set(variable_id, value) -> ok, error
+Game.prop(property_id) -> value, error
+Game.set_prop(property_id, value) -> ok, error
+Game.unset_prop(property_id) -> ok, error
 ```
 
-Properties use a closed owner-kind vocabulary:
+A Global Property always has an authored default. `Game.unset_prop` removes only the runtime override and reveals that default again. An explicitly assigned nullable `nil` is a value, not an unset operation.
+
+Identity-scoped Properties use a closed owner-kind vocabulary:
 
 ```text
 room

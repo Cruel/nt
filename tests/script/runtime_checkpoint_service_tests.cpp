@@ -1,5 +1,6 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/flow_executor.hpp"
+#include "noveltea/core/property_resolver.hpp"
 #include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/runtime/runtime_checkpoint_service.hpp"
@@ -45,6 +46,14 @@ template<class Id> Id id(std::string value)
     auto parsed = Id::create(std::move(value));
     REQUIRE(parsed);
     return std::move(parsed).value();
+}
+
+core::Result<void, core::Diagnostics> set_global(core::SessionState& state,
+                                                 const core::CompiledProject& project,
+                                                 std::string name, core::RuntimeValue value)
+{
+    core::PropertyResolver properties(project, state);
+    return properties.set_global(id<core::PropertyId>(std::move(name)), std::move(value));
 }
 
 class RecordingSaveStore final : public core::TypedSaveSlotStore {
@@ -175,8 +184,7 @@ TEST_CASE("checkpoint service preserves retained bytes when encoding fails")
     const auto retained = *service.latest_checkpoint();
     const auto retained_generations = service.generations();
 
-    REQUIRE(state.set_variable(project, id<core::VariableId>("player-name"),
-                               core::RuntimeValue{std::string{"\xff"}}));
+    REQUIRE(set_global(state, project, "player-name", core::RuntimeValue{std::string{"\xff"}}));
     REQUIRE(service.record_structural_mutation());
     REQUIRE_FALSE(service.publish_candidate(state));
     CHECK(*service.latest_checkpoint() == retained);
@@ -264,7 +272,7 @@ TEST_CASE("manual checkpoint saves refresh, retain, and reject invalid requests"
     REQUIRE(retained);
     CHECK(retained->source == core::CheckpointWriteSource::RetainedCheckpoint);
 
-    REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{8}));
+    REQUIRE(set_global(state, project, "count", std::int64_t{8}));
     (void)service.request(core::ManualSaveRequest{manual});
     REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
     outcomes = service.take_completed_save_outcomes();
@@ -287,7 +295,7 @@ TEST_CASE("multiple manual checkpoint requests in one settlement all write the s
     RecordingSaveStore saves;
     RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
-    REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{6}));
+    REQUIRE(set_global(state, project, "count", std::int64_t{6}));
 
     const auto first = core::TypedSaveSlotId::manual(5);
     const auto second = core::TypedSaveSlotId::manual(6);
@@ -330,8 +338,7 @@ TEST_CASE("manual checkpoint save uses retained state while ineligible and repor
 
     REQUIRE(flow.cancel_blocker(core::flow_blocker_owner(blocker.value()),
                                 core::flow_blocker_handle(blocker.value())));
-    REQUIRE(state.set_variable(project, id<core::VariableId>("player-name"),
-                               core::RuntimeValue{std::string{"\xff"}}));
+    REQUIRE(set_global(state, project, "player-name", core::RuntimeValue{std::string{"\xff"}}));
     (void)service.request(core::ManualSaveRequest{manual});
     REQUIRE_FALSE(service.settle(state, ready_facts(), {.structural = true}));
     outcomes = service.take_completed_save_outcomes();
@@ -351,13 +358,13 @@ TEST_CASE("deferred autosave targets the next publication and retries identical 
     REQUIRE(service.settle(state, ready_facts(), {}));
     CHECK(saves.attempted_bytes.empty());
 
-    REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{4}));
+    REQUIRE(set_global(state, project, "count", std::int64_t{4}));
     saves.fail_writes = true;
     REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
     REQUIRE(saves.attempted_bytes.size() == 1);
     const auto exact_target = saves.attempted_bytes.front();
 
-    REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{5}));
+    REQUIRE(set_global(state, project, "count", std::int64_t{5}));
     saves.fail_writes = false;
     REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
     REQUIRE(saves.attempted_bytes.size() == 2);

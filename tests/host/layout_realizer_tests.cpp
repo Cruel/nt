@@ -911,8 +911,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     unadmitted_room["queryState"]["variables"] =
         nlohmann::json::array({{{"id", "secret"}, {"type", "integer"}, {"value", 7}}});
     unadmitted_room["ui"]["description"]["source"] = {
-        {"kind", "lua-expression"},
-        {"source", "tostring(assert(noveltea.variables.get('secret')))"}};
+        {"kind", "lua-expression"}, {"source", "tostring(assert(Game.prop('secret')))"}};
     CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
                                              "room-unadmitted", unadmitted_room, 7)));
     CHECK(presenter.committed_owner().apply_sequence == 6);
@@ -924,8 +923,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         nlohmann::json::array({{{"id", "count"}, {"type", "integer"}, {"value", 2}}});
     lua_predicate_room["world"]["overlays"] = nlohmann::json::array(
         {{{"overlayId", "focused-overlay"},
-          {"condition",
-           {{"kind", "lua-predicate"}, {"source", "noveltea.variables.get('count') == 2"}}},
+          {"condition", {{"kind", "lua-predicate"}, {"source", "Game.prop('count') == 2"}}},
           {"layoutId", "focused-layout"},
           {"visible", true},
           {"order", 0}}});

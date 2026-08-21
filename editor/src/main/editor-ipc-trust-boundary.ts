@@ -20,7 +20,7 @@ import {
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { isSafeProjectAssetPath } from '../shared/project-schema/authoring-assets';
 import { editorProjectStateSchema } from '../shared/project-schema/editor-project-state';
-import { compiledProjectWireV3Schema } from '../shared/project-schema/compiled-project';
+import { compiledProjectWireV4Schema } from '../shared/project-schema/compiled-project';
 import { preparedRuntimeArtifactSchema } from '../shared/project-schema/prepared-runtime-artifact';
 import {
   exportCapabilityValues,
@@ -490,7 +490,7 @@ export const runPlaybackTestArgumentsSchema = z.tuple([
   z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
 ]);
 export const runPlaybackSpecArgumentsSchema = z.tuple([
-  compiledProjectWireV3Schema,
+  compiledProjectWireV4Schema,
   playbackSpecSchema,
 ]);
 export const previewSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
@@ -520,7 +520,7 @@ const boundedExportArgumentsSchema = z
 
 export const exportPackageArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  compiledProjectWireV3Schema,
+  compiledProjectWireV4Schema,
   boundedExportStringSchema,
   preparedRuntimeArtifactSchema.shape.packageOptions,
 ]);

@@ -75,8 +75,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             .value_type = std::move(declaration.value_type),
             .nullable = declaration.nullable,
             .default_value = std::move(declaration.default_value),
+            .scope = declaration.scope,
             .allowed_owners = std::move(declaration.allowed_owners),
-            .persistence = declaration.persistence,
             .label = std::move(declaration.label),
             .description = std::move(declaration.description),
         });
@@ -97,33 +97,6 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
     property_index.reserve(properties.size());
     for (const auto& property : properties)
         property_index.emplace(property.id(), &property);
-
-    std::vector<compiled::VariableDefinition> variables;
-    variables.reserve(wire.variables.size());
-    for (std::size_t index = 0; index < wire.variables.size(); ++index) {
-        auto& declaration = wire.variables[index];
-        if (const auto* enumeration = std::get_if<EnumPropertyType>(&declaration.value_type)) {
-            auto values = enumeration->values;
-            std::sort(values.begin(), values.end());
-            if (values.empty() ||
-                std::any_of(values.begin(), values.end(),
-                            [](const std::string& value) { return value.empty(); }) ||
-                std::adjacent_find(values.begin(), values.end()) != values.end()) {
-                diagnostics.push_back(Diagnostic{
-                    .code = "compiled_project.invalid_variable_declaration",
-                    .message = "Variable enum values must be non-empty and unique.",
-                    .severity = ErrorSeverity::Error,
-                    .source_path = source_path,
-                    .json_pointer = "/variables/" + std::to_string(index) + "/enumValues"});
-                continue;
-            }
-        }
-        variables.push_back(compiled::VariableDefinition{std::move(declaration.id),
-                                                         std::move(declaration.value_type),
-                                                         std::move(declaration.default_value)});
-    }
-    if (variables.size() != wire.variables.size())
-        return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics));
 
 #define LINK_DEFINITIONS(wire_member, output_member, output_type, owner_kind, path_text, body)     \
     std::vector<compiled::output_type> output_member;                                              \
@@ -197,7 +170,6 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         .entrypoint = std::move(wire.entrypoint),
         .startup_hook = std::move(wire.startup_hook),
         .localization = std::move(wire.localization),
-        .variables = std::move(variables),
         .properties = std::move(properties),
         .assets = std::move(wire.assets),
         .layouts = std::move(wire.layouts),

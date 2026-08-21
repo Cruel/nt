@@ -170,7 +170,7 @@ TEST_CASE("save state preserves deterministic random position and excludes gamep
     CHECK_FALSE(decode_save_state_wire(missing_random, "missing-random-state.json"));
 }
 
-TEST_CASE("native SaveState projects only persisted typed session families")
+TEST_CASE("native SaveState projects all typed Property overrides")
 {
     STATIC_REQUIRE(std::variant_size_v<SavedFlowFrame> == 4);
     STATIC_REQUIRE(std::variant_size_v<SavedFlowBlocker> == 2);
@@ -179,7 +179,7 @@ TEST_CASE("native SaveState projects only persisted typed session families")
     const auto project = load_fixture("inheritance-properties-localization.json");
     auto state = make_state(project);
     PropertyResolver properties(project, state);
-    REQUIRE(state.set_variable(project, id<VariableId>("flag"), RuntimeValue{true}));
+    REQUIRE(properties.set_global(id<PropertyId>("flag"), RuntimeValue{true}));
     REQUIRE(properties.set(PropertyOwnerRef{id<RoomId>("start")}, id<PropertyId>("mood"),
                            RuntimeValue{std::string{"tense"}}));
     REQUIRE(properties.set(PropertyOwnerRef{id<RoomId>("start")}, id<PropertyId>("enabled"),
@@ -205,10 +205,23 @@ TEST_CASE("native SaveState projects only persisted typed session families")
     CHECK(save.metadata.project_version == project.identity().version);
     CHECK(save.play_time == 10ms);
     CHECK(save.random_state == state.random_state());
-    CHECK(save.variables.size() == project.variables().size());
-    REQUIRE(save.property_overrides.size() == 1);
-    CHECK(save.property_overrides.front().owner == PropertyOwnerRef{id<RoomId>("start")});
-    CHECK(save.property_overrides.front().property == id<PropertyId>("mood"));
+    REQUIRE(save.property_overrides.size() == 3);
+    const auto saved_override = [&save](const PropertyId& property) {
+        return std::find_if(
+            save.property_overrides.begin(), save.property_overrides.end(),
+            [&property](const SavedPropertyOverride& item) { return item.property == property; });
+    };
+    const auto flag_override = saved_override(id<PropertyId>("flag"));
+    REQUIRE(flag_override != save.property_overrides.end());
+    CHECK(std::holds_alternative<GlobalPropertyTarget>(flag_override->target));
+    CHECK(flag_override->value == RuntimeValue{true});
+    const auto mood_override = saved_override(id<PropertyId>("mood"));
+    REQUIRE(mood_override != save.property_overrides.end());
+    CHECK(mood_override->target == property_target(PropertyOwnerRef{id<RoomId>("start")}));
+    const auto enabled_override = saved_override(id<PropertyId>("enabled"));
+    REQUIRE(enabled_override != save.property_overrides.end());
+    CHECK(enabled_override->target == property_target(PropertyOwnerRef{id<RoomId>("start")}));
+    CHECK(enabled_override->value == RuntimeValue{false});
     REQUIRE(save.interactables.size() == project.interactables().size());
     const auto find_interactable = [&save](std::string value) {
         const auto wanted = id<InteractableId>(std::move(value));
@@ -713,7 +726,7 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
     const auto project = load_fixture("inheritance-properties-localization.json");
     auto state = make_state(project);
     PropertyResolver properties(project, state);
-    REQUIRE(state.set_variable(project, id<VariableId>("flag"), RuntimeValue{true}));
+    REQUIRE(properties.set_global(id<PropertyId>("flag"), RuntimeValue{true}));
     REQUIRE(properties.set(PropertyOwnerRef{id<RoomId>("start")}, id<PropertyId>("mood"),
                            RuntimeValue{std::string{"tense"}}));
     auto snapshot = make_save_state(project, state);
@@ -727,7 +740,7 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
     auto decoded = decode_save_state(project, encoded.value(), "save-fixture.json");
     REQUIRE(decoded);
     CHECK(decoded.value().metadata.project == project.identity().id);
-    CHECK(decoded.value().property_overrides.size() == 1);
+    CHECK(decoded.value().property_overrides.size() == 2);
 
     SECTION("unknown wire fields and duplicate semantic records are rejected")
     {
@@ -736,7 +749,7 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK_FALSE(decode_save_state_wire(invalid, "save-fixture.json"));
 
         invalid = encoded.value();
-        invalid["variables"].push_back(invalid["variables"][0]);
+        invalid["propertyOverrides"].push_back(invalid["propertyOverrides"][0]);
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
     }
 
@@ -747,7 +760,7 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
 
         invalid = encoded.value();
-        invalid["variables"][0]["value"] = "not-a-boolean";
+        invalid["propertyOverrides"][0]["value"] = "not-a-boolean";
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
     }
 
@@ -800,8 +813,9 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         auto invalid = encoded.value();
         invalid["metadata"]["project"] = "other-project";
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
-        CHECK(state.variable(project, id<VariableId>("flag")).value() == RuntimeValue{true});
-        CHECK(state.property_override(PropertyOwnerRef{id<RoomId>("start")},
+        CHECK(std::get<RuntimeValue>(properties.get_global(id<PropertyId>("flag")).value()) ==
+              RuntimeValue{true});
+        CHECK(state.property_override(property_target(PropertyOwnerRef{id<RoomId>("start")}),
                                       id<PropertyId>("mood")) != nullptr);
     }
 }
@@ -853,7 +867,7 @@ TEST_CASE("typed save restoration atomically reconstructs fresh session ownershi
     CHECK(std::get<RuntimeValue>(start_visits.value()) == RuntimeValue{std::int64_t{5}});
     CHECK(std::get<RuntimeValue>(hall_visits.value()) == RuntimeValue{std::int64_t{9}});
     CHECK(std::get<RuntimeValue>(tower_visits.value()) == RuntimeValue{std::int64_t{9}});
-    CHECK(std::get<RuntimeValue>(start_enabled.value()) == RuntimeValue{true});
+    CHECK(std::get<RuntimeValue>(start_enabled.value()) == RuntimeValue{false});
 
     REQUIRE(properties.unset(hall, visits));
     auto without_child = make_save_state(project, state);

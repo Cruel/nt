@@ -29,6 +29,20 @@ TextContent text(std::string value)
     return TextContent{InlineText{std::move(value)}, TextMarkup::Plain};
 }
 
+PropertyDefinition flag_property()
+{
+    auto definition = make_property_definition(PropertyDefinitionInput{
+        .id = id<PropertyId>("flag"),
+        .value_type = BooleanPropertyType{},
+        .nullable = false,
+        .default_value = RuntimeValue{false},
+        .scope = PropertyScope::Global,
+        .allowed_owners = {},
+    });
+    REQUIRE(definition);
+    return std::move(definition).value();
+}
+
 compiled::RoomDefinition make_room(RoomId room_id, std::vector<compiled::RoomExit> exits = {})
 {
     return compiled::RoomDefinition{
@@ -49,10 +63,10 @@ compiled::RoomDefinition make_room_with_hooks(RoomId room_id,
     auto room = make_room(std::move(room_id), std::move(exits));
     room.lifecycle.hooks = {
         compiled::RoomHookProgram{compiled::RoomHookKind::BeforeEnter,
-                                  {SetVariable{id<VariableId>("flag"), RuntimeValue{true}},
-                                   SetVariable{id<VariableId>("flag"), RuntimeValue{false}}}},
+                                  {SetGlobalProperty{id<PropertyId>("flag"), RuntimeValue{true}},
+                                   SetGlobalProperty{id<PropertyId>("flag"), RuntimeValue{false}}}},
         compiled::RoomHookProgram{compiled::RoomHookKind::AfterEnter,
-                                  {SetVariable{id<VariableId>("flag"), RuntimeValue{true}}}},
+                                  {SetGlobalProperty{id<PropertyId>("flag"), RuntimeValue{true}}}},
     };
     return room;
 }
@@ -61,11 +75,11 @@ compiled::SceneDefinition make_scene(SceneId scene_id, std::string first, std::s
 {
     std::vector<compiled::SceneInstruction> instructions;
     instructions.emplace_back(
-        compiled::SetVariableSceneInstruction{id<SceneStepId>(std::move(first)), std::nullopt,
-                                              id<VariableId>("flag"), RuntimeValue{false}});
-    instructions.emplace_back(
-        compiled::SetVariableSceneInstruction{id<SceneStepId>(std::move(second)), std::nullopt,
-                                              id<VariableId>("flag"), RuntimeValue{true}});
+        compiled::SetGlobalPropertySceneInstruction{id<SceneStepId>(std::move(first)), std::nullopt,
+                                                    id<PropertyId>("flag"), RuntimeValue{false}});
+    instructions.emplace_back(compiled::SetGlobalPropertySceneInstruction{
+        id<SceneStepId>(std::move(second)), std::nullopt, id<PropertyId>("flag"),
+        RuntimeValue{true}});
     return compiled::SceneDefinition{
         .identity = {std::move(scene_id), std::nullopt, {}},
         .display_name = "Scene",
@@ -132,8 +146,7 @@ CompiledProject make_project(compiled::Entrypoint entrypoint)
         .entrypoint = std::move(entrypoint),
         .startup_hook = std::nullopt,
         .localization = {"en", std::nullopt, {compiled::LocalizationCatalog{"en", {}}}},
-        .variables = {{id<VariableId>("flag"), BooleanPropertyType{}, RuntimeValue{false}}},
-        .properties = {},
+        .properties = {flag_property()},
         .assets = {},
         .layouts = {},
         .scripts = {},
@@ -553,8 +566,7 @@ TEST_CASE("Room transition hooks advance one indexed effect at a time and cannot
         .entrypoint = hall,
         .startup_hook = std::nullopt,
         .localization = {"en", std::nullopt, {compiled::LocalizationCatalog{"en", {}}}},
-        .variables = {{id<VariableId>("flag"), BooleanPropertyType{}, RuntimeValue{false}}},
-        .properties = {},
+        .properties = {flag_property()},
         .assets = {},
         .layouts = {},
         .scripts = {},

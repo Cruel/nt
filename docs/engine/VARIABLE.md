@@ -1,28 +1,20 @@
-# Variable Entity
+# Variables and Global Properties
 
 ## Purpose
 
-Variable records define typed global authoring variables for NovelTea projects. They are intended to reduce typo-prone script state, provide defaults for runtime session state, and give the editor a structured surface for conditions, branches, watches, and test assertions.
+Variable is the editor-facing name for a Global Property. NovelTea has one runtime Property system for typed custom gameplay state; Variables are not a second runtime value family.
 
-This document covers the new authoring variable model. Legacy property-list behavior is reference material only.
+The Variables editor remains the convenient authoring surface for globally scoped flags, counters, numbers, strings, and enums. Compilation lowers those records into ordinary `PropertyDefinition` entries with `scope: "global"` in `noveltea.compiled.project` V4.
 
-## Current Status
-
-Variables are implemented as a typed authoring collection in the editor. The Variables editor supports creating variables, editing type/default/enum metadata, and applying command-backed replacements. Validation checks data shape, enum values, and default-value compatibility.
-
-Runtime variables compile to typed declarations, initialize `SessionState`, participate in typed
-conditions/effects, persist through `SaveState`, and are exposed through `RuntimeScriptApi` and the
-preview/debug protocol.
-
-## Collection
+## Authoring model
 
 Variable records live at:
 
-```json
+```text
 /variables/{variableId}
 ```
 
-The record uses the strict variable-specific authoring record schema. Variable data lives in `record.data`; unknown record and data fields fail V2 parsing.
+Their authoring data is intentionally concise:
 
 ```ts
 interface VariableData {
@@ -34,222 +26,128 @@ interface VariableData {
 }
 ```
 
-## Identity Rules
+Global Variables always require a valid authored default. Number defaults must be finite, integer defaults must be finite whole numbers, and enum defaults must be one of the declared enum values.
 
-Variable IDs use the project entity ID format:
+Variable IDs share the normal project entity-ID syntax and become the compiled `PropertyId`. A Variable ID therefore cannot collide with an identity-scoped Property declaration ID.
+
+## Compiled contract
+
+The compiler emits no `variables[]` runtime declaration collection. Both authoring Variables and identity-scoped Property declarations are emitted in the single `properties[]` collection.
+
+A compiled Global Property has:
 
 ```text
-lowercase kebab-case, starts with a letter, contains only letters, numbers, and hyphens
+scope: "global"
+id
+label
+description
+type
+nullable: false
+defaultValue
+enumValues
 ```
 
-Examples:
+An identity-scoped Property instead has `scope: "identity"`, its admitted `ownerKinds`, and may omit a declaration default when absence is meaningful.
+
+Conditions and effects that originate from Variable authoring also compile to Property vocabulary:
 
 ```text
-has-key
-chapter-number
-relationship-iris
-current-route
+global-property-comparison
+set-global-property
+{ kind: "property", id: ... }
 ```
 
-The variable ID is the canonical runtime and Lua API name. V2 has no `runtimeName` alias.
+There is no compiled Variable reference or separate Variable runtime store.
 
-## High-Level Model
+## Runtime model
 
-A variable is a named typed global value with an authoring default. It is not currently a local scene/dialogue variable or a complex object store.
+`SessionState` stores one sparse collection of `PropertyOverride` values. Each override is addressed by:
 
-`scope` is currently fixed to `global`, leaving room for future local or namespaced scopes without inventing them prematurely.
-
-Enum variables store an allowed string set in `enumValues`. Their default must be one of those enum values.
-
-## Data Model
-
-`kind` is always `variable`.
-
-`type` determines how the default value is parsed, displayed, and validated.
-
-`defaultValue` stores the default runtime/session value.
-
-`scope` is currently always `global`.
-
-`enumValues` is used only for `enum` variables.
-
-
-## References
-
-Variable references use the authoring variable reference shape:
-
-```ts
-{ $var: 'variable-id' }
+```text
+(PropertyTargetRef, PropertyId)
 ```
 
-This shape is defined separately from generic `{ collection, id }` references because variables are often used inside condition/assertion payloads and future expression builders.
+`PropertyTargetRef` is either the explicit global target or one supported identity target. Globals do not use a fake Game/entity owner ID.
 
-Tests, dialogue conditions, scene variable steps, room scripts, and Lua hook surfaces may refer to variables conceptually. Only typed schema-owned references can participate in automatic rename/delete tracking today; references embedded in raw Lua strings require future script analysis or explicit diagnostics.
+`PropertyResolver` applies the same type, enum, finiteness, and nullability validation to global and identity-scoped writes. Global reads resolve an override first and otherwise return the required authored default. Identity-scoped reads retain their authored assignment/inheritance/default lookup rules until those later domain-model slices are replaced.
 
-## Defaults
+### Null versus unset
 
-`defaultVariableData()` creates a global boolean variable by default:
+Explicit nullable `null` is a stored Property value. It is distinct from removing an override.
 
-```ts
-{
-  kind: 'variable',
-  type: 'boolean',
-  scope: 'global',
-  defaultValue: false,
-}
+- setting `null` on a nullable Property stores a runtime override containing null;
+- unsetting removes the override record;
+- after unset, normal authored fallback/default resolution is visible again.
+
+Do not encode "unset" as `null`.
+
+## Persistence and checkpoints
+
+Every authoritative runtime Property override participates in checkpoints and saves. There is no `Session` versus `Save` Property persistence class.
+
+`noveltea.save.state` V8 serializes only sparse Property overrides. Authored defaults and inherited/effective values are not materialized into the save. A missing override record means unset; a saved nullable null remains an explicit override.
+
+Loading validates every saved target, declaration, and value before restoring the candidate session.
+
+## Lua API
+
+Global Properties use the Game facade:
+
+```lua
+local value, err = Game.prop("flag")
+local ok, err = Game.set_prop("flag", true)
+local ok, err = Game.unset_prop("flag")
 ```
 
-Default values by type are:
+Identity-scoped custom Properties currently use the owner-qualified API:
 
-- `boolean`: `false`;
-- `integer`: `0`;
-- `number`: `0`;
-- `string`: empty string;
-- `enum`: first normalized enum value, or `default` for a new enum variable.
-
-A new enum variable defaults to:
-
-```ts
-{
-  kind: 'variable',
-  type: 'enum',
-  scope: 'global',
-  enumValues: ['default'],
-  defaultValue: 'default',
-}
+```lua
+local value, present, err = noveltea.properties.get(owner_kind, owner_id, property_id)
+local ok, err = noveltea.properties.set(owner_kind, owner_id, property_id, value)
+local ok, err = noveltea.properties.unset(owner_kind, owner_id, property_id)
 ```
 
-## Validation
+The `present` result is significant for nullable identity-scoped Properties: a present `nil` value is not the same as an absent/unset Property value.
 
-Variable validation checks:
+The retired `noveltea.variables` runtime table must not be used.
 
-- `record.data` parses as `VariableData`;
-- enum variables have at least one enum value;
-- enum values are non-empty;
-- enum values are unique;
-- `defaultValue` is compatible with the variable type;
-- integer defaults are finite whole numbers;
-- number defaults are finite numbers;
-- enum defaults match one of the enum values.
+## Editor and preview behavior
 
-Validation currently does not parse Lua source to discover unknown variable names used in scripts.
+The authoring collection and UI continue to use the term Variables. Create, rename, type/default editing, dependency tracking, and condition/scene/dialogue builders still reference `/variables` in authoring source.
 
-## Command Behavior
+Preview/debug "set variable" operations are editor-facing commands only. They parse the Variable ID as a `PropertyId` and mutate the Global Property through the runtime Property gateway. Reset removes the runtime override rather than writing the default value.
 
-Variable-specific commands include:
+## Validation and strict-version policy
 
-- `variable.replaceData` to replace a variable's full typed data after validation;
-- `variable.setType` to change type and normalize the default value;
-- `variable.setDefaultValue` to update the default value while enforcing type compatibility.
+Current authoring is `noveltea.authoring.project` V4 and current compiled gameplay data is `noveltea.compiled.project` V4. Normal readers reject unsupported versions and retired shapes; there is no dual reader for the former compiled `variables[]` representation or Property persistence field.
 
-Generic record commands handle creation, rename, deletion, editor metadata updates, and duplication. Variables do not participate in runtime `extends`.
+The cross-language golden corpus is the contract evidence: editor compiler output, canonical checked-in JSON, and the native decoder/linker must move together.
 
-## Editor Behavior
+## Primary implementation files
 
-The Variables editor presents variables as an editable authoring table/detail surface. It normalizes text input into typed values using the same parser functions as validation.
-
-Enum editing accepts comma-separated or newline-separated values, trims them, and filters empty text before validation. Invalid defaults or duplicate enum values are rejected through command diagnostics.
-
-## Editor Preview
-
-There is no dedicated live engine preview for a variable record. Variables are expected to become visible through runtime state watches, condition builders, scene/dialogue preview, test playback, and preview state inspection.
-
-## Runtime Status
-
-Compiled variable declarations initialize typed `SessionState`; runtime overrides use `RuntimeValue`
-and are preserved by typed `SaveState`. Conditions, effects, debug mutations, Lua, playback, and the
-state inspector resolve variables through the typed session APIs.
-
-## Export / Package Status
-
-The authoring compiler emits every declared variable into `noveltea.compiled.project` with its type,
-default, and constraints. Preview, playback, and package export share those exact canonical bytes.
-
-## Scripting Status
-
-Lua is the runtime scripting target. Variables are exposed through the typed `RuntimeScriptApi`, not
-through ad-hoc globals or project/save JSON.
-
-Raw Lua hook fields may mention variable names manually. Those mentions are not currently statically tracked as `VariableRef` values.
-
-## Relationship To Other Entity Types
-
-Variables are expected to support:
-
-- scene variable set/check steps;
-- dialogue conditions and branch behavior;
-- room enter/leave and hotspot scripts;
-- action/interaction conditions;
-- tests and assertions;
-- runtime save/load state;
-- future editor condition builders.
-
-Variables should remain backend-neutral and should not depend on renderer, UI, audio, or platform implementation types.
-
-## Legacy Reference Notes
-
-Legacy `PropertyList` and `ContextObject` files are useful for understanding old state/property behavior. They are not compatibility requirements for the new variable schema.
-
-The old engine used script/context mechanisms that do not map directly to the new Lua-first authoring/runtime boundary. Do not document Duktape/JavaScript property access as a new requirement.
-
-## Recommended Authoring Patterns
-
-Use boolean variables for flags, integer variables for counters, number variables for continuous values, string variables for free text, and enum variables when the valid states are known.
-
-Prefer enum variables over string variables for story routes, modes, and state machines where editor validation should prevent typos.
-
-Keep variable IDs stable once scripts, tests, scenes, or dialogues reference them.
-
-## Current Implementation Files
-
-Primary editor files:
+Editor:
 
 ```text
 editor/src/shared/project-schema/authoring-variables.ts
-editor/src/shared/project-schema/authoring-validation.ts
-editor/src/renderer/project/variable-operations.ts
+editor/src/shared/project-schema/authoring-properties.ts
+editor/src/shared/authoring-compiler-shared-lowering.ts
 editor/src/renderer/editors/variables/VariablesEditor.tsx
-editor/src/renderer/commands/builtin-commands.ts
 ```
 
-Related engine files:
+Engine/runtime:
 
 ```text
-engine/include/noveltea/core/game_session.hpp
-engine/include/noveltea/core/save_document.hpp
-engine/include/noveltea/script/script_runtime.hpp
-engine/include/noveltea/script/runtime_script_executor.hpp
-engine/src/core/game_session.cpp
-engine/src/core/save_document.cpp
-engine/src/script/lua/script_runtime.cpp
-engine/src/script/lua/runtime_script_executor.cpp
+engine/include/noveltea/core/property.hpp
+engine/include/noveltea/core/property_resolver.hpp
+engine/include/noveltea/core/session_state.hpp
+engine/include/noveltea/core/save_state.hpp
+engine/src/core/property_resolver.cpp
+engine/src/core/save_state.cpp
+engine/src/core/save_state_codec/
+engine/src/runtime/runtime_command_gateway.cpp
+engine/src/script/lua/bind_typed_script_host.cpp
 ```
 
-Useful legacy references:
+## Related direction
 
-```text
-refs/NovelTea/include/NovelTea/PropertyList.hpp
-refs/NovelTea/src/core/PropertyList.cpp
-refs/NovelTea/include/NovelTea/ContextObject.hpp
-refs/NovelTea/src/core/ContextObject.cpp
-```
-
-## Known Gaps
-
-- Runtime initialization from variable defaults is not fully documented or exposed as a complete component contract.
-- Variable values are not yet exported into a dedicated runtime state table.
-- Lua references in script strings are not statically tracked.
-- The editor does not yet provide variable watch/debugger UI during preview.
-- Scope is currently fixed to `global`; local/scoped variables are not implemented.
-
-## Future Work
-
-- Define the runtime session storage model for authoring variables.
-- Export variable defaults into runtime packages.
-- Add Lua get/set APIs around runtime state.
-- Add condition-builder UI for scenes, dialogues, rooms, and interactions.
-- Add preview variable watches and test assertion helpers.
-
-## Verification
-
-This doc was written from the current variable schema, variable operation helpers, validation aggregator, Variables editor, and runtime session/save/script headers. No build is required for this documentation-only change.
+Traits, Archetypes, runtime-created identities, and removal of provisional same-type definition inheritance are separate parent-spec slices. This Variable/Property unification does not pre-implement those later changes.
