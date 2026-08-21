@@ -212,10 +212,70 @@ const legacyExportReviewedIndex =
 const reviewedWithoutLegacyExport =
   REVIEWED_FIELD_EFFECT_CODES.slice(0, legacyExportReviewedIndex) +
   REVIEWED_FIELD_EFFECT_CODES.slice(legacyExportReviewedIndex + legacyExportLeafCount);
-const ACTIVE_REVIEWED_FIELD_EFFECT_CODES =
+const PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES =
   reviewedWithoutLegacyExport.slice(0, exportInsertReviewedIndex) +
   'n'.repeat(exportLeafCount) +
   reviewedWithoutLegacyExport.slice(exportInsertReviewedIndex);
+
+// #68 replaces the universal same-type `extends` leaf on Property-bearing records with a Trait
+// attachment array and adds top-level Trait declarations. Preserve every previously reviewed field
+// effect by path, then classify only the new Trait leaves explicitly as owner contributions. This is
+// deliberately a one-time schema-shape migration at the already-selected authoring version.
+const traitBearingRoots = new Set([
+  'characters',
+  'dialogues',
+  'interactables',
+  'interactions',
+  'maps',
+  'rooms',
+  'scenes',
+  'verbs',
+]);
+const legacySchemaLeafPaths = sortedSchemaLeafPaths
+  .filter((path) => !path.startsWith('/traits/'))
+  .map((path) => {
+    const segments = parseJsonPointer(path);
+    return segments.length === 4 &&
+      traitBearingRoots.has(segments[0] ?? '') &&
+      segments[1] === '*' &&
+      segments[2] === 'traits' &&
+      segments[3] === '*'
+      ? (`/${segments[0]}/*/extends` as JsonPointer)
+      : path;
+  })
+  .sort();
+const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
+if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
+  throw new Error(
+    `Authoring graph Trait migration changed the legacy reviewed leaf set: expected ${PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length}, received ${legacyReviewedPaths.length}.`,
+  );
+}
+const legacyReviewedEffects = new Map(
+  legacyReviewedPaths.map(
+    (path, index) => [path, PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES[index]!] as const,
+  ),
+);
+const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
+  .filter((path) => !explicitFieldEffect(path))
+  .map((path) => {
+    if (path.startsWith('/traits/')) return 'o';
+    const segments = parseJsonPointer(path);
+    if (
+      segments.length === 4 &&
+      traitBearingRoots.has(segments[0] ?? '') &&
+      segments[1] === '*' &&
+      segments[2] === 'traits' &&
+      segments[3] === '*'
+    )
+      return 'o';
+    const preserved = legacyReviewedEffects.get(path);
+    if (!preserved)
+      throw new Error(
+        `Authoring graph field '${path}' has no preserved pre-Trait effect declaration.`,
+      );
+    return preserved;
+  })
+  .join('');
 
 const explicitLeafCount = sortedSchemaLeafPaths.filter((path) => explicitFieldEffect(path)).length;
 if (
@@ -261,20 +321,20 @@ export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string,
 export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =
   Object.freeze({
     assets: 'e718127a',
-    characters: '249ac48b',
-    dialogues: 'e674338a',
+    characters: 'f9e51e22',
+    dialogues: '6e083bb5',
     entrypoint: 'a61673d4',
     export: 'b9fd529f',
-    interactables: '9e7a7329',
-    interactions: '42041028',
+    interactables: 'c2651b54',
+    interactions: '6463ced7',
     layouts: '87e0b859',
     localization: '3f6d0d11',
-    maps: '67896f92',
+    maps: '6a2edcd1',
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: '075a2c6a',
-    scenes: 'd05f7981',
+    rooms: 'ccd353f5',
+    scenes: 'f376aa68',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
@@ -282,8 +342,9 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     shaders: '94d3aa6e',
     startupHook: '4fa45604',
     tests: '2dead819',
+    traits: 'e06af863',
     variables: '9ac2af8d',
-    verbs: 'f605dc9b',
+    verbs: '15f7aae6',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {

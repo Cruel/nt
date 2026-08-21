@@ -533,6 +533,115 @@ std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohm
                                std::move(*description)};
 }
 
+std::optional<TraitDeclaration> decode_trait(Decoder& decoder, const nlohmann::json& value,
+                                             std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"description", "id", "label", "ownerKinds", "properties"}))
+        return std::nullopt;
+    const auto* id_value = decoder.member(value, "id", pointer);
+    const auto* label_value = decoder.member(value, "label", pointer);
+    const auto* description_value = decoder.member(value, "description", pointer);
+    const auto* owners_value = decoder.member(value, "ownerKinds", pointer);
+    const auto* properties_value = decoder.member(value, "properties", pointer);
+    auto id =
+        id_value ? decoder.id<TraitId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
+    auto label = label_value ? decoder.string(*label_value, pointer_child(pointer, "label"), true)
+                             : std::nullopt;
+    auto description = description_value ? decoder.string(*description_value,
+                                                          pointer_child(pointer, "description"))
+                                         : std::nullopt;
+    auto owners = owners_value
+                      ? decoder.array<PropertyOwnerKind>(
+                            *owners_value, pointer_child(pointer, "ownerKinds"),
+                            [&](const nlohmann::json& owner, const std::string& owner_pointer) {
+                                return decoder.enumeration<PropertyOwnerKind>(
+                                    owner, owner_pointer,
+                                    {{"room", PropertyOwnerKind::Room},
+                                     {"scene", PropertyOwnerKind::Scene},
+                                     {"dialogue", PropertyOwnerKind::Dialogue},
+                                     {"character", PropertyOwnerKind::Character},
+                                     {"interactable", PropertyOwnerKind::Interactable},
+                                     {"verb", PropertyOwnerKind::Verb},
+                                     {"interaction", PropertyOwnerKind::Interaction},
+                                     {"map", PropertyOwnerKind::Map}});
+                            })
+                      : std::nullopt;
+    auto properties =
+        properties_value
+            ? decoder.array<TraitProperty>(
+                  *properties_value, pointer_child(pointer, "properties"),
+                  [&](const nlohmann::json& member,
+                      const std::string& member_pointer) -> std::optional<TraitProperty> {
+                      if (!member.is_object()) {
+                          decoder.error(k_code_type, "Expected an object.", member_pointer);
+                          return std::nullopt;
+                      }
+                      const auto* kind_value = decoder.member(member, "kind", member_pointer);
+                      auto kind = kind_value ? decoder.string(*kind_value,
+                                                              pointer_child(member_pointer, "kind"))
+                                             : std::nullopt;
+                      if (!kind || (*kind != "required" && *kind != "configured")) {
+                          if (kind)
+                              decoder.error(k_code_variant, "Unknown Trait Property kind.",
+                                            pointer_child(member_pointer, "kind"));
+                          return std::nullopt;
+                      }
+                      const bool configured = *kind == "configured";
+                      if (!decoder.object(
+                              member, member_pointer,
+                              configured
+                                  ? std::initializer_list<std::string_view>{"kind", "propertyId",
+                                                                            "value"}
+                                  : std::initializer_list<std::string_view>{"kind", "propertyId"}))
+                          return std::nullopt;
+                      const auto* property_value =
+                          decoder.member(member, "propertyId", member_pointer);
+                      auto property =
+                          property_value
+                              ? decoder.id<PropertyId>(*property_value,
+                                                       pointer_child(member_pointer, "propertyId"))
+                              : std::nullopt;
+                      std::optional<RuntimeValue> configured_value;
+                      bool value_ok = !configured;
+                      if (configured) {
+                          const auto* value_value = decoder.member(member, "value", member_pointer);
+                          if (value_value) {
+                              configured_value = decode_runtime_value(
+                                  decoder, *value_value, pointer_child(member_pointer, "value"));
+                              value_ok = configured_value.has_value();
+                          }
+                      }
+                      return property && value_ok
+                                 ? std::optional<TraitProperty>(TraitProperty{
+                                       std::move(*property), std::move(configured_value)})
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
+    if (owners) {
+        auto sorted = *owners;
+        std::sort(sorted.begin(), sorted.end());
+        if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end())
+            decoder.error(k_code_duplicate, "Trait owner kinds must be unique.",
+                          pointer_child(pointer, "ownerKinds"));
+    }
+    if (properties) {
+        std::unordered_set<std::string> ids;
+        for (std::size_t index = 0; index < properties->size(); ++index) {
+            const auto& text = (*properties)[index].property_id.text();
+            if (!ids.insert(text).second)
+                decoder.error(
+                    k_code_duplicate, "Duplicate Trait Property '" + text + "'.",
+                    pointer_child(pointer_index(pointer_child(pointer, "properties"), index),
+                                  "propertyId"));
+        }
+    }
+    if (!id || !label || !description || !owners || owners->empty() || !properties ||
+        properties->empty())
+        return std::nullopt;
+    return TraitDeclaration{std::move(*id), std::move(*label), std::move(*description),
+                            std::move(*owners), std::move(*properties)};
+}
+
 std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json& value,
                                           std::string_view pointer)
 {

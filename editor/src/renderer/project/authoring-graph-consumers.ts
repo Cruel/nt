@@ -62,6 +62,7 @@ function nodeLabel(snapshot: AuthoringDependencyGraphSnapshot, key: AuthoringDep
   if (key.kind === 'nested') return `${key.ownerId} · ${key.family} · ${key.id}`;
   if (key.kind === 'record') return `${key.collection.slice(0, -1)} · ${key.id}`;
   if (key.kind === 'property-definition') return `Property · ${key.id}`;
+  if (key.kind === 'trait-definition') return `Trait · ${key.id}`;
   if (key.kind === 'localization-key') return `${key.locale} · ${key.key}`;
   return key.path;
 }

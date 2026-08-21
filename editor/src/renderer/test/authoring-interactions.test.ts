@@ -17,21 +17,21 @@ describe('authoring interactions', () => {
     project.rooms.a = {
       id: 'a',
       label: 'A',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultRoomData('A'),
     };
     project.rooms.b = {
       id: 'b',
       label: 'B',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultRoomData('B'),
     };
     project.verbs.look = {
       id: 'look',
       label: 'Look',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultVerbData('Look'),
     };
@@ -56,7 +56,7 @@ describe('authoring interactions', () => {
     const diagnostics = validateInteractionData(project, 'rules', {
       id: 'rules',
       label: 'Rules',
-      extends: null,
+      traits: [],
       properties: {},
       data,
     });
@@ -110,14 +110,14 @@ describe('authoring interactions', () => {
     project.interactables.key = {
       id: 'key',
       label: 'Key',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultInteractableData('Key'),
     };
     project.verbs.use = {
       id: 'use',
       label: 'Use',
-      extends: null,
+      traits: [],
       properties: {},
       data: { ...defaultVerbData('Use'), arity: 1, operandRoles: ['target'] },
     };
@@ -140,7 +140,7 @@ describe('authoring interactions', () => {
     project.interactions.use = {
       id: 'use',
       label: 'Use',
-      extends: null,
+      traits: [],
       properties: {},
       data: interaction,
     };

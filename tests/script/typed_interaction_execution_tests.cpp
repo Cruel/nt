@@ -209,7 +209,8 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
     CHECK(selected->rule == id<core::InteractionRuleId>("typed-interactable"));
 }
 
-TEST_CASE("typed Interaction falls back child-to-root and emits typed undefined fallback")
+TEST_CASE(
+    "typed Interaction falls back to the selected Verb default then emits typed undefined fallback")
 {
     auto document = load_document();
     definition(document, "interactions", "actions")["rules"] = nlohmann::json::array();

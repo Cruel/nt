@@ -109,10 +109,16 @@ describe('authoring compiler framework', () => {
 
     const baseRoom = project.rooms.foyer!;
     baseRoom.properties = { mood: 'calm' };
+    project.traits['tense-room'] = {
+      id: 'tense-room',
+      label: 'Tense Room',
+      ownerKinds: ['room'],
+      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+    };
     project.rooms.hall = {
       ...project.rooms.hall!,
-      extends: 'foyer',
-      properties: { mood: 'tense' },
+      traits: ['tense-room'],
+      properties: {},
     };
     const character = defaultCharacterData('Hero');
     character.poses[0]!.sprite = { $ref: { collection: 'assets', id: 'hero' } };
@@ -139,10 +145,19 @@ describe('authoring compiler framework', () => {
     expect(result.draft).toBeDefined();
     const draft = result.draft!;
     expect(draft.definitions.rooms.map((room) => room.id)).toEqual(['foyer', 'hall']);
+    expect(draft.traits).toEqual([
+      {
+        id: 'tense-room',
+        label: 'Tense Room',
+        description: '',
+        ownerKinds: ['room'],
+        properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+      },
+    ]);
     expect(draft.definitions.rooms[1]).toMatchObject({
       id: 'hall',
-      extends: 'foyer',
-      propertyAssignments: [{ propertyId: 'mood', value: 'tense' }],
+      traits: ['tense-room'],
+      propertyAssignments: [],
     });
     expect(draft.definitions.characters[0]?.poses[0]?.sprite).toEqual({
       kind: 'asset',
@@ -543,7 +558,7 @@ describe('authoring compiler framework', () => {
       completion: { kind: 'return' },
       outcome: 'handled',
     };
-    project.verbs.unlock = { id: 'unlock', label: 'Unlock', extends: 'use', data: childVerb };
+    project.verbs.unlock = { id: 'unlock', label: 'Unlock', data: childVerb };
 
     const interaction = defaultInteractionData();
     interaction.rules = [
@@ -638,13 +653,13 @@ describe('authoring compiler framework', () => {
     expect(
       compiled.definitions.verbs.map((verb) => ({
         id: verb.id,
-        extends: verb.extends,
+        traits: verb.traits,
         availability: verb.availability.kind,
         outcome: verb.defaultProgram.outcome,
       })),
     ).toEqual([
-      { id: 'unlock', extends: 'use', availability: 'always', outcome: 'handled' },
-      { id: 'use', extends: null, availability: 'lua-predicate', outcome: 'unhandled' },
+      { id: 'unlock', traits: [], availability: 'always', outcome: 'handled' },
+      { id: 'use', traits: [], availability: 'lua-predicate', outcome: 'unhandled' },
     ]);
     expect(
       compiled.definitions.interactions[0]!.rules[0]!.program.instructions.map(

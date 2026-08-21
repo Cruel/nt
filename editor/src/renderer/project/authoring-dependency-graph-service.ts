@@ -11,6 +11,7 @@ import {
   deriveAuthoringDependencyContribution,
   enumerateAuthoringDependencyContributionKeys,
   propertyDefinitionContributionKey,
+  traitDefinitionContributionKey,
   recordContributionKey,
   reprojectAuthoringDependencyContributionFromCachedSources,
   replaceAuthoringDependencyGraphContributions,
@@ -746,6 +747,17 @@ function directOwnerAdmission(
         (!ownerPaths.has(ownerPath) || Boolean(previous) !== Boolean(current))
       )
         contributionKeys.add(propertyDefinitionContributionKey(id));
+      continue;
+    }
+    if (root === 'traits') {
+      const ownerPath = buildJsonPointer(['traits', id]);
+      const previous = publication.previousProject?.traits[id];
+      const current = publication.project.traits[id];
+      if (
+        (previous || current) &&
+        (!ownerPaths.has(ownerPath) || Boolean(previous) !== Boolean(current))
+      )
+        contributionKeys.add(traitDefinitionContributionKey(id));
       continue;
     }
     if (!authoringCollectionKeys.includes(root as AuthoringCollectionKey)) continue;

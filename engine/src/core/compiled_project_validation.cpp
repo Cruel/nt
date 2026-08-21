@@ -17,6 +17,7 @@ public:
     for (std::size_t index = 0; index < input.member.size(); ++index)                              \
     m_##member.emplace(id_expression, index)
         INDEX(properties, input.properties[index].id());
+        INDEX(traits, input.traits[index].id);
         INDEX(assets, input.assets[index].id);
         INDEX(layouts, input.layouts[index].id);
         INDEX(scripts, input.scripts[index].id);
@@ -34,6 +35,7 @@ public:
     Diagnostics run()
     {
         validate_localization();
+        validate_traits();
         validate_root_and_resources();
         validate_definitions();
         return std::move(m_diagnostics);
@@ -67,6 +69,12 @@ private:
     {
         const auto found = m_properties.find(id);
         return found == m_properties.end() ? nullptr : &m_input.properties[found->second];
+    }
+
+    const TraitDefinition* trait(const TraitId& id) const
+    {
+        const auto found = m_traits.find(id);
+        return found == m_traits.end() ? nullptr : &m_input.traits[found->second];
     }
 
     const RoomDefinition* room(const RoomId& id) const
@@ -344,9 +352,11 @@ private:
     void validate_assignments(const Definition& definition, PropertyOwnerKind owner,
                               const std::string& path)
     {
+        std::unordered_set<PropertyId> own_properties;
         for (std::size_t index = 0; index < definition.identity.property_assignments.size();
              ++index) {
             const auto& assignment = definition.identity.property_assignments[index];
+            own_properties.insert(assignment.property_id());
             const auto found = m_properties.find(assignment.property_id());
             if (found == m_properties.end()) {
                 require(m_properties, assignment.property_id(), "property",
@@ -360,6 +370,110 @@ private:
                 error("compiled_project.invalid_property_assignment",
                       "Property assignment is incompatible with its declaration.",
                       path + "/propertyAssignments/" + std::to_string(index));
+        }
+
+        std::unordered_set<TraitId> seen_traits;
+        std::unordered_map<PropertyId, RuntimeValue> configured_values;
+        std::vector<const TraitDefinition*> attached_traits;
+        for (std::size_t index = 0; index < definition.identity.traits.size(); ++index) {
+            const auto& trait_id = definition.identity.traits[index];
+            const auto trait_path = path + "/traits/" + std::to_string(index);
+            if (!seen_traits.insert(trait_id).second) {
+                error("compiled_project.duplicate_trait_attachment",
+                      "Trait '" + trait_id.text() + "' is attached more than once.", trait_path);
+                continue;
+            }
+            const auto* attached = trait(trait_id);
+            if (!attached) {
+                require(m_traits, trait_id, "Trait", trait_path);
+                continue;
+            }
+            if (std::find(attached->allowed_owners.begin(), attached->allowed_owners.end(),
+                          owner) == attached->allowed_owners.end()) {
+                error("compiled_project.invalid_trait_attachment",
+                      "Trait '" + trait_id.text() + "' cannot be attached to this owner kind.",
+                      trait_path);
+                continue;
+            }
+            attached_traits.push_back(attached);
+            for (const auto& member : attached->properties) {
+                if (!member.configured_value)
+                    continue;
+                const auto [existing, inserted] =
+                    configured_values.emplace(member.property_id, *member.configured_value);
+                if (!inserted && existing->second != *member.configured_value)
+                    error("compiled_project.conflicting_trait_configuration",
+                          "Attached Traits configure Property '" + member.property_id.text() +
+                              "' with conflicting values.",
+                          trait_path);
+            }
+        }
+        for (const auto* attached : attached_traits) {
+            for (const auto& member : attached->properties) {
+                if (member.configured_value)
+                    continue;
+                const auto* declaration = property(member.property_id);
+                const bool has_default = declaration && declaration->default_value().has_value();
+                if (!own_properties.contains(member.property_id) &&
+                    !configured_values.contains(member.property_id) && !has_default)
+                    error("compiled_project.missing_trait_requirement",
+                          "Trait '" + attached->id.text() + "' requires Property '" +
+                              member.property_id.text() + "' to have an authored value.",
+                          path + "/traits");
+            }
+        }
+    }
+
+    void validate_traits()
+    {
+        for (std::size_t index = 0; index < m_input.traits.size(); ++index) {
+            const auto& definition = m_input.traits[index];
+            const auto base = "/traits/" + std::to_string(index);
+            if (definition.allowed_owners.empty())
+                error("compiled_project.invalid_trait_definition",
+                      "Trait must admit at least one owner kind.", base + "/ownerKinds");
+            std::unordered_set<PropertyOwnerKind> owners;
+            for (const auto owner : definition.allowed_owners) {
+                if (owner > PropertyOwnerKind::Map)
+                    error("compiled_project.invalid_trait_definition",
+                          "Trait owner kind is invalid.", base + "/ownerKinds");
+                if (!owners.insert(owner).second)
+                    error("compiled_project.invalid_trait_definition",
+                          "Trait owner kinds must be unique.", base + "/ownerKinds");
+            }
+            if (definition.properties.empty())
+                error("compiled_project.invalid_trait_definition",
+                      "Trait must declare at least one Property.", base + "/properties");
+            std::unordered_set<PropertyId> property_ids;
+            for (std::size_t member_index = 0; member_index < definition.properties.size();
+                 ++member_index) {
+                const auto& member = definition.properties[member_index];
+                const auto member_path = base + "/properties/" + std::to_string(member_index);
+                if (!property_ids.insert(member.property_id).second)
+                    error("compiled_project.invalid_trait_definition",
+                          "Trait Properties must be unique.", member_path + "/propertyId");
+                const auto* declaration = property(member.property_id);
+                if (!declaration) {
+                    require(m_properties, member.property_id, "property",
+                            member_path + "/propertyId");
+                    continue;
+                }
+                const bool owners_compatible = std::all_of(
+                    definition.allowed_owners.begin(), definition.allowed_owners.end(),
+                    [&](PropertyOwnerKind owner) {
+                        return std::binary_search(declaration->allowed_owners().begin(),
+                                                  declaration->allowed_owners().end(), owner);
+                    });
+                if (!owners_compatible)
+                    error("compiled_project.invalid_trait_property",
+                          "Trait Property is not valid for every Trait owner kind.",
+                          member_path + "/propertyId");
+                if (member.configured_value &&
+                    !property_value_matches(*declaration, *member.configured_value))
+                    error("compiled_project.invalid_trait_property",
+                          "Configured Trait value does not match its Property declaration.",
+                          member_path + "/value");
+            }
         }
     }
 
@@ -1310,6 +1424,7 @@ private:
     std::unordered_set<std::string> m_default_localization_keys;
 #define MAP(member, id_type) std::unordered_map<id_type, std::size_t> m_##member
     MAP(properties, PropertyId);
+    MAP(traits, TraitId);
     MAP(assets, AssetId);
     MAP(layouts, LayoutId);
     MAP(scripts, ScriptId);

@@ -20,11 +20,11 @@ TextContent text(std::string value)
     return TextContent{InlineText{std::move(value)}, TextMarkup::Plain};
 }
 
-compiled::RoomDefinition room(RoomId room_id, std::optional<RoomId> parent = std::nullopt,
+compiled::RoomDefinition room(RoomId room_id, std::vector<TraitId> traits = {},
                               std::vector<PropertyAssignment> assignments = {})
 {
     return compiled::RoomDefinition{
-        .identity = {std::move(room_id), std::move(parent), std::move(assignments)},
+        .identity = {std::move(room_id), std::move(traits), std::move(assignments)},
         .display_name = "Room",
         .description = text("Room description"),
         .background = {std::nullopt, std::nullopt, compiled::BackgroundFit::Cover, std::nullopt},
@@ -47,19 +47,23 @@ compiled::CompiledProjectInput project_input()
         .label = "Ambient light",
         .description = "Room lighting intensity.",
     });
-    auto assignment =
-        make_property_assignment(PropertyOwnerKind::Room, property.value(), RuntimeValue{0.5});
-    std::vector<PropertyAssignment> assignments;
-    assignments.push_back(std::move(assignment).value());
-
     const auto base_id = id<RoomId>("area");
     const auto child_id = id<RoomId>("atrium");
+    const auto trait_id = id<TraitId>("dimly-lit");
     std::vector<compiled::RoomDefinition> rooms;
-    rooms.push_back(room(base_id, std::nullopt, std::move(assignments)));
-    rooms.push_back(room(child_id, base_id));
+    rooms.push_back(room(base_id));
+    rooms.push_back(room(child_id, {trait_id}));
 
     std::vector<PropertyDefinition> properties;
     properties.push_back(std::move(property).value());
+    std::vector<compiled::TraitDefinition> traits;
+    traits.push_back(compiled::TraitDefinition{
+        trait_id,
+        "Dimly lit",
+        "Provides a dim ambient-light value.",
+        {PropertyOwnerKind::Room},
+        {{id<PropertyId>("ambient-light"), RuntimeValue{0.5}}},
+    });
     return compiled::CompiledProjectInput{
         .identity = {id<ProjectId>("sample-project"), "Sample", "1.0", "Author", "Description"},
         .settings = {{compiled::ReferenceResolution{1920, 1080}, "#000000",
@@ -72,6 +76,7 @@ compiled::CompiledProjectInput project_input()
         .startup_hook = std::nullopt,
         .localization = {"en", std::nullopt, {compiled::LocalizationCatalog{"en", {}}}},
         .properties = std::move(properties),
+        .traits = std::move(traits),
         .assets = {},
         .layouts = {},
         .scripts = {},
@@ -169,6 +174,9 @@ TEST_CASE("compiled project publishes immutable collections and checked indexes"
     STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_property(
                                       std::declval<const PropertyId&>())),
                                   const PropertyDefinition*>);
+    STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_trait(
+                                      std::declval<const TraitId&>())),
+                                  const compiled::TraitDefinition*>);
     STATIC_REQUIRE(std::is_same_v<decltype(std::declval<const CompiledProject&>().find_asset(
                                       std::declval<const AssetId&>())),
                                   const compiled::AssetResource*>);
@@ -217,13 +225,12 @@ TEST_CASE("compiled project publishes immutable collections and checked indexes"
     CHECK(project.find_property(id<PropertyId>("ambient-light"))->description() ==
           "Room lighting intensity.");
     CHECK(project.find_asset(id<AssetId>("missing-asset")) == nullptr);
-
-    CHECK_FALSE(project.room_parent_index(area));
-    REQUIRE(project.room_parent_index(atrium));
-    CHECK(*project.room_parent_index(atrium) == 0);
-    REQUIRE(project.rooms()[0].identity.property_assignments.size() == 1);
-    CHECK(project.rooms()[0].identity.property_assignments[0].property_id() ==
-          id<PropertyId>("ambient-light"));
+    const auto* dimly_lit = project.find_trait(id<TraitId>("dimly-lit"));
+    REQUIRE(dimly_lit != nullptr);
+    REQUIRE(dimly_lit->properties.size() == 1);
+    CHECK(dimly_lit->properties[0].property_id == id<PropertyId>("ambient-light"));
+    REQUIRE(project.rooms()[1].identity.traits.size() == 1);
+    CHECK(project.rooms()[1].identity.traits[0] == id<TraitId>("dimly-lit"));
 }
 
 TEST_CASE("compiled project rejects an invalid project default Room transition")
@@ -276,7 +283,7 @@ TEST_CASE("compiled project construction rejects structurally invalid public inp
     CHECK(invalid_global.error().front().code == "domain.invalid_property_definition");
 }
 
-TEST_CASE("compiled project construction rejects duplicate and invalid inheritance indexes")
+TEST_CASE("compiled project construction rejects duplicate and invalid Trait attachments")
 {
     auto duplicate = project_input();
     duplicate.rooms.push_back(room(id<RoomId>("area")));
@@ -284,15 +291,16 @@ TEST_CASE("compiled project construction rejects duplicate and invalid inheritan
     REQUIRE_FALSE(duplicate_result);
     CHECK(duplicate_result.error().front().code == "compiled.duplicate_id");
 
-    auto missing_parent = project_input();
-    missing_parent.rooms[1].identity.extends = id<RoomId>("missing-parent");
-    auto missing_result = CompiledProject::create(std::move(missing_parent));
+    auto missing_trait = project_input();
+    missing_trait.rooms[1].identity.traits = {id<TraitId>("missing-trait")};
+    auto missing_result = CompiledProject::create(std::move(missing_trait));
     REQUIRE_FALSE(missing_result);
-    CHECK(missing_result.error().front().code == "compiled.invalid_inheritance");
+    CHECK(missing_result.error().front().code == "compiled_project.unresolved_reference");
 
-    auto cycle = project_input();
-    cycle.rooms[0].identity.extends = id<RoomId>("atrium");
-    auto cycle_result = CompiledProject::create(std::move(cycle));
-    REQUIRE_FALSE(cycle_result);
-    CHECK(cycle_result.error().front().code == "compiled.invalid_inheritance");
+    auto duplicate_trait = project_input();
+    duplicate_trait.rooms[1].identity.traits = {id<TraitId>("dimly-lit"), id<TraitId>("dimly-lit")};
+    auto duplicate_trait_result = CompiledProject::create(std::move(duplicate_trait));
+    REQUIRE_FALSE(duplicate_trait_result);
+    CHECK(duplicate_trait_result.error().front().code ==
+          "compiled_project.duplicate_trait_attachment");
 }

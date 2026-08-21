@@ -11,7 +11,11 @@ import {
   defaultAuthoringLocalization,
   authoringLocalizationSchema,
 } from './authoring-localization';
-import { propertyDefinitionSchema, type PropertyAssignments } from './authoring-properties';
+import {
+  propertyDefinitionSchema,
+  traitDefinitionSchema,
+  type PropertyAssignments,
+} from './authoring-properties';
 import { authoringCollectionSchemas } from './authoring-records';
 import {
   DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS,
@@ -73,6 +77,7 @@ export const authoringProjectSchema = z
     startupHook: projectStartupHookSchema.nullable().default(null),
     entrypoint: projectEntrypointSchema.nullable().default(null),
     properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
+    traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
     localization: authoringLocalizationSchema.default(defaultAuthoringLocalization()),
     editor: editorProjectStateSchema.default(emptyEditorProjectState),
     ...authoringCollectionSchemas,
@@ -91,7 +96,7 @@ export interface AuthoringRecordBase {
   label: string;
   description?: string;
   data: unknown;
-  extends?: EntityId | null;
+  traits?: EntityId[];
   properties?: PropertyAssignments;
 }
 
@@ -156,6 +161,7 @@ export function createAuthoringProject(
     startupHook: null,
     entrypoint: null,
     properties: {},
+    traits: {},
     localization: defaultAuthoringLocalization(),
     editor: emptyEditorProjectState(),
     ...collections,

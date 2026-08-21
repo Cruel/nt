@@ -45,8 +45,7 @@ playback, package, and CLI consumers receive its canonical publication; no alter
 shape or provisional-version decoder is retained.
 
 The compiler uses a separate `CompiledProjectSharedDraft` implementation type while specialized
-programs are still incomplete. That draft contains all shared declarations, resources, definitions,
-inheritance edges, and authored assignments, but omits program-owned fields entirely. It is never
+programs are still incomplete. That draft contains all shared declarations, resources, definitions, Trait declarations/attachments, and authored Property assignments, but omits program-owned fields entirely. It is never
 accepted by `compiledProjectWireV2Schema`, serialized as gameplay JSON, or exposed to consumers.
 
 ## Scene TransitionGroup wire contract
@@ -87,7 +86,7 @@ The exact cross-language decoder inputs live under
 
 - `minimal.json`;
 - `comprehensive.json`;
-- `inheritance-properties-localization.json`;
+- `trait-properties-localization.json`;
 - `resources.json`;
 - `scene-program.json`;
 - `dialogue-program.json`;
@@ -103,8 +102,7 @@ canonical documents through strict internal DTOs, reuses the native strong-ID an
 vocabulary, and returns `core::Diagnostics` for structural or semantic failures. Scene instructions,
 Dialogue blocks/segments/edges, Interaction rules/instructions/contexts/operands, Verb default
 programs, and Room hooks decode losslessly with owner-scoped nested IDs. A separate linker validates
-all gameplay references, declarations, inheritance, nested targets, resource closure, and topology,
-then publishes one immutable indexed `CompiledProject` only after every check passes. Source JSON is
+all gameplay references, Property/Trait declarations and attachments, nested targets, resource closure, and topology, then publishes one immutable indexed `CompiledProject` only after every check passes. Source JSON is
 never retained. Material references remain typed IDs until the separately versioned material manifest
 is validated and assembled with the compiled package.
 

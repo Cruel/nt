@@ -58,7 +58,7 @@ describe('InteractableEditor', () => {
     project.interactables.door = {
       id: 'door',
       label: 'Door',
-      extends: null,
+      traits: [],
       properties: {},
       data,
     };
@@ -107,7 +107,7 @@ describe('InteractableEditor', () => {
     project.interactables.door = {
       id: 'door',
       label: 'Door',
-      extends: null,
+      traits: [],
       properties: {},
       data,
     };
@@ -130,7 +130,7 @@ describe('InteractableEditor', () => {
     project.interactables.door = {
       id: 'door',
       label: 'Door',
-      extends: null,
+      traits: [],
       properties: {},
       data: defaultInteractableData('Door'),
     };
@@ -174,7 +174,7 @@ describe('InteractableEditor', () => {
     project.interactables.door = {
       id: 'door',
       label: 'Door',
-      extends: null,
+      traits: [],
       properties: {},
       data,
     };

@@ -66,8 +66,8 @@ TEST_CASE("compiled project shared decoder consumes every golden boundary")
     STATIC_REQUIRE(!std::is_same_v<SharedProject, CompiledProject>);
 
     for (const auto name :
-         {"minimal", "comprehensive", "inheritance-properties-localization", "resources",
-          "scene-program", "dialogue-program", "interaction-program"}) {
+         {"minimal", "comprehensive", "trait-properties-localization", "resources", "scene-program",
+          "dialogue-program", "interaction-program"}) {
         auto document = fixture(name);
         REQUIRE_FALSE(document.is_discarded());
         const auto original = document;
@@ -618,8 +618,8 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
 TEST_CASE("compiled project public decoder atomically publishes all golden fixtures")
 {
     for (const auto name :
-         {"minimal", "comprehensive", "inheritance-properties-localization", "resources",
-          "scene-program", "dialogue-program", "interaction-program"}) {
+         {"minimal", "comprehensive", "trait-properties-localization", "resources", "scene-program",
+          "dialogue-program", "interaction-program"}) {
         auto document = fixture(name);
         const auto original = document;
         auto result =
@@ -631,13 +631,14 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
         CHECK(result.value().find_room(RoomId::create("start").value()) != nullptr);
     }
 
-    auto inheritance = noveltea::core::decode_compiled_project(
-        fixture("inheritance-properties-localization"), "inheritance.json");
-    REQUIRE(inheritance);
-    const auto child = RoomId::create("hall").value();
-    REQUIRE(inheritance.value().find_room(child) != nullptr);
-    REQUIRE(inheritance.value().room_parent_index(child));
-    CHECK_FALSE(inheritance.value().find_room(child)->identity.property_assignments.empty());
+    auto trait_project = noveltea::core::decode_compiled_project(
+        fixture("trait-properties-localization"), "traits.json");
+    REQUIRE(trait_project);
+    const auto hall = RoomId::create("hall").value();
+    REQUIRE(trait_project.value().find_room(hall) != nullptr);
+    REQUIRE(trait_project.value().find_trait(TraitId::create("tense-room").value()) != nullptr);
+    REQUIRE(trait_project.value().find_room(hall)->identity.traits.size() == 1);
+    CHECK(trait_project.value().find_room(hall)->identity.traits.front().text() == "tense-room");
 
     auto comprehensive =
         noveltea::core::decode_compiled_project(fixture("comprehensive"), "comprehensive.json");
@@ -892,47 +893,42 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
     }
 
-    SECTION("inheritance cycle")
+    SECTION("retired extends field is rejected")
     {
-        auto document = fixture("inheritance-properties-localization");
-        auto* rooms = path_member(document, {"definitions", "rooms"});
-        REQUIRE(rooms != nullptr);
-        auto* first = json_access::element(*rooms, 0);
-        auto* second = json_access::element(*rooms, 1);
-        REQUIRE(first != nullptr);
-        REQUIRE(second != nullptr);
-        (*first)["extends"] = (*second)["id"];
-        (*second)["extends"] = (*first)["id"];
-        auto result = noveltea::core::decode_compiled_project(document, "inheritance.json");
-        REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled.invalid_inheritance"));
-    }
-
-    SECTION("inheritance self-reference")
-    {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* room = path_member(document, {"definitions", "rooms", "0"});
         REQUIRE(room != nullptr);
-        (*room)["extends"] = (*room)["id"];
-        auto result = noveltea::core::decode_compiled_project(document, "inheritance.json");
+        (*room)["extends"] = "start";
+        auto result = noveltea::core::decode_compiled_project(document, "traits.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled.invalid_inheritance"));
+        CHECK(has_code(result.error(), "compiled_project.unknown_field"));
     }
 
-    SECTION("inheritance missing parent")
+    SECTION("missing Trait attachment")
     {
-        auto document = fixture("inheritance-properties-localization");
-        auto* room = path_member(document, {"definitions", "rooms", "0"});
-        REQUIRE(room != nullptr);
-        (*room)["extends"] = "missing-room";
-        auto result = noveltea::core::decode_compiled_project(document, "inheritance.json");
+        auto document = fixture("trait-properties-localization");
+        auto* traits = path_member(document, {"definitions", "rooms", "0", "traits"});
+        REQUIRE(traits != nullptr);
+        traits->push_back("missing-trait");
+        auto result = noveltea::core::decode_compiled_project(document, "traits.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled.invalid_inheritance"));
+        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
+    }
+
+    SECTION("incompatible Trait attachment")
+    {
+        auto document = fixture("trait-properties-localization");
+        auto* traits = path_member(document, {"definitions", "scenes", "0", "traits"});
+        REQUIRE(traits != nullptr);
+        traits->push_back("tense-room");
+        auto result = noveltea::core::decode_compiled_project(document, "traits.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_trait_attachment"));
     }
 
     SECTION("property declaration and assignment mismatch")
     {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* rooms = path_member(document, {"definitions", "rooms"});
         REQUIRE(rooms != nullptr);
         auto* room = json_access::element(*rooms, 0);
@@ -949,7 +945,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
 
     SECTION("property owner restriction")
     {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* scene = path_member(document, {"definitions", "scenes", "0"});
         REQUIRE(scene != nullptr);
         (*scene)["propertyAssignments"] =
@@ -961,7 +957,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
 
     SECTION("property nullability")
     {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* assignment =
             path_member(document, {"definitions", "rooms", "0", "propertyAssignments", "0"});
         REQUIRE(assignment != nullptr);
@@ -973,7 +969,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
 
     SECTION("property enum membership")
     {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* assignment =
             path_member(document, {"definitions", "rooms", "0", "propertyAssignments", "0"});
         REQUIRE(assignment != nullptr);
@@ -985,7 +981,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
 
     SECTION("invalid property default")
     {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* property = path_member(document, {"properties", "1"});
         REQUIRE(property != nullptr);
         (*property)["defaultValue"] = "angry";
@@ -996,7 +992,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
 
     SECTION("retired property persistence field")
     {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* property = path_member(document, {"properties", "0"});
         REQUIRE(property != nullptr);
         (*property)["persistence"] = "Save";
@@ -1007,7 +1003,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
 
     SECTION("unresolved property declaration")
     {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* assignment =
             path_member(document, {"definitions", "rooms", "0", "propertyAssignments", "0"});
         REQUIRE(assignment != nullptr);
@@ -1077,7 +1073,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
 
     SECTION("Global Property default enum membership")
     {
-        auto document = fixture("inheritance-properties-localization");
+        auto document = fixture("trait-properties-localization");
         auto* property = path_member(document, {"properties", "7"});
         REQUIRE(property != nullptr);
         REQUIRE((*property)["id"] == "mood-variable");

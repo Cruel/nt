@@ -7,8 +7,8 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 ## Current Documents
 
 - `docs/architecture/ENGINE_ARCHITECTURE.md` describes the current engine/runtime architecture, ownership, initialization order, asset/project loading, main loop, core runtime, runtime UI bridge, Lua status, and contrast with old NovelTea context.
-- `docs/architecture/CORE_DOMAIN_MODEL.md` is the current-direction contract for authoring/compiled/runtime ownership, definitions and programs, strong IDs, flow frames, inheritance and properties, mutable state, saves, and package/JSON boundaries.
-- `docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md` maps every V2 collection to its authoring, compiled, mutable, or tooling disposition and fixes cross-component, startup, continuation, inheritance, Lua-yield, and save-safe-point relationships.
+- `docs/architecture/CORE_DOMAIN_MODEL.md` is the current-direction contract for authoring/compiled/runtime ownership, definitions and programs, strong IDs, flow frames, Traits and Properties, mutable state, saves, and package/JSON boundaries.
+- `docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md` maps every V2 collection to its authoring, compiled, mutable, or tooling disposition and fixes cross-component, startup, continuation, Trait/Property, Lua-yield, and save-safe-point relationships.
 - `docs/architecture/COMPILED_PROJECT_WIRE_V2.md` defines the strict TypeScript-owned
   `noveltea.compiled.project` V4 contract consumed by the editor publisher and native decoder.
 - `docs/architecture/AUTHORING_COMPILER.md` describes the pure staged authoring compiler and its

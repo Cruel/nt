@@ -6,12 +6,7 @@ import type {
 import { authoringCollectionKeys, type AuthoringCollectionKey } from './authoring-collections';
 import type { AuthoringProject, ReferenceTarget } from './authoring-project';
 
-export type ReferenceUsageKind =
-  | 'extends'
-  | 'entrypoint'
-  | 'explicit-ref'
-  | 'flow-target'
-  | 'variable-ref';
+export type ReferenceUsageKind = 'entrypoint' | 'explicit-ref' | 'flow-target' | 'variable-ref';
 
 export interface ReferenceUsage {
   sourceCollection: AuthoringCollectionKey | 'project';
@@ -27,7 +22,6 @@ export interface ReferenceIndex {
 }
 
 function compatibilityKind(edge: AuthoringDependencyEdge): ReferenceUsageKind | null {
-  if (edge.role === 'extends') return 'extends';
   if (edge.role === 'entrypoint') return 'entrypoint';
   if (edge.role === 'flow-target') return 'flow-target';
   if (edge.role === 'variable-ref') return 'variable-ref';
@@ -102,8 +96,6 @@ function legacyUsageOrder(project: AuthoringProject, usages: ReferenceUsage[]): 
         recordOrder.get(`${left.sourceCollection}:${left.sourceId}`)! -
         recordOrder.get(`${right.sourceCollection}:${right.sourceId}`)!;
       if (recordDifference !== 0) return recordDifference;
-      if (left.kind === 'extends' && right.kind !== 'extends') return -1;
-      if (right.kind === 'extends' && left.kind !== 'extends') return 1;
     }
     return compareJsonPointerOrder(left.path, right.path);
   });

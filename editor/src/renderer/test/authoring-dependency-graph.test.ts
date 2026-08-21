@@ -21,6 +21,7 @@ import {
   outgoingAuthoringDependencies,
   propertyDefinitionNodeKey,
   recordNodeKey,
+  traitDefinitionNodeKey,
   replaceAuthoringDependencyGraphContributions,
   serializeAuthoringDependencyDerivationDependency,
   serializeAuthoringDependencyNodeKey,
@@ -410,11 +411,25 @@ describe('authoring structural dependency graph and queries', () => {
   });
   it('builds record/project-field contributions and reports missing structural targets', () => {
     const project = createAuthoringProject();
+    project.properties.mood = {
+      id: 'mood',
+      label: 'Mood',
+      type: 'string',
+      nullable: false,
+      defaultValue: 'calm',
+      ownerKinds: ['room'],
+    };
+    project.traits['tense-room'] = {
+      id: 'tense-room',
+      label: 'Tense Room',
+      ownerKinds: ['room'],
+      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+    };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
     project.rooms.hall = {
       id: 'hall',
       label: 'Hall',
-      extends: 'foyer',
+      traits: ['tense-room'],
       data: defaultRoomData(),
     };
     project.rooms.hall.data.background.asset = {
@@ -424,7 +439,12 @@ describe('authoring structural dependency graph and queries', () => {
 
     const graph = buildAuthoringStructuralDependencyGraph(project);
     const foyerUsages = findAuthoringDependencyUsages(graph, recordNodeKey('rooms', 'foyer'));
-    expect(foyerUsages.map((usage) => usage.role)).toEqual(['entrypoint', 'extends']);
+    expect(foyerUsages.map((usage) => usage.role)).toEqual(['entrypoint']);
+    expect(
+      findAuthoringDependencyUsages(graph, traitDefinitionNodeKey('tense-room')).map(
+        (usage) => usage.role,
+      ),
+    ).toEqual(['trait-attachment']);
     expect(findMissingAuthoringDependencyTargets(graph)).toEqual([
       expect.objectContaining({
         code: 'authoring_dependency.missing_target',
@@ -801,11 +821,25 @@ describe('authoring structural dependency graph and queries', () => {
 
   it('keeps structural compatibility projection identical to the public reference index', () => {
     const project = createAuthoringProject();
+    project.properties.mood = {
+      id: 'mood',
+      label: 'Mood',
+      type: 'string',
+      nullable: false,
+      defaultValue: 'calm',
+      ownerKinds: ['room'],
+    };
+    project.traits['tense-room'] = {
+      id: 'tense-room',
+      label: 'Tense Room',
+      ownerKinds: ['room'],
+      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
+    };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
     project.rooms.hall = {
       id: 'hall',
       label: 'Hall',
-      extends: 'foyer',
+      traits: ['tense-room'],
       data: defaultRoomData(),
     };
     const graph = buildAuthoringStructuralDependencyGraph(project);
@@ -814,12 +848,19 @@ describe('authoring structural dependency graph and queries', () => {
 
   it('fails closed for string-shaped generic replacement roles', () => {
     const project = createAuthoringProject();
-    project.rooms.base = { id: 'base', label: 'Base', data: defaultRoomData() };
-    project.rooms.child = {
-      id: 'child',
-      label: 'Child',
-      extends: 'base',
-      data: defaultRoomData(),
+    project.properties.mood = {
+      id: 'mood',
+      label: 'Mood',
+      type: 'string',
+      nullable: false,
+      defaultValue: 'calm',
+      ownerKinds: ['room'],
+    };
+    project.traits['tense-room'] = {
+      id: 'tense-room',
+      label: 'Tense Room',
+      ownerKinds: ['room'],
+      properties: [{ kind: 'configured', propertyId: 'mood', value: 'tense' }],
     };
     project.variables.score = {
       id: 'score',
@@ -834,21 +875,21 @@ describe('authoring structural dependency graph and queries', () => {
 
     const graph = buildAuthoringStructuralDependencyGraph(project);
     const repairs = [...graph.edgesById.values()]
-      .filter((edge) => edge.role === 'extends' || edge.role === 'variable-ref')
+      .filter((edge) => edge.role === 'trait-property' || edge.role === 'variable-ref')
       .map((edge) => [edge.role, edge.repair]);
     expect(repairs).toEqual([
       [
-        'extends',
+        'variable-ref',
         {
           kind: 'blocked',
           reason: 'This reference role has no safe automatic repair encoding.',
         },
       ],
       [
-        'variable-ref',
+        'trait-property',
         {
           kind: 'blocked',
-          reason: 'This reference role has no safe automatic repair encoding.',
+          reason: 'Trait Property membership must be repaired explicitly.',
         },
       ],
     ]);

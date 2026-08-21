@@ -28,8 +28,10 @@ template<class Id>
 std::optional<compiled::PropertyBearingDefinition<Id>>
 link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOwnerKind owner,
               const std::unordered_map<PropertyId, const PropertyDefinition*>& properties,
+              const std::unordered_map<TraitId, const compiled::TraitDefinition*>& traits,
               Diagnostics& diagnostics, std::string_view source_path, const std::string& path)
 {
+    const auto diagnostics_before = diagnostics.size();
     std::vector<PropertyAssignment> assignments;
     assignments.reserve(identity.property_assignments.size());
     for (std::size_t index = 0; index < identity.property_assignments.size(); ++index) {
@@ -58,8 +60,85 @@ link_identity(compiled::wire::PropertyBearingDefinition<Id> identity, PropertyOw
     }
     if (assignments.size() != identity.property_assignments.size())
         return std::nullopt;
-    return compiled::PropertyBearingDefinition<Id>{
-        std::move(identity.id), std::move(identity.extends), std::move(assignments)};
+
+    std::vector<TraitId> attachments;
+    attachments.reserve(identity.traits.size());
+    std::unordered_map<PropertyId, RuntimeValue> configured_values;
+    for (std::size_t index = 0; index < identity.traits.size(); ++index) {
+        auto& trait_id = identity.traits[index];
+        const auto found = traits.find(trait_id);
+        if (found == traits.end()) {
+            diagnostics.push_back(
+                Diagnostic{.code = "compiled_project.unresolved_reference",
+                           .message = "Unresolved Trait reference '" + trait_id.text() + "'.",
+                           .severity = ErrorSeverity::Error,
+                           .source_path = std::string(source_path),
+                           .json_pointer = path + "/traits/" + std::to_string(index)});
+            continue;
+        }
+        const auto& trait = *found->second;
+        if (std::find(trait.allowed_owners.begin(), trait.allowed_owners.end(), owner) ==
+            trait.allowed_owners.end()) {
+            diagnostics.push_back(Diagnostic{
+                .code = "compiled_project.invalid_trait_attachment",
+                .message = "Trait '" + trait_id.text() + "' cannot be attached to this owner kind.",
+                .severity = ErrorSeverity::Error,
+                .source_path = std::string(source_path),
+                .json_pointer = path + "/traits/" + std::to_string(index)});
+            continue;
+        }
+        for (const auto& member : trait.properties) {
+            if (!member.configured_value)
+                continue;
+            const auto [configured, inserted] =
+                configured_values.emplace(member.property_id, *member.configured_value);
+            if (!inserted && configured->second != *member.configured_value) {
+                diagnostics.push_back(
+                    Diagnostic{.code = "compiled_project.conflicting_trait_configuration",
+                               .message = "Attached Traits configure Property '" +
+                                          member.property_id.text() + "' with conflicting values.",
+                               .severity = ErrorSeverity::Error,
+                               .source_path = std::string(source_path),
+                               .json_pointer = path + "/traits/" + std::to_string(index)});
+            }
+        }
+        attachments.push_back(trait_id);
+    }
+    if (attachments.size() != identity.traits.size())
+        return std::nullopt;
+
+    for (const auto& trait_id : attachments) {
+        const auto found = traits.find(trait_id);
+        if (found == traits.end())
+            return std::nullopt;
+        const auto* trait = found->second;
+        for (const auto& member : trait->properties) {
+            if (member.configured_value)
+                continue;
+            const auto own =
+                std::find_if(assignments.begin(), assignments.end(), [&](const auto& value) {
+                    return value.property_id() == member.property_id;
+                });
+            const auto property = properties.find(member.property_id);
+            const bool has_default =
+                property != properties.end() && property->second->default_value().has_value();
+            if (own == assignments.end() &&
+                configured_values.find(member.property_id) == configured_values.end() &&
+                !has_default) {
+                diagnostics.push_back(Diagnostic{
+                    .code = "compiled_project.missing_trait_requirement",
+                    .message = "Trait '" + trait_id.text() + "' requires Property '" +
+                               member.property_id.text() + "' to have an authored value.",
+                    .severity = ErrorSeverity::Error,
+                    .source_path = std::string(source_path),
+                    .json_pointer = path + "/traits"});
+            }
+        }
+    }
+    if (diagnostics.size() != diagnostics_before)
+        return std::nullopt;
+    return compiled::PropertyBearingDefinition<Id>{std::move(identity.id), std::move(attachments),
+                                                   std::move(assignments)};
 }
 
 Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
@@ -98,14 +177,83 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
     for (const auto& property : properties)
         property_index.emplace(property.id(), &property);
 
+    std::vector<compiled::TraitDefinition> traits;
+    traits.reserve(wire.traits.size());
+    for (std::size_t index = 0; index < wire.traits.size(); ++index) {
+        auto& declaration = wire.traits[index];
+        const auto diagnostic_count = diagnostics.size();
+        std::vector<compiled::TraitProperty> members;
+        members.reserve(declaration.properties.size());
+        for (std::size_t member_index = 0; member_index < declaration.properties.size();
+             ++member_index) {
+            auto& member = declaration.properties[member_index];
+            const auto found = property_index.find(member.property_id);
+            const auto member_path =
+                "/traits/" + std::to_string(index) + "/properties/" + std::to_string(member_index);
+            if (found == property_index.end()) {
+                diagnostics.push_back(Diagnostic{.code = "compiled_project.unresolved_reference",
+                                                 .message = "Unresolved property reference '" +
+                                                            member.property_id.text() + "'.",
+                                                 .severity = ErrorSeverity::Error,
+                                                 .source_path = source_path,
+                                                 .json_pointer = member_path + "/propertyId"});
+                continue;
+            }
+            const auto& property = *found->second;
+            const bool owners_compatible =
+                std::all_of(declaration.allowed_owners.begin(), declaration.allowed_owners.end(),
+                            [&](PropertyOwnerKind owner) {
+                                return std::binary_search(property.allowed_owners().begin(),
+                                                          property.allowed_owners().end(), owner);
+                            });
+            if (!owners_compatible) {
+                diagnostics.push_back(
+                    Diagnostic{.code = "compiled_project.invalid_trait_property",
+                               .message = "Trait Property '" + member.property_id.text() +
+                                          "' is not valid for every Trait owner kind.",
+                               .severity = ErrorSeverity::Error,
+                               .source_path = source_path,
+                               .json_pointer = member_path + "/propertyId"});
+                continue;
+            }
+            if (member.configured_value &&
+                !property_value_matches(property, *member.configured_value)) {
+                diagnostics.push_back(
+                    Diagnostic{.code = "compiled_project.invalid_trait_property",
+                               .message = "Configured Trait value does not match Property '" +
+                                          member.property_id.text() + "'.",
+                               .severity = ErrorSeverity::Error,
+                               .source_path = source_path,
+                               .json_pointer = member_path + "/value"});
+                continue;
+            }
+            members.push_back(compiled::TraitProperty{std::move(member.property_id),
+                                                      std::move(member.configured_value)});
+        }
+        if (diagnostics.size() != diagnostic_count)
+            continue;
+        std::sort(declaration.allowed_owners.begin(), declaration.allowed_owners.end());
+        traits.push_back(
+            compiled::TraitDefinition{std::move(declaration.id), std::move(declaration.label),
+                                      std::move(declaration.description),
+                                      std::move(declaration.allowed_owners), std::move(members)});
+    }
+    if (traits.size() != wire.traits.size())
+        return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics));
+
+    std::unordered_map<TraitId, const compiled::TraitDefinition*> trait_index;
+    trait_index.reserve(traits.size());
+    for (const auto& trait : traits)
+        trait_index.emplace(trait.id, &trait);
+
 #define LINK_DEFINITIONS(wire_member, output_member, output_type, owner_kind, path_text, body)     \
     std::vector<compiled::output_type> output_member;                                              \
     output_member.reserve(wire.wire_member.size());                                                \
     for (std::size_t index = 0; index < wire.wire_member.size(); ++index) {                        \
         auto& value = wire.wire_member[index];                                                     \
-        auto identity =                                                                            \
-            link_identity(std::move(value.identity), owner_kind, property_index, diagnostics,      \
-                          source_path, std::string(path_text) + "/" + std::to_string(index));      \
+        auto identity = link_identity(std::move(value.identity), owner_kind, property_index,       \
+                                      trait_index, diagnostics, source_path,                       \
+                                      std::string(path_text) + "/" + std::to_string(index));       \
         if (!identity)                                                                             \
             continue;                                                                              \
         output_member.push_back(body);                                                             \
@@ -171,6 +319,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         .startup_hook = std::move(wire.startup_hook),
         .localization = std::move(wire.localization),
         .properties = std::move(properties),
+        .traits = std::move(traits),
         .assets = std::move(wire.assets),
         .layouts = std::move(wire.layouts),
         .scripts = std::move(wire.scripts),

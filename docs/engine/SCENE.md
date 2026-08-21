@@ -6,8 +6,7 @@ Scene is the canonical visual-novel orchestration component; new code never uses
 `SceneDefinition` owns immutable metadata and a specialized flat `SceneProgram`. Scene is not a
 universal command stream, graph VM, keyframe timeline, or polymorphic controller.
 
-Scene may `extends` another Scene only for declared custom-property lookup. Steps, defaults,
-programs, resources, and continuations remain local and do not merge.
+Scene is property-bearing and may attach supported Traits backed by ordinary Properties. Trait attachment does not merge steps, defaults, programs, resources, or continuations.
 
 ## Program
 
@@ -85,9 +84,9 @@ realization and leaves the already-published target authoritative.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific Scene record, optional `extends`, typed property assignments,
+- **Authoring V2:** collection-specific Scene record with Trait attachments, typed property assignments,
   strict ordered steps, and explicit terminal continuation.
-- **Compiled:** `SceneDefinition` plus `SceneProgram`, linked typed references, retained parent edge,
+- **Compiled:** `SceneDefinition` plus `SceneProgram`, linked typed references, retained Trait IDs,
   property assignments, and compiler-marked safe points.
 - **Mutable:** Scene `FlowFrame`, actor state, logical waits, visit/history data, and property overrides
   in `SessionState`.

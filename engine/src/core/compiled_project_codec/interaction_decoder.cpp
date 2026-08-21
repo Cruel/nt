@@ -174,8 +174,8 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
                                           std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"actionText", "arity", "availability", "defaultProgram", "extends", "id",
-                         "operandRoles", "propertyAssignments", "quickAction"}))
+                        {"actionText", "arity", "availability", "defaultProgram", "id",
+                         "operandRoles", "propertyAssignments", "quickAction", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<VerbId>(decoder, value, pointer);
     const auto* action_value = decoder.member(value, "actionText", pointer);
@@ -228,7 +228,7 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
 std::optional<InteractionDefinition>
 decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"extends", "id", "propertyAssignments", "rules"}))
+    if (!decoder.object(value, pointer, {"id", "propertyAssignments", "rules", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<InteractionId>(decoder, value, pointer);
     const auto* rules_value = decoder.member(value, "rules", pointer);

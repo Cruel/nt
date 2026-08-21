@@ -5,9 +5,9 @@
 A `RoomDefinition` is immutable compiled gameplay content. It owns its background, image-relative
 hotspots, conditional
 world-overlay Layout mounts, declarative cast, props, and reconstructible environment loops, optional typed composition Script hook,
-description, ordered enter/leave hooks, exits, and generic `RoomPlacement` anchors. A Room may `extends`
-another Room only for declared custom-property lookup; exits, placements, overlays, resources, and
-programs do not merge.
+description, ordered enter/leave hooks, exits, and generic `RoomPlacement` anchors. Room is a
+Property-bearing identity and may attach compatible Traits; Trait members are ordinary Properties and
+do not merge exits, placements, overlays, resources, or programs.
 
 `SessionState` owns mutable Room state: the active and previous Room, visit counts, presentation
 state, and sparse property overrides. Categories, tags, selections, graph coordinates, and preview
@@ -125,7 +125,7 @@ exit instead of adding a duplicate.
 - `tests/core/flow_executor_tests.cpp` covers hook ordering, commit behavior, and failed transitions.
 - `tests/script/typed_room_execution_tests.cpp` and
   `tests/script/typed_runtime_session_tests.cpp` cover Room views, navigation, and typed inputs.
-- `tests/core/session_state_tests.cpp` covers Room state, placements, and property inheritance.
+- `tests/core/session_state_tests.cpp` covers Room state, placements, Trait-backed Property resolution, and owner-local overrides.
 - `tests/core/save_state_tests.cpp` covers definition-derived Room-loop reconstruction, scoped
   environment persistence, stale-owner/missing-resource rejection, and failure-atomic restore.
 - `tests/render/world_presentation_tests.cpp` covers typed environment realization and phase-zero

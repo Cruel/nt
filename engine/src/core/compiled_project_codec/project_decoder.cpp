@@ -39,7 +39,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     Decoder decoder(std::move(source_path));
     if (!decoder.object(document, "",
                         {"definitions", "entrypoint", "localization", "project", "properties",
-                         "resources", "schema", "schemaVersion", "settings", "startupHook"}))
+                         "resources", "schema", "schemaVersion", "settings", "startupHook",
+                         "traits"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -50,6 +51,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* startup_value = decoder.member(document, "startupHook", "");
     const auto* localization_value = decoder.member(document, "localization", "");
     const auto* properties_value = decoder.member(document, "properties", "");
+    const auto* traits_value = decoder.member(document, "traits", "");
     const auto* resources_value = decoder.member(document, "resources", "");
     const auto* definitions_value = decoder.member(document, "definitions", "");
 
@@ -105,6 +107,12 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                     return decode_property(decoder, item, pointer);
                                 })
                           : std::nullopt;
+    auto traits = traits_value ? decoder.array<TraitDeclaration>(
+                                     *traits_value, "/traits",
+                                     [&](const nlohmann::json& item, const std::string& pointer) {
+                                         return decode_trait(decoder, item, pointer);
+                                     })
+                               : std::nullopt;
 
     std::optional<std::vector<AssetResource>> assets;
     std::optional<std::vector<LayoutResource>> layouts;
@@ -169,6 +177,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         decoder.duplicate_ids(
             *properties, "/properties",
             [](const PropertyDeclaration& value) -> const PropertyId& { return value.id; });
+    if (traits)
+        decoder.duplicate_ids(
+            *traits, "/traits",
+            [](const TraitDeclaration& value) -> const TraitId& { return value.id; });
     if (assets)
         decoder.duplicate_ids(
             *assets, "/resources/assets",
@@ -196,7 +208,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 #undef NOVELTEA_DUPLICATE_DEFINITION
 
     const bool complete = schema && version && identity && settings && entrypoint && startup_ok &&
-                          localization && properties && assets && layouts && scripts &&
+                          localization && properties && traits && assets && layouts && scripts &&
                           characters && rooms && interactables && verbs && interactions && scenes &&
                           dialogues && maps;
     if (!complete || decoder.failed())
@@ -204,10 +216,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     return Result<SharedProject, Diagnostics>::success(SharedProject{
         std::move(*identity), std::move(*settings), std::move(*entrypoint), std::move(startup),
-        std::move(*localization), std::move(*properties), std::move(*assets), std::move(*layouts),
-        std::move(*scripts), std::move(*characters), std::move(*rooms), std::move(*interactables),
-        std::move(*verbs), std::move(*interactions), std::move(*scenes), std::move(*dialogues),
-        std::move(*maps)});
+        std::move(*localization), std::move(*properties), std::move(*traits), std::move(*assets),
+        std::move(*layouts), std::move(*scripts), std::move(*characters), std::move(*rooms),
+        std::move(*interactables), std::move(*verbs), std::move(*interactions), std::move(*scenes),
+        std::move(*dialogues), std::move(*maps)});
 }
 
 } // namespace noveltea::core::compiled::wire

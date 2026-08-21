@@ -19,7 +19,6 @@ import {
   createEntityRecordPatches,
   duplicateEntityRecordPatches,
   renameEntityIdPatches,
-  setEntityExtendsPatches,
   updateEntityMetadataPatches,
 } from '@/project/entity-operations';
 import {
@@ -683,12 +682,6 @@ const updateEntityMetadataSchema = z.object({
   sortKey: z.string().nullable().optional(),
 });
 
-const setEntityExtendsSchema = z.object({
-  collection: authoringCollectionSchema,
-  entityId: entityIdSchema,
-  extendsId: entityIdSchema.nullable(),
-});
-
 const importedAssetMetadataBaseSchema = z.object({
   originalPath: z.string(),
   originalName: z.string(),
@@ -1028,11 +1021,6 @@ export const entityDuplicateRecordCommand: CommandHandler = ({ document, payload
 export const entityUpdateMetadataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(updateEntityMetadataSchema, payload, (parsed) =>
     updateEntityMetadataPatches(document, parsed as never),
-  );
-
-export const entitySetExtendsCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(setEntityExtendsSchema, payload, (parsed) =>
-    setEntityExtendsPatches(document, parsed as never),
   );
 
 export const assetImportFilesCommand: CommandHandler = ({ document, payload }) =>
@@ -1473,7 +1461,6 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'entity.duplicateRecord': entityDuplicateRecordCommand,
     'entity.deleteRecord': entityDeleteRecordCommand,
     'entity.updateMetadata': entityUpdateMetadataCommand,
-    'entity.setExtends': entitySetExtendsCommand,
     'asset.importFiles': assetImportFilesCommand,
     'asset.assignAlias': assetAssignAliasCommand,
     'asset.removeAlias': assetRemoveAliasCommand,
@@ -1560,8 +1547,6 @@ export function labelForCommand(type: string): string {
       return 'Delete entity record';
     case 'entity.updateMetadata':
       return 'Update entity metadata';
-    case 'entity.setExtends':
-      return 'Set entity extends';
     case 'asset.importFiles':
       return 'Import assets';
     case 'asset.assignAlias':

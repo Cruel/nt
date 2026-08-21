@@ -3,7 +3,6 @@
 #include "compiled_project_validation.hpp"
 
 #include <cmath>
-#include <functional>
 #include <limits>
 #include <string_view>
 #include <type_traits>
@@ -17,14 +16,6 @@ Diagnostics duplicate_id(std::string_view collection, std::string_view id)
     return Diagnostics{Diagnostic{.code = "compiled.duplicate_id",
                                   .message = "Duplicate " + std::string(collection) + " ID '" +
                                              std::string(id) + "'"}};
-}
-
-Diagnostics invalid_parent(std::string_view collection, std::string_view id,
-                           std::string_view reason)
-{
-    return Diagnostics{Diagnostic{.code = "compiled.invalid_inheritance",
-                                  .message = std::string(collection) + " definition '" +
-                                             std::string(id) + "' " + std::string(reason)}};
 }
 
 Diagnostics invalid_model(std::string message)
@@ -353,67 +344,6 @@ bool build_index(const std::vector<Value>& values, std::unordered_map<Id, std::s
     return true;
 }
 
-template<class Id, class Definition>
-bool validate_parents(const std::vector<Definition>& definitions,
-                      const std::unordered_map<Id, std::size_t>& index, std::string_view collection,
-                      Diagnostics& diagnostics)
-{
-    enum class Visit : std::uint8_t {
-        Unvisited,
-        Visiting,
-        Complete
-    };
-    std::vector<Visit> visits(definitions.size(), Visit::Unvisited);
-    std::function<bool(std::size_t)> visit = [&](std::size_t position) {
-        if (visits[position] == Visit::Complete)
-            return true;
-        if (visits[position] == Visit::Visiting) {
-            diagnostics = invalid_parent(collection, definitions[position].identity.id.text(),
-                                         "participates in an inheritance cycle");
-            return false;
-        }
-        visits[position] = Visit::Visiting;
-        const auto& parent = definitions[position].identity.extends;
-        if (parent) {
-            const auto found = index.find(*parent);
-            if (found == index.end()) {
-                diagnostics =
-                    invalid_parent(collection, definitions[position].identity.id.text(),
-                                   "references a missing parent '" + parent->text() + "'");
-                return false;
-            }
-            if (found->second == position) {
-                diagnostics = invalid_parent(collection, definitions[position].identity.id.text(),
-                                             "cannot extend itself");
-                return false;
-            }
-            if (!visit(found->second))
-                return false;
-        }
-        visits[position] = Visit::Complete;
-        return true;
-    };
-    for (std::size_t position = 0; position < definitions.size(); ++position) {
-        if (!visit(position))
-            return false;
-    }
-    return true;
-}
-
-template<class Id, class Definition>
-void build_parent_index(const std::vector<Definition>& definitions,
-                        const std::unordered_map<Id, std::size_t>& index,
-                        std::unordered_map<Id, std::size_t>& parent_index)
-{
-    for (const auto& definition : definitions) {
-        if (!definition.identity.extends)
-            continue;
-        const auto found = index.find(*definition.identity.extends);
-        if (found != index.end())
-            parent_index.emplace(definition.identity.id, found->second);
-    }
-}
-
 template<class Id, class Value>
 const Value* checked_find(const Id& id, const std::unordered_map<Id, std::size_t>& index,
                           const std::vector<Value>& values) noexcept
@@ -422,16 +352,6 @@ const Value* checked_find(const Id& id, const std::unordered_map<Id, std::size_t
     if (found == index.end() || found->second >= values.size())
         return nullptr;
     return &values[found->second];
-}
-
-template<class Id>
-std::optional<std::size_t> checked_parent(const Id& id,
-                                          const std::unordered_map<Id, std::size_t>& index) noexcept
-{
-    const auto found = index.find(id);
-    if (found == index.end())
-        return std::nullopt;
-    return found->second;
 }
 
 } // namespace
@@ -450,6 +370,9 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
         PropertyId, properties,
         [](const PropertyDefinition& value) -> const PropertyId& { return value.id(); },
         "property");
+    BUILD_INDEX(
+        TraitId, traits,
+        [](const compiled::TraitDefinition& value) -> const TraitId& { return value.id; }, "trait");
     BUILD_INDEX(
         AssetId, assets,
         [](const compiled::AssetResource& value) -> const AssetId& { return value.id; }, "asset");
@@ -476,19 +399,6 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
 #undef BUILD_DEFINITION_INDEX
 #undef BUILD_INDEX
 
-#define VALIDATE_PARENTS(member, label)                                                            \
-    if (!validate_parents(input.member, member##_index, label, diagnostics))                       \
-    return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics))
-    VALIDATE_PARENTS(characters, "character");
-    VALIDATE_PARENTS(rooms, "room");
-    VALIDATE_PARENTS(interactables, "interactable");
-    VALIDATE_PARENTS(verbs, "verb");
-    VALIDATE_PARENTS(interactions, "interaction");
-    VALIDATE_PARENTS(scenes, "scene");
-    VALIDATE_PARENTS(dialogues, "dialogue");
-    VALIDATE_PARENTS(maps, "map");
-#undef VALIDATE_PARENTS
-
     diagnostics = compiled::detail::validate_semantics(input);
     if (!diagnostics.empty())
         return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics));
@@ -500,12 +410,12 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     : m_identity(std::move(input.identity)), m_settings(std::move(input.settings)),
       m_entrypoint(std::move(input.entrypoint)), m_startup_hook(std::move(input.startup_hook)),
       m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),
-      m_assets(std::move(input.assets)), m_layouts(std::move(input.layouts)),
-      m_scripts(std::move(input.scripts)), m_characters(std::move(input.characters)),
-      m_rooms(std::move(input.rooms)), m_interactables(std::move(input.interactables)),
-      m_verbs(std::move(input.verbs)), m_interactions(std::move(input.interactions)),
-      m_scenes(std::move(input.scenes)), m_dialogues(std::move(input.dialogues)),
-      m_maps(std::move(input.maps))
+      m_traits(std::move(input.traits)), m_assets(std::move(input.assets)),
+      m_layouts(std::move(input.layouts)), m_scripts(std::move(input.scripts)),
+      m_characters(std::move(input.characters)), m_rooms(std::move(input.rooms)),
+      m_interactables(std::move(input.interactables)), m_verbs(std::move(input.verbs)),
+      m_interactions(std::move(input.interactions)), m_scenes(std::move(input.scenes)),
+      m_dialogues(std::move(input.dialogues)), m_maps(std::move(input.maps))
 {
     Diagnostics unused;
 #define INDEX(id_type, singular, plural, expression, label)                                        \
@@ -514,6 +424,9 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
         PropertyId, property, properties,
         [](const PropertyDefinition& value) -> const PropertyId& { return value.id(); },
         "property");
+    INDEX(
+        TraitId, trait, traits,
+        [](const compiled::TraitDefinition& value) -> const TraitId& { return value.id; }, "trait");
     INDEX(
         AssetId, asset, assets,
         [](const compiled::AssetResource& value) -> const AssetId& { return value.id; }, "asset");
@@ -541,15 +454,6 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     INDEX_DEFINITION(MapId, map, maps, MapDefinition, "map");
 #undef INDEX_DEFINITION
 #undef INDEX
-
-    build_parent_index(m_characters, m_character_index, m_character_parent_index);
-    build_parent_index(m_rooms, m_room_index, m_room_parent_index);
-    build_parent_index(m_interactables, m_interactable_index, m_interactable_parent_index);
-    build_parent_index(m_verbs, m_verb_index, m_verb_parent_index);
-    build_parent_index(m_interactions, m_interaction_index, m_interaction_parent_index);
-    build_parent_index(m_scenes, m_scene_index, m_scene_parent_index);
-    build_parent_index(m_dialogues, m_dialogue_index, m_dialogue_parent_index);
-    build_parent_index(m_maps, m_map_index, m_map_parent_index);
 }
 
 #define FIND(name, plural, id_type, value_type)                                                    \
@@ -558,6 +462,7 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
         return checked_find(id, m_##name##_index, m_##plural);                                     \
     }
 FIND(property, properties, PropertyId, PropertyDefinition)
+FIND(trait, traits, TraitId, compiled::TraitDefinition)
 FIND(asset, assets, AssetId, compiled::AssetResource)
 FIND(layout, layouts, LayoutId, compiled::LayoutResource)
 FIND(script, scripts, ScriptId, compiled::ScriptResource)
@@ -570,21 +475,5 @@ FIND(scene, scenes, SceneId, compiled::SceneDefinition)
 FIND(dialogue, dialogues, DialogueId, compiled::DialogueDefinition)
 FIND(map, maps, MapId, compiled::MapDefinition)
 #undef FIND
-
-#define PARENT(name, id_type)                                                                      \
-    std::optional<std::size_t> CompiledProject::name##_parent_index(const id_type& id)             \
-        const noexcept                                                                             \
-    {                                                                                              \
-        return checked_parent(id, m_##name##_parent_index);                                        \
-    }
-PARENT(character, CharacterId)
-PARENT(room, RoomId)
-PARENT(interactable, InteractableId)
-PARENT(verb, VerbId)
-PARENT(interaction, InteractionId)
-PARENT(scene, SceneId)
-PARENT(dialogue, DialogueId)
-PARENT(map, MapId)
-#undef PARENT
 
 } // namespace noveltea::core

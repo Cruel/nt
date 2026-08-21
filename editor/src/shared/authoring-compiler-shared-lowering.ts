@@ -63,6 +63,7 @@ export interface CompiledProjectSharedDraft {
   startupHook: CompiledProjectWireV4['startupHook'];
   entrypoint: CompiledProjectWireV4['entrypoint'];
   properties: CompiledProjectWireV4['properties'];
+  traits: CompiledProjectWireV4['traits'];
   localization: CompiledProjectWireV4['localization'];
   resources: WireResources;
   definitions: {
@@ -167,7 +168,7 @@ function propertyAssignments(record: AuthoringRecordBase) {
 function propertyBase(id: string, record: AuthoringRecordBase) {
   return {
     id,
-    extends: record.extends ?? null,
+    traits: [...(record.traits ?? [])].sort(),
     propertyAssignments: propertyAssignments(record),
   };
 }
@@ -478,7 +479,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   ): SharedInteractableDefinition => {
     const hotspotDefinition = data.presentation.hotspots!;
     return {
-      ...propertyBase(id, { ...record, extends: null }),
+      ...propertyBase(id, record),
       displayName: data.displayName,
       presentation: {
         sprite: assetRef(data.presentation.sprite),
@@ -641,6 +642,18 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }),
   );
 
+  const traits: CompiledProjectWireV4['traits'] = sortedEntries(project.traits).map(
+    ([id, trait]) => ({
+      id,
+      label: trait.label,
+      description: trait.description ?? '',
+      ownerKinds: [...trait.ownerKinds].sort(),
+      properties: trait.properties
+        .map((property) => ({ ...property }))
+        .sort((left, right) => left.propertyId.localeCompare(right.propertyId)),
+    }),
+  );
+
   const propertyIds = new Set(properties.map((property) => property.id));
   for (const [id, record] of sortedEntries(project.variables)) {
     const data = requireData(parseVariableData(record.data), `/variables/${id}/data`);
@@ -701,6 +714,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     startupHook: project.startupHook ? { source: project.startupHook.source } : null,
     entrypoint: compileEntrypoint(project.entrypoint),
     properties,
+    traits,
     localization: {
       defaultLocale: project.localization.defaultLocale,
       fallbackLocale: project.localization.fallbackLocale,

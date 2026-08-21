@@ -68,10 +68,55 @@ export const propertyDefinitionSchema = z
 
 export const propertyAssignmentsSchema = z.record(entityIdSchema, authoredRuntimeValueSchema);
 
+export const traitPropertySchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('required'),
+      propertyId: entityIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('configured'),
+      propertyId: entityIdSchema,
+      value: authoredRuntimeValueSchema,
+    })
+    .strict(),
+]);
+
+export const traitDefinitionSchema = z
+  .object({
+    id: entityIdSchema,
+    label: z.string().min(1),
+    description: z.string().optional(),
+    ownerKinds: z.array(z.enum(propertyOwnerKindValues)).min(1),
+    properties: z.array(traitPropertySchema).min(1),
+  })
+  .strict()
+  .superRefine((trait, context) => {
+    if (new Set(trait.ownerKinds).size !== trait.ownerKinds.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['ownerKinds'],
+        message: 'Trait owner kinds must be unique.',
+      });
+    }
+    const propertyIds = trait.properties.map((property) => property.propertyId);
+    if (new Set(propertyIds).size !== propertyIds.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['properties'],
+        message: 'Trait properties must be unique.',
+      });
+    }
+  });
+
 export type PropertyOwnerKind = (typeof propertyOwnerKindValues)[number];
 export type PropertyDefinition = z.infer<typeof propertyDefinitionSchema>;
 export type AuthoredRuntimeValue = z.infer<typeof authoredRuntimeValueSchema>;
 export type PropertyAssignments = z.infer<typeof propertyAssignmentsSchema>;
+export type TraitProperty = z.infer<typeof traitPropertySchema>;
+export type TraitDefinition = z.infer<typeof traitDefinitionSchema>;
 
 export function isPropertyValueCompatible(
   definition: Pick<PropertyDefinition, 'type' | 'nullable' | 'enumValues'>,

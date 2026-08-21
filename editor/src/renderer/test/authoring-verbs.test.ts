@@ -20,7 +20,7 @@ describe('authoring verbs', () => {
           use: {
             id: 'use',
             label: 'Use',
-            extends: null,
+            traits: [],
             properties: {},
             data: handled,
           },

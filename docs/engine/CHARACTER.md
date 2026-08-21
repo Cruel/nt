@@ -4,7 +4,7 @@
 
 A `CharacterDefinition` is immutable runtime content describing authored identity, dialogue presentation, poses, expressions, reconstructible idle-loop definitions, default visual selections, and an initial world declaration. The declaration is `Nowhere` or a validated generic `RoomPlacementRef`, plus enabled and visible defaults. It never contains current on-screen state or backend animation phase.
 
-Character is a property-bearing definition kind. It may `extends` another Character only for declared custom-property lookup. Poses, expressions, dialogue style, and other structural fields do not merge or inherit. Editor categories and tags are unrelated to `extends`.
+Character is a Property-bearing definition kind and may attach compatible Traits. Trait members remain ordinary Properties; poses, expressions, dialogue style, and other structural fields never merge through Traits. Editor categories and tags are unrelated to Trait attachment.
 
 ## Identity and references
 
@@ -12,8 +12,8 @@ Character is a property-bearing definition kind. It may `extends` another Charac
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** a collection-specific Character record with label/notes as editor metadata, explicit runtime-visible identity/dialogue fields, poses, expressions, idle definitions, optional default idle selection, optional `extends`, and typed property assignments.
-- **Compiled:** `CharacterDefinition`, retained same-type parent ID, validated pose/expression/idle/resource and initial-placement references, and authored property assignments. Empty idle collections and absent default idle selections are omitted from canonical wire output.
+- **Authoring V2:** a collection-specific Character record with label/notes as editor metadata, explicit runtime-visible identity/dialogue fields, poses, expressions, idle definitions, optional default idle selection, Trait attachments, and typed Property assignments.
+- **Compiled:** `CharacterDefinition`, retained Trait attachments, validated pose/expression/idle/resource and initial-placement references, and authored Property assignments. Empty idle collections and absent default idle selections are omitted from canonical wire output.
 - **Mutable:** desired actor presentation stores character ID, pose, expression, optional selected idle ID, logical placement, visibility, and completed presentation state. Character property overrides live in `SessionState` by `(PropertyOwnerRef, PropertyId)`.
 - **Tooling only:** preview pose/expression, preview background, graph/selection state, categories, tags, colors, and sort keys.
 
@@ -82,7 +82,7 @@ without discarding the workflow.
 
 Current validation checks:
 
-- schema shape and same-collection inheritance target validity;
+- schema shape and Trait attachment/property compatibility;
 - at least one pose and expression;
 - unique local pose, expression, and idle IDs;
 - valid default pose, expression, and optional idle selections plus preview selections;
@@ -97,8 +97,9 @@ validation diagnostics. Deleting a pose or expression repairs defaults/preview s
 expression restrictions that referred to a deleted pose.
 
 Edits use `character.replaceData`, which validates a complete replacement value before patching
-`/characters/{characterId}/data`. Creation, rename, duplicate, delete, metadata, and inheritance
-operations preserve typed references, undo/redo, and validation before publication.
+`/characters/{characterId}/data`. Creation, rename, duplicate, delete, and metadata operations preserve
+typed references, undo/redo, and validation before publication. Trait attachments are ordinary typed
+record data validated through the shared Trait/Property contract.
 
 ### Current preview, export, and runtime status
 

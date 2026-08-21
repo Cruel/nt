@@ -15,7 +15,6 @@ function projectWithRooms() {
   project.rooms.hall = {
     id: 'hall',
     label: 'Hall',
-    extends: 'foyer',
     data: defaultRoomData('Hall'),
   };
   project.entrypoint = { kind: 'room', id: 'foyer' };
@@ -39,7 +38,7 @@ describe('authoring entity operations', () => {
     });
   });
 
-  it('renames IDs and rewrites entrypoint and extends references transactionally', () => {
+  it('renames IDs and rewrites entrypoint references transactionally', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
     const result = executeCommand(state, {
       type: 'entity.renameId',
@@ -48,7 +47,7 @@ describe('authoring entity operations', () => {
     expect(result.ok).toBe(true);
     expect(result.state.document).toMatchObject({
       entrypoint: { kind: 'room', id: 'entry-hall' },
-      rooms: { 'entry-hall': { id: 'entry-hall' }, hall: { extends: 'entry-hall' } },
+      rooms: { 'entry-hall': { id: 'entry-hall' }, hall: { id: 'hall' } },
     });
     expect(undoCommand(result.state).state.document).toEqual(state.document);
   });
@@ -151,26 +150,5 @@ describe('authoring entity operations', () => {
       (deleted.state.document as { editor: { recordMetadata: { rooms: Record<string, unknown> } } })
         .editor.recordMetadata.rooms,
     ).not.toHaveProperty('great-hall-copy');
-  });
-
-  it('sets same-collection extends and rejects cycles', () => {
-    let state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
-    const clear = executeCommand(state, {
-      type: 'entity.setExtends',
-      payload: { collection: 'rooms', entityId: 'hall', extendsId: null },
-    });
-    expect(clear.ok).toBe(true);
-    state = clear.state;
-    const first = executeCommand(state, {
-      type: 'entity.setExtends',
-      payload: { collection: 'rooms', entityId: 'foyer', extendsId: 'hall' },
-    });
-    expect(first.ok).toBe(true);
-    expect(
-      executeCommand(first.state, {
-        type: 'entity.setExtends',
-        payload: { collection: 'rooms', entityId: 'hall', extendsId: 'foyer' },
-      }).ok,
-    ).toBe(false);
   });
 });

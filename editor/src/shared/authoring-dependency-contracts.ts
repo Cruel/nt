@@ -19,6 +19,7 @@ export type AuthoringDependencyNodeKey =
       id: string;
     }
   | { kind: 'property-definition'; id: string }
+  | { kind: 'trait-definition'; id: string }
   | { kind: 'localization-key'; locale: string; key: string }
   | { kind: 'project-field'; path: JsonPointer };
 export type DependencyImpactFacet =
@@ -33,7 +34,8 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'explicit-ref',
   'variable-ref',
   'condition-variable',
-  'extends',
+  'trait-attachment',
+  'trait-property',
   'entrypoint',
   'flow-target',
   'property-assignment',

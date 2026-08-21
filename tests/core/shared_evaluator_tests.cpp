@@ -41,7 +41,7 @@ PropertyDefinition global_property(std::string name, PropertyValueType type,
 CompiledProject make_project()
 {
     compiled::RoomDefinition room{
-        .identity = {id<RoomId>("hall"), std::nullopt, {}},
+        .identity = {id<RoomId>("hall"), {}, {}},
         .display_name = "Hall",
         .description = text("Hall"),
         .background = {std::nullopt, std::nullopt, compiled::BackgroundFit::Cover, std::nullopt},
@@ -75,6 +75,7 @@ CompiledProject make_project()
                                        RuntimeValue{std::string{"beta"}}),
                        global_property("mood", EnumPropertyType{{"calm", "tense"}},
                                        RuntimeValue{std::string{"calm"}})},
+        .traits = {},
         .assets = {},
         .layouts = {},
         .scripts = {},

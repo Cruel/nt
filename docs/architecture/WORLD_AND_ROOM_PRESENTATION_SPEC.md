@@ -340,7 +340,7 @@ they must not compete with `RoomVisitContext` as another entry-context source of
 - poses and expressions;
 - default pose and expression;
 - sprite/material references and transforms;
-- declared custom properties and same-kind property inheritance.
+- declared custom Properties and attached capability Traits.
 
 It does not own current world location, current Room placement, Scene actor slots, transition
 progress, renderer resources, or a mutable on-screen singleton.
@@ -559,10 +559,9 @@ Show the broken-window prop when window_broken is true.
 Conditions are evaluated synchronously through the existing typed condition evaluator. Missing or
 invalid references fail compilation. Runtime condition evaluation failure fails Room resolution.
 
-### No structural inheritance merge
+### No structural Trait merge
 
-Room `extends` remains custom-property lookup only. Placements, cast entries, props, overlays,
-composition hooks, exits, backgrounds, and lifecycle programs do not merge through inheritance.
+Room Traits contribute only ordinary Properties. Placements, cast entries, props, overlays, composition hooks, exits, backgrounds, and lifecycle programs remain definition-local and never merge through Trait attachment.
 
 ## Room composition hook
 
@@ -1129,7 +1128,7 @@ The native decoder/linker must reject:
 - invalid enum values or nonfinite geometry;
 - invalid Interaction-subject variants;
 - composition-hook configuration that violates the compiled contract;
-- cyclic or cross-kind property inheritance as already required.
+- missing, owner-incompatible, conflicting, or unsatisfied Trait attachments/Properties.
 
 The wire migration must be atomic. The engine does not retain a legacy decoder for the old
 Interactable-owned placement or Interactable-only Interaction operand shape.

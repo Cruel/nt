@@ -28,14 +28,14 @@ describe('runtime-content authoring contracts', () => {
     project.interactables.key = {
       id: 'key',
       label: 'Key',
-      extends: null,
+      traits: [],
       properties: {},
       data: key,
     };
     const verb = defaultVerbData('Use');
     verb.arity = 1;
     verb.operandRoles = ['target'];
-    project.verbs.use = { id: 'use', label: 'Use', extends: null, properties: {}, data: verb };
+    project.verbs.use = { id: 'use', label: 'Use', traits: [], properties: {}, data: verb };
     const interaction = defaultInteractionData();
     interaction.rules.push({
       id: 'use-key',
@@ -55,7 +55,7 @@ describe('runtime-content authoring contracts', () => {
     project.interactions.actions = {
       id: 'actions',
       label: 'Actions',
-      extends: null,
+      traits: [],
       properties: {},
       data: interaction,
     };
@@ -82,7 +82,7 @@ describe('runtime-content authoring contracts', () => {
       sourceLocation: 'foyer-location',
       targetLocation: 'garden-location',
     });
-    project.maps.world = { id: 'world', label: 'World', extends: null, properties: {}, data: map };
+    project.maps.world = { id: 'world', label: 'World', traits: [], properties: {}, data: map };
     project.scripts.boot = { id: 'boot', label: 'Boot', data: defaultScriptModuleData() };
     expect(isAuthoringProject(project)).toBe(true);
     expect(validateAuthoringProject(project).filter((item) => item.severity === 'error')).toEqual(
@@ -95,7 +95,7 @@ describe('runtime-content authoring contracts', () => {
     const verb = defaultVerbData();
     verb.arity = 1;
     verb.operandRoles = ['target'];
-    project.verbs.use = { id: 'use', label: 'Use', extends: null, properties: {}, data: verb };
+    project.verbs.use = { id: 'use', label: 'Use', traits: [], properties: {}, data: verb };
     const interaction = defaultInteractionData();
     interaction.rules.push({
       id: 'bad-rule',
@@ -107,7 +107,7 @@ describe('runtime-content authoring contracts', () => {
     project.interactions.actions = {
       id: 'actions',
       label: 'Actions',
-      extends: null,
+      traits: [],
       properties: {},
       data: interaction,
     };

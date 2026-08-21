@@ -263,21 +263,21 @@ describe('typed source registry and graph evidence', () => {
         description: { source: { kind: 'lua-expression', source: `'asset-main'` } },
       },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     project.assets.shared = {
       id: 'shared',
       label: 'Shared asset',
       data: { kind: 'image', path: 'shared.png' },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     project.assets['script-file'] = {
       id: 'script-file',
       label: 'Script',
       data: { kind: 'script', path: 'scripts/main.lua', extension: '.lua', contentHash: hash('1') },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     project.scripts.main = {
       id: 'main',
@@ -287,7 +287,7 @@ describe('typed source registry and graph evidence', () => {
         source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'script-file' } } },
       },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     return project;
   }
@@ -299,7 +299,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Effect',
       data: { kind: 'shader', source: { sourceMode: 'inline', sourceText: `'shared'` } },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const sources = collectAuthoringLuaSources(project);
     expect(sources.some((source) => source.contributionKey === 'record:shaders:effect')).toBe(
@@ -388,7 +388,7 @@ describe('typed source registry and graph evidence', () => {
         label: id,
         data,
         properties: {},
-        extends: null,
+        traits: [],
       } as never;
     const sources = collectAuthoringLuaSources(project);
     for (const [collection, id] of surfaces)
@@ -587,7 +587,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'HUD',
       data: layout,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
@@ -631,7 +631,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'HUD',
       data: layout,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const snapshot: LuaSourceSnapshot = {
       entriesByAssetId: new Map([
@@ -677,7 +677,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Target',
       data: target,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const room = defaultRoomData('Room');
     room.placements = [
@@ -701,7 +701,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Room',
       data: room,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     project.scripts.main = {
       id: 'main',
@@ -714,7 +714,7 @@ describe('typed source registry and graph evidence', () => {
         },
       },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
@@ -756,7 +756,7 @@ describe('typed source registry and graph evidence', () => {
           imageMetadata: null,
         },
         properties: {},
-        extends: null,
+        traits: [],
       } as never;
     };
     asset('hud-script', 'script', 'ui/scripts/hud.lua', hash('2'));
@@ -774,7 +774,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'HUD',
       data: layout,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const snapshot: LuaSourceSnapshot = {
       entriesByAssetId: new Map([
@@ -874,7 +874,7 @@ describe('typed source registry and graph evidence', () => {
         imageMetadata: null,
       },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const layout = defaultLayoutData('HUD');
     layout.rml.sourceText = `<rml><head><script src=""/><script src="../escape.lua"/><link type="text/template" href="panel.rml"/></head><body template="panel"/></rml>`;
@@ -884,7 +884,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'HUD',
       data: layout,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const analyses = (
       await analyzeAuthoringSources(
@@ -938,7 +938,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Shared',
       data: defaultRoomData('Shared'),
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     project.scripts.main = {
       id: 'main',
@@ -948,7 +948,7 @@ describe('typed source registry and graph evidence', () => {
         source: { kind: 'inline-lua', source: `'shared' 'shared'` },
       },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const graph = await buildAuthoringDependencyGraph(project, {
       mode: 'enabled',
@@ -990,7 +990,7 @@ describe('typed source registry and graph evidence', () => {
           imageMetadata: null,
         },
         properties: {},
-        extends: null,
+        traits: [],
       } as never;
     };
     addAsset('script-file', 'scripts/main.lua', 'script');
@@ -1041,7 +1041,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'HUD',
       data: layout,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
 
     const room = defaultRoomData('Shared');
@@ -1054,7 +1054,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Shared',
       data: room,
       properties: { ordinary: 'value' },
-      extends: null,
+      traits: [],
     } as never;
     project.localization.defaultLocale = 'en';
     project.localization.fallbackLocale = 'en';
@@ -1072,7 +1072,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Effect',
       data: shader,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
 
     const ready = (assetId: string, projectRelativePath: string, text: string, digit: string) =>
@@ -1204,7 +1204,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Later',
       data: defaultRoomData('Later'),
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     expect(projectAuthoringLiteralEvidence(project, occurrence)?.candidateTargets).toEqual([
       { kind: 'record', collection: 'rooms', id: 'later' },
@@ -1247,7 +1247,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'HUD',
       data: layout,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const graph = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
     const fallback = [...graph.edgesById.values()].find(
@@ -1274,7 +1274,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Target',
       data: defaultRoomData('Target'),
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const supported = defaultRoomData('Supported');
     supported.description.source = {
@@ -1289,7 +1289,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Supported',
       data: supported,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const unsupported = defaultSceneData('Unsupported');
     const step = defaultSceneStep('run-lua', 'step');
@@ -1306,7 +1306,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Unsupported',
       data: unsupported,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const validation = validateAuthoringProject(project);
     expect(
@@ -1354,7 +1354,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'HUD',
       data: layout,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const graph = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
     const propertyEdges = [...graph.edgesById.values()].filter(
@@ -1401,33 +1401,36 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('uses the resolved inheritance chain without materializing property-value nodes', async () => {
+  it('uses resolved Trait configuration without materializing property-value nodes', async () => {
     const project = fixture();
     project.properties.mood = {
       id: 'mood',
       label: 'Mood',
-      dataType: 'string',
+      type: 'string',
+      nullable: false,
       defaultValue: 'neutral',
-    } as never;
+      ownerKinds: ['room'],
+    };
     project.properties.pose = {
       id: 'pose',
       label: 'Pose',
-      dataType: 'string',
-    } as never;
-    project.rooms.base = {
-      id: 'base',
-      label: 'Base',
-      data: defaultRoomData('Base'),
-      properties: { pose: 'standing' },
-      extends: null,
-    } as never;
+      type: 'string',
+      nullable: false,
+      ownerKinds: ['room'],
+    };
+    project.traits['standing-room'] = {
+      id: 'standing-room',
+      label: 'Standing Room',
+      ownerKinds: ['room'],
+      properties: [{ kind: 'configured', propertyId: 'pose', value: 'standing' }],
+    };
     project.rooms.child = {
       id: 'child',
       label: 'Child',
       data: defaultRoomData('Child'),
       properties: {},
-      extends: 'base',
-    } as never;
+      traits: ['standing-room'],
+    };
 
     const layout = defaultLayoutData('HUD');
     layout.script.additionalDependencies = {
@@ -1444,7 +1447,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'HUD',
       data: layout,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
 
     const graph = await buildAuthoringDependencyGraph(project, { mode: 'disabled' });
@@ -1458,10 +1461,9 @@ describe('typed source registry and graph evidence', () => {
         edge.detail?.propertyId === 'pose',
     );
     expect(ownerEdge?.targetImpactPaths).toEqual([
-      '/rooms/base/extends',
-      '/rooms/base/properties',
-      '/rooms/child/extends',
       '/rooms/child/properties',
+      '/rooms/child/traits',
+      '/traits/standing-room',
     ]);
     expect(
       [...graph.edgesById.values()].some(
@@ -1480,7 +1482,7 @@ describe('typed source registry and graph evidence', () => {
         source: { kind: 'inline-lua', source: `'one' 'two'` },
       },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const ownerKey = `record:${JSON.stringify(['record', 'scripts', 'main'])}`;
     const ownerLimited = (
@@ -1510,7 +1512,7 @@ describe('typed source registry and graph evidence', () => {
           source: { kind: 'inline-lua', source: `'${id}'` },
         },
         properties: {},
-        extends: null,
+        traits: [],
       } as never;
     const aggregate = await analyzeAuthoringSources(
       aggregateProject,
@@ -1549,7 +1551,7 @@ describe('typed source registry and graph evidence', () => {
         imageMetadata: null,
       },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     project.scripts.main = {
       id: 'main',
@@ -1559,7 +1561,7 @@ describe('typed source registry and graph evidence', () => {
         source: { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'shared' } } },
       },
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const room = defaultRoomData('Room');
     room.compose = {
@@ -1571,7 +1573,7 @@ describe('typed source registry and graph evidence', () => {
       label: 'Room',
       data: room,
       properties: {},
-      extends: null,
+      traits: [],
     } as never;
     const text = `'shared'`;
     const analyses = await analyzeAuthoringSources(
@@ -1632,7 +1634,7 @@ describe('typed source registry and graph evidence', () => {
           description: { source: { kind: 'lua-expression', source: `'shared'` } },
         },
         properties: {},
-        extends: null,
+        traits: [],
       } as never;
     const snapshot: LuaSourceSnapshot = {
       entriesByAssetId: new Map([

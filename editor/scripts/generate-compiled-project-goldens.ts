@@ -6,7 +6,7 @@ import { projectWorkspaceFiles } from '../src/shared/project-workspace';
 import {
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
-  inheritancePropertiesLocalizationGoldenProject,
+  traitPropertiesLocalizationGoldenProject,
   interactionProgramGoldenProject,
   minimalGoldenProject,
   resourceGoldenProject,
@@ -16,7 +16,7 @@ import {
 const fixtures = [
   ['minimal', minimalGoldenProject],
   ['comprehensive', comprehensiveGoldenProject],
-  ['inheritance-properties-localization', inheritancePropertiesLocalizationGoldenProject],
+  ['trait-properties-localization', traitPropertiesLocalizationGoldenProject],
   ['resources', resourceGoldenProject],
   ['scene-program', sceneProgramGoldenProject],
   ['dialogue-program', dialogueProgramGoldenProject],
@@ -36,6 +36,7 @@ export function generateCompiledProjectGoldens(
   const projectFixtureDirectory =
     options.projectFixtureDirectory ??
     resolve('src/renderer/test/fixtures/project-compiler-cli/minimal-project');
+  rmSync(outputDirectory, { recursive: true, force: true });
   mkdirSync(outputDirectory, { recursive: true });
 
   for (const [name, buildProject] of fixtures) {

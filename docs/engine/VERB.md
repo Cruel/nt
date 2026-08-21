@@ -8,30 +8,24 @@ Room Verb hotspots bind only zero-arity Verbs. Interactable hotspots bind only o
 their owner as the operand. Availability is resolved into immutable hotspot presentation eligibility,
 then checked again by the canonical runtime activation transaction before execution.
 
-Verb is property-bearing and may `extends` another Verb. Declared custom properties use normal live property inheritance. Verb additionally has the only V1 behavioral inheritance rule.
+Verb is property-bearing and may attach supported Traits backed by ordinary Properties. Traits do not merge availability, programs, arity, text, or any other Verb structure.
 
-## Behavioral inheritance
+## Availability and default fallback
 
-Availability conditions are evaluated root-to-child and all must pass. Default programs are attempted child-to-root:
+Each Verb owns exactly one availability condition and one default `InteractionProgram`. Runtime evaluates only the selected Verb's availability. If no Interaction rule handles the invocation, or a selected rule completes with `Unhandled`, runtime attempts that same Verb's default program once:
 
 - `Handled` stops successfully;
-- `Unhandled` continues to the parent;
+- `Unhandled` continues to the project undefined-interaction fallback;
 - `Failed` aborts without fallback.
 
-`Handled` and `Unhandled` are explicit successful outcomes on the authored default Interaction Program. `Failed` is produced only by runtime execution failure.
+`Handled` and `Unhandled` are explicit successful outcomes on the authored default Interaction Program. `Failed` is produced only by runtime execution failure. There is no parent-Verb traversal and no inherited availability.
 
-Only after the root returns `Unhandled` does the project undefined-interaction fallback run. No program lists or structural fields merge, and editor categories/tags have no effect.
-
-Runtime evaluation checks availability root-to-child and executes default programs child-to-root. Runtime
-controls expose arity, resolved action text, inherited availability, and `quickAction` as typed data.
-The current V1 fallback is the deterministic typed `Nothing happens.` notification; adding an
-authorable project-level fallback would require an explicit future wire revision rather than a
-generic JSON escape hatch.
+Runtime controls expose arity, resolved action text, local availability, and `quickAction` as typed data. The current V1 undefined-interaction fallback is the deterministic typed `Nothing happens.` notification; adding an authorable project-level fallback would require an explicit future wire revision rather than a generic JSON escape hatch.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring version 3:** collection-specific Verb record, optional same-type `extends`, typed properties, arity/roles, text template, availability, and default program.
-- **Compiled:** linked `VerbDefinition`, retained parent edge/index, typed condition and program, and property assignments.
+- **Authoring version 3:** collection-specific Verb record with Trait attachments, typed properties, arity/roles, text template, availability, and default program.
+- **Compiled:** linked `VerbDefinition` with retained Trait IDs, typed condition/program, and property assignments.
 - **Mutable:** only property overrides and execution frames/results in `SessionState`; the definition is immutable.
 - **Tooling only:** labels/notes not explicitly runtime-visible, categories, tags, colors, sort keys, and editor preview state.
 
@@ -40,7 +34,4 @@ generic JSON escape hatch.
 The editor implements the strict current Verb schema and creation/detail path. A Verb records arity,
 ordered role labels, action text, quick-action state, availability, and a closed default Interaction
 Program whose instructions carry stable nested IDs. Validation rejects role-count/arity mismatches,
-duplicate instruction IDs, and invalid program references. The compiler lowers each Verb's own
-availability condition and default program while retaining the `extends` edge; this preserves the
-root-to-child availability and child-to-root fallback order without flattening structural data.
-`runtime::RuntimeExecutor` performs the documented fallback; no runtime export adapter exists.
+duplicate instruction IDs, invalid Trait attachments, and invalid program references. The compiler lowers each Verb's own availability condition, default program, Trait IDs, and property assignments. `runtime::RuntimeExecutor` performs the local default/undefined-interaction fallback described above; no runtime export adapter exists.

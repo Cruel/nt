@@ -284,16 +284,18 @@ std::optional<PropertyBearingDefinition<Id>>
 decode_identity(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
     const auto* id_value = decoder.member(value, "id", pointer);
-    const auto* extends_value = decoder.member(value, "extends", pointer);
+    const auto* traits_value = decoder.member(value, "traits", pointer);
     const auto* assignments_value = decoder.member(value, "propertyAssignments", pointer);
     auto decoded_id =
         id_value ? decoder.id<Id>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
-    std::optional<Id> parent;
-    bool parent_ok = extends_value != nullptr;
-    if (extends_value && !extends_value->is_null()) {
-        parent = decoder.id<Id>(*extends_value, pointer_child(pointer, "extends"));
-        parent_ok = parent.has_value();
-    }
+    auto traits = traits_value
+                      ? decoder.array<TraitId>(
+                            *traits_value, pointer_child(pointer, "traits"),
+                            [&](const nlohmann::json& trait,
+                                const std::string& item_pointer) -> std::optional<TraitId> {
+                                return decoder.id<TraitId>(trait, item_pointer);
+                            })
+                      : std::nullopt;
     auto assignments =
         assignments_value
             ? decoder.array<PropertyAssignment>(
@@ -320,6 +322,15 @@ decode_identity(Decoder& decoder, const nlohmann::json& value, std::string_view 
                       return std::nullopt;
                   })
             : std::nullopt;
+    if (traits) {
+        std::unordered_set<std::string> ids;
+        for (std::size_t index = 0; index < traits->size(); ++index) {
+            const auto& text = (*traits)[index].text();
+            if (!ids.insert(text).second)
+                decoder.error(k_code_duplicate, "Duplicate Trait attachment '" + text + "'.",
+                              pointer_index(pointer_child(pointer, "traits"), index));
+        }
+    }
     if (assignments) {
         std::unordered_set<std::string> ids;
         for (std::size_t index = 0; index < assignments->size(); ++index) {
@@ -332,9 +343,9 @@ decode_identity(Decoder& decoder, const nlohmann::json& value, std::string_view 
                         "propertyId"));
         }
     }
-    if (!decoded_id || !parent_ok || !assignments)
+    if (!decoded_id || !traits || !assignments)
         return std::nullopt;
-    return PropertyBearingDefinition<Id>{std::move(*decoded_id), std::move(parent),
+    return PropertyBearingDefinition<Id>{std::move(*decoded_id), std::move(*traits),
                                          std::move(*assignments)};
 }
 
@@ -345,6 +356,7 @@ std::optional<Localization> decode_localization(Decoder&, const nlohmann::json&,
 std::optional<RuntimeSettings> decode_settings(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<PropertyDeclaration> decode_property(Decoder&, const nlohmann::json&,
                                                    std::string_view);
+std::optional<TraitDeclaration> decode_trait(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<AssetResource> decode_asset(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<LayoutResource> decode_layout(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<ScriptResource> decode_script(Decoder&, const nlohmann::json&, std::string_view);

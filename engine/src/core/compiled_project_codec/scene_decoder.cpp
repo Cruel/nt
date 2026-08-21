@@ -985,8 +985,8 @@ std::optional<SceneDefinition> decode_scene(Decoder& decoder, const nlohmann::js
                                             std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"continuation", "defaultBackground", "defaultLayout", "displayName",
-                         "extends", "id", "program", "propertyAssignments"}))
+                        {"continuation", "defaultBackground", "defaultLayout", "displayName", "id",
+                         "program", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<SceneId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);

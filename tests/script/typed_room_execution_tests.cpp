@@ -584,7 +584,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
     }
 }
 
-TEST_CASE("typed Room flow targets run lifecycle and live property inheritance has one resolver")
+TEST_CASE("typed Room flow targets run lifecycle and Trait-backed Properties have one resolver")
 {
     STATIC_REQUIRE_FALSE(HasCategories<core::compiled::RoomDefinition>);
     STATIC_REQUIRE_FALSE(HasTags<core::compiled::RoomDefinition>);
@@ -594,19 +594,27 @@ TEST_CASE("typed Room flow targets run lifecycle and live property inheritance h
     auto document = load_document("comprehensive.json");
     document["properties"].push_back({{"id", "map"},
                                       {"label", "Map"},
-                                      {"description", "Inherited map"},
+                                      {"description", "Room map"},
                                       {"type", "string"},
                                       {"nullable", false},
                                       {"defaultValue", "default-map"},
                                       {"enumValues", nlohmann::json::array()},
                                       {"ownerKinds", nlohmann::json::array({"room"})},
                                       {"scope", "identity"}});
+    document["traits"].push_back({{"id", "mapped-room"},
+                                  {"label", "Mapped Room"},
+                                  {"description", "Provides the ordinary map Property."},
+                                  {"ownerKinds", nlohmann::json::array({"room"})},
+                                  {"properties", nlohmann::json::array({{{"kind", "configured"},
+                                                                         {"propertyId", "map"},
+                                                                         {"value", "house"}}})}});
     room_document(document, "start")["propertyAssignments"].push_back(
-        {{"propertyId", "map"}, {"value", "house"}});
-    room_document(document, "tower")["extends"] = "start";
+        {{"propertyId", "map"}, {"value", "start-map"}});
+    room_document(document, "hall")["traits"].push_back("mapped-room");
+    room_document(document, "tower")["traits"].push_back("mapped-room");
     room_document(document, "tower")["propertyAssignments"].push_back(
         {{"propertyId", "map"}, {"value", "authored-tower"}});
-    auto project = decode_document(std::move(document), "room-inheritance");
+    auto project = decode_document(std::move(document), "room-traits");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
@@ -619,9 +627,11 @@ TEST_CASE("typed Room flow targets run lifecycle and live property inheritance h
           core::RuntimeValue{std::string{"house"}});
     CHECK(property_value(kernel->gateway().property(tower, map)) ==
           core::RuntimeValue{std::string{"authored-tower"}});
-    REQUIRE(kernel->gateway().set_property(start, map, std::string{"runtime-root"}));
+    REQUIRE(kernel->gateway().set_property(start, map, std::string{"runtime-start"}));
+    CHECK(property_value(kernel->gateway().property(start, map)) ==
+          core::RuntimeValue{std::string{"runtime-start"}});
     CHECK(property_value(kernel->gateway().property(hall, map)) ==
-          core::RuntimeValue{std::string{"runtime-root"}});
+          core::RuntimeValue{std::string{"house"}});
     CHECK(property_value(kernel->gateway().property(tower, map)) ==
           core::RuntimeValue{std::string{"authored-tower"}});
     REQUIRE(kernel->gateway().set_property(hall, map, std::string{"runtime-hall"}));
@@ -629,7 +639,7 @@ TEST_CASE("typed Room flow targets run lifecycle and live property inheritance h
           core::RuntimeValue{std::string{"runtime-hall"}});
     REQUIRE(kernel->gateway().unset_property(hall, map));
     CHECK(property_value(kernel->gateway().property(hall, map)) ==
-          core::RuntimeValue{std::string{"runtime-root"}});
+          core::RuntimeValue{std::string{"house"}});
 
     drive_to_room(*kernel, id<core::RoomId>("start"));
     REQUIRE(kernel->start_transient(id<core::SceneId>("opening")));

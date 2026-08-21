@@ -17,14 +17,15 @@ Read the specific component doc before changing its schema, commands, editor UI,
 - `docs/engine/DIALOGUE.md` — the V2 specialized dialogue graph/program, call-return and state semantics, and current scaffolding.
 - `docs/engine/SCENE.md` — the V2 Scene program and frame contract, call-return and safe-point semantics, and current scaffolding.
 - `docs/engine/INTERACTABLE.md` — unique Interactable definitions, placement/location/state separation, and stackable-inventory deferral.
-- `docs/engine/VERB.md` — Verb arity, availability, default programs, and behavioral inheritance.
+- `docs/engine/VERB.md` — Verb arity, availability, definition-local default programs, and Interaction fallback.
 - `docs/engine/INTERACTION.md` — Interaction matching, typed programs, outcomes, and mutable-state effects.
 - `docs/engine/MAP.md` — exit-backed map presentation and selection without duplicate navigation topology.
 - `docs/engine/SCRIPT_MODULE.md` — Lua module ownership, explicit execution, yielding, save, and package rules.
 - `docs/engine/LAYOUT.md` — authored RmlUi layouts, system layout roles, source files, preview, export, and runtime mounting.
 - `docs/engine/SHADER.md` — shader entity records, stages, roles, validation, editor/import compilation, runtime/export status.
 - `docs/engine/MATERIAL.md` — material entity records, texture sources, shader references, preview, runtime/export status.
-- `docs/engine/VARIABLE.md` — project variables, defaults, validation, commands, editor behavior, and runtime status.
+- `docs/engine/VARIABLE.md` — project Variables/Global Properties, typed Property resolution, mutation, saves, and Lua APIs.
+- `docs/engine/TRAIT.md` — Property-backed Trait declarations, attachments, precedence, validation, discovery, and runtime behavior.
 - `docs/engine/TEST.md` — authoring tests, recorded/playback actions, assertions, test editor, and playback integration.
 
 ## Migration Context

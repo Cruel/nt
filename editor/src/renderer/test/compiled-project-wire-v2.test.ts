@@ -63,6 +63,7 @@ function representativeWireFixture() {
         scope: 'global',
       },
     ],
+    traits: [],
     localization: {
       defaultLocale: 'en',
       fallbackLocale: null,
@@ -100,7 +101,7 @@ function representativeWireFixture() {
       characters: [
         {
           id: 'hero',
-          extends: null,
+          traits: [],
           propertyAssignments: [],
           displayName: 'Hero',
           dialogue: { name: 'Hero', nameColor: null, textColor: null, styleClass: '' },
@@ -122,7 +123,7 @@ function representativeWireFixture() {
       rooms: [
         {
           id: 'foyer',
-          extends: null,
+          traits: [],
           propertyAssignments: [{ propertyId: 'mood', value: 'calm' }],
           displayName: 'Foyer',
           background: {
@@ -160,7 +161,7 @@ function representativeWireFixture() {
       interactables: [
         {
           id: 'key',
-          extends: null,
+          traits: [],
           propertyAssignments: [],
           displayName: 'Key',
           presentation: {
@@ -177,7 +178,7 @@ function representativeWireFixture() {
       verbs: [
         {
           id: 'look',
-          extends: null,
+          traits: [],
           propertyAssignments: [],
           arity: 0,
           operandRoles: [],
@@ -194,7 +195,7 @@ function representativeWireFixture() {
       interactions: [
         {
           id: 'look-key',
-          extends: null,
+          traits: [],
           propertyAssignments: [],
           rules: [
             {
@@ -220,7 +221,7 @@ function representativeWireFixture() {
       scenes: [
         {
           id: 'opening',
-          extends: null,
+          traits: [],
           propertyAssignments: [],
           displayName: 'Opening',
           defaultLayout: null,
@@ -234,7 +235,7 @@ function representativeWireFixture() {
       dialogues: [
         {
           id: 'intro',
-          extends: null,
+          traits: [],
           propertyAssignments: [],
           displayName: 'Intro',
           defaultSpeaker: { kind: 'character', id: 'hero' },
@@ -268,7 +269,7 @@ function representativeWireFixture() {
       maps: [
         {
           id: 'house-map',
-          extends: null,
+          traits: [],
           propertyAssignments: [],
           presentation: { title: null, background: null, layout: null, initialMode: 'full-map' },
           locations: [
@@ -474,7 +475,7 @@ describe('CompiledProject Wire V4', () => {
     const fixture = parseCompiledProjectWireV4(representativeWireFixture());
     fixture.definitions.scenes.push({
       id: 'after-opening',
-      extends: null,
+      traits: [],
       propertyAssignments: [],
       displayName: 'After opening',
       defaultLayout: null,

@@ -1,6 +1,6 @@
 {
   "schema": "noveltea.compiled.project",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "project": {
     "id": "runtime-transition-readback",
     "name": "Runtime Transition Readback",
@@ -50,7 +50,7 @@
   },
   "startupHook": null,
   "properties": [],
-  "variables": [],
+  "traits": [],
   "localization": {
     "defaultLocale": "en",
     "fallbackLocale": null,
@@ -146,7 +146,7 @@
       {
         "id": "probe",
         "displayName": "Transition Probe",
-        "extends": null,
+        "traits": [],
         "defaultBackground": {
           "asset": null,
           "color": "#ff0000",

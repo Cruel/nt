@@ -87,11 +87,11 @@ export function createPlatformExportAcceptanceFixture() {
   ];
   const gallery = defaultRoomData('Gallery');
   gallery.description.source = { kind: 'inline', text: 'Navigation reached the gallery.' };
-  project.rooms.foyer = { id: 'foyer', label: 'Foyer', extends: null, properties: {}, data: foyer };
+  project.rooms.foyer = { id: 'foyer', label: 'Foyer', traits: [], properties: {}, data: foyer };
   project.rooms.gallery = {
     id: 'gallery',
     label: 'Gallery',
-    extends: null,
+    traits: [],
     properties: {},
     data: gallery,
   };

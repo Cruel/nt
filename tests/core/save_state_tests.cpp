@@ -176,7 +176,7 @@ TEST_CASE("native SaveState projects all typed Property overrides")
     STATIC_REQUIRE(std::variant_size_v<SavedFlowBlocker> == 2);
     STATIC_REQUIRE_FALSE(std::is_default_constructible_v<LogicalTimerId>);
 
-    const auto project = load_fixture("inheritance-properties-localization.json");
+    const auto project = load_fixture("trait-properties-localization.json");
     auto state = make_state(project);
     PropertyResolver properties(project, state);
     REQUIRE(properties.set_global(id<PropertyId>("flag"), RuntimeValue{true}));
@@ -723,7 +723,7 @@ TEST_CASE("save preflight permits logical blockers and rejects unsafe session st
 
 TEST_CASE("typed save codec strictly decodes and links a save against its CompiledProject")
 {
-    const auto project = load_fixture("inheritance-properties-localization.json");
+    const auto project = load_fixture("trait-properties-localization.json");
     auto state = make_state(project);
     PropertyResolver properties(project, state);
     REQUIRE(properties.set_global(id<PropertyId>("flag"), RuntimeValue{true}));
@@ -822,7 +822,7 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
 
 TEST_CASE("typed save restoration atomically reconstructs fresh session ownership")
 {
-    const auto project = load_fixture("inheritance-properties-localization.json");
+    const auto project = load_fixture("trait-properties-localization.json");
     auto state = make_state(project);
     PropertyResolver properties(project, state);
     const auto start = PropertyOwnerRef{id<RoomId>("start")};
@@ -866,7 +866,7 @@ TEST_CASE("typed save restoration atomically reconstructs fresh session ownershi
     REQUIRE(start_enabled);
     CHECK(std::get<RuntimeValue>(start_visits.value()) == RuntimeValue{std::int64_t{5}});
     CHECK(std::get<RuntimeValue>(hall_visits.value()) == RuntimeValue{std::int64_t{9}});
-    CHECK(std::get<RuntimeValue>(tower_visits.value()) == RuntimeValue{std::int64_t{9}});
+    CHECK(std::get<RuntimeValue>(tower_visits.value()) == RuntimeValue{std::int64_t{3}});
     CHECK(std::get<RuntimeValue>(start_enabled.value()) == RuntimeValue{false});
 
     REQUIRE(properties.unset(hall, visits));
@@ -884,7 +884,7 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
 {
     SECTION("completed Room reconstructs deterministic definition-owned presentation")
     {
-        const auto project = load_fixture("inheritance-properties-localization.json");
+        const auto project = load_fixture("trait-properties-localization.json");
         auto snapshot = make_save_state(project, make_state(project));
         REQUIRE(snapshot);
         snapshot.value().mode = RoomMode{id<RoomId>("start")};

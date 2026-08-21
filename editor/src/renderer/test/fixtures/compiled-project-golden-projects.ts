@@ -278,12 +278,22 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.properties.mood = {
     id: 'mood',
     label: 'Mood',
-    description: 'Inherited mood',
+    description: 'Room mood',
     type: 'enum',
     nullable: false,
     defaultValue: 'calm',
     enumValues: ['calm', 'tense'],
     ownerKinds: ['room'],
+  };
+  project.traits['tense-room'] = {
+    id: 'tense-room',
+    label: 'Tense Room',
+    description: 'Configures a tense mood while requiring visit tracking.',
+    ownerKinds: ['room'],
+    properties: [
+      { kind: 'configured', propertyId: 'mood', value: 'tense' },
+      { kind: 'required', propertyId: 'visit-count' },
+    ],
   };
 
   const hero = defaultCharacterData('Hero');
@@ -436,8 +446,8 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.rooms.hall = {
     id: 'hall',
     label: 'Hall',
-    extends: 'start',
-    properties: { mood: 'tense' },
+    traits: ['tense-room'],
+    properties: { 'visit-count': 2 },
     data: hall,
   };
 
@@ -586,17 +596,17 @@ export function resourceGoldenProject(): AuthoringProject {
   return project;
 }
 
-export function inheritancePropertiesLocalizationGoldenProject(): AuthoringProject {
+export function traitPropertiesLocalizationGoldenProject(): AuthoringProject {
   const project = comprehensiveGoldenProject();
   renameProject(
     project,
-    'golden-inheritance-properties-localization',
-    'Golden Inheritance Properties Localization',
+    'golden-trait-properties-localization',
+    'Golden Trait Properties Localization',
   );
   project.localization.fallbackLocale = 'en';
-  project.rooms.hall!.properties = { mood: 'tense', 'visit-count': 7 };
-  project.rooms.tower!.extends = 'hall';
-  project.rooms.tower!.properties = { mood: 'calm' };
+  project.rooms.hall!.properties = { 'visit-count': 7 };
+  project.rooms.tower!.traits = ['tense-room'];
+  project.rooms.tower!.properties = { mood: 'calm', 'visit-count': 3 };
   return project;
 }
 
@@ -1044,7 +1054,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     completion: { kind: 'end' },
     outcome: 'handled',
   };
-  project.verbs.unlock = { id: 'unlock', label: 'Unlock', extends: 'use', data: unlock };
+  project.verbs.unlock = { id: 'unlock', label: 'Unlock', data: unlock };
 
   const combine = defaultVerbData('Combine');
   combine.arity = 2;

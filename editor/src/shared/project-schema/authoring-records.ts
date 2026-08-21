@@ -24,7 +24,7 @@ const recordIdentityShape = {
 };
 
 const propertyRecordShape = {
-  extends: entityIdSchema.nullable().optional(),
+  traits: z.array(entityIdSchema).optional(),
   properties: propertyAssignmentsSchema.optional(),
 };
 

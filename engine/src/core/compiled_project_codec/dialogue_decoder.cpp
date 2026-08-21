@@ -281,8 +281,8 @@ std::optional<DialogueDefinition> decode_dialogue(Decoder& decoder, const nlohma
                                                   std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"completion", "defaultSpeaker", "displayName", "extends", "id", "program",
-                         "propertyAssignments", "settings"}))
+                        {"completion", "defaultSpeaker", "displayName", "id", "program",
+                         "propertyAssignments", "settings", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<DialogueId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);

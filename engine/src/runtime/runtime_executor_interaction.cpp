@@ -74,19 +74,6 @@ next_instruction(const core::compiled::InteractionProgram& program,
     return std::nullopt;
 }
 
-std::vector<const core::compiled::VerbDefinition*> verb_chain(const core::CompiledProject& project,
-                                                              const core::VerbId& leaf)
-{
-    std::vector<const core::compiled::VerbDefinition*> result;
-    const auto* current = project.find_verb(leaf);
-    while (current != nullptr) {
-        result.push_back(current);
-        const auto parent = project.verb_parent_index(current->identity.id);
-        current = parent ? &project.verbs()[*parent] : nullptr;
-    }
-    return result;
-}
-
 } // namespace
 
 core::Result<void, RuntimeExecutionError>
@@ -123,16 +110,13 @@ RuntimeExecutor::interact_with_context(core::VerbId verb_id,
                 "Interaction operand is not eligible in the active Room resolution"));
     }
 
-    auto chain = verb_chain(m_project, verb_id);
-    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-        auto available = evaluate((*it)->availability);
-        const auto* value = available.value_if();
-        if (value == nullptr)
-            return core::Result<void, RuntimeExecutionError>::failure(available.error());
-        if (!*value)
-            return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
-                "execution.verb_unavailable", "Verb availability rejected the interaction"));
-    }
+    auto available = evaluate(verb->availability);
+    const auto* availability_value = available.value_if();
+    if (availability_value == nullptr)
+        return core::Result<void, RuntimeExecutionError>::failure(available.error());
+    if (!*availability_value)
+        return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
+            "execution.verb_unavailable", "Verb availability rejected the interaction"));
 
     struct Candidate {
         core::InteractionRuleProgramRef reference;
@@ -401,25 +385,15 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
             return std::nullopt;
         }
 
-        auto chain = verb_chain(m_project, frame->invocation.verb);
-        auto current = std::get_if<core::VerbDefaultProgramRef>(&frame->program);
-        std::size_t index = 0;
-        if (current != nullptr) {
-            const auto found =
-                std::find_if(chain.begin(), chain.end(), [&current](const auto* item) {
-                    return item->identity.id == current->verb;
-                });
-            index = found == chain.end() ? chain.size()
-                                         : static_cast<std::size_t>(found - chain.begin()) + 1;
-        }
-        if (current == nullptr)
-            index = 0;
-        if (index < chain.size()) {
+        if (std::get_if<core::VerbDefaultProgramRef>(&frame->program) == nullptr) {
             core::InteractionProgramRef next_program =
-                core::VerbDefaultProgramRef{chain[index]->identity.id};
+                core::VerbDefaultProgramRef{frame->invocation.verb};
             const auto* next_definition = program_for(m_project, next_program);
+            if (next_definition == nullptr)
+                return fault(interaction_error("execution.invalid_interaction_program",
+                                               "Verb default program is missing"));
             auto next = core::InteractionFramePosition{
-                first_instruction(*next_definition), core::InteractionFallbackStage::ParentVerb,
+                first_instruction(*next_definition), core::InteractionFallbackStage::VerbDefault,
                 core::InteractionExecutionOutcome::Pending, false};
             auto advanced = m_flow.advance_interaction(expected, std::move(next_program), next);
             if (!advanced)
@@ -564,17 +538,12 @@ RuntimeExecutor::inventory_view(std::string_view runtime_locale)
         const auto* text = label.value_if();
         if (text == nullptr)
             return core::Result<core::InventoryView, RuntimeExecutionError>::failure(label.error());
-        auto chain = verb_chain(m_project, verb.identity.id);
-        bool enabled = true;
-        for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-            auto available = evaluate((*it)->availability);
-            const auto* value = available.value_if();
-            if (value == nullptr)
-                return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
-                    available.error());
-            enabled = enabled && *value;
-        }
-        view.controls.push_back({verb.identity.id, *text, verb.arity, verb.quick_action, enabled});
+        auto available = evaluate(verb.availability);
+        const auto* enabled = available.value_if();
+        if (enabled == nullptr)
+            return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
+                available.error());
+        view.controls.push_back({verb.identity.id, *text, verb.arity, verb.quick_action, *enabled});
     }
     return core::Result<core::InventoryView, RuntimeExecutionError>::success(std::move(view));
 }

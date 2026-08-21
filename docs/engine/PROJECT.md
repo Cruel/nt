@@ -17,13 +17,14 @@ canonical `noveltea.compiled.project` version 4.
 
 The current authoring model has collection-specific records for assets, variables, shaders,
 materials, layouts, characters, rooms, interactables, verbs, interactions, dialogues, scenes, maps,
-script modules, and tests. Workspace-v1 persistence stores each record at its canonical stable-ID path;
-Layouts use an owning directory for their companion source files.
+script modules, and tests, plus top-level Trait declarations backed by ordinary Properties.
+Workspace-v1 persistence stores each record at its canonical stable-ID path; Layouts use an owning
+directory for their companion source files and Traits are stored in `traits.json`.
 Stable record IDs are unique within a collection and nested IDs within their owner.
 
-Property-bearing definitions may use same-collection `extends` and declared typed property
-assignments. Categories, tags, record colors/order, notes, graph positions, selections, preview
-state, and workbench state remain editor-only.
+Property-bearing definitions may attach compatible Traits and carry declared typed Property
+assignments. Universal same-type gameplay `extends` is retired. Categories, tags, record colors/order,
+notes, graph positions, selections, preview state, and workbench state remain editor-only.
 
 ## Startup and Settings
 
@@ -35,8 +36,8 @@ an explicit navigation request and then the selected exit override take preceden
 
 ## Compilation
 
-`compileAuthoringProject` is the sole semantic compiler. It validates schemas, inheritance,
-properties, references, programs, resources, settings, and startup; lowers specialized
+`compileAuthoringProject` is the sole semantic compiler. It validates schemas, Traits and Property
+requirements, references, programs, resources, settings, and startup; lowers specialized
 Room/Scene/Dialogue/Interaction content; removes tooling metadata; and emits deterministic canonical
 gameplay bytes.
 

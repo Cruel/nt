@@ -105,7 +105,7 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
 TEST_CASE(
     "runtime world resolves gameplay instance properties through current configuration semantics")
 {
-    const auto project = load_fixture("inheritance-properties-localization.json");
+    const auto project = load_fixture("trait-properties-localization.json");
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
@@ -115,13 +115,13 @@ TEST_CASE(
     const auto tower = id<core::RoomId>("tower");
     const auto visit_count = id<core::PropertyId>("visit-count");
 
-    const auto inherited = world.resolve_property(tower, visit_count);
-    REQUIRE(inherited);
-    REQUIRE(inherited.value_if() != nullptr);
-    const auto* inherited_value = std::get_if<core::RuntimeValue>(inherited.value_if());
-    REQUIRE(inherited_value != nullptr);
-    REQUIRE(std::get_if<std::int64_t>(inherited_value) != nullptr);
-    CHECK(*std::get_if<std::int64_t>(inherited_value) == 7);
+    const auto authored = world.resolve_property(tower, visit_count);
+    REQUIRE(authored);
+    REQUIRE(authored.value_if() != nullptr);
+    const auto* authored_value = std::get_if<core::RuntimeValue>(authored.value_if());
+    REQUIRE(authored_value != nullptr);
+    REQUIRE(std::get_if<std::int64_t>(authored_value) != nullptr);
+    CHECK(*std::get_if<std::int64_t>(authored_value) == 3);
 
     core::PropertyResolver properties(project, state);
     REQUIRE(properties.set(core::PropertyOwnerRef{hall}, visit_count,
@@ -132,7 +132,7 @@ TEST_CASE(
     const auto* overridden_value = std::get_if<core::RuntimeValue>(overridden.value_if());
     REQUIRE(overridden_value != nullptr);
     REQUIRE(std::get_if<std::int64_t>(overridden_value) != nullptr);
-    CHECK(*std::get_if<std::int64_t>(overridden_value) == 11);
+    CHECK(*std::get_if<std::int64_t>(overridden_value) == 3);
 
     const auto missing = world.resolve_property(id<core::RoomId>("missing"), visit_count);
     REQUIRE_FALSE(missing);
