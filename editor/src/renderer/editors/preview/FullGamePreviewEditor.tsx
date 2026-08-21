@@ -75,7 +75,6 @@ import {
 } from '../../../shared/project-schema/recorded-test-draft';
 import type {
   PreviewInteractionSubject,
-  PreviewHotspotRef,
   RuntimeDebugEntityRef,
   RuntimeDebugSnapshot,
   PreviewToEditorMessage,
@@ -99,7 +98,6 @@ interface RecordedRuntimeAction {
     subjects?: PreviewInteractionSubject[];
     verbId?: string;
     operands?: PreviewInteractionSubject[];
-    hotspot?: PreviewHotspotRef;
     documentId?: string;
     target?: string;
     selector?: string;
@@ -317,6 +315,12 @@ function previewMessageLabel(message: PreviewToEditorMessage): Omit<RuntimeLogEn
   return null;
 }
 
+function subjectText(subject: PreviewInteractionSubject) {
+  return subject.kind === 'feature'
+    ? `feature:${subject.ownerKind}:${subject.ownerId}:${subject.featureId}`
+    : `${subject.kind}:${subject.id}`;
+}
+
 function recordedActionLabel(action: RecordedRuntimeAction) {
   switch (action.kind) {
     case 'continue':
@@ -326,13 +330,11 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
     case 'navigate':
       return `Navigate ${action.input.exitId ?? action.input.direction ?? '—'}`;
     case 'select-subjects':
-      return `Select ${action.input.subjects?.map((subject) => `${subject.kind}:${subject.id}`).join(', ') || 'subjects'}`;
+      return `Select ${action.input.subjects?.map(subjectText).join(', ') || 'subjects'}`;
     case 'clear-subject-selection':
       return 'Clear subject selection';
     case 'run-interaction':
       return `Run ${action.input.verbId ?? 'interaction'}`;
-    case 'activate-hotspot':
-      return `Activate ${action.input.hotspot?.hotspotId ?? 'hotspot'}`;
     case 'ui-click':
       return `Click ${action.input.selector ?? action.input.target ?? 'UI target'}`;
     default:
@@ -346,52 +348,6 @@ function createRecordedAction(
   input: RecordedRuntimeAction['input'],
 ): RecordedRuntimeAction {
   return { id: crypto.randomUUID(), kind, label, input, recordedAt: new Date().toISOString() };
-}
-
-function uiClickTarget(
-  value: unknown,
-): { documentId: string; target: string; selector: string; label: string } | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  const documentId = typeof record.documentId === 'string' ? record.documentId : '';
-  const target = typeof record.target === 'string' ? record.target : '';
-  const selector = typeof record.selector === 'string' ? record.selector : target;
-  if (!documentId || !selector) return null;
-  return {
-    documentId,
-    target: target || selector,
-    selector,
-    label: typeof record.label === 'string' ? record.label : selector,
-  };
-}
-
-function hotspotInputTarget(value: unknown): { hotspot: PreviewHotspotRef; label: string } | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (record.kind !== 'hotspot' || typeof record.label !== 'string') return null;
-  const hotspot = record.hotspot;
-  if (typeof hotspot !== 'object' || hotspot === null || Array.isArray(hotspot)) return null;
-  const ref = hotspot as Record<string, unknown>;
-  if (typeof ref.hotspotId !== 'string' || !ref.hotspotId) return null;
-  if (ref.kind === 'room-hotspot' && typeof ref.room === 'string' && ref.room)
-    return {
-      hotspot: { kind: 'room-hotspot', room: ref.room, hotspotId: ref.hotspotId },
-      label: record.label,
-    };
-  if (
-    ref.kind === 'interactable-hotspot' &&
-    typeof ref.interactable === 'string' &&
-    ref.interactable
-  )
-    return {
-      hotspot: {
-        kind: 'interactable-hotspot',
-        interactable: ref.interactable,
-        hotspotId: ref.hotspotId,
-      },
-      label: record.label,
-    };
-  return null;
 }
 
 function normalizeTestId(value: string) {
@@ -503,24 +459,7 @@ function executeRecordedAction(
         action.input.verbId ?? '',
         action.input.operands ?? [],
       );
-    case 'activate-hotspot':
-      return action.input.hotspot
-        ? context.controller.activateRuntimeHotspot(action.input.hotspot)
-        : Promise.resolve();
   }
-}
-
-function hotspotInputLabel(
-  project: AuthoringProject | null,
-  hotspot: PreviewHotspotRef,
-  label: string,
-) {
-  const ownerId = hotspot.kind === 'room-hotspot' ? hotspot.room : hotspot.interactable;
-  const owner =
-    hotspot.kind === 'room-hotspot'
-      ? project?.rooms[ownerId]?.label
-      : project?.interactables[ownerId]?.label;
-  return `${owner ?? ownerId}: ${label}`;
 }
 
 function InfoRow({
@@ -675,16 +614,14 @@ function InputAvailabilityPanel({
 }) {
   const controller = controlsContext?.controller ?? null;
   const inputs = snapshot?.availableInputs;
-  const hotspotInputs = (inputs?.clickableTargets ?? [])
-    .map(hotspotInputTarget)
-    .filter((target): target is NonNullable<typeof target> => target !== null);
+  const semanticTargets = inputs?.clickableTargets ?? [];
   return (
     <Panel
       title="Player input"
       icon={<StepForward className="h-3.5 w-3.5" />}
       summary={
         inputs
-          ? `${inputs.dialogueOptions.length + inputs.navigation.length + inputs.actions.length + hotspotInputs.length + (inputs.continue ? 1 : 0)} available`
+          ? `${inputs.dialogueOptions.length + inputs.navigation.length + inputs.actions.length + semanticTargets.length + (inputs.continue ? 1 : 0)} available`
           : 'None'
       }
       defaultOpen
@@ -767,58 +704,47 @@ function InputAvailabilityPanel({
           {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/{action.objectCount})
         </Button>
       ))}
-      {hotspotInputs.map(({ hotspot, label }) => {
-        const displayLabel = hotspotInputLabel(project, hotspot, label);
-        return (
-          <Button
-            key={`${hotspot.kind}:${'room' in hotspot ? hotspot.room : hotspot.interactable}:${hotspot.hotspotId}`}
-            size="sm"
-            variant="outline"
-            className="w-full justify-start"
-            disabled={!controller}
-            onClick={() =>
-              controller &&
+      {semanticTargets.map((target, index) => (
+        <Button
+          key={
+            target.kind === 'subject'
+              ? `subject:${subjectText(target.subject)}:${index}`
+              : `exit:${target.exitId}:${index}`
+          }
+          size="sm"
+          variant="outline"
+          className="w-full justify-start"
+          disabled={!controller}
+          onClick={() => {
+            if (!controller) return;
+            if (target.kind === 'subject') {
               onCommand(
-                () => controller.activateRuntimeHotspot(hotspot),
-                `Hotspot ${hotspot.hotspotId} sent`,
+                () => controller.selectRuntimeSubjects([target.subject]),
+                `Selected ${subjectText(target.subject)}`,
                 {
-                  recordedAction: createRecordedAction('activate-hotspot', displayLabel, {
-                    type: 'activate-hotspot',
-                    hotspot,
+                  recordedAction: createRecordedAction('select-subjects', target.label, {
+                    type: 'select-subjects',
+                    subjects: [target.subject],
                   }),
                 },
-              )
+              );
+              return;
             }
-          >
-            Activate {displayLabel}
-          </Button>
-        );
-      })}
-      {(inputs?.clickableTargets ?? [])
-        .map(uiClickTarget)
-        .filter((target): target is NonNullable<typeof target> => target !== null)
-        .map((target) => (
-          <Button
-            key={`${target.documentId}:${target.selector}`}
-            size="sm"
-            variant="outline"
-            className="w-full justify-start"
-            disabled={!controller}
-            onClick={() =>
-              controller &&
-              onCommand(() => Promise.resolve(), `Recorded UI click ${target.selector}`, {
-                recordedAction: createRecordedAction('ui-click', target.label, {
-                  type: 'ui-click',
-                  documentId: target.documentId,
-                  target: target.target,
-                  selector: target.selector,
+            onCommand(
+              () => controller.navigateRuntime(target.exitId),
+              `Navigate ${target.exitId} sent`,
+              {
+                recordedAction: createRecordedAction('navigate', target.label, {
+                  type: 'navigate',
+                  exitId: target.exitId,
                 }),
-              })
-            }
-          >
-            Record UI click: {target.label}
-          </Button>
-        ))}
+              },
+            );
+          }}
+        >
+          {target.kind === 'subject' ? `Select ${target.label}` : `Navigate ${target.label}`}
+        </Button>
+      ))}
     </Panel>
   );
 }

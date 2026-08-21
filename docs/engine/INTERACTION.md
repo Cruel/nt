@@ -2,52 +2,96 @@
 
 ## Contract
 
-Interaction replaces the generic gameplay term Action. An `InteractionRule` matches one `VerbId`
-plus a closed list of Character-or-Interactable subjects. Each operand is an exact typed subject,
-`AnyCharacter`, `AnyInteractable`, or `AnySubject`, and the rule owns an `InteractionProgram`.
+Interaction is immutable gameplay behavior keyed by one `VerbId` plus an ordered operand list.
+Interaction subjects are a closed semantic union:
 
-Rules also carry either generic context or an exact owner-qualified Room/Interactable hotspot
-context. Exact hotspot context adds specificity after operand specificity and before declaration
-order; generic rules remain available as fallbacks. Generic Verb APIs cannot fabricate exact hotspot
-context.
+- Character;
+- Interactable;
+- Feature, always qualified by its owning Room or Interactable.
 
-Exact operands outrank wildcards. Equal-specificity ties use declared rule order and produce a compiler warning. The old `positionDependent` boolean is replaced by an explicit context predicate or positioning requirement.
+A bare Feature ID is never a runtime subject. Exact operands carry one of those typed subjects.
+`AnyCharacter` and `AnyInteractable` remain narrow wildcards, while `AnySubject` matches all admitted
+subject families including Features.
+
+Hotspots are not Interaction contexts. They are presentation/input geometry that resolve to one
+semantic subject or Room Exit before runtime dispatch. Interaction matching therefore sees the same
+subject identity whether selection came from a pointer Hotspot, Layout UI, Lua, preview/debugger, or
+an authored test.
+
+Rules carry one of the remaining semantic contexts: generic, active Room, Room placement, or predicate.
+Exact operands outrank wildcards. Equal-specificity ties use declaration order and produce the normal
+authoring warning. The old exact-Hotspot context and Hotspot-specific precedence no longer exist.
 
 ## Program
 
-An `InteractionProgram` is an ordered list containing only ApplyEffect, MoveInteractable, SetInteractableState, Notify, CallScene, and CallDialogue, followed by one typed `FlowTarget` and an authored successful outcome of `Handled` or `Unhandled`. Child Scene/Dialogue calls push frames and return to the next instruction. Final targets use normal tail-continuation rules. Runtime instruction or child-flow failure produces `Failed`; it is not an authored success result.
+An `InteractionProgram` is an ordered list containing only ApplyEffect, MoveInteractable,
+SetInteractableState, Notify, CallScene, and CallDialogue, followed by one typed `FlowTarget` and an
+authored successful outcome of `Handled` or `Unhandled`. Child Scene/Dialogue calls push frames and
+return to the next instruction. Final targets use normal tail-continuation rules. Runtime instruction
+or child-flow failure produces `Failed`; it is not an authored success result.
 
-The additive typed visitor matches by Verb, arity, exact operands,
-explicit wildcards, active-Room context, Room-placement proximity, and predicates. Candidates with
-more exact operands win; declaration order is the final tie-break and equal-specificity authoring
-ties are warned. The selected rule runs first. An `Unhandled` result then attempts the selected Verb's own default program once, while `Handled` applies the program FlowTarget and `Failed` aborts. If that Verb default is also `Unhandled`, the final V1 undefined-interaction policy is a typed `Nothing happens.` notification because the current compiled wire does not define an authored project-level fallback program.
+The additive typed visitor matches by Verb, arity, exact operands, explicit wildcards, active-Room
+context, Room-placement context, and predicates. Candidates with more exact operands win;
+declaration order is the final tie-break. The selected rule runs first. An `Unhandled` result then
+attempts the selected Verb's default program once, while `Handled` applies the program FlowTarget and
+`Failed` aborts. If that Verb default is also `Unhandled`, the current undefined-interaction policy is
+a typed `Nothing happens.` notification.
 
-Interaction is immutable rule/program vocabulary, not a stateful Property or Trait owner. Runtime command matching and execution state belong to the Runtime Session rather than to the Interaction definition.
+Interaction is not a Property or Trait owner. Runtime command matching and execution state belong to
+the Runtime Session rather than to the Interaction definition.
+
+## Features as subjects
+
+Features are owner-local semantic parts declared by Rooms or Interactables. An exact Feature subject
+therefore uses one of these identities:
+
+```text
+RoomFeatureRef(RoomId, FeatureId)
+InteractableFeatureRef(InteractableId, FeatureId)
+```
+
+Validation requires both the owner and the nested Feature to exist. Runtime eligibility is derived
+from the owning semantic context: a Room Feature is eligible in its active Room context; an
+Interactable Feature follows the owning Interactable's current eligibility. Feature Traits and
+Properties do not change subject identity.
+
+Multiple Hotspots may map to the same Feature. That produces one Interaction subject, not one subject
+per geometry region. This is required so the same Verb/Feature rule works identically for pointer and
+non-pointer invocation.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring version 3:** collection-specific Interaction records with ordered rules, exact/wildcard operands, generic/exact-hotspot context, and strict programs.
-- **Compiled:** linked immutable `InteractionRule`/`InteractionProgram` with stable rule order.
-- **Mutable:** Interaction flow frames plus the gameplay state changed by executed effects in `SessionState`; the Interaction definition itself has no Property/Trait state.
+- **Authoring version 3:** collection-specific Interaction records with ordered rules,
+  Character/Interactable/Feature exact subjects, explicit wildcards, semantic context, and strict
+  programs. Issue #70 changes the admitted subject/context shape without bumping the already-selected
+  authoring version.
+- **Compiled V4:** linked immutable `InteractionRule`/`InteractionProgram` with owner-qualified Feature
+  subjects and no Hotspot context.
+- **Mutable:** Interaction flow frames plus gameplay state changed by executed effects in
+  `SessionState`; the Interaction definition itself has no mutable Property/Trait state.
 - **Tooling only:** categories, tags, colors, sort keys, notes, graph layout, selection, and previews.
 
-## Current authoring implementation
+## Runtime and tooling surfaces
 
-The current editor implements strict rules, exact Character/Interactable subjects and all three explicit
-wildcards, explicit context variants, and
-closed program instructions. Every instruction has a stable nested ID; the editor allocates a unique
-ID when creating it and preserves that identity through editing and reordering. Editor creation and
-detail paths use undoable typed updates; validation checks arity, instruction and rule IDs, Room
-placements, references, duplicate IDs, and equal-specificity warnings. The compiler lowers every rule
-and instruction losslessly into the specialized compiled program while preserving authored order.
-`runtime::RuntimeExecutor` executes that program inside `runtime::RuntimeSession`; there is no Action
-adapter.
-Runtime selection, invocation messages, saved Interaction frames, editor playback, debug snapshots,
-RmlUi bindings, and Lua `Game.run_action` all carry the same `{ kind = "character" | "interactable",
-id = ... }` subject vocabulary. The live Room resolver applies the same eligibility contract to both
-Character and Interactable occupants.
+Runtime selection and invocation messages, saved Interaction frames, editor playback, debug snapshots,
+RmlUi bindings, and Lua `Game.run_action` all use the same semantic subject vocabulary. The wire shape
+for Feature subjects includes `ownerKind`, `ownerId`, and `featureId`; owner-qualified identity is
+preserved instead of being collapsed to the nested Feature ID.
 
-`ActivateHotspotInput` is the sole semantic hotspot entry. Room Verb hotspots invoke with no operands;
-Interactable hotspots supply their owning Interactable as the one operand. Save state version 7
-persists exact hotspot invocation identity for yielding programs and rejects stale/mismatched identity
-on restore, while ordinary generic invocations persist explicit hotspot-null context.
+Pointer Hotspots never call an Interaction directly. A pointer release resolves a Hotspot target to
+an exact semantic subject and dispatches ordinary subject selection, or resolves a Room Exit and
+dispatches ordinary navigation. There is no `ActivateHotspotInput` and no exact-Hotspot invocation
+state to save or restore.
+
+Save state version 7 persists owner-qualified Feature subjects when they appear in yielding
+Interaction frames. It also persists Feature Property overrides through the normal Property-state
+path. No schema version change is introduced by #70.
+
+## Current editor implementation
+
+The Interaction editor authors exact Character/Interactable/Feature operands, all explicit wildcards,
+remaining context variants, and closed program instructions. Every instruction has a stable nested ID;
+creation preserves that identity through editing and reordering. Validation checks Verb arity,
+subject/owner existence, Room placements, references, duplicate IDs, and equal-specificity warnings.
+The compiler lowers every rule and instruction losslessly into the compiled program while preserving
+authored order.

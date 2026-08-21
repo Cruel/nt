@@ -783,7 +783,7 @@ describe('authoring compiler framework', () => {
     ]);
   });
 
-  it('reports an unbound hotspot Verb without throwing during shared lowering', () => {
+  it('lowers the default Interactable hotspot as an owner semantic target', () => {
     const project = validProject();
     project.interactables.key = {
       id: 'key',
@@ -793,11 +793,10 @@ describe('authoring compiler framework', () => {
 
     const result = lowerSharedAuthoringProject(project);
 
-    expect(result.draft).toBeUndefined();
-    expect(result.diagnostics).toContainEqual({
-      code: 'hotspot.compiled.unbound_verb',
-      path: '/interactables/key/data/presentation/hotspots/hotspot/activation/verb',
-      message: "Interactable hotspot 'primary' must bind a Verb before compilation.",
+    expect(result.diagnostics).toEqual([]);
+    expect(result.draft?.definitions.interactables[0]?.presentation.hotspots).toMatchObject({
+      kind: 'sprite-alpha',
+      hotspot: { target: { kind: 'owner' } },
     });
   });
 

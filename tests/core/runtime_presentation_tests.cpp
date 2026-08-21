@@ -309,19 +309,24 @@ TEST_CASE(
     REQUIRE(exit != resolution.value().presentation.hotspots.end());
     REQUIRE(alpha != resolution.value().presentation.hotspots.end());
     CHECK(inspect->condition_eligible);
-    CHECK(inspect->activation_available);
+    CHECK(inspect->target_available);
     CHECK(exit->condition_eligible);
-    CHECK_FALSE(exit->activation_available);
+    CHECK_FALSE(exit->target_available);
     CHECK(alpha->condition_eligible);
-    CHECK_FALSE(alpha->activation_available);
+    CHECK(alpha->target_available);
+    CHECK(inspect->target == compiled::ResolvedHotspotTarget{compiled::FeatureInteractionSubject{
+                                 RoomFeatureRef{id<RoomId>("start"), id<FeatureId>("door")}}});
+    CHECK(alpha->target ==
+          compiled::ResolvedHotspotTarget{compiled::FeatureInteractionSubject{
+              InteractableFeatureRef{id<InteractableId>("key"), id<FeatureId>("surface")}}});
 
     auto runtime = project_snapshot(project, state, &resolution.value().presentation);
     REQUIRE(runtime);
     REQUIRE(runtime.value().hotspots.size() == 3);
     CHECK(std::count_if(runtime.value().hotspots.begin(), runtime.value().hotspots.end(),
                         [](const auto& hotspot) {
-                            return hotspot.condition_eligible && !hotspot.activation_available;
-                        }) == 2);
+                            return hotspot.condition_eligible && !hotspot.target_available;
+                        }) == 1);
     CHECK(std::any_of(runtime.value().hotspots.begin(), runtime.value().hotspots.end(),
                       [](const auto& hotspot) {
                           return std::holds_alternative<AlphaHotspotShape>(hotspot.shape);

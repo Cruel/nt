@@ -63,6 +63,11 @@ struct CharacterDefinition {
     CharacterInitialWorldState initial_world_state;
 };
 
+struct FeatureDefinition {
+    PropertyBearingDefinition<FeatureId> identity;
+    std::string label;
+};
+
 struct RoomLifecycle {
     Condition can_enter;
     Condition can_leave;
@@ -81,12 +86,14 @@ struct RoomDefinition {
     std::optional<RoomCompositionHook> compose;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;
+    std::vector<FeatureDefinition> features;
     std::vector<RoomHotspot> hotspots;
 };
 
 struct InteractableDefinition {
     PropertyBearingDefinition<InteractableId> identity;
     std::string display_name;
+    std::vector<FeatureDefinition> features;
     InteractableInitialState initial_state;
     InteractablePresentation presentation;
 };

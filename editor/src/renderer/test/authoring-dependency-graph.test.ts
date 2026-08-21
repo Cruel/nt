@@ -282,7 +282,7 @@ describe('authoring structural dependency graph and queries', () => {
       inputOrder: 0,
       highlight: { kind: 'none' },
       shape: { kind: 'rect', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
-      activation: { kind: 'exit', exitId: 'north' },
+      target: { kind: 'exit', exitId: 'north' },
     });
     room.exits.push({
       id: 'north',
@@ -305,7 +305,7 @@ describe('authoring structural dependency graph and queries', () => {
     ).toBe(true);
   });
 
-  it('tracks Interactable hotspot source images across rename, deletion, replacement, and mode switches', () => {
+  it('tracks Interactable Feature targets independently from hotspot geometry identity', () => {
     const project = createAuthoringProject();
     project.assets.sprite = {
       id: 'sprite',
@@ -319,7 +319,12 @@ describe('authoring structural dependency graph and queries', () => {
     };
     const item = defaultInteractableData('Item');
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'sprite' } };
+    item.features.push({ id: 'handle', label: 'Handle', traits: [], properties: {} });
+    if (item.presentation.hotspots.kind !== 'sprite-alpha')
+      throw new Error('Expected sprite alpha');
+    item.presentation.hotspots.hotspot.target = { kind: 'owner-feature', featureId: 'handle' };
     project.interactables.item = { id: 'item', label: 'Item', data: item };
+
     const verb = defaultVerbData('Use');
     verb.arity = 1;
     verb.operandRoles = ['target'];
@@ -328,21 +333,27 @@ describe('authoring structural dependency graph and queries', () => {
     interaction.rules.push({
       id: 'rule',
       verb: { $ref: { collection: 'verbs', id: 'use' } },
-      operands: [{ kind: 'any-interactable' }],
-      context: {
-        kind: 'hotspot',
-        hotspot: {
-          kind: 'interactable-hotspot',
-          interactable: { $ref: { collection: 'interactables', id: 'item' } },
-          hotspotId: 'primary',
+      operands: [
+        {
+          kind: 'exact',
+          subject: {
+            kind: 'feature',
+            feature: {
+              ownerKind: 'interactable',
+              interactable: { $ref: { collection: 'interactables', id: 'item' } },
+              featureId: 'handle',
+            },
+          },
         },
-      },
+      ],
+      context: { kind: 'any' },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     });
     project.interactions.actions = { id: 'actions', label: 'Actions', data: interaction };
 
     let graph = buildAuthoringStructuralDependencyGraph(project);
     const primary = nestedNodeKey('interactables', 'item', 'interactable-hotspot', 'primary');
+    const feature = nestedNodeKey('interactables', 'item', 'interactable-feature', 'handle');
     expect(
       outgoingAuthoringDependencies(graph, primary).some(
         (edge) =>
@@ -351,63 +362,36 @@ describe('authoring structural dependency graph and queries', () => {
             serializeAuthoringDependencyNodeKey(recordNodeKey('assets', 'sprite')),
       ),
     ).toBe(true);
-    expect(findAuthoringDependencyUsages(graph, primary).map((edge) => edge.role)).toEqual(
-      expect.arrayContaining(['explicit-ref', 'hotspot-context']),
+    expect(findAuthoringDependencyUsages(graph, feature).map((edge) => edge.role)).toEqual(
+      expect.arrayContaining(['hotspot-target', 'feature-ref']),
     );
 
-    if (item.presentation.hotspots.kind !== 'sprite-alpha')
-      throw new Error('Expected sprite alpha');
-    item.presentation.hotspots.hotspot.id = 'renamed';
+    // Geometry IDs are internal authoring identities now; changing one does not invalidate the
+    // semantic Feature selected by the geometry.
+    item.presentation.hotspots.hotspot.id = 'renamed-geometry';
     graph = buildAuthoringStructuralDependencyGraph(project);
-    const renamed = nestedNodeKey('interactables', 'item', 'interactable-hotspot', 'renamed');
+    expect(findMissingAuthoringDependencyTargets(graph)).toEqual([]);
     expect(
       findNestedAuthoringDependencyTarget(
         graph,
         'interactables',
         'item',
         'interactable-hotspot',
-        'primary',
-      ),
-    ).toBeUndefined();
-    expect(
-      findNestedAuthoringDependencyTarget(
-        graph,
-        'interactables',
-        'item',
-        'interactable-hotspot',
-        'renamed',
+        'renamed-geometry',
       ),
     ).toBeDefined();
-    expect(findMissingAuthoringDependencyTargets(graph)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/interactions/actions/data/rules/0/context/hotspot',
-        }),
-      ]),
-    );
 
-    const context = interaction.rules[0]!.context;
-    if (context.kind !== 'hotspot' || context.hotspot.kind !== 'interactable-hotspot')
-      throw new Error('Expected Interactable hotspot context');
-    context.hotspot.hotspotId = 'renamed';
+    item.features[0]!.id = 'grip';
     graph = buildAuthoringStructuralDependencyGraph(project);
-    expect(findAuthoringDependencyUsages(graph, renamed).map((edge) => edge.role)).toEqual(
-      expect.arrayContaining(['explicit-ref', 'hotspot-context']),
-    );
+    expect(findMissingAuthoringDependencyTargets(graph)).toHaveLength(2);
+
+    item.presentation.hotspots.hotspot.target = { kind: 'owner-feature', featureId: 'grip' };
+    const operand = interaction.rules[0]!.operands[0];
+    if (operand?.kind !== 'exact' || operand.subject.kind !== 'feature')
+      throw new Error('Expected exact Feature subject');
+    operand.subject.feature.featureId = 'grip';
+    graph = buildAuthoringStructuralDependencyGraph(project);
     expect(findMissingAuthoringDependencyTargets(graph)).toEqual([]);
-
-    item.presentation.hotspots = { kind: 'custom', hotspots: [] };
-    graph = buildAuthoringStructuralDependencyGraph(project);
-    expect(
-      findNestedAuthoringDependencyTarget(
-        graph,
-        'interactables',
-        'item',
-        'interactable-hotspot',
-        'renamed',
-      ),
-    ).toBeUndefined();
-    expect(findMissingAuthoringDependencyTargets(graph)).toHaveLength(1);
   });
   it('builds record/project-field contributions and reports missing structural targets', () => {
     const project = createAuthoringProject();

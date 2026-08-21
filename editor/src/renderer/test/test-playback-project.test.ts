@@ -8,12 +8,13 @@ import {
   defaultTestStep,
   testCharacterSubject,
   testInteractableRef,
-  testInteractableHotspotRef,
+  testFeatureSubject,
   testInteractableSubject,
   testSceneRef,
   testVariableRef,
   testVerbRef,
 } from '../../shared/project-schema/authoring-tests';
+import { roomFeatureRef } from '../../shared/project-schema/authoring-features';
 import {
   buildRuntimePlaybackSpecFromAuthoringTest,
   getAuthoringTestRunReadiness,
@@ -31,7 +32,11 @@ describe('authoring test playback project adapter', () => {
         id: 'select',
         label: 'Select',
         selectSubjects: {
-          subjects: [testCharacterSubject('guard'), testInteractableSubject('lamp')],
+          subjects: [
+            testCharacterSubject('guard'),
+            testInteractableSubject('lamp'),
+            testFeatureSubject(roomFeatureRef('foyer', 'door')),
+          ],
         },
       },
       { ...defaultTestStep('clear-subject-selection'), id: 'clear', label: 'Clear' },
@@ -43,12 +48,6 @@ describe('authoring test playback project adapter', () => {
           verb: testVerbRef('look'),
           operands: [testCharacterSubject('guard'), testInteractableSubject('lamp')],
         },
-      },
-      {
-        ...defaultTestStep('activate-hotspot'),
-        id: 'hotspot',
-        label: 'Hotspot',
-        activateHotspot: { hotspot: testInteractableHotspotRef('lamp', 'primary') },
       },
       {
         ...defaultTestStep('load-save'),
@@ -74,6 +73,7 @@ describe('authoring test playback project adapter', () => {
             subjects: [
               { kind: 'character', id: 'guard' },
               { kind: 'interactable', id: 'lamp' },
+              { kind: 'feature', ownerKind: 'room', ownerId: 'foyer', featureId: 'door' },
             ],
           },
         },
@@ -89,18 +89,7 @@ describe('authoring test playback project adapter', () => {
             ],
           },
         },
-        {
-          index: 5,
-          input: {
-            type: 'activate-hotspot',
-            hotspot: {
-              kind: 'interactable-hotspot',
-              interactable: 'lamp',
-              hotspotId: 'primary',
-            },
-          },
-        },
-        { index: 6, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
+        { index: 5, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
       ],
     });
   });

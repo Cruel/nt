@@ -144,17 +144,12 @@ Game.unset_prop(property_id) -> ok, error
 
 A Global Property always has an authored default. `Game.unset_prop` removes only the runtime override and reveals that default again. An explicitly assigned nullable `nil` is a value, not an unset operation.
 
-Identity-scoped Properties use a closed owner-kind vocabulary:
+Identity-scoped Properties on top-level gameplay owners use a closed owner-kind vocabulary:
 
 ```text
 room
-scene
-dialogue
 character
 interactable
-verb
-interaction
-map
 ```
 
 ```text
@@ -163,7 +158,15 @@ noveltea.properties.set(owner_kind, owner_id, property_id, value) -> ok, error
 noveltea.properties.unset(owner_kind, owner_id, property_id) -> ok, error
 ```
 
-Use `unset` to remove a runtime override. Do not infer "unset" solely from `value == nil`; inspect the `present` return.
+Feature Properties use the Feature's stable owner-qualified identity rather than a bare Feature ID:
+
+```text
+noveltea.properties.get_feature(owner_kind, owner_id, feature_id, property_id) -> value, present, error
+noveltea.properties.set_feature(owner_kind, owner_id, feature_id, property_id, value) -> ok, error
+noveltea.properties.unset_feature(owner_kind, owner_id, feature_id, property_id) -> ok, error
+```
+
+For Feature calls, `owner_kind` is `room` or `interactable`. Use `unset`/`unset_feature` to remove a runtime override. Do not infer "unset" solely from `value == nil`; inspect the `present` return.
 
 ## Interactable location and navigation
 
@@ -520,7 +523,6 @@ Game.navigate(index) -> ok, error
 Game.select_object(interactable_id) -> ok, error
 Game.clear_selection() -> ok, error
 Game.run_action(verb_id, subjects?) -> ok, error
-Game.activate_hotspot(kind, owner_id, hotspot_id) -> ok, error
 Game.save(manual_slot_number) -> ok, error
 Game.load(manual_slot_number) -> ok, error
 Game.autosave() -> ok, error
@@ -537,12 +539,16 @@ Game.paused() -> boolean, error
 {
     { kind = "character", id = "character-id" },
     { kind = "interactable", id = "interactable-id" },
+    {
+        kind = "feature",
+        ownerKind = "room", -- or "interactable"
+        ownerId = "room-or-interactable-id",
+        featureId = "owner-local-feature-id",
+    },
 }
 ```
 
-Subject kinds are only `character` and `interactable`; Verb arity/current eligibility is still validated.
-
-`Game.activate_hotspot` accepts kind `room-hotspot` with a Room owner ID or `interactable-hotspot` with an Interactable owner ID, plus the hotspot's stable nested ID.
+Feature subjects are always owner-qualified; a bare Feature ID is never a runtime identity. Verb arity and current subject eligibility are still validated. Hotspots are not callable gameplay subjects: pointer geometry resolves to one of these semantic subjects (or a Room Exit) before runtime input is dispatched.
 
 `Game.save`/`Game.load` address manual slots. Autosave has its dedicated `Game.autosave()` operation rather than manual slot `0` semantics.
 
@@ -560,10 +566,9 @@ Game.ui.toggle_interactable(interactable_id)
 Game.ui.toggle_character(character_id)
 Game.ui.clear_selection()
 Game.ui.invoke_interaction(verb_id)
-Game.ui.activate_hotspot(kind, owner_id, hotspot_id)
 ```
 
-These return plain booleans. They are validated against the currently published gameplay view, not just ID syntax: hidden/disabled/stale choices, exits, map connections, subjects, interactions, or hotspots fail. Use these in gameplay Layout event code rather than assuming the general `Game.*` index-based UI conveniences are equivalent.
+These return plain booleans. They are validated against the currently published gameplay view, not just ID syntax: hidden/disabled/stale choices, exits, map connections, subjects, or interactions fail. Use these in gameplay Layout event code rather than assuming the general `Game.*` index-based UI conveniences are equivalent.
 
 `Game.ui.navigate_map_connection` is currently part of the provisional `nt-map-view` path; do not treat generated Map markup as a stable custom-component API. See `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md`.
 

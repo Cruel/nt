@@ -49,8 +49,18 @@ nlohmann::json encode_owner(const PropertyOwnerRef& owner)
                 return nlohmann::json{{"kind", "room"}, {"id", value.text()}};
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return nlohmann::json{{"kind", "character"}, {"id", value.text()}};
-            else
+            else if constexpr (std::is_same_v<T, InteractableId>)
                 return nlohmann::json{{"kind", "interactable"}, {"id", value.text()}};
+            else if constexpr (std::is_same_v<T, RoomFeatureRef>)
+                return nlohmann::json{{"kind", "feature"},
+                                      {"ownerKind", "room"},
+                                      {"ownerId", value.room.text()},
+                                      {"featureId", value.feature_id.text()}};
+            else
+                return nlohmann::json{{"kind", "feature"},
+                                      {"ownerKind", "interactable"},
+                                      {"ownerId", value.interactable.text()},
+                                      {"featureId", value.feature_id.text()}};
         },
         owner);
 }
@@ -58,24 +68,68 @@ nlohmann::json encode_owner(const PropertyOwnerRef& owner)
 std::optional<PropertyOwnerRef> decode_owner(Decoder& d, const nlohmann::json& value,
                                              std::string_view pointer)
 {
-    if (!d.object(value, pointer, {"kind", "id"}))
+    if (!value.is_object()) {
+        d.error(k_type, "Expected a property owner object.", std::string(pointer));
         return std::nullopt;
+    }
     const auto* kind = d.member(value, "kind", pointer);
-    const auto* id = d.member(value, "id", pointer);
     auto name = kind ? d.string(*kind, child(pointer, "kind")) : std::nullopt;
-    if (!name || !id)
+    if (!name)
         return std::nullopt;
     if (*name == "room") {
+        if (!d.object(value, pointer, {"kind", "id"}))
+            return std::nullopt;
+        const auto* id = d.member(value, "id", pointer);
+        if (!id)
+            return std::nullopt;
         auto result = d.id<RoomId>(*id, child(pointer, "id"));
         return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
     }
     if (*name == "character") {
+        if (!d.object(value, pointer, {"kind", "id"}))
+            return std::nullopt;
+        const auto* id = d.member(value, "id", pointer);
+        if (!id)
+            return std::nullopt;
         auto result = d.id<CharacterId>(*id, child(pointer, "id"));
         return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
     }
     if (*name == "interactable") {
+        if (!d.object(value, pointer, {"kind", "id"}))
+            return std::nullopt;
+        const auto* id = d.member(value, "id", pointer);
+        if (!id)
+            return std::nullopt;
         auto result = d.id<InteractableId>(*id, child(pointer, "id"));
         return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
+    }
+    if (*name == "feature") {
+        if (!d.object(value, pointer, {"kind", "ownerKind", "ownerId", "featureId"}))
+            return std::nullopt;
+        const auto* owner_kind = d.member(value, "ownerKind", pointer);
+        const auto* owner_id = d.member(value, "ownerId", pointer);
+        const auto* feature_id = d.member(value, "featureId", pointer);
+        auto owner_name =
+            owner_kind ? d.string(*owner_kind, child(pointer, "ownerKind")) : std::nullopt;
+        auto parsed_feature =
+            feature_id ? d.id<FeatureId>(*feature_id, child(pointer, "featureId")) : std::nullopt;
+        if (!owner_name || !owner_id || !parsed_feature)
+            return std::nullopt;
+        if (*owner_name == "room") {
+            auto parsed_owner = d.id<RoomId>(*owner_id, child(pointer, "ownerId"));
+            return parsed_owner ? std::optional<PropertyOwnerRef>(RoomFeatureRef{
+                                      std::move(*parsed_owner), std::move(*parsed_feature)})
+                                : std::nullopt;
+        }
+        if (*owner_name == "interactable") {
+            auto parsed_owner = d.id<InteractableId>(*owner_id, child(pointer, "ownerId"));
+            return parsed_owner ? std::optional<PropertyOwnerRef>(InteractableFeatureRef{
+                                      std::move(*parsed_owner), std::move(*parsed_feature)})
+                                : std::nullopt;
+        }
+        d.error(k_variant, "Unknown Feature owner kind '" + *owner_name + "'.",
+                child(pointer, "ownerKind"));
+        return std::nullopt;
     }
     d.error(k_variant, "Unknown property owner kind '" + *name + "'.", child(pointer, "kind"));
     return std::nullopt;

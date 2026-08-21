@@ -12,13 +12,13 @@ Read the specific component doc before changing its schema, commands, editor UI,
 
 - `docs/engine/PROJECT.md` — root project document, metadata, settings, runtime defaults, and project-wide references.
 - `docs/engine/ASSET.md` — authoring assets, import metadata, asset editor/library behavior, runtime/export status.
-- `docs/engine/ROOM.md` — typed Room definitions, placements/exits, lifecycle pipeline, mutable room state, and current scaffolding.
+- `docs/engine/ROOM.md` — typed Room definitions, owner-local Features, Hotspot target geometry, placements/exits, lifecycle pipeline, and mutable room state.
 - `docs/engine/CHARACTER.md` — immutable Character definitions, actor state, poses/expressions, and current scaffolding.
 - `docs/engine/DIALOGUE.md` — the V2 specialized dialogue graph/program, call-return and state semantics, and current scaffolding.
 - `docs/engine/SCENE.md` — the V2 Scene program and frame contract, call-return and safe-point semantics, and current scaffolding.
-- `docs/engine/INTERACTABLE.md` — unique Interactable definitions, placement/location/state separation, and stackable-inventory deferral.
+- `docs/engine/INTERACTABLE.md` — unique Interactable definitions, owner-local Features, semantic Hotspot targets, placement/location/state separation, and stackable-inventory deferral.
 - `docs/engine/VERB.md` — Verb arity, availability, definition-local default programs, and Interaction fallback.
-- `docs/engine/INTERACTION.md` — Interaction matching, typed programs, outcomes, and mutable-state effects.
+- `docs/engine/INTERACTION.md` — Character/Interactable/Feature subject identity, Interaction matching, typed programs, outcomes, and mutable-state effects.
 - `docs/engine/MAP.md` — exit-backed map presentation and selection without duplicate navigation topology.
 - `docs/engine/SCRIPT_MODULE.md` — Lua module ownership, explicit execution, yielding, save, and package rules.
 - `docs/engine/LAYOUT.md` — authored RmlUi layouts, system layout roles, source files, preview, export, and runtime mounting.
@@ -32,9 +32,9 @@ Read the specific component doc before changing its schema, commands, editor UI,
 
 - `docs/migration/STATUS.md` and `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` record
   final migration dispositions and independently deferred work.
-- `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md` is the permanent contract for Room
-  and Interactable hotspots, hotspot-aware Interaction context, runtime-generated masks, and world
-  pointer activation.
+- `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md` is the permanent contract for
+  owner-qualified Features, Room/Interactable Hotspot geometry, semantic target dispatch,
+  runtime-generated masks, and world pointer routing.
 
 ## Code Areas
 

@@ -392,7 +392,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 TEST_CASE(
     "typed runtime session dispatches lifecycle debug mutation and save load without legacy IO")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 26);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 25);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
@@ -1344,7 +1344,7 @@ TEST_CASE("runtime script API routes autosave and rejects malformed interaction 
     CHECK(has_output_kind(drained, DispatchArtifactKind::SaveOutcome));
 }
 
-TEST_CASE("runtime script API activates exact hotspot identities")
+TEST_CASE("runtime script API uses owner-qualified Feature subjects and Properties")
 {
     Fixture fixture("interaction-program.json");
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
@@ -1353,17 +1353,30 @@ TEST_CASE("runtime script API activates exact hotspot identities")
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local ok, err = Game.activate_hotspot('room-hotspot', 'start', 'inspect-door')\n"
+        "local value, present, err = noveltea.properties.get_feature('room', 'start', 'door', "
+        "'enabled')\n"
+        "assert(present and value == true and err == nil)\n"
+        "local ok\n"
+        "ok, err = noveltea.properties.set_feature('room', 'start', 'door', 'enabled', false)\n"
+        "assert(ok and err == nil)\n"
+        "value, present, err = noveltea.properties.get_feature('room', 'start', 'door', "
+        "'enabled')\n"
+        "assert(present and value == false and err == nil)\n"
+        "ok, err = noveltea.properties.unset_feature('room', 'start', 'door', 'enabled')\n"
+        "assert(ok and err == nil)\n"
+        "ok, err = Game.run_action('inspect', {{kind='feature', ownerKind='room', "
+        "ownerId='start', featureId='door'}})\n"
         "assert(ok and err == nil)",
-        "script-api-hotspot"));
+        "script-api-feature"));
     auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(drained.diagnostics.empty());
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local ok, err = Game.activate_hotspot('unknown', 'start', 'inspect-door')\n"
+        "local ok, err = Game.run_action('inspect', {{kind='feature', ownerKind='unknown', "
+        "ownerId='start', featureId='door'}})\n"
         "assert(not ok and err ~= nil)",
-        "script-api-hotspot-invalid-kind"));
+        "script-api-feature-invalid-owner"));
 }
 
 TEST_CASE("runtime script API teardown leaves inert bindings without a stale target")

@@ -81,7 +81,6 @@ struct InteractionInvocationContext {
     VerbId verb;
     std::optional<RoomId> room;
     std::vector<compiled::InteractionSubject> operands;
-    std::optional<compiled::HotspotRef> hotspot;
 };
 struct InteractionRuleProgramRef {
     InteractionId interaction;

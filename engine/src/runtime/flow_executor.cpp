@@ -462,8 +462,10 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
                     using T = std::decay_t<decltype(value)>;
                     if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>)
                         return character_definition(value.character) != nullptr;
-                    else
+                    else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>)
                         return interactable_definition(value.interactable) != nullptr;
+                    else
+                        return m_project.find_feature(value.feature) != nullptr;
                 },
                 subject);
         });

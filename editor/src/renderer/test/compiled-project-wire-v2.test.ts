@@ -139,6 +139,7 @@ function representativeWireFixture() {
           compose: null,
           placements: [],
           exits: [],
+          features: [],
           hotspots: [],
           lifecycle: {
             canEnter: { kind: 'always' },
@@ -164,6 +165,7 @@ function representativeWireFixture() {
           traits: [],
           propertyAssignments: [],
           displayName: 'Key',
+          features: [],
           presentation: {
             sprite: null,
             material: null,

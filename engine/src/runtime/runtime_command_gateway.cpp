@@ -1044,24 +1044,17 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
                     using T = std::decay_t<decltype(value)>;
                     if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
                         return m_world.resolved_configuration(value.character) != nullptr;
-                    else
+                    else if constexpr (std::is_same_v<
+                                           T, core::compiled::InteractableInteractionSubject>)
                         return m_world.resolved_configuration(value.interactable) != nullptr;
+                    else
+                        return m_project.find_feature(value.feature) != nullptr;
                 },
                 operand))
             return core::Result<void, core::Diagnostics>::failure(
                 gateway_error("runtime.unknown_interaction_subject",
                               "Interaction subject definition is missing"));
     m_services->queue_input(core::InvokeInteractionInput{std::move(verb), std::move(operands)});
-    return core::Result<void, core::Diagnostics>::success();
-}
-
-core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::activate_hotspot(core::compiled::HotspotRef hotspot)
-{
-    auto available = require_services("Game.activate_hotspot");
-    if (!available)
-        return available;
-    m_services->queue_input(core::ActivateHotspotInput{std::move(hotspot)});
     return core::Result<void, core::Diagnostics>::success();
 }
 

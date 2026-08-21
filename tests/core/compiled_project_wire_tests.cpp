@@ -224,8 +224,14 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(project.verbs[3].default_program.instructions.size() == 1);
         REQUIRE(project.interactions.front().rules.size() == 6);
         const auto& rules = project.interactions.front().rules;
-        CHECK(std::holds_alternative<HotspotInteractionContext>(rules[0].context));
-        CHECK(std::holds_alternative<HotspotInteractionContext>(rules[1].context));
+        CHECK(std::holds_alternative<ActiveRoomInteractionContext>(rules[0].context));
+        CHECK(std::holds_alternative<AnyInteractionContext>(rules[1].context));
+        REQUIRE(std::holds_alternative<ExactOperand>(rules[0].operands.front()));
+        CHECK(std::holds_alternative<FeatureInteractionSubject>(
+            std::get<ExactOperand>(rules[0].operands.front()).subject));
+        REQUIRE(std::holds_alternative<ExactOperand>(rules[1].operands.front()));
+        CHECK(std::holds_alternative<FeatureInteractionSubject>(
+            std::get<ExactOperand>(rules[1].operands.front()).subject));
         CHECK(std::holds_alternative<AnyInteractionContext>(rules[2].context));
         REQUIRE(rules[2].program.instructions.size() == 6);
         CHECK(std::holds_alternative<ApplyEffectInstruction>(rules[2].program.instructions[0]));
@@ -739,14 +745,15 @@ TEST_CASE("compiled image sampling is required and decodes explicitly")
 
 TEST_CASE("compiled project public decoder rejects semantic linking failures")
 {
-    SECTION("hotspot activation requires a non-null Verb reference")
+    SECTION("hotspot Feature targets require a non-null stable Feature ID")
     {
         auto document = fixture("interaction-program");
-        auto* verb = path_member(
-            document, {"definitions", "rooms", "1", "hotspots", "0", "activation", "verb"});
-        REQUIRE(verb != nullptr);
-        *verb = nullptr;
-        auto result = noveltea::core::decode_compiled_project(document, "hotspot-null-verb.json");
+        auto* feature_id = path_member(
+            document, {"definitions", "rooms", "1", "hotspots", "0", "target", "featureId"});
+        REQUIRE(feature_id != nullptr);
+        *feature_id = nullptr;
+        auto result =
+            noveltea::core::decode_compiled_project(document, "hotspot-null-feature.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.type"));
     }
@@ -775,11 +782,11 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.duplicate_id"));
     }
 
-    SECTION("Room hotspot exit activation is owner-local")
+    SECTION("Room hotspot exit target is owner-local")
     {
         auto document = fixture("interaction-program");
         auto* exit_id = path_member(
-            document, {"definitions", "rooms", "1", "hotspots", "1", "activation", "exitId"});
+            document, {"definitions", "rooms", "1", "hotspots", "1", "target", "exitId"});
         REQUIRE(exit_id != nullptr);
         *exit_id = "east-exit";
         auto result = noveltea::core::decode_compiled_project(document, "hotspot-exit.json");
@@ -800,30 +807,31 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.duplicate_room_exit_direction"));
     }
 
-    SECTION("Room and Interactable hotspot Verbs enforce owner arity")
+    SECTION("Room and Interactable hotspot Feature targets are owner-local")
     {
         auto room = fixture("interaction-program");
-        auto* room_verb = path_member(
-            room, {"definitions", "rooms", "1", "hotspots", "0", "activation", "verb", "id"});
-        REQUIRE(room_verb != nullptr);
-        *room_verb = "use";
-        auto room_result = noveltea::core::decode_compiled_project(room, "hotspot-room-arity.json");
+        auto* room_feature = path_member(
+            room, {"definitions", "rooms", "1", "hotspots", "0", "target", "featureId"});
+        REQUIRE(room_feature != nullptr);
+        *room_feature = "missing";
+        auto room_result =
+            noveltea::core::decode_compiled_project(room, "hotspot-room-feature.json");
         REQUIRE_FALSE(room_result);
-        CHECK(has_code(room_result.error(), "compiled_project.hotspot_verb_arity_mismatch"));
+        CHECK(has_code(room_result.error(), "compiled_project.unresolved_nested_reference"));
 
         auto interactable = fixture("interaction-program");
         auto* key =
             test_support::json_object_by_id(interactable["definitions"]["interactables"], "key");
         REQUIRE(key != nullptr);
-        auto* interactable_verb =
-            path_member(*key, {"presentation", "hotspots", "hotspot", "activation", "verb", "id"});
-        REQUIRE(interactable_verb != nullptr);
-        *interactable_verb = "inspect";
+        auto* interactable_feature =
+            path_member(*key, {"presentation", "hotspots", "hotspot", "target", "featureId"});
+        REQUIRE(interactable_feature != nullptr);
+        *interactable_feature = "missing";
         auto interactable_result = noveltea::core::decode_compiled_project(
-            interactable, "hotspot-interactable-arity.json");
+            interactable, "hotspot-interactable-feature.json");
         REQUIRE_FALSE(interactable_result);
         CHECK(
-            has_code(interactable_result.error(), "compiled_project.hotspot_verb_arity_mismatch"));
+            has_code(interactable_result.error(), "compiled_project.unresolved_nested_reference"));
     }
 
     SECTION("hotspot source assets must be present images")
@@ -851,37 +859,29 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
                        "compiled_project.hotspot_source_image_required"));
     }
 
-    SECTION("exact hotspot contexts require existing compatible activations and operands")
+    SECTION("exact Feature operands require existing owner-qualified Features")
     {
         auto missing = fixture("interaction-program");
-        auto* hotspot_id = path_member(missing, {"definitions", "interactions", "0", "rules", "0",
-                                                 "context", "hotspot", "hotspotId"});
-        REQUIRE(hotspot_id != nullptr);
-        *hotspot_id = "missing-hotspot";
+        auto* feature_id =
+            path_member(missing, {"definitions", "interactions", "0", "rules", "0", "operands", "0",
+                                  "subject", "feature", "featureId"});
+        REQUIRE(feature_id != nullptr);
+        *feature_id = "missing-feature";
         auto missing_result =
-            noveltea::core::decode_compiled_project(missing, "hotspot-context-missing.json");
+            noveltea::core::decode_compiled_project(missing, "feature-operand-missing.json");
         REQUIRE_FALSE(missing_result);
         CHECK(has_code(missing_result.error(), "compiled_project.unresolved_nested_reference"));
 
-        auto exit = fixture("interaction-program");
-        hotspot_id = path_member(exit, {"definitions", "interactions", "0", "rules", "0", "context",
-                                        "hotspot", "hotspotId"});
-        REQUIRE(hotspot_id != nullptr);
-        *hotspot_id = "north-door";
-        auto exit_result =
-            noveltea::core::decode_compiled_project(exit, "hotspot-context-exit.json");
-        REQUIRE_FALSE(exit_result);
-        CHECK(has_code(exit_result.error(), "compiled_project.invalid_hotspot_context"));
-
-        auto operand = fixture("interaction-program");
-        auto* operands =
-            path_member(operand, {"definitions", "interactions", "0", "rules", "1", "operands"});
-        REQUIRE(operands != nullptr);
-        *operands = nlohmann::json::array({{{"kind", "any-character"}}});
-        auto operand_result =
-            noveltea::core::decode_compiled_project(operand, "hotspot-context-operand.json");
-        REQUIRE_FALSE(operand_result);
-        CHECK(has_code(operand_result.error(), "compiled_project.invalid_hotspot_context"));
+        auto wrong_owner = fixture("interaction-program");
+        auto* room_id =
+            path_member(wrong_owner, {"definitions", "interactions", "0", "rules", "0", "operands",
+                                      "0", "subject", "feature", "room", "id"});
+        REQUIRE(room_id != nullptr);
+        *room_id = "hall";
+        auto owner_result = noveltea::core::decode_compiled_project(
+            wrong_owner, "feature-operand-wrong-owner.json");
+        REQUIRE_FALSE(owner_result);
+        CHECK(has_code(owner_result.error(), "compiled_project.unresolved_nested_reference"));
     }
 
     SECTION("unresolved entrypoint")

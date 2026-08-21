@@ -12,14 +12,22 @@ import {
   type StageSize,
 } from '@/components/image-stage/image-stage-transforms';
 import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
+import type {
+  InteractionSubjectData,
+  InteractableHotspotTarget,
+  RoomHotspotTarget,
+} from '../../../shared/project-schema/authoring-features';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { parseMaterialData } from '../../../shared/project-schema/authoring-materials';
-import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
+import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
+import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import type { Condition } from '../../../shared/project-schema/authoring-flow';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import { useProjectStore } from '@/project/project-store';
+
+type EditableHotspotTarget = RoomHotspotTarget | InteractableHotspotTarget;
 
 export interface EditableHotspot {
   id: string;
@@ -30,9 +38,7 @@ export interface EditableHotspot {
     kind: 'default' | 'none' | 'material';
     material?: { $ref: { collection: 'materials'; id: string } };
   };
-  activation:
-    | { kind: 'verb'; verb: { $ref: { collection: 'verbs'; id: string } } | null }
-    | { kind: 'exit'; exitId: string };
+  target: EditableHotspotTarget;
   shape?: { kind: 'rect'; bounds: ImageNormalizedRect };
 }
 
@@ -43,22 +49,38 @@ interface Props {
   assetId: string | null;
   hotspots: readonly EditableHotspot[];
   selectedView: HotspotEditorViewStateV1;
-  arity: 0 | 1;
+  ownerKind: 'room' | 'interactable';
+  ownerId: string;
+  localFeatures: readonly { id: string; label: string }[];
   exits?: readonly { id: string; label: string }[];
   alphaMode?: boolean;
   roomVisibleGuide?: { referenceSize: StageSize; fit: RoomBackgroundFit };
   anchorPrefix: 'room' | 'interactable';
   onViewChange(next: HotspotEditorViewStateV1): void;
-  onAdd(bounds: ImageNormalizedRect): void;
+  onAdd(bounds: ImageNormalizedRect, target: EditableHotspotTarget): void;
   onDelete(id: string): void;
   onRename(id: string, nextId: string): void;
   onUpdate(id: string, next: Omit<EditableHotspot, 'id' | 'shape'>): void;
   onBounds(id: string, bounds: ImageNormalizedRect): void;
 }
 
+interface TargetOption {
+  value: string;
+  label: string;
+  target: EditableHotspotTarget;
+}
+
+function targetKey(target: EditableHotspotTarget): string {
+  return JSON.stringify(target);
+}
+
+function subjectTarget(subject: InteractionSubjectData): EditableHotspotTarget {
+  return { kind: 'subject', subject };
+}
+
 export function HotspotAuthoringPanel(props: Props) {
   const { t } = useTranslation('workspace');
-  const [recordSelector, setRecordSelector] = useState<'verb' | 'material' | null>(null);
+  const [materialSelectorOpen, setMaterialSelectorOpen] = useState(false);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const asset = props.assetId ? props.project.assets[props.assetId] : null;
   const assetData = parseAssetData(asset?.data);
@@ -79,12 +101,10 @@ export function HotspotAuthoringPanel(props: Props) {
       canceled = true;
     };
   }, [assetData?.kind, assetData?.source.path, projectSessionId, props.assetId]);
+
   const selected =
     props.hotspots.find((item) => item.id === props.selectedView.selectedHotspotId) ?? null;
   const selectedCondition = selected?.condition ?? null;
-  const verbs = Object.entries(props.project.verbs).filter(
-    ([, record]) => parseVerbData(record.data)?.arity === props.arity,
-  );
   const materials = Object.entries(props.project.materials).filter(
     ([, record]) => parseMaterialData(record.data)?.role === 'hotspot-overlay',
   );
@@ -92,13 +112,6 @@ export function HotspotAuthoringPanel(props: Props) {
     () => buildCommandPaletteItems(props.project, t),
     [props.project, t],
   );
-  const verbSelectorItems = useMemo(() => {
-    const allowed = new Set(verbs.map(([id]) => id));
-    return filterSelectorItems(selectorItems, {
-      collections: ['verbs'],
-      includeActions: false,
-    }).filter((item) => item.entityId && allowed.has(item.entityId));
-  }, [selectorItems, verbs]);
   const materialSelectorItems = useMemo(() => {
     const allowed = new Set(materials.map(([id]) => id));
     return filterSelectorItems(selectorItems, {
@@ -107,18 +120,99 @@ export function HotspotAuthoringPanel(props: Props) {
     }).filter((item) => item.entityId && allowed.has(item.entityId));
   }, [materials, selectorItems]);
   const variables = Object.entries(props.project.variables);
+
+  const targetOptions = useMemo<TargetOption[]>(() => {
+    const options: TargetOption[] = [];
+    if (props.ownerKind === 'interactable')
+      options.push({
+        value: 'owner',
+        label: t('hotspots.targets.owner'),
+        target: { kind: 'owner' },
+      });
+    for (const feature of props.localFeatures) {
+      options.push({
+        value: `owner-feature:${feature.id}`,
+        label: t('hotspots.targets.localFeature', { label: feature.label }),
+        target: { kind: 'owner-feature', featureId: feature.id },
+      });
+    }
+    for (const exit of props.exits ?? []) {
+      options.push({
+        value: `exit:${exit.id}`,
+        label: t('hotspots.targets.exit', { label: exit.label }),
+        target: { kind: 'exit', exitId: exit.id },
+      });
+    }
+    for (const [id, record] of Object.entries(props.project.characters)) {
+      options.push({
+        value: `character:${id}`,
+        label: t('hotspots.targets.character', { label: record.label }),
+        target: subjectTarget({
+          kind: 'character',
+          character: { $ref: { collection: 'characters', id } },
+        }),
+      });
+    }
+    for (const [id, record] of Object.entries(props.project.interactables)) {
+      if (!(props.ownerKind === 'interactable' && id === props.ownerId))
+        options.push({
+          value: `interactable:${id}`,
+          label: t('hotspots.targets.interactable', { label: record.label }),
+          target: subjectTarget({
+            kind: 'interactable',
+            interactable: { $ref: { collection: 'interactables', id } },
+          }),
+        });
+      const data = parseInteractableData(record.data);
+      if (!data || (props.ownerKind === 'interactable' && id === props.ownerId)) continue;
+      for (const feature of data.features)
+        options.push({
+          value: `interactable-feature:${id}:${feature.id}`,
+          label: t('hotspots.targets.feature', {
+            owner: record.label,
+            label: feature.label,
+          }),
+          target: subjectTarget({
+            kind: 'feature',
+            feature: {
+              ownerKind: 'interactable',
+              interactable: { $ref: { collection: 'interactables', id } },
+              featureId: feature.id,
+            },
+          }),
+        });
+    }
+    for (const [id, record] of Object.entries(props.project.rooms)) {
+      if (props.ownerKind === 'room' && id === props.ownerId) continue;
+      const data = parseRoomData(record.data);
+      if (!data) continue;
+      for (const feature of data.features)
+        options.push({
+          value: `room-feature:${id}:${feature.id}`,
+          label: t('hotspots.targets.feature', { owner: record.label, label: feature.label }),
+          target: subjectTarget({
+            kind: 'feature',
+            feature: {
+              ownerKind: 'room',
+              room: { $ref: { collection: 'rooms', id } },
+              featureId: feature.id,
+            },
+          }),
+        });
+    }
+    return options;
+  }, [props.exits, props.localFeatures, props.ownerId, props.ownerKind, props.project, t]);
+
   const updateView = (patch: Partial<HotspotEditorViewStateV1>) =>
     props.onViewChange({ ...props.selectedView, ...patch });
   const updateSelected = (patch: Partial<Omit<EditableHotspot, 'id' | 'shape'>>) => {
     if (!selected) return;
-    // Interactable hotspot updates use the behavior schema, which intentionally
-    // excludes the editor-only geometry shape.
     props.onUpdate(selected.id, {
       label: selected.label,
       condition: selected.condition,
       inputOrder: selected.inputOrder,
       highlight: selected.highlight,
-      activation: selected.activation,
+      target: selected.target,
       ...patch,
     });
   };
@@ -135,6 +229,10 @@ export function HotspotAuthoringPanel(props: Props) {
         : null,
     [metadata, props.roomVisibleGuide],
   );
+  const selectedTargetOption = selected
+    ? targetOptions.find((option) => targetKey(option.target) === targetKey(selected.target))
+    : null;
+
   return (
     <section
       className="space-y-3 rounded-lg border bg-card/30 p-3"
@@ -149,6 +247,7 @@ export function HotspotAuthoringPanel(props: Props) {
           size="sm"
           variant={addingRectangle ? 'secondary' : 'outline'}
           aria-pressed={addingRectangle}
+          disabled={!addingRectangle && targetOptions.length === 0}
           onClick={() => updateView({ tool: addingRectangle ? 'select' : 'draw-rect' })}
         >
           {addingRectangle ? t('hotspots.cancelAdd') : t('hotspots.add')}
@@ -188,7 +287,10 @@ export function HotspotAuthoringPanel(props: Props) {
           onCameraChange={(camera) =>
             updateView({ zoom: camera.zoom, panX: camera.pan.x, panY: camera.pan.y })
           }
-          onCreate={(bounds) => props.onAdd(bounds)}
+          onCreate={(bounds) => {
+            const target = targetOptions[0]?.target;
+            if (target) props.onAdd(bounds, target);
+          }}
           onCancelCreate={() => updateView({ tool: 'select' })}
           onCommitBounds={(id, bounds) => props.onBounds(id, bounds)}
           onDelete={(id) => props.onDelete(id)}
@@ -291,82 +393,31 @@ export function HotspotAuthoringPanel(props: Props) {
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => setRecordSelector('material')}
+                  onClick={() => setMaterialSelectorOpen(true)}
                 >
                   {t('hotspots.searchRecords')}
                 </Button>
               </div>
             ) : null}
-            <div>
-              <Label>{t('hotspots.fields.activation')}</Label>
+            <div className="md:col-span-2">
+              <Label>{t('hotspots.fields.target')}</Label>
               <Select
-                value={selected.activation.kind}
-                onValueChange={(kind) =>
-                  updateSelected({
-                    activation:
-                      kind === 'exit'
-                        ? { kind: 'exit', exitId: props.exits?.[0]?.id ?? '' }
-                        : { kind: 'verb', verb: null },
-                  })
-                }
+                value={selectedTargetOption?.value ?? '__invalid__'}
+                onValueChange={(value) => {
+                  const option = targetOptions.find((candidate) => candidate.value === value);
+                  if (option) updateSelected({ target: option.target });
+                }}
               >
-                <SelectItem value="verb">{t('hotspots.activation.verb')}</SelectItem>
-                {props.exits?.length ? (
-                  <SelectItem value="exit">{t('hotspots.activation.exit')}</SelectItem>
-                ) : null}
+                {selectedTargetOption ? null : (
+                  <SelectItem value="__invalid__">{t('hotspots.targets.invalid')}</SelectItem>
+                )}
+                {targetOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </Select>
             </div>
-            {selected.activation.kind === 'verb' ? (
-              <div>
-                <Label>{t('hotspots.fields.verb', { count: props.arity })}</Label>
-                <Select
-                  value={selected.activation.verb?.$ref.id ?? '__none__'}
-                  onValueChange={(id) =>
-                    updateSelected({
-                      activation: {
-                        kind: 'verb',
-                        verb:
-                          id === '__none__'
-                            ? null
-                            : { $ref: { collection: 'verbs', id: String(id) } },
-                      },
-                    })
-                  }
-                >
-                  <SelectItem value="__none__">{t('hotspots.unbound')}</SelectItem>
-                  {verbs.map(([id, record]) => (
-                    <SelectItem key={id} value={id}>
-                      {record.label}
-                    </SelectItem>
-                  ))}
-                </Select>
-                <Button
-                  className="mt-1"
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setRecordSelector('verb')}
-                >
-                  {t('hotspots.searchRecords')}
-                </Button>
-              </div>
-            ) : (
-              <div>
-                <Label>{t('hotspots.fields.exit')}</Label>
-                <Select
-                  value={selected.activation.exitId}
-                  onValueChange={(exitId) =>
-                    updateSelected({ activation: { kind: 'exit', exitId: String(exitId) } })
-                  }
-                >
-                  {props.exits?.map((exit) => (
-                    <SelectItem key={exit.id} value={exit.id}>
-                      {exit.label}
-                    </SelectItem>
-                  ))}
-                </Select>
-              </div>
-            )}
             <div>
               <Label>{t('hotspots.fields.condition')}</Label>
               <Select
@@ -490,41 +541,25 @@ export function HotspotAuthoringPanel(props: Props) {
         )}
       </div>
       <SearchSelectorDialog
-        open={recordSelector !== null}
-        title={
-          recordSelector === 'material' ? t('hotspots.selectMaterial') : t('hotspots.selectVerb')
-        }
+        open={materialSelectorOpen}
+        title={t('hotspots.selectMaterial')}
         placeholder={t('hotspots.searchRecords')}
         emptyMessage={t('hotspots.noMatchingRecords')}
-        items={recordSelector === 'material' ? materialSelectorItems : verbSelectorItems}
+        items={materialSelectorItems}
         selectedId={
-          recordSelector === 'material'
-            ? materialSelectorItems.find(
-                (item) => item.entityId === selected?.highlight.material?.$ref.id,
-              )?.id
-            : verbSelectorItems.find(
-                (item) =>
-                  item.entityId ===
-                  (selected?.activation.kind === 'verb' ? selected.activation.verb?.$ref.id : null),
-              )?.id
+          materialSelectorItems.find(
+            (item) => item.entityId === selected?.highlight.material?.$ref.id,
+          )?.id
         }
-        onOpenChange={(open) => !open && setRecordSelector(null)}
+        onOpenChange={setMaterialSelectorOpen}
         onSelect={(item) => {
           if (!selected || !item.entityId) return;
-          if (recordSelector === 'material')
-            updateSelected({
-              highlight: {
-                kind: 'material',
-                material: { $ref: { collection: 'materials', id: item.entityId } },
-              },
-            });
-          else
-            updateSelected({
-              activation: {
-                kind: 'verb',
-                verb: { $ref: { collection: 'verbs', id: item.entityId } },
-              },
-            });
+          updateSelected({
+            highlight: {
+              kind: 'material',
+              material: { $ref: { collection: 'materials', id: item.entityId } },
+            },
+          });
         }}
       />
     </section>

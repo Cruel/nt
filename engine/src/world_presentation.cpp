@@ -658,13 +658,14 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     };
 
     for (const auto& hotspot : snapshot.hotspots) {
-        if (!hotspot.condition_eligible || !hotspot.activation_available)
+        if (!hotspot.condition_eligible || !hotspot.target_available)
             continue;
         const WorldPresentationDraw* owner_draw = owner_draw_for(hotspot.ref);
         if (owner_draw == nullptr || !owner_draw->command.texture.valid())
             continue;
         candidate.hotspot_hit_targets.push_back(
             {.ref = hotspot.ref,
+             .target = hotspot.target,
              .plane = owner_draw->plane,
              .family = owner_draw->family,
              .owner_order = owner_draw->order,
@@ -812,15 +813,22 @@ std::optional<core::compiled::HotspotRef> WorldHotspotController::hit_test(Vec2 
     return std::nullopt;
 }
 
-bool WorldHotspotController::contains(const core::compiled::HotspotRef& ref, Vec2 point) const
+const WorldHotspotHitTarget*
+WorldHotspotController::hit_target(const core::compiled::HotspotRef& ref) const
 {
     const auto* frame = m_backend.frame();
     if (frame == nullptr)
-        return false;
+        return nullptr;
     const auto found =
         std::find_if(frame->hotspot_hit_targets.begin(), frame->hotspot_hit_targets.end(),
                      [&](const auto& target) { return target.ref == ref; });
-    return found != frame->hotspot_hit_targets.end() && hotspot_target_contains(*found, point);
+    return found == frame->hotspot_hit_targets.end() ? nullptr : &*found;
+}
+
+bool WorldHotspotController::contains(const core::compiled::HotspotRef& ref, Vec2 point) const
+{
+    const auto* target = hit_target(ref);
+    return target != nullptr && hotspot_target_contains(*target, point);
 }
 
 void WorldHotspotController::set_visual_state(std::optional<core::compiled::HotspotRef> hovered,
@@ -844,7 +852,7 @@ void WorldHotspotController::synchronize_generation()
 
 void WorldHotspotController::presentation_changed() { synchronize_generation(); }
 
-void WorldHotspotController::activation_completed()
+void WorldHotspotController::target_completed()
 {
     synchronize_generation();
     set_visual_state(m_last_mouse_valid ? hit_test(m_last_mouse_reference) : std::nullopt,
@@ -891,8 +899,8 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
             m_capture->reference_position = event.reference_position;
             const float dx = event.host_position.x - m_capture->host_origin.x;
             const float dy = event.host_position.y - m_capture->host_origin.y;
-            if (!m_capture->activation_canceled && dx * dx + dy * dy > 64.0f) {
-                m_capture->activation_canceled = true;
+            if (!m_capture->target_canceled && dx * dx + dy * dy > 64.0f) {
+                m_capture->target_canceled = true;
                 set_visual_state(std::nullopt, std::nullopt);
             }
             return result;
@@ -920,12 +928,14 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
         return result;
     result.consumed = true;
     const auto captured = m_capture->ref;
-    const bool activate =
-        !m_capture->activation_canceled && contains(captured, event.reference_position);
+    const bool select_target =
+        !m_capture->target_canceled && contains(captured, event.reference_position);
+    const auto* semantic_target = select_target ? hit_target(captured) : nullptr;
+    const auto target = semantic_target ? std::optional{semantic_target->target} : std::nullopt;
     m_capture.reset();
     set_visual_state(std::nullopt, std::nullopt);
-    if (activate) {
-        result.activation = captured;
+    if (target) {
+        result.target = std::move(target);
     } else if (!touch) {
         set_visual_state(hit_test(event.reference_position), std::nullopt);
     }

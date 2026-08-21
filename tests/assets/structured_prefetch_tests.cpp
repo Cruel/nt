@@ -159,22 +159,21 @@ core::LoadedCompiledPackage collector_package()
     use_verb["operandRoles"] = nlohmann::json::array({"target"});
     use_verb["quickAction"] = false;
     document["definitions"]["verbs"].push_back(std::move(use_verb));
-    const auto alpha_hotspot = nlohmann::json{
-        {"kind", "sprite-alpha"},
-        {"hotspot",
-         {{"activation", {{"kind", "verb"}, {"verb", {{"id", "use"}, {"kind", "verb"}}}}},
-          {"condition", {{"kind", "always"}}},
-          {"highlight", {{"kind", "default"}}},
-          {"id", "shared-alpha"},
-          {"inputOrder", 0},
-          {"label", "Shared alpha"}}}};
+    const auto alpha_hotspot = nlohmann::json{{"kind", "sprite-alpha"},
+                                              {"hotspot",
+                                               {{"target", {{"kind", "owner"}}},
+                                                {"condition", {{"kind", "always"}}},
+                                                {"highlight", {{"kind", "default"}}},
+                                                {"id", "shared-alpha"},
+                                                {"inputOrder", 0},
+                                                {"label", "Shared alpha"}}}};
     auto* coin = test_support::json_object_by_id(document["definitions"]["interactables"], "coin");
     REQUIRE(coin != nullptr);
     (*coin)["presentation"]["hotspots"] = {
         {"kind", "custom"},
         {"hotspots",
          nlohmann::json::array(
-             {{{"activation", {{"kind", "verb"}, {"verb", {{"id", "use"}, {"kind", "verb"}}}}},
+             {{{"target", {{"kind", "owner"}}},
                {"condition", {{"kind", "always"}}},
                {"highlight", {{"kind", "none"}}},
                {"id", "coin-none"},
@@ -187,7 +186,7 @@ core::LoadedCompiledPackage collector_package()
     REQUIRE(key != nullptr);
     (*key)["presentation"]["hotspots"] = alpha_hotspot;
     const nlohmann::json hall_hotspot = {
-        {"activation", {{"kind", "exit"}, {"exitId", "south-exit"}}},
+        {"target", {{"kind", "exit"}, {"exitId", "south-exit"}}},
         {"condition", {{"kind", "always"}}},
         {"highlight", {{"kind", "default"}}},
         {"id", "hall-door"},

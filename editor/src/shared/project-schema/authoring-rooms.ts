@@ -18,11 +18,8 @@ import { parseLayoutData } from './authoring-layouts';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
-import {
-  hotspotCommonShape,
-  rectHotspotShapeSchema,
-  verbHotspotActivationSchema,
-} from './authoring-hotspots';
+import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
+import { featureDataSchema, roomHotspotTargetSchema } from './authoring-features';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -145,10 +142,7 @@ export const roomExitDataSchema = strict({
 export const roomHotspotDataSchema = strict({
   ...hotspotCommonShape,
   shape: rectHotspotShapeSchema,
-  activation: z.discriminatedUnion('kind', [
-    verbHotspotActivationSchema,
-    strict({ kind: z.literal('exit'), exitId: entityIdSchema }),
-  ]),
+  target: roomHotspotTargetSchema,
 });
 export const roomLifecycleDataSchema = strict({
   canEnter: conditionSchema,
@@ -172,6 +166,7 @@ export const roomDataSchema = strict({
   lifecycle: roomLifecycleDataSchema,
   exits: z.array(roomExitDataSchema),
   placements: z.array(roomPlacementDataSchema),
+  features: z.array(featureDataSchema),
   hotspots: z.array(roomHotspotDataSchema),
 });
 
@@ -191,6 +186,7 @@ export type RoomNavigationTransition = z.infer<typeof roomNavigationTransitionSc
 export type RoomExitData = z.infer<typeof roomExitDataSchema>;
 export type RoomData = z.infer<typeof roomDataSchema>;
 export type RoomHotspotData = z.infer<typeof roomHotspotDataSchema>;
+export type RoomFeatureData = z.infer<typeof featureDataSchema>;
 
 export interface RoomSchemaDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -230,6 +226,7 @@ export function defaultRoomData(label = 'Room'): RoomData {
     environments: [],
     compose: null,
     exits: [],
+    features: [],
     hotspots: [],
     lifecycle: {
       canEnter: { kind: 'always' },
@@ -395,6 +392,7 @@ export function validateRoomData(
   uniqueIds(data.props, `${base}/props`, 'prop', diagnostics);
   uniqueIds(data.interactables, `${base}/interactables`, 'Interactable instance', diagnostics);
   uniqueIds(data.environments, `${base}/environments`, 'environment', diagnostics);
+  uniqueIds(data.features, `${base}/features`, 'Feature', diagnostics);
   uniqueIds(data.hotspots, `${base}/hotspots`, 'hotspot', diagnostics);
   const placements = new Set(data.placements.map((placement) => placement.id));
   data.overlays.forEach((overlay, index) => {

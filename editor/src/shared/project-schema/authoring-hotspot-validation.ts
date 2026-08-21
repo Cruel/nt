@@ -4,7 +4,7 @@ import { parseMaterialData } from './authoring-materials';
 import type { AuthoringProject } from './authoring-project';
 import { parseRoomData } from './authoring-rooms';
 import { parseShaderData } from './authoring-shaders';
-import { parseVerbData } from './authoring-verbs';
+import type { InteractionSubjectData } from './authoring-features';
 import type { HotspotHighlight } from './authoring-hotspots';
 
 export interface HotspotAuthoringDiagnostic {
@@ -25,44 +25,79 @@ function diagnostic(
   return { category, path, message, code, severity };
 }
 
-function validateVerb(
+function validateSubject(
   project: AuthoringProject,
   category: HotspotAuthoringDiagnostic['category'],
-  verbId: string | null,
-  requiredArity: 0 | 1,
+  subject: InteractionSubjectData,
   path: string,
 ): HotspotAuthoringDiagnostic[] {
-  if (!verbId)
+  if (subject.kind === 'character')
+    return project.characters[subject.character.$ref.id]
+      ? []
+      : [
+          diagnostic(
+            category,
+            `${path}/character/$ref`,
+            `Missing Character '${subject.character.$ref.id}'.`,
+            'hotspot.authoring.target.character-missing',
+          ),
+        ];
+  if (subject.kind === 'interactable')
+    return project.interactables[subject.interactable.$ref.id]
+      ? []
+      : [
+          diagnostic(
+            category,
+            `${path}/interactable/$ref`,
+            `Missing Interactable '${subject.interactable.$ref.id}'.`,
+            'hotspot.authoring.target.interactable-missing',
+          ),
+        ];
+  const feature = subject.feature;
+  if (feature.ownerKind === 'room') {
+    const room = parseRoomData(project.rooms[feature.room.$ref.id]?.data);
+    if (!room)
+      return [
+        diagnostic(
+          category,
+          `${path}/feature/room/$ref`,
+          `Missing Room '${feature.room.$ref.id}' for Feature target.`,
+          'hotspot.authoring.target.feature-owner-missing',
+        ),
+      ];
+    return room.features.some((candidate) => candidate.id === feature.featureId)
+      ? []
+      : [
+          diagnostic(
+            category,
+            `${path}/feature/featureId`,
+            `Missing Feature '${feature.featureId}' on Room '${feature.room.$ref.id}'.`,
+            'hotspot.authoring.target.feature-missing',
+          ),
+        ];
+  }
+  const interactable = parseInteractableData(
+    project.interactables[feature.interactable.$ref.id]?.data,
+  );
+  if (!interactable)
     return [
       diagnostic(
         category,
-        path,
-        'Hotspot activation has no Verb configured yet.',
-        'hotspot.authoring.verb.required',
-        'warning',
+        `${path}/feature/interactable/$ref`,
+        `Missing Interactable '${feature.interactable.$ref.id}' for Feature target.`,
+        'hotspot.authoring.target.feature-owner-missing',
       ),
     ];
-  const record = project.verbs[verbId];
-  const verb = record ? parseVerbData(record.data) : null;
-  if (!verb)
-    return [
-      diagnostic(
-        category,
-        path,
-        `Missing or invalid Verb '${verbId}'.`,
-        'hotspot.authoring.verb.missing',
-      ),
-    ];
-  if (verb.arity !== requiredArity)
-    return [
-      diagnostic(
-        category,
-        path,
-        `Hotspot Verb '${verbId}' must have arity ${requiredArity}.`,
-        'hotspot.authoring.verb.arity',
-      ),
-    ];
-  return [];
+  return interactable.features.some((candidate) => candidate.id === feature.featureId)
+    ? []
+    : [
+        diagnostic(
+          category,
+          `${path}/feature/featureId`,
+          `Missing Feature '${feature.featureId}' on Interactable '${feature.interactable.$ref.id}'.`,
+          'hotspot.authoring.target.feature-missing',
+        ),
+      ];
 }
 
 function validateHighlight(
@@ -233,22 +268,27 @@ export function validateHotspotAuthoringSemantics(
     const exits = new Set(room.exits.map((exit) => exit.id));
     room.hotspots.forEach((hotspot, index) => {
       const path = `${base}/hotspots/${index}`;
-      if (hotspot.activation.kind === 'verb')
+      if (hotspot.target.kind === 'owner-feature') {
+        const featureId = hotspot.target.featureId;
+        if (!room.features.some((feature) => feature.id === featureId))
+          diagnostics.push(
+            diagnostic(
+              'Rooms',
+              `${path}/target/featureId`,
+              `Room Feature '${featureId}' does not belong to Room '${roomId}'.`,
+              'hotspot.authoring.target.feature-missing',
+            ),
+          );
+      } else if (hotspot.target.kind === 'subject') {
         diagnostics.push(
-          ...validateVerb(
-            project,
-            'Rooms',
-            hotspot.activation.verb?.$ref.id ?? null,
-            0,
-            `${path}/activation/verb`,
-          ),
+          ...validateSubject(project, 'Rooms', hotspot.target.subject, `${path}/target/subject`),
         );
-      else if (!exits.has(hotspot.activation.exitId))
+      } else if (!exits.has(hotspot.target.exitId))
         diagnostics.push(
           diagnostic(
             'Rooms',
-            `${path}/activation/exitId`,
-            `Room hotspot exit '${hotspot.activation.exitId}' does not belong to Room '${roomId}'.`,
+            `${path}/target/exitId`,
+            `Room hotspot exit '${hotspot.target.exitId}' does not belong to Room '${roomId}'.`,
             'hotspot.authoring.exit.foreign',
           ),
         );
@@ -281,15 +321,27 @@ export function validateHotspotAuthoringSemantics(
           ),
         );
       seen.add(hotspot.id);
-      diagnostics.push(
-        ...validateVerb(
-          project,
-          'Interactables',
-          hotspot.activation.verb?.$ref.id ?? null,
-          1,
-          `${path}/activation/verb`,
-        ),
-      );
+      if (hotspot.target.kind === 'owner-feature') {
+        const featureId = hotspot.target.featureId;
+        if (!interactable.features.some((feature) => feature.id === featureId))
+          diagnostics.push(
+            diagnostic(
+              'Interactables',
+              `${path}/target/featureId`,
+              `Interactable Feature '${featureId}' does not belong to Interactable '${interactableId}'.`,
+              'hotspot.authoring.target.feature-missing',
+            ),
+          );
+      } else if (hotspot.target.kind === 'subject') {
+        diagnostics.push(
+          ...validateSubject(
+            project,
+            'Interactables',
+            hotspot.target.subject,
+            `${path}/target/subject`,
+          ),
+        );
+      }
       diagnostics.push(
         ...validateHighlight(
           project,

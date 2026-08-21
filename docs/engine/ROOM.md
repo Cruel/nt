@@ -2,12 +2,12 @@
 
 ## Contract
 
-A `RoomDefinition` is immutable compiled gameplay content. It owns its background, image-relative
-hotspots, conditional
-world-overlay Layout mounts, declarative cast, props, and reconstructible environment loops, optional typed composition Script hook,
-description, ordered enter/leave hooks, exits, and generic `RoomPlacement` anchors. Room is a
-Property-bearing identity and may attach compatible Traits; Trait members are ordinary Properties and
-do not merge exits, placements, overlays, resources, or programs.
+A `RoomDefinition` is immutable compiled gameplay content. It owns its background, owner-local
+Features, image-relative Hotspots, conditional world-overlay Layout mounts, declarative cast, props,
+and reconstructible environment loops, an optional typed composition Script hook, description,
+ordered enter/leave hooks, exits, and generic `RoomPlacement` anchors. Room is a Property-bearing
+identity and may attach compatible Traits; Trait members are ordinary Properties and do not merge
+Features, exits, placements, overlays, resources, or programs.
 
 A declared Room authoring record may attach one same-kind Archetype. The editor resolves the complete
 single-base Archetype chain for editing and preview, stores instance edits as explicit overrides, and
@@ -32,11 +32,17 @@ choices must therefore use distinct directions or another authored interaction s
 player, editor playback, and tests all lower navigation into the same typed input and lifecycle
 transaction.
 
-Room hotspots have stable IDs within their Room, normalized rectangular image bounds, a condition,
-signed input priority, highlight policy, and either a zero-arity Verb or one of the Room's exits.
-Exit activation reuses the selected-exit navigation path above; it does not create a second
-transition or lifecycle implementation. Exact hotspot activation enters runtime only through the
-owner-qualified typed activation input.
+Room Features are stable semantic parts with IDs unique within their owning Room. A Feature may attach
+compatible Traits and Properties and may appear as an exact Interaction subject through the
+owner-qualified `(RoomId, FeatureId)` identity. Features are nested content, not a top-level
+collection.
+
+Room Hotspots have stable IDs within their Room, normalized rectangular image bounds, a condition,
+signed input priority, highlight policy, and one semantic target. A Room Hotspot may select an
+owner-local Feature, another exact admitted subject, or one of the Room's exits. Hotspots own no Verb
+or Interaction behavior. Exit targets reuse the selected-exit navigation path above; subject targets
+reuse ordinary semantic subject selection. Different Hotspots may intentionally select the same
+Feature and therefore produce the same runtime subject identity.
 
 The final animated request contract is `RoomNavigationTransitionOperation`. It is deliberately
 distinct from `SceneTransitionGroupOperation`, but both embed the same
@@ -74,22 +80,25 @@ with explicit presentation owners use the scoped desired-state path and are pers
 ## Authoring and validation
 
 The current version-3 authoring schema uses strict Room records with typed descriptions,
-conditions/effects, exits and optional
-transition overrides, placements, cast, props, environment loops, overlays, and composition hooks. Validation rejects
-duplicate nested IDs, stale Room/Character/Layout/resource/Script references, invalid placement
-ownership, invalid pose/expression/idle combinations, invalid environment resources/opacity/planes,
-invalid transitions, bounds, and hook data. The
-compiled transition precedence contract is explicit request, selected exit override, then project
-default. Live realization uses the final revision-bound Room-navigation operation contract described
-above.
+conditions/effects, owner-local Features, semantic Hotspot targets, exits and optional transition
+overrides, placements, cast, props, environment loops, overlays, and composition hooks. Validation
+rejects duplicate nested IDs, stale Room/Character/Interactable/Feature/Layout/resource/Script
+references, incompatible Feature Trait/Property assignments, invalid owner-local Feature or Exit
+Hotspot targets, invalid placement ownership, invalid pose/expression/idle combinations, invalid
+environment resources/opacity/planes, invalid transitions, bounds, and hook data. The compiled
+transition precedence contract is explicit request, selected exit override, then project default.
+Live realization uses the final revision-bound Room-navigation operation contract described above.
 
 The Room editor uses the shared categorized-editor shell also used by Settings and Project Settings.
 General, Composition, Hotspots, Navigation, Contents, and Behavior categories keep only the selected
 group mounted, retain the selected category as Room tab state, and route workbench targets to their
-owning category before reveal. Composition contains the command-backed Interactable placement editor;
-Hotspots uses the shared React image stage with direct manipulation: click a hotspot to select it,
-drag a rectangular hotspot or its handles to move/resize it, drag empty image space to pan, and use
-the temporary `Add hotspot` action to draw one new rectangle before returning to normal interaction.
+owning category before reveal. Composition contains the command-backed Interactable placement editor.
+Hotspots contains both nested Feature authoring and the shared React image stage. Feature editing
+covers stable ID, label, compatible Traits, and compatible Properties. The image stage uses direct
+manipulation: click a Hotspot to select it, drag a rectangular Hotspot or its handles to move/resize
+it, drag empty image space to pan, and use the temporary `Add hotspot` action to draw one new rectangle
+before returning to normal interaction. The selected Hotspot edits geometry, condition, highlight,
+input order, and semantic target rather than a Verb activation.
 Room background `cover`,
 `contain`, `stretch`, and `center` transforms use the same normalized image-coordinate policy consumed
 by runtime projection. No editor-preview-only manipulation contract exists.

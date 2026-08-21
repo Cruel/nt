@@ -32,7 +32,7 @@ Many authoring operations span more than one record or array. Treat them as one 
 1. A global `records/interactables/<id>.json` record.
 2. A Room `placements[]` entry.
 3. A Room `interactables[]` entry that references both the Interactable and Placement.
-4. A compatible Verb if its hotspot is configured for activation.
+4. Any Feature and Interaction/Verb records required by the intended semantic behavior; the Hotspot itself only selects a subject.
 
 Make the complete relationship first, then run `noveltea validate`. Semantic CLI commands operate against the current project and can surface diagnostics from unrelated or temporarily incomplete intermediate state.
 
@@ -44,6 +44,6 @@ Other required fields encode important semantics and should not be guessed. In p
 
 - `operandRoles` must describe exactly one role per Verb operand.
 - `defaultProgram` is the Verb's fallback behavior program; do not invent behavior merely to make validation pass.
-- Hotspot activation rules depend on whether the hotspot belongs to a Room or an Interactable; see `.noveltea/agent/docs/INTERACTIONS.md`.
+- Hotspots are pointer geometry that select semantic subjects or Room Exits; Features are owner-local semantic parts that may carry Traits/Properties and participate in Interactions. See `.noveltea/agent/docs/INTERACTIONS.md` and `.noveltea/agent/docs/ROOMS.md`.
 
 For Room-specific templates and coordinate rules, read `.noveltea/agent/docs/ROOMS.md`.

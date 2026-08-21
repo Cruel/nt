@@ -15,10 +15,39 @@ std::string property_target_text(const PropertyTargetRef& target)
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
                 return std::string{"global"};
+            else if constexpr (std::is_same_v<T, RoomFeatureRef>)
+                return "room:" + value.room.text() + "/feature:" + value.feature_id.text();
+            else if constexpr (std::is_same_v<T, InteractableFeatureRef>)
+                return "interactable:" + value.interactable.text() +
+                       "/feature:" + value.feature_id.text();
             else
                 return value.text();
         },
         target);
+}
+
+const compiled::FeatureDefinition* find_feature(const CompiledProject& project,
+                                                const RoomFeatureRef& ref) noexcept
+{
+    const auto* room = project.find_room(ref.room);
+    if (room == nullptr)
+        return nullptr;
+    const auto found =
+        std::find_if(room->features.begin(), room->features.end(),
+                     [&](const auto& feature) { return feature.identity.id == ref.feature_id; });
+    return found == room->features.end() ? nullptr : &*found;
+}
+
+const compiled::FeatureDefinition* find_feature(const CompiledProject& project,
+                                                const InteractableFeatureRef& ref) noexcept
+{
+    const auto* interactable = project.find_interactable(ref.interactable);
+    if (interactable == nullptr)
+        return nullptr;
+    const auto found =
+        std::find_if(interactable->features.begin(), interactable->features.end(),
+                     [&](const auto& feature) { return feature.identity.id == ref.feature_id; });
+    return found == interactable->features.end() ? nullptr : &*found;
 }
 
 Diagnostics property_error(std::string code, const PropertyTargetRef& target,
@@ -36,30 +65,23 @@ Diagnostics property_error(std::string code, const PropertyOwnerRef& owner,
     return property_error(std::move(code), property_target(owner), property, std::move(message));
 }
 
-template<class Id, class FindDefinition>
+template<class Definition>
 Result<PropertyLookupResult, Diagnostics>
-resolve_definition(const CompiledProject& project, const SessionState& state, const Id& id,
-                   const PropertyId& property, const PropertyDefinition& declaration,
-                   FindDefinition find_definition)
+resolve_identity(const CompiledProject& project, const SessionState& state,
+                 const PropertyTargetRef& target, const Definition& definition,
+                 const PropertyId& property, const PropertyDefinition& declaration)
 {
-    const PropertyTargetRef target{id};
-    const auto* definition = (project.*find_definition)(id);
-    if (definition == nullptr)
-        return Result<PropertyLookupResult, Diagnostics>::failure(
-            property_error("runtime.unknown_property_owner", target, property,
-                           "does not identify a compiled definition"));
-
     if (const auto* value = state.property_override(target, property))
         return Result<PropertyLookupResult, Diagnostics>::success(*value);
 
     const auto assignment = std::find_if(
-        definition->identity.property_assignments.begin(),
-        definition->identity.property_assignments.end(),
+        definition.identity.property_assignments.begin(),
+        definition.identity.property_assignments.end(),
         [&property](const PropertyAssignment& value) { return value.property_id() == property; });
-    if (assignment != definition->identity.property_assignments.end())
+    if (assignment != definition.identity.property_assignments.end())
         return Result<PropertyLookupResult, Diagnostics>::success(assignment->value());
 
-    for (const auto& trait_id : definition->identity.traits) {
+    for (const auto& trait_id : definition.identity.traits) {
         const auto* trait = project.find_trait(trait_id);
         if (trait == nullptr)
             return Result<PropertyLookupResult, Diagnostics>::failure(
@@ -78,6 +100,22 @@ resolve_definition(const CompiledProject& project, const SessionState& state, co
     return Result<PropertyLookupResult, Diagnostics>::success(
         declaration.default_value() ? PropertyLookupResult{*declaration.default_value()}
                                     : PropertyLookupResult{MissingPropertyValue{target, property}});
+}
+
+template<class Id, class FindDefinition>
+Result<PropertyLookupResult, Diagnostics>
+resolve_definition(const CompiledProject& project, const SessionState& state, const Id& id,
+                   const PropertyId& property, const PropertyDefinition& declaration,
+                   FindDefinition find_definition)
+{
+    const PropertyTargetRef target{id};
+    const auto* definition = (project.*find_definition)(id);
+    if (definition == nullptr)
+        return Result<PropertyLookupResult, Diagnostics>::failure(
+            property_error("runtime.unknown_property_owner", target, property,
+                           "does not identify a compiled definition"));
+
+    return resolve_identity(project, state, target, *definition, property, declaration);
 }
 
 } // namespace
@@ -134,6 +172,9 @@ bool PropertyResolver::owner_exists(const PropertyOwnerRef& owner) const noexcep
                 return m_project.find_character(id) != nullptr;
             else if constexpr (std::is_same_v<T, InteractableId>)
                 return m_project.find_interactable(id) != nullptr;
+            else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
+                               std::is_same_v<T, InteractableFeatureRef>)
+                return find_feature(m_project, id) != nullptr;
         },
         owner);
 }
@@ -212,6 +253,16 @@ Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOw
             else if constexpr (std::is_same_v<T, InteractableId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
                                           &CompiledProject::find_interactable);
+            else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
+                               std::is_same_v<T, InteractableFeatureRef>) {
+                const auto* feature = find_feature(m_project, id);
+                if (feature == nullptr)
+                    return Result<PropertyLookupResult, Diagnostics>::failure(
+                        property_error("runtime.unknown_property_owner", PropertyTargetRef{id},
+                                       property, "does not identify a compiled Feature"));
+                return resolve_identity(m_project, m_state, PropertyTargetRef{id}, *feature,
+                                        property, *declaration);
+            }
         },
         owner);
 }

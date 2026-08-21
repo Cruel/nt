@@ -25,7 +25,8 @@ enum class PropertyScope : std::uint8_t {
 struct GlobalPropertyTarget {
     bool operator==(const GlobalPropertyTarget&) const = default;
 };
-using PropertyTargetRef = std::variant<GlobalPropertyTarget, RoomId, CharacterId, InteractableId>;
+using PropertyTargetRef = std::variant<GlobalPropertyTarget, RoomId, CharacterId, InteractableId,
+                                       RoomFeatureRef, InteractableFeatureRef>;
 
 struct BooleanPropertyType {};
 struct IntegerPropertyType {};
@@ -143,6 +144,9 @@ using PropertyLookupResult = std::variant<RuntimeValue, MissingPropertyValue>;
                 return PropertyOwnerKind::Character;
             else if constexpr (std::is_same_v<T, InteractableId>)
                 return PropertyOwnerKind::Interactable;
+            else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
+                               std::is_same_v<T, InteractableFeatureRef>)
+                return PropertyOwnerKind::Feature;
             else
                 static_assert(std::is_same_v<T, void>, "Unhandled property owner type");
         },
@@ -216,7 +220,7 @@ make_property_definition(PropertyDefinitionInput input)
                        .message = "Global Properties require a default and no owner kinds; "
                                   "identity Properties require at least one owner kind"}});
     for (const auto owner : input.allowed_owners) {
-        if (owner > PropertyOwnerKind::Interactable)
+        if (owner > PropertyOwnerKind::Feature)
             return Result<PropertyDefinition, Diagnostics>::failure(
                 Diagnostics{Diagnostic{.code = "domain.invalid_property_definition",
                                        .message = "Property owner kind is invalid"}});

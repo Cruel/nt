@@ -34,11 +34,13 @@ dispatch and must not cause recursive dispatch.
 
 `HostInputRouter` remains the sole RmlUi/Layout admission authority. After it projects host pointer
 coordinates and admits gameplay, `WorldHotspotController` performs backend-neutral hit testing and
-primary-pointer capture against the committed world generation. A world activation is dispatched as
-one owner-qualified `ActivateHotspotInput` through the ordinary runtime gateway; generic Verb input
-cannot inject exact hotspot context. UI admission changes, focus/window/touch cancellation,
-presentation replacement, reset, preview pause, and shutdown cancel world hover/press/capture state
-before any runtime work is submitted. Focused authoring previews keep this controller disabled.
+primary-pointer capture against the committed world generation. Hotspot identity remains internal to
+that presentation gesture; successful release returns the resolved semantic target. Interaction
+subjects are dispatched through ordinary subject-selection input and Room Exits through ordinary
+navigation, so pointer and non-pointer paths share one runtime identity. UI admission changes,
+focus/window/touch cancellation, presentation replacement, reset, preview pause, and shutdown cancel
+world hover/press/capture state before any runtime work is submitted. Focused authoring previews keep
+this controller disabled.
 
 ## Layout realization
 

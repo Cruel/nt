@@ -15,7 +15,13 @@ export type AuthoringDependencyNodeKey =
       kind: 'nested';
       ownerCollection: AuthoringCollectionKey;
       ownerId: string;
-      family: 'room-placement' | 'room-exit' | 'room-hotspot' | 'interactable-hotspot';
+      family:
+        | 'room-placement'
+        | 'room-exit'
+        | 'room-feature'
+        | 'room-hotspot'
+        | 'interactable-feature'
+        | 'interactable-hotspot';
       id: string;
     }
   | { kind: 'property-definition'; id: string }
@@ -73,11 +79,10 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'interactable-sprite',
   'interactable-material',
   'interactable-room-placement',
-  'hotspot-activation-verb',
-  'hotspot-exit',
+  'feature-ref',
+  'hotspot-target',
   'hotspot-material',
   'hotspot-source-image',
-  'hotspot-context',
   'lua-possible-reference',
   'lua-recognized-reference',
   'lua-explicit-reference',

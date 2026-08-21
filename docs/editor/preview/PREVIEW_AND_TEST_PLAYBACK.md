@@ -32,14 +32,16 @@ The transport message name is an external protocol operation, not a schema name.
 payload must be `noveltea.compiled.project` version 4.
 
 Live commands lower to stable typed inputs for start/stop/reset/time, continue, dialogue choice,
-navigation, selection, interaction, declared variable changes, inventory location changes, room
-teleport, owner-qualified hotspot activation, fast-forward, recorder controls, and debug snapshot
-requests. Generic Verb invocation cannot supply exact hotspot context.
+navigation, semantic subject selection, interaction invocation, declared variable changes, inventory
+location changes, room teleport, fast-forward, recorder controls, and debug snapshot requests.
+Interaction subjects include Characters, Interactables, and owner-qualified Features. Hotspot identity
+is not a runtime command surface.
 
-The interactive Player Input panel does not enumerate authored hotspot definitions. Runtime debug
-snapshots publish the owner-qualified hotspots that are currently presented, condition-eligible, and
-activation-available, and the panel renders only that list. Hidden, disabled, absent, and otherwise
-ineligible Interactables cannot produce enabled preview controls.
+The interactive Player Input panel does not enumerate authored Hotspot definitions. Runtime debug
+snapshots publish semantic clickable targets that are currently presented and eligible: either an
+Interaction subject plus label or a Room Exit plus label. A pointer Hotspot and a non-pointer control
+therefore converge on the same subject/navigation input. Hidden, disabled, absent, condition-false,
+and otherwise ineligible geometry does not produce enabled preview controls.
 
 Focused Room preview remains `noveltea.room-preview` version 2 and is passive: its projected snapshot
 contains no hotspot values and it does not install world hotspot input. Play preview uses the normal
@@ -90,8 +92,10 @@ choice/navigation steps, arbitrary playback Lua, and old assertion payloads are 
 structured diagnostics.
 
 Recording is acceptance-driven. A semantic input is appended to the recorder draft only after its
-request receives a successful command result. Rejected hotspot activations and other failed runtime
-commands remain diagnostics/trace events and do not become replayable test steps.
+request receives a successful command result. Rejected subject selections, navigation requests, and
+other failed runtime commands remain diagnostics/trace events and do not become replayable test
+steps. Recorded pointer-driven work stores the resolved semantic selection/navigation input, not a
+Hotspot ID or pointer coordinates.
 
 Reports contain ordered runtime events, diagnostics, pass/fail state, and `finalPublication`, which
 encodes the coherent publication revision, gameplay UI view, presentation revision/desired-family

@@ -309,6 +309,25 @@ struct CharacterDefinition {
     CharacterInitialWorldState initial_world_state;
 };
 
+struct FeatureDefinition {
+    PropertyBearingDefinition<FeatureId> identity;
+    std::string label;
+};
+struct CharacterInteractionSubject {
+    CharacterId character;
+    bool operator==(const CharacterInteractionSubject&) const = default;
+};
+struct InteractableInteractionSubject {
+    InteractableId interactable;
+    bool operator==(const InteractableInteractionSubject&) const = default;
+};
+struct FeatureInteractionSubject {
+    FeatureRef feature;
+    bool operator==(const FeatureInteractionSubject&) const = default;
+};
+using InteractionSubject = std::variant<CharacterInteractionSubject, InteractableInteractionSubject,
+                                        FeatureInteractionSubject>;
+
 struct RoomExitRef {
     RoomId room;
     RoomExitId exit_id;
@@ -346,15 +365,26 @@ struct MaterialHotspotHighlight {
 };
 using HotspotHighlight =
     std::variant<DefaultHotspotHighlight, MaterialHotspotHighlight, NoHotspotHighlight>;
-struct VerbHotspotActivation {
-    VerbId verb;
-    auto operator<=>(const VerbHotspotActivation&) const = default;
+struct HotspotOwnerTarget {
+    auto operator<=>(const HotspotOwnerTarget&) const = default;
 };
-struct RoomExitHotspotActivation {
+struct HotspotOwnerFeatureTarget {
+    FeatureId feature_id;
+    auto operator<=>(const HotspotOwnerFeatureTarget&) const = default;
+};
+struct HotspotSubjectTarget {
+    InteractionSubject subject;
+    bool operator==(const HotspotSubjectTarget&) const = default;
+};
+struct RoomExitHotspotTarget {
     RoomExitId exit_id;
-    auto operator<=>(const RoomExitHotspotActivation&) const = default;
+    auto operator<=>(const RoomExitHotspotTarget&) const = default;
 };
-using RoomHotspotActivation = std::variant<VerbHotspotActivation, RoomExitHotspotActivation>;
+using RoomHotspotTarget =
+    std::variant<HotspotOwnerFeatureTarget, HotspotSubjectTarget, RoomExitHotspotTarget>;
+using InteractableHotspotTarget =
+    std::variant<HotspotOwnerTarget, HotspotOwnerFeatureTarget, HotspotSubjectTarget>;
+using ResolvedHotspotTarget = std::variant<InteractionSubject, RoomExitRef>;
 struct RectHotspotShape {
     NormalizedRect bounds;
     bool operator==(const RectHotspotShape&) const = default;
@@ -366,7 +396,7 @@ struct RoomHotspot {
     std::int32_t input_order;
     HotspotHighlight highlight;
     RectHotspotShape shape;
-    RoomHotspotActivation activation;
+    RoomHotspotTarget target;
 };
 struct InteractableHotspotBehavior {
     HotspotId id;
@@ -374,7 +404,7 @@ struct InteractableHotspotBehavior {
     Condition condition;
     std::int32_t input_order;
     HotspotHighlight highlight;
-    VerbHotspotActivation activation;
+    InteractableHotspotTarget target;
 };
 struct InteractableCustomHotspot : InteractableHotspotBehavior {
     RectHotspotShape shape;
@@ -487,6 +517,7 @@ struct RoomDefinition {
     std::optional<RoomCompositionHook> compose;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;
+    std::vector<FeatureDefinition> features;
     std::vector<RoomHotspot> hotspots;
 };
 
@@ -506,6 +537,7 @@ struct InteractablePresentation {
 struct InteractableDefinition {
     PropertyBearingDefinition<InteractableId> identity;
     std::string display_name;
+    std::vector<FeatureDefinition> features;
     InteractableInitialState initial_state;
     InteractablePresentation presentation;
 };
@@ -560,22 +592,8 @@ struct PlacementInteractionContext {
 struct PredicateInteractionContext {
     Condition condition;
 };
-struct HotspotInteractionContext {
-    HotspotRef hotspot;
-};
-using InteractionContext =
-    std::variant<AnyInteractionContext, ActiveRoomInteractionContext, PlacementInteractionContext,
-                 PredicateInteractionContext, HotspotInteractionContext>;
-struct CharacterInteractionSubject {
-    CharacterId character;
-    bool operator==(const CharacterInteractionSubject&) const = default;
-};
-struct InteractableInteractionSubject {
-    InteractableId interactable;
-    bool operator==(const InteractableInteractionSubject&) const = default;
-};
-using InteractionSubject =
-    std::variant<CharacterInteractionSubject, InteractableInteractionSubject>;
+using InteractionContext = std::variant<AnyInteractionContext, ActiveRoomInteractionContext,
+                                        PlacementInteractionContext, PredicateInteractionContext>;
 struct ExactOperand {
     InteractionSubject subject;
 };
@@ -1041,6 +1059,12 @@ public:
     [[nodiscard]] const compiled::RoomDefinition* find_room(const RoomId& id) const noexcept;
     [[nodiscard]] const compiled::InteractableDefinition*
     find_interactable(const InteractableId& id) const noexcept;
+    [[nodiscard]] const compiled::FeatureDefinition*
+    find_feature(const RoomFeatureRef& reference) const noexcept;
+    [[nodiscard]] const compiled::FeatureDefinition*
+    find_feature(const InteractableFeatureRef& reference) const noexcept;
+    [[nodiscard]] const compiled::FeatureDefinition*
+    find_feature(const FeatureRef& reference) const noexcept;
     [[nodiscard]] const compiled::VerbDefinition* find_verb(const VerbId& id) const noexcept;
     [[nodiscard]] const compiled::InteractionDefinition*
     find_interaction(const InteractionId& id) const noexcept;

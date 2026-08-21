@@ -944,7 +944,9 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
                             out.room.objects.push_back(
                                 {"character", id, placement.label.value_or(id), occupant.enabled,
                                  id_matches_selected(view.selected_subjects, subject.character)});
-                        } else {
+                        } else if constexpr (std::is_same_v<
+                                                 Subject,
+                                                 core::compiled::InteractableInteractionSubject>) {
                             const auto id = subject.interactable.text();
                             out.room.objects.push_back(
                                 {"interactable", id, placement.label.value_or(id), occupant.enabled,

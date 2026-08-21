@@ -194,11 +194,17 @@ export interface RuntimeDebugActionSnapshot {
 
 export type PreviewInteractionSubject =
   | { kind: 'character'; id: string }
-  | { kind: 'interactable'; id: string };
+  | { kind: 'interactable'; id: string }
+  | {
+      kind: 'feature';
+      ownerKind: 'room' | 'interactable';
+      ownerId: string;
+      featureId: string;
+    };
 
-export type PreviewHotspotRef =
-  | { kind: 'room-hotspot'; room: string; hotspotId: string }
-  | { kind: 'interactable-hotspot'; interactable: string; hotspotId: string };
+export type PreviewClickableTarget =
+  | { kind: 'subject'; subject: PreviewInteractionSubject; label: string }
+  | { kind: 'exit'; exitId: string; label: string };
 
 export interface RuntimeDebugAvailableInputsSnapshot {
   continue: boolean;
@@ -206,7 +212,7 @@ export interface RuntimeDebugAvailableInputsSnapshot {
   navigation: RuntimeDebugNavigationSnapshot[];
   actions: RuntimeDebugActionSnapshot[];
   selectedSubjects: PreviewInteractionSubject[];
-  clickableTargets: unknown[];
+  clickableTargets: PreviewClickableTarget[];
 }
 
 export interface RuntimeDebugDiagnosticSnapshot {
@@ -336,12 +342,6 @@ export type EditorToPreviewMessage =
       requestId: string;
       verbId: string;
       operands: PreviewInteractionSubject[];
-    }
-  | {
-      version: 1;
-      type: 'runtime-activate-hotspot';
-      requestId: string;
-      hotspot: PreviewHotspotRef;
     }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
   | {
@@ -690,22 +690,25 @@ function isRuntimeDebugActionSnapshot(value: unknown): value is RuntimeDebugActi
 }
 
 function isPreviewInteractionSubject(value: unknown): value is PreviewInteractionSubject {
+  if (!isRecord(value)) return false;
+  if (value.kind === 'character' || value.kind === 'interactable')
+    return typeof value.id === 'string' && value.id.length > 0 && Object.keys(value).length === 2;
   return (
-    isRecord(value) &&
-    (value.kind === 'character' || value.kind === 'interactable') &&
-    typeof value.id === 'string' &&
-    value.id.length > 0 &&
-    Object.keys(value).length === 2
+    value.kind === 'feature' &&
+    (value.ownerKind === 'room' || value.ownerKind === 'interactable') &&
+    typeof value.ownerId === 'string' &&
+    value.ownerId.length > 0 &&
+    typeof value.featureId === 'string' &&
+    value.featureId.length > 0 &&
+    Object.keys(value).length === 4
   );
 }
 
-function isPreviewHotspotRef(value: unknown): value is PreviewHotspotRef {
-  if (!isRecord(value) || typeof value.hotspotId !== 'string' || !value.hotspotId) return false;
-  return value.kind === 'room-hotspot'
-    ? typeof value.room === 'string' && value.room.length > 0
-    : value.kind === 'interactable-hotspot' &&
-        typeof value.interactable === 'string' &&
-        value.interactable.length > 0;
+function isPreviewClickableTarget(value: unknown): value is PreviewClickableTarget {
+  if (!isRecord(value) || typeof value.label !== 'string') return false;
+  return value.kind === 'subject'
+    ? isPreviewInteractionSubject(value.subject)
+    : value.kind === 'exit' && typeof value.exitId === 'string' && value.exitId.length > 0;
 }
 
 function isRuntimeDebugAvailableInputsSnapshot(
@@ -722,7 +725,8 @@ function isRuntimeDebugAvailableInputsSnapshot(
     value.actions.every(isRuntimeDebugActionSnapshot) &&
     Array.isArray(value.selectedSubjects) &&
     value.selectedSubjects.every(isPreviewInteractionSubject) &&
-    Array.isArray(value.clickableTargets)
+    Array.isArray(value.clickableTargets) &&
+    value.clickableTargets.every(isPreviewClickableTarget)
   );
 }
 
@@ -980,8 +984,6 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
         Array.isArray(value.operands) &&
         value.operands.every(isPreviewInteractionSubject)
       );
-    case 'runtime-activate-hotspot':
-      return isPreviewHotspotRef(value.hotspot);
     case 'runtime-set-variable':
       return (
         typeof value.variableId === 'string' &&

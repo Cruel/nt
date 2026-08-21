@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
-import { characterRefSchema, interactableRefSchema, verbRefSchema } from './authoring-flow';
+import { verbRefSchema } from './authoring-flow';
+import { interactionSubjectSchema, type FeatureRefData } from './authoring-features';
 import {
   defaultInteractionProgram,
   interactionContextSchema,
@@ -14,10 +15,7 @@ import type { AuthoringProject, AuthoringRecordBase } from './authoring-project'
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-export const interactionSubjectSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableRefSchema }),
-]);
+export { interactionSubjectSchema } from './authoring-features';
 export const interactionOperandSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('exact'), subject: interactionSubjectSchema }),
   strict({ kind: z.literal('any-character') }),
@@ -78,6 +76,44 @@ function validateRoomPlacement(
       diagnostic(`${path}/placement`, `Missing placement '${placementId}' in room '${roomId}'.`),
     );
   }
+}
+
+function validateFeatureRef(
+  project: AuthoringProject,
+  feature: FeatureRefData,
+  path: string,
+  diagnostics: InteractionSchemaDiagnostic[],
+) {
+  if (feature.ownerKind === 'room') {
+    const roomId = feature.room.$ref.id;
+    const room = parseRoomData(project.rooms[roomId]?.data);
+    if (!room)
+      diagnostics.push(diagnostic(`${path}/room/$ref`, `Missing or invalid Room '${roomId}'.`));
+    else if (!room.features.some((candidate) => candidate.id === feature.featureId))
+      diagnostics.push(
+        diagnostic(
+          `${path}/featureId`,
+          `Missing Feature '${feature.featureId}' on Room '${roomId}'.`,
+        ),
+      );
+    return;
+  }
+  const interactableId = feature.interactable.$ref.id;
+  const interactable = parseInteractableData(project.interactables[interactableId]?.data);
+  if (!interactable)
+    diagnostics.push(
+      diagnostic(
+        `${path}/interactable/$ref`,
+        `Missing or invalid Interactable '${interactableId}'.`,
+      ),
+    );
+  else if (!interactable.features.some((candidate) => candidate.id === feature.featureId))
+    diagnostics.push(
+      diagnostic(
+        `${path}/featureId`,
+        `Missing Feature '${feature.featureId}' on Interactable '${interactableId}'.`,
+      ),
+    );
 }
 
 function validateFlowTarget(
@@ -233,6 +269,13 @@ export function validateInteractionData(
           ),
         );
       }
+      if (operand.kind === 'exact' && operand.subject.kind === 'feature')
+        validateFeatureRef(
+          project,
+          operand.subject.feature,
+          `${path}/operands/${operandIndex}/subject/feature`,
+          diagnostics,
+        );
     }
     if (rule.context.kind === 'active-room' && !project.rooms[rule.context.room.$ref.id])
       diagnostics.push(
@@ -246,103 +289,6 @@ export function validateInteractionData(
         `${path}/context/placement`,
         diagnostics,
       );
-    if (rule.context.kind === 'hotspot') {
-      const hotspotRef = rule.context.hotspot;
-      if (hotspotRef.kind === 'room-hotspot') {
-        const roomId = hotspotRef.room.$ref.id;
-        const roomRecord = project.rooms[roomId];
-        const room = roomRecord ? parseRoomData(roomRecord.data) : null;
-        const hotspot = room?.hotspots.find((candidate) => candidate.id === hotspotRef.hotspotId);
-        if (!room)
-          diagnostics.push(
-            diagnostic(`${path}/context/hotspot/room/$ref`, `Missing or invalid Room '${roomId}'.`),
-          );
-        else if (!hotspot)
-          diagnostics.push(
-            diagnostic(
-              `${path}/context/hotspot/hotspotId`,
-              `Missing Room hotspot '${hotspotRef.hotspotId}'.`,
-            ),
-          );
-        else if (hotspot.activation.kind === 'exit')
-          diagnostics.push(
-            diagnostic(
-              `${path}/context/hotspot/hotspotId`,
-              'Interaction rules cannot target an exit-activated Room hotspot.',
-            ),
-          );
-        else {
-          const hotspotVerbId = hotspot.activation.verb?.$ref.id ?? null;
-          if (hotspotVerbId !== rule.verb.$ref.id)
-            diagnostics.push(
-              diagnostic(
-                `${path}/verb/$ref`,
-                `Interaction rule Verb must match Room hotspot Verb '${hotspotVerbId ?? '(unbound)'}'.`,
-              ),
-            );
-          if (rule.operands.length !== 0)
-            diagnostics.push(
-              diagnostic(
-                `${path}/operands`,
-                'Room hotspot Interaction rules must not declare operands.',
-              ),
-            );
-        }
-      } else {
-        const interactableId = hotspotRef.interactable.$ref.id;
-        const interactableRecord = project.interactables[interactableId];
-        const interactable = interactableRecord
-          ? parseInteractableData(interactableRecord.data)
-          : null;
-        const hotspot =
-          interactable?.presentation.hotspots.kind === 'sprite-alpha'
-            ? interactable.presentation.hotspots.hotspot.id === hotspotRef.hotspotId
-              ? interactable.presentation.hotspots.hotspot
-              : null
-            : (interactable?.presentation.hotspots.hotspots.find(
-                (candidate) => candidate.id === hotspotRef.hotspotId,
-              ) ?? null);
-        if (!interactable)
-          diagnostics.push(
-            diagnostic(
-              `${path}/context/hotspot/interactable/$ref`,
-              `Missing or invalid Interactable '${interactableId}'.`,
-            ),
-          );
-        else if (!hotspot)
-          diagnostics.push(
-            diagnostic(
-              `${path}/context/hotspot/hotspotId`,
-              `Missing Interactable hotspot '${hotspotRef.hotspotId}'.`,
-            ),
-          );
-        else {
-          const hotspotVerbId = hotspot.activation.verb?.$ref.id ?? null;
-          if (hotspotVerbId !== rule.verb.$ref.id)
-            diagnostics.push(
-              diagnostic(
-                `${path}/verb/$ref`,
-                `Interaction rule Verb must match Interactable hotspot Verb '${hotspotVerbId ?? '(unbound)'}'.`,
-              ),
-            );
-          const operand = rule.operands[0];
-          const validOperand =
-            rule.operands.length === 1 &&
-            (operand?.kind === 'any-interactable' ||
-              operand?.kind === 'any-subject' ||
-              (operand?.kind === 'exact' &&
-                operand.subject.kind === 'interactable' &&
-                operand.subject.interactable.$ref.id === interactableId));
-          if (!validOperand)
-            diagnostics.push(
-              diagnostic(
-                `${path}/operands`,
-                `Interactable hotspot rules require exactly one compatible operand for '${interactableId}'.`,
-              ),
-            );
-        }
-      }
-    }
     if (
       rule.context.kind === 'predicate' &&
       rule.context.condition.kind === 'variable-comparison'

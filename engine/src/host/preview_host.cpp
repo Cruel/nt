@@ -469,12 +469,6 @@ bool PreviewHost::run_interaction(const std::string& verb_id,
         core::InvokeInteractionInput{std::move(*verb.value_if()), std::move(operands)}});
 }
 
-bool PreviewHost::activate_hotspot(core::compiled::HotspotRef hotspot)
-{
-    return running_game_available() &&
-           dispatch(core::RuntimeInputMessage{core::ActivateHotspotInput{std::move(hotspot)}});
-}
-
 PreviewMutationResult PreviewHost::set_variable(const std::string& variable_id,
                                                 core::RuntimeValue value)
 {

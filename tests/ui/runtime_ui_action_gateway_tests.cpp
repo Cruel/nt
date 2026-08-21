@@ -192,7 +192,7 @@ TEST_CASE("RuntimeUiActionGateway validates save and load actions against curren
     CHECK(sink.shell_commands == 3);
 }
 
-TEST_CASE("RuntimeUiActionGateway Lua API dispatches exact hotspot activation")
+TEST_CASE("RuntimeUiActionGateway does not expose Hotspot geometry as a Lua gameplay action")
 {
     noveltea::core::Diagnostics diagnostics;
     noveltea::ui::rmlui::RuntimeUiActionGateway binder(diagnostics);
@@ -208,18 +208,8 @@ TEST_CASE("RuntimeUiActionGateway Lua API dispatches exact hotspot activation")
     REQUIRE(state != nullptr);
     luaL_openlibs(state);
     binder.set_lua_state(state);
-    REQUIRE(
-        luaL_dostring(
-            state, "assert(Game.ui.activate_hotspot('interactable-hotspot', 'key', 'primary'))") ==
-        LUA_OK);
-    REQUIRE(sink.last_gameplay_input);
-    const auto* activation =
-        std::get_if<noveltea::core::ActivateHotspotInput>(&*sink.last_gameplay_input);
-    REQUIRE(activation != nullptr);
-    CHECK(activation->hotspot ==
-          noveltea::core::compiled::HotspotRef{noveltea::core::compiled::InteractableHotspotRef{
-              noveltea::core::InteractableId::create("key").value(),
-              noveltea::core::HotspotId::create("primary").value()}});
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.activate_hotspot == nil)") == LUA_OK);
+    CHECK_FALSE(sink.last_gameplay_input);
 
     binder.set_lua_state(nullptr);
     lua_close(state);

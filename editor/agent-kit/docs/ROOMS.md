@@ -78,7 +78,7 @@ Create `records/interactables/key.json`:
           "condition": { "kind": "always" },
           "inputOrder": 0,
           "highlight": { "kind": "default" },
-          "activation": { "kind": "verb", "verb": null }
+          "target": { "kind": "owner" }
         }
       }
     },
@@ -119,17 +119,30 @@ And add a Room-interactable instance to `data.interactables`:
 
 The Interactable owns the sprite. Do not add a duplicate Prop just to display the same sprite.
 
-`activation.verb: null` means interaction behavior has not been configured yet. Authoring validation reports that state as incomplete rather than requiring a fabricated placeholder Verb. Before runtime-ready behavior is expected, assign a compatible arity-1 Verb; see `.noveltea/agent/docs/INTERACTIONS.md`.
+The default sprite-alpha Hotspot targets the owning Interactable. Gameplay behavior is defined by
+ordinary Interaction rules/Verbs for that Interactable subject; the Hotspot does not own a Verb.
 
-## Template 3: Room hotspot over a background feature
+## Template 3: Room Feature with background Hotspot geometry
 
-Use a Room hotspot when the visible feature is already part of the Room background image.
+Use a Room Feature when a meaningful semantic part is visually baked into the Room background image.
+The Feature owns semantic identity/state; one or more Hotspots may select it.
 
-Add to the Room's `data.hotspots`:
+First add to the Room's `data.features`:
 
 ```json
 {
   "id": "picture-frame",
+  "label": "Picture frame",
+  "traits": [],
+  "properties": {}
+}
+```
+
+Then add pointer geometry to `data.hotspots`:
+
+```json
+{
+  "id": "picture-frame-region",
   "label": "Picture frame",
   "condition": { "kind": "always" },
   "inputOrder": 0,
@@ -138,16 +151,20 @@ Add to the Room's `data.hotspots`:
     "kind": "rect",
     "bounds": { "x": 0.62, "y": 0.18, "width": 0.16, "height": 0.24 }
   },
-  "activation": {
-    "kind": "verb",
-    "verb": null
+  "target": {
+    "kind": "owner-feature",
+    "featureId": "picture-frame"
   }
 }
 ```
 
-A Room hotspot requires a background image source when it is clickable. If behavior is configured, its Verb must have arity `0`. `verb: null` is permitted as an incomplete-authoring state until behavior is chosen.
+A Room Hotspot requires a background image source when it is clickable. It owns no Verb or
+Interaction context. Define gameplay behavior through Interaction rules using the owner-qualified
+Room Feature as the semantic subject. Multiple Hotspots may target the same Feature when one semantic
+part has multiple clickable regions.
 
-Room hotspots can also activate a Room exit by using `{ "kind": "exit", "exitId": "..." }` instead of Verb activation; the referenced exit must belong to the same Room.
+Room Hotspots can instead select an owner-local Room Exit with
+`{ "kind": "exit", "exitId": "..." }`; the referenced Exit must belong to the same Room.
 
 ## Validation workflow
 

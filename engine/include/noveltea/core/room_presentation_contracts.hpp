@@ -179,8 +179,8 @@ struct ResolvedPresentationHotspot {
     compiled::HotspotRef ref;
     std::string label;
     bool condition_eligible = false;
-    bool activation_available = false;
-    std::variant<compiled::VerbHotspotActivation, compiled::RoomExitHotspotActivation> activation;
+    bool target_available = false;
+    compiled::ResolvedHotspotTarget target;
     std::variant<std::monostate, compiled::RectHotspotShape> shape;
     std::int32_t input_order = 0;
     compiled::HotspotHighlight highlight;

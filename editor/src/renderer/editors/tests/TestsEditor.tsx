@@ -25,10 +25,9 @@ import {
   testAssertionTypeValues,
   testCharacterSubject,
   testDialogueRef,
+  testFeatureSubject,
   testInputTypeValues,
-  testInteractableHotspotRef,
   testInteractableSubject,
-  testRoomHotspotRef,
   testRoomRef,
   testSceneRef,
   testVariableRef,
@@ -114,7 +113,11 @@ function refValue(ref: { $ref: { id: string } } | null | undefined) {
 }
 
 function subjectId(subject: TestInteractionSubject) {
-  return subject.kind === 'character' ? subject.character.$ref.id : subject.interactable.$ref.id;
+  if (subject.kind === 'character') return subject.character.$ref.id;
+  if (subject.kind === 'interactable') return subject.interactable.$ref.id;
+  return subject.feature.ownerKind === 'room'
+    ? `${subject.feature.room.$ref.id}:${subject.feature.featureId}`
+    : `${subject.feature.interactable.$ref.id}:${subject.feature.featureId}`;
 }
 
 function subjectLabel(subject: TestInteractionSubject) {
@@ -343,24 +346,29 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
     id,
     label: item.label,
   }));
-  const hotspots = [
+  const features = [
     ...Object.entries(activeProject.rooms).flatMap(([roomId, item]) =>
-      (parseRoomData(item.data)?.hotspots ?? []).map((hotspot) => ({
-        value: `room-hotspot:${roomId}:${hotspot.id}`,
-        label: `Room: ${item.label} / ${hotspot.label}`,
+      (parseRoomData(item.data)?.features ?? []).map((feature) => ({
+        value: `room:${roomId}:${feature.id}`,
+        label: `Room: ${item.label} / ${feature.label}`,
+        subject: testFeatureSubject({
+          ownerKind: 'room',
+          room: { $ref: { collection: 'rooms', id: roomId } },
+          featureId: feature.id,
+        }),
       })),
     ),
-    ...Object.entries(activeProject.interactables).flatMap(([interactableId, item]) => {
-      const interactable = parseInteractableData(item.data);
-      const values =
-        interactable?.presentation.hotspots.kind === 'sprite-alpha'
-          ? [interactable.presentation.hotspots.hotspot]
-          : (interactable?.presentation.hotspots.hotspots ?? []);
-      return values.map((hotspot) => ({
-        value: `interactable-hotspot:${interactableId}:${hotspot.id}`,
-        label: `Interactable: ${item.label} / ${hotspot.label}`,
-      }));
-    }),
+    ...Object.entries(activeProject.interactables).flatMap(([interactableId, item]) =>
+      (parseInteractableData(item.data)?.features ?? []).map((feature) => ({
+        value: `interactable:${interactableId}:${feature.id}`,
+        label: `Interactable: ${item.label} / ${feature.label}`,
+        subject: testFeatureSubject({
+          ownerKind: 'interactable',
+          interactable: { $ref: { collection: 'interactables', id: interactableId } },
+          featureId: feature.id,
+        }),
+      })),
+    ),
   ];
 
   function commit(next: TestData, label = 'Update test') {
@@ -836,6 +844,25 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                       </SelectItem>
                     ))}
                   </Select>
+                  <Select
+                    value="__add__"
+                    onValueChange={(value) => {
+                      const feature = features.find((item) => item.value === String(value));
+                      if (!feature) return;
+                      replaceStep(activeStep.id, {
+                        selectSubjects: {
+                          subjects: [...activeStep.selectSubjects.subjects, feature.subject],
+                        },
+                      });
+                    }}
+                  >
+                    <SelectItem value="__add__">Add Feature</SelectItem>
+                    {features.map((feature) => (
+                      <SelectItem key={feature.value} value={feature.value}>
+                        {feature.label}
+                      </SelectItem>
+                    ))}
+                  </Select>
                   {activeStep.selectSubjects.subjects.map((subject, index) => (
                     <Button
                       key={`${subject.kind}-${subjectId(subject)}-${index}`}
@@ -920,6 +947,26 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                       </SelectItem>
                     ))}
                   </Select>
+                  <Select
+                    value="__add__"
+                    onValueChange={(value) => {
+                      const feature = features.find((item) => item.value === String(value));
+                      if (!feature) return;
+                      replaceStep(activeStep.id, {
+                        runInteraction: {
+                          ...activeStep.runInteraction,
+                          operands: [...activeStep.runInteraction.operands, feature.subject],
+                        },
+                      });
+                    }}
+                  >
+                    <SelectItem value="__add__">Add Feature operand</SelectItem>
+                    {features.map((feature) => (
+                      <SelectItem key={feature.value} value={feature.value}>
+                        {feature.label}
+                      </SelectItem>
+                    ))}
+                  </Select>
                   {activeStep.runInteraction.operands.map((subject, index) => (
                     <Button
                       key={`${subject.kind}-${subjectId(subject)}-${index}`}
@@ -940,37 +987,6 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                     </Button>
                   ))}
                 </div>
-              ) : null}
-              {activeStep.input === 'activate-hotspot' ? (
-                <Select
-                  value={
-                    activeStep.activateHotspot.hotspot
-                      ? activeStep.activateHotspot.hotspot.kind === 'room-hotspot'
-                        ? `room-hotspot:${activeStep.activateHotspot.hotspot.room.$ref.id}:${activeStep.activateHotspot.hotspot.hotspotId}`
-                        : `interactable-hotspot:${activeStep.activateHotspot.hotspot.interactable.$ref.id}:${activeStep.activateHotspot.hotspot.hotspotId}`
-                      : '__none__'
-                  }
-                  onValueChange={(value) => {
-                    const [kind, ownerId, hotspotId] = String(value).split(':');
-                    replaceStep(activeStep.id, {
-                      activateHotspot: {
-                        hotspot:
-                          kind === 'room-hotspot' && ownerId && hotspotId
-                            ? testRoomHotspotRef(ownerId, hotspotId)
-                            : kind === 'interactable-hotspot' && ownerId && hotspotId
-                              ? testInteractableHotspotRef(ownerId, hotspotId)
-                              : null,
-                      },
-                    });
-                  }}
-                >
-                  <SelectItem value="__none__">No hotspot</SelectItem>
-                  {hotspots.map((hotspot) => (
-                    <SelectItem key={hotspot.value} value={hotspot.value}>
-                      {hotspot.label}
-                    </SelectItem>
-                  ))}
-                </Select>
               ) : null}
               {activeStep.input === 'load-save' ? (
                 <SourceEditor

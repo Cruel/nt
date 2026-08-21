@@ -13,6 +13,7 @@ import type {
   InteractionProgram as AuthoringInteractionProgram,
 } from './project-schema/authoring-interaction-programs';
 import type { AuthoringProject } from './project-schema/authoring-project';
+import type { InteractionSubjectData } from './project-schema/authoring-features';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
 import { parseVerbData } from './project-schema/authoring-verbs';
@@ -49,6 +50,37 @@ function compileCondition(condition: Condition): CompiledCondition {
     operator: condition.operator,
     property: { kind: 'property', id: condition.variable.$ref.id },
     ...(condition.value === undefined ? {} : { value: condition.value }),
+  };
+}
+
+function compileInteractionSubject(subject: InteractionSubjectData) {
+  if (subject.kind === 'character')
+    return {
+      kind: 'character' as const,
+      character: { kind: 'character' as const, id: subject.character.$ref.id },
+    };
+  if (subject.kind === 'interactable')
+    return {
+      kind: 'interactable' as const,
+      interactable: { kind: 'interactable' as const, id: subject.interactable.$ref.id },
+    };
+  return {
+    kind: 'feature' as const,
+    feature:
+      subject.feature.ownerKind === 'room'
+        ? {
+            ownerKind: 'room' as const,
+            room: { kind: 'room' as const, id: subject.feature.room.$ref.id },
+            featureId: subject.feature.featureId,
+          }
+        : {
+            ownerKind: 'interactable' as const,
+            interactable: {
+              kind: 'interactable' as const,
+              id: subject.feature.interactable.$ref.id,
+            },
+            featureId: subject.feature.featureId,
+          },
   };
 }
 
@@ -271,27 +303,11 @@ export function lowerDialogueAndInteractionPrograms(
       rules: data.rules.map((rule) => ({
         id: rule.id,
         verb: { kind: 'verb', id: rule.verb.$ref.id },
-        operands: rule.operands.map((operand) => {
-          if (operand.kind !== 'exact') return { kind: operand.kind };
-          return operand.subject.kind === 'character'
-            ? {
-                kind: 'exact' as const,
-                subject: {
-                  kind: 'character' as const,
-                  character: { kind: 'character' as const, id: operand.subject.character.$ref.id },
-                },
-              }
-            : {
-                kind: 'exact' as const,
-                subject: {
-                  kind: 'interactable' as const,
-                  interactable: {
-                    kind: 'interactable' as const,
-                    id: operand.subject.interactable.$ref.id,
-                  },
-                },
-              };
-        }),
+        operands: rule.operands.map((operand) =>
+          operand.kind === 'exact'
+            ? { kind: 'exact' as const, subject: compileInteractionSubject(operand.subject) }
+            : { kind: operand.kind },
+        ),
         context:
           rule.context.kind === 'any'
             ? { kind: 'any' as const }
@@ -308,32 +324,10 @@ export function lowerDialogueAndInteractionPrograms(
                       placementId: rule.context.placement.placement,
                     },
                   }
-                : rule.context.kind === 'predicate'
-                  ? {
-                      kind: 'predicate' as const,
-                      condition: compileCondition(rule.context.condition),
-                    }
-                  : {
-                      kind: 'hotspot' as const,
-                      hotspot:
-                        rule.context.hotspot.kind === 'room-hotspot'
-                          ? {
-                              kind: 'room-hotspot' as const,
-                              room: {
-                                kind: 'room' as const,
-                                id: rule.context.hotspot.room.$ref.id,
-                              },
-                              hotspotId: rule.context.hotspot.hotspotId,
-                            }
-                          : {
-                              kind: 'interactable-hotspot' as const,
-                              interactable: {
-                                kind: 'interactable' as const,
-                                id: rule.context.hotspot.interactable.$ref.id,
-                              },
-                              hotspotId: rule.context.hotspot.hotspotId,
-                            },
-                    },
+                : {
+                    kind: 'predicate' as const,
+                    condition: compileCondition(rule.context.condition),
+                  },
         program: compileInteractionProgram(rule.program),
       })),
     });

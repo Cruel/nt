@@ -411,6 +411,14 @@ const playbackSubjectSchema = z.discriminatedUnion('kind', [
       id: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal('feature'),
+      ownerKind: z.enum(['room', 'interactable']),
+      ownerId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+      featureId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+    })
+    .strict(),
 ]);
 const playbackInputSchema = z.discriminatedUnion('type', [
   z
@@ -432,27 +440,6 @@ const playbackInputSchema = z.discriminatedUnion('type', [
       type: z.literal('invoke-interaction'),
       verb: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
       operands: z.array(playbackSubjectSchema).max(64),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('activate-hotspot'),
-      hotspot: z.discriminatedUnion('kind', [
-        z
-          .object({
-            kind: z.literal('room-hotspot'),
-            room: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
-            hotspotId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
-          })
-          .strict(),
-        z
-          .object({
-            kind: z.literal('interactable-hotspot'),
-            interactable: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
-            hotspotId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
-          })
-          .strict(),
-      ]),
     })
     .strict(),
   z

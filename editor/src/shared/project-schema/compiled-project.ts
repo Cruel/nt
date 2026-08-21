@@ -33,6 +33,19 @@ const sceneReferenceSchema = typedReference('scene');
 const scriptReferenceSchema = typedReference('script');
 const propertyReferenceSchema = typedReference('property');
 const verbReferenceSchema = typedReference('verb');
+const featureReferenceSchema = z.discriminatedUnion('ownerKind', [
+  strict({ ownerKind: z.literal('room'), room: roomReferenceSchema, featureId: id }),
+  strict({
+    ownerKind: z.literal('interactable'),
+    interactable: interactableReferenceSchema,
+    featureId: id,
+  }),
+]);
+export const compiledInteractionSubjectSchema = z.discriminatedUnion('kind', [
+  strict({ character: characterReferenceSchema, kind: z.literal('character') }),
+  strict({ interactable: interactableReferenceSchema, kind: z.literal('interactable') }),
+  strict({ feature: featureReferenceSchema, kind: z.literal('feature') }),
+]);
 
 export const compiledTextSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
@@ -95,7 +108,12 @@ const propertyBearingDefinition = {
   propertyAssignments: z.array(propertyAssignmentSchema),
 };
 
-const propertyOwnerKindSchema = z.enum(['room', 'character', 'interactable']);
+const propertyOwnerKindSchema = z.enum(['room', 'character', 'interactable', 'feature']);
+
+const featureDefinitionSchema = strict({
+  ...propertyBearingDefinition,
+  label: z.string().min(1),
+});
 
 const traitPropertySchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('required'), propertyId: id }),
@@ -167,13 +185,15 @@ const hotspotHighlightSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('material'), material: materialReferenceSchema }),
   strict({ kind: z.literal('none') }),
 ]);
-const verbHotspotActivationSchema = strict({
-  kind: z.literal('verb'),
-  verb: verbReferenceSchema,
-});
-const roomHotspotActivationSchema = z.discriminatedUnion('kind', [
-  verbHotspotActivationSchema,
+const roomHotspotTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('owner-feature'), featureId: id }),
+  strict({ kind: z.literal('subject'), subject: compiledInteractionSubjectSchema }),
   strict({ kind: z.literal('exit'), exitId: id }),
+]);
+const interactableHotspotTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('owner') }),
+  strict({ kind: z.literal('owner-feature'), featureId: id }),
+  strict({ kind: z.literal('subject'), subject: compiledInteractionSubjectSchema }),
 ]);
 const hotspotCommonShape = {
   id,
@@ -348,11 +368,12 @@ const roomDefinitionSchema = strict({
     .optional(),
   compose: strict({ script: scriptReferenceSchema }).nullable(),
   placements: z.array(roomPlacementSchema),
+  features: z.array(featureDefinitionSchema),
   hotspots: z.array(
     strict({
       ...hotspotCommonShape,
       shape: strict({ kind: z.literal('rect'), bounds: normalizedRectSchema }),
-      activation: roomHotspotActivationSchema,
+      target: roomHotspotTargetSchema,
     }),
   ),
 });
@@ -365,6 +386,7 @@ const interactableLocationSchema = z.discriminatedUnion('kind', [
 const interactableDefinitionSchema = strict({
   ...propertyBearingDefinition,
   displayName: z.string(),
+  features: z.array(featureDefinitionSchema),
   initialState: strict({
     enabled: z.boolean(),
     location: interactableLocationSchema,
@@ -376,14 +398,14 @@ const interactableDefinitionSchema = strict({
     hotspots: z.discriminatedUnion('kind', [
       strict({
         kind: z.literal('sprite-alpha'),
-        hotspot: strict({ ...hotspotCommonShape, activation: verbHotspotActivationSchema }),
+        hotspot: strict({ ...hotspotCommonShape, target: interactableHotspotTargetSchema }),
       }),
       strict({
         kind: z.literal('custom'),
         hotspots: z.array(
           strict({
             ...hotspotCommonShape,
-            activation: verbHotspotActivationSchema,
+            target: interactableHotspotTargetSchema,
             shape: strict({ kind: z.literal('rect'), bounds: normalizedRectSchema }),
           }),
         ),
@@ -426,14 +448,10 @@ const interactionContextSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('active-room'), room: roomReferenceSchema }),
   strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
   strict({ condition: compiledConditionSchema, kind: z.literal('predicate') }),
-  strict({ kind: z.literal('hotspot'), hotspot: compiledHotspotRefSchema }),
 ]);
 const interactionOperandSchema = z.discriminatedUnion('kind', [
   strict({
-    subject: z.discriminatedUnion('kind', [
-      strict({ character: characterReferenceSchema, kind: z.literal('character') }),
-      strict({ interactable: interactableReferenceSchema, kind: z.literal('interactable') }),
-    ]),
+    subject: compiledInteractionSubjectSchema,
     kind: z.literal('exact'),
   }),
   strict({ kind: z.literal('any-character') }),

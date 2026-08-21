@@ -424,21 +424,24 @@ describe('preview protocol validation', () => {
     expect(
       isEditorToPreviewMessage({
         version: 1,
-        type: 'runtime-activate-hotspot',
-        requestId: 'runtime-hotspot',
-        hotspot: {
-          kind: 'interactable-hotspot',
-          interactable: 'lamp',
-          hotspotId: 'primary',
-        },
+        type: 'runtime-select-subjects',
+        requestId: 'runtime-select-feature',
+        subjects: [
+          {
+            kind: 'feature',
+            ownerKind: 'interactable',
+            ownerId: 'lamp',
+            featureId: 'handle',
+          },
+        ],
       }),
     ).toBe(true);
     expect(
       isEditorToPreviewMessage({
         version: 1,
-        type: 'runtime-activate-hotspot',
-        requestId: 'runtime-hotspot-bad',
-        hotspot: { kind: 'room-hotspot', room: '', hotspotId: 'door' },
+        type: 'runtime-select-subjects',
+        requestId: 'runtime-select-feature-bad',
+        subjects: [{ kind: 'feature', ownerKind: 'room', ownerId: '', featureId: 'door' }],
       }),
     ).toBe(false);
     expect(
@@ -670,10 +673,11 @@ describe('preview protocol validation', () => {
         ],
         clickableTargets: [
           {
-            kind: 'hotspot',
-            hotspot: { kind: 'room-hotspot', room: 'foyer', hotspotId: 'door' },
+            kind: 'subject',
+            subject: { kind: 'feature', ownerKind: 'room', ownerId: 'foyer', featureId: 'door' },
             label: 'Door',
           },
+          { kind: 'exit', exitId: 'east-exit', label: 'East' },
         ],
       },
       variables: [

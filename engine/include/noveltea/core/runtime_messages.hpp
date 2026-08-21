@@ -63,10 +63,6 @@ struct InvokeInteractionInput {
     std::vector<compiled::InteractionSubject> operands;
     bool operator==(const InvokeInteractionInput&) const = default;
 };
-struct ActivateHotspotInput {
-    compiled::HotspotRef hotspot;
-    bool operator==(const ActivateHotspotInput&) const = default;
-};
 struct SetVariableDebugInput {
     PropertyId variable;
     std::optional<RuntimeValue> value;
@@ -129,14 +125,15 @@ struct AcknowledgeAudioTerminationInput {
     AudioOperationId operation;
     auto operator<=>(const AcknowledgeAudioTerminationInput&) const = default;
 };
-using RuntimeInputMessage = std::variant<
-    StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput, ContinueInput,
-    SelectSceneChoiceInput, SelectDialogueChoiceInput, NavigateRoomInput,
-    SelectInteractionSubjectsInput, ClearInteractionSubjectSelectionInput, InvokeInteractionInput,
-    ActivateHotspotInput, SetVariableDebugInput, SetPropertyDebugInput, SaveRuntimeInput,
-    LoadRuntimeInput, BeginPlaybackInput, EndPlaybackInput, ClearPlaybackInput,
-    UndoPlaybackStepInput, ReplayPlaybackInput, CompletePresentationInput, CancelPresentationInput,
-    CompleteAudioInput, CancelAudioInput, AcknowledgeAudioTerminationInput>;
+using RuntimeInputMessage =
+    std::variant<StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput,
+                 ContinueInput, SelectSceneChoiceInput, SelectDialogueChoiceInput,
+                 NavigateRoomInput, SelectInteractionSubjectsInput,
+                 ClearInteractionSubjectSelectionInput, InvokeInteractionInput,
+                 SetVariableDebugInput, SetPropertyDebugInput, SaveRuntimeInput, LoadRuntimeInput,
+                 BeginPlaybackInput, EndPlaybackInput, ClearPlaybackInput, UndoPlaybackStepInput,
+                 ReplayPlaybackInput, CompletePresentationInput, CancelPresentationInput,
+                 CompleteAudioInput, CancelAudioInput, AcknowledgeAudioTerminationInput>;
 
 using PresentationOperation =
     std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,

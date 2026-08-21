@@ -108,27 +108,32 @@ TEST_CASE("editor runtime input protocol decodes only closed typed inputs")
     CHECK(input->exit.text() == "north-exit");
 }
 
-TEST_CASE("editor runtime input protocol decodes canonical hotspot activation")
+TEST_CASE("editor runtime input protocol decodes owner-qualified Feature selection")
 {
-    auto result = decode_editor_runtime_input({{"schema", runtime_input_schema},
-                                               {"version", 2},
-                                               {"input",
-                                                {{"type", "activate-hotspot"},
-                                                 {"hotspot",
-                                                  {{"kind", "interactable-hotspot"},
-                                                   {"interactable", "key"},
-                                                   {"hotspotId", "key-alpha"}}}}}});
+    auto result = decode_editor_runtime_input(
+        {{"schema", runtime_input_schema},
+         {"version", 2},
+         {"input",
+          {{"type", "select-subjects"},
+           {"subjects", nlohmann::json::array({{{"kind", "feature"},
+                                                {"ownerKind", "interactable"},
+                                                {"ownerId", "key"},
+                                                {"featureId", "surface"}}})}}}});
     REQUIRE(result);
-    const auto* input = std::get_if<ActivateHotspotInput>(&result.value());
+    const auto* input = std::get_if<SelectInteractionSubjectsInput>(&result.value());
     REQUIRE(input != nullptr);
-    const auto* hotspot = std::get_if<compiled::InteractableHotspotRef>(&input->hotspot);
-    REQUIRE(hotspot != nullptr);
-    CHECK(hotspot->interactable.text() == "key");
-    CHECK(hotspot->hotspot_id.text() == "key-alpha");
+    REQUIRE(input->subjects.size() == 1);
+    const auto* subject =
+        std::get_if<compiled::FeatureInteractionSubject>(&input->subjects.front());
+    REQUIRE(subject != nullptr);
+    const auto* feature = std::get_if<InteractableFeatureRef>(&subject->feature);
+    REQUIRE(feature != nullptr);
+    CHECK(feature->interactable.text() == "key");
+    CHECK(feature->feature_id.text() == "surface");
 
     CHECK_FALSE(decode_editor_runtime_input(
         {{"schema", runtime_input_schema},
-         {"version", 1},
+         {"version", 2},
          {"input",
           {{"type", "activate-hotspot"},
            {"hotspot", {{"kind", "room-hotspot"}, {"room", "start"}, {"hotspotId", "door"}}}}}}));

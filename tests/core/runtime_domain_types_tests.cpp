@@ -64,8 +64,8 @@ TEST_CASE("shared execution concepts are closed variants")
     STATIC_REQUIRE(std::variant_size_v<FlowTarget> == 5);
     STATIC_REQUIRE(std::variant_size_v<WaitSpec> == 7);
     STATIC_REQUIRE(std::variant_size_v<ActiveWait> == 6);
-    STATIC_REQUIRE(std::variant_size_v<PropertyOwnerRef> == 3);
-    STATIC_REQUIRE(std::variant_size_v<PropertyTargetRef> == 4);
+    STATIC_REQUIRE(std::variant_size_v<PropertyOwnerRef> == 5);
+    STATIC_REQUIRE(std::variant_size_v<PropertyTargetRef> == 6);
     STATIC_REQUIRE(std::variant_size_v<PropertyValueType> == 5);
     STATIC_REQUIRE(std::variant_size_v<NestedOwnerPath> == 8);
 }

@@ -851,20 +851,6 @@ RuntimeScriptApi::run_interaction(core::VerbId verb,
     return gateway->run_interaction(std::move(verb), std::move(operands));
 }
 
-core::Result<void, core::Diagnostics>
-RuntimeScriptApi::activate_hotspot(core::compiled::HotspotRef hotspot)
-{
-    std::scoped_lock lock(m_state->mutex);
-    if (!m_state->capabilities)
-        return core::Result<void, core::Diagnostics>::failure(unavailable());
-    auto* gateway = m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Game);
-    if (gateway == nullptr)
-        return core::Result<void, core::Diagnostics>::failure(denied("Game.activate_hotspot"));
-    if (!gateway->active(m_state->capabilities->generation()))
-        return core::Result<void, core::Diagnostics>::failure(stale());
-    return gateway->activate_hotspot(std::move(hotspot));
-}
-
 core::Result<void, core::Diagnostics> RuntimeScriptApi::save(core::TypedSaveSlotId slot)
 {
     std::scoped_lock lock(m_state->mutex);

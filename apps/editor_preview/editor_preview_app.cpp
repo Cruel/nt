@@ -329,27 +329,6 @@ EMSCRIPTEN_KEEPALIVE int noveltea_runtime_run_interaction(const char* verb_id,
     return preview->run_interaction(verb_id, std::move(*operands.value_if())) ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE int noveltea_runtime_activate_hotspot(const char* hotspot_json)
-{
-    auto* preview = preview_controller();
-    if (!preview || !hotspot_json)
-        return 0;
-    const auto hotspot = nlohmann::json::parse(hotspot_json, nullptr, false);
-    if (hotspot.is_discarded())
-        return 0;
-    const nlohmann::json message = {
-        {"schema", noveltea::core::editor::runtime_input_schema},
-        {"version", 2},
-        {"input", {{"type", "activate-hotspot"}, {"hotspot", hotspot}}}};
-    auto input = noveltea::core::editor::decode_editor_runtime_input(message);
-    if (!input) {
-        preview->report_diagnostics(std::move(input).error());
-        return 0;
-    }
-    auto* activation = std::get_if<noveltea::core::ActivateHotspotInput>(input.value_if());
-    return activation && preview->activate_hotspot(std::move(activation->hotspot)) ? 1 : 0;
-}
-
 EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_set_variable(const char* variable_id,
                                                                const char* value_json)
 {

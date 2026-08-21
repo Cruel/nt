@@ -9,6 +9,7 @@ import {
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -254,7 +255,13 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           Visible initially
         </label>
       </div>
-      <div className="mt-4 max-w-5xl space-y-3">
+      <div className="mt-4 max-w-5xl space-y-4">
+        <FeatureAuthoringPanel
+          project={project}
+          features={data.features}
+          anchorPrefix="interactable"
+          onChange={(features, label) => commit({ ...data, features }, label)}
+        />
         <div className="flex items-center gap-2">
           <Label>{t('hotspots.mode.label')}</Label>
           <Button
@@ -292,10 +299,12 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           assetId={data.presentation.sprite?.$ref.id ?? null}
           hotspots={hotspotItems}
           selectedView={hotspotView}
-          arity={1}
+          ownerKind="interactable"
+          ownerId={interactableId}
+          localFeatures={data.features}
           alphaMode={hotspotMode.kind === 'sprite-alpha'}
           onViewChange={setHotspotView}
-          onAdd={(bounds) => {
+          onAdd={(bounds, target) => {
             if (hotspotMode.kind !== 'custom') return;
             const id = nextHotspotId();
             executeHotspot('interactable.addHotspot', 'Add interactable hotspot', {
@@ -305,7 +314,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                 condition: { kind: 'always' },
                 inputOrder: Math.min(2147483647, nextInputOrder + 1),
                 highlight: { kind: 'default' },
-                activation: { kind: 'verb', verb: null },
+                target,
                 shape: { kind: 'rect', bounds },
               },
             });
