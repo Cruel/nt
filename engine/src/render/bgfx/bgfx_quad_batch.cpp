@@ -942,7 +942,7 @@ bool Renderer::submit_material_quad(const QuadCommand& command)
 
 bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t view)
 {
-    if (!m_shader_materials || !m_material_binder)
+    if (!m_material_binder)
         return false;
 
     std::vector<ShaderProgramDiagnostic> diagnostics;
@@ -966,16 +966,30 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     bgfx::TextureHandle hotspot_mask = BGFX_INVALID_HANDLE;
     if (command.hotspot_mask && command.hotspot_mask->valid())
         hotspot_mask = bgfx::TextureHandle{command.hotspot_mask->handle};
-    const auto bound = m_material_binder->bind_material(
-        *m_shader_materials, command.material,
-        BgfxMaterialBindInputs{.role = hotspot_overlay ? ShaderRole::HotspotOverlay
-                                                       : ShaderRole::Engine2D,
-                               .quad_command = &command,
-                               .standard_inputs = inputs,
-                               .hotspot_image = hotspot_image,
-                               .hotspot_image_sampler = command.texture_sampler,
-                               .hotspot_mask = hotspot_mask},
-        &diagnostics);
+    const BgfxMaterialBindInputs bind_inputs{
+        .role = hotspot_overlay ? ShaderRole::HotspotOverlay : ShaderRole::Engine2D,
+        .quad_command = &command,
+        .standard_inputs = inputs,
+        .hotspot_image = hotspot_image,
+        .hotspot_image_sampler = command.texture_sampler,
+        .hotspot_mask = hotspot_mask,
+    };
+
+    BgfxMaterialBindResult bound;
+    if (command.material.value() == builtin_hotspot_alpha_material_id ||
+        command.material.value() == builtin_hotspot_custom_material_id) {
+        const auto interface = command.material.value() == builtin_hotspot_alpha_material_id
+                                   ? HotspotMaterialInterface::Alpha
+                                   : HotspotMaterialInterface::Custom;
+        bound = m_material_binder->bind_system_material(
+            m_builtin_hotspot_materials, command.material,
+            bgfx::ProgramHandle{builtin_hotspot_program(interface)}, bind_inputs, &diagnostics);
+    } else {
+        if (!m_shader_materials)
+            return false;
+        bound = m_material_binder->bind_material(*m_shader_materials, command.material, bind_inputs,
+                                                 &diagnostics);
+    }
     for (const auto& diagnostic : diagnostics) {
         SDL_Log("[renderer] material diagnostic: %s: %s", diagnostic.context.c_str(),
                 diagnostic.message.c_str());
