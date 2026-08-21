@@ -1,6 +1,6 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue } from '@/project/json-value';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import {
@@ -14,6 +14,7 @@ import {
   type RoomNormalizedRect,
   type RoomPlacementData,
 } from '../../shared/project-schema/authoring-rooms';
+import { replaceRoomDataPatches } from './room-operations';
 
 const INT32_MAX = 2_147_483_647;
 
@@ -45,14 +46,22 @@ function loadedRecords(
   | EntityOperationResult {
   if (!isAuthoringProject(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
-  const room = parseRoomData(document.rooms[roomId]?.data);
+  const roomRecord = document.rooms[roomId];
+  const room = roomRecord
+    ? parseRoomData(resolveGameplayInstanceRecord(document, 'room', roomRecord)?.data)
+    : null;
   if (!room)
     return {
       patches: [],
       diagnostics: [error('Room record does not exist.', roomPath(roomId))],
     };
   if (!interactableId) return { room };
-  const interactable = parseInteractableData(document.interactables[interactableId]?.data);
+  const interactableRecord = document.interactables[interactableId];
+  const interactable = interactableRecord
+    ? parseInteractableData(
+        resolveGameplayInstanceRecord(document, 'interactable', interactableRecord)?.data,
+      )
+    : null;
   if (!interactable)
     return {
       patches: [],
@@ -66,9 +75,8 @@ function loadedRecords(
   return { room, interactable };
 }
 
-function roomResult(roomId: string, room: RoomData): EntityOperationResult {
-  const patch = { op: 'replace' as const, path: roomPath(roomId), value: toJsonValue(room) };
-  return { patches: [patch], affectedPaths: [patch.path] };
+function roomResult(document: unknown, roomId: string, room: RoomData): EntityOperationResult {
+  return replaceRoomDataPatches(document, { roomId, data: room });
 }
 
 export function setRoomPlacementBoundsPatches(
@@ -102,12 +110,7 @@ export function setRoomPlacementBoundsPatches(
     };
   const placements = [...loaded.room.placements];
   placements[index] = { ...placements[index]!, bounds: payload.bounds };
-  const patch = {
-    op: 'replace' as const,
-    path: roomPath(payload.roomId),
-    value: toJsonValue({ ...loaded.room, placements }),
-  };
-  return { patches: [patch], affectedPaths: [patch.path] };
+  return roomResult(document, payload.roomId, { ...loaded.room, placements });
 }
 
 export function placeInteractablePatches(
@@ -141,7 +144,7 @@ export function placeInteractablePatches(
       layout: null,
     },
   };
-  return roomResult(payload.roomId, {
+  return roomResult(document, payload.roomId, {
     ...loaded.room,
     placements: [...loaded.room.placements, placement],
     interactables: [
@@ -171,7 +174,7 @@ export function moveInteractableToPlacementPatches(
     return { patches: [], diagnostics: [error('Room placement does not exist.')] };
   if (!loaded.room.interactables.some((item) => item.id === payload.interactableId))
     return { patches: [], diagnostics: [error('Room Interactable instance does not exist.')] };
-  return roomResult(payload.roomId, {
+  return roomResult(document, payload.roomId, {
     ...loaded.room,
     interactables: loaded.room.interactables.map((item) =>
       item.id === payload.interactableId ? { ...item, placementId: payload.placementId } : item,
@@ -209,7 +212,7 @@ export function detachInteractablePlacementPatches(
       layout: null,
     },
   };
-  return roomResult(payload.roomId, {
+  return roomResult(document, payload.roomId, {
     ...loaded.room,
     placements: [...loaded.room.placements, placement],
     interactables: loaded.room.interactables.map((item) =>

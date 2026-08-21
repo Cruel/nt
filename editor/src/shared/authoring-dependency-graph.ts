@@ -1589,6 +1589,34 @@ function recordContribution(
       : collection === 'interactables'
         ? nestedInteractableNodesAndEdges(id, record, source, owningPath)
         : { nodes: [], edges: [] };
+  if (
+    (collection === 'rooms' || collection === 'characters' || collection === 'interactables') &&
+    isRecord(record.archetype) &&
+    isReferenceTarget(record.archetype.$ref) &&
+    record.archetype.$ref.collection === 'archetypes'
+  ) {
+    const target = recordNodeKey('archetypes', record.archetype.$ref.id);
+    edges.push(
+      structuralEdge(
+        source,
+        target,
+        `${owningPath}/archetype/$ref`,
+        `/archetypes/${escapeJsonPointerSegment(record.archetype.$ref.id)}`,
+        {
+          role: 'explicit-ref',
+          facets: [
+            'reference-integrity',
+            'tooling-reference',
+            'validation',
+            'runtime-only',
+            'preview-visual',
+          ],
+          targetImpactPaths: recordImpactPaths(target, ['/data']),
+          repair: { kind: 'set-null', path: `${owningPath}/archetype` },
+        },
+      ),
+    );
+  }
   for (const [index, traitId] of (record.traits ?? []).entries()) {
     edges.push(
       structuralEdge(
@@ -1648,6 +1676,29 @@ function recordContribution(
     );
   }
   scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
+  if (collection === 'archetypes') {
+    for (let index = edges.length - 1; index >= 0; index -= 1) {
+      const edge = edges[index]!;
+      if (
+        edge.sourcePath === `${owningPath}/data/base/$ref` &&
+        edge.target.kind === 'record' &&
+        edge.target.collection === 'archetypes'
+      ) {
+        edges[index] = structuralEdge(edge.source, edge.target, edge.sourcePath, edge.targetPath, {
+          role: 'explicit-ref',
+          facets: [
+            'reference-integrity',
+            'tooling-reference',
+            'validation',
+            'runtime-only',
+            'preview-visual',
+          ],
+          targetImpactPaths: recordImpactPaths(edge.target, ['/data']),
+          repair: edge.repair,
+        });
+      }
+    }
+  }
   if (collection === 'rooms') {
     addRoomCastEdgeDetails(record, owningPath, edges);
     edges.push(...roomProjectFieldEdges(source, owningPath));

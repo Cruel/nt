@@ -341,10 +341,12 @@ authority. Candidate save restoration validates serialized references against im
 before the new live boundary is constructed.
 
 `RuntimeWorld::resolved_configuration(...)` is the named production boundary for effective immutable
-Room, Character, and Interactable configuration. In the current pre-Archetype contract, structural
-configuration is already local to the compiled definition, so resolution returns a borrowed const
-view of that definition; the view is valid for the borrowed `CompiledProject` lifetime and is neither
-copied into `SessionState` nor cached as mutable runtime data. Gameplay Instance Property reads use `RuntimeWorld::resolve_property(...)`, which applies target override, own authored assignment, configured Trait value, declaration default, and typed-missing semantics while keeping that lookup policy behind the same world boundary. Property overrides themselves remain authoritative mutable `SessionState`, not part of immutable configuration.
+Room, Character, and Interactable configuration. Authoring Archetype chains are fully resolved and
+flattened by the TypeScript compiler before the compiled V4 boundary, so runtime resolution still
+returns a borrowed const view of the declared compiled definition; there is no runtime Archetype
+collection, lookup, identity, Location, or mutable state. The view is valid for the borrowed
+`CompiledProject` lifetime and is neither copied into `SessionState` nor cached as mutable runtime
+data. Gameplay Instance Property reads use `RuntimeWorld::resolve_property(...)`, which applies target override, own authored assignment, configured Trait value, declaration default, and typed-missing semantics while keeping that lookup policy behind the same world boundary. Property overrides themselves remain authoritative mutable `SessionState`, not part of immutable configuration.
 
 This seam is deliberately representation-independent for runtime consumers. The current compiled representation retains explicit Trait attachments and ordinary Property assignments only on supported Gameplay Instances (Room, Character, and Interactable); future configuration mechanisms can change resolver implementation and compiled definition construction without changing every runtime consumer. This phase does not add a second configuration registry, runtime-created instances, or structural creation APIs. Future instance creation extends `RuntimeWorld`; it must not make `CompiledProject` mutable or introduce another live world registry alongside this boundary.
 

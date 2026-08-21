@@ -29,6 +29,7 @@ export interface VisualIdentity {
 export const collectionVisuals: Record<AuthoringCollectionKey, VisualIdentity> = {
   interactions: { icon: Bolt, colorClassName: 'text-emerald-700 dark:text-emerald-300' },
   assets: { icon: Image, colorClassName: 'text-blue-700 dark:text-blue-300' },
+  archetypes: { icon: Layers, colorClassName: 'text-purple-700 dark:text-purple-300' },
   characters: { icon: User, colorClassName: 'text-violet-700 dark:text-violet-300' },
   dialogues: { icon: MessageSquareText, colorClassName: 'text-sky-700 dark:text-sky-300' },
   layouts: { icon: Layers, colorClassName: 'text-indigo-700 dark:text-indigo-300' },
@@ -77,6 +78,7 @@ export function visualForEditorType(
   if (editorType === 'shader-detail') return collectionVisuals.shaders;
   if (editorType === 'material-detail') return collectionVisuals.materials;
   if (editorType === 'layout-detail') return collectionVisuals.layouts;
+  if (editorType === 'archetype-detail') return collectionVisuals.archetypes;
   if (editorType === 'character-detail') return collectionVisuals.characters;
   if (editorType === 'room-detail') return collectionVisuals.rooms;
   if (editorType === 'interactable-detail') return collectionVisuals.interactables;

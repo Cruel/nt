@@ -19,8 +19,11 @@ keys, and de-duplication. A compiled project and canonical JSON are published to
 error diagnostic exists.
 
 The compiler builds complete collection and nested-ID symbol tables and runs a semantic link pass over
-authored references. Shared-definition lowering then converts identity, runtime settings,
-localization, Property and Trait declarations, resources, Trait attachments, authored property assignments, and every non-program definition into `CompiledProjectSharedDraft`.
+authored references. Before shared-definition lowering, declared Room, Character, and Interactable
+records resolve their optional same-kind Archetype chain plus explicit instance overrides. Character
+`initialWorldState` and Interactable `initialState` remain instance-local. Shared-definition lowering
+then converts the resulting effective declared-instance configuration, identity, runtime settings,
+localization, Property and Trait declarations, resources, Trait attachments, authored property assignments, and every non-program definition into `CompiledProjectSharedDraft`. Archetype records themselves are never emitted into compiled V4.
 
 Scene and Room lowering extends that deterministic, non-publishable draft with every Scene instruction
 and terminal continuation plus the four ordered Room lifecycle hook programs. Scene comments and disabled steps

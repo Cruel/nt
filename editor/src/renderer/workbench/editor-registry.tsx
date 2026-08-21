@@ -164,6 +164,20 @@ export function buildLayoutDetailTabForRecord(entityId: string, title = entityId
   };
 }
 
+export function buildArchetypeDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+  return {
+    id: `tab:archetype-detail:archetypes:${entityId}`,
+    title,
+    editorType: 'archetype-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:archetypes:${entityId}`,
+      collection: 'archetypes',
+      entityId,
+    },
+  };
+}
+
 export function buildCharacterDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
   return {
     id: `tab:character-detail:characters:${entityId}`,
@@ -402,6 +416,8 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
     return buildMaterialDetailTabForRecord(node.entityId, title);
   if (node.collection === 'layouts' && node.entityId)
     return buildLayoutDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'archetypes' && node.entityId)
+    return buildArchetypeDetailTabForRecord(node.entityId, title);
   if (node.collection === 'characters' && node.entityId)
     return buildCharacterDetailTabForRecord(node.entityId, title);
   if (node.collection === 'rooms' && node.entityId)

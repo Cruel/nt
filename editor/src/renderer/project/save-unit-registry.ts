@@ -85,6 +85,7 @@ const RECORD_EDITOR_COLLECTIONS = {
   'shader-detail': 'shaders',
   'material-detail': 'materials',
   'layout-detail': 'layouts',
+  'archetype-detail': 'archetypes',
   'character-detail': 'characters',
   'room-detail': 'rooms',
   'interactable-detail': 'interactables',

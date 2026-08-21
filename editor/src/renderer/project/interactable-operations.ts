@@ -6,6 +6,7 @@ import {
 } from '../../shared/project-schema/authoring-interactables';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
+import { overridesForGameplayInstanceEdit } from './archetype-operations';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
 export function replaceInteractableDataPatches(
@@ -34,10 +35,31 @@ export function replaceInteractableDataPatches(
     data,
   }).find((diagnostic) => diagnostic.severity === 'error');
   if (issue) return { patches: [], diagnostics: [issue as EntityOperationDiagnostic] };
-  const patch: JsonPatchOperation = {
-    op: 'replace',
-    path: buildJsonPointer(['interactables', payload.interactableId, 'data']),
-    value: toJsonValue(data),
-  };
-  return { patches: [patch], affectedPaths: [patch.path] };
+  const overrides = overridesForGameplayInstanceEdit(
+    document,
+    'interactables',
+    payload.interactableId,
+    { ...record, data },
+  );
+  if (overrides === null)
+    return {
+      patches: [],
+      diagnostics: [
+        { severity: 'error', message: 'Interactable Archetype configuration cannot be resolved.' },
+      ],
+    };
+  const patches: JsonPatchOperation[] = [
+    {
+      op: 'replace',
+      path: buildJsonPointer(['interactables', payload.interactableId, 'data']),
+      value: toJsonValue(data),
+    },
+  ];
+  if (record.archetype)
+    patches.push({
+      op: Object.prototype.hasOwnProperty.call(record, 'archetypeOverrides') ? 'replace' : 'add',
+      path: buildJsonPointer(['interactables', payload.interactableId, 'archetypeOverrides']),
+      value: toJsonValue(overrides),
+    });
+  return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }

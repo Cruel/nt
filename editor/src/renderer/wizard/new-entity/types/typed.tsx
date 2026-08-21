@@ -1,6 +1,11 @@
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import {
+  defaultArchetypeData,
+  gameplayInstanceKindValues,
+  type GameplayInstanceKind,
+} from '../../../../shared/project-schema/authoring-archetypes';
 import { defaultCharacterData } from '../../../../shared/project-schema/authoring-characters';
 import { defaultInteractableData } from '../../../../shared/project-schema/authoring-interactables';
 import { defaultDialogueData } from '../../../../shared/project-schema/authoring-dialogues';
@@ -59,6 +64,34 @@ function recordOptions<T extends string>(
 }
 
 export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
+  {
+    collection: 'archetypes',
+    category: 'world',
+    supportLevel: 'typed',
+    summary: 'Immutable same-kind configuration blueprints for declared Gameplay Instances.',
+    currentScope:
+      'Creates a Room, Character, or Interactable Archetype with no runtime identity or mutable state.',
+    ...visual('archetypes'),
+    defaultOptions: () => ({ instanceKind: 'room' }),
+    renderOptions: ({ draft, setOption }) => (
+      <div className="space-y-1">
+        <Label>Gameplay Instance kind</Label>
+        <Select
+          value={String(draft.options.instanceKind ?? 'room')}
+          onValueChange={(value) => setOption('instanceKind', String(value))}
+        >
+          {gameplayInstanceKindValues.map((kind) => (
+            <SelectItem key={kind} value={kind}>
+              {kind[0].toUpperCase() + kind.slice(1)}
+            </SelectItem>
+          ))}
+        </Select>
+      </div>
+    ),
+    buildPayload: ({ draft }) => ({
+      data: defaultArchetypeData((draft.options.instanceKind || 'room') as GameplayInstanceKind),
+    }),
+  },
   {
     collection: 'interactables',
     category: 'world',

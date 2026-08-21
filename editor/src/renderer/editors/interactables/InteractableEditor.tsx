@@ -6,6 +6,7 @@ import {
   restoreHotspotViewState,
   type HotspotEditorViewStateV1,
 } from '@/components/image-stage/hotspot-view-state';
+import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
@@ -15,6 +16,7 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
+import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import {
   defaultInteractableData,
   interactableAssetRef,
@@ -63,8 +65,10 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   const project = isAuthoringProject(document) ? document : null;
   const interactableId = tab.resource?.entityId;
   const record = interactableId && project ? project.interactables[interactableId] : null;
+  const effectiveRecord =
+    project && record ? resolveGameplayInstanceRecord(project, 'interactable', record) : record;
   const data =
-    parseInteractableData(record?.data) ??
+    parseInteractableData(effectiveRecord?.data) ??
     defaultInteractableData(record?.label ?? interactableId ?? 'Interactable');
   const hotspotIds = useMemo(
     () =>
@@ -145,6 +149,15 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       <p className="mt-1 text-xs text-muted-foreground">
         Reusable Interactable definition. Add instances from a Room editor.
       </p>
+      <div className="mt-4 max-w-2xl">
+        <GameplayArchetypeControls
+          project={project}
+          collection="interactables"
+          entityId={interactableId}
+          record={record}
+          kind="interactable"
+        />
+      </div>
       <div className="mt-4 grid max-w-2xl gap-3 rounded border p-3 md:grid-cols-2">
         <div>
           <Label>Display name</Label>

@@ -6,6 +6,8 @@
 
 Interactable is Property-bearing and may attach compatible Traits. Trait members remain ordinary Properties; identity, presentation, interaction structure, and location do not merge through Traits.
 
+A declared Interactable authoring record may attach one same-kind Archetype. The Archetype contributes immutable presentation/configuration, Trait attachments, and Property assignments, while `initialState` remains local to the declared Interactable and is never inherited. Editor edits operate on the resolved effective configuration and become explicit overrides; compilation emits only the flattened `InteractableDefinition`, with no runtime Archetype identity or mutable state.
+
 Presentation chooses either one sprite-alpha hotspot or a custom list of normalized rectangular
 hotspots. Each hotspot has stable owner-local identity, condition, one-arity Verb activation, input
 priority, and highlight policy. A custom list may be empty; such an Interactable is non-clickable and

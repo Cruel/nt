@@ -294,10 +294,7 @@ The initial design deliberately does not add a separate `CharacterInstanceDefini
 One `CharacterId` represents one persistent named world identity when world state is used. Scene and
 Room presentation may still render multiple actor instances referencing the same Character.
 
-If NovelTea later needs multiple persistent world instances sharing one Character template, a future
-specification may split Character archetype from instance. Current IDs and save records must remain
-typed enough to support that migration, but the engine should not pay the additional authoring,
-property-owner, editor, save, and Interaction complexity now.
+Authoring Archetypes may reuse immutable Character configuration across declared Characters, but each declared Character remains one persistent named gameplay identity. Archetypes never create additional persistent world instances, ActorState entries, Locations, or save identities. Multiple persistent world instances sharing one declared Character identity remain outside this contract.
 
 ### Saved active Room visit context
 

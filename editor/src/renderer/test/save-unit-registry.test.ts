@@ -29,6 +29,7 @@ const representativeResources: Record<string, WorkbenchResource> = {
   'shader-detail': recordResource('shaders', 'basic'),
   'material-detail': recordResource('materials', 'panel'),
   'layout-detail': recordResource('layouts', 'hud'),
+  'archetype-detail': recordResource('archetypes', 'room-base'),
   'character-detail': recordResource('characters', 'hero'),
   'room-detail': recordResource('rooms', 'foyer'),
   'interactable-detail': recordResource('interactables', 'door'),

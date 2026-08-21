@@ -146,7 +146,6 @@
       {
         "id": "probe",
         "displayName": "Transition Probe",
-        "traits": [],
         "defaultBackground": {
           "asset": null,
           "color": "#ff0000",
@@ -154,7 +153,6 @@
           "material": null
         },
         "defaultLayout": null,
-        "propertyAssignments": [],
         "continuation": { "kind": "end" },
         "program": {
           "instructions": [

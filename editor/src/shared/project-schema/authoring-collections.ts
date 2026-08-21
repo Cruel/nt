@@ -7,6 +7,7 @@ export const authoringCollectionKeys = [
   'shaders',
   'materials',
   'layouts',
+  'archetypes',
   'characters',
   'rooms',
   'interactables',
@@ -31,6 +32,7 @@ export interface AuthoringCollectionMetadata {
     | 'shader'
     | 'material'
     | 'layout'
+    | 'archetype'
     | 'character'
     | 'room'
     | 'interactable'
@@ -62,6 +64,12 @@ export const authoringCollectionMetadata: Record<
     nodeType: 'material',
   },
   layouts: { key: 'layouts', label: 'Layouts', singularLabel: 'Layout', nodeType: 'layout' },
+  archetypes: {
+    key: 'archetypes',
+    label: 'Archetypes',
+    singularLabel: 'Archetype',
+    nodeType: 'archetype',
+  },
   characters: {
     key: 'characters',
     label: 'Characters',

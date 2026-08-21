@@ -5,6 +5,7 @@ import {
   isAuthoringCollectionKey,
   type AuthoringCollectionKey,
 } from '../../shared/project-schema/authoring-collections';
+import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
@@ -169,6 +170,8 @@ export function defaultDataForCollection(
     return defaultMaterialData(label) as unknown as Record<string, unknown>;
   if (collection === 'layouts')
     return defaultLayoutData(label) as unknown as Record<string, unknown>;
+  if (collection === 'archetypes')
+    return defaultArchetypeData() as unknown as Record<string, unknown>;
   if (collection === 'characters')
     return defaultCharacterData(label) as unknown as Record<string, unknown>;
   if (collection === 'rooms') return defaultRoomData(label) as unknown as Record<string, unknown>;
@@ -207,6 +210,8 @@ export function createDefaultAuthoringRecord(
   };
   if (options.description?.trim()) record.description = options.description;
   if (['characters', 'rooms', 'interactables'].includes(collection)) {
+    record.archetype = null;
+    record.archetypeOverrides = {};
     record.traits = [];
     record.properties = {};
   }

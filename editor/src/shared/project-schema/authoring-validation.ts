@@ -6,6 +6,13 @@ import {
   type AuthoringCollectionKey,
 } from './authoring-collections';
 import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './authoring-assets';
+import {
+  gameplayInstanceKindForCollection,
+  isArchetypeOverridePathAllowed,
+  parseArchetypeData,
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from './authoring-archetypes';
 import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
 import { validateInteractableData } from './authoring-interactables';
@@ -13,7 +20,11 @@ import { validateInteractionData, validateInteractionProgram } from './authoring
 import { validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
 import { validateMapData } from './authoring-maps';
-import { isPropertyValueCompatible, type PropertyOwnerKind } from './authoring-properties';
+import {
+  isPropertyValueCompatible,
+  type PropertyAssignments,
+  type PropertyOwnerKind,
+} from './authoring-properties';
 import { validateRoomData } from './authoring-rooms';
 import { validateHotspotAuthoringSemantics } from './authoring-hotspot-validation';
 import { validateTypedProjectSettings } from './authoring-project-settings';
@@ -62,6 +73,206 @@ function recordsFor(
   collection: AuthoringCollectionKey,
 ): Record<string, AuthoringRecordBase> {
   return project[collection] as Record<string, AuthoringRecordBase>;
+}
+
+function validateArchetypePropertyConfiguration(
+  project: AuthoringProject,
+  ownerKind: PropertyOwnerKind,
+  traits: readonly string[],
+  properties: Readonly<PropertyAssignments>,
+  basePath: string,
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
+  for (const [propertyId, value] of Object.entries(properties)) {
+    const path = `${basePath}/properties/${escapePathSegment(propertyId)}`;
+    const definition = project.properties[propertyId];
+    if (!definition)
+      diagnostics.push(diagnostic('error', path, `Property '${propertyId}' is not declared.`));
+    else if (!definition.ownerKinds.includes(ownerKind))
+      diagnostics.push(
+        diagnostic('error', path, `Property '${propertyId}' cannot be assigned to ${ownerKind}.`),
+      );
+    else if (!isPropertyValueCompatible(definition, value))
+      diagnostics.push(
+        diagnostic('error', path, `Assignment does not match property '${propertyId}'.`),
+      );
+  }
+
+  const seenTraits = new Set<string>();
+  const configured = new Map<string, { traitId: string; value: unknown }>();
+  const attachedTraits: Array<(typeof project.traits)[string]> = [];
+  for (const [index, traitId] of traits.entries()) {
+    const path = `${basePath}/traits/${index}`;
+    if (seenTraits.has(traitId)) {
+      diagnostics.push(diagnostic('error', path, `Trait '${traitId}' is attached more than once.`));
+      continue;
+    }
+    seenTraits.add(traitId);
+    const trait = project.traits[traitId];
+    if (!trait) {
+      diagnostics.push(diagnostic('error', path, `Trait '${traitId}' is not declared.`));
+      continue;
+    }
+    if (!trait.ownerKinds.includes(ownerKind)) {
+      diagnostics.push(
+        diagnostic('error', path, `Trait '${traitId}' cannot be attached to ${ownerKind}.`),
+      );
+      continue;
+    }
+    attachedTraits.push(trait);
+    for (const member of trait.properties) {
+      if (member.kind !== 'configured') continue;
+      const previous = configured.get(member.propertyId);
+      if (previous && previous.value !== member.value)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            path,
+            `Trait '${traitId}' configures property '${member.propertyId}' incompatibly with Trait '${previous.traitId}'.`,
+          ),
+        );
+      else if (!previous) configured.set(member.propertyId, { traitId, value: member.value });
+    }
+  }
+  for (const trait of attachedTraits) {
+    for (const member of trait.properties) {
+      if (member.kind !== 'required') continue;
+      const definition = project.properties[member.propertyId];
+      const hasOwnAssignment = Object.prototype.hasOwnProperty.call(properties, member.propertyId);
+      const hasConfiguredValue = configured.has(member.propertyId);
+      const hasDeclarationDefault = definition?.defaultValue !== undefined;
+      if (!hasOwnAssignment && !hasConfiguredValue && !hasDeclarationDefault)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${basePath}/traits`,
+            `Trait '${trait.id}' requires property '${member.propertyId}' to have an authored value.`,
+          ),
+        );
+    }
+  }
+}
+
+function validateArchetypes(
+  project: AuthoringProject,
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
+  for (const [archetypeId, record] of Object.entries(project.archetypes)) {
+    const base = `/archetypes/${escapePathSegment(archetypeId)}`;
+    const data = parseArchetypeData(record.data);
+    if (!data) continue;
+    for (const pointer of Object.keys(data.overrides)) {
+      if (!isArchetypeOverridePathAllowed(data.instanceKind, pointer))
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/data/overrides/${escapePathSegment(pointer)}`,
+            `Override path '${pointer}' cannot be inherited by a ${data.instanceKind} Archetype.`,
+          ),
+        );
+    }
+    if (data.base) {
+      const parent = project.archetypes[data.base.$ref.id];
+      const parentData = parseArchetypeData(parent?.data);
+      if (!parent)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/data/base`,
+            `Archetype '${data.base.$ref.id}' is not declared.`,
+          ),
+        );
+      else if (!parentData || parentData.instanceKind !== data.instanceKind)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${base}/data/base`,
+            'Archetype bases must have the same gameplay-instance kind.',
+          ),
+        );
+    }
+    const effective = resolveArchetypeConfiguration(project, archetypeId);
+    if (!effective)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${base}/data`,
+          'Archetype chain is cyclic or does not resolve to a valid same-kind configuration.',
+        ),
+      );
+    else
+      validateArchetypePropertyConfiguration(
+        project,
+        data.instanceKind,
+        effective.traits,
+        effective.properties,
+        `${base}/data/effectiveConfiguration`,
+        diagnostics,
+      );
+  }
+
+  for (const collection of ['rooms', 'characters', 'interactables'] as const) {
+    const expectedKind = gameplayInstanceKindForCollection(collection)!;
+    for (const [recordId, record] of Object.entries(project[collection])) {
+      const archetypeId = record.archetype?.$ref.id;
+      if (!archetypeId) continue;
+      const base = `/${collection}/${escapePathSegment(recordId)}/archetype`;
+      for (const pointer of Object.keys(record.archetypeOverrides ?? {})) {
+        if (!isArchetypeOverridePathAllowed(expectedKind, pointer))
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `/${collection}/${escapePathSegment(recordId)}/archetypeOverrides/${escapePathSegment(pointer)}`,
+              `Override path '${pointer}' cannot target instance-local ${expectedKind} state.`,
+            ),
+          );
+      }
+      const archetype = project.archetypes[archetypeId];
+      const data = parseArchetypeData(archetype?.data);
+      if (!archetype)
+        diagnostics.push(diagnostic('error', base, `Archetype '${archetypeId}' is not declared.`));
+      else if (!data || data.instanceKind !== expectedKind)
+        diagnostics.push(
+          diagnostic(
+            'error',
+            base,
+            `Archetype '${archetypeId}' is not a ${expectedKind} Archetype.`,
+          ),
+        );
+      else if (!resolveGameplayInstanceRecord(project, expectedKind, record))
+        diagnostics.push(
+          diagnostic(
+            'error',
+            base,
+            'Gameplay Instance Archetype configuration cannot be resolved.',
+          ),
+        );
+    }
+  }
+}
+
+function effectiveGameplayProject(project: AuthoringProject): AuthoringProject {
+  return {
+    ...project,
+    rooms: Object.fromEntries(
+      Object.entries(project.rooms).map(([id, record]) => [
+        id,
+        resolveGameplayInstanceRecord(project, 'room', record) ?? record,
+      ]),
+    ),
+    characters: Object.fromEntries(
+      Object.entries(project.characters).map(([id, record]) => [
+        id,
+        resolveGameplayInstanceRecord(project, 'character', record) ?? record,
+      ]),
+    ),
+    interactables: Object.fromEntries(
+      Object.entries(project.interactables).map(([id, record]) => [
+        id,
+        resolveGameplayInstanceRecord(project, 'interactable', record) ?? record,
+      ]),
+    ),
+  } as AuthoringProject;
 }
 
 function validateProperties(
@@ -388,25 +599,27 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
     }
   }
 
-  validateProperties(project, diagnostics);
-  validateTraits(project, diagnostics);
-  validateAssets(project, diagnostics);
-  diagnostics.push(...validateTypedProjectSettings(project));
-  for (const [id, record] of Object.entries(project.layouts))
-    diagnostics.push(...validateLayoutData(project, id, record));
-  for (const [id, record] of Object.entries(project.variables))
-    diagnostics.push(...validateVariableData(project, id, record));
-  for (const [id, record] of Object.entries(project.shaders))
-    diagnostics.push(...validateShaderData(project, id, record));
-  for (const [id, record] of Object.entries(project.materials))
-    diagnostics.push(...validateMaterialData(project, id, record));
-  for (const [id, record] of Object.entries(project.characters))
-    diagnostics.push(...validateCharacterData(project, id, record));
-  for (const [id, record] of Object.entries(project.rooms))
-    diagnostics.push(...validateRoomData(project, id, record));
-  for (const [id, record] of Object.entries(project.interactables))
-    diagnostics.push(...validateInteractableData(project, id, record));
-  diagnostics.push(...validateHotspotAuthoringSemantics(project));
+  validateArchetypes(project, diagnostics);
+  const effectiveProject = effectiveGameplayProject(project);
+  validateProperties(effectiveProject, diagnostics);
+  validateTraits(effectiveProject, diagnostics);
+  validateAssets(effectiveProject, diagnostics);
+  diagnostics.push(...validateTypedProjectSettings(effectiveProject));
+  for (const [id, record] of Object.entries(effectiveProject.layouts))
+    diagnostics.push(...validateLayoutData(effectiveProject, id, record));
+  for (const [id, record] of Object.entries(effectiveProject.variables))
+    diagnostics.push(...validateVariableData(effectiveProject, id, record));
+  for (const [id, record] of Object.entries(effectiveProject.shaders))
+    diagnostics.push(...validateShaderData(effectiveProject, id, record));
+  for (const [id, record] of Object.entries(effectiveProject.materials))
+    diagnostics.push(...validateMaterialData(effectiveProject, id, record));
+  for (const [id, record] of Object.entries(effectiveProject.characters))
+    diagnostics.push(...validateCharacterData(effectiveProject, id, record));
+  for (const [id, record] of Object.entries(effectiveProject.rooms))
+    diagnostics.push(...validateRoomData(effectiveProject, id, record));
+  for (const [id, record] of Object.entries(effectiveProject.interactables))
+    diagnostics.push(...validateInteractableData(effectiveProject, id, record));
+  diagnostics.push(...validateHotspotAuthoringSemantics(effectiveProject));
   for (const [id, record] of Object.entries(project.verbs)) {
     const data = parseVerbData(record.data);
     if (!data)

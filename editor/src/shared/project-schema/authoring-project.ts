@@ -96,6 +96,8 @@ export interface AuthoringRecordBase {
   label: string;
   description?: string;
   data: unknown;
+  archetype?: { $ref: { collection: 'archetypes'; id: EntityId } } | null;
+  archetypeOverrides?: Record<string, unknown>;
   traits?: EntityId[];
   properties?: PropertyAssignments;
 }
