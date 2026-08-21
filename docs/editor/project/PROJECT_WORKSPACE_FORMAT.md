@@ -7,7 +7,10 @@ paths accept no legacy monolithic project file or alternate manifest name.
 ## Tracked source
 
 `project.json` has schema `noveltea.project.workspace` at version `1` and owns project identity,
-settings, startup hook, and entrypoint. `properties.json`, `localization.json`, and `editor.json`
+project settings, top-level export configuration, startup hook, and entrypoint. `/settings` is the
+Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
+built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
+choices remain editor-local. `properties.json`, `localization.json`, and `editor.json`
 are required contextual fragments. `editor.json` contains exactly collaborator-visible `chapters`,
 `tags`, and `recordMetadata`.
 
@@ -58,7 +61,8 @@ and every removal verifies the expected owner token.
 
 ## Local state
 
-`.noveltea/` is ignored via the root-scoped `/.noveltea/` `.gitignore` rule. Optional
+`.noveltea/` and `dist/` are ignored via the root-scoped `/.noveltea/` and `/dist/` `.gitignore`
+rules. Optional
 `.noveltea/editor/state.json` uses `noveltea.editor.local-state` version `3`; it stores recovery,
 export identity, workbench, explorer, bottom panel, tab state, and drafts. It never duplicates
 tracked organization fields. On open, `ProjectWorkspaceService` composes those ignored fields with
@@ -78,9 +82,9 @@ CLI creation use one transactional service: it stages and validates the complete
 activating a new destination path that does not exist. Every existing file, directory, or symlink is
 rejected, and paths containing spaces are supported. The editor's Browse action selects a parent
 directory and derives a new child directory from the project name.
-When `.gitignore` is absent, creation and Save As create it with `/.noveltea/`; an existing file is
+When `.gitignore` is absent, creation and Save As create it with `/.noveltea/` and `/dist/`; an existing file is
 user-owned and preserved exactly. Save As reports a warning when that existing file does not mention
-`.noveltea`, leaving the user to choose the appropriate ignore rule. Save As
+`.noveltea` or `dist`, leaving the user to choose the appropriate ignore rule. Save As
 targets a project root and writes `project.json`; it carries tracked baseline, local editor state,
 dirty-only asset bytes, and separately-owned workflows, while excluding generated agent/build/cache,
 transactions, and trash state. A non-empty destination may contain unrelated user files, `.git`,

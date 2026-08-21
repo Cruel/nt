@@ -2,6 +2,12 @@ import { execFile } from 'node:child_process';
 import { lstat } from 'node:fs/promises';
 import * as fsPromises from 'node:fs/promises';
 import { promisify } from 'node:util';
+import {
+  createTarGzArchive,
+  createZipArchive,
+  type PlatformArchiveCompression,
+  type PlatformArchiveEntry,
+} from './platform-archive-service';
 
 export interface PlatformProcessRequest {
   command: string;
@@ -30,10 +36,18 @@ export interface PlatformImageRequest {
   size: number;
 }
 
+export interface PlatformArchiveRequest {
+  outputPath: string;
+  format: 'zip' | 'tar.gz';
+  compression: PlatformArchiveCompression;
+  entries: PlatformArchiveEntry[];
+}
+
 export interface PlatformHostService {
   runProcess(request: PlatformProcessRequest): Promise<PlatformProcessResult>;
   inspectImage?(sourcePath: string): Promise<PlatformImageMetadata>;
   resizeImageToPng?(request: PlatformImageRequest): Promise<void>;
+  createArchive?(request: PlatformArchiveRequest): Promise<void>;
   fileMode?(path: string, fallback: number): Promise<number>;
   availableDiskSpace?(path: string): Promise<number>;
 }
@@ -57,6 +71,11 @@ const nodeHost: PlatformHostService = {
       windowsHide: true,
     });
     return { stdout: result.stdout, stderr: result.stderr };
+  },
+  async createArchive(request) {
+    if (request.format === 'tar.gz')
+      await createTarGzArchive(request.outputPath, request.entries, request.compression);
+    else await createZipArchive(request.outputPath, request.entries, request.compression);
   },
   fileMode: nodeFileMode,
   async availableDiskSpace(filePath) {
@@ -105,6 +124,12 @@ export function inspectPlatformImage(sourcePath: string): Promise<PlatformImageM
 
 export function resizePlatformImageToPng(request: PlatformImageRequest): Promise<void> | null {
   return configuredHost.resizeImageToPng?.(request) ?? null;
+}
+
+export async function createPlatformArchive(request: PlatformArchiveRequest): Promise<void> {
+  if (!configuredHost.createArchive)
+    throw new Error('Platform host does not support archive creation.');
+  await configuredHost.createArchive(request);
 }
 
 export async function platformFileMode(filePath: string, fallback: number): Promise<number> {

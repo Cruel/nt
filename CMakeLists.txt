@@ -255,6 +255,42 @@ if(NOT TARGET miniz::miniz)
     message(FATAL_ERROR "miniz is required for NovelTea runtime packages")
 endif()
 
+# --- PNG dependency ---
+
+# Desktop builds consume the manifest-provided libpng package. Emscripten ships a
+# maintained libpng port, while Android needs a small static FetchContent build.
+if(EMSCRIPTEN)
+    add_library(noveltea_png INTERFACE)
+    target_compile_options(noveltea_png INTERFACE -sUSE_LIBPNG=1)
+    target_link_options(noveltea_png INTERFACE -sUSE_LIBPNG=1)
+    add_library(PNG::PNG ALIAS noveltea_png)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    find_package(ZLIB REQUIRED)
+    include(FetchContent)
+    set(PNG_SHARED OFF CACHE BOOL "" FORCE)
+    set(PNG_STATIC ON CACHE BOOL "" FORCE)
+    set(PNG_TESTS OFF CACHE BOOL "" FORCE)
+    set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        libpng
+        URL https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(libpng)
+    if(TARGET png_static AND NOT TARGET PNG::PNG)
+        add_library(PNG::PNG ALIAS png_static)
+    endif()
+else()
+    find_package(PNG CONFIG QUIET)
+    if(NOT TARGET PNG::PNG)
+        find_package(PNG REQUIRED)
+    endif()
+endif()
+
+if(NOT TARGET PNG::PNG)
+    message(FATAL_ERROR "libpng is required for screenshot encoding")
+endif()
+
 # --- bgfx: mandatory for the engine ---
 
 if(NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
@@ -307,6 +343,10 @@ if(NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
     endif()
 
     FetchContent_MakeAvailable(bgfx.cmake)
+    target_compile_definitions(bgfx PRIVATE
+        BGFX_GL_CONFIG_BLIT_EMULATION=1
+        BGFX_GL_CONFIG_TEXTURE_READ_BACK_EMULATION=1
+    )
     foreach(_noveltea_dependency IN ITEMS bx bimg bimg_decode bimg_encode bgfx)
         noveltea_apply_runtime_dependency_policy(${_noveltea_dependency})
     endforeach()

@@ -211,6 +211,14 @@
       }
       const noImgui = (params.get('noImgui') || '').toLowerCase();
       if (noImgui === '1' || noImgui === 'true' || noImgui === 'yes') args.push('--no-imgui');
+      const screenshot = params.get('screenshot');
+      if (screenshot) args.push('--screenshot', screenshot);
+      const screenshotMode = (params.get('screenshotMode') || '').toLowerCase();
+      if (new Set(['native', 'fit', 'fill', 'exact']).has(screenshotMode)) {
+        args.push('--screenshot-mode', screenshotMode);
+      }
+      const screenshotSize = params.get('screenshotSize');
+      if (screenshotSize) args.push('--screenshot-size', screenshotSize);
       const renderPerf = (params.get('renderPerf') || '').toLowerCase();
       if (renderPerf === '1' || renderPerf === 'true' || renderPerf === 'yes') args.push('--render-perf');
       const compat = (params.get('compat') || '').toLowerCase();

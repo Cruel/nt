@@ -13,21 +13,13 @@ import {
   templateRootForToken,
 } from '../../main/services/template-registry-service';
 import { downloadPlayerTemplateForRelease } from '../../main/services/template-download-service';
-import {
-  configurePlatformFileModeService,
-  resetPlatformFileModeService,
-} from '../../main/services/platform-host-service';
 import { parsePlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 
 const roots: string[] = [];
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 afterEach(() => {
-  resetPlatformFileModeService();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
-function configureModeFallbackHost() {
-  configurePlatformFileModeService(async (_filePath, fallback) => fallback);
-}
 function archiveFixture(
   kind: 'tar' | 'zip' = 'tar',
   modes: { stored?: number; declared?: number } = {},
@@ -145,9 +137,8 @@ describe('template registry service', () => {
     );
     expect(fs.readFileSync(path.join(outside, 'keep.txt'), 'utf8')).toBe('keep');
   });
-  it('uses descriptor modes when the host filesystem cannot preserve POSIX permissions', async () => {
+  it('treats verified descriptor modes as authoritative over extracted host modes', async () => {
     const { archive } = archiveFixture('tar', { stored: 0o644, declared: 0o755 });
-    configureModeFallbackHost();
     const installed = await installPlayerTemplate({
       archivePath: archive,
       origin: 'mode-fallback',

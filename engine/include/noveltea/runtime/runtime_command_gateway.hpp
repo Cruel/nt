@@ -11,6 +11,7 @@
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_commands.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
+#include "noveltea/runtime/runtime_world.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -50,7 +51,7 @@ public:
 class RuntimeCommandGateway final : public RuntimeQueryProvider {
 public:
     RuntimeCommandGateway(const core::CompiledProject& project, core::SessionState& state,
-                          CapabilityGeneration generation) noexcept;
+                          RuntimeWorld& world, CapabilityGeneration generation) noexcept;
 
     RuntimeCommandGateway(const RuntimeCommandGateway&) = delete;
     RuntimeCommandGateway& operator=(const RuntimeCommandGateway&) = delete;
@@ -235,6 +236,7 @@ private:
 
     const core::CompiledProject& m_project;
     core::SessionState& m_state;
+    RuntimeWorld& m_world;
     RuntimeCommandGatewayServices* m_services = nullptr;
     DeferredRuntimeCommandQueue m_commands;
     std::vector<RuntimeEvent> m_events;

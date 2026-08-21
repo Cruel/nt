@@ -19,7 +19,7 @@ namespace noveltea::test {
 class RuntimeUiLifecycleFixture final {
 public:
     struct Config {
-        bool mount_system_assets = false;
+        bool mount_system_assets = true;
     };
 
     RuntimeUiLifecycleFixture() : RuntimeUiLifecycleFixture(Config{}) {}

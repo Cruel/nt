@@ -124,6 +124,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
     engine/include/noveltea/runtime/runtime_ports.hpp
     engine/include/noveltea/runtime/runtime_query_provider.hpp
     engine/include/noveltea/runtime/runtime_session.hpp
+    engine/include/noveltea/runtime/runtime_world.hpp
     engine/src/runtime/flow_executor.cpp
     engine/src/runtime/flow_executor_blockers.cpp
     engine/src/runtime/flow_executor_dialogue.cpp
@@ -143,6 +144,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
     engine/src/runtime/runtime_executor_map.cpp
     engine/src/runtime/runtime_executor_room.cpp
     engine/src/runtime/runtime_session.cpp
+    engine/src/runtime/runtime_world.cpp
 )
 
 set(NOVELTEA_MODULE_FILES_noveltea_presentation

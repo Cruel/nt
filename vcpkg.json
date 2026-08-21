@@ -24,6 +24,7 @@
     "harfbuzz",
     "sheenbidi",
     "libunibreak",
+    "libpng",
     "miniz",
     "nlohmann-json"
   ],

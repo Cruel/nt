@@ -1,6 +1,7 @@
 #include "host/preview_host.hpp"
 
 #include "host/layout_realizer.hpp"
+#include "host/screenshot_capture.hpp"
 
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/preview_bridge.hpp"
@@ -27,57 +28,6 @@ constexpr const char* kPreviewLayoutFragmentHostRcss =
     "preview://templates/layout-fragment-host.rcss";
 constexpr const char* kPreviewShaderSquareRml = "preview://templates/shader-square-preview.rml";
 constexpr const char* kPreviewShaderSquareRcss = "preview://templates/shader-square-preview.rcss";
-
-constexpr const char* kPreviewBaseStyle = R"rcss(body, div,
-h1, h2, h3, h4,
-h5, h6, p,
-hr, pre,
-tabset tabs {
-  display: block;
-}
-
-body {
-  width: 100%;
-  height: 100%;
-  color: #f8fafc;
-  font-family: Liberation Sans;
-}
-
-h1 { font-size: 2em; margin: .67em 0; }
-h2 { font-size: 1.5em; margin: .75em 0; }
-h3 { font-size: 1.17em; margin: .83em 0; }
-h4, p { margin: 1.12em 0; }
-h5 { font-size: .83em; margin: 1.5em 0; }
-h6 { font-size: .75em; margin: 1.67em 0; }
-h1, h2, h3, h4, h5, h6, strong { font-weight: bold; }
-em { font-style: italic; }
-pre { white-space: pre; }
-hr { border-width: 1px; }
-
-button {
-  display: inline-block;
-  margin: 4px 0;
-  padding: 8px 12px;
-  min-width: 96px;
-  color: #f8fafc;
-  background-color: #334155;
-  border-width: 1px;
-  border-color: #64748b;
-  border-radius: 4px;
-  font-family: Liberation Sans;
-  font-size: 14px;
-  text-align: center;
-}
-
-button:hover { background-color: #475569; border-color: #94a3b8; }
-button:active { background-color: #1e293b; }
-table { box-sizing: border-box; display: table; }
-tr { box-sizing: border-box; display: table-row; }
-td { box-sizing: border-box; display: table-cell; }
-col { box-sizing: border-box; display: table-column; }
-colgroup { display: table-column-group; }
-thead, tbody, tfoot { display: table-row-group; }
-)rcss";
 
 constexpr const char* kLayoutFragmentHostRml = R"rml(<rml>
 <head>
@@ -353,13 +303,7 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
           },
           .standalone_layout_style_prefix =
               [](bool fragment) {
-                  std::string style;
-                  if (fragment) {
-                      style = kLayoutFragmentHostRcss;
-                      style.push_back('\n');
-                  }
-                  style += kPreviewBaseStyle;
-                  return style;
+                  return fragment ? std::string(kLayoutFragmentHostRcss) : std::string{};
               },
           .complete =
               [this](const core::editor::FocusedEditorDocumentRequest& request,
@@ -743,8 +687,7 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                 std::string rcss_text = std::move(*rcss_source.value_if());
                 std::string lua_text = std::move(*lua_source.value_if());
                 ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
-                    m_dependencies.runtime_ui, kPreviewLayoutCurrentRcss,
-                    std::string(kPreviewBaseStyle) + "\n" + rcss_text);
+                    m_dependencies.runtime_ui, kPreviewLayoutCurrentRcss, rcss_text);
                 ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
                     m_dependencies.runtime_ui, kPreviewLayoutCurrentLua, lua_text);
                 ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
@@ -875,12 +818,17 @@ void PreviewHost::update_focused_preview() { m_focused_presenter->update(); }
 
 bool PreviewHost::request_screenshot(std::string path)
 {
-    if (path.empty() || !m_dependencies.renderer.is_initialized()) {
+    if (path.empty() || !m_dependencies.renderer.is_initialized() ||
+        m_dependencies.screenshots == nullptr) {
         report_diagnostic(preview_error("preview.screenshot.unavailable",
                                         "Screenshot request requires a ready renderer and path."));
         return false;
     }
-    m_dependencies.renderer.request_screenshot(path);
+    if (!m_dependencies.screenshots->request_file(std::move(path))) {
+        report_diagnostic(preview_error("preview.screenshot.rejected",
+                                        "Screenshot service rejected the request."));
+        return false;
+    }
     return true;
 }
 

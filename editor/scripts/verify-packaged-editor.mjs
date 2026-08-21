@@ -31,7 +31,7 @@ function normalizeAsarEntry(entry) {
     .join('/');
 }
 
-async function findSharpNativeClosure(unpackedRoot) {
+export async function findSharpNativeClosure(unpackedRoot, platform = process.platform) {
   const imageRoot = path.join(unpackedRoot, 'node_modules', '@img');
   const packages = await readdir(imageRoot, { withFileTypes: true });
   const sharpPackages = packages
@@ -40,7 +40,10 @@ async function findSharpNativeClosure(unpackedRoot) {
   const libvipsPackages = packages
     .filter((entry) => entry.isDirectory() && entry.name.startsWith('sharp-libvips-'))
     .map((entry) => entry.name);
-  if (sharpPackages.length === 0 || libvipsPackages.length === 0) {
+  if (sharpPackages.length === 0) {
+    throw new Error('Packaged @img closure contains no Sharp native package.');
+  }
+  if (platform !== 'win32' && libvipsPackages.length === 0) {
     throw new Error(
       `Packaged @img closure is incomplete (sharp=${sharpPackages.join(',')}, libvips=${libvipsPackages.join(',')}).`,
     );
@@ -64,11 +67,12 @@ async function findSharpNativeClosure(unpackedRoot) {
       containsNativeFile(path.join(imageRoot, packageName), /\.node$/i),
     ),
   );
+  const libraryPackages = platform === 'win32' ? sharpPackages : libvipsPackages;
   const hasLibrary = await Promise.all(
-    libvipsPackages.map((packageName) =>
+    libraryPackages.map((packageName) =>
       containsNativeFile(
         path.join(imageRoot, packageName),
-        /\.(?:so(?:\.\d+)*)$|\.(?:dll|dylib)$/i,
+        platform === 'win32' ? /\.dll$/i : /\.(?:so(?:\.\d+)*)$|\.dylib$/i,
       ),
     ),
   );

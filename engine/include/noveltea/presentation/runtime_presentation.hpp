@@ -3,6 +3,7 @@
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/room_presentation_contracts.hpp"
 #include "noveltea/core/runtime_presentation_contracts.hpp"
+#include "noveltea/runtime/runtime_world.hpp"
 
 #include <optional>
 #include <vector>
@@ -43,7 +44,7 @@ struct RoomPresentationVisualCatalog {
 };
 
 [[nodiscard]] RoomPresentationVisualCatalog
-build_room_presentation_visual_catalog(const CompiledProject& project,
+build_room_presentation_visual_catalog(const runtime::RuntimeWorld& world,
                                        const RoomPresentationResolution& resolution);
 
 class RoomPresentationSnapshotProjector final {
@@ -60,14 +61,15 @@ public:
 class PresentationProjector {
 public:
     [[nodiscard]] static Result<RuntimePresentationSnapshot, Diagnostics>
-    project(const CompiledProject& project, const SessionState& state,
-            const ResolvedRoomPresentation* room_presentation = nullptr);
+    project(const CompiledProject& project, const runtime::RuntimeWorld& world,
+            const SessionState& state, const ResolvedRoomPresentation* room_presentation = nullptr);
 };
 
 class RuntimePresentationSnapshotPublisher {
 public:
     [[nodiscard]] Result<bool, Diagnostics>
-    reproject(const CompiledProject& project, const SessionState& state,
+    reproject(const CompiledProject& project, const runtime::RuntimeWorld& world,
+              const SessionState& state,
               const ResolvedRoomPresentation* room_presentation = nullptr);
     [[nodiscard]] const RuntimePresentationSnapshot* published() const noexcept;
 

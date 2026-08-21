@@ -15,6 +15,7 @@ import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import * as ResEdit from 'resedit';
 import { generateAppIcons } from './icon-generation-service';
+import type { PlatformArchiveEntry } from './platform-archive-service';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
 import {
   PLATFORM_EXPORT_MANIFEST_FORMAT,
@@ -33,6 +34,7 @@ import {
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { templateRootForToken, verifyTemplateToken } from './template-registry-service';
 import {
+  createPlatformArchive,
   platformAvailableDiskSpace,
   platformFileMode,
   runPlatformProcess,
@@ -116,6 +118,24 @@ function htmlEscape(value: string) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+}
+
+async function platformArchiveEntries(
+  stage: string,
+  files: readonly StagedFileEntry[],
+  prefix = '',
+): Promise<PlatformArchiveEntry[]> {
+  return Promise.all(
+    files.map(async (entry) => {
+      const sourcePath = safeRoot(stage, entry.path);
+      return {
+        sourcePath,
+        archivePath: prefix ? path.posix.join(prefix, entry.path) : entry.path,
+        size: (await stat(sourcePath)).size,
+        mode: entry.mode,
+      };
+    }),
+  );
 }
 
 async function writeGenerated(
@@ -945,20 +965,21 @@ export async function stagePlatformExport(
   const temp = `${request.outputDirectory}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   const backup = `${request.outputDirectory}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   const archivePath =
-    request.profile.target === 'web' ||
-    request.profile.target === 'windows' ||
-    request.profile.target === 'macos'
+    request.profile.target === 'web' || request.profile.target === 'windows'
       ? `${request.outputDirectory}.zip`
-      : request.profile.target === 'linux'
-        ? `${request.outputDirectory}.tar.gz`
-        : undefined;
+      : request.profile.target === 'macos'
+        ? `${request.outputDirectory.replace(/\.app$/i, '')}.zip`
+        : request.profile.target === 'linux'
+          ? request.profile.desktop.artifact === 'zip'
+            ? `${request.outputDirectory}.zip`
+            : `${request.outputDirectory}.tar.gz`
+          : undefined;
   const archiveTemp = archivePath
     ? `${archivePath}.tmp-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
     : undefined;
   const archiveBackup = archivePath
     ? `${archivePath}.previous-${request.operationId.replace(/[^a-zA-Z0-9_-]/g, '_')}`
     : undefined;
-  const macosArchiveRoot = request.profile.target === 'macos' ? `${temp}.archive-root` : undefined;
   const symbolArchivePath =
     (request.profile.target === 'windows' ||
       request.profile.target === 'linux' ||
@@ -1138,9 +1159,9 @@ export async function stagePlatformExport(
       };
     let estimated = (await stat(request.packagePath)).size;
     for (const file of templateFiles) estimated += (await stat(safeRoot(templateRoot, file))).size;
-    const availableDiskSpace = await platformAvailableDiskSpace(
-      path.dirname(path.resolve(request.outputDirectory)),
-    );
+    const outputParent = path.dirname(path.resolve(request.outputDirectory));
+    await mkdir(outputParent, { recursive: true });
+    const availableDiskSpace = await platformAvailableDiskSpace(outputParent);
     if (availableDiskSpace !== null && availableDiskSpace < estimated * 2)
       return {
         ok: false,
@@ -1344,30 +1365,42 @@ export async function stagePlatformExport(
       request.profile.target === 'macos'
         ? 'Contents/Resources/export-manifest.json'
         : 'export-manifest.json';
-    await writeFile(safeRoot(temp, manifestPath), `${JSON.stringify(manifest, null, 2)}\n`, {
-      mode: 0o644,
-    });
+    const manifestData = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`);
+    await writeFile(safeRoot(temp, manifestPath), manifestData, { mode: 0o644 });
     checkPlatformExportCancelled(request.operationId);
     const symbolFiles = windows?.symbolFiles ?? linux?.symbolFiles ?? macos?.symbolFiles ?? [];
     if (symbolArchivePath && symbolArchiveTemp && symbolFiles.length) {
       const symbolStage = `${temp}.symbols`;
       await rm(symbolStage, { recursive: true, force: true });
       await mkdir(symbolStage, { recursive: true });
+      const symbolEntries: PlatformArchiveEntry[] = [];
       for (const symbol of symbolFiles) {
         const target = path.join(symbolStage, symbol.path);
         await mkdir(path.dirname(target), { recursive: true });
         await writeFile(target, symbol.data, { mode: 0o644 });
+        symbolEntries.push({
+          sourcePath: target,
+          archivePath: symbol.path.split(path.sep).join('/'),
+          size: symbol.data.length,
+          mode: 0o644,
+        });
       }
-      await writeFile(path.join(symbolStage, 'BUILD_ID'), `${descriptor.buildId}\n`, {
+      const buildIdPath = path.join(symbolStage, 'BUILD_ID');
+      const buildIdData = Buffer.from(`${descriptor.buildId}\n`);
+      await writeFile(buildIdPath, buildIdData, { mode: 0o644 });
+      symbolEntries.push({
+        sourcePath: buildIdPath,
+        archivePath: 'BUILD_ID',
+        size: buildIdData.length,
         mode: 0o644,
       });
       await rm(symbolArchiveTemp, { force: true });
-      if (request.profile.target === 'linux')
-        await run('cmake', ['-E', 'tar', 'czf', symbolArchiveTemp, '.'], { cwd: symbolStage });
-      else
-        await run('cmake', ['-E', 'tar', 'cf', symbolArchiveTemp, '--format=zip', '.'], {
-          cwd: symbolStage,
-        });
+      await createPlatformArchive({
+        outputPath: symbolArchiveTemp,
+        format: request.profile.target === 'linux' ? 'tar.gz' : 'zip',
+        compression: request.profile.compression,
+        entries: symbolEntries,
+      });
       await rm(symbolStage, { recursive: true, force: true });
       checkPlatformExportCancelled(request.operationId);
     }
@@ -1444,19 +1477,24 @@ export async function stagePlatformExport(
     }
     if (archivePath && archiveTemp) {
       await rm(archiveTemp, { force: true });
-      if (request.profile.target === 'linux')
-        await run('cmake', ['-E', 'tar', 'czf', archiveTemp, '.'], { cwd: temp });
-      else if (request.profile.target === 'macos' && macosArchiveRoot) {
-        await rm(macosArchiveRoot, { recursive: true, force: true });
-        await mkdir(macosArchiveRoot, { recursive: true });
-        const appName = path.basename(request.outputDirectory);
-        await run('cmake', ['-E', 'copy_directory', temp, path.join(macosArchiveRoot, appName)]);
-        await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', appName], {
-          cwd: macosArchiveRoot,
-        });
-        await rm(macosArchiveRoot, { recursive: true, force: true });
-      } else
-        await run('cmake', ['-E', 'tar', 'cf', archiveTemp, '--format=zip', '.'], { cwd: temp });
+      const archivePrefix =
+        request.profile.target === 'macos' ? path.basename(request.outputDirectory) : '';
+      const archiveEntries = await platformArchiveEntries(temp, files, archivePrefix);
+      archiveEntries.push({
+        sourcePath: safeRoot(temp, manifestPath),
+        archivePath: archivePrefix ? path.posix.join(archivePrefix, manifestPath) : manifestPath,
+        size: manifestData.length,
+        mode: 0o644,
+      });
+      await createPlatformArchive({
+        outputPath: archiveTemp,
+        format:
+          request.profile.target === 'linux' && request.profile.desktop.artifact !== 'zip'
+            ? 'tar.gz'
+            : 'zip',
+        compression: request.profile.compression,
+        entries: archiveEntries,
+      });
       checkPlatformExportCancelled(request.operationId);
     }
     if (macos && dmgTemp && request.macosDmg) {
@@ -1577,7 +1615,6 @@ export async function stagePlatformExport(
       );
     await rm(temp, { recursive: true, force: true });
     if (archiveTemp) await rm(archiveTemp, { force: true });
-    if (macosArchiveRoot) await rm(macosArchiveRoot, { recursive: true, force: true });
     if (symbolArchiveTemp) await rm(symbolArchiveTemp, { force: true });
     if (appImageTemp) await rm(appImageTemp, { force: true });
     if (dmgTemp) await rm(dmgTemp, { force: true });

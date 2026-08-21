@@ -88,6 +88,14 @@ only) `none` selector and never duplicates file text. Assembly adapts those file
 internal inline representation used by compiler and preview code. Dependency lists declare additional
 assets/materials needed by the layout.
 
+All Layout RCSS is authored above NovelTea's universal RuntimeUI baseline. RuntimeUI implicitly
+applies the frozen RmlUi HTML4 baseline first, then the NovelTea-specific baseline, then template and
+Layout-authored RCSS. Layouts must not explicitly import the engine baseline files. The same baseline
+contract is used by built-in Layouts and focused previews, so preview and runtime element defaults do
+not diverge.
+
+See `docs/ui/RMLUI_RUNTIME_UI.md` for baseline ownership, provenance, cascade order, and update policy.
+
 ## Data Model
 
 ### Layout Kind

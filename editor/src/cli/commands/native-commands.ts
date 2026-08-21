@@ -1,10 +1,7 @@
 import path from 'node:path';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
-import {
-  exportSettingsFromProject,
-  selectedExportProfile,
-} from '../../shared/project-schema/authoring-export';
+import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
 import {
   nodeRuntimeArtifactPaths,
@@ -193,10 +190,13 @@ export const testRunUiSpecCommand = stdinTestCommand(['test', 'run-ui-spec'], tr
 export const packageExportCommand: CliCommandDefinition = {
   path: ['package', 'export'],
   parse(arguments_): CliCommandInvocation {
-    const allowed = new Set(['--output', '--profile']);
+    const valueOptions = new Set(['--output', '--profile']);
+    const flags = new Set(['--include-unused-assets', '--include-shader-sources']);
     for (let index = 0; index < arguments_.length; index += 1) {
       const value = arguments_[index]!;
-      if (!allowed.has(value)) throw new CliCommandUsageError(`Unknown command option '${value}'.`);
+      if (flags.has(value)) continue;
+      if (!valueOptions.has(value))
+        throw new CliCommandUsageError(`Unknown command option '${value}'.`);
       if (!arguments_[index + 1] || arguments_[index + 1]!.startsWith('--'))
         throw new CliCommandUsageError(`${value} requires a value.`);
       index += 1;
@@ -204,21 +204,20 @@ export const packageExportCommand: CliCommandDefinition = {
     const output = valueOption(arguments_, '--output');
     if (!output) throw new CliCommandUsageError("package export requires '--output <path>'.");
     const requestedProfile = valueOption(arguments_, '--profile');
+    const includeUnusedAssets = arguments_.includes('--include-unused-assets');
+    const includeShaderSources = arguments_.includes('--include-shader-sources');
     return {
       dryRun: false,
       mutation: false,
       async run(context) {
-        const settings = exportSettingsFromProject(context.snapshot.project);
-        const profile = requestedProfile
-          ? settings.profiles.find((candidate) => candidate.id === requestedProfile)
-          : selectedExportProfile(context.snapshot.project);
-        if (!profile)
+        const profile = selectedExportProfile(context.snapshot.project);
+        if (requestedProfile && requestedProfile !== profile.id)
           return {
             ok: false,
             diagnostics: [
               cliDiagnostic(
                 'export.profile_missing',
-                '/settings/export',
+                '/export/runtime',
                 `Export profile '${requestedProfile}' does not exist.`,
               ),
             ],
@@ -226,7 +225,13 @@ export const packageExportCommand: CliCommandDefinition = {
         const prepared = await prepareRuntimeArtifact({
           project: context.snapshot.project,
           projectRoot: context.snapshot.projectRoot,
-          profile,
+          profile: {
+            ...profile,
+            ...(includeUnusedAssets ? { excludeUnusedAssets: false } : {}),
+            ...(includeShaderSources
+              ? { includeShaderSources: true, stripShaderSources: false }
+              : {}),
+          },
           intent: 'runtime-package-export',
           shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) =>
             context.nativeTools.compileShaders(shaderProject, options),

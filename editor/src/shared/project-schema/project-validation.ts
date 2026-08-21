@@ -129,7 +129,7 @@ export function projectValidationBoundariesForAuthoringPath(
   if (
     path === '/settings/app' ||
     path.startsWith('/settings/app/') ||
-    path.startsWith('/settings/platformExport')
+    path.startsWith('/export/profiles')
   ) {
     return ['authoring', 'platform-export'];
   }

@@ -117,6 +117,44 @@ describe('workbench dirty state', () => {
     ]);
   });
 
+  it('keeps Export profile changes out of Project Settings dirty state', () => {
+    const settingsTab: WorkbenchTab = {
+      id: 'tab:project-settings',
+      title: 'Project Settings',
+      editorType: 'project-settings',
+      resource: { kind: 'project', stableId: 'project:settings' },
+    };
+    const exportTab: WorkbenchTab = {
+      id: 'tab:platform-export',
+      title: 'Export',
+      editorType: 'platform-export',
+      resource: { kind: 'tool', stableId: 'utility:platform-export' },
+    };
+    const saved = {
+      project: { name: 'Story' },
+      settings: { display: {} },
+      export: { runtime: { id: 'runtime-default' }, profiles: [] },
+      startupHook: null,
+      entrypoint: null,
+    };
+    const current = {
+      ...saved,
+      export: {
+        ...saved.export,
+        profiles: [{ id: 'windows', label: 'Windows' }],
+      },
+    };
+
+    expect(getTabDirtyState(settingsTab, current, saved, {})).toMatchObject({
+      dirty: false,
+      saveUnitId: 'project:settings',
+    });
+    expect(getTabDirtyState(exportTab, current, saved, {})).toMatchObject({
+      dirty: true,
+      saveUnitId: 'project:platform-export-profiles',
+    });
+  });
+
   it('shares pending Project Settings input across duplicate views without document changes', () => {
     const settingsTab: WorkbenchTab = {
       id: 'tab:project-settings',

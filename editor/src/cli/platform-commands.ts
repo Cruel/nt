@@ -7,11 +7,14 @@ import {
   parseEditorExportLocalState,
   parseProjectPlatformExportSettings,
   projectPlatformExportSettingsSchema,
+  userSigningProfileToExportSigningState,
   type InstalledTemplate,
   type PlatformExportProfile,
   type PlatformStageDiagnostic,
+  type ProjectPlatformExportRequest,
 } from '../shared/project-schema/platform-export-contracts';
 import { evaluateTemplateCompatibility } from '../shared/project-schema/template-compatibility';
+import { derivedPlatformCapabilities } from '../shared/project-schema/platform-deployment';
 import { cliDiagnostic, NOVELTEA_CLI_EXIT_CODES } from './contracts';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
 import type { CliSemanticResult } from './semantic-project';
@@ -88,9 +91,9 @@ function stageDiagnostics(diagnostics: readonly PlatformStageDiagnostic[]) {
 }
 
 function exactPlatformSettings(project: AuthoringProject) {
-  const parsed = projectPlatformExportSettingsSchema.safeParse(
-    (project.settings as Record<string, unknown>).platformExport,
-  );
+  const parsed = projectPlatformExportSettingsSchema.safeParse({
+    profiles: project.export.profiles,
+  });
   return parsed.success ? parsed.data : parseProjectPlatformExportSettings(undefined);
 }
 
@@ -237,7 +240,6 @@ function hostPlatform(): 'windows' | 'linux' | 'macos' {
 async function profileRows(
   project: AuthoringProject,
   profiles: readonly PlatformExportProfile[],
-  selectedProfileId: string | null,
   templates: readonly InstalledTemplate[],
 ) {
   return profiles.map((profile) => {
@@ -250,7 +252,7 @@ async function profileRows(
         playerConfigApi: 2,
         shaderVariants: runtimeProfile.shaderVariants,
         graphicsBackends: [],
-        capabilities: profile.capabilityOverrides,
+        capabilities: derivedPlatformCapabilities(profile.target),
         requiredFeatures: [],
         host: { platform: hostPlatform(), availableTools: [] },
       }).compatible;
@@ -268,7 +270,6 @@ async function profileRows(
       architecture: profile.architecture,
       buildFlavor: profile.buildFlavor,
       artifact,
-      selected: profile.id === selectedProfileId,
       hostCompatible: compatibleTemplate,
     };
   });
@@ -287,7 +288,6 @@ export const platformProfilesCommand: CliCommandDefinition = {
         const rows = await profileRows(
           context.snapshot.project,
           settings.profiles,
-          settings.selectedProfileId,
           await context.platformTools.listTemplates(),
         );
         const humanSuccess =
@@ -296,7 +296,7 @@ export const platformProfilesCommand: CliCommandDefinition = {
             : rows
                 .map(
                   (profile) =>
-                    `${profile.selected ? '*' : ' '} ${profile.id}  ${profile.label}  ${profile.target}/${profile.architecture}  ${profile.artifact}`,
+                    `${profile.id}  ${profile.label}  ${profile.target}/${profile.architecture}  ${profile.artifact}`,
                 )
                 .join('\n');
         return { ok: true, diagnostics: [], fields: { profiles: rows }, humanSuccess };
@@ -310,8 +310,16 @@ export const platformExportCommand: CliCommandDefinition = {
   parse(arguments_): CliCommandInvocation {
     const parsed = parseOptions(
       arguments_,
-      ['--output', '--profile', '--template', '--config'],
-      ['--check', '--force', '--sign', '--allow-untrusted-template', '--allow-identity-change'],
+      ['--output', '--profile', '--template', '--config', '--signing-profile'],
+      [
+        '--check',
+        '--force',
+        '--sign',
+        '--allow-untrusted-template',
+        '--allow-identity-change',
+        '--include-unused-assets',
+        '--include-shader-sources',
+      ],
     );
     const output = parsed.values['--output'];
     if (!output) throw new CliCommandUsageError("platform export requires '--output <path>'.");
@@ -323,18 +331,23 @@ export const platformExportCommand: CliCommandDefinition = {
       async run(context) {
         const settings = exactPlatformSettings(context.snapshot.project);
         const requestedProfile = parsed.values['--profile'];
-        const profileId = requestedProfile ?? settings.selectedProfileId;
-        const profile = settings.profiles.find((candidate) => candidate.id === profileId);
+        const profile = requestedProfile
+          ? settings.profiles.find((candidate) => candidate.id === requestedProfile)
+          : settings.profiles.length === 1
+            ? settings.profiles[0]
+            : undefined;
         if (!profile)
           return {
             ok: false,
             diagnostics: [
               cliDiagnostic(
                 'platform.profile_missing',
-                '/settings/platformExport',
+                '/export/profiles',
                 requestedProfile
                   ? `Platform export profile '${requestedProfile}' does not exist.`
-                  : 'No valid selected platform export profile is configured.',
+                  : settings.profiles.length === 0
+                    ? 'No platform export profiles are configured.'
+                    : "Multiple platform export profiles are configured; pass '--profile <id>'.",
               ),
             ],
           };
@@ -362,14 +375,22 @@ export const platformExportCommand: CliCommandDefinition = {
             ],
           };
 
-        let config;
+        let localState: ProjectPlatformExportRequest['localState'];
         const configPath = parsed.values['--config'];
+        const requestedSigningProfileId = parsed.values['--signing-profile'];
+        const signingRequested =
+          parsed.flags.has('--sign') || requestedSigningProfileId !== undefined;
         if (configPath) {
+          if (requestedSigningProfileId)
+            throw new CliCommandUsageError(
+              '--signing-profile cannot be combined with --config; select signing inside the explicit config instead.',
+            );
           const resolved = path.resolve(context.cwd, configPath);
           try {
-            config = parseEditorExportLocalState(
+            const config = parseEditorExportLocalState(
               JSON.parse(await context.fileSystem.readText(resolved)) as unknown,
             );
+            localState = { ...config.toolchains, signing: config.signing };
           } catch (error) {
             return {
               ok: false,
@@ -382,6 +403,36 @@ export const platformExportCommand: CliCommandDefinition = {
               ],
             };
           }
+        } else {
+          const userConfig = await context.platformTools.loadUserConfig();
+          localState = { ...userConfig.toolchains };
+          if (signingRequested) {
+            const matching = userConfig.signingProfiles.filter(
+              (item) => item.target === profile.target,
+            );
+            const selected = requestedSigningProfileId
+              ? matching.find((item) => item.id === requestedSigningProfileId)
+              : matching.length === 1
+                ? matching[0]
+                : undefined;
+            if (!selected) {
+              return {
+                ok: false,
+                diagnostics: [
+                  cliDiagnostic(
+                    'platform.signing_profile_required',
+                    '/signingProfile',
+                    requestedSigningProfileId
+                      ? `Signing profile '${requestedSigningProfileId}' is not configured for ${profile.target}.`
+                      : matching.length === 0
+                        ? `No signing profile is configured for ${profile.target}.`
+                        : `Multiple signing profiles are configured for ${profile.target}; pass --signing-profile <id>.`,
+                  ),
+                ],
+              };
+            }
+            localState.signing = userSigningProfileToExportSigningState(selected);
+          }
         }
         const result = await context.platformTools.exportProject(
           {
@@ -392,10 +443,22 @@ export const platformExportCommand: CliCommandDefinition = {
             templateToken: template ? internalToken(template) : undefined,
             checkOnly: parsed.flags.has('--check'),
             force: parsed.flags.has('--force'),
-            sign: parsed.flags.has('--sign'),
+            sign: signingRequested,
             allowUntrustedTemplate: parsed.flags.has('--allow-untrusted-template'),
             allowIdentityChange: parsed.flags.has('--allow-identity-change'),
-            localState: config ? { ...config.toolchains, signing: config.signing } : undefined,
+            runtimeOptions:
+              parsed.flags.has('--include-unused-assets') ||
+              parsed.flags.has('--include-shader-sources')
+                ? {
+                    ...(parsed.flags.has('--include-unused-assets')
+                      ? { excludeUnusedAssets: false }
+                      : {}),
+                    ...(parsed.flags.has('--include-shader-sources')
+                      ? { includeShaderSources: true }
+                      : {}),
+                  }
+                : undefined,
+            localState,
           },
           (event) => context.onPlatformProgress?.(event.stage, event.message),
         );

@@ -11,12 +11,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Copy, Plus, Trash2 } from 'lucide-react';
 import { useCommandStore } from '@/commands/command-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
-import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
-import { buildPlatformExportProfilesTab, buildSettingsTab } from '@/workbench/editor-registry';
+import { buildSettingsTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
@@ -24,11 +24,9 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import { projectSettingsForEditing } from '../../shared/project-schema/authoring-project-settings';
 import {
   defaultPackageOutputFileName,
-  exportShaderVariantValues,
   runtimeExportProfileForPlatform,
   selectedExportProfile,
   type ExportProfileData,
-  type ExportShaderVariant,
 } from '../../shared/project-schema/authoring-export';
 import {
   prepareRuntimeArtifact,
@@ -41,16 +39,16 @@ import {
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
+import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import {
   defaultPlatformExportProfile,
   parsePlatformExportProfile,
   parseProjectPlatformExportSettings,
-  resolveAssetMemoryPolicy,
+  userSigningProfileToExportSigningState,
   type ExportPlatform,
-  type ExportCapability,
-  type InstalledTemplate,
   type PlatformExportProfile,
   type ProjectPlatformExportSettings,
+  type UserExportConfig,
 } from '../../shared/project-schema/platform-export-contracts';
 import { runPackageExportWorkflow } from './package-export-workflow';
 import { usePackageExportStore } from './package-export-store';
@@ -61,6 +59,8 @@ import {
 import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
 import { evaluatePlatformExportReadiness } from './platform-export-readiness';
 import { rendererRuntimeArtifactPaths } from './runtime-artifact-adapters';
+import { useTemplateRegistryStore } from './template-registry-store';
+import { hostPathDirname, joinHostPath } from '../host-filesystem-path';
 
 interface PackageExportDialogProps {
   open: boolean;
@@ -74,7 +74,9 @@ interface PackageExportDialogProps {
 }
 
 type ExportMode = 'runtime' | 'platform';
-type CustomAssetMemoryField = keyof NonNullable<PlatformExportProfile['assetMemory']['custom']>;
+type ProfileEditMode = 'none' | 'creating-identity' | 'creating-config' | 'editing';
+
+const webBasePathPattern = /^\/$|^\/[a-zA-Z0-9._~!$&'()*+,;=:@%/-]*\/$/;
 
 function ExportSurface({
   embedded,
@@ -87,63 +89,70 @@ function ExportSurface({
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
 }) {
-  if (embedded) {
-    return (
-      <div className="h-full min-h-0 overflow-auto bg-background">
-        <div className="mx-auto grid w-full max-w-5xl gap-4 p-6">{children}</div>
-      </div>
-    );
-  }
+  if (embedded) return <div className="h-full min-h-0 bg-background">{children}</div>;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPopup className="max-h-[90vh] max-w-3xl overflow-auto">{children}</DialogPopup>
+      <DialogPopup className="max-h-[90vh] max-w-5xl overflow-hidden">{children}</DialogPopup>
     </Dialog>
   );
 }
 
-const capabilityOptions: ExportCapability[] = [
-  'network.client',
-  'external-url',
-  'clipboard.read',
-  'clipboard.write',
-  'gamepad',
-  'vibration',
-  'microphone',
-  'notifications',
-  'custom-url-scheme',
-  'billing',
-];
-
-function dirname(value: string | null): string | null {
-  if (!value) return null;
-  const normalized = value.replace(/\\/g, '/');
-  const slash = normalized.lastIndexOf('/');
-  return slash >= 0 ? normalized.slice(0, slash) : null;
-}
-
-function defaultOutputPath(
+function defaultRuntimeOutput(
   project: AuthoringProject,
   projectRoot: string | null,
   projectFilePath: string | null,
 ) {
-  const root = projectRoot ?? dirname(projectFilePath) ?? '';
-  const file = defaultPackageOutputFileName(project);
-  return root ? `${root.replace(/[\\/]+$/, '')}/${file}` : file;
+  const root = projectRoot ?? hostPathDirname(projectFilePath) ?? '';
+  const relative = joinHostPath('dist', defaultPackageOutputFileName(project));
+  return root ? joinHostPath(root, relative) : relative;
+}
+
+function profileOutputSlug(label: string) {
+  return (
+    label
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'export'
+  );
 }
 
 function defaultPlatformOutput(projectRoot: string | null, profile: PlatformExportProfile) {
-  const root = projectRoot?.replace(/[\\/]+$/, '') ?? '';
-  return `${root ? `${root}/` : ''}dist/${profile.id}`;
+  const relative = joinHostPath('dist', profileOutputSlug(profile.label));
+  return projectRoot ? joinHostPath(projectRoot, relative) : relative;
 }
 
-function toggleVariant(
-  profile: ExportProfileData,
-  variant: ExportShaderVariant,
-): ExportProfileData {
-  const next = profile.shaderVariants.includes(variant)
-    ? profile.shaderVariants.filter((item) => item !== variant)
-    : [...profile.shaderVariants, variant];
-  return { ...profile, shaderVariants: next.length > 0 ? next : [variant] };
+function platformDisplayName(target: ExportPlatform) {
+  if (target === 'windows') return 'Windows';
+  if (target === 'linux') return 'Linux';
+  if (target === 'macos') return 'macOS';
+  if (target === 'web') return 'Web';
+  return 'Android';
+}
+
+function platformMarker(target: ExportPlatform) {
+  if (target === 'windows') return 'W';
+  if (target === 'linux') return 'L';
+  if (target === 'macos') return 'M';
+  if (target === 'web') return 'Web';
+  return 'A';
+}
+
+function profileArtifact(profile: PlatformExportProfile) {
+  if (profile.target === 'web') return profile.web.artifact;
+  if (profile.target === 'android') return profile.android.artifact;
+  return profile.desktop.artifact;
+}
+
+function profileSummary(
+  profile: PlatformExportProfile,
+  labels: Readonly<{ debug: string; release: string }>,
+) {
+  const parts = [platformDisplayName(profile.target)];
+  parts.push(profile.buildFlavor === 'debug' ? labels.debug : labels.release);
+  parts.push(profileArtifact(profile));
+  return parts.join(' · ');
 }
 
 function severityVariant(severity: ToolDiagnostic['severity']) {
@@ -164,10 +173,12 @@ function DiagnosticPreview({
   title,
   diagnostics,
   project,
+  actions,
 }: {
   title: string;
   diagnostics: ToolDiagnostic[];
   project?: AuthoringProject;
+  actions?: React.ReactNode;
 }) {
   if (diagnostics.length === 0) return null;
   return (
@@ -183,12 +194,8 @@ function DiagnosticPreview({
             <>
               <div className="mb-1 flex flex-wrap items-center gap-2">
                 <Badge variant={severityVariant(diagnostic.severity)}>{diagnostic.severity}</Badge>
-                <Badge variant="outline">{diagnostic.category ?? 'export'}</Badge>
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {diagnostic.path || '/'}
-                </span>
+                <span>{diagnostic.message}</span>
               </div>
-              <div>{diagnostic.message}</div>
             </>
           );
           return target ? (
@@ -210,73 +217,45 @@ function DiagnosticPreview({
           );
         })}
       </div>
+      {actions ? <div className="mt-3 flex flex-wrap gap-2">{actions}</div> : null}
     </div>
   );
 }
 
 function profileSettings(project: AuthoringProject): ProjectPlatformExportSettings {
-  return parseProjectPlatformExportSettings(
-    (project.settings as Record<string, unknown>).platformExport,
-  );
+  return parseProjectPlatformExportSettings({ profiles: project.export.profiles });
 }
 
-function updateProfileTarget(
-  profile: PlatformExportProfile,
-  target: ExportPlatform,
-): PlatformExportProfile {
-  const next = defaultPlatformExportProfile(target);
-  return {
-    ...next,
-    id: profile.id,
-    label: profile.label,
-    buildFlavor: profile.buildFlavor,
-    includeDebugSymbols: profile.includeDebugSymbols,
-  };
+function persistRuntimeProfile(_project: AuthoringProject, profile: ExportProfileData) {
+  return useCommandStore.getState().executeCommand({
+    type: 'project.replaceAtPath',
+    label: 'Update runtime export settings',
+    payload: { path: '/export/runtime', value: profile },
+    ...MUTATION_SURFACE_ATTRIBUTIONS.exportProfileEditing,
+  });
 }
 
-function profileArtifact(profile: PlatformExportProfile) {
-  if (profile.target === 'web') return profile.web.artifact;
-  if (profile.target === 'android') return profile.android.artifact;
-  return profile.desktop.artifact;
+function persistPlatformSettings(
+  _project: AuthoringProject,
+  settings: ProjectPlatformExportSettings,
+) {
+  return useCommandStore.getState().executeCommand({
+    type: 'project.replaceAtPath',
+    label: 'Update platform export profiles',
+    payload: { path: '/export/profiles', value: settings.profiles },
+    ...MUTATION_SURFACE_ATTRIBUTIONS.exportProfileEditing,
+  });
 }
 
 function iconSourcePath(project: AuthoringProject, projectRoot: string | null) {
   const icon = projectSettingsForEditing(project).app.icon;
   if (!icon || !projectRoot) return undefined;
   const data = parseAssetData(project.assets[icon.$ref.id]?.data);
-  return data ? `${projectRoot.replace(/[\\/]+$/, '')}/${data.source.path}` : undefined;
+  return data ? joinHostPath(projectRoot, data.source.path) : undefined;
 }
 
-function persistPlatformSettings(
-  project: AuthoringProject,
-  settings: ProjectPlatformExportSettings,
-) {
-  const liveProject = useProjectStore.getState().document as AuthoringProject | null;
-  const exists = Object.prototype.hasOwnProperty.call(
-    liveProject?.settings ?? project.settings,
-    'platformExport',
-  );
-  return useCommandStore.getState().executeCommand({
-    type: exists ? 'project.replaceAtPath' : 'project.addAtPath',
-    label: 'Update platform export profiles',
-    payload: { path: '/settings/platformExport', value: settings },
-    ...MUTATION_SURFACE_ATTRIBUTIONS.exportProfileEditing,
-  });
-}
-
-function removePlatformSettings(project: AuthoringProject) {
-  const liveProject = useProjectStore.getState().document as AuthoringProject | null;
-  const exists = Object.prototype.hasOwnProperty.call(
-    liveProject?.settings ?? project.settings,
-    'platformExport',
-  );
-  if (!exists) return { ok: true } as const;
-  return useCommandStore.getState().executeCommand({
-    type: 'project.removeAtPath',
-    label: 'Remove platform export profiles',
-    payload: { path: '/settings/platformExport' },
-    ...MUTATION_SURFACE_ATTRIBUTIONS.exportProfileEditing,
-  });
+function labelsEqual(left: string, right: string) {
+  return left.trim().localeCompare(right.trim(), undefined, { sensitivity: 'base' }) === 0;
 }
 
 export function PackageExportDialog({
@@ -287,81 +266,137 @@ export function PackageExportDialog({
   projectFilePath,
   embedded = false,
   initialMode = 'runtime',
-  profileManagementOnly = false,
 }: PackageExportDialogProps) {
-  const { t } = useTranslation('workspace');
+  const { t } = useTranslation(['workspace', 'settings']);
   const running = usePackageExportStore((state) => state.running);
   const stage = usePackageExportStore((state) => state.stage);
   const lastResult = usePackageExportStore((state) => state.lastResult);
+  const developerMode = usePreferencesStore((state) => state.developerMode);
+  const localState = usePreferencesStore((state) => state.exportPreferences);
+  const setExportPreferences = usePreferencesStore((state) => state.setExportPreferences);
+
   const [mode, setMode] = useState<ExportMode>(initialMode);
   const [runtimeProfile, setRuntimeProfile] = useState<ExportProfileData | null>(null);
   const [platformSettings, setPlatformSettings] = useState<ProjectPlatformExportSettings | null>(
     null,
   );
+  const [selectedPlatformProfileId, setSelectedPlatformProfileId] = useState<string | null>(null);
+  const [runtimeOutput, setRuntimeOutput] = useState('');
   const [platformOutput, setPlatformOutput] = useState('');
-  const [template, setTemplate] = useState<InstalledTemplate | null>(null);
-  const [templates, setTemplates] = useState<InstalledTemplate[]>([]);
+  const templates = useTemplateRegistryStore((state) => state.templates);
+  const templatesLoaded = useTemplateRegistryStore((state) => state.loaded);
+  const templateRegistryError = useTemplateRegistryStore((state) => state.error);
+  const refreshTemplates = useTemplateRegistryStore((state) => state.refresh);
   const [selectedTemplateToken, setSelectedTemplateToken] = useState('');
   const [templateDiagnostics, setTemplateDiagnostics] = useState<ProjectValidationDiagnostic[]>([]);
   const [templateDownloadPending, setTemplateDownloadPending] = useState(false);
+  const [userExportConfig, setUserExportConfig] = useState<UserExportConfig | null>(null);
+  const [selectedSigningProfileId, setSelectedSigningProfileId] = useState('');
   const [operationId, setOperationId] = useState<string | null>(null);
   const [identityConfirmationOpen, setIdentityConfirmationOpen] = useState(false);
-  const localState = usePreferencesStore((state) => state.exportPreferences);
-  const setExportPreferences = usePreferencesStore((state) => state.setExportPreferences);
+
+  const [profileEditMode, setProfileEditMode] = useState<ProfileEditMode>('none');
+  const [newProfileName, setNewProfileName] = useState('Windows');
+  const [newProfileTarget, setNewProfileTarget] = useState<ExportPlatform>('windows');
+  const [profileDraft, setProfileDraft] = useState<PlatformExportProfile | null>(null);
+
+  function projectLocalKey() {
+    return projectFilePath ?? projectRoot ?? 'unsaved';
+  }
 
   function localProfileKey(profileId: string) {
-    return `${projectFilePath ?? projectRoot ?? 'unsaved'}::${profileId}`;
+    return `${projectLocalKey()}::${profileId}`;
+  }
+
+  function rememberSelectedProfile(profileId: string) {
+    const current = usePreferencesStore.getState().exportPreferences.selectedProfileIds;
+    setExportPreferences({
+      selectedProfileIds: { ...current, [projectLocalKey()]: profileId },
+    });
   }
 
   function outputForProfile(profile: PlatformExportProfile) {
     return (
       localState.profileOutputDirectories[localProfileKey(profile.id)] ||
-      defaultPlatformOutput(localState.defaultOutputDirectory || projectRoot, profile)
+      defaultPlatformOutput(projectRoot, profile)
     );
+  }
+
+  function rememberOutput(profileId: string, value: string) {
+    const key = localProfileKey(profileId);
+    const current = usePreferencesStore.getState().exportPreferences.profileOutputDirectories;
+    setExportPreferences({
+      profileOutputDirectories: { ...current, [key]: value },
+    });
   }
 
   useEffect(() => {
     if (!open || !project) return;
-    setRuntimeProfile(selectedExportProfile(project));
+    const nextRuntime = selectedExportProfile(project);
     const settings = profileSettings(project);
-    setPlatformSettings(settings);
+    const rememberedProfileId = localState.selectedProfileIds[projectLocalKey()];
+    const rememberedProfile = settings.profiles.find((item) => item.id === rememberedProfileId);
     const selected =
-      settings.profiles.find((item) => item.id === settings.selectedProfileId) ??
-      settings.profiles[0] ??
+      rememberedProfile ??
+      [...settings.profiles].sort((a, b) =>
+        a.label.localeCompare(b.label, undefined, { numeric: true }),
+      )[0] ??
       null;
+    setMode(
+      rememberedProfileId === 'runtime-package'
+        ? 'runtime'
+        : rememberedProfile
+          ? 'platform'
+          : initialMode,
+    );
+    setRuntimeProfile(nextRuntime);
+    setRuntimeOutput(
+      localState.profileOutputDirectories[localProfileKey('runtime-package')] ||
+        defaultRuntimeOutput(project, projectRoot, projectFilePath),
+    );
+    setPlatformSettings(settings);
+    setSelectedPlatformProfileId(selected?.id ?? null);
     setPlatformOutput(selected ? outputForProfile(selected) : '');
-    setTemplate(null);
-    setTemplates([]);
     setSelectedTemplateToken(
       selected ? (localState.profileTemplateTokens[localProfileKey(selected.id)] ?? '') : '',
     );
-    setTemplateDiagnostics([]);
-    setTemplateDownloadPending(false);
+    setSelectedSigningProfileId(
+      selected ? (localState.profileSigningProfileIds[localProfileKey(selected.id)] ?? '') : '',
+    );
+    setProfileEditMode('none');
+    setProfileDraft(null);
+    void window.noveltea.loadUserExportConfig().then(setUserExportConfig);
   }, [open, project, projectRoot]); // oxlint-disable-line react-hooks/exhaustive-deps
 
+  const selectedPlatformProfile = useMemo(() => {
+    if (!platformSettings) return null;
+    return platformSettings.profiles.find((item) => item.id === selectedPlatformProfileId) ?? null;
+  }, [platformSettings, selectedPlatformProfileId]);
+
   const activeRuntimeProfile = runtimeProfile ?? (project ? selectedExportProfile(project) : null);
-  const selectedPlatformProfile =
-    platformSettings?.profiles.find((item) => item.id === platformSettings.selectedProfileId) ??
-    platformSettings?.profiles[0] ??
-    null;
-  const activePlatformProfile = selectedPlatformProfile ?? defaultPlatformExportProfile('linux');
-  const selectedPlatformTarget = selectedPlatformProfile?.target;
-  const previewProfile = useMemo(() => {
-    if (!project || !activeRuntimeProfile) return null;
-    return mode === 'platform' && selectedPlatformTarget
-      ? runtimeExportProfileForPlatform(project, selectedPlatformTarget)
-      : activeRuntimeProfile;
-  }, [project, activeRuntimeProfile, mode, selectedPlatformTarget]);
+  const platformRuntimeProfile = useMemo(() => {
+    if (!project || !selectedPlatformProfile) return null;
+    return {
+      ...runtimeExportProfileForPlatform(project, selectedPlatformProfile.target),
+      excludeUnusedAssets: selectedPlatformProfile.excludeUnusedAssets,
+      includeShaderSources: selectedPlatformProfile.includeShaderSources,
+      stripShaderSources: !selectedPlatformProfile.includeShaderSources,
+    };
+  }, [project, selectedPlatformProfile]);
+  const previewProfile =
+    mode === 'platform' && platformRuntimeProfile ? platformRuntimeProfile : activeRuntimeProfile;
   const [preview, setPreview] = useState<RuntimeArtifactAssessment | null>(null);
+  const [previewPending, setPreviewPending] = useState(false);
   useEffect(() => {
     let current = true;
     if (!project || !previewProfile) {
       setPreview(null);
+      setPreviewPending(false);
       return () => {
         current = false;
       };
     }
-    setPreview(null);
+    setPreviewPending(true);
     void prepareRuntimeArtifact({
       project,
       projectRoot,
@@ -369,172 +404,23 @@ export function PackageExportDialog({
       intent: mode === 'platform' ? 'platform-preflight' : 'runtime-package-preflight',
       paths: rendererRuntimeArtifactPaths,
     }).then((result) => {
-      if (current && result.status !== 'cancelled') setPreview(result.assessment);
+      if (!current) return;
+      if (result.status !== 'cancelled') setPreview(result.assessment);
+      setPreviewPending(false);
     });
     return () => {
       current = false;
     };
   }, [mode, project, projectRoot, previewProfile]);
 
-  useEffect(() => {
-    if (!selectedPlatformProfile || !platformOutput) return;
-    const key = localProfileKey(selectedPlatformProfile.id);
-    if (localState.profileOutputDirectories[key] === platformOutput) return;
-    setExportPreferences({
-      profileOutputDirectories: { ...localState.profileOutputDirectories, [key]: platformOutput },
-    });
-  }, [selectedPlatformProfile?.id, platformOutput, projectFilePath, projectRoot]); // oxlint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!open || mode !== 'platform' || !selectedPlatformProfile || !activeRuntimeProfile) return;
-    let cancelled = false;
-    setTemplate(null);
-    const rememberedTemplate =
-      localState.profileTemplateTokens[localProfileKey(selectedPlatformProfile.id)] ?? '';
-    setSelectedTemplateToken(rememberedTemplate);
-    void window.noveltea
-      .listPlayerTemplates({
-        platform: selectedPlatformProfile.target,
-        architecture: selectedPlatformProfile.architecture,
-        buildFlavor: selectedPlatformProfile.buildFlavor,
-      })
-      .then((items) => {
-        if (!cancelled) setTemplates(items);
-      });
-    void window.noveltea
-      .resolvePlayerTemplate({
-        requirements: {
-          profile: selectedPlatformProfile,
-          runtimePackageApi: 2,
-          playerConfigApi: 2,
-          shaderVariants: activeRuntimeProfile.shaderVariants,
-          graphicsBackends: [],
-          capabilities: selectedPlatformProfile.capabilityOverrides,
-          requiredFeatures: [],
-        },
-      })
-      .then((result) => {
-        if (cancelled) return;
-        setTemplate(result.template ?? null);
-        const token = rememberedTemplate || result.token || '';
-        setSelectedTemplateToken(token);
-        setTemplateDiagnostics(
-          classifyProjectValidationDiagnostics(
-            result.diagnostics.map((item) => ({
-              code: item.code,
-              severity: result.success ? ('warning' as const) : ('error' as const),
-              category: `template:${item.code}`,
-              path: item.path,
-              message: item.message,
-            })),
-            { producer: 'template' },
-          ),
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, mode, selectedPlatformProfile, activeRuntimeProfile]); // oxlint-disable-line react-hooks/exhaustive-deps
-
   if (!project || !activeRuntimeProfile || !platformSettings) return null;
 
-  if ((mode === 'platform' || profileManagementOnly) && !selectedPlatformProfile) {
-    const createFirstProfile = () => {
-      const next = defaultPlatformExportProfile('linux');
-      const settings: ProjectPlatformExportSettings = {
-        selectedProfileId: next.id,
-        profiles: [next],
-      };
-      const result = persistPlatformSettings(project, settings);
-      if (!result.ok) return;
-      setPlatformSettings(settings);
-      setPlatformOutput(defaultPlatformOutput(projectRoot, next));
-    };
-    const emptyTitle = embedded ? (
-      <>
-        <h1 className="text-lg font-semibold">
-          {profileManagementOnly ? 'Export Profiles' : 'Export Project'}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {profileManagementOnly
-            ? 'Manage reproducible platform build profiles committed with this project.'
-            : 'Export a runtime package or playable platform artifact.'}
-        </p>
-      </>
-    ) : (
-      <>
-        <DialogTitle>Export Project</DialogTitle>
-        <DialogDescription className="sr-only">
-          Export a runtime package or playable platform artifact.
-        </DialogDescription>
-      </>
-    );
-    return (
-      <ExportSurface embedded={embedded} open={open} onOpenChange={onOpenChange}>
-        {emptyTitle}
-        {!profileManagementOnly ? (
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => setMode('runtime')}>
-              Runtime Package (.ntpkg)
-            </Button>
-            <Button type="button" variant="default">
-              Playable Platform Export
-            </Button>
-          </div>
-        ) : null}
-        <div className="grid place-items-center gap-3 rounded border border-dashed p-10 text-center">
-          <div className="font-medium">No platform export profiles</div>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Add a profile when this project is ready to produce a playable Linux, Windows, macOS,
-            Web, or Android build. Profiles are saved explicitly in the project.
-          </p>
-          <Button type="button" onClick={createFirstProfile}>
-            Add Linux Profile
-          </Button>
-        </div>
-        {!profileManagementOnly ? (
-          embedded ? (
-            <div className="flex justify-end border-t pt-4">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-            </div>
-          ) : (
-            <DialogFooter>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-            </DialogFooter>
-          )
-        ) : null}
-      </ExportSurface>
-    );
-  }
-
-  const currentProject: AuthoringProject = project;
-  const currentRuntimeProfile: ExportProfileData = activeRuntimeProfile;
-  const currentPlatformSettings: ProjectPlatformExportSettings = platformSettings;
-  const currentPlatformProfile: PlatformExportProfile = activePlatformProfile;
-  const resolvedAssetMemory = resolveAssetMemoryPolicy(
-    currentPlatformProfile.target,
-    currentPlatformProfile.assetMemory,
-  );
+  const currentProject = project;
+  const currentRuntimeProfile = activeRuntimeProfile;
+  const currentPlatformSettings = platformSettings;
   const currentProjectSettings = projectSettingsForEditing(currentProject);
-  const templateChoices = templates.map((item) => ({
-    item,
-    compatibility: evaluateTemplateCompatibility(item.descriptor, {
-      profile: currentPlatformProfile,
-      runtimePackageApi: 2,
-      playerConfigApi: 2,
-      shaderVariants: currentRuntimeProfile.shaderVariants,
-      graphicsBackends: [],
-      capabilities: currentPlatformProfile.capabilityOverrides,
-      requiredFeatures: [],
-    }),
-  }));
   const outputPath =
-    currentRuntimeProfile.outputPath ||
-    defaultOutputPath(currentProject, projectRoot, projectFilePath);
+    runtimeOutput || defaultRuntimeOutput(currentProject, projectRoot, projectFilePath);
   const usesProjectShaders = hasAuthoringShadersOrMaterials(currentProject);
   const runtimeDiagnostics = preview?.runtimeDiagnostics ?? [];
   const blockingDiagnostics = preview?.runtimeBlockers ?? [];
@@ -542,59 +428,100 @@ export function PackageExportDialog({
     lastResult && !lastResult.success
       ? lastResult.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')
       : [];
+
+  const templateChoices = selectedPlatformProfile
+    ? templates.map((item) => ({
+        item,
+        compatibility: evaluateTemplateCompatibility(item.descriptor, {
+          profile: selectedPlatformProfile,
+          runtimePackageApi: 2,
+          playerConfigApi: 2,
+          shaderVariants: platformRuntimeProfile?.shaderVariants ?? [],
+          graphicsBackends: [],
+          capabilities: derivedPlatformCapabilities(selectedPlatformProfile.target),
+          requiredFeatures: [],
+        }),
+      }))
+    : [];
+  const compatibleTemplateChoices = templateChoices.filter(
+    ({ item, compatibility }) => item.status !== 'corrupted' && compatibility.compatible,
+  );
+  const template =
+    compatibleTemplateChoices.find(
+      ({ item }) =>
+        `${item.descriptor.templateId}/${item.descriptor.buildId}` === selectedTemplateToken,
+    )?.item ?? (compatibleTemplateChoices.length === 1 ? compatibleTemplateChoices[0]!.item : null);
+  const templateRegistryDiagnostics = templateRegistryError
+    ? classifyProjectValidationDiagnostics(
+        [
+          {
+            code: 'template-registry-load-failed',
+            severity: 'error' as const,
+            category: 'template:template-registry-load-failed',
+            path: '/template',
+            message: templateRegistryError,
+          },
+        ],
+        { producer: 'template' },
+      )
+    : [];
+  const effectiveTemplateDiagnostics = [...templateRegistryDiagnostics, ...templateDiagnostics];
+
+  const signingProfiles = selectedPlatformProfile
+    ? (userExportConfig?.signingProfiles.filter(
+        (item) => item.target === selectedPlatformProfile.target,
+      ) ?? [])
+    : [];
+  const selectedSigningProfile = signingProfiles.find(
+    (item) => item.id === selectedSigningProfileId,
+  );
+  const signingEnabled = selectedSigningProfile !== undefined;
+  const toolchains = userExportConfig?.toolchains ?? {};
   const effectiveTemplateToken =
     selectedTemplateToken ||
     (template ? `${template.descriptor.templateId}/${template.descriptor.buildId}` : '');
-  const signingEnabled = Boolean(currentPlatformProfile.signingProfileId);
-  const readiness = preview
-    ? evaluatePlatformExportReadiness({
-        runtimeExport: preview,
-        commonIdentity: {
-          displayName: currentProjectSettings.app.displayName,
-          applicationId:
-            currentPlatformProfile.target === 'android'
-              ? (currentProjectSettings.app.android.applicationId ??
-                currentProjectSettings.app.applicationId)
-              : currentProjectSettings.app.applicationId,
-          saveNamespace: currentProjectSettings.app.saveNamespace,
-          versionName: currentProjectSettings.app.versionName,
-          iconSourcePath: iconSourcePath(currentProject, projectRoot),
-        },
-        profile: currentPlatformProfile,
-        templateState: { templateToken: effectiveTemplateToken, diagnostics: templateDiagnostics },
-        toolchainState: {
-          androidSdk: localState.androidSdk || undefined,
-          androidNdk: localState.androidNdk || undefined,
-          javaHome: localState.javaHome || undefined,
-          cmake: localState.cmake || undefined,
-        },
-        signingState: {
-          windows:
-            signingEnabled && localState.windowsSigningCommand && localState.windowsVerifyCommand
-              ? true
-              : undefined,
-          macos: signingEnabled && localState.macosSigningIdentity ? true : undefined,
-          android:
-            signingEnabled &&
-            localState.androidKeystorePath &&
-            localState.androidKeyAlias &&
-            localState.androidStorePasswordReference &&
-            localState.androidKeyPasswordReference
-              ? true
-              : undefined,
-        },
-        outputDirectory: platformOutput,
-        lastSuccessfulIdentity:
-          editorProjectStateFromProject(currentProject).lastSuccessfulPlatformExportIdentity,
-      })
-    : null;
+
+  const readiness =
+    preview && selectedPlatformProfile && templatesLoaded
+      ? evaluatePlatformExportReadiness({
+          runtimeExport: preview,
+          commonIdentity: {
+            displayName: currentProjectSettings.app.displayName,
+            applicationId:
+              selectedPlatformProfile.target === 'android'
+                ? (currentProjectSettings.app.android.applicationId ??
+                  currentProjectSettings.app.applicationId)
+                : currentProjectSettings.app.applicationId,
+            saveNamespace: currentProjectSettings.app.saveNamespace,
+            versionName: currentProjectSettings.app.versionName,
+            iconSourcePath: iconSourcePath(currentProject, projectRoot),
+          },
+          profile: selectedPlatformProfile,
+          templateState: {
+            templateToken: effectiveTemplateToken,
+            diagnostics: effectiveTemplateDiagnostics,
+          },
+          toolchainState: toolchains,
+          signingState: {
+            windows: selectedSigningProfile?.target === 'windows' ? true : undefined,
+            macos: selectedSigningProfile?.target === 'macos' ? true : undefined,
+            android: selectedSigningProfile?.target === 'android' ? true : undefined,
+          },
+          signingRequested: signingEnabled,
+          outputDirectory: platformOutput,
+          lastSuccessfulIdentity:
+            editorProjectStateFromProject(currentProject).lastSuccessfulPlatformExportIdentity,
+        })
+      : null;
+
   const platformBlockers = readiness?.blockers ?? [];
-  const preflightPending = preview === null;
   const canExport =
+    profileEditMode === 'none' &&
     !running &&
+    !previewPending &&
     (mode === 'runtime'
       ? preview !== null && blockingDiagnostics.length === 0 && outputPath.trim().length > 0
-      : readiness?.ok === true && !!template);
+      : templatesLoaded && !!selectedPlatformProfile && readiness?.ok === true && !!template);
   const activeBlockers = mode === 'runtime' ? blockingDiagnostics : platformBlockers;
   const hasProjectSettingsBlocker = activeBlockers.some(
     (diagnostic) =>
@@ -602,129 +529,243 @@ export function PackageExportDialog({
       diagnostic.path.startsWith('/settings/') ||
       diagnostic.path.startsWith('/project/'),
   );
-  const platformReadinessGroups = [
-    { title: 'Runtime package readiness', diagnostics: readiness?.groups.runtimePackage ?? [] },
-    { title: 'Common app identity readiness', diagnostics: readiness?.groups.commonIdentity ?? [] },
-    {
-      title: `${currentPlatformProfile.target} target metadata readiness`,
-      diagnostics: readiness?.groups.targetMetadata ?? [],
-    },
-    {
-      title: 'Template, toolchain, and signing readiness',
-      diagnostics: readiness?.groups.environment ?? [],
-    },
-  ];
+
+  const platformReadinessGroups = selectedPlatformProfile
+    ? [
+        {
+          key: 'runtime',
+          title: t('settings:exportUi.runtimeReadiness'),
+          diagnostics: readiness?.groups.runtimePackage ?? [],
+        },
+        {
+          key: 'identity',
+          title: t('settings:exportUi.commonIdentityReadiness'),
+          diagnostics: readiness?.groups.commonIdentity ?? [],
+        },
+        {
+          key: 'target',
+          title: t('settings:exportUi.targetReadiness', {
+            platform: platformDisplayName(selectedPlatformProfile.target),
+          }),
+          diagnostics: readiness?.groups.targetMetadata ?? [],
+        },
+        {
+          key: 'environment',
+          title: t('settings:exportUi.environmentReadiness'),
+          diagnostics: readiness?.groups.environment ?? [],
+        },
+      ]
+    : [];
 
   function commitPlatformSettings(next: ProjectPlatformExportSettings) {
     const result = persistPlatformSettings(currentProject, next);
     if (result.ok) setPlatformSettings(next);
   }
 
-  function replaceActiveProfile(next: PlatformExportProfile) {
+  function updateRuntimePackaging(patch: Partial<ExportProfileData>) {
+    const next = {
+      ...currentRuntimeProfile,
+      ...patch,
+      ...(patch.includeShaderSources !== undefined
+        ? { stripShaderSources: !patch.includeShaderSources }
+        : {}),
+    };
+    const result = persistRuntimeProfile(currentProject, next);
+    if (result.ok) setRuntimeProfile(next);
+  }
+
+  function updatePlatformPackaging(patch: Partial<PlatformExportProfile>) {
+    if (!selectedPlatformProfile) return;
+    const next = { ...selectedPlatformProfile, ...patch } as PlatformExportProfile;
     commitPlatformSettings({
       ...currentPlatformSettings,
-      profiles: currentPlatformSettings.profiles.map((profile) =>
-        profile.id === currentPlatformProfile.id ? next : profile,
+      profiles: currentPlatformSettings.profiles.map((item) =>
+        item.id === selectedPlatformProfile.id ? next : item,
       ),
     });
   }
 
-  function updateCustomAssetMemory(field: CustomAssetMemoryField, rawValue: string) {
-    if (currentPlatformProfile.assetMemory.preset !== 'custom') return;
-    const entered = rawValue.trim() === '' ? undefined : Number(rawValue);
-    if (entered !== undefined && (!Number.isSafeInteger(entered) || entered < 0)) return;
-    const value =
-      entered === undefined
-        ? undefined
-        : field === 'prefetchAllowancePercent'
-          ? entered
-          : entered * 1024 * 1024;
-    if (value !== undefined && !Number.isSafeInteger(value)) return;
-    const custom = { ...currentPlatformProfile.assetMemory.custom };
-    if (value === undefined) delete custom[field];
-    else custom[field] = value;
-    replaceActiveProfile({
-      ...currentPlatformProfile,
-      assetMemory: { preset: 'custom', custom },
-    });
+  function uniqueProfileLabel(base: string, excludeId?: string) {
+    const existing = currentPlatformSettings.profiles.filter((item) => item.id !== excludeId);
+    if (!existing.some((item) => labelsEqual(item.label, base))) return base;
+    let index = 2;
+    while (existing.some((item) => labelsEqual(item.label, `${base} (${index})`))) index++;
+    return `${base} (${index})`;
   }
 
-  function toggleCapability(capability: ExportCapability) {
-    const current = currentPlatformProfile.capabilityOverrides;
-    replaceActiveProfile({
-      ...currentPlatformProfile,
-      capabilityOverrides: current.includes(capability)
-        ? current.filter((item) => item !== capability)
-        : [...current, capability].sort(),
-    });
-  }
-
-  function createProfile() {
-    const base = defaultPlatformExportProfile('linux');
-    let index = currentPlatformSettings.profiles.length + 1;
-    while (currentPlatformSettings.profiles.some((item) => item.id === `platform-${index}`))
+  function uniqueProfileId(target: ExportPlatform) {
+    if (!currentPlatformSettings.profiles.some((item) => item.id === target)) return target;
+    let index = 2;
+    while (currentPlatformSettings.profiles.some((item) => item.id === `${target}-${index}`))
       index++;
-    const next = parsePlatformExportProfile({
-      ...base,
-      id: `platform-${index}`,
-      label: `Platform Export ${index}`,
-    });
-    commitPlatformSettings({
-      selectedProfileId: next.id,
-      profiles: [...currentPlatformSettings.profiles, next],
-    });
-    setPlatformOutput(defaultPlatformOutput(projectRoot, next));
+    return `${target}-${index}`;
+  }
+
+  function selectRuntimeProfile() {
+    if (profileEditMode !== 'none') return;
+    setMode('runtime');
+    rememberSelectedProfile('runtime-package');
+  }
+
+  function selectPlatformProfile(id: string) {
+    if (profileEditMode !== 'none') return;
+    const selected = currentPlatformSettings.profiles.find((item) => item.id === id);
+    if (!selected) return;
+    setMode('platform');
+    rememberSelectedProfile(id);
+    setSelectedPlatformProfileId(id);
+    setPlatformOutput(outputForProfile(selected));
+    const key = localProfileKey(id);
+    setSelectedTemplateToken(localState.profileTemplateTokens[key] ?? '');
+    setSelectedSigningProfileId(localState.profileSigningProfileIds[key] ?? '');
+  }
+
+  function beginCreateProfile() {
+    if (profileEditMode !== 'none') return;
+    setNewProfileTarget('windows');
+    setNewProfileName(uniqueProfileLabel('Windows'));
+    setProfileDraft(null);
+    setProfileEditMode('creating-identity');
+  }
+
+  function continueCreateProfile() {
+    const label = newProfileName.trim();
+    if (!label || currentPlatformSettings.profiles.some((item) => labelsEqual(item.label, label)))
+      return;
+    setProfileDraft(
+      parsePlatformExportProfile({
+        ...defaultPlatformExportProfile(newProfileTarget),
+        id: uniqueProfileId(newProfileTarget),
+        label,
+      }),
+    );
+    setProfileEditMode('creating-config');
+  }
+
+  function beginEditProfile() {
+    if (!selectedPlatformProfile || profileEditMode !== 'none') return;
+    setProfileDraft(structuredClone(selectedPlatformProfile));
+    setProfileEditMode('editing');
+  }
+
+  function profileDraftNameIsValid() {
+    if (!profileDraft?.label.trim()) return false;
+    return !currentPlatformSettings.profiles.some(
+      (item) => item.id !== profileDraft.id && labelsEqual(item.label, profileDraft.label),
+    );
+  }
+
+  function finishProfileEditing() {
+    if (!profileDraft || !profileDraftNameIsValid()) return;
+    if (profileEditMode === 'creating-config') {
+      const next = {
+        profiles: [...currentPlatformSettings.profiles, profileDraft],
+      };
+      commitPlatformSettings(next);
+      setSelectedPlatformProfileId(profileDraft.id);
+      setMode('platform');
+      rememberSelectedProfile(profileDraft.id);
+      setPlatformOutput(defaultPlatformOutput(projectRoot, profileDraft));
+      setSelectedTemplateToken('');
+      setSelectedSigningProfileId('');
+    } else if (profileEditMode === 'editing') {
+      commitPlatformSettings({
+        ...currentPlatformSettings,
+        profiles: currentPlatformSettings.profiles.map((item) =>
+          item.id === profileDraft.id ? profileDraft : item,
+        ),
+      });
+      setPlatformOutput(outputForProfile(profileDraft));
+    }
+    setProfileDraft(null);
+    setProfileEditMode('none');
+  }
+
+  function cancelProfileEditing() {
+    setProfileDraft(null);
+    setProfileEditMode('none');
   }
 
   function duplicateProfile() {
-    let index = 2;
-    let id = `${currentPlatformProfile.id}-copy`;
-    while (currentPlatformSettings.profiles.some((item) => item.id === id))
-      id = `${currentPlatformProfile.id}-copy-${index++}`;
+    if (!selectedPlatformProfile || profileEditMode !== 'none') return;
+    const base = selectedPlatformProfile.label.replace(/ \(\d+\)$/u, '');
     const next = parsePlatformExportProfile({
-      ...currentPlatformProfile,
-      id,
-      label: `${currentPlatformProfile.label} Copy`,
+      ...structuredClone(selectedPlatformProfile),
+      id: uniqueProfileId(selectedPlatformProfile.target),
+      label: uniqueProfileLabel(base),
     });
     commitPlatformSettings({
-      selectedProfileId: id,
       profiles: [...currentPlatformSettings.profiles, next],
     });
+    setSelectedPlatformProfileId(next.id);
+    setMode('platform');
+    rememberSelectedProfile(next.id);
+    setPlatformOutput(defaultPlatformOutput(projectRoot, next));
+    setSelectedTemplateToken('');
+    setSelectedSigningProfileId('');
   }
 
   function deleteProfile() {
-    if (currentPlatformSettings.profiles.length === 1) {
-      const result = removePlatformSettings(currentProject);
-      if (result.ok) {
-        setPlatformSettings({ selectedProfileId: null, profiles: [] });
-        setPlatformOutput('');
-        setTemplate(null);
-        setTemplates([]);
-        setSelectedTemplateToken('');
-        setTemplateDiagnostics([]);
-      }
-      return;
-    }
+    if (!selectedPlatformProfile || profileEditMode !== 'none') return;
+    const key = localProfileKey(selectedPlatformProfile.id);
+    const outputDirectories = { ...localState.profileOutputDirectories };
+    const templateTokens = { ...localState.profileTemplateTokens };
+    const signingIds = { ...localState.profileSigningProfileIds };
+    delete outputDirectories[key];
+    delete templateTokens[key];
+    delete signingIds[key];
+    setExportPreferences({
+      profileOutputDirectories: outputDirectories,
+      profileTemplateTokens: templateTokens,
+      profileSigningProfileIds: signingIds,
+    });
+
     const profiles = currentPlatformSettings.profiles.filter(
-      (item) => item.id !== currentPlatformProfile.id,
+      (item) => item.id !== selectedPlatformProfile.id,
     );
-    commitPlatformSettings({ selectedProfileId: profiles[0]!.id, profiles });
+    if (profiles.length === 0) {
+      const result = persistPlatformSettings(currentProject, { profiles: [] });
+      if (!result.ok) return;
+      setPlatformSettings({ profiles: [] });
+      setSelectedPlatformProfileId(null);
+      setMode('runtime');
+      rememberSelectedProfile('runtime-package');
+      setPlatformOutput('');
+    } else {
+      const selected = [...profiles].sort((a, b) =>
+        a.label.localeCompare(b.label, undefined, { numeric: true }),
+      )[0]!;
+      commitPlatformSettings({ profiles });
+      setSelectedPlatformProfileId(selected.id);
+      rememberSelectedProfile(selected.id);
+      setPlatformOutput(outputForProfile(selected));
+    }
+    setTemplateDiagnostics([]);
+    setSelectedTemplateToken('');
+    setSelectedSigningProfileId('');
   }
 
   async function chooseOutput() {
     if (mode === 'runtime') {
       const selected = await window.noveltea.selectPackageOutputPath(outputPath);
-      if (selected) setRuntimeProfile({ ...currentRuntimeProfile, outputPath: selected });
-    } else {
-      const selected = await window.noveltea.selectDirectory({
-        title: 'Select platform export directory',
-        defaultPath: platformOutput,
-      });
-      if (selected) setPlatformOutput(selected);
+      if (selected) {
+        setRuntimeOutput(selected);
+        rememberOutput('runtime-package', selected);
+      }
+      return;
+    }
+    const selected = await window.noveltea.selectDirectory({
+      title: t('settings:exportUi.selectPlatformDirectory'),
+      defaultPath: platformOutput,
+    });
+    if (selected && selectedPlatformProfile) {
+      setPlatformOutput(selected);
+      rememberOutput(selectedPlatformProfile.id, selected);
     }
   }
 
   async function installTemplate() {
+    if (!selectedPlatformProfile) return;
     const archivePath = await window.noveltea.selectTemplateArchivePath();
     if (!archivePath) return;
     let installed = await window.noveltea.installPlayerTemplate({
@@ -757,45 +798,23 @@ export function PackageExportDialog({
       );
       return;
     }
-    const resolved = await window.noveltea.resolvePlayerTemplate({
-      requirements: {
-        profile: currentPlatformProfile,
-        runtimePackageApi: 2,
-        playerConfigApi: 2,
-        shaderVariants: currentRuntimeProfile.shaderVariants,
-        graphicsBackends: [],
-        capabilities: currentPlatformProfile.capabilityOverrides,
-        requiredFeatures: [],
-      },
-    });
-    setTemplate(resolved.template ?? null);
-    setSelectedTemplateToken(resolved.token ?? '');
-    setTemplateDiagnostics(
-      classifyProjectValidationDiagnostics(
-        resolved.diagnostics.map((item) => ({
-          code: item.code,
-          severity: resolved.success ? ('warning' as const) : ('error' as const),
-          category: `template:${item.code}`,
-          path: item.path,
-          message: item.message,
-        })),
-        { producer: 'template' },
-      ),
-    );
+    setTemplateDiagnostics([]);
+    await refreshTemplates();
   }
 
   async function downloadTemplate() {
+    if (!selectedPlatformProfile) return;
     setTemplateDownloadPending(true);
     try {
-      const downloaded = await window.noveltea.downloadPlayerTemplate({
-        platform: currentPlatformProfile.target,
-        architecture: currentPlatformProfile.architecture,
-        buildFlavor: currentPlatformProfile.buildFlavor,
+      const result = await window.noveltea.downloadPlayerTemplate({
+        platform: selectedPlatformProfile.target,
+        architecture: selectedPlatformProfile.architecture,
+        buildFlavor: selectedPlatformProfile.buildFlavor,
       });
-      if (!downloaded.success || !downloaded.template) {
+      if (!result.success) {
         setTemplateDiagnostics(
           classifyProjectValidationDiagnostics(
-            downloaded.diagnostics.map((item) => ({
+            result.diagnostics.map((item) => ({
               code: item.code,
               severity: 'error' as const,
               category: `template:${item.code}`,
@@ -807,49 +826,8 @@ export function PackageExportDialog({
         );
         return;
       }
-      const installedTemplate = downloaded.template;
-      const token = `${installedTemplate.descriptor.templateId}/${installedTemplate.descriptor.buildId}`;
-      setTemplates((current) => [
-        ...current.filter(
-          (item) => `${item.descriptor.templateId}/${item.descriptor.buildId}` !== token,
-        ),
-        installedTemplate,
-      ]);
-      const resolved = await window.noveltea.resolvePlayerTemplate({
-        requirements: {
-          profile: currentPlatformProfile,
-          runtimePackageApi: 2,
-          playerConfigApi: 2,
-          shaderVariants: currentRuntimeProfile.shaderVariants,
-          graphicsBackends: [],
-          capabilities: currentPlatformProfile.capabilityOverrides,
-          requiredFeatures: [],
-        },
-      });
-      if (!resolved.success || !resolved.template) {
-        setTemplate(null);
-        setTemplateDiagnostics(
-          classifyProjectValidationDiagnostics(
-            resolved.diagnostics.map((item) => ({
-              code: item.code,
-              severity: 'error' as const,
-              category: `template:${item.code}`,
-              path: item.path,
-              message: item.message,
-            })),
-            { producer: 'template' },
-          ),
-        );
-        return;
-      }
-      const resolvedToken = resolved.token ?? token;
-      setTemplate(resolved.template);
-      setSelectedTemplateToken(resolvedToken);
       setTemplateDiagnostics([]);
-      const key = localProfileKey(currentPlatformProfile.id);
-      setExportPreferences({
-        profileTemplateTokens: { ...localState.profileTemplateTokens, [key]: resolvedToken },
-      });
+      await refreshTemplates();
     } finally {
       setTemplateDownloadPending(false);
     }
@@ -858,13 +836,12 @@ export function PackageExportDialog({
   async function runExport() {
     if (!canExport) return;
     if (mode === 'runtime') {
-      const result = await runPackageExportWorkflow({
+      await runPackageExportWorkflow({
         project: currentProject,
         projectRoot,
         outputPath,
         profile: { ...currentRuntimeProfile, outputPath },
       });
-      if (result.success) onOpenChange(false);
       return;
     }
     if (readiness?.requiresIdentityConfirmation) {
@@ -875,106 +852,45 @@ export function PackageExportDialog({
   }
 
   async function runPlayablePlatformExport() {
+    if (!selectedPlatformProfile || !template) return;
     const selectedTemplate =
-      template ??
       templates.find(
         (candidate) =>
           `${candidate.descriptor.templateId}/${candidate.descriptor.buildId}` ===
           selectedTemplateToken,
-      ) ??
-      null;
-    const allowUntrustedTemplate = selectedTemplate?.entry.trust !== 'official';
+      ) ?? template;
+    const allowUntrustedTemplate = selectedTemplate.entry.trust !== 'official';
     if (
       allowUntrustedTemplate &&
       !window.confirm(
         t('platformExport.confirmations.useUntrustedTemplate', {
-          templateId: selectedTemplate?.descriptor.templateId ?? 'unknown',
-          buildId: selectedTemplate?.descriptor.buildId ?? 'unknown',
+          templateId: selectedTemplate.descriptor.templateId,
+          buildId: selectedTemplate.descriptor.buildId,
         }),
       )
     )
       return;
+
     const nextOperationId = `editor-${Date.now()}`;
     setOperationId(nextOperationId);
-    const parseArguments = (value: string, label: string) => {
-      try {
-        const parsed = JSON.parse(value || '[]') as unknown;
-        if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string'))
-          throw new Error();
-        return parsed as string[];
-      } catch {
-        throw new Error(`${label} must be a JSON array of strings.`);
-      }
-    };
-    const signingEnabled = Boolean(currentPlatformProfile.signingProfileId);
-    const signing = {
-      ...(signingEnabled && localState.windowsSigningCommand && localState.windowsVerifyCommand
-        ? {
-            windows: {
-              command: localState.windowsSigningCommand,
-              args: parseArguments(localState.windowsSigningArgs, 'Windows signing arguments'),
-              verifyCommand: localState.windowsVerifyCommand,
-              verifyArgs: parseArguments(
-                localState.windowsVerifyArgs,
-                'Windows verification arguments',
-              ),
-            },
-          }
-        : {}),
-      ...(signingEnabled && localState.macosSigningIdentity
-        ? {
-            macos: {
-              identity: localState.macosSigningIdentity,
-              ...(localState.macosEntitlementsPath
-                ? { entitlementsPath: localState.macosEntitlementsPath }
-                : {}),
-              ...(localState.macosNotarizationCommand
-                ? {
-                    notarizationCommand: localState.macosNotarizationCommand,
-                    notarizationArgs: parseArguments(
-                      localState.macosNotarizationArgs,
-                      'macOS notarization arguments',
-                    ),
-                  }
-                : {}),
-            },
-          }
-        : {}),
-      ...(signingEnabled &&
-      localState.androidKeystorePath &&
-      localState.androidKeyAlias &&
-      localState.androidStorePasswordReference &&
-      localState.androidKeyPasswordReference
-        ? {
-            android: {
-              keystorePath: localState.androidKeystorePath,
-              keyAlias: localState.androidKeyAlias,
-              storePasswordReference: localState.androidStorePasswordReference,
-              keyPasswordReference: localState.androidKeyPasswordReference,
-            },
-          }
-        : {}),
-    };
+    const signing = selectedSigningProfile
+      ? userSigningProfileToExportSigningState(selectedSigningProfile)
+      : {};
     const exportRequest = {
       operationId: nextOperationId,
       project: currentProject,
       projectRoot: projectRoot ?? undefined,
-      profileId: currentPlatformProfile.id,
-      templateToken:
-        selectedTemplateToken ||
-        `${template!.descriptor.templateId}/${template!.descriptor.buildId}`,
+      profileId: selectedPlatformProfile.id,
+      templateToken: `${selectedTemplate.descriptor.templateId}/${selectedTemplate.descriptor.buildId}`,
       outputDirectory: platformOutput,
       sign: signingEnabled,
       allowUntrustedTemplate,
       localState: {
-        androidSdk: localState.androidSdk || undefined,
-        androidNdk: localState.androidNdk || undefined,
-        javaHome: localState.javaHome || undefined,
-        cmake: localState.cmake || undefined,
-        ...(Object.keys(signing).length ? { signing } : {}),
+        ...toolchains,
+        ...(Object.keys(signing).length > 0 ? { signing } : {}),
       },
     };
-    let result = await runProjectPlatformExportWorkflow(exportRequest, currentPlatformProfile);
+    let result = await runProjectPlatformExportWorkflow(exportRequest, selectedPlatformProfile);
     if (
       !result.success &&
       result.diagnostics.some((item) => item.code === 'platform-output-exists') &&
@@ -982,11 +898,11 @@ export function PackageExportDialog({
     ) {
       result = await runProjectPlatformExportWorkflow(
         { ...exportRequest, operationId: `${nextOperationId}-force`, force: true },
-        currentPlatformProfile,
+        selectedPlatformProfile,
       );
     }
     setOperationId(null);
-    if (result.success) onOpenChange(false);
+    void result;
   }
 
   async function cancelExport() {
@@ -994,934 +910,704 @@ export function PackageExportDialog({
     await cancelPlatformStageWorkflow(operationId);
   }
 
-  const title = embedded ? (
-    <>
-      <h1 className="text-lg font-semibold">
-        {profileManagementOnly ? 'Export Profiles' : 'Export Project'}
-      </h1>
-      <p className="text-sm text-muted-foreground">
-        {profileManagementOnly
-          ? 'Manage reproducible platform build profiles committed with this project.'
-          : 'Export a runtime package or playable platform artifact.'}
-      </p>
-    </>
-  ) : (
-    <>
-      <DialogTitle>Export Project</DialogTitle>
-      <DialogDescription className="sr-only">
-        Export a runtime package or playable platform artifact.
-      </DialogDescription>
-    </>
+  const sortedProfiles = [...currentPlatformSettings.profiles].sort((a, b) =>
+    a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' }),
   );
-  const footerContent = (
-    <>
-      {hasProjectSettingsBlocker ? (
-        <Button
-          variant="secondary"
-          onClick={() => {
-            dispatchWorkspaceToolbarCommand('project-settings');
-            onOpenChange(false);
-          }}
-          disabled={running}
-        >
-          Open Project Settings
-        </Button>
-      ) : null}
-      {running && operationId ? (
-        <Button variant="destructive" onClick={cancelExport}>
-          Cancel Export
-        </Button>
-      ) : (
-        <Button variant="outline" onClick={() => onOpenChange(false)} disabled={running}>
-          Cancel
-        </Button>
-      )}
-      <Button onClick={runExport} disabled={!canExport}>
-        {running
-          ? `Exporting: ${stage}`
-          : preflightPending
-            ? 'Checking Readiness…'
-            : canExport
-              ? 'Export Project'
-              : 'Fix Errors Before Export'}
-      </Button>
-    </>
-  );
+  const editingProfile = profileEditMode === 'creating-config' || profileEditMode === 'editing';
+  const sidebarDisabled = profileEditMode !== 'none';
 
-  const surfaceContent = (
-    <>
-      {title}
-      <div className="grid gap-4">
-        {!profileManagementOnly ? (
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant={mode === 'runtime' ? 'default' : 'outline'}
-              onClick={() => setMode('runtime')}
-            >
-              Runtime Package (.ntpkg)
-            </Button>
-            <Button
-              type="button"
-              variant={mode === 'platform' ? 'default' : 'outline'}
-              onClick={() => setMode('platform')}
-            >
-              Playable Platform Export
-            </Button>
-          </div>
-        ) : null}
-        {mode === 'runtime' ? (
-          <>
-            <div className="grid gap-2">
-              <Label htmlFor="package-export-output">Output file</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="package-export-output"
-                  className="font-mono text-[11px]"
-                  value={outputPath}
-                  onChange={(event) =>
-                    setRuntimeProfile({
-                      ...activeRuntimeProfile,
-                      outputPath: event.currentTarget.value,
-                    })
-                  }
-                />
-                <Button type="button" variant="outline" onClick={chooseOutput}>
-                  Browse…
-                </Button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3 rounded border p-3">
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={activeRuntimeProfile.includeChecksums}
-                  onChange={(event) =>
-                    setRuntimeProfile({
-                      ...activeRuntimeProfile,
-                      includeChecksums: event.currentTarget.checked,
-                    })
-                  }
-                />
-                Include checksums
-              </label>
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={activeRuntimeProfile.includeAllProjectAssets}
-                  onChange={(event) =>
-                    setRuntimeProfile({
-                      ...activeRuntimeProfile,
-                      includeAllProjectAssets: event.currentTarget.checked,
-                      includeOnlyReferencedAssets: !event.currentTarget.checked,
-                    })
-                  }
-                />
-                Include all project assets
-              </label>
-              {usesProjectShaders ? (
-                <>
-                  <label className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={activeRuntimeProfile.stripShaderSources}
-                      onChange={(event) =>
-                        setRuntimeProfile({
-                          ...activeRuntimeProfile,
-                          stripShaderSources: event.currentTarget.checked,
-                        })
-                      }
-                    />
-                    Strip shader sources
-                  </label>
-                  <label className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={activeRuntimeProfile.compileShadersBeforeExport}
-                      onChange={(event) =>
-                        setRuntimeProfile({
-                          ...activeRuntimeProfile,
-                          compileShadersBeforeExport: event.currentTarget.checked,
-                        })
-                      }
-                    />
-                    Compile shaders before export
-                  </label>
-                </>
-              ) : null}
-            </div>
-            {usesProjectShaders ? (
-              <div className="grid gap-2 rounded border p-3">
-                <div className="font-medium">Shader variants</div>
-                <div className="flex flex-wrap gap-3">
-                  {exportShaderVariantValues.map((variant) => (
-                    <label key={variant} className="flex items-center gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={activeRuntimeProfile.shaderVariants.includes(variant)}
-                        onChange={() =>
-                          setRuntimeProfile(toggleVariant(activeRuntimeProfile, variant))
-                        }
-                      />
-                      {variant}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <div
-              className={
-                profileManagementOnly
-                  ? 'grid grid-cols-[1fr_auto_auto_auto] gap-2'
-                  : 'grid grid-cols-[1fr_auto] gap-2'
+  const profileEditor = editingProfile && profileDraft && (
+    <div className="grid gap-5">
+      <div>
+        <h2 className="text-lg font-semibold">
+          {profileEditMode === 'creating-config'
+            ? t('settings:exportUi.createProfile')
+            : t('settings:exportUi.profileEdit')}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {t('settings:exportUi.platformValue', {
+            platform: platformDisplayName(profileDraft.target),
+          })}
+        </p>
+      </div>
+      <div className="grid gap-4 rounded border p-4">
+        <div className="grid gap-1.5">
+          <Label htmlFor="profile-name">{t('settings:exportUi.name')}</Label>
+          <Input
+            id="profile-name"
+            value={profileDraft.label}
+            onChange={(event) =>
+              setProfileDraft({ ...profileDraft, label: event.currentTarget.value })
+            }
+          />
+          {!profileDraftNameIsValid() ? (
+            <span className="text-xs text-destructive">{t('settings:exportUi.nameInvalid')}</span>
+          ) : null}
+        </div>
+
+        {developerMode ? (
+          <div className="grid gap-1.5">
+            <Label>{t('settings:exportUi.buildFlavor')}</Label>
+            <select
+              className="h-9 rounded border bg-background px-2 text-sm"
+              value={profileDraft.buildFlavor}
+              onChange={(event) =>
+                setProfileDraft({
+                  ...profileDraft,
+                  buildFlavor: event.currentTarget.value as 'debug' | 'release',
+                })
               }
             >
-              <select
-                aria-label="Platform export profile"
-                className="h-9 rounded border bg-background px-2 text-sm"
-                value={activePlatformProfile.id}
+              <option value="release">{t('settings:exportUi.release')}</option>
+              <option value="debug">{t('settings:exportUi.debug')}</option>
+            </select>
+          </div>
+        ) : null}
+
+        {profileDraft.target === 'linux' ? (
+          <div className="grid gap-1.5">
+            <Label>{t('settings:exportUi.artifact')}</Label>
+            <select
+              className="h-9 rounded border bg-background px-2 text-sm"
+              value={profileDraft.desktop.artifact}
+              onChange={(event) =>
+                setProfileDraft({
+                  ...profileDraft,
+                  desktop: {
+                    ...profileDraft.desktop,
+                    artifact: event.currentTarget.value as 'tar' | 'zip' | 'appimage',
+                  },
+                })
+              }
+            >
+              <option value="tar">tar.gz</option>
+              <option value="zip">ZIP</option>
+              <option value="appimage">AppImage</option>
+            </select>
+          </div>
+        ) : null}
+
+        {profileDraft.target === 'web' ? (
+          <>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={profileDraft.web.threaded}
+                onChange={(event) =>
+                  setProfileDraft({
+                    ...profileDraft,
+                    web: { ...profileDraft.web, threaded: event.currentTarget.checked },
+                  })
+                }
+              />
+              {t('settings:exportUi.webThreading')}
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={profileDraft.web.pwa}
                 onChange={(event) => {
-                  const id = event.currentTarget.value;
-                  const next = { ...platformSettings, selectedProfileId: id };
-                  commitPlatformSettings(next);
-                  const selected = next.profiles.find((item) => item.id === id)!;
-                  setPlatformOutput(outputForProfile(selected));
+                  const pwa = event.currentTarget.checked;
+                  setProfileDraft({
+                    ...profileDraft,
+                    web: {
+                      ...profileDraft.web,
+                      pwa,
+                      serviceWorker: pwa ? 'offline' : 'disabled',
+                    },
+                  });
                 }}
-              >
-                {platformSettings.profiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>
-                    {profile.label}
-                  </option>
-                ))}
-              </select>
-              {profileManagementOnly ? (
-                <>
-                  <Button type="button" variant="outline" onClick={createProfile}>
-                    New
-                  </Button>
-                  <Button type="button" variant="outline" onClick={duplicateProfile}>
-                    Duplicate
-                  </Button>
-                  <Button type="button" variant="outline" onClick={deleteProfile}>
-                    Delete
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() =>
-                    navigateToWorkbenchTarget({ tab: buildPlatformExportProfilesTab() })
+              />
+              {t('settings:exportUi.progressiveWebApp')}
+            </label>
+            <div className="grid gap-1.5">
+              <Label htmlFor="profile-web-base-path">{t('settings:exportUi.basePath')}</Label>
+              <Input
+                id="profile-web-base-path"
+                value={profileDraft.web.basePath}
+                onChange={(event) =>
+                  setProfileDraft({
+                    ...profileDraft,
+                    web: { ...profileDraft.web, basePath: event.currentTarget.value },
+                  })
+                }
+              />
+              {!webBasePathPattern.test(profileDraft.web.basePath) ? (
+                <span className="text-xs text-destructive">
+                  {t('settings:exportUi.basePathInvalid')}
+                </span>
+              ) : null}
+            </div>
+            {profileDraft.web.pwa ? (
+              <div className="grid gap-1.5">
+                <Label>{t('settings:exportUi.displayMode')}</Label>
+                <select
+                  className="h-9 rounded border bg-background px-2 text-sm"
+                  value={profileDraft.web.display}
+                  onChange={(event) =>
+                    setProfileDraft({
+                      ...profileDraft,
+                      web: {
+                        ...profileDraft.web,
+                        display: event.currentTarget.value as typeof profileDraft.web.display,
+                      },
+                    })
                   }
                 >
-                  Manage Profiles
-                </Button>
-              )}
-            </div>
-            {profileManagementOnly ? (
-              <>
-                <div className="grid grid-cols-2 gap-3 rounded border p-3">
-                  <div className="grid gap-1">
-                    <Label>Profile name</Label>
-                    <Input
-                      value={activePlatformProfile.label}
-                      onChange={(event) =>
-                        replaceActiveProfile({
-                          ...activePlatformProfile,
-                          label: event.currentTarget.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label>Target</Label>
-                    <select
-                      aria-label="Target platform"
-                      className="h-9 rounded border bg-background px-2 text-sm"
-                      value={activePlatformProfile.target}
-                      onChange={(event) =>
-                        replaceActiveProfile(
-                          updateProfileTarget(
-                            activePlatformProfile,
-                            event.currentTarget.value as ExportPlatform,
-                          ),
-                        )
-                      }
-                    >
-                      {(['windows', 'linux', 'macos', 'web', 'android'] as ExportPlatform[]).map(
-                        (target) => (
-                          <option key={target} value={target}>
-                            {target}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </div>
-                  <div className="grid gap-1">
-                    <Label>Build flavor</Label>
-                    <select
-                      aria-label="Build flavor"
-                      className="h-9 rounded border bg-background px-2 text-sm"
-                      value={activePlatformProfile.buildFlavor}
-                      onChange={(event) =>
-                        replaceActiveProfile({
-                          ...activePlatformProfile,
-                          buildFlavor: event.currentTarget.value as 'debug' | 'release',
-                        })
-                      }
-                    >
-                      <option value="release">release</option>
-                      <option value="debug">debug</option>
-                    </select>
-                  </div>
-                  <div className="grid gap-1">
-                    <Label>Compression</Label>
-                    <select
-                      aria-label="Compression"
-                      className="h-9 rounded border bg-background px-2 text-sm"
-                      value={activePlatformProfile.compression}
-                      onChange={(event) =>
-                        replaceActiveProfile({
-                          ...activePlatformProfile,
-                          compression: event.currentTarget
-                            .value as PlatformExportProfile['compression'],
-                        })
-                      }
-                    >
-                      <option value="default">default</option>
-                      <option value="store">store</option>
-                      <option value="maximum">maximum</option>
-                    </select>
-                  </div>
-                  <div className="grid gap-1">
-                    <Label>Asset memory</Label>
-                    <select
-                      aria-label="Asset memory preset"
-                      className="h-9 rounded border bg-background px-2 text-sm"
-                      value={activePlatformProfile.assetMemory.preset}
-                      onChange={(event) => {
-                        const preset = event.currentTarget
-                          .value as PlatformExportProfile['assetMemory']['preset'];
-                        replaceActiveProfile({
-                          ...activePlatformProfile,
-                          assetMemory:
-                            preset === 'custom'
-                              ? {
-                                  preset,
-                                  custom: activePlatformProfile.assetMemory.custom ?? {},
-                                }
-                              : { preset },
-                        });
-                      }}
-                    >
-                      <option value="low">Low</option>
-                      <option value="balanced">Balanced</option>
-                      <option value="high">High</option>
-                      <option value="custom">Custom</option>
-                    </select>
-                  </div>
-                  <div className="col-span-2 rounded border p-3 text-xs text-muted-foreground">
-                    Resolved bytes: CPU {resolvedAssetMemory.preparedCpuBytes.toLocaleString()}, GPU{' '}
-                    {resolvedAssetMemory.gpuBytes.toLocaleString()}, audio{' '}
-                    {resolvedAssetMemory.audioBytes.toLocaleString()}, temporary{' '}
-                    {resolvedAssetMemory.temporaryBytes.toLocaleString()}; Warm prefetch{' '}
-                    {resolvedAssetMemory.prefetchAllowancePercent}%.
-                  </div>
-                  {activePlatformProfile.assetMemory.preset === 'custom' ? (
-                    <div className="col-span-2 grid grid-cols-2 gap-3 rounded border p-3">
-                      {(
-                        [
-                          ['preparedCpuBytes', 'Prepared CPU MiB', 1],
-                          ['gpuBytes', 'GPU MiB', 1],
-                          ['audioBytes', 'Audio MiB', 1],
-                          ['temporaryBytes', 'Temporary MiB', 1],
-                          ['prefetchAllowancePercent', 'Warm prefetch percent', 0],
-                        ] as const
-                      ).map(([field, label, minimum]) => (
-                        <div key={field} className="grid gap-1">
-                          <Label>{label}</Label>
-                          <Input
-                            type="number"
-                            min={minimum}
-                            max={field === 'prefetchAllowancePercent' ? 100 : undefined}
-                            step={1}
-                            placeholder={String(
-                              field === 'prefetchAllowancePercent'
-                                ? resolvedAssetMemory[field]
-                                : resolvedAssetMemory[field] / (1024 * 1024),
-                            )}
-                            value={
-                              activePlatformProfile.assetMemory.custom?.[field] === undefined
-                                ? ''
-                                : field === 'prefetchAllowancePercent'
-                                  ? activePlatformProfile.assetMemory.custom[field]
-                                  : activePlatformProfile.assetMemory.custom[field]! / (1024 * 1024)
-                            }
-                            onChange={(event) =>
-                              updateCustomAssetMemory(field, event.currentTarget.value)
-                            }
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="grid gap-1">
-                    <Label>Architecture</Label>
-                    <select
-                      aria-label="Architecture"
-                      className="h-9 rounded border bg-background px-2 text-sm"
-                      value={activePlatformProfile.architecture}
-                      onChange={(event) => {
-                        const architecture = event.currentTarget.value;
-                        if (activePlatformProfile.target === 'web') return;
-                        if (activePlatformProfile.target === 'android')
-                          replaceActiveProfile({
-                            ...activePlatformProfile,
-                            architecture: architecture as 'arm64' | 'x86_64',
-                            android: {
-                              ...activePlatformProfile.android,
-                              abi: architecture === 'x86_64' ? 'x86_64' : 'arm64-v8a',
-                            },
-                          });
-                        else
-                          replaceActiveProfile({
-                            ...activePlatformProfile,
-                            architecture: architecture as 'x64' | 'arm64',
-                          });
-                      }}
-                    >
-                      {activePlatformProfile.target === 'web' ? (
-                        <option value="wasm32">wasm32</option>
-                      ) : activePlatformProfile.target === 'android' ? (
-                        <>
-                          <option value="arm64">arm64</option>
-                          <option value="x86_64">x86_64</option>
-                        </>
-                      ) : (
-                        <>
-                          <option value="x64">x64</option>
-                          <option value="arm64">arm64</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-                  {activePlatformProfile.target === 'web' ? (
-                    <>
-                      <div className="grid gap-1">
-                        <Label>Display mode</Label>
-                        <select
-                          aria-label="Web display mode"
-                          className="h-9 rounded border bg-background px-2 text-sm"
-                          value={activePlatformProfile.web.display}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              web: {
-                                ...activePlatformProfile.web,
-                                display: event.currentTarget
-                                  .value as typeof activePlatformProfile.web.display,
-                              },
-                            })
-                          }
-                        >
-                          <option value="standalone">standalone</option>
-                          <option value="fullscreen">fullscreen</option>
-                          <option value="minimal-ui">minimal-ui</option>
-                          <option value="browser">browser</option>
-                        </select>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Base path</Label>
-                        <Input
-                          value={activePlatformProfile.web.basePath}
-                          onChange={(event) =>
-                            replaceActiveProfile(
-                              parsePlatformExportProfile({
-                                ...activePlatformProfile,
-                                web: {
-                                  ...activePlatformProfile.web,
-                                  basePath: event.currentTarget.value,
-                                },
-                              }),
-                            )
-                          }
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Service worker</Label>
-                        <select
-                          aria-label="Service worker"
-                          className="h-9 rounded border bg-background px-2 text-sm"
-                          value={activePlatformProfile.web.serviceWorker}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              web: {
-                                ...activePlatformProfile.web,
-                                serviceWorker: event.currentTarget.value as 'disabled' | 'offline',
-                              },
-                            })
-                          }
-                        >
-                          <option value="disabled">disabled</option>
-                          <option value="offline">offline</option>
-                        </select>
-                      </div>
-                      <label className="flex items-center gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={activePlatformProfile.web.pwa}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              web: {
-                                ...activePlatformProfile.web,
-                                pwa: event.currentTarget.checked,
-                              },
-                            })
-                          }
-                        />
-                        Generate PWA metadata
-                      </label>
-                      <label className="flex items-center gap-2 text-xs">
-                        <input
-                          type="checkbox"
-                          checked={activePlatformProfile.web.threaded}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              web: {
-                                ...activePlatformProfile.web,
-                                threaded: event.currentTarget.checked,
-                              },
-                            })
-                          }
-                        />
-                        Threaded Web build
-                      </label>
-                    </>
-                  ) : activePlatformProfile.target === 'android' ? (
-                    <>
-                      <div className="grid gap-1">
-                        <Label>Artifact</Label>
-                        <select
-                          aria-label="Android artifact"
-                          className="h-9 rounded border bg-background px-2 text-sm"
-                          value={activePlatformProfile.android.artifact}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              android: {
-                                ...activePlatformProfile.android,
-                                artifact: event.currentTarget.value as 'apk' | 'aab' | 'both',
-                              },
-                            })
-                          }
-                        >
-                          <option value="apk">APK</option>
-                          <option value="aab">AAB</option>
-                          <option value="both">APK and AAB</option>
-                        </select>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Package access</Label>
-                        <select
-                          aria-label="Android package access"
-                          className="h-9 rounded border bg-background px-2 text-sm"
-                          value={activePlatformProfile.packageAccess}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              packageAccess: event.currentTarget.value as
-                                | 'android-asset'
-                                | 'android-private-copy',
-                            })
-                          }
-                        >
-                          <option value="android-asset">APK asset</option>
-                          <option value="android-private-copy">Private storage copy</option>
-                        </select>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Minimum SDK</Label>
-                        <Input
-                          type="number"
-                          min={24}
-                          value={activePlatformProfile.android.minSdk}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              android: {
-                                ...activePlatformProfile.android,
-                                minSdk: Math.max(24, Number(event.currentTarget.value) || 24),
-                              },
-                            })
-                          }
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="grid gap-1">
-                        <Label>Artifact</Label>
-                        <select
-                          aria-label="Desktop artifact"
-                          className="h-9 rounded border bg-background px-2 text-sm"
-                          value={activePlatformProfile.desktop.artifact}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              desktop: {
-                                ...activePlatformProfile.desktop,
-                                artifact: event.currentTarget
-                                  .value as typeof activePlatformProfile.desktop.artifact,
-                              },
-                            })
-                          }
-                        >
-                          {activePlatformProfile.target === 'windows' ? (
-                            <option value="zip">ZIP</option>
-                          ) : activePlatformProfile.target === 'macos' ? (
-                            <option value="app-bundle">App bundle</option>
-                          ) : (
-                            <>
-                              <option value="tar">tar</option>
-                              <option value="appimage">AppImage</option>
-                              <option value="zip">ZIP</option>
-                            </>
-                          )}
-                        </select>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Executable name</Label>
-                        <Input
-                          value={activePlatformProfile.desktop.executableName}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              desktop: {
-                                ...activePlatformProfile.desktop,
-                                executableName: event.currentTarget.value,
-                              },
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Package access</Label>
-                        <select
-                          aria-label="Desktop package access"
-                          className="h-9 rounded border bg-background px-2 text-sm"
-                          value={activePlatformProfile.packageAccess}
-                          onChange={(event) =>
-                            replaceActiveProfile({
-                              ...activePlatformProfile,
-                              packageAccess: event.currentTarget.value as
-                                | 'sidecar'
-                                | 'bundle-resource',
-                            })
-                          }
-                        >
-                          <option value="sidecar">sidecar</option>
-                          <option value="bundle-resource">bundle resource</option>
-                        </select>
-                      </div>
-                    </>
-                  )}
-                  <label className="flex items-center gap-2 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={activePlatformProfile.includeDebugSymbols}
-                      onChange={(event) =>
-                        replaceActiveProfile({
-                          ...activePlatformProfile,
-                          includeDebugSymbols: event.currentTarget.checked,
-                        })
-                      }
-                    />
-                    Include separate debug symbols
-                  </label>
-                  {activePlatformProfile.target !== 'web' &&
-                  activePlatformProfile.target !== 'linux' ? (
-                    <div className="grid gap-1">
-                      <Label>Signing profile</Label>
-                      <select
-                        aria-label="Signing profile"
-                        className="h-9 rounded border bg-background px-2 text-sm"
-                        value={activePlatformProfile.signingProfileId ?? ''}
-                        onChange={(event) =>
-                          replaceActiveProfile({
-                            ...activePlatformProfile,
-                            signingProfileId: event.currentTarget.value || null,
-                          })
-                        }
-                      >
-                        <option value="">Unsigned</option>
-                        <option value={`${activePlatformProfile.target}-default`}>
-                          Editor default
-                        </option>
-                      </select>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="rounded border p-3 text-xs">
-                  <div className="mb-2 font-medium">Capabilities</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {capabilityOptions.map((capability) => (
-                      <label key={capability} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={activePlatformProfile.capabilityOverrides.includes(capability)}
-                          onChange={() => toggleCapability(capability)}
-                        />
-                        {capability}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </>
-            ) : null}
-            {!profileManagementOnly ? (
-              <>
-                <div id="platformExport.outputDirectory" className="grid gap-2">
-                  <Label htmlFor="platform-export-output">Output directory</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="platform-export-output"
-                      className="font-mono text-[11px]"
-                      value={platformOutput}
-                      onChange={(event) => setPlatformOutput(event.currentTarget.value)}
-                    />
-                    <Button type="button" variant="outline" onClick={chooseOutput}>
-                      Browse…
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-4 rounded border p-3 text-xs">
-                  <div>
-                    <div className="font-medium">Editor-wide export settings</div>
-                    <div className="text-muted-foreground">
-                      Toolchains, signing references, and the default output location are configured
-                      once for this editor installation.
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => navigateToWorkbenchTarget({ tab: buildSettingsTab() })}
-                  >
-                    Open Export Settings
-                  </Button>
-                </div>
-                <div id="platformExport.preflight.template" className="rounded border p-3 text-xs">
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="font-medium">Preflight</span>
-                    {!template ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="ml-auto h-7"
-                        disabled={templateDownloadPending}
-                        onClick={downloadTemplate}
-                      >
-                        {templateDownloadPending
-                          ? t('platformExport.templates.downloading')
-                          : t('platformExport.templates.downloadRequired')}
-                      </Button>
-                    ) : (
-                      <span className="ml-auto" />
-                    )}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-7"
-                      disabled={templateDownloadPending}
-                      onClick={installTemplate}
-                    >
-                      {t('platformExport.templates.installArchive')}
-                    </Button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      Target:{' '}
-                      <span className="font-mono">
-                        {activePlatformProfile.target}/{activePlatformProfile.architecture}
-                      </span>
-                    </div>
-                    <div>
-                      Artifact:{' '}
-                      <span className="font-mono">{profileArtifact(activePlatformProfile)}</span>
-                    </div>
-                    <div className="grid gap-1">
-                      <span>Template</span>
-                      <select
-                        aria-label="Player template"
-                        className="h-8 rounded border bg-background px-2"
-                        value={selectedTemplateToken}
-                        onChange={(event) => {
-                          const token = event.currentTarget.value;
-                          setSelectedTemplateToken(token);
-                          const key = localProfileKey(activePlatformProfile.id);
-                          setExportPreferences({
-                            profileTemplateTokens: {
-                              ...localState.profileTemplateTokens,
-                              [key]: token,
-                            },
-                          });
-                          const choice = templateChoices.find(
-                            ({ item }) =>
-                              `${item.descriptor.templateId}/${item.descriptor.buildId}` === token,
-                          );
-                          setTemplate(
-                            choice?.compatibility.compatible && choice.item.status !== 'corrupted'
-                              ? choice.item
-                              : null,
-                          );
-                        }}
-                      >
-                        <option value="">Automatically resolved</option>
-                        {templateChoices.map(({ item, compatibility }) => {
-                          const token = `${item.descriptor.templateId}/${item.descriptor.buildId}`;
-                          const status =
-                            item.status === 'corrupted'
-                              ? 'corrupted'
-                              : compatibility.compatible
-                                ? item.entry.trust
-                                : 'incompatible';
-                          return (
-                            <option
-                              key={token}
-                              value={token}
-                              disabled={item.status === 'corrupted' || !compatibility.compatible}
-                            >
-                              {item.descriptor.templateId}@{item.descriptor.buildId} ({status})
-                            </option>
-                          );
-                        })}
-                      </select>
-                      {template ? (
-                        <span className="font-mono">
-                          {template.descriptor.templateId}@{template.descriptor.buildId}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div>
-                      Identity:{' '}
-                      <span className="font-mono">{currentProjectSettings.app.applicationId}</span>
-                    </div>
-                    <div>
-                      Package mode:{' '}
-                      <span className="font-mono">{activePlatformProfile.packageAccess}</span>
-                    </div>
-                    <div>
-                      Host tools:{' '}
-                      <span className="font-mono">
-                        {[
-                          localState.androidSdk && 'SDK',
-                          localState.androidNdk && 'NDK',
-                          localState.javaHome && 'Java',
-                          localState.cmake && 'CMake',
-                        ]
-                          .filter(Boolean)
-                          .join(', ') || 'none configured'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : null}
-          </>
-        )}
-        {!profileManagementOnly ? (
-          <>
-            <div id="platformExport.runtimePackage" className="rounded border p-3 text-xs">
-              <div className="mb-2 font-medium">Manifest preview</div>
-              <div className="grid grid-cols-2 gap-2 text-muted-foreground">
-                <div>
-                  Project:{' '}
-                  <span className="text-foreground">
-                    {preview?.manifestPreview.projectName ?? project.project.name}
-                  </span>
-                </div>
-                <div>
-                  Version:{' '}
-                  <span className="text-foreground">
-                    {preview?.manifestPreview.projectVersion ?? project.project.version}
-                  </span>
-                </div>
-                <div>
-                  Package entries:{' '}
-                  <span className="text-foreground">
-                    {preview?.manifestPreview.entryCount ?? 0}
-                  </span>
-                </div>
-                <div>
-                  Assets:{' '}
-                  <span className="text-foreground">{preview?.fileEntries.length ?? 0}</span>
-                </div>
+                  <option value="standalone">{t('settings:exportUi.displayStandalone')}</option>
+                  <option value="fullscreen">{t('settings:exportUi.displayFullscreen')}</option>
+                  <option value="minimal-ui">{t('settings:exportUi.displayMinimalUi')}</option>
+                  <option value="browser">{t('settings:exportUi.displayBrowser')}</option>
+                </select>
               </div>
-            </div>
-            {mode === 'runtime' && runtimeDiagnostics.length > 0 ? (
-              <DiagnosticPreview
-                title={
-                  blockingDiagnostics.length === 0 ? 'Runtime package notices' : 'Export is blocked'
-                }
-                diagnostics={runtimeDiagnostics}
-                project={currentProject}
-              />
-            ) : null}
-            {mode === 'platform'
-              ? platformReadinessGroups.map((group) =>
-                  group.diagnostics.length > 0 ? (
-                    <DiagnosticPreview
-                      key={group.title}
-                      title={group.title}
-                      diagnostics={group.diagnostics}
-                      project={currentProject}
-                    />
-                  ) : null,
-                )
-              : null}
-            {failedResultDiagnostics.length > 0 ? (
-              <DiagnosticPreview
-                title="Last export failed"
-                diagnostics={failedResultDiagnostics}
-                project={currentProject}
-              />
             ) : null}
           </>
         ) : null}
+
+        {profileDraft.target === 'android' ? (
+          <div className="grid gap-1.5">
+            <Label>{t('settings:exportUi.artifact')}</Label>
+            <select
+              className="h-9 rounded border bg-background px-2 text-sm"
+              value={profileDraft.android.artifact}
+              onChange={(event) =>
+                setProfileDraft({
+                  ...profileDraft,
+                  android: {
+                    ...profileDraft.android,
+                    artifact: event.currentTarget.value as 'apk' | 'aab' | 'both',
+                  },
+                })
+              }
+            >
+              <option value="apk">APK</option>
+              <option value="aab">AAB</option>
+              <option value="both">{t('settings:exportUi.apkAndAab')}</option>
+            </select>
+          </div>
+        ) : null}
+
+        {developerMode ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={profileDraft.includeDebugSymbols}
+              onChange={(event) =>
+                setProfileDraft({
+                  ...profileDraft,
+                  includeDebugSymbols: event.currentTarget.checked,
+                })
+              }
+            />
+            {t('settings:exportUi.debugSymbols')}
+          </label>
+        ) : null}
       </div>
-      {!profileManagementOnly ? (
-        embedded ? (
-          <div className="flex flex-wrap justify-end gap-2 border-t pt-4">{footerContent}</div>
-        ) : (
-          <DialogFooter>{footerContent}</DialogFooter>
-        )
-      ) : null}
-    </>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={cancelProfileEditing}>
+          {t('settings:exportUi.cancel')}
+        </Button>
+        <Button
+          onClick={finishProfileEditing}
+          disabled={
+            !profileDraftNameIsValid() ||
+            (profileDraft.target === 'web' && !webBasePathPattern.test(profileDraft.web.basePath))
+          }
+        >
+          {profileEditMode === 'creating-config'
+            ? t('settings:exportUi.createProfile')
+            : t('settings:exportUi.done')}
+        </Button>
+      </div>
+    </div>
   );
+
+  const createIdentity = profileEditMode === 'creating-identity' && (
+    <div className="grid gap-5">
+      <div>
+        <h2 className="text-lg font-semibold">{t('settings:exportUi.newProfile')}</h2>
+        <p className="text-sm text-muted-foreground">{t('settings:exportUi.createDescription')}</p>
+      </div>
+      <div className="grid gap-4 rounded border p-4">
+        <div className="grid gap-1.5">
+          <Label htmlFor="new-profile-name">{t('settings:exportUi.name')}</Label>
+          <Input
+            id="new-profile-name"
+            value={newProfileName}
+            onChange={(event) => setNewProfileName(event.currentTarget.value)}
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="new-profile-platform">{t('settings:exportUi.platform')}</Label>
+          <select
+            id="new-profile-platform"
+            className="h-9 rounded border bg-background px-2 text-sm"
+            value={newProfileTarget}
+            onChange={(event) => {
+              const target = event.currentTarget.value as ExportPlatform;
+              setNewProfileTarget(target);
+              setNewProfileName(uniqueProfileLabel(platformDisplayName(target)));
+            }}
+          >
+            {(['windows', 'linux', 'macos', 'web', 'android'] as ExportPlatform[]).map((target) => (
+              <option key={target} value={target}>
+                {platformDisplayName(target)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={cancelProfileEditing}>
+          {t('settings:exportUi.cancel')}
+        </Button>
+        <Button
+          onClick={continueCreateProfile}
+          disabled={
+            !newProfileName.trim() ||
+            platformSettings.profiles.some((item) => labelsEqual(item.label, newProfileName))
+          }
+        >
+          {t('settings:exportUi.next')}
+        </Button>
+      </div>
+    </div>
+  );
+
+  const developerOptions = developerMode ? (
+    <div className="grid gap-2 rounded border border-dashed p-3 text-xs">
+      <div className="font-medium">{t('settings:exportUi.developer')}</div>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={
+            mode === 'runtime'
+              ? activeRuntimeProfile.excludeUnusedAssets
+              : (selectedPlatformProfile?.excludeUnusedAssets ?? true)
+          }
+          onChange={(event) => {
+            if (mode === 'runtime')
+              updateRuntimePackaging({ excludeUnusedAssets: event.currentTarget.checked });
+            else updatePlatformPackaging({ excludeUnusedAssets: event.currentTarget.checked });
+          }}
+        />
+        {t('settings:exportUi.excludeUnusedAssets')}
+      </label>
+      {usesProjectShaders ? (
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={
+              mode === 'runtime'
+                ? activeRuntimeProfile.includeShaderSources
+                : (selectedPlatformProfile?.includeShaderSources ?? false)
+            }
+            onChange={(event) => {
+              if (mode === 'runtime')
+                updateRuntimePackaging({ includeShaderSources: event.currentTarget.checked });
+              else updatePlatformPackaging({ includeShaderSources: event.currentTarget.checked });
+            }}
+          />
+          {t('settings:exportUi.includeShaderSources')}
+        </label>
+      ) : null}
+    </div>
+  ) : null;
+
+  const missingTemplateActions =
+    mode === 'platform' && templatesLoaded && compatibleTemplateChoices.length === 0 ? (
+      <>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={templateDownloadPending}
+          onClick={downloadTemplate}
+        >
+          {templateDownloadPending
+            ? t('settings:exportUi.downloading')
+            : t('settings:exportUi.download')}
+        </Button>
+        <Button size="sm" variant="outline" onClick={installTemplate}>
+          {t('settings:exportUi.install')}
+        </Button>
+      </>
+    ) : null;
+
+  const normalExportPane = (
+    <div className="grid gap-4">
+      {mode === 'runtime' ? (
+        <div>
+          <h2 className="text-lg font-semibold">{t('settings:exportUi.runtimePackage')}</h2>
+          <p className="text-sm text-muted-foreground">
+            {t('settings:exportUi.runtimeDescription')}
+          </p>
+        </div>
+      ) : selectedPlatformProfile ? (
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">{selectedPlatformProfile.label}</h2>
+            <p className="text-sm text-muted-foreground">
+              {profileSummary(selectedPlatformProfile, {
+                debug: t('settings:exportUi.debug'),
+                release: t('settings:exportUi.release'),
+              })}
+            </p>
+          </div>
+          <Button variant="outline" onClick={beginEditProfile}>
+            {t('settings:exportUi.editProfile')}
+          </Button>
+        </div>
+      ) : (
+        <div className="grid place-items-center gap-3 rounded border border-dashed p-10 text-center">
+          <div className="font-medium">{t('settings:exportUi.noProfiles')}</div>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {t('settings:exportUi.noProfilesDescription')}
+          </p>
+          <Button onClick={beginCreateProfile}>{t('settings:exportUi.addProfile')}</Button>
+        </div>
+      )}
+
+      {mode === 'runtime' || selectedPlatformProfile ? (
+        <>
+          <div className="grid gap-1.5">
+            <Label htmlFor="export-output-path">
+              {mode === 'runtime'
+                ? t('settings:exportUi.outputFile')
+                : t('settings:exportUi.outputDirectory')}
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="export-output-path"
+                className="font-mono text-[11px]"
+                value={mode === 'runtime' ? outputPath : platformOutput}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  if (mode === 'runtime') {
+                    setRuntimeOutput(value);
+                    rememberOutput('runtime-package', value);
+                  } else if (selectedPlatformProfile) {
+                    setPlatformOutput(value);
+                    rememberOutput(selectedPlatformProfile.id, value);
+                  }
+                }}
+              />
+              <Button variant="outline" onClick={chooseOutput}>
+                {t('settings:exportUi.browse')}
+              </Button>
+            </div>
+          </div>
+
+          {mode === 'platform' && selectedPlatformProfile ? (
+            <>
+              {compatibleTemplateChoices.length > 1 ? (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="export-player-template">
+                    {t('settings:exportUi.playerTemplate')}
+                  </Label>
+                  <select
+                    id="export-player-template"
+                    className="h-9 w-full rounded border bg-background px-2 text-sm"
+                    value={selectedTemplateToken}
+                    onChange={(event) => {
+                      const token = event.currentTarget.value;
+                      const choice = compatibleTemplateChoices.find(
+                        ({ item }) =>
+                          `${item.descriptor.templateId}/${item.descriptor.buildId}` === token,
+                      );
+                      if (!choice) return;
+                      setSelectedTemplateToken(token);
+                      setTemplateDiagnostics([]);
+                      const key = localProfileKey(selectedPlatformProfile.id);
+                      setExportPreferences({
+                        profileTemplateTokens: {
+                          ...localState.profileTemplateTokens,
+                          [key]: token,
+                        },
+                      });
+                    }}
+                  >
+                    {compatibleTemplateChoices.map(({ item }) => {
+                      const token = `${item.descriptor.templateId}/${item.descriptor.buildId}`;
+                      return (
+                        <option key={token} value={token}>
+                          {item.descriptor.templateId}@{item.descriptor.buildId}
+                          {item.entry.trust === 'official'
+                            ? ''
+                            : t('settings:exportUi.localSuffix')}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              ) : null}
+
+              {selectedPlatformProfile.target === 'windows' ||
+              selectedPlatformProfile.target === 'macos' ||
+              selectedPlatformProfile.target === 'android' ? (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="export-signing-identity">
+                    {t('settings:exportUi.signingIdentity')}
+                  </Label>
+                  <select
+                    id="export-signing-identity"
+                    className="h-9 rounded border bg-background px-2 text-sm"
+                    value={selectedSigningProfile ? selectedSigningProfile.id : ''}
+                    onChange={(event) => {
+                      const id = event.currentTarget.value;
+                      setSelectedSigningProfileId(id);
+                      const key = localProfileKey(selectedPlatformProfile.id);
+                      setExportPreferences({
+                        profileSigningProfileIds: {
+                          ...localState.profileSigningProfileIds,
+                          [key]: id,
+                        },
+                      });
+                    }}
+                  >
+                    <option value="">{t('settings:exportUi.unsigned')}</option>
+                    {signingProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.label}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedSigningProfileId && !selectedSigningProfile ? (
+                    <span className="text-xs text-amber-600">
+                      {t('settings:exportUi.missingSigning')}
+                    </span>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto justify-start p-0 text-xs"
+                    onClick={() => navigateToWorkbenchTarget({ tab: buildSettingsTab() })}
+                  >
+                    {t('settings:exportUi.manageSigning')}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {developerOptions}
+
+          <div className="rounded border p-3 text-xs">
+            <div className="mb-2 font-medium">{t('settings:exportUi.summary')}</div>
+            <div className="grid grid-cols-2 gap-2 text-muted-foreground">
+              <div>
+                {t('settings:exportUi.project')}{' '}
+                <span className="text-foreground">
+                  {preview?.manifestPreview.projectName ?? currentProject.project.name}
+                </span>
+              </div>
+              <div>
+                {t('settings:exportUi.version')}{' '}
+                <span className="text-foreground">
+                  {preview?.manifestPreview.projectVersion ?? currentProject.project.version}
+                </span>
+              </div>
+              <div>
+                {t('settings:exportUi.packageEntries')}{' '}
+                <span className="text-foreground">{preview?.manifestPreview.entryCount ?? 0}</span>
+              </div>
+              <div>
+                {t('settings:exportUi.assetsIncluded')}{' '}
+                <span className="text-foreground">{preview?.fileEntries.length ?? 0}</span>
+              </div>
+              {preview?.excludedUnusedAssetCount ? (
+                <div className="col-span-2">
+                  {t('settings:exportUi.unusedAssetsExcluded')}{' '}
+                  <span className="text-foreground">{preview.excludedUnusedAssetCount}</span>
+                </div>
+              ) : null}
+              {mode === 'platform' ? (
+                <div className="col-span-2">
+                  {t('settings:exportUi.template')}{' '}
+                  <span className="font-mono text-foreground">
+                    {template
+                      ? `${template.descriptor.templateId}@${template.descriptor.buildId}`
+                      : t('settings:exportUi.none')}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {mode === 'runtime' && runtimeDiagnostics.length > 0 ? (
+            <DiagnosticPreview
+              title={
+                blockingDiagnostics.length === 0
+                  ? t('settings:exportUi.runtimeNotices')
+                  : t('settings:exportUi.exportBlocked')
+              }
+              diagnostics={runtimeDiagnostics}
+              project={currentProject}
+            />
+          ) : null}
+          {mode === 'platform'
+            ? platformReadinessGroups.map((group) =>
+                group.diagnostics.length > 0 ? (
+                  <DiagnosticPreview
+                    key={group.title}
+                    title={group.title}
+                    diagnostics={group.diagnostics}
+                    project={currentProject}
+                    actions={group.key === 'environment' ? missingTemplateActions : null}
+                  />
+                ) : null,
+              )
+            : null}
+          {failedResultDiagnostics.length > 0 ? (
+            <DiagnosticPreview
+              title={t('settings:exportUi.lastExportFailed')}
+              diagnostics={failedResultDiagnostics}
+              project={currentProject}
+            />
+          ) : null}
+          {lastResult?.success ? (
+            <div className="flex items-center justify-between gap-3 rounded border p-3 text-sm">
+              <div>
+                <div className="font-medium">{t('settings:exportUi.exportCompleted')}</div>
+                <div className="font-mono text-xs text-muted-foreground">
+                  {lastResult.outputPath ?? platformOutput}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  void window.noveltea.showItemInFolder(lastResult.outputPath ?? platformOutput)
+                }
+              >
+                {t('settings:exportUi.openFolder')}
+              </Button>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            {hasProjectSettingsBlocker ? (
+              <Button
+                variant="secondary"
+                onClick={() => dispatchWorkspaceToolbarCommand('project-settings')}
+                disabled={running}
+              >
+                {t('settings:exportUi.openProjectSettings')}
+              </Button>
+            ) : null}
+            {running && operationId ? (
+              <Button variant="destructive" onClick={cancelExport}>
+                {t('settings:exportUi.cancelExport')}
+              </Button>
+            ) : null}
+            <Button onClick={runExport} disabled={!canExport}>
+              {running
+                ? t('settings:exportUi.exporting', { stage })
+                : t('settings:exportUi.export')}
+            </Button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+
+  const content = createIdentity || profileEditor || normalExportPane;
 
   return (
     <>
       <ExportSurface embedded={embedded} open={open} onOpenChange={onOpenChange}>
-        {surfaceContent}
+        {!embedded ? (
+          <>
+            <DialogTitle className="sr-only">{t('settings:exportUi.export')}</DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('settings:exportUi.dialogDescription')}
+            </DialogDescription>
+          </>
+        ) : null}
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)]">
+            <aside className="min-h-0 border-r p-3">
+              <fieldset disabled={sidebarDisabled} className="grid gap-3 disabled:opacity-60">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold">{t('settings:exportUi.profiles')}</div>
+                  <div className="flex items-center gap-0.5">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      aria-label={t('settings:exportUi.addProfileAction')}
+                      title={t('settings:exportUi.addProfileAction')}
+                      onClick={beginCreateProfile}
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      aria-label={t('settings:exportUi.duplicateProfileAction')}
+                      title={t('settings:exportUi.duplicateProfileAction')}
+                      disabled={mode === 'runtime' || !selectedPlatformProfile}
+                      onClick={duplicateProfile}
+                    >
+                      <Copy className="size-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-7"
+                      aria-label={t('settings:exportUi.deleteProfileAction')}
+                      title={t('settings:exportUi.deleteProfileAction')}
+                      disabled={mode === 'runtime' || !selectedPlatformProfile}
+                      onClick={deleteProfile}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm ${
+                    mode === 'runtime' ? 'bg-accent font-medium' : 'hover:bg-accent/60'
+                  }`}
+                  onClick={selectRuntimeProfile}
+                >
+                  <span className="grid size-7 place-items-center rounded border text-[10px] font-semibold">
+                    NT
+                  </span>
+                  {t('settings:exportUi.runtimePackage')}
+                </button>
+                <div className="border-t" />
+                <div className="grid gap-1">
+                  {sortedProfiles.map((profile) => (
+                    <button
+                      key={profile.id}
+                      type="button"
+                      className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm ${
+                        mode === 'platform' && selectedPlatformProfile?.id === profile.id
+                          ? 'bg-accent font-medium'
+                          : 'hover:bg-accent/60'
+                      }`}
+                      onClick={() => selectPlatformProfile(profile.id)}
+                    >
+                      <span className="grid size-7 shrink-0 place-items-center rounded border text-[10px] font-semibold">
+                        {platformMarker(profile.target)}
+                      </span>
+                      <span className="min-w-0 truncate">{profile.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </aside>
+            <main className="min-h-0 overflow-auto p-6">
+              <div className="mx-auto w-full max-w-3xl">{content}</div>
+            </main>
+          </div>
+        </div>
       </ExportSurface>
-      <Dialog
-        open={identityConfirmationOpen}
-        onOpenChange={(nextOpen) => setIdentityConfirmationOpen(nextOpen)}
-      >
+
+      <Dialog open={identityConfirmationOpen} onOpenChange={setIdentityConfirmationOpen}>
         <DialogPopup className="max-w-lg">
-          <DialogTitle>Confirm application identity change</DialogTitle>
-          <DialogDescription>
-            Continuing will publish a new installed-application or save-data identity. Existing
-            installations and save data are not migrated automatically.
-          </DialogDescription>
+          <DialogTitle>{t('settings:exportUi.identityTitle')}</DialogTitle>
+          <DialogDescription>{t('settings:exportUi.identityDescription')}</DialogDescription>
           <div className="grid gap-2 py-3">
             {(readiness?.identityChangeDiagnostics ?? []).map((item) => (
               <div key={item.code} className="rounded border p-3 text-sm">
@@ -1931,7 +1617,7 @@ export function PackageExportDialog({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIdentityConfirmationOpen(false)}>
-              Cancel
+              {t('settings:exportUi.cancel')}
             </Button>
             <Button
               onClick={() => {
@@ -1939,7 +1625,7 @@ export function PackageExportDialog({
                 void runPlayablePlatformExport();
               }}
             >
-              Continue Export
+              {t('settings:exportUi.continueExport')}
             </Button>
           </DialogFooter>
         </DialogPopup>

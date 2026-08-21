@@ -19,6 +19,8 @@ import {
   typedProjectSettingsSchema,
 } from './authoring-project-settings';
 import { editorProjectStateSchema, emptyEditorProjectState } from './editor-project-state';
+import { defaultExportProfile, exportProfileSchema } from './authoring-export';
+import { platformExportProfileSchema } from './platform-export-contracts';
 
 export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
 export type { EntityId } from './authoring-common';
@@ -54,12 +56,20 @@ const projectIdentitySchema = z
   })
   .strict();
 
+const projectExportSettingsSchema = z
+  .object({
+    runtime: exportProfileSchema,
+    profiles: z.array(platformExportProfileSchema).default([]),
+  })
+  .strict();
+
 export const authoringProjectSchema = z
   .object({
     schema: z.literal(AUTHORING_PROJECT_SCHEMA),
     schemaVersion: z.literal(AUTHORING_PROJECT_SCHEMA_VERSION),
     project: projectIdentitySchema,
     settings: typedProjectSettingsSchema,
+    export: projectExportSettingsSchema,
     startupHook: projectStartupHookSchema.nullable().default(null),
     entrypoint: projectEntrypointSchema.nullable().default(null),
     properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
@@ -130,6 +140,18 @@ export function createAuthoringProject(
         web: {},
         android: {},
       },
+    },
+    export: {
+      runtime: defaultExportProfile({
+        project: {
+          id: options.id ?? 'new-project',
+          name: options.name ?? 'New Project',
+          version: options.version ?? '0.1.0',
+          author: options.author ?? '',
+          description: options.description ?? '',
+        },
+      }),
+      profiles: [],
     },
     startupHook: null,
     entrypoint: null,

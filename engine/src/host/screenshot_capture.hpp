@@ -5,6 +5,7 @@
 #include "noveltea/core/checkpoint_contracts.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -12,7 +13,30 @@ namespace noveltea {
 
 class Renderer;
 
+namespace jobs {
+class JobExecutor;
+}
+
 namespace host {
+
+enum class ScreenshotSizingMode : std::uint8_t {
+    Native,
+    Fit,
+    Fill,
+    Exact,
+};
+
+struct ScreenshotSizing {
+    ScreenshotSizingMode mode = ScreenshotSizingMode::Native;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+};
+
+struct ScreenshotRequestOptions {
+    ScreenshotSizing sizing{};
+    int png_compression_level = 6;
+    bool require_next_frame = false;
+};
 
 struct ScreenshotCapture {
     std::uint64_t request_id = 0;
@@ -25,21 +49,36 @@ class ScreenshotCaptureBackend {
 public:
     virtual ~ScreenshotCaptureBackend() = default;
 
-    [[nodiscard]] virtual bool request_capture(std::uint64_t request_id) = 0;
-    [[nodiscard]] virtual std::optional<ScreenshotCapture> take_capture() = 0;
-    [[nodiscard]] virtual bool capture_pending() const noexcept = 0;
+    [[nodiscard]] virtual std::optional<std::uint64_t>
+    request_capture(ScreenshotRequestOptions options) = 0;
+    [[nodiscard]] virtual std::optional<ScreenshotCapture>
+    take_capture(std::uint64_t request_id) = 0;
+    [[nodiscard]] virtual bool capture_pending(std::uint64_t request_id) const noexcept = 0;
+    virtual void cancel_capture(std::uint64_t request_id) noexcept = 0;
 };
 
-class RendererScreenshotCaptureBackend final : public ScreenshotCaptureBackend {
+class ScreenshotService final : public ScreenshotCaptureBackend {
 public:
-    explicit RendererScreenshotCaptureBackend(Renderer& renderer) noexcept;
+    ScreenshotService(Renderer& renderer, jobs::JobExecutor& jobs);
+    ~ScreenshotService() override;
 
-    [[nodiscard]] bool request_capture(std::uint64_t request_id) override;
-    [[nodiscard]] std::optional<ScreenshotCapture> take_capture() override;
-    [[nodiscard]] bool capture_pending() const noexcept override;
+    ScreenshotService(const ScreenshotService&) = delete;
+    ScreenshotService& operator=(const ScreenshotService&) = delete;
+
+    [[nodiscard]] std::optional<std::uint64_t>
+    request_capture(ScreenshotRequestOptions options = {}) override;
+    [[nodiscard]] std::optional<std::uint64_t> request_file(std::string path,
+                                                            ScreenshotRequestOptions options = {});
+    [[nodiscard]] std::optional<ScreenshotCapture> take_capture(std::uint64_t request_id) override;
+    [[nodiscard]] bool capture_pending(std::uint64_t request_id) const noexcept override;
+    [[nodiscard]] bool has_pending_requests() const noexcept;
+    void cancel_capture(std::uint64_t request_id) noexcept override;
+    void poll();
+    void reset() noexcept;
 
 private:
-    Renderer& m_renderer;
+    struct Impl;
+    std::unique_ptr<Impl> m_impl;
 };
 
 struct CheckpointThumbnailCaptureContext {
@@ -64,6 +103,8 @@ public:
     void reset() noexcept;
 
     [[nodiscard]] bool capture_in_flight() const noexcept { return m_in_flight.has_value(); }
+    [[nodiscard]] std::optional<core::CheckpointThumbnailCaptureRequest>
+    stale_pending_request(const CheckpointThumbnailCaptureContext& context) const noexcept;
 
 private:
     struct CaptureBinding {
@@ -78,11 +119,9 @@ private:
 
     [[nodiscard]] bool binding_is_current(const CaptureBinding& binding,
                                           const CheckpointThumbnailCaptureContext& context) const;
-    void advance_request_id() noexcept;
 
     ScreenshotCaptureBackend& m_backend;
     std::optional<InFlightCapture> m_in_flight;
-    std::uint64_t m_next_request_id = 1;
 };
 
 } // namespace host

@@ -47,12 +47,10 @@ import {
 } from '@/stores/preferences-store';
 import type { EditorPreviewLayoutPreference } from '@/components/editor-preview-layout';
 import type { RmlUiRasterSnapMode } from '../../shared/preview-protocol';
-import {
-  buildComfyUiWorkflowsTab,
-  buildPlatformExportProfilesTab,
-} from '@/workbench/editor-registry';
+import { buildComfyUiWorkflowsTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
+import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import {
   AppWindow,
   ChevronLeft,
@@ -64,6 +62,7 @@ import {
   Moon,
   PackageOpen,
   Palette,
+  Boxes,
   Play,
   RotateCcw,
   Sun,
@@ -73,6 +72,16 @@ import type {
   ComfyUiWorkflowActiveEntry,
   ComfyUiWorkflowRole,
 } from '../../shared/comfyui-workflows';
+import type {
+  ExportPlatform,
+  InstalledTemplate,
+  UserExportConfig,
+  UserSigningProfile,
+} from '../../shared/project-schema/platform-export-contracts';
+import {
+  defaultUserExportConfig,
+  signingSecretReferenceSchema,
+} from '../../shared/project-schema/platform-export-contracts';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -84,6 +93,7 @@ export type EditorSettingsCategory =
   | 'workspace'
   | 'preview'
   | 'export'
+  | 'templates'
   | 'comfyui';
 
 function editorSettingsCategoryForTarget(targetId: string): EditorSettingsCategory | null {
@@ -97,6 +107,7 @@ function editorSettingsCategoryForTarget(targetId: string): EditorSettingsCatego
   if (targetId.startsWith('settings.workspace')) return 'workspace';
   if (targetId.startsWith('settings.preview')) return 'preview';
   if (targetId.startsWith('settings.export')) return 'export';
+  if (targetId.startsWith('settings.templates')) return 'templates';
   if (targetId.startsWith('settings.comfyui')) return 'comfyui';
   return null;
 }
@@ -143,6 +154,82 @@ const editorPreviewSource = `<div class="noveltea-layout-preview">
 </div>`;
 
 type WorkflowDefaultOption = Pick<ComfyUiWorkflowActiveEntry, 'id' | 'label' | 'role'>;
+
+type SigningDraft = {
+  originalId?: string;
+  id: string;
+  label: string;
+  target: 'windows' | 'macos' | 'android';
+  command: string;
+  args: string;
+  verifyCommand: string;
+  verifyArgs: string;
+  identity: string;
+  entitlementsPath: string;
+  notarizationCommand: string;
+  notarizationArgs: string;
+  keystorePath: string;
+  keyAlias: string;
+  storePasswordReference: string;
+  keyPasswordReference: string;
+};
+
+function emptySigningDraft(target: SigningDraft['target']): SigningDraft {
+  const label = target === 'windows' ? 'Windows' : target === 'macos' ? 'macOS' : 'Android';
+  return {
+    id: target,
+    label,
+    target,
+    command: '',
+    args: '[]',
+    verifyCommand: '',
+    verifyArgs: '[]',
+    identity: '',
+    entitlementsPath: '',
+    notarizationCommand: '',
+    notarizationArgs: '[]',
+    keystorePath: '',
+    keyAlias: '',
+    storePasswordReference: '',
+    keyPasswordReference: '',
+  };
+}
+
+function signingDraftFromProfile(profile: UserSigningProfile): SigningDraft {
+  const draft = emptySigningDraft(profile.target);
+  if (profile.target === 'windows')
+    return {
+      ...draft,
+      originalId: profile.id,
+      id: profile.id,
+      label: profile.label,
+      command: profile.command,
+      args: JSON.stringify(profile.args),
+      verifyCommand: profile.verifyCommand,
+      verifyArgs: JSON.stringify(profile.verifyArgs),
+    };
+  if (profile.target === 'macos')
+    return {
+      ...draft,
+      originalId: profile.id,
+      id: profile.id,
+      label: profile.label,
+      identity: profile.identity,
+      entitlementsPath: profile.entitlementsPath ?? '',
+      notarizationCommand: profile.notarizationCommand ?? '',
+      notarizationArgs: JSON.stringify(profile.notarizationArgs ?? []),
+    };
+  return {
+    ...draft,
+    originalId: profile.id,
+    id: profile.id,
+    label: profile.label,
+    keystorePath: profile.keystorePath,
+    keyAlias: profile.keyAlias,
+    storePasswordReference: profile.storePasswordReference,
+    keyPasswordReference: profile.keyPasswordReference,
+  };
+}
 
 function workflowDefaultOptions(
   workflows: ComfyUiWorkflowActiveEntry[],
@@ -327,6 +414,13 @@ export function SettingsPage({
   );
   const [preferredSystemLanguages, setPreferredSystemLanguages] = useState<string[]>([]);
   const [comfyUiWorkflows, setComfyUiWorkflows] = useState<ComfyUiWorkflowActiveEntry[]>([]);
+  const [userExportConfig, setUserExportConfig] = useState<UserExportConfig | null>(null);
+  const [userExportConfigLoaded, setUserExportConfigLoaded] = useState(false);
+  const installedTemplates = useTemplateRegistryStore((state) => state.templates);
+  const ensureTemplatesLoaded = useTemplateRegistryStore((state) => state.ensureLoaded);
+  const refreshTemplates = useTemplateRegistryStore((state) => state.refresh);
+  const [signingDraft, setSigningDraft] = useState<SigningDraft | null>(null);
+  const [signingDraftError, setSigningDraftError] = useState<string | null>(null);
   const [localActiveCategory, setLocalActiveCategory] =
     useState<EditorSettingsCategory>('appearance');
   const activeCategory = controlledActiveCategory ?? localActiveCategory;
@@ -403,6 +497,12 @@ export function SettingsPage({
       icon: PackageOpen,
     },
     {
+      id: 'templates',
+      label: t('settings:categories.templates'),
+      description: t('settings:categories.templatesDescription'),
+      icon: Boxes,
+    },
+    {
       id: 'comfyui',
       label: t('settings:categories.comfyui'),
       description: t('settings:comfyui.description'),
@@ -412,8 +512,16 @@ export function SettingsPage({
   const activeSettingsCategory =
     categories.find((category) => category.id === activeCategory) ?? categories[0]!;
   const effectiveLanguage = resolveEditorLanguage(language, preferredSystemLanguages);
+  const exportConfigAtDefaults =
+    userExportConfigLoaded &&
+    userExportConfig !== null &&
+    JSON.stringify(userExportConfig) === JSON.stringify(defaultUserExportConfig());
   const settingsAtDefaults =
-    nativeFrameLoaded && preferencesAtDefaults && nativeFrame === nativeFrameDefault;
+    userExportConfigLoaded &&
+    nativeFrameLoaded &&
+    preferencesAtDefaults &&
+    nativeFrame === nativeFrameDefault &&
+    exportConfigAtDefaults;
   const effectiveProjectDirectory = defaultProjectDirectory ?? appDefaultProjectDirectory;
   const defaultGenerateWorkflowId =
     comfyUiConfig.defaultWorkflows['image.generate'] || comfyUiConfig.defaultWorkflowId;
@@ -460,6 +568,19 @@ export function SettingsPage({
       return false;
     });
   }, [setActiveCategory, tabId]);
+
+  useEffect(() => {
+    let mounted = true;
+    void window.noveltea.loadUserExportConfig().then((config) => {
+      if (!mounted) return;
+      setUserExportConfig(config);
+      setUserExportConfigLoaded(true);
+    });
+    void ensureTemplatesLoaded().catch(() => []);
+    return () => {
+      mounted = false;
+    };
+  }, [ensureTemplatesLoaded]);
 
   useEffect(() => {
     let mounted = true;
@@ -512,13 +633,173 @@ export function SettingsPage({
     navigateToWorkbenchTarget({ tab: buildComfyUiWorkflowsTab() });
   }
 
-  function openExportProfiles() {
-    navigateToWorkbenchTarget({ tab: buildPlatformExportProfilesTab() });
+  async function saveSharedExportConfig(next: UserExportConfig) {
+    const saved = await window.noveltea.saveUserExportConfig(next);
+    setUserExportConfig(saved);
+  }
+
+  function updateToolchain(field: keyof UserExportConfig['toolchains'], value: string) {
+    if (!userExportConfig) return;
+    const next: UserExportConfig = {
+      ...userExportConfig,
+      toolchains: {
+        ...userExportConfig.toolchains,
+        [field]: value || undefined,
+      },
+    };
+    setUserExportConfig(next);
+    void saveSharedExportConfig(next);
+  }
+
+  function parseArgumentList(value: string, label: string): string[] {
+    const parsed = JSON.parse(value || '[]') as unknown;
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string')) {
+      throw new Error(t('settings:exportSettings.argumentArrayError', { label }));
+    }
+    return parsed;
+  }
+
+  async function saveSigningDraft() {
+    if (!userExportConfig || !signingDraft) return;
+    const id = signingDraft.id.trim();
+    const label = signingDraft.label.trim();
+    if (!id || !label) {
+      setSigningDraftError(t('settings:exportSettings.idNameRequired'));
+      return;
+    }
+    if (
+      userExportConfig.signingProfiles.some(
+        (profile) => profile.id === id && profile.id !== signingDraft.originalId,
+      )
+    ) {
+      setSigningDraftError(t('settings:exportSettings.duplicateId'));
+      return;
+    }
+    try {
+      let profile: UserSigningProfile;
+      if (signingDraft.target === 'windows') {
+        if (!signingDraft.command.trim() || !signingDraft.verifyCommand.trim())
+          throw new Error(t('settings:exportSettings.windowsCommandsRequired'));
+        profile = {
+          id,
+          label,
+          target: 'windows',
+          command: signingDraft.command.trim(),
+          args: parseArgumentList(signingDraft.args, t('settings:exportSettings.signingArguments')),
+          verifyCommand: signingDraft.verifyCommand.trim(),
+          verifyArgs: parseArgumentList(
+            signingDraft.verifyArgs,
+            t('settings:exportSettings.verificationArguments'),
+          ),
+        };
+      } else if (signingDraft.target === 'macos') {
+        if (!signingDraft.identity.trim())
+          throw new Error(t('settings:exportSettings.macIdentityRequired'));
+        profile = {
+          id,
+          label,
+          target: 'macos',
+          identity: signingDraft.identity.trim(),
+          ...(signingDraft.entitlementsPath.trim()
+            ? { entitlementsPath: signingDraft.entitlementsPath.trim() }
+            : {}),
+          ...(signingDraft.notarizationCommand.trim()
+            ? {
+                notarizationCommand: signingDraft.notarizationCommand.trim(),
+                notarizationArgs: parseArgumentList(
+                  signingDraft.notarizationArgs,
+                  t('settings:exportSettings.notarizationArguments'),
+                ),
+              }
+            : {}),
+        };
+      } else {
+        if (
+          !signingDraft.keystorePath.trim() ||
+          !signingDraft.keyAlias.trim() ||
+          !signingDraft.storePasswordReference.trim() ||
+          !signingDraft.keyPasswordReference.trim()
+        )
+          throw new Error(t('settings:exportSettings.androidRequired'));
+        const storePasswordReference = signingSecretReferenceSchema.parse(
+          signingDraft.storePasswordReference,
+        );
+        const keyPasswordReference = signingSecretReferenceSchema.parse(
+          signingDraft.keyPasswordReference,
+        );
+        profile = {
+          id,
+          label,
+          target: 'android',
+          keystorePath: signingDraft.keystorePath.trim(),
+          keyAlias: signingDraft.keyAlias.trim(),
+          storePasswordReference,
+          keyPasswordReference,
+        };
+      }
+      const profiles = userExportConfig.signingProfiles.filter(
+        (item) => item.id !== signingDraft.originalId,
+      );
+      await saveSharedExportConfig({
+        ...userExportConfig,
+        signingProfiles: [...profiles, profile],
+      });
+      setSigningDraft(null);
+      setSigningDraftError(null);
+    } catch (error) {
+      setSigningDraftError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function deleteSigningProfile(id: string) {
+    if (!userExportConfig) return;
+    if (!window.confirm(t('settings:exportSettings.deleteSigningConfirm'))) return;
+    await saveSharedExportConfig({
+      ...userExportConfig,
+      signingProfiles: userExportConfig.signingProfiles.filter((item) => item.id !== id),
+    });
+  }
+
+  async function installTemplateFromSettings() {
+    const archivePath = await window.noveltea.selectTemplateArchivePath();
+    if (!archivePath) return;
+    let installed = await window.noveltea.installPlayerTemplate({
+      archivePath,
+      origin: archivePath,
+    });
+    if (
+      !installed.success &&
+      installed.diagnostics.some((item) => item.message.includes('already installed')) &&
+      window.confirm(t('settings:exportSettings.replaceTemplateConfirm'))
+    ) {
+      installed = await window.noveltea.installPlayerTemplate({
+        archivePath,
+        origin: archivePath,
+        force: true,
+      });
+    }
+    if (installed.success) await refreshTemplates();
+  }
+
+  async function deleteInstalledTemplate(template: InstalledTemplate) {
+    if (
+      !window.confirm(
+        t('settings:exportSettings.deleteTemplateConfirm', {
+          template: `${template.descriptor.templateId}@${template.descriptor.buildId}`,
+        }),
+      )
+    )
+      return;
+    await window.noveltea.removePlayerTemplate(
+      template.descriptor.templateId,
+      template.descriptor.buildId,
+    );
+    await refreshTemplates();
   }
 
   async function chooseDefaultExportDirectory() {
     const directory = await window.noveltea.selectDirectory({
-      title: 'Select default export directory',
+      title: t('settings:exportSettings.selectDefaultOutputTitle'),
       defaultPath: exportPreferences.defaultOutputDirectory || null,
     });
     if (directory) setExportPreferences({ defaultOutputDirectory: directory });
@@ -543,7 +824,10 @@ export function SettingsPage({
     setDefaultProjectDirectory(directory);
   }
 
-  function resetAllSettings() {
+  async function resetAllSettings() {
+    if (!userExportConfigLoaded) return;
+    const defaultExportConfig = defaultUserExportConfig();
+    await saveSharedExportConfig(defaultExportConfig);
     resetPreferencesToDefaults();
     setDefaultProjectDirectoryError(null);
     useComfyUiStore.getState().hydrateFromPreferences();
@@ -562,7 +846,7 @@ export function SettingsPage({
         <Button
           className="w-full justify-start"
           variant="ghost"
-          disabled={settingsAtDefaults}
+          disabled={!userExportConfigLoaded || settingsAtDefaults}
           onClick={() => setResetDialogOpen(true)}
         >
           <RotateCcw />
@@ -1008,15 +1292,16 @@ export function SettingsPage({
       {activeCategory === 'export' ? (
         <Card size="sm" data-workbench-anchor="settings.export">
           <CardHeader className="gap-0">
-            <CardTitle>Export</CardTitle>
+            <CardTitle>{t('settings:exportSettings.title')}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-5">
             <div className="grid gap-2">
               <div>
-                <Label htmlFor="default-export-directory">Default output directory</Label>
+                <Label htmlFor="default-export-directory">
+                  {t('settings:exportSettings.defaultOutputDirectory')}
+                </Label>
                 <p className="text-xs text-muted-foreground">
-                  Used as the starting location for projects that do not yet have a local output
-                  choice.
+                  {t('settings:exportSettings.defaultOutputDescription')}
                 </p>
               </div>
               <div className="flex min-w-0 items-center gap-2">
@@ -1030,223 +1315,412 @@ export function SettingsPage({
                 />
                 <Button type="button" variant="outline" onClick={chooseDefaultExportDirectory}>
                   <FolderOpen />
-                  Browse…
+                  {t('settings:exportSettings.browse')}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
-                  aria-label="Reset default export directory"
+                  aria-label={t('settings:exportSettings.resetDefaultOutput')}
                   onClick={() => setExportPreferences({ defaultOutputDirectory: '' })}
                 >
                   <RotateCcw />
                 </Button>
               </div>
             </div>
-            <div className="grid gap-3 rounded-md border p-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="export-android-sdk">Android SDK</Label>
-                <Input
-                  id="export-android-sdk"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.androidSdk}
-                  onChange={(event) =>
-                    setExportPreferences({ androidSdk: event.currentTarget.value })
-                  }
-                  placeholder="ANDROID_HOME"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-android-ndk">Android NDK (optional)</Label>
-                <Input
-                  id="export-android-ndk"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.androidNdk}
-                  onChange={(event) =>
-                    setExportPreferences({ androidNdk: event.currentTarget.value })
-                  }
-                  placeholder="NDK root"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-java-home">Java home</Label>
-                <Input
-                  id="export-java-home"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.javaHome}
-                  onChange={(event) =>
-                    setExportPreferences({ javaHome: event.currentTarget.value })
-                  }
-                  placeholder="JAVA_HOME"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-cmake">CMake (optional)</Label>
-                <Input
-                  id="export-cmake"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.cmake}
-                  onChange={(event) => setExportPreferences({ cmake: event.currentTarget.value })}
-                  placeholder="cmake executable or directory"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-windows-sign-command">Windows signing command</Label>
-                <Input
-                  id="export-windows-sign-command"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.windowsSigningCommand}
-                  onChange={(event) =>
-                    setExportPreferences({ windowsSigningCommand: event.currentTarget.value })
-                  }
-                  placeholder="signtool"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-windows-sign-args">Windows signing arguments</Label>
-                <Input
-                  id="export-windows-sign-args"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.windowsSigningArgs}
-                  onChange={(event) =>
-                    setExportPreferences({ windowsSigningArgs: event.currentTarget.value })
-                  }
-                  placeholder='["sign", "{executable}"]'
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-windows-verify-command">Windows verification command</Label>
-                <Input
-                  id="export-windows-verify-command"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.windowsVerifyCommand}
-                  onChange={(event) =>
-                    setExportPreferences({ windowsVerifyCommand: event.currentTarget.value })
-                  }
-                  placeholder="signtool"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-windows-verify-args">Windows verification arguments</Label>
-                <Input
-                  id="export-windows-verify-args"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.windowsVerifyArgs}
-                  onChange={(event) =>
-                    setExportPreferences({ windowsVerifyArgs: event.currentTarget.value })
-                  }
-                  placeholder='["verify", "/pa", "{executable}"]'
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-macos-identity">macOS signing identity</Label>
-                <Input
-                  id="export-macos-identity"
-                  value={exportPreferences.macosSigningIdentity}
-                  onChange={(event) =>
-                    setExportPreferences({ macosSigningIdentity: event.currentTarget.value })
-                  }
-                  placeholder="Developer ID Application: …"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-macos-entitlements">macOS entitlements file</Label>
-                <Input
-                  id="export-macos-entitlements"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.macosEntitlementsPath}
-                  onChange={(event) =>
-                    setExportPreferences({ macosEntitlementsPath: event.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-macos-notarization-command">
-                  macOS notarization command
-                </Label>
-                <Input
-                  id="export-macos-notarization-command"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.macosNotarizationCommand}
-                  onChange={(event) =>
-                    setExportPreferences({ macosNotarizationCommand: event.currentTarget.value })
-                  }
-                  placeholder="xcrun"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-macos-notarization-args">macOS notarization arguments</Label>
-                <Input
-                  id="export-macos-notarization-args"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.macosNotarizationArgs}
-                  onChange={(event) =>
-                    setExportPreferences({ macosNotarizationArgs: event.currentTarget.value })
-                  }
-                  placeholder='["notarytool", "submit", "--wait"]'
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-android-keystore">Android keystore</Label>
-                <Input
-                  id="export-android-keystore"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.androidKeystorePath}
-                  onChange={(event) =>
-                    setExportPreferences({ androidKeystorePath: event.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-android-key-alias">Android key alias</Label>
-                <Input
-                  id="export-android-key-alias"
-                  value={exportPreferences.androidKeyAlias}
-                  onChange={(event) =>
-                    setExportPreferences({ androidKeyAlias: event.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-android-store-password">
-                  Android store password reference
-                </Label>
-                <Input
-                  id="export-android-store-password"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.androidStorePasswordReference}
-                  onChange={(event) =>
-                    setExportPreferences({
-                      androidStorePasswordReference: event.currentTarget.value,
-                    })
-                  }
-                  placeholder="env:NOVELTEA_ANDROID_STORE_PASSWORD"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="export-android-key-password">Android key password reference</Label>
-                <Input
-                  id="export-android-key-password"
-                  className="font-mono text-[11px]"
-                  value={exportPreferences.androidKeyPasswordReference}
-                  onChange={(event) =>
-                    setExportPreferences({ androidKeyPasswordReference: event.currentTarget.value })
-                  }
-                  placeholder="env:NOVELTEA_ANDROID_KEY_PASSWORD"
-                />
-              </div>
-            </div>
-            <div className="flex items-center justify-between gap-6 rounded-md border p-3">
+
+            <div className="grid gap-3 rounded-md border p-3">
               <div>
-                <Label>Project export profiles</Label>
+                <Label>{t('settings:exportSettings.platformToolchains')}</Label>
                 <p className="text-xs text-muted-foreground">
-                  Create and edit reproducible target profiles for the currently open project.
+                  {t('settings:exportSettings.platformToolchainsDescription')}
                 </p>
               </div>
-              <Button type="button" variant="outline" onClick={openExportProfiles}>
-                Manage Export Profiles
+              <div className="grid gap-3 md:grid-cols-2">
+                {(
+                  [
+                    ['androidSdk', t('settings:exportSettings.androidSdk'), 'ANDROID_HOME'],
+                    ['androidNdk', t('settings:exportSettings.androidNdk'), 'NDK root'],
+                    ['javaHome', t('settings:exportSettings.javaHome'), 'JAVA_HOME'],
+                    ['cmake', t('settings:exportSettings.cmake'), 'cmake executable or directory'],
+                  ] as const
+                ).map(([field, label, placeholder]) => (
+                  <div key={field} className="space-y-1">
+                    <Label htmlFor={`export-${field}`}>{label}</Label>
+                    <Input
+                      id={`export-${field}`}
+                      className="font-mono text-[11px]"
+                      value={userExportConfig?.toolchains[field] ?? ''}
+                      onChange={(event) => updateToolchain(field, event.currentTarget.value)}
+                      placeholder={placeholder}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div
+              className="grid gap-3 rounded-md border p-3"
+              data-workbench-anchor="settings.export.signing"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <Label>{t('settings:exportSettings.signingConfigurations')}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:exportSettings.signingDescription')}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {(['windows', 'macos', 'android'] as const).map((target) => (
+                    <Button
+                      key={target}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const draft = emptySigningDraft(target);
+                        let index = 2;
+                        const base = draft.id;
+                        while (
+                          userExportConfig?.signingProfiles.some((item) => item.id === draft.id)
+                        )
+                          draft.id = `${base}-${index++}`;
+                        draft.label =
+                          draft.id === base ? draft.label : `${draft.label} (${index - 1})`;
+                        setSigningDraft(draft);
+                        setSigningDraftError(null);
+                      }}
+                    >
+                      {target === 'macos'
+                        ? t('settings:exportSettings.addMacos')
+                        : target === 'windows'
+                          ? t('settings:exportSettings.addWindows')
+                          : t('settings:exportSettings.addAndroid')}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {(userExportConfig?.signingProfiles ?? [])
+                .slice()
+                .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+                .map((profile) => (
+                  <div
+                    key={profile.id}
+                    className="flex items-center justify-between gap-3 rounded border p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-medium">{profile.label}</div>
+                      <div className="font-mono text-xs text-muted-foreground">
+                        {profile.id} · {profile.target}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSigningDraft(signingDraftFromProfile(profile));
+                          setSigningDraftError(null);
+                        }}
+                      >
+                        {t('settings:exportSettings.edit')}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void deleteSigningProfile(profile.id)}
+                      >
+                        {t('settings:exportSettings.delete')}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+              {signingDraft ? (
+                <div className="grid gap-3 rounded border bg-muted/20 p-3">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label>{t('settings:exportSettings.configurationId')}</Label>
+                      <Input
+                        value={signingDraft.id}
+                        onChange={(event) =>
+                          setSigningDraft({ ...signingDraft, id: event.currentTarget.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t('settings:exportSettings.name')}</Label>
+                      <Input
+                        value={signingDraft.label}
+                        onChange={(event) =>
+                          setSigningDraft({ ...signingDraft, label: event.currentTarget.value })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {signingDraft.target === 'windows' ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.signingCommand')}</Label>
+                        <Input
+                          value={signingDraft.command}
+                          onChange={(event) =>
+                            setSigningDraft({ ...signingDraft, command: event.currentTarget.value })
+                          }
+                          placeholder="signtool"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.signingArguments')}</Label>
+                        <Input
+                          value={signingDraft.args}
+                          onChange={(event) =>
+                            setSigningDraft({ ...signingDraft, args: event.currentTarget.value })
+                          }
+                          placeholder='["sign", "{executable}"]'
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.verificationCommand')}</Label>
+                        <Input
+                          value={signingDraft.verifyCommand}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              verifyCommand: event.currentTarget.value,
+                            })
+                          }
+                          placeholder="signtool"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.verificationArguments')}</Label>
+                        <Input
+                          value={signingDraft.verifyArgs}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              verifyArgs: event.currentTarget.value,
+                            })
+                          }
+                          placeholder='["verify", "/pa", "{executable}"]'
+                        />
+                      </div>
+                    </div>
+                  ) : signingDraft.target === 'macos' ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1 md:col-span-2">
+                        <Label>{t('settings:exportSettings.signingIdentity')}</Label>
+                        <Input
+                          value={signingDraft.identity}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              identity: event.currentTarget.value,
+                            })
+                          }
+                          placeholder="Developer ID Application: …"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.entitlementsFile')}</Label>
+                        <Input
+                          value={signingDraft.entitlementsPath}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              entitlementsPath: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.notarizationCommand')}</Label>
+                        <Input
+                          value={signingDraft.notarizationCommand}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              notarizationCommand: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1 md:col-span-2">
+                        <Label>{t('settings:exportSettings.notarizationArguments')}</Label>
+                        <Input
+                          value={signingDraft.notarizationArgs}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              notarizationArgs: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1 md:col-span-2">
+                        <Label>{t('settings:exportSettings.keystorePath')}</Label>
+                        <Input
+                          value={signingDraft.keystorePath}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              keystorePath: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.keyAlias')}</Label>
+                        <Input
+                          value={signingDraft.keyAlias}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              keyAlias: event.currentTarget.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.storePasswordReference')}</Label>
+                        <Input
+                          value={signingDraft.storePasswordReference}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              storePasswordReference: event.currentTarget.value,
+                            })
+                          }
+                          placeholder="env:NOVELTEA_ANDROID_STORE_PASSWORD"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{t('settings:exportSettings.keyPasswordReference')}</Label>
+                        <Input
+                          value={signingDraft.keyPasswordReference}
+                          onChange={(event) =>
+                            setSigningDraft({
+                              ...signingDraft,
+                              keyPasswordReference: event.currentTarget.value,
+                            })
+                          }
+                          placeholder="env:NOVELTEA_ANDROID_KEY_PASSWORD"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {signingDraftError ? (
+                    <p className="text-xs text-destructive">{signingDraftError}</p>
+                  ) : null}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setSigningDraft(null);
+                        setSigningDraftError(null);
+                      }}
+                    >
+                      {t('settings:exportSettings.cancel')}
+                    </Button>
+                    <Button type="button" onClick={() => void saveSigningDraft()}>
+                      {t('settings:exportSettings.saveConfiguration')}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeCategory === 'templates' ? (
+        <Card size="sm" data-workbench-anchor="settings.templates">
+          <CardHeader className="gap-0">
+            <CardTitle>{t('settings:exportSettings.templates.title')}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-muted-foreground">
+                {t('settings:exportSettings.templates.description')}
+              </p>
+              <Button type="button" variant="outline" onClick={installTemplateFromSettings}>
+                {t('settings:exportSettings.templates.install')}
               </Button>
             </div>
+            {installedTemplates.length === 0 ? (
+              <div className="rounded border border-dashed p-8 text-center text-sm text-muted-foreground">
+                {t('settings:exportSettings.templates.none')}
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {(['windows', 'linux', 'macos', 'web', 'android'] as ExportPlatform[]).map(
+                  (platform) => {
+                    const items = installedTemplates
+                      .filter((item) => item.descriptor.platform === platform)
+                      .sort(
+                        (a, b) =>
+                          a.descriptor.templateId.localeCompare(b.descriptor.templateId) ||
+                          a.descriptor.buildId.localeCompare(b.descriptor.buildId),
+                      );
+                    if (items.length === 0) return null;
+                    return (
+                      <div key={platform} className="grid gap-2">
+                        <div className="text-sm font-medium">
+                          {platform === 'macos'
+                            ? 'macOS'
+                            : platform === 'web'
+                              ? 'Web'
+                              : platform === 'android'
+                                ? 'Android'
+                                : platform === 'windows'
+                                  ? 'Windows'
+                                  : 'Linux'}
+                        </div>
+                        {items.map((template) => (
+                          <div
+                            key={`${template.descriptor.templateId}/${template.descriptor.buildId}`}
+                            className="flex items-center justify-between gap-4 rounded border p-3"
+                          >
+                            <div className="min-w-0">
+                              <div className="font-medium">
+                                {template.descriptor.templateId}@{template.descriptor.buildId}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {template.descriptor.architecture} ·{' '}
+                                {template.descriptor.buildFlavor}
+                                {template.status === 'corrupted'
+                                  ? ` · ${t('settings:exportSettings.templates.corrupted')}`
+                                  : template.entry.trust === 'official'
+                                    ? ` · ${t('settings:exportSettings.templates.official')}`
+                                    : ` · ${t('settings:exportSettings.templates.local')}`}
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void deleteInstalledTemplate(template)}
+                            >
+                              {t('settings:exportSettings.templates.delete')}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  },
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       ) : null}

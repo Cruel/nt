@@ -597,45 +597,45 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
         [&](const auto& payload) {
             using T = std::decay_t<decltype(payload)>;
             if constexpr (std::is_same_v<T, runtime::MoveInteractableCommand>) {
-                auto changed = m_kernel->state().move_interactable(m_project, payload.interactable,
-                                                                   payload.target);
+                auto changed =
+                    m_kernel->world().move_interactable(payload.interactable, payload.target);
                 if (!changed)
                     diagnostics = std::move(changed).error();
             } else if constexpr (std::is_same_v<T, runtime::SetInteractableWorldStateCommand>) {
                 if (payload.location) {
-                    auto changed = m_kernel->state().move_interactable(
-                        m_project, payload.interactable, *payload.location);
+                    auto changed = m_kernel->world().move_interactable(payload.interactable,
+                                                                       *payload.location);
                     if (!changed)
                         diagnostics = std::move(changed).error();
                 }
                 if (diagnostics.empty() && payload.enabled) {
-                    auto changed = m_kernel->state().set_interactable_enabled(
-                        m_project, payload.interactable, *payload.enabled);
+                    auto changed = m_kernel->world().set_interactable_enabled(payload.interactable,
+                                                                              *payload.enabled);
                     if (!changed)
                         diagnostics = std::move(changed).error();
                 }
                 if (diagnostics.empty() && payload.visible) {
-                    auto changed = m_kernel->state().set_interactable_visible(
-                        m_project, payload.interactable, *payload.visible);
+                    auto changed = m_kernel->world().set_interactable_visible(payload.interactable,
+                                                                              *payload.visible);
                     if (!changed)
                         diagnostics = std::move(changed).error();
                 }
             } else if constexpr (std::is_same_v<T, runtime::SetCharacterWorldStateCommand>) {
                 if (payload.location) {
-                    auto changed = m_kernel->state().move_character(m_project, payload.character,
-                                                                    *payload.location);
+                    auto changed =
+                        m_kernel->world().move_character(payload.character, *payload.location);
                     if (!changed)
                         diagnostics = std::move(changed).error();
                 }
                 if (diagnostics.empty() && payload.enabled) {
-                    auto changed = m_kernel->state().set_character_enabled(
-                        m_project, payload.character, *payload.enabled);
+                    auto changed = m_kernel->world().set_character_enabled(payload.character,
+                                                                           *payload.enabled);
                     if (!changed)
                         diagnostics = std::move(changed).error();
                 }
                 if (diagnostics.empty() && payload.visible) {
-                    auto changed = m_kernel->state().set_character_visible(
-                        m_project, payload.character, *payload.visible);
+                    auto changed = m_kernel->world().set_character_visible(payload.character,
+                                                                           *payload.visible);
                     if (!changed)
                         diagnostics = std::move(changed).error();
                 }
@@ -983,7 +983,7 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
             ? core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>::success(
                   m_current_publication->presentation)
             : m_presentation_model.project(
-                  m_project, m_kernel->state(),
+                  m_project, m_kernel->world(), m_kernel->state(),
                   room_resolution == nullptr ? nullptr : &room_resolution->presentation);
     if (!presentation) {
         core::append_diagnostics(result.diagnostics, std::move(presentation).error());
@@ -1011,7 +1011,7 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
             }
             const auto* source_room = m_kernel->pending_presentation_source_room();
             auto projected_source = m_presentation_model.project(
-                m_project, *source_state,
+                m_project, m_kernel->world(), *source_state,
                 source_room == nullptr ? nullptr : &source_room->presentation);
             if (!projected_source) {
                 core::append_diagnostics(result.diagnostics, std::move(projected_source).error());

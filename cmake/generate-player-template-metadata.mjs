@@ -18,6 +18,25 @@ if (existsSync(statusPath)) {
     try { revision = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { /* source archive without Git metadata */ }
     return { Package: name.slice(0, -4), Version: revision, Source: source };
   });
+
+  // Emscripten ports live outside CMake's _deps tree, so add the runtime ports that
+  // NovelTea requests explicitly and require their fetched license sources to exist.
+  const cachePath = path.join(buildRoot, 'CMakeCache.txt');
+  const cacheText = existsSync(cachePath) ? readFileSync(cachePath, 'utf8') : '';
+  const cachedEmsdk = /^EMSDK:[^=]*=(.+)$/m.exec(cacheText)?.[1]?.replaceAll('\\', '/');
+  const toolchain = /^CMAKE_TOOLCHAIN_FILE:[^=]*=(.+)$/m.exec(cacheText)?.[1]?.replaceAll('\\', '/');
+  const installPrefix = /^CMAKE_INSTALL_PREFIX:[^=]*=(.+)$/m.exec(cacheText)?.[1]?.replaceAll('\\', '/');
+  const marker = '/upstream/emscripten/';
+  const configuredEmscriptenPath = [toolchain, installPrefix].find((value) => value?.includes(marker));
+  const configuredEmsdk = configuredEmscriptenPath ? configuredEmscriptenPath.slice(0, configuredEmscriptenPath.indexOf(marker)) : '';
+  const emsdk = cachedEmsdk || configuredEmsdk || process.env.EMSDK || '';
+  if (!emsdk) throw new Error('Unable to locate EMSDK to inventory Emscripten runtime ports.');
+  for (const [name, version] of [['libpng', '1.6.58'], ['zlib', '1.3.2']]) {
+    const source = path.join(emsdk, 'upstream', 'emscripten', 'cache', 'ports', name, `${name}-${version}`);
+    if (!existsSync(source)) throw new Error(`Missing fetched Emscripten port source for ${name} ${version}: ${source}`);
+    if (!packages.some((item) => item.Package === name)) packages.push({ Package: name, Version: version, Source: source });
+  }
+  packages.sort((a, b) => a.Package.localeCompare(b.Package));
 }
 const components = packages.map((item) => ({ type: 'library', name: item.Package, version: item.Version, ...(item.Architecture ? { properties: [{ name: 'vcpkg:architecture', value: item.Architecture }] } : {}) }));
 writeFileSync(path.join(output, 'SBOM.cdx.json'), `${JSON.stringify({ bomFormat: 'CycloneDX', specVersion: '1.5', version: 1, metadata: { component: { type: 'application', name: 'noveltea-player', version } }, components }, null, 2)}\n`);

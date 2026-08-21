@@ -132,8 +132,8 @@ these rules:
   through SDL would clear the WebGL drawing buffer and reintroduce resize flicker;
 - capacity dimensions are renderer allocation state only. They must not replace the active host
   framebuffer dimensions in `HostSurfaceMetrics` or any derived presentation metric;
-- screenshot callbacks may receive the complete retained allocation, but the requested game capture
-  remains cropped to the active fitted viewport.
+- screenshot requests capture the game presentation independently of retained backbuffer capacity;
+  GPU resize/readback uses only the active game presentation and never exposes unused capacity.
 
 Growing the retained allocation is an exceptional swapchain reset and may interrupt one frame.
 Shrinking the browser viewport or resizing again within the retained capacity must preserve the
@@ -446,19 +446,40 @@ Postprocess scope is closed to `world` and `full-game-viewport`.
 
 ## Screenshot and checkpoint-thumbnail contract
 
-File screenshots and checkpoint thumbnails capture only the fitted game viewport.
+The host screenshot service captures the composed game presentation, excluding presentation bars,
+host debug UI, and editor chrome. Capture is asynchronous and independent of the host backbuffer's
+retained allocation.
 
-- Capture bounds are exactly the fitted host-framebuffer viewport rectangle.
-- Presentation bars are excluded.
-- Host debug UI and editor chrome are excluded.
-- The output dimensions equal the fitted game framebuffer viewport width and height.
-- Barred and unbarred hosts use the same capture path.
-- Each asynchronous request snapshots both the fitted host-framebuffer rectangle and the captured
-  host-framebuffer dimensions before submission; a later resize must not substitute newer bounds.
-- Raw BGRA screenshot pixels are normalized and cropped once before file output or checkpoint PNG
-  encoding branches.
-- Existing asynchronous capture IDs, revision binding, readiness, and checkpoint attachment rules
-  remain unchanged.
+- `Native` output uses the current fitted game framebuffer dimensions.
+- `Fit` preserves aspect ratio inside a requested maximum width and height.
+- `Fill` preserves aspect ratio while cropping the source to fill the requested dimensions.
+- `Exact` uses the requested dimensions without preserving aspect ratio.
+- Resizing is performed on the GPU before readback. CPU code receives only the requested output
+  dimensions rather than reading a large host framebuffer and resizing afterward.
+- Capture composition and output surfaces are each limited to 8192 pixels on either axis and
+  16,777,216 total pixels. The source presentation and resolved `Native`/`Fit`/`Fill`/`Exact` output
+  must satisfy that budget and the active bgfx `limits.maxTextureSize`; RGBA8 allocation size is
+  checked before converting to `size_t`. This keeps 4K and common 5K screenshots supported while
+  rejecting multi-gigabyte or overflowing requests.
+- The GPU readback target is RGBA8. Readback writes directly into renderer-owned contiguous pixel
+  storage because bgfx requires that destination pointer to remain valid until its asynchronous
+  readback frame completes. Once bgfx reports completion, the renderer transfers ownership of the
+  pixel buffer to `ScreenshotService` for encoding. Fetched OpenGL ES/Web bgfx builds enable bgfx's
+  built-in blit and texture-readback emulation when those operations are not native capabilities,
+  preserving the same requested-size readback path.
+- PNG encoding uses libpng, including adaptive PNG filtering and configurable zlib/DEFLATE
+  compression, through the engine job executor rather than on the bgfx render backend thread. Native
+  threaded builds therefore encode on workers; cooperative builds, including Web without pthreads,
+  yield between libpng scanline writes according to the frame job budget.
+- File screenshots use the same service. PPM remains available for deterministic rendering fixtures;
+  PNG supports an explicit compression level.
+- Checkpoint thumbnails request `Fit(480, 270)` and therefore read back only thumbnail-sized pixels.
+- Checkpoint thumbnail requests are created only when a save slot has actually been written. Retained
+  checkpoint publication or time-only checkpoint refresh does not trigger screenshot work.
+- Thumbnail request identity remains bound to the exact saved checkpoint and displayed presentation
+  revision. A thumbnail request is accepted only when it can own the next capture frame; if that
+  presentation revision has already been passed before capture starts, the optional thumbnail is
+  discarded and the save remains valid. Stale completions are never attached to another revision.
 
 ## Editor preview and Web player host contract
 
@@ -533,7 +554,8 @@ Implementation and regression tests must preserve these properties:
 - preview pool lease reuse and current-placeholder move/resize behavior;
 - RmlUi compatible-context sharing and document recreation when context keys change;
 - source/target transition surfaces receive their matching WorldOverlay contexts;
-- the pre-cutover full-host screenshot behavior remains characterized until capture cutover;
+- screenshot output remains independent of presentation bars, host debug UI, and retained Web
+  backbuffer capacity across native and resized capture modes;
 - ActiveText uses its RmlUi content box and current raster-size inputs through its scoped bridge;
 - reference-derived aspect and orientation formulas;
 - capped and native world raster formulas;

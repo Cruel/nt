@@ -1,0 +1,29 @@
+/*
+ * NovelTea universal RmlUi defaults layered above the frozen RmlUi HTML4 baseline.
+ * Engine-specific baseline changes belong here, never in rmlui-html4.rcss.
+ */
+
+body {
+  width: 100%;
+  height: 100%;
+  color: #f8fafc;
+  font-family: Liberation Sans;
+}
+
+button {
+  display: inline-block;
+  margin: 4px 0;
+  padding: 8px 12px;
+  min-width: 96px;
+  color: #f8fafc;
+  background-color: #334155;
+  border-width: 1px;
+  border-color: #64748b;
+  border-radius: 4px;
+  font-family: Liberation Sans;
+  font-size: 14px;
+  text-align: center;
+}
+
+button:hover { background-color: #475569; border-color: #94a3b8; }
+button:active { background-color: #1e293b; }

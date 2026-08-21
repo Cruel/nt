@@ -19,11 +19,14 @@ describe('pnpm process invocation', () => {
   it('falls back to the platform-specific pnpm launcher', () => {
     expect(
       resolvePnpmInvocation(['run', 'build'], {
-        environment: {},
+        environment: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
         platform: 'win32',
         nodeExecutable: 'node.exe',
       }),
-    ).toEqual({ command: 'pnpm.cmd', args: ['run', 'build'] });
+    ).toEqual({
+      command: 'C:\\Windows\\System32\\cmd.exe',
+      args: ['/d', '/s', '/c', 'pnpm.cmd', 'run', 'build'],
+    });
     expect(
       resolvePnpmInvocation(['run', 'build'], {
         environment: {},

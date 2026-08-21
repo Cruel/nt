@@ -40,6 +40,8 @@ export const IPC_CHANNELS = {
   DOWNLOAD_PLAYER_TEMPLATE: 'noveltea:download-player-template',
   REMOVE_PLAYER_TEMPLATE: 'noveltea:remove-player-template',
   RESOLVE_PLAYER_TEMPLATE: 'noveltea:resolve-player-template',
+  LOAD_USER_EXPORT_CONFIG: 'noveltea:load-user-export-config',
+  SAVE_USER_EXPORT_CONFIG: 'noveltea:save-user-export-config',
   COMPILE_SHADERS: 'noveltea:compile-shaders',
   SAVE_PROJECT_CONTENT: 'noveltea:save-project-content',
   SAVE_PROJECT_EDITOR_METADATA: 'noveltea:save-project-editor-metadata',

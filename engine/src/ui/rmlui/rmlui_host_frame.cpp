@@ -174,41 +174,54 @@ void RmlUiHost::update_contexts()
     }
 }
 
+void RmlUiHost::set_final_output_framebuffer(std::uint16_t framebuffer)
+{
+    m_final_output_framebuffer = framebuffer;
+    configure_plane_output_framebuffers();
+}
+
 void RmlUiHost::set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game)
 {
     m_world_postprocess_framebuffer = world;
     m_full_game_postprocess_framebuffer = full_game;
-    for (auto& renderer : m_plane_renderers) {
-        if (!renderer.bgfx)
-            continue;
-        std::uint16_t handle = UINT16_MAX;
-        if (renderer.plane == core::PresentationPlane::WorldOverlay) {
-            handle = world != UINT16_MAX ? world : full_game;
-        } else if (renderer.plane != core::PresentationPlane::Debug) {
-            handle = full_game;
-        }
-        const bool local = handle != UINT16_MAX;
-        bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
-        if (local)
-            framebuffer = bgfx::FrameBufferHandle{handle};
-        renderer.bgfx->set_output_framebuffer(framebuffer, m_presentation, local);
-    }
+    configure_plane_output_framebuffers();
 }
 
 void RmlUiHost::set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                                bool transition_active)
 {
     m_world_transition_active = transition_active;
+    m_world_transition_source_framebuffer = source;
+    m_world_transition_target_framebuffer = target;
     m_world_transition_source_enabled = transition_active && source != UINT16_MAX;
     m_world_transition_target_enabled = transition_active && target != UINT16_MAX;
+    configure_plane_output_framebuffers();
+}
+
+void RmlUiHost::configure_plane_output_framebuffers()
+{
     for (auto& renderer : m_plane_renderers) {
-        if (!renderer.bgfx || renderer.plane != core::PresentationPlane::WorldOverlay)
+        if (!renderer.bgfx)
             continue;
-        std::uint16_t handle = renderer.world_transition_source ? source : target;
-        if (!transition_active)
-            handle = m_world_postprocess_framebuffer != UINT16_MAX
-                         ? m_world_postprocess_framebuffer
-                         : m_full_game_postprocess_framebuffer;
+
+        std::uint16_t handle = UINT16_MAX;
+        if (renderer.plane == core::PresentationPlane::WorldOverlay) {
+            if (m_world_transition_active) {
+                handle = renderer.world_transition_source ? m_world_transition_source_framebuffer
+                                                          : m_world_transition_target_framebuffer;
+            } else if (m_world_postprocess_framebuffer != UINT16_MAX) {
+                handle = m_world_postprocess_framebuffer;
+            } else if (m_full_game_postprocess_framebuffer != UINT16_MAX) {
+                handle = m_full_game_postprocess_framebuffer;
+            } else {
+                handle = m_final_output_framebuffer;
+            }
+        } else if (renderer.plane != core::PresentationPlane::Debug) {
+            handle = m_full_game_postprocess_framebuffer != UINT16_MAX
+                         ? m_full_game_postprocess_framebuffer
+                         : m_final_output_framebuffer;
+        }
+
         const bool local = handle != UINT16_MAX;
         bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
         if (local)
@@ -274,8 +287,11 @@ void RmlUiHost::reset_backend_state()
     m_world_transition_active = false;
     m_world_transition_source_enabled = false;
     m_world_transition_target_enabled = false;
+    m_world_transition_source_framebuffer = UINT16_MAX;
+    m_world_transition_target_framebuffer = UINT16_MAX;
     m_world_postprocess_framebuffer = UINT16_MAX;
     m_full_game_postprocess_framebuffer = UINT16_MAX;
+    m_final_output_framebuffer = UINT16_MAX;
 }
 
 } // namespace noveltea::ui::rmlui

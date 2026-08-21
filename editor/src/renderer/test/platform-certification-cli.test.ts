@@ -39,7 +39,7 @@ function setup() {
     shaderVariants: ['essl-300'],
     runtimePackageApi: { minimum: 2, maximum: 2 },
     playerConfigApi: { minimum: 2, maximum: 2 },
-    capabilities: ['network.client'],
+    capabilities: ['external-url'],
     compiledFeatures: [],
     packageAccessModes: ['web-fetch'],
     host: { assembly: 'any', requiresToolchain: false, tools: [] },

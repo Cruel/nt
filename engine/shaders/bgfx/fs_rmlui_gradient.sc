@@ -70,7 +70,9 @@ void main()
 
     if (kind == GRADIENT_REPEATING_LINEAR || kind == GRADIENT_REPEATING_RADIAL || kind == GRADIENT_REPEATING_CONIC) {
         float first = stop_position(0);
-        float last = stop_position(max(count - 1, 0));
+        // GLSL 1.20 has no max(int, int); keep this branch until bgfx reliably promotes this path to GLSL 1.30.
+        int last_index = count > 0 ? count - 1 : 0;
+        float last = stop_position(last_index);
         t = first + mod(t - first, max(last - first, 0.000001));
     }
 

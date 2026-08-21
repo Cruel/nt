@@ -1,0 +1,92 @@
+name: Windows Player Debug Build
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-player-debug-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
+  VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
+  CMAKE_BUILD_PARALLEL_LEVEL: 2
+  VCPKG_MAX_CONCURRENCY: 2
+
+permissions:
+  contents: read
+
+jobs:
+  player:
+    name: Windows player executable
+    runs-on: windows-2025
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache shared vcpkg SDK and binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+          key: windows-2025-x64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
+          restore-keys: |
+            windows-2025-x64-vcpkg-common-
+
+      - name: Cache Windows vcpkg installed tree
+        uses: actions/cache@v5
+        with:
+          path: build/windows-release/vcpkg_installed
+          key: windows-2025-x64-vcpkg-installed-windows-release-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
+          restore-keys: |
+            windows-2025-x64-vcpkg-installed-windows-release-
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          if (!(Test-Path "$env:VCPKG_ROOT/.git")) {
+            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          }
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
+
+      - name: Set up MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Restore NovelTea vcpkg root after MSVC setup
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_ENV -Value 'VCPKG_ROOT=${{ github.workspace }}/.cache/vcpkg'
+
+      - name: Configure player-only build
+        shell: pwsh
+        run: |
+          cmake --preset windows-release -G Ninja `
+            -DNOVELTEA_BUILD_HOST_TOOLS=OFF `
+            -DNOVELTEA_BUILD_SANDBOX=OFF `
+            -DNOVELTEA_BUILD_BENCHMARKS=OFF `
+            -DNOVELTEA_COMPILE_SHADERS=OFF `
+            -DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF `
+            -DBUILD_TESTING=OFF
+
+      - name: Build Windows player only
+        run: cmake --build --preset windows-release --target noveltea-player
+
+      - name: Stage drop-in executable and symbols
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/windows-player-dropin | Out-Null
+          Copy-Item build/windows-release/apps/player/noveltea-player.exe build/windows-player-dropin/game.exe
+          Copy-Item build/windows-release/apps/player/noveltea-player.pdb build/windows-player-dropin/noveltea-player.pdb
+          Get-FileHash build/windows-player-dropin/game.exe -Algorithm SHA256 | Format-List
+
+      - name: Upload drop-in Windows player
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-windows-player-dropin-${{ github.sha }}
+          path: build/windows-player-dropin
+          if-no-files-found: error
+          retention-days: 7

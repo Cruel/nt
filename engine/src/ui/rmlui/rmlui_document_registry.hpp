@@ -107,6 +107,7 @@ private:
     };
 
     class CallbackListener;
+    struct BaselineStyles;
     struct ListenerRecord {
         std::string document_id;
         std::string element_id;
@@ -128,6 +129,7 @@ private:
     void retire(DocumentRecord& record);
 
     RmlUiHost& m_host;
+    std::unique_ptr<BaselineStyles> m_baseline_styles;
     Rml::EventListener* m_runtime_input_listener = nullptr;
     std::unordered_map<std::string, DocumentRecord> m_documents;
     std::vector<std::string> m_ordered_document_ids;

@@ -26,8 +26,11 @@ use the same typed publication and realization boundaries.
 The engine presents game content through a centered 16:9 viewport inside the complete host surface.
 The renderer clears the host to the presentation-bar color, restricts game, text, ActiveText, and
 runtime-UI views to the fitted framebuffer rectangle, and retains Dear ImGui as a host-surface
-overlay. Logical layout uses the fitted game dimensions; swapchain reset and screenshots use the
-complete host dimensions.
+overlay. Logical layout uses the fitted game dimensions and swapchain allocation uses the complete
+host dimensions. Screenshots instead capture the composed fitted game presentation independently of
+presentation bars, debug UI, and retained backbuffer capacity; optional screenshot sizing is resolved
+on the GPU before readback. The detailed capture contract lives in
+[`REFERENCE_RESOLUTION_AND_PRESENTATION_SPEC.md`](REFERENCE_RESOLUTION_AND_PRESENTATION_SPEC.md).
 
 ## External Renderer Package
 

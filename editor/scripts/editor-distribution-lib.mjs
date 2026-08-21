@@ -25,6 +25,7 @@ import {
   novelTeaDevelopmentVersion,
   readNovelTeaVersion,
 } from '../../scripts/noveltea-version.mjs';
+import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
 
 export const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const repositoryRoot = path.resolve(editorRoot, '..');
@@ -149,6 +150,11 @@ export function runCommand(command, args, options = {}) {
       );
     });
   });
+}
+
+export function runPnpmCommand(args, options = {}) {
+  const invocation = resolvePnpmInvocation(args);
+  return runCommand(invocation.command, invocation.args, options);
 }
 
 export async function pathExists(target) {
@@ -401,6 +407,9 @@ async function copyResources(resourcesRoot) {
   const destinationCli = path.join(resourcesRoot, 'bin', expectedNovelTeaCliName());
   await mkdir(path.dirname(destinationCli), { recursive: true });
   await cp(cliSource, destinationCli);
+  if ((await sha256File(cliSource)) !== (await sha256File(destinationCli))) {
+    throw new Error('Staged NovelTea CLI bytes differ from the certified source binary.');
+  }
   if (process.platform !== 'win32') await chmod(destinationCli, 0o755);
 }
 
@@ -511,22 +520,14 @@ async function pruneProductionSourceMaps(appRoot) {
 }
 
 async function runSharpOperation(appRoot) {
-  const appRequire = createRequire(path.join(appRoot, 'package.json'));
-  const sharp = appRequire('sharp');
-  const encoded = await sharp({
-    create: {
-      width: 3,
-      height: 2,
-      channels: 4,
-      background: { r: 20, g: 40, b: 60, alpha: 1 },
+  await runCommand(
+    process.execPath,
+    [path.join(editorRoot, 'scripts', 'verify-staged-sharp.mjs'), appRoot],
+    {
+      cwd: appRoot,
+      label: 'verify-sharp',
     },
-  })
-    .png()
-    .toBuffer();
-  const metadata = await sharp(encoded).metadata();
-  if (metadata.format !== 'png' || metadata.width !== 3 || metadata.height !== 2) {
-    throw new Error('The staged sharp encode/decode verification returned unexpected metadata.');
-  }
+  );
 }
 
 function assertSafePackageMetadata(metadata) {
@@ -766,13 +767,13 @@ export async function createStage(options = {}) {
   let publishedStage = false;
   try {
     if (build) {
-      await runCommand('pnpm', ['run', 'build'], {
+      await runPnpmCommand(['run', 'build'], {
         cwd: editorRoot,
         label: 'build',
         env: { ...process.env, NODE_ENV: 'production' },
       });
       if (!process.env.NOVELTEA_CLI_PATH?.trim()) {
-        await runCommand('pnpm', ['run', 'noveltea:build'], {
+        await runPnpmCommand(['run', 'noveltea:build'], {
           cwd: editorRoot,
           label: 'noveltea-cli',
         });
@@ -780,7 +781,7 @@ export async function createStage(options = {}) {
     }
     await mkdir(transactionStage, { recursive: true });
     const appRoot = path.join(transactionStage, 'app');
-    await runCommand('pnpm', ['--filter', 'noveltea-editor', '--prod', 'deploy', appRoot], {
+    await runPnpmCommand(['--filter', 'noveltea-editor', '--prod', 'deploy', appRoot], {
       cwd: repositoryRoot,
       label: 'deploy',
     });

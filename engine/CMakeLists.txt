@@ -147,6 +147,7 @@ target_link_libraries(noveltea_engine
         Lua::Lua
         sol2::sol2
         nlohmann_json::nlohmann_json
+        PNG::PNG
         twink::twink
 )
 target_compile_definitions(noveltea_engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})

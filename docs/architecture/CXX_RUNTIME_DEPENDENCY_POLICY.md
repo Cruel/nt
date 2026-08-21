@@ -27,6 +27,7 @@ receive the policy directly on their CMake targets.
 | SheenBidi | 3.0.0 | C/status-code integration. | Invalid/unsupported text input is handled by the adapter; allocation exhaustion is fatal. |
 | libunibreak | 7.0 | C/status-code integration. | Break computation is non-throwing; allocation exhaustion is fatal. |
 | miniz | 3.1.1 | C/status-code integration. | ZIP/package errors are recoverable and translated into NovelTea diagnostics. |
+| libpng | 1.6.58; vcpkg on desktop, Emscripten `-sUSE_LIBPNG=1` port on Web, pinned upstream archive on Android; `libpng-2.0` license | C-only runtime dependency with zlib 1.3.2 as its only runtime library dependency. It introduces no C++ objects, exception ABI, or compiler RTTI. `noveltea_engine` links `PNG::PNG` privately and remains compiled under the normal no-exceptions/no-RTTI policy. | Screenshot requests reject invalid dimensions/compression levels before encoding. libpng allocation/setup failures and libpng error callbacks become failed screenshot jobs; the adapter uses libpng's `setjmp`/`longjmp` error boundary and never exposes it outside the encoder. Allocation exhaustion in NovelTea/libpng storage remains process-fatal. |
 
 ## Platform build policy
 
@@ -48,6 +49,47 @@ all recognized source-built C++ dependency objects. It additionally requires the
 on RmlUi and `rmlui-bgfx` commands, requires fetched RmlUi compile commands on every platform, and on
 Linux requires fetched RmlUi archives in the final player link while rejecting vcpkg RmlUi archives.
 The configure report at `reports/rmlui-dependency.txt` records the source and patch identity.
+
+### libpng admission evidence
+
+The screenshot encoder admits libpng 1.6.58 as a direct runtime dependency. Desktop resolves the
+vcpkg `libpng` 1.6.58 port, sourced from `pnggroup/libpng`, through the NovelTea target triplet. Web
+resolves Emscripten's maintained 1.6.58 port with `-sUSE_LIBPNG=1`; Emscripten 6.0.0 fetches
+`https://storage.googleapis.com/webassembly/emscripten-ports/libpng-1.6.58.tar.gz` and declares zlib
+1.3.2 as the port dependency. Android fetches
+the upstream `https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz` archive and builds
+`png_static` against `ZLIB::ZLIB`. The upstream/vcpkg license is SPDX `libpng-2.0` (PNG Reference
+Library License version 2). Release metadata explicitly inventories libpng 1.6.58 and zlib 1.3.2 for
+Emscripten and Android instead of assuming CMake `_deps` or vcpkg status will discover platform
+ports.
+
+The complete new runtime library closure is therefore `noveltea_engine -> libpng (C) -> zlib (C)`:
+desktop resolves `libpng16.a -> libz.a`, Web resolves Emscripten `libpng[-mt].a -> libz.a`, and
+Android resolves `png_static -> ZLIB::ZLIB`. There are no transitive C++ objects and thus no
+dependency-side compiler-exception or RTTI ABI to configure. The C++ caller remains under NovelTea's
+normal `-fno-exceptions -fno-rtti` policy (or the MSVC equivalents). Desktop already contained the
+same libpng/zlib archives transitively through FreeType's PNG support before the screenshot encoder
+linked libpng directly.
+
+The adapter validates requested PNG compression levels and bounded screenshot dimensions before
+invoking the library. `png_create_write_struct`/`png_create_info_struct` failure, libpng write errors,
+and output callback errors terminate the encode job with `screenshot.encode_failed`; libpng's C error
+mechanism is contained by `png_jmpbuf`/`png_longjmp` inside each encoder operation. The host tests
+`screenshot service rejects invalid compression and capture extents` and `screenshot RGBA allocation
+arithmetic enforces the capture budget` exercise malformed adapter input and allocation limits.
+Native and Web screenshot smokes exercise successful libpng output, including the cooperative
+no-pthread Web executor. Allocation exhaustion remains fatal under the runtime's no-exception model.
+
+Local admission verification completed Linux `cxx-policy`, Web no-thread `cxx-policy`, a Web
+no-pthread screenshot smoke, and Android `assembleDebug`. Windows static and macOS arm64 resolve the
+same vcpkg 1.6.58 port through their existing NovelTea triplets; those native builders remain the
+platform-specific availability check. In the 2026-08-16 admission measurement, the Linux Release
+player's pre-change `HEAD` executable
+was 25,411,048 bytes with 21,239,288 bytes of text, while the complete screenshot/libpng change is
+25,431,256 bytes with 21,257,140 bytes of text. The net feature delta is therefore 20,208 bytes on
+disk and 17,852 bytes of text. Because the baseline already linked libpng through FreeType, these
+figures are a conservative upper bound for the direct libpng admission rather than an isolated
+libpng-only cost.
 
 Fresh verification completed RmlUi dependency population and production builds on Linux,
 Web, and Android before the Lua-listener follow-up. The three configure reports agreed on the

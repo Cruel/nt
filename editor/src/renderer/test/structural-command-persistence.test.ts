@@ -6,8 +6,10 @@ import {
   structuralRuleForTests,
 } from '@/project/structural-command-persistence';
 import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
+import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { getTabDirtyState } from '@/workbench/dirty-state';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { setLoadedEditorProjectState } from '@/workbench/project-editor-state';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
@@ -253,6 +255,50 @@ describe('structural command persistence', () => {
     expect(useProjectStore.getState().savedDocument).toMatchObject({
       rooms: { hall: { id: 'hall', label: 'Hall' } },
     });
+  });
+
+  it('persists a newly created Interactable before its sprite is configured', async () => {
+    const project = createAuthoringProject();
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      savedDocument: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+
+    const created = useCommandStore.getState().executeCommand({
+      type: 'entity.createRecord',
+      label: 'Create girl',
+      payload: { collection: 'interactables', entityId: 'girl', label: 'Girl' },
+      originSaveUnitId: 'workflow:new-entity',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(created.ok).toBe(true);
+
+    const tab = {
+      id: 'tab:interactable-detail:interactables:girl',
+      title: 'Girl',
+      editorType: 'interactable-detail',
+      resource: {
+        kind: 'record' as const,
+        stableId: 'record:interactables:girl',
+        collection: 'interactables',
+        entityId: 'girl',
+      },
+    };
+    useWorkbenchStore.getState().openTab(tab);
+    const savedWhilePending = await saveActiveSaveUnit('record:interactables:girl');
+    expect(savedWhilePending.status).toBe('nothing-to-save');
+
+    await flushStructuralCommandPersistence();
+
+    const projectState = useProjectStore.getState();
+    expect(projectState.savedDocument).toMatchObject({
+      interactables: { girl: { id: 'girl', label: 'Girl' } },
+    });
+    expect(getTabDirtyState(tab, projectState.document, projectState.savedDocument, {}).dirty).toBe(
+      false,
+    );
   });
 
   it('persists structural forward, Undo, and Redo to the saved baseline', async () => {

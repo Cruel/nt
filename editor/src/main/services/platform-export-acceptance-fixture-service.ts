@@ -74,7 +74,6 @@ function profileFor(
       buildFlavor: flavor,
       compression: 'default',
       includeDebugSymbols: false,
-      capabilityOverrides: [],
       web: {
         artifact: 'directory-zip',
         threaded: options.webThreaded ?? true,
@@ -98,7 +97,6 @@ function profileFor(
       buildFlavor: flavor,
       compression: 'default',
       includeDebugSymbols: false,
-      capabilityOverrides: [],
       android: { artifact: options.androidArtifact ?? 'apk', abi, minSdk: 24 },
     });
   }
@@ -117,7 +115,6 @@ function profileFor(
     buildFlavor: flavor,
     compression: 'default',
     includeDebugSymbols: true,
-    capabilityOverrides: [],
     desktop: {
       artifact,
       executableName:
@@ -143,36 +140,32 @@ export async function materializePlatformExportAcceptanceFixture(
       };
   }
   const profile = profileFor(options);
-  const settings = project.settings as Record<string, unknown>;
-  settings.export = {
-    selectedProfileId: 'runtime-canonical',
-    profiles: [
-      {
-        id: 'runtime-canonical',
-        label: 'Canonical Runtime Package',
-        kind: 'runtime',
-        outputPath: '',
-        includeChecksums: true,
-        stripEditorData: true,
-        stripShaderSources: true,
-        compileShadersBeforeExport: true,
-        shaderVariants:
-          options.target === 'web'
-            ? ['essl-100']
-            : options.target === 'android'
-              ? ['essl-300']
-              : options.target === 'macos'
-                ? ['metal']
-                : ['glsl-120'],
-        includeAllProjectAssets: false,
-        includeOnlyReferencedAssets: true,
-        includeTests: false,
-        previewAfterExport: false,
-      },
-    ],
+  project.export = {
+    runtime: {
+      id: 'runtime-canonical',
+      label: 'Canonical Runtime Package',
+      kind: 'runtime',
+      outputPath: '',
+      includeChecksums: true,
+      stripEditorData: true,
+      stripShaderSources: true,
+      compileShadersBeforeExport: true,
+      shaderVariants:
+        options.target === 'web'
+          ? ['essl-100']
+          : options.target === 'android'
+            ? ['essl-300']
+            : options.target === 'macos'
+              ? ['metal']
+              : ['glsl-120'],
+      excludeUnusedAssets: true,
+      includeShaderSources: false,
+      includeTests: false,
+      previewAfterExport: false,
+    },
+    profiles: [profile],
   };
-  settings.platformExport = { selectedProfileId: profile.id, profiles: [profile] };
-  const app = settings.app as Record<string, unknown>;
+  const app = project.settings.app as Record<string, unknown>;
   if (options.target === 'android') {
     app.android = { versionCode: contentRevision, allowBackup: false, isGame: true };
   }

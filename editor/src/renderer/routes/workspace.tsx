@@ -47,6 +47,7 @@ import {
 import { toJsonValue } from '@/project/json-value';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { BottomPanel } from '@/workbench/BottomPanel';
@@ -647,6 +648,10 @@ export function WorkspacePage() {
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
       await window.noveltea.closeActiveProject();
       const loaded = await window.noveltea.openProject(dir);
+      await useTemplateRegistryStore
+        .getState()
+        .ensureLoaded()
+        .catch(() => []);
       if (!loaded.success || !loaded.contentProject || !loaded.editorState) {
         clearProjectDocument();
         usePendingInputStore.getState().resetPendingInputs();

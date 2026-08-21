@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
   buildPlatformDeployment,
   capabilityMetadata,
+  derivedPlatformCapabilities,
 } from '../../shared/project-schema/platform-deployment';
 import {
   parsePlatformExportProfile,
@@ -20,7 +21,6 @@ const profile = parsePlatformExportProfile({
   buildFlavor: 'release',
   compression: 'default',
   includeDebugSymbols: false,
-  capabilityOverrides: ['network.client'],
   web: { artifact: 'directory-zip', threaded: false, pwa: true },
 });
 const descriptor = {
@@ -53,6 +53,15 @@ const descriptor = {
 };
 
 describe('platform deployment model', () => {
+  it('derives the fixed engine capability policy without granting network or notifications', () => {
+    expect(derivedPlatformCapabilities('web')).toEqual(['external-url']);
+    expect(derivedPlatformCapabilities('windows')).toEqual(['external-url']);
+    expect(derivedPlatformCapabilities('android')).toEqual(['external-url', 'vibration']);
+    expect(capabilityMetadata(derivedPlatformCapabilities('android')).androidPermissions).toEqual([
+      'android.permission.VIBRATE',
+    ]);
+  });
+
   it('derives deterministic platform metadata and preserves display metadata', () => {
     expect(capabilityMetadata(['network.client', 'vibration']).androidPermissions).toEqual([
       'android.permission.INTERNET',
@@ -91,7 +100,7 @@ describe('platform deployment model', () => {
           uiScale: { enabled: true, minimum: 1, maximum: 2 },
           textScale: { enabled: true, minimum: 1, maximum: 2 },
         },
-        capabilities: [],
+        capabilities: ['network.client'],
         runtimePackageApi: 2,
       },
       descriptor,

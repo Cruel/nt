@@ -39,10 +39,7 @@ function exportableProject() {
     icon: { $ref: { collection: 'assets', id: 'icon' } },
   } as never;
   const profile = defaultPlatformExportProfile('linux');
-  project.settings.platformExport = {
-    selectedProfileId: profile.id,
-    profiles: [profile],
-  };
+  project.export.profiles = [profile];
   return project;
 }
 
@@ -53,7 +50,8 @@ afterEach(() => {
 });
 
 async function prepared(project: ReturnType<typeof exportableProject>, projectRoot = '/project') {
-  const profile = parseProjectPlatformExportSettings(project.settings.platformExport).profiles[0]!;
+  const profile = parseProjectPlatformExportSettings({ profiles: project.export.profiles })
+    .profiles[0]!;
   const runtimeProfile = runtimeExportProfileForPlatform(project, profile.target);
   const result = await prepareRuntimeArtifactForTest(project, {
     projectRoot,

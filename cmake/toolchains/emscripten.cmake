@@ -12,7 +12,7 @@
 
 if(NOT DEFINED EMSDK)
     if(DEFINED ENV{EMSDK})
-        set(EMSDK "$ENV{EMSDK}" CACHE PATH "Emscripten SDK root")
+        set(EMSDK "$ENV{EMSDK}")
     else()
         message(FATAL_ERROR
             "EMSDK not set.\n"
@@ -20,6 +20,10 @@ if(NOT DEFINED EMSDK)
         )
     endif()
 endif()
+
+# emcmake may provide EMSDK as a normal CMake variable rather than a cache entry.
+# Persist the resolved SDK root so later packaging can inventory Emscripten ports.
+set(EMSDK "${EMSDK}" CACHE PATH "Emscripten SDK root" FORCE)
 
 message(STATUS "Using Emscripten SDK at: ${EMSDK}")
 include("${EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake")

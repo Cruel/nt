@@ -12,6 +12,8 @@
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
 #include <RmlUi/Core/EventListener.h>
+#include <RmlUi/Core/Factory.h>
+#include <RmlUi/Core/StyleSheetContainer.h>
 
 namespace noveltea::ui::rmlui {
 
@@ -26,6 +28,8 @@ constexpr char kRuntimeLoadMenuDocumentAsset[] = "system:/ui/menu/load-menu.rml"
 constexpr char kRuntimeSettingsMenuDocumentAsset[] = "system:/ui/menu/settings-menu.rml";
 constexpr char kRuntimeTextLogDocumentAsset[] = "system:/ui/menu/text-log.rml";
 constexpr char kRuntimeModalDocumentAsset[] = "system:/ui/menu/modal.rml";
+constexpr char kRmlUiHtml4BaselineAsset[] = "system:/ui/baseline/rmlui-html4.rcss";
+constexpr char kNovelTeaBaselineAsset[] = "system:/ui/baseline/noveltea.rcss";
 
 struct BuiltinDescriptor {
     const char* id = nullptr;
@@ -59,6 +63,31 @@ BuiltinDescriptor builtin_descriptor(RuntimeLayoutBuiltinDocument document) noex
 
 } // namespace
 
+struct RmlUiDocumentRegistry::BaselineStyles {
+    Rml::SharedPtr<Rml::StyleSheetContainer> rmlui_html4 =
+        Rml::Factory::InstanceStyleSheetFile(kRmlUiHtml4BaselineAsset);
+    Rml::SharedPtr<Rml::StyleSheetContainer> noveltea =
+        Rml::Factory::InstanceStyleSheetFile(kNovelTeaBaselineAsset);
+
+    [[nodiscard]] bool ready() const noexcept { return rmlui_html4 && noveltea; }
+
+    [[nodiscard]] bool apply(Rml::ElementDocument& document) const
+    {
+        if (!ready())
+            return false;
+
+        auto combined = rmlui_html4->CombineStyleSheetContainer(*noveltea);
+        if (!combined)
+            return false;
+        if (const auto* document_styles = document.GetStyleSheetContainer())
+            combined->MergeStyleSheetContainer(*document_styles);
+
+        document.SetStyleSheetContainer(std::move(combined));
+        document.UpdateDocument();
+        return true;
+    }
+};
+
 class RmlUiDocumentRegistry::CallbackListener final : public Rml::EventListener {
 public:
     explicit CallbackListener(std::function<void()> callback) : m_callback(std::move(callback)) {}
@@ -73,7 +102,15 @@ private:
     std::function<void()> m_callback;
 };
 
-RmlUiDocumentRegistry::RmlUiDocumentRegistry(RmlUiHost& host) : m_host(host) {}
+RmlUiDocumentRegistry::RmlUiDocumentRegistry(RmlUiHost& host)
+    : m_host(host), m_baseline_styles(std::make_unique<BaselineStyles>())
+{
+    if (!m_baseline_styles->ready()) {
+        std::fprintf(stderr,
+                     "[runtime_ui] failed to load required RmlUi baseline stylesheets: %s, %s\n",
+                     kRmlUiHtml4BaselineAsset, kNovelTeaBaselineAsset);
+    }
+}
 
 RmlUiDocumentRegistry::~RmlUiDocumentRegistry() { clear(); }
 
@@ -147,11 +184,22 @@ Rml::ElementDocument* RmlUiDocumentRegistry::instantiate(const DocumentSource& s
                                                          ContextKey context) const
 {
     auto* target = m_host.context_for(context);
-    if (!target)
+    if (!target || !m_baseline_styles || !m_baseline_styles->ready())
         return nullptr;
-    return source.memory_rml ? target->LoadDocumentFromMemory(
-                                   *source.memory_rml, rmlui_document_source_url(source.path))
-                             : target->LoadDocument(source.path);
+    auto* document = source.memory_rml
+                         ? target->LoadDocumentFromMemory(*source.memory_rml,
+                                                          rmlui_document_source_url(source.path))
+                         : target->LoadDocument(source.path);
+    if (!document)
+        return nullptr;
+    if (!m_baseline_styles->apply(*document)) {
+        std::fprintf(stderr,
+                     "[runtime_ui] failed to apply required RmlUi baseline stylesheets to %s\n",
+                     source.path.c_str());
+        document->Close();
+        return nullptr;
+    }
+    return document;
 }
 
 bool RmlUiDocumentRegistry::replace(const std::string& id, DocumentSource source, bool show,

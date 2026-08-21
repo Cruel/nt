@@ -23,6 +23,7 @@
 namespace noveltea::host {
 
 class LayoutRealizer;
+class ScreenshotService;
 
 struct PreviewRuntimeHandle {
     GameSessionGeneration session_generation;
@@ -61,6 +62,7 @@ public:
         RuntimeUI& runtime_ui;
         script::ScriptRuntime& scripts;
         Renderer& renderer;
+        ScreenshotService* screenshots = nullptr;
         ShaderMaterialProject& shader_materials;
         assets::AssetManager& assets;
         AssetWorldPresentationResourceResolver* world_resources = nullptr;

@@ -612,7 +612,7 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
     runtimePackageApi: { minimum: 2, maximum: 2 },
     playerConfigApi: { minimum: 2, maximum: 2 },
     compiledFeatures: ['lua', 'web-threads'],
-    capabilities: [],
+    capabilities: ['external-url'],
     buildFlavor: 'debug',
     packageAccessModes: ['web-fetch'],
     files: inventory,

@@ -13,6 +13,7 @@ import type {
   ComfyUiWorkflowRole,
 } from '../../shared/comfyui-workflows';
 import { NOVELTEA_VERSION } from '../../shared/product-version';
+import { defaultUserExportConfig } from '../../shared/project-schema/platform-export-contracts';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({ value, themeId }: { value: string; themeId?: string }) => (
@@ -212,16 +213,67 @@ describe('SettingsPage code editor theme selector', () => {
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset All Settings' }),
     );
 
-    expect(usePreferencesStore.getState()).toMatchObject({
-      theme: 'system',
-      developerMode: false,
-      previewFpsCap: 0,
-      previewDisplay: { mode: 'project' },
-      editorPreviewLayout: 'automatic',
-    });
+    await waitFor(() =>
+      expect(usePreferencesStore.getState()).toMatchObject({
+        theme: 'system',
+        developerMode: false,
+        previewFpsCap: 0,
+        previewDisplay: { mode: 'project' },
+        editorPreviewLayout: 'automatic',
+      }),
+    );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Reset All Settings' })).toBeDisabled(),
+    );
+  });
+
+  it('keeps Reset All Settings disabled until shared export configuration finishes loading', async () => {
+    let resolveConfig!: (value: ReturnType<typeof defaultUserExportConfig>) => void;
+    vi.mocked(window.noveltea.loadUserExportConfig).mockReturnValue(
+      new Promise((resolve) => {
+        resolveConfig = resolve;
+      }),
+    );
+
+    await renderSettingsPage();
+    const reset = screen.getByRole('button', { name: 'Reset All Settings' });
+    expect(reset).toBeDisabled();
+
+    resolveConfig({
+      ...defaultUserExportConfig(),
+      toolchains: { androidSdk: '/opt/android' },
+    });
+    await waitFor(() => expect(reset).toBeEnabled());
+  });
+
+  it('includes shared export and signing configuration in Reset All Settings', async () => {
+    vi.mocked(window.noveltea.loadUserExportConfig).mockResolvedValue({
+      ...defaultUserExportConfig(),
+      toolchains: { androidSdk: '/opt/android' },
+      signingProfiles: [
+        {
+          id: 'windows-release',
+          label: 'Windows Release',
+          target: 'windows',
+          command: 'signtool',
+          args: ['sign', '{executable}'],
+          verifyCommand: 'signtool',
+          verifyArgs: ['verify', '{executable}'],
+        },
+      ],
+    });
+    await renderSettingsPage();
+
+    const reset = await screen.findByRole('button', { name: 'Reset All Settings' });
+    expect(reset).toBeEnabled();
+    fireEvent.click(reset);
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset All Settings' }),
+    );
+
+    await waitFor(() =>
+      expect(window.noveltea.saveUserExportConfig).toHaveBeenCalledWith(defaultUserExportConfig()),
     );
   });
 

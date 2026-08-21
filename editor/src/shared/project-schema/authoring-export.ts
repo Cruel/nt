@@ -21,17 +21,10 @@ export const exportProfileSchema = z
     shaderVariants: z
       .array(z.enum(exportShaderVariantValues))
       .default(['glsl-120', 'essl-100', 'essl-300', 'metal']),
-    includeAllProjectAssets: z.boolean().default(false),
-    includeOnlyReferencedAssets: z.boolean().default(true),
+    excludeUnusedAssets: z.boolean().default(true),
+    includeShaderSources: z.boolean().default(false),
     includeTests: z.boolean().default(false),
     previewAfterExport: z.boolean().default(false),
-  })
-  .strict();
-
-export const exportSettingsSchema = z
-  .object({
-    selectedProfileId: z.string().default('runtime-default'),
-    profiles: z.array(exportProfileSchema).default([]),
   })
   .strict();
 
@@ -45,15 +38,10 @@ export interface ExportProfileData {
   stripShaderSources: boolean;
   compileShadersBeforeExport: boolean;
   shaderVariants: ExportShaderVariant[];
-  includeAllProjectAssets: boolean;
-  includeOnlyReferencedAssets: boolean;
+  excludeUnusedAssets: boolean;
+  includeShaderSources: boolean;
   includeTests: boolean;
   previewAfterExport: boolean;
-}
-
-export interface ExportSettingsData {
-  selectedProfileId: string;
-  profiles: ExportProfileData[];
 }
 
 export function defaultExportProfile(
@@ -69,51 +57,19 @@ export function defaultExportProfile(
     stripShaderSources: true,
     compileShadersBeforeExport: true,
     shaderVariants: ['glsl-120', 'essl-100', 'essl-300', 'metal'],
-    includeAllProjectAssets: false,
-    includeOnlyReferencedAssets: true,
+    excludeUnusedAssets: true,
+    includeShaderSources: false,
     includeTests: false,
     previewAfterExport: false,
   });
 }
 
-export function defaultExportSettings(
-  project?: Pick<AuthoringProject, 'project'> | null,
-): ExportSettingsData {
-  const profile = defaultExportProfile(project);
-  return exportSettingsSchema.parse({ selectedProfileId: profile.id, profiles: [profile] });
-}
-
-export function parseExportSettings(
-  value: unknown,
-  project?: Pick<AuthoringProject, 'project'> | null,
-): ExportSettingsData {
-  const parsed = exportSettingsSchema.safeParse(value);
-  if (!parsed.success || parsed.data.profiles.length === 0) return defaultExportSettings(project);
-
-  const normalizedProfiles = parsed.data.profiles.map((profile) =>
-    normalizeExportProfile(profile, project),
-  );
-  const selectedExists = normalizedProfiles.some(
-    (profile) => profile.id === parsed.data.selectedProfileId,
-  );
-  return {
-    selectedProfileId: selectedExists ? parsed.data.selectedProfileId : normalizedProfiles[0]!.id,
-    profiles: normalizedProfiles,
-  };
-}
-
-export function exportSettingsFromProject(project: AuthoringProject): ExportSettingsData {
-  const settings = project.settings.export;
-  return parseExportSettings(settings, project);
+export function exportSettingsFromProject(project: AuthoringProject) {
+  return project.export;
 }
 
 export function selectedExportProfile(project: AuthoringProject): ExportProfileData {
-  const settings = exportSettingsFromProject(project);
-  return (
-    settings.profiles.find((profile) => profile.id === settings.selectedProfileId) ??
-    settings.profiles[0] ??
-    defaultExportProfile(project)
-  );
+  return exportSettingsFromProject(project).runtime;
 }
 
 export function runtimeExportProfileForPlatform(
@@ -121,9 +77,14 @@ export function runtimeExportProfileForPlatform(
   target: 'windows' | 'linux' | 'macos' | 'web' | 'android',
 ): ExportProfileData {
   const profile = selectedExportProfile(project);
-  if (target !== 'android' && target !== 'web' && target !== 'macos') return profile;
   const requiredVariant =
-    target === 'web' ? 'essl-100' : target === 'android' ? 'essl-300' : 'metal';
+    target === 'web'
+      ? 'essl-100'
+      : target === 'android'
+        ? 'essl-300'
+        : target === 'macos'
+          ? 'metal'
+          : 'glsl-120';
   const shaderVariants = profile.shaderVariants.filter((variant) => variant === requiredVariant);
   return {
     ...profile,
@@ -147,9 +108,6 @@ export function normalizeExportProfile(
     label: profile.label.trim() || 'Runtime Package',
     outputPath: profile.outputPath.trim(),
     shaderVariants: Array.from(new Set(variants)),
-    includeOnlyReferencedAssets: profile.includeAllProjectAssets
-      ? false
-      : profile.includeOnlyReferencedAssets,
   };
 }
 

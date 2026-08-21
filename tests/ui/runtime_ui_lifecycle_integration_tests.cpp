@@ -52,6 +52,32 @@ constexpr const char* kDocument = R"(
 </rml>
 )";
 
+constexpr const char* kBaselineDocument = R"(
+<rml>
+  <head></head>
+  <body id="baseline-body">
+    <p id="baseline-paragraph">Baseline paragraph</p>
+    <button id="baseline-button">Baseline button</button>
+  </body>
+</rml>
+)";
+
+constexpr const char* kBaselineOverrideDocument = R"(
+<rml>
+  <head>
+    <style>
+      body { color: #010203; }
+      p { display: inline-block; }
+      button { background-color: #040506; }
+    </style>
+  </head>
+  <body id="override-body">
+    <p id="override-paragraph">Override paragraph</p>
+    <button id="override-button">Override button</button>
+  </body>
+</rml>
+)";
+
 constexpr const char* kShellBindingDocument = R"(
 <rml>
   <head></head>
@@ -2435,6 +2461,55 @@ TEST_CASE("RuntimeUI reevaluates output media dimensions and rejects invalid env
     CHECK(context->GetMediaQueryDimensions() == Rml::Vector2i(1920, 1080));
     CHECK(context->GetDensityIndependentPixelRatio() == Catch::Approx(1.0f));
     CHECK(probe->GetBox().GetSize().x == Catch::Approx(200.0f));
+}
+
+TEST_CASE("RuntimeUI applies universal RmlUi baselines below path and memory document styles")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+
+    RuntimeUiFacadeAccess::set_preview_virtual_file(ui, "project:/baseline/path.rml",
+                                                    kBaselineDocument);
+    REQUIRE(RuntimeUiFacadeAccess::load_document(ui, "baseline-path", "project:/baseline/path.rml",
+                                                 true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "baseline-memory", kBaselineOverrideDocument, "preview://baseline-memory.rml", true));
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+
+    auto* paragraph = driver->element("baseline-path", "baseline-paragraph");
+    auto* body = driver->element("baseline-path", "baseline-body");
+    auto* button = driver->element("baseline-path", "baseline-button");
+    REQUIRE(paragraph);
+    REQUIRE(body);
+    REQUIRE(button);
+    CHECK(paragraph->GetComputedValues().display() == Rml::Style::Display::Block);
+    CHECK(body->GetComputedValues().color() == Rml::Colourb(248, 250, 252, 255));
+    CHECK(button->GetComputedValues().background_color() == Rml::Colourb(51, 65, 85, 255));
+
+    auto* override_paragraph = driver->element("baseline-memory", "override-paragraph");
+    auto* override_body = driver->element("baseline-memory", "override-body");
+    auto* override_button = driver->element("baseline-memory", "override-button");
+    REQUIRE(override_paragraph);
+    REQUIRE(override_body);
+    REQUIRE(override_button);
+    CHECK(override_paragraph->GetComputedValues().display() == Rml::Style::Display::InlineBlock);
+    CHECK(override_body->GetComputedValues().color() == Rml::Colourb(1, 2, 3, 255));
+    CHECK(override_button->GetComputedValues().background_color() == Rml::Colourb(4, 5, 6, 255));
+
+    RuntimeUiFacadeAccess::clear_preview_virtual_files(ui);
+}
+
+TEST_CASE("RuntimeUI refuses document loads when required baseline assets are unavailable")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = false});
+    REQUIRE(fixture.initialize());
+    CHECK_FALSE(RuntimeUiFacadeAccess::load_document_from_memory(
+        fixture.runtime_ui(), "missing-baseline", kBaselineDocument,
+        "preview://missing-baseline.rml", true));
 }
 
 TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in documents")

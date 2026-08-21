@@ -105,7 +105,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     static void deferred_shutdown_callback(void* opaque);
 #endif
     void request_stop();
-    [[nodiscard]] bool request_screenshot(std::string path);
+    [[nodiscard]] bool request_screenshot(std::string path,
+                                          host::ScreenshotRequestOptions options = {});
     void set_preview_running(bool running);
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);
@@ -140,7 +141,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     std::optional<core::editor::TypedEditorAuthoredPreviewEnvironment>
         m_authored_preview_environment;
     Renderer m_renderer;
-    host::RendererScreenshotCaptureBackend m_screenshot_capture_backend;
+    host::ScreenshotService m_screenshot_service;
     host::CheckpointThumbnailCaptureCoordinator m_checkpoint_thumbnail_captures;
     script::ScriptRuntime m_scripts;
     core::TypedMemorySaveSlotStore m_typed_saves;

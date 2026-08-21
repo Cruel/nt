@@ -5,7 +5,11 @@ import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-servic
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
 import { createNovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service-node';
 import { configurePlatformHostService } from '../src/main/services/platform-host-service';
-import { scriptcAgentKitSourceFiles } from './noveltea-scriptc-agent-kit-source';
+import {
+  scriptcAgentKitProvenance,
+  scriptcAgentKitSourceFiles,
+  scriptcAgentKitSystemLayoutSourceFiles,
+} from './noveltea-scriptc-agent-kit-source';
 import {
   createNodeProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
@@ -70,8 +74,11 @@ function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
     async resizeImageToPng(request) {
       call('image-resize-png', request);
     },
-    async fileMode(path) {
-      return call('file-mode', { path });
+    async createArchive(request) {
+      call('create-archive', request);
+    },
+    async fileMode(path, fallback) {
+      return call('file-mode', { path, fallback });
     },
     async availableDiskSpace(path) {
       return call('disk-space', { path });
@@ -160,7 +167,13 @@ export async function runNovelTeaScriptcIsland(
     nativeTools,
     platformTools,
     ...(needsAgentKit
-      ? { agentKitPayload: createNovelTeaAgentKitPayload(scriptcAgentKitSourceFiles) }
+      ? {
+          agentKitPayload: createNovelTeaAgentKitPayload(
+            scriptcAgentKitSourceFiles,
+            scriptcAgentKitProvenance,
+            scriptcAgentKitSystemLayoutSourceFiles,
+          ),
+        }
       : {}),
     readStdinText: () => invokeHost('read-stdin', ''),
   });

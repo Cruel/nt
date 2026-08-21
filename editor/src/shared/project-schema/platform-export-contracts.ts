@@ -14,6 +14,8 @@ export const PLATFORM_EXPORT_PROFILE_FORMAT = 'noveltea.platform-export-profile'
 export const PLATFORM_EXPORT_PROFILE_FORMAT_VERSION = 1 as const;
 export const EDITOR_EXPORT_LOCAL_STATE_FORMAT = 'noveltea.editor-export-local-state' as const;
 export const EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION = 1 as const;
+export const USER_EXPORT_CONFIG_FORMAT = 'noveltea.user-export-config' as const;
+export const USER_EXPORT_CONFIG_FORMAT_VERSION = 1 as const;
 export const PLATFORM_EXPORT_MANIFEST_FORMAT = 'noveltea.platform-export-manifest' as const;
 export const PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION = 1 as const;
 export const TEMPLATE_REGISTRY_FORMAT = 'noveltea.template-registry' as const;
@@ -22,6 +24,12 @@ export const TEMPLATE_REGISTRY_INDEX_FORMAT = 'noveltea.template-registry-index'
 export const TEMPLATE_REGISTRY_INDEX_FORMAT_VERSION = 1 as const;
 
 const trimmedNonEmptyStringSchema = z.string().check(z.trim(), z.minLength(1));
+export const signingSecretReferenceSchema = z
+  .string()
+  .check(
+    z.trim(),
+    z.regex(/^env:[A-Za-z_][A-Za-z0-9_]*$/, 'Signing secrets must use env:NAME references.'),
+  );
 
 export const exportCapabilityValues = [
   'network.client',
@@ -445,9 +453,9 @@ const platformProfileBase = z.object({
   buildFlavor: z.enum(exportBuildFlavorValues),
   compression: z.enum(['default', 'store', 'maximum']).default('default'),
   includeDebugSymbols: z.boolean().default(false),
-  capabilityOverrides: capabilityArraySchema.default([]),
+  excludeUnusedAssets: z.boolean().default(true),
+  includeShaderSources: z.boolean().default(false),
   assetMemory: assetMemoryProfileSchema.default({ preset: 'balanced' }),
-  signingProfileId: trimmedNonEmptyStringSchema.nullable().optional(),
 });
 
 const desktopProfileSchema = platformProfileBase
@@ -531,7 +539,6 @@ export const platformExportProfileSchema = z.discriminatedUnion('target', [
 
 export const projectPlatformExportSettingsSchema = z
   .object({
-    selectedProfileId: z.string().min(1).nullable(),
     profiles: z.array(platformExportProfileSchema),
   })
   .strict();
@@ -545,13 +552,13 @@ export function defaultPlatformExportProfile(
     format: PLATFORM_EXPORT_PROFILE_FORMAT,
     formatVersion: PLATFORM_EXPORT_PROFILE_FORMAT_VERSION,
     id: `${target}-release`,
-    label: `${target[0]!.toUpperCase()}${target.slice(1)} Release`,
+    label: `${target[0]!.toUpperCase()}${target.slice(1)}`,
     buildFlavor: 'release' as const,
     compression: 'default' as const,
     includeDebugSymbols: false,
-    capabilityOverrides: [] as ExportCapability[],
+    excludeUnusedAssets: true,
+    includeShaderSources: false,
     assetMemory: { preset: 'balanced' as const },
-    signingProfileId: null,
   };
   if (target === 'web') {
     return platformExportProfileSchema.parse({
@@ -597,19 +604,13 @@ export function defaultPlatformExportProfile(
 }
 
 export function defaultProjectPlatformExportSettings(): ProjectPlatformExportSettings {
-  return { selectedProfileId: null, profiles: [] };
+  return { profiles: [] };
 }
 
 export function parseProjectPlatformExportSettings(value: unknown): ProjectPlatformExportSettings {
   const parsed = projectPlatformExportSettingsSchema.safeParse(value);
-  if (!parsed.success || parsed.data.profiles.length === 0)
-    return defaultProjectPlatformExportSettings();
-  const selectedProfileId = parsed.data.profiles.some(
-    (profile) => profile.id === parsed.data.selectedProfileId,
-  )
-    ? parsed.data.selectedProfileId
-    : parsed.data.profiles[0]!.id;
-  return { ...parsed.data, selectedProfileId };
+  if (!parsed.success) return defaultProjectPlatformExportSettings();
+  return parsed.data;
 }
 
 export const editorExportLocalStateSchema = z
@@ -651,8 +652,8 @@ export const editorExportLocalStateSchema = z
           .object({
             keystorePath: z.string().min(1),
             keyAlias: z.string().min(1),
-            storePasswordReference: z.string().min(1),
-            keyPasswordReference: z.string().min(1),
+            storePasswordReference: signingSecretReferenceSchema,
+            keyPasswordReference: signingSecretReferenceSchema,
           })
           .strict()
           .optional(),
@@ -662,10 +663,77 @@ export const editorExportLocalStateSchema = z
   })
   .strict();
 
+export const userSigningProfileSchema = z.discriminatedUnion('target', [
+  z
+    .object({
+      id: trimmedNonEmptyStringSchema,
+      label: trimmedNonEmptyStringSchema,
+      target: z.literal('windows'),
+      command: z.string().min(1),
+      args: z.array(z.string()),
+      verifyCommand: z.string().min(1),
+      verifyArgs: z.array(z.string()),
+    })
+    .strict(),
+  z
+    .object({
+      id: trimmedNonEmptyStringSchema,
+      label: trimmedNonEmptyStringSchema,
+      target: z.literal('macos'),
+      identity: z.string().min(1),
+      entitlementsPath: z.string().optional(),
+      notarizationCommand: z.string().optional(),
+      notarizationArgs: z.array(z.string()).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      id: trimmedNonEmptyStringSchema,
+      label: trimmedNonEmptyStringSchema,
+      target: z.literal('android'),
+      keystorePath: z.string().min(1),
+      keyAlias: z.string().min(1),
+      storePasswordReference: signingSecretReferenceSchema,
+      keyPasswordReference: signingSecretReferenceSchema,
+    })
+    .strict(),
+]);
+
+export const userExportConfigSchema = z
+  .object({
+    format: z.literal(USER_EXPORT_CONFIG_FORMAT),
+    formatVersion: z.literal(USER_EXPORT_CONFIG_FORMAT_VERSION),
+    toolchains: z
+      .object({
+        androidSdk: z.string().optional(),
+        androidNdk: z.string().optional(),
+        javaHome: z.string().optional(),
+        cmake: z.string().optional(),
+      })
+      .strict()
+      .default({}),
+    signingProfiles: z.array(userSigningProfileSchema).default([]),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const ids = new Set<string>();
+    for (const [index, profile] of value.signingProfiles.entries()) {
+      if (!ids.add(profile.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['signingProfiles', index, 'id'],
+          message: `Duplicate signing profile id '${profile.id}'.`,
+        });
+      }
+    }
+  });
+
 export type PlayerBootstrapConfig = z.infer<typeof playerBootstrapConfigSchema>;
 export type TemplateDescriptor = z.infer<typeof templateDescriptorSchema>;
 export type PlatformExportProfile = z.infer<typeof platformExportProfileSchema>;
 export type EditorExportLocalState = z.infer<typeof editorExportLocalStateSchema>;
+export type UserSigningProfile = z.infer<typeof userSigningProfileSchema>;
+export type UserExportConfig = z.infer<typeof userExportConfigSchema>;
 
 export const templateCompatibilityRequirementsSchema = z
   .object({
@@ -944,6 +1012,59 @@ export interface PlatformStageResult {
   manifest?: PlatformExportManifest;
 }
 
+export type ExportSigningState = {
+  windows?: { command: string; args: string[]; verifyCommand: string; verifyArgs: string[] };
+  macos?: {
+    identity: string;
+    entitlementsPath?: string;
+    notarizationCommand?: string;
+    notarizationArgs?: string[];
+  };
+  android?: {
+    keystorePath: string;
+    keyAlias: string;
+    storePasswordReference: string;
+    keyPasswordReference: string;
+  };
+};
+
+export function userSigningProfileToExportSigningState(
+  profile: UserSigningProfile,
+): ExportSigningState {
+  if (profile.target === 'windows') {
+    return {
+      windows: {
+        command: profile.command,
+        args: profile.args,
+        verifyCommand: profile.verifyCommand,
+        verifyArgs: profile.verifyArgs,
+      },
+    };
+  }
+  if (profile.target === 'macos') {
+    return {
+      macos: {
+        identity: profile.identity,
+        ...(profile.entitlementsPath ? { entitlementsPath: profile.entitlementsPath } : {}),
+        ...(profile.notarizationCommand
+          ? {
+              notarizationCommand: profile.notarizationCommand,
+              notarizationArgs: profile.notarizationArgs ?? [],
+            }
+          : {}),
+      },
+    };
+  }
+  return {
+    android: {
+      keystorePath: profile.keystorePath,
+      keyAlias: profile.keyAlias,
+      storePasswordReference: profile.storePasswordReference,
+      keyPasswordReference: profile.keyPasswordReference,
+    },
+  };
+}
+
 export interface ProjectPlatformExportRequest {
   projectPath?: string;
   project?: unknown;
@@ -957,27 +1078,17 @@ export interface ProjectPlatformExportRequest {
   allowUntrustedTemplate?: boolean;
   allowIdentityChange?: boolean;
   sign?: boolean;
+  runtimeOptions?: {
+    excludeUnusedAssets?: boolean;
+    includeShaderSources?: boolean;
+  };
   preparedRuntimeArtifact?: PreparedRuntimeArtifact;
   localState?: {
     androidSdk?: string;
     androidNdk?: string;
     javaHome?: string;
     cmake?: string;
-    signing?: {
-      windows?: { command: string; args: string[]; verifyCommand: string; verifyArgs: string[] };
-      macos?: {
-        identity: string;
-        entitlementsPath?: string;
-        notarizationCommand?: string;
-        notarizationArgs?: string[];
-      };
-      android?: {
-        keystorePath: string;
-        keyAlias: string;
-        storePasswordReference: string;
-        keyPasswordReference: string;
-      };
-    };
+    signing?: ExportSigningState;
   };
 }
 
@@ -995,6 +1106,13 @@ const projectPlatformExportRequestSchema = z
     allowUntrustedTemplate: z.boolean().optional(),
     allowIdentityChange: z.boolean().optional(),
     sign: z.boolean().optional(),
+    runtimeOptions: z
+      .object({
+        excludeUnusedAssets: z.boolean().optional(),
+        includeShaderSources: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
     preparedRuntimeArtifact: preparedRuntimeArtifactSchema.optional(),
     localState: z
       .object({
@@ -1026,8 +1144,8 @@ const projectPlatformExportRequestSchema = z
               .object({
                 keystorePath: z.string().min(1),
                 keyAlias: z.string().min(1),
-                storePasswordReference: z.string().min(1),
-                keyPasswordReference: z.string().min(1),
+                storePasswordReference: signingSecretReferenceSchema,
+                keyPasswordReference: signingSecretReferenceSchema,
               })
               .strict()
               .optional(),
@@ -1071,3 +1189,12 @@ export const parseProjectPlatformExportRequest = (value: unknown): ProjectPlatfo
   projectPlatformExportRequestSchema.parse(value) as ProjectPlatformExportRequest;
 export const parseEditorExportLocalState = (value: unknown): EditorExportLocalState =>
   editorExportLocalStateSchema.parse(value);
+export const parseUserExportConfig = (value: unknown): UserExportConfig =>
+  userExportConfigSchema.parse(value);
+export const defaultUserExportConfig = (): UserExportConfig =>
+  userExportConfigSchema.parse({
+    format: USER_EXPORT_CONFIG_FORMAT,
+    formatVersion: USER_EXPORT_CONFIG_FORMAT_VERSION,
+    toolchains: {},
+    signingProfiles: [],
+  });

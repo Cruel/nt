@@ -105,7 +105,6 @@ const NON_CONTENT_EDITOR_TYPES = new Set([
   'comfyui-workflows',
   'components',
   'settings',
-  'platform-export',
 ]);
 
 function canonicalPaths(paths: JsonPointer[]): JsonPointer[] {
@@ -244,11 +243,11 @@ export function resolveSaveUnitForResource(
           kind: 'project-settings' as const,
           paths: PROJECT_SETTINGS_OWNED_PATHS,
         }
-      : editorType === 'platform-export-profiles'
+      : editorType === 'platform-export' || editorType === 'platform-export-profiles'
         ? {
             id: SAVE_UNIT_IDS.platformExportProfiles,
             kind: 'project-tool' as const,
-            paths: ['/settings/platformExport'],
+            paths: ['/export'],
           }
         : editorType === 'project-chapters'
           ? {

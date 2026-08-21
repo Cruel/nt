@@ -45,7 +45,7 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.existsSync(path.join(projectDirectory, 'localization.json'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'editor.json'))).toBe(true);
     expect(fs.readFileSync(path.join(projectDirectory, '.gitignore'), 'utf8')).toBe(
-      '/.noveltea/\n',
+      '/.noveltea/\n/dist/\n',
     );
     expect(fs.readFileSync(path.join(projectDirectory, 'AGENTS.md'), 'utf8')).toBe(
       NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,

@@ -17,7 +17,7 @@ import {
   type TemplateResolveResult,
 } from '../../shared/project-schema/platform-export-contracts';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
-import { platformFileMode, runPlatformProcess } from './platform-host-service';
+import { runPlatformProcess } from './platform-host-service';
 
 const run = runPlatformProcess;
 const descriptorFile = 'template.json';
@@ -150,11 +150,7 @@ async function verifyInstalled(root: string): Promise<{
     throw new Error('Installed template file inventory differs from the descriptor.');
   for (const item of declared) {
     const data = await readFile(path.join(root, item.path));
-    if (
-      data.length !== item.size ||
-      digest(data) !== item.sha256 ||
-      (await platformFileMode(path.join(root, item.path), item.mode)) !== item.mode
-    )
+    if (data.length !== item.size || digest(data) !== item.sha256)
       throw new Error(`Installed template file '${item.path}' failed integrity verification.`);
   }
   return { entry, descriptor };
@@ -261,11 +257,7 @@ export async function installPlayerTemplate(
       expanded += data.length;
       if (expanded > maxExpandedBytes)
         throw new Error('Expanded template exceeds the 4 GiB limit.');
-      if (
-        data.length !== item.size ||
-        digest(data) !== item.sha256 ||
-        (await platformFileMode(path.join(root, item.path), item.mode)) !== item.mode
-      )
+      if (data.length !== item.size || digest(data) !== item.sha256)
         throw new Error(`Archive file '${item.path}' failed descriptor verification.`);
     }
     const official = request.officialProvenance;

@@ -21,9 +21,12 @@ Commands:
   test run-spec
   test run-ui-spec
   package export --output <path> [--profile <profile-id>]
+                 [--include-unused-assets] [--include-shader-sources]
   platform profiles
-  platform export --output <path> [--profile <id>] [--template <id>@<build>] [--config <file>]
-                  [--sign] [--check] [--force]
+  platform export --output <path> [--profile <id>] [--template <id>@<build>]
+                  [--signing-profile <id>] [--config <file>] [--sign]
+                  [--include-unused-assets] [--include-shader-sources]
+                  [--check] [--force]
                   [--allow-untrusted-template] [--allow-identity-change]
   platform template list
   platform template inspect <id>@<build>

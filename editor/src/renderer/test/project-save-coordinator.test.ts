@@ -21,9 +21,10 @@ import {
 } from '../../shared/project-schema/editor-project-state';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { toJsonValue } from '@/project/json-value';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
-import { buildProjectSettingsTab } from '@/workbench/editor-registry';
+import { buildPlatformExportTab, buildProjectSettingsTab } from '@/workbench/editor-registry';
 
 const workspaceRevision = `sha256:${'a'.repeat(64)}` as const;
 const roomFileRevision = `sha256:${'b'.repeat(64)}` as const;
@@ -96,6 +97,34 @@ beforeEach(() => {
 });
 
 describe('project save coordinator', () => {
+  it('saves platform export profile edits from the Export tab', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    loadProject(saved, working, emptyEditorProjectState());
+
+    const command = useCommandStore.getState().executeCommand({
+      type: 'project.replaceAtPath',
+      label: 'Update platform export profiles',
+      payload: {
+        path: '/export/profiles',
+        value: [defaultPlatformExportProfile('windows')],
+      },
+      originSaveUnitId: 'project:platform-export-profiles',
+      persistencePolicy: 'manual-save',
+    });
+    expect(command.ok).toBe(true);
+    useWorkbenchStore.getState().openTab(buildPlatformExportTab());
+
+    const result = await saveActiveSaveUnit();
+
+    expect(result.success).toBe(true);
+    expect(result.savedSaveUnitIds).toContain('project:platform-export-profiles');
+    expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
+      export: { profiles: [expect.objectContaining({ target: 'windows' })] },
+    });
+  });
+
   it('saves only the active unit and rebases the remaining recovery overlay', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();

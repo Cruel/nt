@@ -23,6 +23,7 @@
 using namespace noveltea::core;
 namespace compiled = noveltea::core::compiled;
 namespace test_support = noveltea::test_support;
+using noveltea::runtime::RuntimeWorld;
 using namespace std::chrono_literals;
 
 namespace {
@@ -83,12 +84,13 @@ DesiredPresentationEnvironment environment(PresentationEnvironmentInstanceId ins
             true};
 }
 
-ResolvedRoomPresentation resolve_room(const CompiledProject& project, const SessionState& state)
+ResolvedRoomPresentation resolve_room(const CompiledProject& project, SessionState& state)
 {
     REQUIRE(state.room_visit());
+    RuntimeWorld world(project, state);
     RoomPresentationResolver resolver;
     auto resolved = resolver.resolve(
-        project, state, *state.room_visit(),
+        project, world, state, *state.room_visit(),
         [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
         [](const TextSource& source) {
             return Result<std::string, Diagnostics>::success(std::visit(

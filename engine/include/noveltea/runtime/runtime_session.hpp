@@ -61,6 +61,12 @@ public:
         assert_owner_thread();
         return m_checkpoint_service.attach_thumbnail(request, std::move(thumbnail));
     }
+    [[nodiscard]] bool discard_checkpoint_thumbnail_capture(
+        const core::CheckpointThumbnailCaptureRequest& request) noexcept
+    {
+        assert_owner_thread();
+        return m_checkpoint_service.discard_thumbnail_capture(request);
+    }
     [[nodiscard]] std::size_t pending_command_count() const noexcept;
     [[nodiscard]] RuntimeCommandGateway& gateway() noexcept;
     [[nodiscard]] const RuntimeCommandGateway& gateway() const noexcept;

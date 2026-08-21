@@ -8,27 +8,25 @@ import {
   PLAYER_CONFIG_FORMAT_VERSION,
   TEMPLATE_DESCRIPTOR_FORMAT,
   TEMPLATE_DESCRIPTOR_FORMAT_VERSION,
+  USER_EXPORT_CONFIG_FORMAT,
+  USER_EXPORT_CONFIG_FORMAT_VERSION,
   defaultPlatformExportProfile,
   parseEditorExportLocalState,
   parsePlatformExportProfile,
   parseProjectPlatformExportSettings,
   parsePlayerBootstrapConfig,
   parseTemplateDescriptor,
+  parseUserExportConfig,
   resolveAssetMemoryPolicy,
+  userSigningProfileToExportSigningState,
 } from '../../shared/project-schema/platform-export-contracts';
 import { classifyProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 
 const sha = 'a'.repeat(64);
 describe('platform export contracts', () => {
   it('does not synthesize a platform profile for absent or invalid project settings', () => {
-    expect(parseProjectPlatformExportSettings(undefined)).toEqual({
-      selectedProfileId: null,
-      profiles: [],
-    });
-    expect(parseProjectPlatformExportSettings({})).toEqual({
-      selectedProfileId: null,
-      profiles: [],
-    });
+    expect(parseProjectPlatformExportSettings(undefined)).toEqual({ profiles: [] });
+    expect(parseProjectPlatformExportSettings({})).toEqual({ profiles: [] });
   });
 
   it('parses and normalizes player bootstrap capabilities', () => {
@@ -120,6 +118,13 @@ describe('platform export contracts', () => {
       parsePlatformExportProfile({ ...profile, outputPath: '/home/me/game.zip' }),
     ).toThrow();
     expect(() => parsePlatformExportProfile({ ...profile, password: 'secret' })).toThrow();
+
+    expect(() =>
+      parsePlatformExportProfile({ ...profile, capabilityOverrides: ['microphone'] }),
+    ).toThrow();
+    expect(() =>
+      parsePlatformExportProfile({ ...profile, signingProfileId: 'legacy-signing' }),
+    ).toThrow();
   });
 
   it('resolves measured memory presets and validates custom byte fields', () => {
@@ -190,6 +195,99 @@ describe('platform export contracts', () => {
       },
     });
     expect(state.signing.android?.storePasswordReference).toBe('env:NOVELTEA_STORE_PASSWORD');
+  });
+
+  it('parses shared named signing configurations without storing secret values', () => {
+    const config = parseUserExportConfig({
+      format: USER_EXPORT_CONFIG_FORMAT,
+      formatVersion: USER_EXPORT_CONFIG_FORMAT_VERSION,
+      toolchains: { androidSdk: '/opt/android' },
+      signingProfiles: [
+        {
+          id: 'android-release',
+          label: 'Android Release',
+          target: 'android',
+          keystorePath: '/secure/release.jks',
+          keyAlias: 'release',
+          storePasswordReference: 'env:NOVELTEA_STORE_PASSWORD',
+          keyPasswordReference: 'env:NOVELTEA_KEY_PASSWORD',
+        },
+      ],
+    });
+    expect(config.signingProfiles[0]).toMatchObject({
+      id: 'android-release',
+      target: 'android',
+      storePasswordReference: 'env:NOVELTEA_STORE_PASSWORD',
+    });
+    expect(() =>
+      parseUserExportConfig({ ...config, formatVersion: USER_EXPORT_CONFIG_FORMAT_VERSION + 1 }),
+    ).toThrow();
+    expect(() =>
+      parseUserExportConfig({
+        ...config,
+        signingProfiles: [
+          {
+            ...config.signingProfiles[0]!,
+            storePasswordReference: 'plaintext-secret',
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it('maps shared signing profiles identically for export execution', () => {
+    expect(
+      userSigningProfileToExportSigningState({
+        id: 'windows',
+        label: 'Windows',
+        target: 'windows',
+        command: 'signtool',
+        args: ['sign'],
+        verifyCommand: 'signtool',
+        verifyArgs: ['verify'],
+      }),
+    ).toEqual({
+      windows: {
+        command: 'signtool',
+        args: ['sign'],
+        verifyCommand: 'signtool',
+        verifyArgs: ['verify'],
+      },
+    });
+    expect(
+      userSigningProfileToExportSigningState({
+        id: 'macos',
+        label: 'macOS',
+        target: 'macos',
+        identity: 'Developer ID',
+        notarizationCommand: 'notarytool',
+        notarizationArgs: ['submit'],
+      }),
+    ).toEqual({
+      macos: {
+        identity: 'Developer ID',
+        notarizationCommand: 'notarytool',
+        notarizationArgs: ['submit'],
+      },
+    });
+    expect(
+      userSigningProfileToExportSigningState({
+        id: 'android',
+        label: 'Android',
+        target: 'android',
+        keystorePath: '/keys/release.jks',
+        keyAlias: 'release',
+        storePasswordReference: 'env:STORE_PASSWORD',
+        keyPasswordReference: 'env:KEY_PASSWORD',
+      }),
+    ).toEqual({
+      android: {
+        keystorePath: '/keys/release.jks',
+        keyAlias: 'release',
+        storePasswordReference: 'env:STORE_PASSWORD',
+        keyPasswordReference: 'env:KEY_PASSWORD',
+      },
+    });
   });
 
   it('round-trips Android artifact selections and rejects architecture/ABI mismatches', () => {

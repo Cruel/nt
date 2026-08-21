@@ -455,14 +455,15 @@ TEST_CASE("checkpoint thumbnail is revision-bound and updates every matching ret
     const auto presentation = core::PresentationSnapshotRevision::from_number(7);
     REQUIRE(service.publish_candidate(state, presentation));
     REQUIRE(service.latest_checkpoint());
-    REQUIRE(service.pending_thumbnail_capture());
-    const auto request = *service.pending_thumbnail_capture();
-    CHECK(request.checkpoint == service.latest_checkpoint()->revision);
-    CHECK(request.presentation == presentation);
+    CHECK_FALSE(service.pending_thumbnail_capture());
 
     const auto slot = core::TypedSaveSlotId::manual(12);
     const auto written = service.request(core::ImmediateRetainedCheckpointWriteRequest{slot});
     REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(written));
+    REQUIRE(service.pending_thumbnail_capture());
+    const auto request = *service.pending_thumbnail_capture();
+    CHECK(request.checkpoint == service.latest_checkpoint()->revision);
+    CHECK(request.presentation == presentation);
     REQUIRE(saves.read_checkpoint(slot));
     CHECK_FALSE(saves.read_checkpoint(slot).value().thumbnail);
 
@@ -490,6 +491,32 @@ TEST_CASE("checkpoint thumbnail is revision-bound and updates every matching ret
     CHECK(stale.error().front().code == "checkpoint.stale_thumbnail");
 }
 
+TEST_CASE("discarding a missed saved thumbnail advances the pending capture queue")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
+
+    REQUIRE(service.publish_candidate(state, core::PresentationSnapshotRevision::from_number(7)));
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(service.request(
+        core::ImmediateRetainedCheckpointWriteRequest{core::TypedSaveSlotId::manual(1)})));
+    REQUIRE(service.pending_thumbnail_capture());
+    const auto first = *service.pending_thumbnail_capture();
+
+    REQUIRE(service.record_structural_mutation());
+    REQUIRE(service.publish_candidate(state, core::PresentationSnapshotRevision::from_number(8)));
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(service.request(
+        core::ImmediateRetainedCheckpointWriteRequest{core::TypedSaveSlotId::manual(2)})));
+    CHECK(service.pending_thumbnail_capture() == first);
+
+    REQUIRE(service.discard_thumbnail_capture(first));
+    REQUIRE(service.pending_thumbnail_capture());
+    CHECK(service.pending_thumbnail_capture()->presentation ==
+          core::PresentationSnapshotRevision::from_number(8));
+    CHECK_FALSE(service.discard_thumbnail_capture(first));
+}
+
 TEST_CASE("checkpoint thumbnail token prevents stale attachment across revision reset collisions")
 {
     const auto project = load_fixture("minimal.json");
@@ -497,12 +524,17 @@ TEST_CASE("checkpoint thumbnail token prevents stale attachment across revision 
     core::TypedMemorySaveSlotStore saves;
     RuntimeCheckpointService service(project, saves, test_support::save_codec());
     const auto presentation = core::PresentationSnapshotRevision::from_number(3);
+    const auto slot = core::TypedSaveSlotId::manual(3);
     REQUIRE(service.publish_candidate(state, presentation));
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(
+        service.request(core::ImmediateRetainedCheckpointWriteRequest{slot})));
     REQUIRE(service.pending_thumbnail_capture());
     const auto stale_request = *service.pending_thumbnail_capture();
 
     service.reset();
     REQUIRE(service.publish_candidate(state, presentation));
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(
+        service.request(core::ImmediateRetainedCheckpointWriteRequest{slot})));
     REQUIRE(service.pending_thumbnail_capture());
     const auto current_request = *service.pending_thumbnail_capture();
     CHECK(current_request.checkpoint == stale_request.checkpoint);
@@ -547,7 +579,7 @@ TEST_CASE("checkpoint observation exposes readiness and replay distance without 
     CHECK(observation.presentation.active_barriers.size() == 1);
     CHECK(observation.replay_distance.time_generations == 1);
     CHECK(observation.replay_distance.play_time == std::chrono::milliseconds{250});
-    CHECK(observation.thumbnail_capture_pending);
+    CHECK_FALSE(observation.thumbnail_capture_pending);
     CHECK_FALSE(observation.thumbnail_available);
 }
 
@@ -596,7 +628,7 @@ TEST_CASE("loaded checkpoint rejects metadata that describes different save cont
     CHECK(prepared.error().front().code == "checkpoint.stored_metadata_mismatch");
 }
 
-TEST_CASE("loaded checkpoint without thumbnail captures the restored presentation revision")
+TEST_CASE("loaded checkpoint without thumbnail captures only when the restored state is saved")
 {
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
@@ -613,6 +645,11 @@ TEST_CASE("loaded checkpoint without thumbnail captures the restored presentatio
     auto facts = ready_facts();
     facts.presentation_revision = core::PresentationSnapshotRevision::from_number(21);
     REQUIRE(service.settle(state, facts, {}));
+    CHECK_FALSE(service.pending_thumbnail_capture());
+
+    const auto slot = core::TypedSaveSlotId::manual(4);
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(
+        service.request(core::ImmediateRetainedCheckpointWriteRequest{slot})));
     REQUIRE(service.pending_thumbnail_capture());
     CHECK(service.pending_thumbnail_capture()->checkpoint == service.latest_checkpoint()->revision);
     CHECK(service.pending_thumbnail_capture()->presentation == *facts.presentation_revision);

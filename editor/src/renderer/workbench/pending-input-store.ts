@@ -112,6 +112,7 @@ export function serializePendingInputs(
 }
 
 function pendingInputMessage(path: JsonPointer): string {
+  if (path.endsWith('/web/basePath')) return 'Web base path must start and end with /.';
   if (
     path.endsWith('/width') ||
     path.endsWith('/height') ||

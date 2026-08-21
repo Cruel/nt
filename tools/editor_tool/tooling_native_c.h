@@ -25,6 +25,8 @@ uint64_t noveltea_tooling_file_mode_json(const uint8_t* request, uint64_t reques
                                          uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_disk_space_json(const uint8_t* request, uint64_t request_size,
                                           uint8_t* response, uint64_t response_capacity);
+uint64_t noveltea_tooling_create_archive_json(const uint8_t* request, uint64_t request_size,
+                                              uint8_t* response, uint64_t response_capacity);
 void noveltea_tooling_scriptc_invoke_to_file(const uint8_t* operation, size_t operation_size,
                                              const uint8_t* request, size_t request_size,
                                              const uint8_t* response_path,

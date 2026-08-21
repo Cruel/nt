@@ -31,9 +31,20 @@ The deleted `buildAuthoringRuntimeExport`, `authoring-runtime-export.ts`, and
 
 ## Export Profiles
 
-Runtime and editable profiles control packaging choices such as checksums, shader variants/source
-stripping, and file inclusion. Both profiles use identical canonical gameplay bytes for identical
-authoring input/settings.
+The editor exposes one Export workbench tab. Its left sidebar pins the built-in Runtime Package
+entry above alphanumerically sorted project profiles. Portable export configuration lives in the
+top-level `/export` project subtree: `/export/runtime` is the built-in Runtime Package policy and
+`/export/profiles` contains platform target recipes. `/settings` is reserved for Project Settings.
+Profile creation chooses name and platform first, then enters the same target-specific editor used by
+`Edit Profile`. Platform identity is immutable after creation. The currently selected profile, output
+directory, installed-template selection, and signing identity are user-local execution state rather
+than committed profile data.
+
+Runtime Package is not an editable platform profile. Package-level behavior common to every export
+lives on the normal Export pane. Normal exports exclude unused assets and strip shader source by
+engine policy. Developer Mode exposes only the exceptional overrides `Exclude Unused Assets` and
+`Include Shader Sources`; checksums, shader compilation, shader-variant closure, and other package
+mechanics remain automatic.
 
 Runtime-package compiler errors block package and platform export. Diagnostics retain compiler
 codes, source paths, JSON pointers, owner paths, explicit boundaries, and deterministic ordering.
@@ -46,10 +57,18 @@ package options; authoring content and recovery overlays are unchanged.
 
 ## Assets and Shaders
 
-Compiled resource records determine runtime asset closure. Authoring asset metadata supplies source
-filesystem paths only after a compiled resource is present. Shader/material assembly produces
-`shader-materials.json` and enumerates required platform binaries. Runtime packages may strip
-shader source while retaining all required binaries and metadata.
+Runtime asset inclusion is audited from the authoring dependency graph. By default an authored asset
+is retained when the graph has any runtime-relevant incoming usage, including conservative possible
+source/Lua references; assets with no such usage are removed from both compiled gameplay resources
+and package file entries. This is deliberately project-wide rather than entrypoint reachability: an
+asset referenced by an otherwise unreachable Room is retained. Record-level tree shaking is not
+performed. The same graph plumbing can support more aggressive record closure later without changing
+the export contract.
+
+Authoring asset metadata supplies source filesystem paths only after the asset survives that audit.
+Shader/material assembly produces `shader-materials.json` and enumerates required platform binaries.
+Normal runtime packages strip authored shader source while retaining all required binaries and
+metadata; Developer Mode/CLI can explicitly preserve shader sources for diagnostic exports.
 
 Every authored audio entry is exported with explicit `stored` ZIP policy and included in the
 required-seekable list. This is semantic rather than path- or extension-based: an asset at
@@ -93,13 +112,25 @@ acknowledged, and publishes through temporary/backup paths so failure or cancell
 previous complete output. Template replacement and removal similarly require explicit force. A
 locally sourced template requires per-export acknowledgement in both the editor and CLI.
 
-`platform export` produces the normal packaged artifact by default. `--sign` applies configured
-platform signing and fails preflight when signing is unsupported or its configuration is incomplete.
-Signing configuration alone never activates signing. Results report whether signing was requested
-and applied. Store publication is not supported.
+`platform export` produces the normal packaged artifact by default. Reusable signing configurations
+are machine-level NovelTea user settings shared by the editor and CLI, not project-profile fields.
+The editor selects a compatible signing identity in the Export pane and remembers that selection
+locally per profile. The CLI uses `--signing-profile <id>` (which implies signing), or bare `--sign`
+when exactly one signing configuration exists for the selected target. Results report whether
+signing was requested and applied. Store publication is not supported.
 
 When automatic template resolution finds more than one compatible installation it fails with the
-exact `<template-id>@<build-id>` choices; no lexical or inferred-version winner is selected.
+exact `<template-id>@<build-id>` choices; no lexical or inferred-version winner is selected. The
+editor shows a template selector only when there is a real choice, and when no compatible template
+exists it offers Download and Install actions in place. Editor Settings has a separate installed
+Template manager with Install/Delete only. The editor and CLI share `~/.noveltea/templates/v1`.
+
+Export profiles do not expose capabilities. NovelTea derives the fixed requirements consumed by
+template compatibility and platform packaging: external-URL launching is required where supported,
+and Android additionally requires vibration/haptics. Network access, clipboard, gamepad,
+microphone, notifications, custom URL schemes, and billing are not requested. External-URL support
+does not grant Android INTERNET permission because navigation is delegated to the system browser.
+
 `platform export --check` performs a no-write preflight and never compiles shaders, creates caches,
 writes output, changes the registry, or updates successful-export identity. A completed publication
 records application ID and save namespace in ignored project editor state; a later identity change
@@ -109,8 +140,8 @@ The editor composes platform readiness from four explicit groups: current runtim
 common application identity, selected-target metadata, and template/toolchain/signing environment.
 Only the selected Desktop, Web, or Android target contributes target-specific diagnostics. Blockers
 retain their stable code, canonical path, owner paths, severity, and boundary metadata so the Export
-surface can navigate directly to project settings, export profiles, editor-wide toolchain/signing
-settings, template selection, or output controls.
+surface can navigate directly to project settings, the selected profile, editor-wide
+Toolchains/Signing settings, template selection, or output controls.
 
 The renderer prepares one Prepared Runtime Artifact for the current in-memory Project revision and
 sends that exact current-version contract across IPC. Main-process orchestration strictly parses
@@ -138,7 +169,12 @@ not trusted. Platform orchestration then verifies the player template, stages `p
 performs the selected target export. Project open does not attempt old-format native import.
 
 Templates may carry a precompiled player or a platform build project. Desktop and Web templates
-normally carry precompiled players. Android uses the source-template form: it carries a Gradle
+normally carry precompiled players. Template installation verifies the descriptor and file byte
+inventory; target file modes come from that verified descriptor rather than host extraction
+permissions. Their final ZIP/TAR publication is assembled by the editor/CLI without CMake or another
+build toolchain, honors the profile compression policy, and writes those target modes into archive
+metadata so cross-host publication does not depend on the host filesystem preserving POSIX
+permissions. Android uses the source-template form: it carries a Gradle
 project and structured Android descriptor while retaining precompiled native player libraries.
 The exporter runs its declared build workflow with an already installed compatible toolchain; it
 never installs SDKs or silently builds NovelTea itself.
