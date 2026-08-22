@@ -664,9 +664,11 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     };
     if (save.metadata.format_version != SaveStateMetadata::current_format_version)
         error("save_codec.unsupported_version", "Save format version is unsupported.");
-    if (save.metadata.project != project.identity().id ||
-        save.metadata.project_version != project.identity().version)
+    if (save.metadata.project != project.identity().id)
         error("save_codec.project_mismatch", "Save metadata does not match the loaded project.");
+    if (save.metadata.save_contract != project.save_contract())
+        error("save_codec.contract_mismatch",
+              "Save Contract does not match the loaded compiled project.");
     if (save.play_time.count() < 0)
         error("save_codec.invalid_time", "Play time cannot be negative.");
     std::unordered_set<std::string> overrides;

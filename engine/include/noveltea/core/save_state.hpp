@@ -19,6 +19,7 @@ struct SaveStateMetadata {
     std::uint32_t format_version = current_format_version;
     ProjectId project;
     std::string project_version;
+    std::string save_contract;
 };
 
 struct SavedPropertyOverride {

@@ -1608,6 +1608,7 @@ TEST_CASE("RuntimeUI authored system Layouts opt into model state without role-s
         .save_format_version = 7,
         .project = noveltea::core::ProjectId::create("project").value(),
         .project_version = "9C",
+        .save_contract = "sc1:0123456789abcdef0123456789abcdef",
         .play_time = std::chrono::milliseconds{3210},
         .generations = {}};
     const auto thumbnail = noveltea::core::SaveCheckpointThumbnail{

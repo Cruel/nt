@@ -69,6 +69,31 @@ describe('authoring compiler framework', () => {
     ]);
   });
 
+  it('derives a deterministic Save Contract from persistent executable structure only', () => {
+    const baseline = compileAuthoringProject(validProject());
+    expect(baseline.ok).toBe(true);
+    if (!baseline.ok) return;
+    expect(baseline.project.saveContract).toMatch(/^sc1:[0-9a-f]{32}$/u);
+
+    const metadataOnly = validProject();
+    metadataOnly.project.name = 'Renamed Project';
+    metadataOnly.project.description = 'Changed display metadata';
+    const renamed = compileAuthoringProject(metadataOnly);
+    expect(renamed.ok).toBe(true);
+    if (!renamed.ok) return;
+    expect(renamed.project.saveContract).toBe(baseline.project.saveContract);
+
+    const executableChange = validProject();
+    executableChange.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return { contract_changed = true }\n',
+    };
+    const changed = compileAuthoringProject(executableChange);
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) return;
+    expect(changed.project.saveContract).not.toBe(baseline.project.saveContract);
+  });
+
   it('lowers every shared definition without flattening inheritance or retaining editor metadata', () => {
     const project = validProject();
     project.editor = {

@@ -761,6 +761,7 @@ TEST_CASE("typed debug snapshot exposes checkpoint readiness without a safety ov
             SaveCheckpointMetadata{.save_format_version = 7,
                                    .project = ProjectId::create("preview-project").value(),
                                    .project_version = "9C",
+                                   .save_contract = "sc1:0123456789abcdef0123456789abcdef",
                                    .play_time = std::chrono::milliseconds{1200},
                                    .generations = {}},
         .replay_distance = {2, 1, std::chrono::milliseconds{350}},
@@ -774,6 +775,7 @@ TEST_CASE("typed debug snapshot exposes checkpoint readiness without a safety ov
     CHECK(encoded["canCapture"] == false);
     CHECK(encoded["readinessRevision"] == 8);
     CHECK(encoded["retained"]["revision"] == 3);
+    CHECK(encoded["retained"]["saveContract"] == "sc1:0123456789abcdef0123456789abcdef");
     CHECK(encoded["replayDistance"]["structuralGenerations"] == 2);
     CHECK(encoded["reconstructibleActivity"]["snapshotRevision"] == 5);
     CHECK(encoded["reconstructibleActivity"]["environmentLoopCount"] == 1);

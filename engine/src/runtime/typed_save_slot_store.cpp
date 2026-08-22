@@ -80,6 +80,7 @@ Result<std::string, Diagnostics> encode_checkpoint_bundle(const TypedSaveSlotChe
     append_integer(output, metadata.save_format_version);
     append_string(output, metadata.project.text());
     append_string(output, metadata.project_version);
+    append_string(output, metadata.save_contract);
     append_integer(output, static_cast<std::int64_t>(metadata.play_time.count()));
     append_integer(output, metadata.generations.structural_generation);
     append_integer(output, metadata.generations.captured_structural_generation);
@@ -108,14 +109,15 @@ Result<TypedSaveSlotCheckpoint, Diagnostics> decode_checkpoint_bundle(std::strin
     const auto format_version = read_integer<std::uint32_t>(input, offset);
     auto project_text = read_string(input, offset);
     auto project_version = read_string(input, offset);
+    auto save_contract = read_string(input, offset);
     const auto play_time = read_integer<std::int64_t>(input, offset);
     const auto structural = read_integer<std::uint64_t>(input, offset);
     const auto captured_structural = read_integer<std::uint64_t>(input, offset);
     const auto time = read_integer<std::uint64_t>(input, offset);
     const auto captured_time = read_integer<std::uint64_t>(input, offset);
     if (!version || *version != checkpoint_bundle_version || !encoded_save || !format_version ||
-        !project_text || !project_version || !play_time || !structural || !captured_structural ||
-        !time || !captured_time || offset >= input.size()) {
+        !project_text || !project_version || !save_contract || !play_time || !structural ||
+        !captured_structural || !time || !captured_time || offset >= input.size()) {
         return Result<TypedSaveSlotCheckpoint, Diagnostics>::failure(
             slot_error("save_slot.invalid_checkpoint_bundle",
                        "Save checkpoint bundle is malformed or unsupported."));
@@ -157,6 +159,7 @@ Result<TypedSaveSlotCheckpoint, Diagnostics> decode_checkpoint_bundle(std::strin
         .save_format_version = *format_version,
         .project = std::move(*project_value),
         .project_version = std::move(*project_version),
+        .save_contract = std::move(*save_contract),
         .play_time = std::chrono::milliseconds{*play_time},
         .generations = {*structural, *captured_structural, *time, *captured_time}};
     return Result<TypedSaveSlotCheckpoint, Diagnostics>::success(TypedSaveSlotCheckpoint{

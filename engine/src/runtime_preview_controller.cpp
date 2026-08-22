@@ -92,6 +92,7 @@ encode_preview_checkpoint_snapshot(const core::CheckpointRuntimeObservation* che
                     {"saveFormatVersion", checkpoint->retained_metadata->save_format_version},
                     {"project", checkpoint->retained_metadata->project.text()},
                     {"projectVersion", checkpoint->retained_metadata->project_version},
+                    {"saveContract", checkpoint->retained_metadata->save_contract},
                     {"playTimeMs", checkpoint->retained_metadata->play_time.count()}};
     }
     nlohmann::json reconstructible = nullptr;

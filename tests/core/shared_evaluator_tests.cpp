@@ -60,6 +60,7 @@ CompiledProject make_project()
                      {false, true, "Start", "", std::nullopt}},
         .entrypoint = id<RoomId>("hall"),
         .bootstrap_module = id<ScriptId>("bootstrap"),
+        .save_contract = "sc1:00000000000000000000000000000000",
         .localization = {"en",
                          std::string{"fr"},
                          {compiled::LocalizationCatalog{

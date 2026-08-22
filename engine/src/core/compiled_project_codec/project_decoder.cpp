@@ -39,8 +39,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     Decoder decoder(std::move(source_path));
     if (!decoder.object(document, "",
                         {"bootstrapModule", "definitions", "entrypoint", "inventories",
-                         "localization", "project", "properties", "resources", "schema",
-                         "schemaVersion", "settings", "traits"}))
+                         "localization", "project", "properties", "resources", "saveContract",
+                         "schema", "schemaVersion", "settings", "traits"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -49,6 +49,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* settings_value = decoder.member(document, "settings", "");
     const auto* entrypoint_value = decoder.member(document, "entrypoint", "");
     const auto* bootstrap_value = decoder.member(document, "bootstrapModule", "");
+    const auto* save_contract_value = decoder.member(document, "saveContract", "");
     const auto* localization_value = decoder.member(document, "localization", "");
     const auto* inventories_value = decoder.member(document, "inventories", "");
     const auto* properties_value = decoder.member(document, "properties", "");
@@ -86,6 +87,21 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     auto bootstrap = bootstrap_value ? decode_reference<ScriptId>(decoder, *bootstrap_value,
                                                                   "/bootstrapModule", "script")
                                      : std::nullopt;
+    auto save_contract =
+        save_contract_value ? decoder.string(*save_contract_value, "/saveContract") : std::nullopt;
+    if (save_contract) {
+        const auto suffix = std::string_view(*save_contract)
+                                .substr(std::min<std::size_t>(4, save_contract->size()));
+        const bool lowercase_hex = std::ranges::all_of(suffix, [](const char character) {
+            return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f');
+        });
+        if (!save_contract->starts_with("sc1:") || save_contract->size() != 36 || !lowercase_hex) {
+            decoder.error("compiled_project.invalid_save_contract",
+                          "Save Contract must use canonical 'sc1:' identity spelling.",
+                          "/saveContract");
+            save_contract.reset();
+        }
+    }
     auto localization = localization_value
                             ? decode_localization(decoder, *localization_value, "/localization")
                             : std::nullopt;
@@ -222,18 +238,20 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 #undef NOVELTEA_DUPLICATE_DEFINITION
 
     const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
-                          localization && inventories && properties && traits && assets &&
-                          layouts && scripts && characters && rooms && interactables && verbs &&
-                          interactions && scenes && dialogues && maps;
+                          save_contract && localization && inventories && properties && traits &&
+                          assets && layouts && scripts && characters && rooms && interactables &&
+                          verbs && interactions && scenes && dialogues && maps;
     if (!complete || decoder.failed())
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
-    return Result<SharedProject, Diagnostics>::success(SharedProject{
-        std::move(*identity), std::move(*settings), std::move(*entrypoint), std::move(*bootstrap),
-        std::move(*localization), std::move(*properties), std::move(*traits),
-        std::move(*inventories), std::move(*assets), std::move(*layouts), std::move(*scripts),
-        std::move(*characters), std::move(*rooms), std::move(*interactables), std::move(*verbs),
-        std::move(*interactions), std::move(*scenes), std::move(*dialogues), std::move(*maps)});
+    return Result<SharedProject, Diagnostics>::success(
+        SharedProject{std::move(*identity),   std::move(*settings),      std::move(*entrypoint),
+                      std::move(*bootstrap),  std::move(*save_contract), std::move(*localization),
+                      std::move(*properties), std::move(*traits),        std::move(*inventories),
+                      std::move(*assets),     std::move(*layouts),       std::move(*scripts),
+                      std::move(*characters), std::move(*rooms),         std::move(*interactables),
+                      std::move(*verbs),      std::move(*interactions),  std::move(*scenes),
+                      std::move(*dialogues),  std::move(*maps)});
 }
 
 } // namespace noveltea::core::compiled::wire

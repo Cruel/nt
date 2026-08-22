@@ -5,6 +5,7 @@ import {
 import { parseCharacterData } from './project-schema/authoring-characters';
 import {
   compiledProjectWireV4Schema,
+  computeCompiledProjectSaveContract,
   serializeCompiledProjectWireV4,
   type CompiledDiagnostic,
   type CompiledProjectWireV4,
@@ -684,7 +685,9 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
     return finish(context);
   }
   // Lowerers sort definition/resource tables by stable ID and preserve every
-  // semantically ordered authored array. Assembly publishes that complete value.
+  // semantically ordered authored array. Assembly binds the complete value to the
+  // compiler-produced persistent Save Contract before publication.
+  lowered.project.saveContract = computeCompiledProjectSaveContract(lowered.project);
   addStage(context, 'assemble', 'completed');
   const validated = compiledProjectWireV4Schema.safeParse(lowered.project);
   if (!validated.success) {

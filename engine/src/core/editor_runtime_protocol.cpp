@@ -1137,6 +1137,7 @@ nlohmann::json encode_observation(const RuntimeObservation& value)
                         {"saveFormatVersion", observation.retained_metadata->save_format_version},
                         {"project", observation.retained_metadata->project.text()},
                         {"projectVersion", observation.retained_metadata->project_version},
+                        {"saveContract", observation.retained_metadata->save_contract},
                         {"playTimeMs", observation.retained_metadata->play_time.count()}};
                 }
                 nlohmann::json reconstructible = nullptr;

@@ -189,6 +189,7 @@ CompiledProject project()
                      {false, true, "Start", "", std::nullopt}},
         .entrypoint = child,
         .bootstrap_module = id<ScriptId>("bootstrap"),
+        .save_contract = "sc1:00000000000000000000000000000000",
         .localization = {"en", std::nullopt, {compiled::LocalizationCatalog{"en", {}}}},
         .properties = std::move(properties),
         .traits = std::move(traits),

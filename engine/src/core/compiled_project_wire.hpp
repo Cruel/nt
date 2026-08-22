@@ -144,6 +144,7 @@ struct SharedProject {
     RuntimeSettings settings;
     Entrypoint entrypoint;
     ScriptId bootstrap_module;
+    std::string save_contract;
     Localization localization;
     std::vector<PropertyDeclaration> properties;
     std::vector<TraitDeclaration> traits;

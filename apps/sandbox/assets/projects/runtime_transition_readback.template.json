@@ -1,6 +1,7 @@
 {
   "schema": "noveltea.compiled.project",
   "schemaVersion": 4,
+  "saveContract": "@SAVE_CONTRACT@",
   "project": {
     "id": "runtime-transition-readback",
     "name": "Runtime Transition Readback",

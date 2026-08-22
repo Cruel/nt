@@ -1018,6 +1018,7 @@ struct CompiledProjectInput {
     RuntimeSettings settings;
     Entrypoint entrypoint;
     ScriptId bootstrap_module;
+    std::string save_contract;
     Localization localization;
     std::vector<PropertyDefinition> properties;
     std::vector<TraitDefinition> traits;
@@ -1050,6 +1051,7 @@ public:
     [[nodiscard]] const compiled::RuntimeSettings& settings() const noexcept { return m_settings; }
     [[nodiscard]] const compiled::Entrypoint& entrypoint() const noexcept { return m_entrypoint; }
     [[nodiscard]] const ScriptId& bootstrap_module() const noexcept { return m_bootstrap_module; }
+    [[nodiscard]] const std::string& save_contract() const noexcept { return m_save_contract; }
     [[nodiscard]] const compiled::Localization& localization() const noexcept
     {
         return m_localization;
@@ -1146,6 +1148,7 @@ private:
     compiled::RuntimeSettings m_settings;
     compiled::Entrypoint m_entrypoint;
     ScriptId m_bootstrap_module;
+    std::string m_save_contract;
     compiled::Localization m_localization;
     std::vector<PropertyDefinition> m_properties;
     std::vector<compiled::TraitDefinition> m_traits;
