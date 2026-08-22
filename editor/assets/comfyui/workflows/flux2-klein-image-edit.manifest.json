@@ -3,107 +3,123 @@
   "id": "flux2-klein-image-edit",
   "label": "Flux 2 Klein Image Edit",
   "provider": "comfyui",
-  "role": "image.edit",
+  "classification": "image.edit",
   "description": "Text-guided image editing using the bundled Flux 2 Klein workflow.",
   "workflowFile": "flux2-klein-image-edit.workflow.json",
   "contract": {
     "inputs": {
       "sourceImage": {
         "type": "image",
-        "required": true
+        "required": true,
+        "authoring": {
+          "editorField": "imageAsset"
+        }
       },
       "prompt": {
         "type": "string",
-        "required": true
+        "required": true,
+        "authoring": {
+          "editorField": "textarea"
+        }
       },
       "steps": {
         "type": "integer",
-        "required": false
+        "required": false,
+        "defaultValue": 4,
+        "authoring": {
+          "editorField": "integer"
+        }
       },
       "seed": {
         "type": "integer",
-        "required": false
+        "required": false,
+        "authoring": {
+          "editorField": "integer"
+        }
       },
       "filenamePrefix": {
         "type": "string",
         "required": false,
-        "editorField": "text",
-        "defaultValue": "NovelTea"
+        "defaultValue": "NovelTea",
+        "authoring": {
+          "editorField": "text"
+        }
       }
     },
     "outputs": {
       "images": {
-        "type": "image-list",
+        "mediaType": "image",
         "required": true,
-        "primary": "first"
+        "cardinality": "many"
       }
     }
   },
   "bindings": {
-    "sourceImage": {
-      "nodeId": "76",
-      "nodeTitle": "noveltea.sourceImage",
-      "classType": "LoadImage",
-      "inputName": "image",
-      "valueType": "image-upload-reference",
-      "selector": {
-        "title": "noveltea.sourceImage",
+    "sourceImage": [
+      {
+        "nodeId": "76",
+        "nodeTitle": "noveltea.sourceImage",
         "classType": "LoadImage",
-        "inputName": "image"
+        "inputName": "image",
+        "selector": {
+          "title": "noveltea.sourceImage",
+          "classType": "LoadImage",
+          "inputName": "image"
+        }
       }
-    },
-    "prompt": {
-      "nodeId": "75:74",
-      "nodeTitle": "noveltea.prompt",
-      "classType": "CLIPTextEncode",
-      "inputName": "text",
-      "valueType": "string",
-      "selector": {
-        "title": "noveltea.prompt",
+    ],
+    "prompt": [
+      {
+        "nodeId": "75:74",
+        "nodeTitle": "noveltea.prompt",
         "classType": "CLIPTextEncode",
-        "inputName": "text"
+        "inputName": "text",
+        "selector": {
+          "title": "noveltea.prompt",
+          "classType": "CLIPTextEncode",
+          "inputName": "text"
+        }
       }
-    },
-    "seed": {
-      "nodeId": "75:73",
-      "nodeTitle": "noveltea.seed",
-      "classType": "RandomNoise",
-      "inputName": "noise_seed",
-      "valueType": "integer",
-      "selector": {
-        "title": "noveltea.seed",
+    ],
+    "seed": [
+      {
+        "nodeId": "75:73",
+        "nodeTitle": "noveltea.seed",
         "classType": "RandomNoise",
-        "inputName": "noise_seed"
+        "inputName": "noise_seed",
+        "selector": {
+          "title": "noveltea.seed",
+          "classType": "RandomNoise",
+          "inputName": "noise_seed"
+        }
       }
-    },
-    "steps": {
-      "nodeId": "75:62",
-      "nodeTitle": "noveltea.steps",
-      "classType": "Flux2Scheduler",
-      "inputName": "steps",
-      "valueType": "integer",
-      "selector": {
-        "title": "noveltea.steps",
+    ],
+    "steps": [
+      {
+        "nodeId": "75:62",
+        "nodeTitle": "noveltea.steps",
         "classType": "Flux2Scheduler",
-        "inputName": "steps"
+        "inputName": "steps",
+        "selector": {
+          "title": "noveltea.steps",
+          "classType": "Flux2Scheduler",
+          "inputName": "steps"
+        }
       }
-    },
-    "filenamePrefix": {
-      "nodeId": "9",
-      "nodeTitle": "noveltea.output",
-      "classType": "SaveImage",
-      "inputName": "filename_prefix",
-      "valueType": "string",
-      "selector": {
-        "title": "noveltea.output",
+    ],
+    "filenamePrefix": [
+      {
+        "nodeId": "9",
+        "nodeTitle": "noveltea.output",
         "classType": "SaveImage",
-        "inputName": "filename_prefix"
+        "inputName": "filename_prefix",
+        "selector": {
+          "title": "noveltea.output",
+          "classType": "SaveImage",
+          "inputName": "filename_prefix"
+        }
       }
-    }
-  },
-  "defaults": {
-    "steps": 4,
-    "filenamePrefix": "NovelTea"
+    ]
   },
   "requiredNodeClasses": [
     "SaveImage",
@@ -130,9 +146,7 @@
       {
         "nodeId": "9",
         "nodeTitle": "noveltea.output",
-        "classType": "SaveImage",
-        "valueType": "image-list",
-        "primary": "first"
+        "classType": "SaveImage"
       }
     ]
   }

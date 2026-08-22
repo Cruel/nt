@@ -10,7 +10,7 @@ import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/w
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import type {
   ComfyUiWorkflowActiveEntry,
-  ComfyUiWorkflowRole,
+  ComfyUiWorkflowClassification,
 } from '../../shared/comfyui-workflows';
 import { NOVELTEA_VERSION } from '../../shared/product-version';
 import { defaultUserExportConfig } from '../../shared/project-schema/platform-export-contracts';
@@ -21,34 +21,37 @@ vi.mock('@/components/source/SourceEditor', () => ({
   ),
 }));
 
-function activeWorkflow(id: string, role: ComfyUiWorkflowRole): ComfyUiWorkflowActiveEntry {
+function activeWorkflow(
+  id: string,
+  classification: ComfyUiWorkflowClassification,
+): ComfyUiWorkflowActiveEntry {
   return {
-    workflowKey: `editor:${id}.manifest.json`,
-    source: 'editor',
+    workflowKey: `user:${id}.manifest.json`,
+    source: 'user',
     id,
     label: id,
-    role,
+    classification,
     definition: {
       schemaVersion: 2,
       id,
       label: id,
       provider: 'comfyui',
-      role,
+      classification,
       workflowFile: `${id}.workflow.json`,
       contract: {
         inputs: {},
-        outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+        outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
       },
       requiredNodeClasses: [],
       bindings: {},
       outputBindings: {
-        images: [{ nodeId: '9', valueType: 'image-list', primary: 'first' }],
+        images: [{ nodeId: '9' }],
       },
-      defaults: { filenamePrefix: 'NovelTea' },
       manifestFile: `${id}.manifest.json`,
     },
     offlineStatus: 'valid',
     onlineStatus: 'unverified',
+    runnable: true,
     diagnostics: [],
     verificationDiagnostics: [],
   };
@@ -94,7 +97,6 @@ describe('SettingsPage code editor theme selector', () => {
       comfyUiConfig: {
         enabled: false,
         serverUrl: 'http://127.0.0.1:8000',
-        defaultWorkflowId: 'flux2-klein-text-to-image',
         defaultWorkflows: {
           'image.generate': 'flux2-klein-text-to-image',
           'image.edit': 'flux2-klein-image-edit',
@@ -366,7 +368,7 @@ describe('SettingsPage code editor theme selector', () => {
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 
-  it('stores ComfyUI connection settings as editor preferences', async () => {
+  it('keeps ComfyUI enablement editor-local while saving shared connection and default state', async () => {
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue({
       ok: true,
       success: true,
@@ -417,12 +419,30 @@ describe('SettingsPage code editor theme selector', () => {
     expect(usePreferencesStore.getState().comfyUiConfig).toMatchObject({
       enabled: true,
       serverUrl: 'http://127.0.0.1:8000',
-      defaultWorkflowId: 'custom-workflow',
       defaultWorkflows: {
         'image.generate': 'custom-workflow',
         'image.edit': 'custom-edit-workflow',
       },
     });
+    await waitFor(() =>
+      expect(window.noveltea.saveComfyUiUserConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          format: 'noveltea.comfyui-user-config',
+          formatVersion: 1,
+          serverUrl: 'http://127.0.0.1:8000',
+          defaultWorkflows: {
+            'image.generate': 'custom-workflow',
+            'image.edit': 'custom-edit-workflow',
+          },
+        }),
+      ),
+    );
+    expect(vi.mocked(window.noveltea.saveComfyUiUserConfig).mock.lastCall?.[0]).not.toHaveProperty(
+      'enabled',
+    );
+    expect(vi.mocked(window.noveltea.saveComfyUiUserConfig).mock.lastCall?.[0]).not.toHaveProperty(
+      'connectionCheckIntervalMs',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Manage ComfyUI Workflows' }));
     expect(useWorkbenchStore.getState().tabsById['tab:comfyui-workflows']).toBeTruthy();
@@ -435,28 +455,47 @@ describe('SettingsPage code editor theme selector', () => {
     );
   });
 
-  it('backfills logical ComfyUI workflow defaults when saving partial legacy preferences', () => {
-    usePreferencesStore.setState({
-      comfyUiConfig: {
-        enabled: true,
-        serverUrl: 'http://127.0.0.1:8000',
-        defaultWorkflowId: 'legacy-generate',
-        defaultWorkflows: {},
-        requestTimeoutMs: 15000,
-        connectionCheckIntervalMs: 10000,
+  it('derives future classifications and visibly preserves an unavailable configured default', async () => {
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      entries: [],
+      activeWorkflows: [activeWorkflow('audio-live', 'audio.generate')],
+      overriddenEntries: [],
+      summary: {
+        sources: [],
+        totalCount: 1,
+        activeCount: 1,
+        overriddenCount: 0,
+        invalidCount: 0,
+        verifiedCount: 0,
+        failedVerificationCount: 0,
       },
     });
-
-    usePreferencesStore.getState().setComfyUiConfig({ serverUrl: 'http://127.0.0.1:8000/' });
-
-    expect(usePreferencesStore.getState().comfyUiConfig).toMatchObject({
-      serverUrl: 'http://127.0.0.1:8000',
-      defaultWorkflowId: 'legacy-generate',
+    usePreferencesStore.getState().setComfyUiConfig({
       defaultWorkflows: {
-        'image.generate': 'legacy-generate',
-        'image.edit': 'flux2-klein-image-edit',
+        ...usePreferencesStore.getState().comfyUiConfig.defaultWorkflows,
+        'audio.generate': 'audio-missing',
       },
     });
+
+    render(<SettingsPage />);
+    selectSettingsCategory('ComfyUI');
+
+    const selector = await screen.findByLabelText('audio.generate');
+    expect(selector).toHaveValue('audio-missing');
+    expect(
+      screen.getByText("Configured workflow 'audio-missing' is currently unavailable."),
+    ).toBeInTheDocument();
+    fireEvent.change(selector, { target: { value: 'audio-live' } });
+    await waitFor(() =>
+      expect(window.noveltea.saveComfyUiUserConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          defaultWorkflows: expect.objectContaining({ 'audio.generate': 'audio-live' }),
+        }),
+      ),
+    );
   });
 });
 

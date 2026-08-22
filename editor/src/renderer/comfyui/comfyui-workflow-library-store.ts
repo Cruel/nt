@@ -1,4 +1,4 @@
-import type { ComfyUiConfig } from '../../shared/comfyui';
+import { comfyUiServerIdentity, type ComfyUiConfig } from '../../shared/comfyui';
 import { useProjectStore } from '@/project/project-store';
 import { listComfyUiWorkflowLibrary, verifyComfyUiWorkflowLibrary } from './comfyui-service';
 
@@ -27,10 +27,11 @@ export async function triggerComfyUiWorkflowVerification(
   const library = await listComfyUiWorkflowLibrary({
     projectFilePath,
     includeOverridden: true,
+    serverIdentity: comfyUiServerIdentity(config.serverUrl),
     comfyUiVersion,
   });
   const packageParts = library.entries
-    .filter((entry) => entry.offlineStatus !== 'invalid' && entry.packageHash)
+    .filter((entry) => entry.active && entry.offlineStatus !== 'invalid' && entry.packageHash)
     .map((entry) => `${entry.workflowKey}:${entry.packageHash}`);
   const sessionKey = packageSessionKey(config, projectFilePath, [
     comfyUiVersion ?? 'unknown-version',

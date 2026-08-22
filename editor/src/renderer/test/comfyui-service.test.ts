@@ -42,9 +42,9 @@ describe('comfyui-service', () => {
     });
     await copyComfyUiWorkflow({
       workflowKey: 'built-in:custom.manifest.json',
-      targetSource: 'editor',
+      targetSource: 'user',
     });
-    await deleteComfyUiWorkflow({ workflowKey: 'editor:custom.manifest.json' });
+    await deleteComfyUiWorkflow({ workflowKey: 'user:custom.manifest.json' });
     await importComfyUiWorkflowToLibrary({
       workflowFileName: 'custom.workflow.json',
       manifestFileName: 'custom.manifest.json',
@@ -53,11 +53,11 @@ describe('comfyui-service', () => {
       overwrite: false,
     });
     await repairComfyUiWorkflowInLibrary({
-      workflowKey: 'editor:custom.manifest.json',
+      workflowKey: 'user:custom.manifest.json',
       manifest: {},
       overwrite: true,
     });
-    await revealComfyUiWorkflow('editor:custom.manifest.json', '/mock/project/game.json');
+    await revealComfyUiWorkflow('user:custom.manifest.json', '/mock/project/game.json');
     await verifyComfyUiWorkflowLibrary({ projectFilePath: '/mock/project/game.json', config });
     await analyzeComfyUiWorkflowImport({
       projectFilePath: '/mock/project/game.json',
@@ -87,18 +87,18 @@ describe('comfyui-service', () => {
     );
     expect(window.noveltea.deleteComfyUiWorkflow).toHaveBeenCalledWith(
       null,
-      expect.objectContaining({ workflowKey: 'editor:custom.manifest.json' }),
+      expect.objectContaining({ workflowKey: 'user:custom.manifest.json' }),
     );
     expect(window.noveltea.importComfyUiWorkflowToLibrary).toHaveBeenCalledWith(
       expect.objectContaining({ workflowFileName: 'custom.workflow.json' }),
     );
     expect(window.noveltea.repairComfyUiWorkflowInLibrary).toHaveBeenCalledWith(
       null,
-      expect.objectContaining({ workflowKey: 'editor:custom.manifest.json' }),
+      expect.objectContaining({ workflowKey: 'user:custom.manifest.json' }),
     );
     expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
-      'editor:custom.manifest.json',
+      'user:custom.manifest.json',
     );
     expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',

@@ -39,20 +39,21 @@ function simpleManifest(workflowFile = 'custom.workflow.json') {
     id: 'custom',
     label: 'Custom',
     provider: 'comfyui',
-    role: 'image.generate',
+    classification: 'image.generate',
     workflowFile,
     contract: {
       inputs: { prompt: { type: 'string', required: true } },
-      outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+      outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
     },
     bindings: {
-      prompt: {
-        nodeId: 'prompt',
-        nodeTitle: 'noveltea.prompt',
-        classType: 'PrimitiveStringMultiline',
-        inputName: 'value',
-        valueType: 'string',
-      },
+      prompt: [
+        {
+          nodeId: 'prompt',
+          nodeTitle: 'noveltea.prompt',
+          classType: 'PrimitiveStringMultiline',
+          inputName: 'value',
+        },
+      ],
     },
     outputBindings: {
       images: [
@@ -60,12 +61,10 @@ function simpleManifest(workflowFile = 'custom.workflow.json') {
           nodeId: 'output',
           nodeTitle: 'noveltea.output',
           classType: 'SaveImage',
-          valueType: 'image-list',
-          primary: 'first',
         },
       ],
     },
-    defaults: { filenamePrefix: 'NovelTea' },
+
     requiredNodeClasses: ['PrimitiveStringMultiline', 'SaveImage'],
   };
 }
@@ -100,8 +99,12 @@ describe('comfyui workflow import service', () => {
 
     expect(response.ok).toBe(true);
     expect(response.analysis?.looksLikeApiWorkflow).toBe(true);
-    expect(response.roleCandidates['image.generate']?.candidates.prompt?.length).toBeGreaterThan(0);
-    expect(response.roleCandidates['image.generate']?.candidates.images?.length).toBeGreaterThan(0);
+    expect(
+      response.classificationCandidates['image.generate']?.candidates.prompt?.length,
+    ).toBeGreaterThan(0);
+    expect(
+      response.classificationCandidates['image.generate']?.candidates.images?.length,
+    ).toBeGreaterThan(0);
     expect(response.diagnostics).toContainEqual(
       expect.objectContaining({
         severity: 'warning',
@@ -270,18 +273,19 @@ describe('comfyui workflow import service', () => {
     writeWorkflowPair(project, {
       ...simpleManifest(),
       bindings: {
-        prompt: {
-          nodeId: 'old-prompt',
-          nodeTitle: 'noveltea.prompt',
-          classType: 'PrimitiveStringMultiline',
-          inputName: 'value',
-          valueType: 'string',
-          selector: {
-            title: 'noveltea.prompt',
+        prompt: [
+          {
+            nodeId: 'old-prompt',
+            nodeTitle: 'noveltea.prompt',
             classType: 'PrimitiveStringMultiline',
             inputName: 'value',
+            selector: {
+              title: 'noveltea.prompt',
+              classType: 'PrimitiveStringMultiline',
+              inputName: 'value',
+            },
           },
-        },
+        ],
       },
     });
 
@@ -303,13 +307,14 @@ describe('comfyui workflow import service', () => {
       {
         ...simpleManifest(),
         bindings: {
-          prompt: {
-            nodeTitle: 'noveltea.prompt',
-            classType: 'PrimitiveStringMultiline',
-            inputName: 'value',
-            valueType: 'string',
-            selector: { classType: 'PrimitiveStringMultiline', inputName: 'value' },
-          },
+          prompt: [
+            {
+              nodeTitle: 'noveltea.prompt',
+              classType: 'PrimitiveStringMultiline',
+              inputName: 'value',
+              selector: { classType: 'PrimitiveStringMultiline', inputName: 'value' },
+            },
+          ],
         },
       },
       {

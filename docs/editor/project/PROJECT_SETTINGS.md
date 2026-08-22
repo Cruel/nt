@@ -28,7 +28,7 @@ Project Settings edits the authoring project document through undoable command-b
 does not write editor preferences, runtime user settings, or game progress. Editor preferences remain
 in the Electron `noveltea-preferences` store; runtime user settings and typed saves use their separate
 C++ versioned contracts.
-ComfyUI connection settings and workflow-library management are editor-wide surfaces. Project Settings only shows a compact workflow summary and a Manage button; it must not write server URLs, enablement, default workflow preferences, or workflow-library state into the authoring project document.
+ComfyUI connection settings and workflow-library management are machine/user-level surfaces shared with the headless CLI. Shared user workflow packages live beneath the NovelTea user configuration root, while project-local packages remain contextual to the saved Project. Project Settings only shows a compact workflow summary and a Manage button; it must not write server URLs, enablement, default workflow preferences, or workflow-library state into the authoring project document.
 
 ## Editing and Save Behavior
 
@@ -219,9 +219,9 @@ Project Settings no longer manages workflow packages directly. It shows:
 - invalid project-local workflow count;
 - a `Manage` button that opens the editor-owned `ComfyUI Workflows` tab.
 
-The `ComfyUI Workflows` tab manages built-in, editor-wide, and project-local workflow sources. Project-local workflow files still live under the authoring project's `workflows/` directory, but importing, copying, deleting, repairing, revealing, and verifying workflow packages belongs in the manager instead of Project Settings.
+The `ComfyUI Workflows` tab manages built-in, shared-user, and project-local workflow sources. Project-local workflow files still live under the authoring project's `workflows/` directory, but importing, copying, deleting, repairing, revealing, and verifying workflow packages belongs in the manager instead of Project Settings. Shared server URL, request timeout, and workflow defaults keyed by extensible dotted classifications live in the NovelTea user configuration root; ComfyUI enablement and periodic connection cadence remain editor preferences. Global Settings derives its default-workflow selectors from the effective generic catalog, preserves configured IDs that are temporarily unavailable, and does not write ComfyUI machine state into the Project document.
 
-Workflow import expects ComfyUI API workflow JSON exported with `File -> Export Workflow (API)`. Ordinary ComfyUI save files include visual editing data and are not the import format for this editor path.
+Workflow import expects ComfyUI API workflow JSON exported with `File -> Export Workflow (API)`. Ordinary ComfyUI save files include visual editing data and are not the import format for this editor path. Installed manifests use the generic V2 public-ID contract documented in `../comfyui/WORKFLOW_IMPORT.md`; optional image classifications guide current editor inference but are not the manifest execution schema.
 
 Renaming important ComfyUI nodes before export is optional but improves automatic binding and later repair. Recommended title markers are:
 

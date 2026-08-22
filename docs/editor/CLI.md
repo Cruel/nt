@@ -24,6 +24,100 @@ noveltea agent sync [--fix]
 
 `project create` accepts a new destination path that does not exist, including paths containing spaces, and rejects every existing file, directory, or symlink. It assembles and validates the complete initial workspace in a sibling staging directory before atomic activation. The editor uses the same creation service and project defaults. Creation does not generate `.noveltea/agent/`; run `agent sync` afterward.
 
+ComfyUI workflow discovery is available headlessly:
+
+```text
+noveltea comfyui status [--server <url>]
+noveltea comfyui workflows [--all]
+noveltea comfyui workflows <id>
+noveltea comfyui verify [<id>] [--server <url>]
+noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
+```
+
+These commands use the same catalog, machine configuration, and verification cache as the editor workflow manager.
+Built-in and shared-user workflows are available without a Project; when `--project` selects a Project or upward
+discovery finds one, project-local workflows are added. Source precedence is `project > user > built-in` by logical
+workflow ID. Bare listing returns only the effective workflow set. `--all` is diagnostic and also exposes overridden or
+invalid package copies without changing precedence. Inspection reports the selected workflow's source, classification,
+description, public inputs/outputs and authoring metadata, offline validation/runnability, package hash, and cached
+verification state relevant to the configured server.
+
+`comfyui status` is deliberately Project-independent and rejects global `--project`. It resolves one server for the
+invocation as `--server`, then the shared user configuration, then `http://127.0.0.1:8000`, and reports connection,
+ComfyUI version, and queue information without exposing arbitrary response bodies. `comfyui verify <id>` verifies one
+effective workflow; omitting the ID verifies the active workflow set in the optional-Project context. Verification checks
+the manifest-required node classes and every mapped node input against `/object_info`. CLI verification is diagnostic
+only except for updating the disposable shared verification cache; it never repairs or rewrites packages.
+
+`comfyui run` accepts either an explicit workflow ID or `--type <classification>`. `--type` resolves the logical
+workflow ID from the shared user configuration and then applies normal `project > user > built-in` source precedence.
+The two selection forms are mutually exclusive, and omitting both is invalid; NovelTea never guesses a classification or
+silently falls back to the first workflow. A configured default that is unavailable remains configured and fails with a
+targeted diagnostic. Classifications use the same extensible dotted namespace as workflow manifests, so future values do
+not require a runner enum change. Repeated `--input name=value` arguments bind through the manifest's public contract;
+values split on the first `=`, duplicate/unknown names are rejected, required/default/type semantics are checked before
+network work, and one public input may drive every graph binding declared for it. Scalar inputs support string, integer,
+number, and boolean values.
+An `image` input accepts an explicitly named local file; relative paths resolve from the invocation working directory.
+The image media handler enforces the 32 MiB source ceiling and decodes the file through NovelTea's shared/native image
+inspection capability before upload.
+
+Local image bytes are disclosed only to credential-free plain-HTTP servers addressed by a literal loopback IP (including
+IPv4, IPv6 loopback, and admitted IPv4-mapped IPv6 forms). `localhost`, HTTPS, credentials, arbitrary hostnames, and
+non-loopback addresses are rejected before any upload. Text-only status/verification/execution remains usable with
+ordinary configured HTTP/HTTPS servers. Upload names are generated uniquely, preserve the validated media extension,
+and do not expose the local basename. Online verification completes before upload; an upload failure aborts before
+`/prompt` and NovelTea does not claim to roll back already accepted remote uploads.
+
+Execution submits one uniquely identified prompt, polls HTTP history without a fixed whole-job timeout, waits for terminal
+completion, and validates every declared named output before local publication. Output cardinality is exact: required
+`one` produces exactly one image, required `many` one or more, optional `one` zero or one, and optional `many` zero or
+more. Every downloaded image is bounded and media-validated before any local result becomes visible.
+
+Each output has exactly one publication target. With a Project available, an output without an explicit route becomes a
+normal NovelTea Asset in `assets/generated/`; every image from a `many` output becomes a separate Asset. Use repeated
+`--output name=<path>` options to route selected outputs to the filesystem while leaving the others as Assets. Bare
+`--output <path>` is shorthand only when the workflow declares exactly one named output. Without a Project, every
+declared output must have an explicit named filesystem route before upload or prompt submission.
+
+A cardinality-`one` filesystem route names a file. A cardinality-`many` route names a directory, and NovelTea creates
+validated generated filenames beneath it. Missing parent directories are created during publication. Existing files fail
+unless `--force` is supplied; `--force` applies only to explicit filesystem files and never changes collision-safe Asset
+naming. File extensions must match returned image formats because NovelTea does not transcode.
+
+Local publication is prepared as one result set only after all remote outputs are present and valid. Filesystem results
+are staged with atomic rename/backup primitives, while all generated Asset records and bytes are committed in one normal
+Project transaction based on a freshly reopened Project. If mixed publication fails, staged filesystem outputs are rolled
+back as far as those primitives allow and no partial Asset transaction is intentionally committed. Publication failures
+are reported explicitly as occurring after successful remote generation. Structured results remain keyed by logical
+output ID: cardinality-`one` outputs return one metadata object or `null`, while cardinality-`many` outputs return arrays.
+
+Ctrl-C installs an invocation-scoped cancellation handler. Once a prompt exists, NovelTea attempts to delete only that
+prompt from the ComfyUI queue and returns conventional exit status 130; it does not call the global `/interrupt` endpoint
+or clear unrelated jobs. Independent `comfyui run` invocations remain concurrent and use distinct client/prompt IDs.
+With `--json`, execution still produces exactly one final compact envelope on stdout and no stderr output.
+
+Built-in ComfyUI packages are embedded directly into the self-contained standalone executable. A relocated `noveltea`
+therefore retains the built-in workflow catalog and execution contracts without Electron resources, sibling workflow
+files, project-local JavaScript, Node, or Sharp. User and Project packages remain external mutable sources layered over
+those embedded built-ins by normal `project > user > built-in` precedence.
+
+Shared user packages live under `<NovelTea user config>/comfyui/workflows/`. The strict
+`noveltea.comfyui-user-config` version 1 document at `<NovelTea user config>/comfyui/config-v1.json` owns the server URL,
+per-request timeout, and logical default-workflow mappings keyed by arbitrary valid dotted classifications. The canonical
+V1 config has no singular default-workflow alias. Editor enablement and periodic connection-check cadence are
+editor-local preferences and are not part of that shared file. `NOVELTEA_USER_CONFIG_ROOT` therefore provides hermetic
+ComfyUI configuration, workflow, and cache storage for CI. An invocation `--server` override is ephemeral and does not
+rewrite the shared configuration.
+
+The editor's Generate Image and Edit Image surfaces are thin Project-session adapters over this same execution core.
+They use the same catalog/default resolution, verification, public bindings, HTTP history polling, prompt-specific
+cancellation, image validation, and publication preparation. Edit Image first reads the selected source Asset through
+editor-owned Project authority, then hands a private temporary local image to the shared secure media handler. Therefore
+`localhost` is not an editor exception: use a literal loopback server such as `http://127.0.0.1:<port>` when local image
+bytes must be uploaded. The workflow manager retains image-specific automatic inference, while its strict V2 manual
+manifest editor can author or repair arbitrary named generic contracts and future classifications.
+
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export also accepts `--include-unused-assets` and `--include-shader-sources` as explicit developer overrides of the normal pruning/source-stripping policy. `noveltea --help` is authoritative for the installed version's exact syntax.
 
 Platform publication is a separate command family from Runtime Package creation:
@@ -67,10 +161,12 @@ Unused assets are excluded by default using the same authoring dependency graph 
 `--include-shader-sources` preserves authored shader sources that normal runtime packaging strips.
 These are the headless equivalents of the Export pane's Developer Mode options.
 
-The editor and CLI share reusable machine-level export configuration at
-`~/.noveltea/export-config-v1.json`: toolchain paths plus named Windows, macOS, and Android signing
-configurations. Signing secrets remain explicit `env:NAME` references. `NOVELTEA_USER_CONFIG_ROOT`
-provides a hermetic override for the shared NovelTea user-config directory in CI. The optional `--config` file continues to use the
+The editor and CLI share reusable machine-level state beneath the NovelTea user configuration root. Export configuration
+is stored at `~/.noveltea/export-config-v1.json`; shared ComfyUI configuration, workflows, and disposable verification
+cache are under `~/.noveltea/comfyui/`.
+Export configuration contains toolchain paths plus named Windows, macOS, and Android signing configurations. Signing
+secrets remain explicit `env:NAME` references. `NOVELTEA_USER_CONFIG_ROOT` provides a hermetic override for the shared
+NovelTea user-config directory, including both export and ComfyUI catalog state, in CI. The optional `--config` file continues to use the
 `noveltea.editor-export-local-state` contract as an explicit per-command override; generate a safe,
 secret-free skeleton with `platform config init`. `--config` does not combine with
 `--signing-profile`.
@@ -82,7 +178,7 @@ The Node reference/editor-hosted command and Linux x64 and Windows x64 self-cont
 commands are implemented. Every standalone host binary remains subject to the cross-host
 certification gate in `SCRIPTC_COMPATIBILITY.md`.
 
-The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations cross the existing NovelTea C ABI. `agent sync` embeds the checked-in agent-kit source texts as build-time package data and generates the schema portion only when that command runs.
+The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations and image inspection cross the existing NovelTea native boundary. `agent sync` embeds the checked-in agent-kit source texts as build-time package data, and built-in ComfyUI manifests/API workflows are likewise embedded as immutable build-time package data. The release certification runs Node-reference-versus-ScriptC ComfyUI operations against a deterministic local fake server and separately proves relocated built-in discovery. See `SCRIPTC_COMPATIBILITY.md` for admitted host assumptions, including current OS-signal limitations.
 
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
 
@@ -100,6 +196,7 @@ Exit categories are:
 5   mutation/concurrency
 6   native shader/tool failure
 70  unexpected internal failure
+130 interrupted by SIGINT during an active CLI operation
 ```
 
 Raw `noveltea shaderc ...` intentionally preserves bgfx shaderc's argument/output/return-code behavior rather than wrapping it in NovelTea's JSON taxonomy.

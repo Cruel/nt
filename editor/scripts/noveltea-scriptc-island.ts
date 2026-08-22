@@ -4,12 +4,14 @@ import { runNovelTeaCli } from '../src/cli/application';
 import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
 import { createNovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service-node';
+import { configureImageInspectionService } from '../src/main/services/image-inspection-service';
 import { configurePlatformHostService } from '../src/main/services/platform-host-service';
 import {
   scriptcAgentKitProvenance,
   scriptcAgentKitSourceFiles,
   scriptcAgentKitSystemLayoutSourceFiles,
 } from './noveltea-scriptc-agent-kit-source';
+import { scriptcComfyUiWorkflowFiles } from './noveltea-scriptc-comfyui-workflows';
 import {
   createNodeProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
@@ -64,13 +66,20 @@ function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
       throw new Error((response as { error: string }).error);
     return response as T;
   };
+  const inspectImage = async (sourcePath: string) =>
+    call<{
+      width: number;
+      height: number;
+      hasAlpha: boolean;
+      space?: string;
+      alphaBounds?: { left: number; top: number; right: number; bottom: number };
+    }>('image-inspect', { sourcePath });
+  configureImageInspectionService(inspectImage);
   configurePlatformHostService({
     async runProcess(request) {
       return call('run-process', request);
     },
-    async inspectImage(sourcePath) {
-      return call('image-inspect', { sourcePath });
-    },
+    inspectImage,
     async resizeImageToPng(request) {
       call('image-resize-png', request);
     },
@@ -136,11 +145,14 @@ export async function runNovelTeaScriptcIsland(
   invokeHost: ScriptcHostInvoke,
 ): Promise<string> {
   const argv = JSON.parse(argvText) as string[];
+  const cancellationCertification =
+    process.env.NOVELTEA_CLI_CERTIFICATION === '1' && argv[0] === '__comfyui-cancel-certification';
+  const effectiveArgv = cancellationCertification ? argv.slice(1) : argv;
   const nativeTools = createNativeTools(invokeHost);
   configureScriptcPlatformHost(invokeHost);
   const platformTools: NovelTeaCliPlatformToolService =
     createNovelTeaCliPlatformToolService(nativeTools);
-  const internal = await runInternalCommand(argv, nativeTools, invokeHost);
+  const internal = await runInternalCommand(effectiveArgv, nativeTools, invokeHost);
   if (internal !== null) return internal;
 
   const fileSystem = createNodeProjectWorkspaceFileSystem();
@@ -158,24 +170,34 @@ export async function runNovelTeaScriptcIsland(
       randomUUID,
     ),
   );
-  const needsAgentKit = argv.some(
+  const needsAgentKit = effectiveArgv.some(
     (argument, index) => argument === 'agent' && argv[index + 1] === 'sync',
   );
-  const commandResult = await runNovelTeaCli(argv, {
-    fileSystem,
-    workspace,
-    nativeTools,
-    platformTools,
-    ...(needsAgentKit
-      ? {
-          agentKitPayload: createNovelTeaAgentKitPayload(
-            scriptcAgentKitSourceFiles,
-            scriptcAgentKitProvenance,
-            scriptcAgentKitSystemLayoutSourceFiles,
-          ),
-        }
-      : {}),
-    readStdinText: () => invokeHost('read-stdin', ''),
-  });
-  return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
+  const cancellationController = cancellationCertification ? new AbortController() : null;
+  const cancellationTimer = cancellationController
+    ? setTimeout(() => cancellationController.abort(), 500)
+    : null;
+  try {
+    const commandResult = await runNovelTeaCli(effectiveArgv, {
+      fileSystem,
+      workspace,
+      nativeTools,
+      platformTools,
+      comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles: scriptcComfyUiWorkflowFiles },
+      ...(cancellationController ? { comfyUiAbortSignal: cancellationController.signal } : {}),
+      ...(needsAgentKit
+        ? {
+            agentKitPayload: createNovelTeaAgentKitPayload(
+              scriptcAgentKitSourceFiles,
+              scriptcAgentKitProvenance,
+              scriptcAgentKitSystemLayoutSourceFiles,
+            ),
+          }
+        : {}),
+      readStdinText: () => invokeHost('read-stdin', ''),
+    });
+    return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
+  } finally {
+    if (cancellationTimer) clearTimeout(cancellationTimer);
+  }
 }

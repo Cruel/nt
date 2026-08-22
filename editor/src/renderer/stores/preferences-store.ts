@@ -74,6 +74,15 @@ export function normalizeEditorPreviewSplitSizes(
   };
 }
 
+type EditorLocalComfyUiPreferences = Pick<ComfyUiConfig, 'enabled' | 'connectionCheckIntervalMs'>;
+
+function editorLocalComfyUiPreferences(config: ComfyUiConfig): EditorLocalComfyUiPreferences {
+  return {
+    enabled: config.enabled,
+    connectionCheckIntervalMs: config.connectionCheckIntervalMs,
+  };
+}
+
 export interface ResettableEditorPreferences {
   theme: Theme;
   language: EditorLanguage;
@@ -200,10 +209,31 @@ export const usePreferencesStore = create<PreferencesState>()(
     }),
     {
       name: 'noveltea-preferences',
+      partialize: (state) => ({
+        ...state,
+        comfyUiConfig: editorLocalComfyUiPreferences(state.comfyUiConfig) as ComfyUiConfig,
+      }),
       merge: (persisted, current) => {
+        const persistedState =
+          persisted && typeof persisted === 'object'
+            ? (persisted as Partial<PreferencesState>)
+            : {};
+        const persistedComfyUi =
+          persistedState.comfyUiConfig && typeof persistedState.comfyUiConfig === 'object'
+            ? persistedState.comfyUiConfig
+            : null;
         const next = {
           ...current,
-          ...(persisted && typeof persisted === 'object' ? persisted : {}),
+          ...persistedState,
+          comfyUiConfig: normalizeComfyUiConfig({
+            ...current.comfyUiConfig,
+            ...(typeof persistedComfyUi?.enabled === 'boolean'
+              ? { enabled: persistedComfyUi.enabled }
+              : {}),
+            ...(typeof persistedComfyUi?.connectionCheckIntervalMs === 'number'
+              ? { connectionCheckIntervalMs: persistedComfyUi.connectionCheckIntervalMs }
+              : {}),
+          }),
         } as PreferencesState;
         return {
           ...next,

@@ -2,15 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { app, shell } from 'electron';
-import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
-import {
-  analyzeComfyUiApiWorkflow,
-  analyzeComfyUiObjectInfoCompatibility,
-} from '../../shared/comfyui-workflow-graph';
+import { comfyUiServerIdentity, normalizeComfyUiServerUrl } from '../../shared/comfyui';
+import { novelTeaComfyUiConfigRoot } from '../../shared/user-config-root';
+import { analyzeComfyUiApiWorkflow } from '../../shared/comfyui-workflow-graph';
 import {
   COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA,
   COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION,
+  getComfyUiWorkflowExecutionSupport,
   parseComfyUiWorkflowDefinition,
   resolveComfyUiWorkflowBinding,
   resolvedComfyUiWorkflowOutputNodeIdList,
@@ -42,13 +40,14 @@ import {
 
 interface WorkflowLibraryRoots {
   builtInRoot: string | null;
-  editorRoot: string;
+  userRoot: string;
   projectRoot: string | null;
   cacheFile: string;
 }
 
 export interface WorkflowLibraryServiceOptions {
   roots?: Partial<WorkflowLibraryRoots>;
+  embeddedBuiltInFiles?: Readonly<Record<string, string>>;
   showItemInFolder?: (itemPath: string) => Promise<void> | void;
 }
 
@@ -58,6 +57,10 @@ type WorkflowSourceRoot = {
   writable: boolean;
   available: boolean;
 };
+
+const MAX_COMFYUI_WORKFLOW_PACKAGES_PER_SOURCE = 256;
+const MAX_COMFYUI_MANIFEST_BYTES = 1024 * 1024;
+const MAX_COMFYUI_WORKFLOW_JSON_BYTES = 32 * 1024 * 1024;
 
 function diagnostic(
   pathValue: string,
@@ -76,7 +79,7 @@ function entryStatus(diagnostics: ComfyUiWorkflowDiagnostic[]): ComfyUiWorkflowV
 
 function sourceRank(source: ComfyUiWorkflowSource) {
   if (source === 'project') return 3;
-  if (source === 'editor') return 2;
+  if (source === 'user') return 2;
   return 1;
 }
 
@@ -96,19 +99,16 @@ function projectRootFromFile(projectFilePath: string | null | undefined) {
   return projectFilePath ? path.dirname(path.resolve(projectFilePath)) : null;
 }
 
-function resolveEditorAssetsRoot(): string | null {
-  if (app.isPackaged) {
-    const packagedRoot = path.join(process.resourcesPath, 'editor-assets');
-    return existsSync(packagedRoot) && statSync(packagedRoot).isDirectory() ? packagedRoot : null;
-  }
-
-  const cwd = process.cwd();
+function resolveBuiltInAssetsRoot(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+  const entryDirectory = entryPath ? path.dirname(entryPath) : null;
   const candidates = [
-    path.resolve(cwd, 'assets'),
-    path.resolve(cwd, 'editor', 'assets'),
-    path.resolve(app.getAppPath(), 'assets'),
-    path.resolve(app.getAppPath(), 'editor', 'assets'),
-  ];
+    resourcesPath ? path.join(resourcesPath, 'editor-assets') : null,
+    entryDirectory ? path.resolve(entryDirectory, '..', '..', 'assets') : null,
+    path.resolve(process.cwd(), 'assets'),
+    path.resolve(process.cwd(), 'editor', 'assets'),
+  ].filter((candidate): candidate is string => Boolean(candidate));
   return (
     candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isDirectory()) ??
     null
@@ -119,22 +119,21 @@ export function resolveComfyUiWorkflowLibraryRoots(
   projectFilePath?: string | null,
   options: WorkflowLibraryServiceOptions = {},
 ): WorkflowLibraryRoots {
-  const needsUserData = !options.roots?.editorRoot || !options.roots?.cacheFile;
-  const userData = needsUserData ? app.getPath('userData') : '';
-  const editorRoot = options.roots?.editorRoot ?? path.join(userData, 'workflows');
+  const comfyUiRoot = novelTeaComfyUiConfigRoot();
+  const userRoot = options.roots?.userRoot ?? path.join(comfyUiRoot, 'workflows');
   const projectRoot =
     options.roots?.projectRoot ??
     (projectRootFromFile(projectFilePath)
       ? path.join(projectRootFromFile(projectFilePath)!, 'workflows')
       : null);
-  const assetRoot = options.roots?.builtInRoot === undefined ? resolveEditorAssetsRoot() : null;
+  const assetRoot = options.roots?.builtInRoot === undefined ? resolveBuiltInAssetsRoot() : null;
   return {
     builtInRoot:
       options.roots?.builtInRoot ??
       (assetRoot ? path.join(assetRoot, 'comfyui', 'workflows') : null),
-    editorRoot,
+    userRoot,
     projectRoot,
-    cacheFile: options.roots?.cacheFile ?? path.join(editorRoot, '.verification-cache.json'),
+    cacheFile: options.roots?.cacheFile ?? path.join(comfyUiRoot, 'verification-cache-v1.json'),
   };
 }
 
@@ -148,9 +147,9 @@ function sourceRoots(
       source: 'built-in',
       root: roots.builtInRoot ?? '',
       writable: false,
-      available: Boolean(roots.builtInRoot),
+      available: Boolean(roots.builtInRoot || options.embeddedBuiltInFiles),
     },
-    { source: 'editor', root: roots.editorRoot, writable: true, available: true },
+    { source: 'user', root: roots.userRoot, writable: true, available: true },
     {
       source: 'project',
       root: roots.projectRoot ?? '',
@@ -164,10 +163,21 @@ async function readManifestFiles(root: WorkflowSourceRoot): Promise<string[]> {
   if (!root.available || !root.root) return [];
   try {
     const entries = await fs.readdir(root.root);
-    return entries.filter((entry) => entry.endsWith('.manifest.json')).sort();
+    return entries
+      .filter((entry) => entry.endsWith('.manifest.json'))
+      .sort()
+      .slice(0, MAX_COMFYUI_WORKFLOW_PACKAGES_PER_SOURCE);
   } catch {
     return [];
   }
+}
+
+async function readBoundedUtf8File(filePath: string, maximumBytes: number, label: string) {
+  const stats = await fs.stat(filePath);
+  if (!stats.isFile()) throw new Error(`${label} is not a regular file.`);
+  if (stats.size > maximumBytes)
+    throw new Error(`${label} exceeds the ${maximumBytes}-byte catalog parsing limit.`);
+  return fs.readFile(filePath, 'utf8');
 }
 
 function canonicalJson(value: unknown): string {
@@ -197,35 +207,40 @@ function validateWorkflowBindings(
   const diagnostics: ComfyUiWorkflowDiagnostic[] = [
     ...validateComfyUiWorkflowDefinitionContract(definition),
   ];
-  for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
-    if (!binding) continue;
-    const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
-    if (!resolution.ok)
+  for (const [publicInputId, bindings] of Object.entries(definition.bindings)) {
+    for (const [index, binding] of bindings.entries()) {
+      const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
+      if (!resolution.ok)
+        diagnostics.push(
+          diagnostic(
+            `/workflows/${entry.manifestFile}/bindings/${publicInputId}/${index}`,
+            resolution.message ?? `Workflow '${definition.label}' has an unresolved binding.`,
+          ),
+        );
+      if (resolution.ok && resolution.rebased && binding.nodeId && resolution.nodeId) {
+        diagnostics.push(
+          diagnostic(
+            `/workflows/${entry.manifestFile}/bindings/${publicInputId}/${index}`,
+            `Rebased stale node id ${binding.nodeId} to node ${resolution.nodeId} using selector metadata.`,
+            'info',
+          ),
+        );
+      }
+    }
+  }
+  for (const outputId of Object.keys(definition.contract.outputs)) {
+    try {
+      resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition, outputId);
+    } catch (error) {
       diagnostics.push(
         diagnostic(
-          `/workflows/${entry.manifestFile}/bindings/${semanticKey}`,
-          resolution.message ?? `Workflow '${definition.label}' has an unresolved binding.`,
-        ),
-      );
-    if (resolution.ok && resolution.rebased && binding.nodeId && resolution.nodeId) {
-      diagnostics.push(
-        diagnostic(
-          `/workflows/${entry.manifestFile}/bindings/${semanticKey}`,
-          `Rebased stale node id ${binding.nodeId} to node ${resolution.nodeId} using selector metadata.`,
-          'info',
+          `/workflows/${entry.manifestFile}/outputBindings/${outputId}`,
+          error instanceof Error
+            ? error.message
+            : 'Workflow output bindings could not be resolved.',
         ),
       );
     }
-  }
-  try {
-    resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
-  } catch (error) {
-    diagnostics.push(
-      diagnostic(
-        `/workflows/${entry.manifestFile}/outputBindings/images`,
-        error instanceof Error ? error.message : 'Workflow output bindings could not be resolved.',
-      ),
-    );
   }
   return diagnostics;
 }
@@ -238,13 +253,93 @@ function capabilities(
 ) {
   const mutable = source !== 'built-in';
   return {
-    canCopyToEditor: status !== 'invalid' && source !== 'editor',
+    canCopyToUser: status !== 'invalid' && source !== 'user',
     canCopyToProject: status !== 'invalid' && hasProject && source !== 'project',
     canDelete: mutable,
     canRepair: mutable && hasWorkflowText,
     canReveal: mutable,
     canRename: mutable,
   };
+}
+
+async function discoverEmbeddedBuiltIns(
+  files: Readonly<Record<string, string>>,
+  hasProject: boolean,
+): Promise<ComfyUiWorkflowLibraryEntry[]> {
+  const entries: ComfyUiWorkflowLibraryEntry[] = [];
+  const manifestFiles = Object.keys(files)
+    .filter((name) => name.endsWith('.manifest.json'))
+    .sort()
+    .slice(0, MAX_COMFYUI_WORKFLOW_PACKAGES_PER_SOURCE);
+  for (const manifestFile of manifestFiles) {
+    const manifestJsonText = files[manifestFile];
+    let workflowJsonText: string | undefined;
+    try {
+      if (new TextEncoder().encode(manifestJsonText).byteLength > MAX_COMFYUI_MANIFEST_BYTES)
+        throw new Error('Workflow manifest exceeds the catalog parsing limit.');
+      const manifest = JSON.parse(manifestJsonText);
+      const definition = parseComfyUiWorkflowDefinition(manifest, manifestFile);
+      workflowJsonText = files[definition.workflowFile];
+      if (workflowJsonText === undefined)
+        throw new Error(`ComfyUI workflow JSON '${definition.workflowFile}' is missing.`);
+      if (new TextEncoder().encode(workflowJsonText).byteLength > MAX_COMFYUI_WORKFLOW_JSON_BYTES)
+        throw new Error('ComfyUI workflow JSON exceeds the catalog parsing limit.');
+      const workflow = JSON.parse(workflowJsonText);
+      const diagnostics = validateWorkflowBindings(workflow as ComfyUiWorkflowGraphLike, {
+        definition,
+        manifestFile,
+      });
+      const offlineStatus = entryStatus(diagnostics);
+      entries.push({
+        source: 'built-in',
+        workflowKey: workflowKey('built-in', manifestFile),
+        id: definition.id,
+        label: definition.label,
+        classification: definition.classification,
+        definition,
+        manifestFile,
+        workflowFile: definition.workflowFile,
+        manifestPath: `embedded:comfyui/${manifestFile}`,
+        workflowPath: `embedded:comfyui/${definition.workflowFile}`,
+        packageHash: computeComfyUiWorkflowPackageHash(manifest, workflow),
+        active: false,
+        overridden: false,
+        offlineStatus,
+        onlineStatus: 'unverified',
+        runnable: getComfyUiWorkflowExecutionSupport(definition).runnable,
+        repairable: false,
+        diagnostics,
+        verificationDiagnostics: [],
+        manifestJsonText,
+        workflowJsonText,
+        capabilities: capabilities('built-in', offlineStatus, true, hasProject),
+      });
+    } catch (error) {
+      const diagnostics = [
+        diagnostic(
+          `/workflows/${manifestFile}`,
+          error instanceof Error ? error.message : 'Workflow package is invalid.',
+        ),
+      ];
+      entries.push({
+        source: 'built-in',
+        workflowKey: workflowKey('built-in', manifestFile),
+        manifestFile,
+        manifestPath: `embedded:comfyui/${manifestFile}`,
+        active: false,
+        overridden: false,
+        offlineStatus: 'invalid',
+        onlineStatus: 'unverified',
+        repairable: false,
+        diagnostics,
+        verificationDiagnostics: [],
+        manifestJsonText,
+        workflowJsonText,
+        capabilities: capabilities('built-in', 'invalid', Boolean(workflowJsonText), hasProject),
+      });
+    }
+  }
+  return entries;
 }
 
 async function discoverSource(
@@ -257,14 +352,22 @@ async function discoverSource(
     let manifestJsonText: string | undefined;
     let workflowJsonText: string | undefined;
     try {
-      manifestJsonText = await fs.readFile(manifestPath, 'utf8');
+      manifestJsonText = await readBoundedUtf8File(
+        manifestPath,
+        MAX_COMFYUI_MANIFEST_BYTES,
+        'Workflow manifest',
+      );
       const manifest = JSON.parse(manifestJsonText);
       const definition = parseComfyUiWorkflowDefinition(manifest, manifestFile);
       const workflowPath = path.join(root.root, definition.workflowFile);
       const relative = path.relative(root.root, workflowPath);
       if (relative.startsWith('..') || path.isAbsolute(relative))
         throw new Error('Workflow file escapes the workflows directory.');
-      workflowJsonText = await fs.readFile(workflowPath, 'utf8');
+      workflowJsonText = await readBoundedUtf8File(
+        workflowPath,
+        MAX_COMFYUI_WORKFLOW_JSON_BYTES,
+        'ComfyUI workflow JSON',
+      );
       const workflow = JSON.parse(workflowJsonText);
       const diagnostics = validateWorkflowBindings(workflow as ComfyUiWorkflowGraphLike, {
         definition,
@@ -276,7 +379,7 @@ async function discoverSource(
         workflowKey: workflowKey(root.source, manifestFile),
         id: definition.id,
         label: definition.label,
-        role: definition.role,
+        classification: definition.classification,
         definition,
         manifestFile,
         workflowFile: definition.workflowFile,
@@ -287,6 +390,7 @@ async function discoverSource(
         overridden: false,
         offlineStatus,
         onlineStatus: 'unverified',
+        runnable: getComfyUiWorkflowExecutionSupport(definition).runnable,
         repairable: Boolean(workflowJsonText) && root.writable,
         diagnostics,
         verificationDiagnostics: [],
@@ -370,6 +474,7 @@ async function readVerificationCache(
           (key) =>
             key !== 'workflowKey' &&
             key !== 'id' &&
+            key !== 'serverIdentity' &&
             key !== 'packageHash' &&
             key !== 'comfyUiVersion' &&
             key !== 'status' &&
@@ -377,9 +482,11 @@ async function readVerificationCache(
             key !== 'diagnostics',
         ) ||
         typeof record.workflowKey !== 'string' ||
-        !/^(?:built-in|editor|project):.+/.test(record.workflowKey) ||
+        !/^(?:built-in|user|project):.+/.test(record.workflowKey) ||
         typeof record.id !== 'string' ||
         !record.id ||
+        typeof record.serverIdentity !== 'string' ||
+        !record.serverIdentity ||
         typeof record.packageHash !== 'string' ||
         !/^sha256:[0-9a-f]{64}$/.test(record.packageHash) ||
         typeof record.comfyUiVersion !== 'string' ||
@@ -412,6 +519,7 @@ async function readVerificationCache(
       records.push({
         workflowKey: record.workflowKey as ComfyUiWorkflowVerificationRecord['workflowKey'],
         id: record.id,
+        serverIdentity: record.serverIdentity,
         packageHash: record.packageHash as ComfyUiWorkflowVerificationRecord['packageHash'],
         comfyUiVersion: record.comfyUiVersion,
         status: record.status,
@@ -447,8 +555,12 @@ export async function writeComfyUiWorkflowVerificationCache(
   );
 }
 
-function verificationCacheKey(packageHash: ComfyUiPackageHash, comfyUiVersion: string) {
-  return comfyUiVersion + ':' + packageHash;
+function verificationCacheKey(
+  serverIdentity: string,
+  packageHash: ComfyUiPackageHash,
+  comfyUiVersion: string,
+) {
+  return `${serverIdentity}:${comfyUiVersion}:${packageHash}`;
 }
 
 function newestVerificationRecordsByVersionAndPackageHash(
@@ -456,7 +568,11 @@ function newestVerificationRecordsByVersionAndPackageHash(
 ) {
   const byHash = new Map<string, ComfyUiWorkflowVerificationRecord>();
   for (const record of records) {
-    const key = verificationCacheKey(record.packageHash, record.comfyUiVersion);
+    const key = verificationCacheKey(
+      record.serverIdentity,
+      record.packageHash,
+      record.comfyUiVersion,
+    );
     const current = byHash.get(key);
     if (!current || record.checkedAt.localeCompare(current.checkedAt) >= 0) byHash.set(key, record);
   }
@@ -466,15 +582,17 @@ function newestVerificationRecordsByVersionAndPackageHash(
 function applyVerificationCache(
   entries: ComfyUiWorkflowLibraryEntry[],
   records: ComfyUiWorkflowVerificationRecord[],
+  serverIdentity?: string,
   comfyUiVersion?: string,
 ) {
-  if (!comfyUiVersion) return;
+  if (!serverIdentity || !comfyUiVersion) return;
   const byHash = newestVerificationRecordsByVersionAndPackageHash(records);
   for (const entry of entries) {
     if (!entry.packageHash) continue;
     const matchingRecords = [...byHash.values()]
       .filter(
         (record) =>
+          record.serverIdentity === serverIdentity &&
           record.packageHash === entry.packageHash &&
           (comfyUiVersion === 'unknown' || record.comfyUiVersion === comfyUiVersion),
       )
@@ -517,13 +635,22 @@ export async function listComfyUiWorkflowLibrary(
 ): Promise<ComfyUiWorkflowLibraryListResponse> {
   const roots = sourceRoots(request.projectFilePath, options);
   const hasProject = roots.some((root) => root.source === 'project' && root.available);
-  const entries = (await Promise.all(roots.map((root) => discoverSource(root, hasProject)))).flat();
+  const entries = (
+    await Promise.all(
+      roots.map((root) =>
+        root.source === 'built-in' && options.embeddedBuiltInFiles
+          ? discoverEmbeddedBuiltIns(options.embeddedBuiltInFiles, hasProject)
+          : discoverSource(root, hasProject),
+      ),
+    )
+  ).flat();
   applyOverrides(entries);
   applyVerificationCache(
     entries,
     await readVerificationCache(
       resolveComfyUiWorkflowLibraryRoots(request.projectFilePath, options).cacheFile,
     ),
+    request.serverIdentity,
     request.comfyUiVersion,
   );
   const visibleEntries = request.includeOverridden
@@ -544,7 +671,6 @@ export async function listComfyUiWorkflowLibrary(
           entry.definition &&
           entry.id &&
           entry.label &&
-          entry.role &&
           entry.offlineStatus !== 'invalid',
       )
       .map((entry) => ({
@@ -552,11 +678,12 @@ export async function listComfyUiWorkflowLibrary(
         source: entry.source,
         id: entry.id!,
         label: entry.label!,
-        role: entry.role!,
+        classification: entry.classification,
         definition: entry.definition!,
         packageHash: entry.packageHash,
         offlineStatus: entry.offlineStatus as 'valid' | 'warning',
         onlineStatus: entry.onlineStatus,
+        runnable: entry.runnable ?? false,
         diagnostics: entry.diagnostics,
         verificationDiagnostics: entry.verificationDiagnostics,
       })),
@@ -580,13 +707,8 @@ export async function listComfyUiWorkflowLibrary(
 
 function rootForSource(source: ComfyUiWorkflowSource, roots: WorkflowLibraryRoots): string | null {
   if (source === 'built-in') return roots.builtInRoot;
-  if (source === 'editor') return roots.editorRoot;
+  if (source === 'user') return roots.userRoot;
   return roots.projectRoot;
-}
-
-async function copyFileReplace(source: string, destination: string) {
-  await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.copyFile(source, destination);
 }
 
 function safeLibraryFileName(
@@ -666,7 +788,12 @@ export async function copyComfyUiWorkflow(
     options,
   );
   const sourceEntry = library.entries.find((entry) => entry.workflowKey === request.workflowKey);
-  if (!sourceEntry?.definition || !sourceEntry.workflowPath || !sourceEntry.packageHash)
+  if (
+    !sourceEntry?.definition ||
+    !sourceEntry.workflowJsonText ||
+    !sourceEntry.manifestJsonText ||
+    !sourceEntry.packageHash
+  )
     return {
       ok: false,
       success: false,
@@ -715,10 +842,10 @@ export async function copyComfyUiWorkflow(
       error: 'Replace confirmation is required.',
     };
   const targetManifestFile = targetExisting?.manifestFile ?? sourceEntry.manifestFile;
-  await copyFileReplace(sourceEntry.manifestPath, path.join(targetRoot, targetManifestFile));
-  await copyFileReplace(
-    sourceEntry.workflowPath,
+  await writeFileAtomic(path.join(targetRoot, targetManifestFile), sourceEntry.manifestJsonText);
+  await writeFileAtomic(
     path.join(targetRoot, sourceEntry.definition.workflowFile),
+    sourceEntry.workflowJsonText,
   );
   if (
     targetExisting?.workflowFile &&
@@ -801,9 +928,9 @@ export async function importComfyUiWorkflowToLibrary(
         error: bindingDiagnostics[0]?.message ?? 'Workflow bindings are invalid.',
       };
 
-    const { editorRoot } = resolveComfyUiWorkflowLibraryRoots(null, options);
-    const workflowPath = path.join(editorRoot, workflowFileName);
-    const manifestPath = path.join(editorRoot, manifestFileName);
+    const { userRoot } = resolveComfyUiWorkflowLibraryRoots(null, options);
+    const workflowPath = path.join(userRoot, workflowFileName);
+    const manifestPath = path.join(userRoot, manifestFileName);
     if (
       !request.overwrite &&
       ((await pathExists(workflowPath)) || (await pathExists(manifestPath)))
@@ -825,7 +952,7 @@ export async function importComfyUiWorkflowToLibrary(
     await writeFileAtomic(manifestPath, `${JSON.stringify(request.manifest, null, 2)}\n`);
     const refreshed = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
     const entry = refreshed.entries.find(
-      (item) => item.source === 'editor' && item.manifestFile === manifestFileName,
+      (item) => item.source === 'user' && item.manifestFile === manifestFileName,
     );
     return {
       ok: true,
@@ -1060,7 +1187,8 @@ export async function revealComfyUiWorkflow(
   const root = rootForSource(sourceFromWorkflowKey(workflowKeyValue), roots);
   if (!root) return false;
   const itemPath = path.join(root, manifestFileFromWorkflowKey(workflowKeyValue));
-  void (options.showItemInFolder ?? ((path: string) => shell.showItemInFolder(path)))(itemPath);
+  if (!options.showItemInFolder) return false;
+  void options.showItemInFolder(itemPath);
   return true;
 }
 
@@ -1116,18 +1244,126 @@ async function fetchVerificationObjectInfo(
   }
 }
 
+function verifyWorkflowAgainstObjectInfo(
+  entry: ComfyUiWorkflowLibraryEntry,
+  workflow: ComfyUiWorkflowGraphLike,
+  objectInfo: unknown,
+): ComfyUiWorkflowDiagnostic[] {
+  if (
+    !entry.definition ||
+    !objectInfo ||
+    typeof objectInfo !== 'object' ||
+    Array.isArray(objectInfo)
+  )
+    return [
+      diagnostic(
+        '/object_info',
+        'ComfyUI object_info was unavailable; workflow could not be verified.',
+      ),
+    ];
+  const metadata = objectInfo as Record<string, unknown>;
+  const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
+  for (const classType of entry.definition.requiredNodeClasses) {
+    if (!(classType in metadata))
+      diagnostics.push(
+        diagnostic(
+          '/object_info',
+          `Current ComfyUI server is missing required node class ${classType}.`,
+        ),
+      );
+  }
+  for (const [inputId, bindings] of Object.entries(entry.definition.bindings)) {
+    for (const [index, binding] of bindings.entries()) {
+      const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
+      if (!resolution.ok || !resolution.nodeId) continue;
+      const node = workflow[resolution.nodeId];
+      const classType = node?.class_type;
+      if (!classType || typeof classType !== 'string') continue;
+      const classMetadata = metadata[classType];
+      if (!classMetadata || typeof classMetadata !== 'object' || Array.isArray(classMetadata))
+        continue;
+      const inputMetadata = (classMetadata as Record<string, unknown>).input;
+      if (!inputMetadata || typeof inputMetadata !== 'object' || Array.isArray(inputMetadata)) {
+        diagnostics.push(
+          diagnostic(
+            `/bindings/${inputId}/${index}`,
+            `ComfyUI node class ${classType} does not describe mapped input '${binding.inputName}'.`,
+          ),
+        );
+        continue;
+      }
+      const groups = inputMetadata as Record<string, unknown>;
+      const hasInput = ['required', 'optional', 'hidden'].some((group) => {
+        const values = groups[group];
+        return Boolean(
+          values &&
+          typeof values === 'object' &&
+          !Array.isArray(values) &&
+          binding.inputName in values,
+        );
+      });
+      if (!hasInput)
+        diagnostics.push(
+          diagnostic(
+            `/bindings/${inputId}/${index}`,
+            `ComfyUI node class ${classType} is missing mapped input '${binding.inputName}'.`,
+          ),
+        );
+    }
+  }
+  return diagnostics;
+}
+
 export async function verifyComfyUiWorkflowLibrary(
   request: ComfyUiVerifyWorkflowLibraryRequest,
   options: WorkflowLibraryServiceOptions = {},
 ): Promise<ComfyUiVerifyWorkflowLibraryResponse> {
   const checkedAt = new Date().toISOString();
+  const serverIdentity = comfyUiServerIdentity(request.config.serverUrl);
+  const initialLibrary = await listComfyUiWorkflowLibrary(
+    {
+      projectFilePath: request.projectFilePath,
+      includeOverridden: true,
+      serverIdentity,
+      comfyUiVersion: 'unknown',
+    },
+    options,
+  );
+  if (
+    request.workflowId &&
+    !initialLibrary.entries.some(
+      (entry) =>
+        entry.active && entry.id === request.workflowId && entry.offlineStatus !== 'invalid',
+    )
+  ) {
+    const notFound = diagnostic(
+      '/workflowId',
+      `Active ComfyUI workflow '${request.workflowId}' was not found in the current catalog.`,
+    );
+    return {
+      ok: false,
+      success: false,
+      checkedAt,
+      verified: [],
+      failed: [],
+      skipped: [],
+      entries: initialLibrary.entries,
+      diagnostics: [notFound],
+      error: notFound.message,
+    };
+  }
   const [systemStats, objectInfo] = await Promise.all([
     fetchVerificationSystemStats(request),
     fetchVerificationObjectInfo(request),
   ]);
   const comfyUiVersion = findComfyUiVersion(systemStats) ?? 'unknown';
   const library = await listComfyUiWorkflowLibrary(
-    { projectFilePath: request.projectFilePath, includeOverridden: true, comfyUiVersion },
+    {
+      projectFilePath: request.projectFilePath,
+      includeOverridden: true,
+      serverIdentity,
+      comfyUiVersion,
+    },
     options,
   );
   const verified: ComfyUiWorkflowVerificationRecord[] = [];
@@ -1145,6 +1381,8 @@ export async function verifyComfyUiWorkflowLibrary(
     );
 
   for (const entry of library.entries) {
+    if (!entry.active) continue;
+    if (request.workflowId && entry.id !== request.workflowId) continue;
     if (
       entry.offlineStatus === 'invalid' ||
       !entry.id ||
@@ -1162,6 +1400,7 @@ export async function verifyComfyUiWorkflowLibrary(
       failed.push({
         workflowKey: entry.workflowKey,
         id: entry.id,
+        serverIdentity,
         packageHash: entry.packageHash,
         comfyUiVersion,
         status: 'failed',
@@ -1180,6 +1419,7 @@ export async function verifyComfyUiWorkflowLibrary(
       failed.push({
         workflowKey: entry.workflowKey,
         id: entry.id,
+        serverIdentity,
         packageHash: entry.packageHash,
         comfyUiVersion,
         status: 'failed',
@@ -1188,20 +1428,22 @@ export async function verifyComfyUiWorkflowLibrary(
       });
       continue;
     }
-    const compatibility = analyzeComfyUiObjectInfoCompatibility(
-      analyzeComfyUiApiWorkflow(parsed.value),
+    const compatibilityDiagnostics = verifyWorkflowAgainstObjectInfo(
+      entry,
+      parsed.value as ComfyUiWorkflowGraphLike,
       objectInfo,
     );
     const record: ComfyUiWorkflowVerificationRecord = {
       workflowKey: entry.workflowKey,
       id: entry.id,
+      serverIdentity,
       packageHash: entry.packageHash,
       comfyUiVersion,
-      status: compatibility.diagnostics.some((item) => item.severity === 'error')
+      status: compatibilityDiagnostics.some((item) => item.severity === 'error')
         ? 'failed'
         : 'verified',
       checkedAt,
-      diagnostics: compatibility.diagnostics,
+      diagnostics: compatibilityDiagnostics,
     };
     if (record.status === 'verified') verified.push(record);
     else failed.push(record);
@@ -1212,7 +1454,10 @@ export async function verifyComfyUiWorkflowLibrary(
     const existing = await readVerificationCache(roots.cacheFile);
     const mergedByHash = newestVerificationRecordsByVersionAndPackageHash(existing);
     for (const record of [...verified, ...failed])
-      mergedByHash.set(verificationCacheKey(record.packageHash, record.comfyUiVersion), record);
+      mergedByHash.set(
+        verificationCacheKey(record.serverIdentity, record.packageHash, record.comfyUiVersion),
+        record,
+      );
     await writeComfyUiWorkflowVerificationCache(
       [...mergedByHash.values()],
       request.projectFilePath,
@@ -1220,7 +1465,12 @@ export async function verifyComfyUiWorkflowLibrary(
     );
   }
   const refreshed = await listComfyUiWorkflowLibrary(
-    { projectFilePath: request.projectFilePath, includeOverridden: true, comfyUiVersion },
+    {
+      projectFilePath: request.projectFilePath,
+      includeOverridden: true,
+      serverIdentity,
+      comfyUiVersion,
+    },
     options,
   );
   const allDiagnostics = [...diagnostics, ...failed.flatMap((record) => record.diagnostics)];

@@ -50,18 +50,23 @@ function workflow(overrides: Partial<ComfyUiWorkflowDefinition>): ComfyUiWorkflo
     id: 'workflow',
     label: 'Workflow',
     provider: 'comfyui',
-    role: 'image.generate',
+    classification: 'image.generate',
     workflowFile: 'workflow.json',
     contract: {
-      inputs: { prompt: { type: 'string', required: true } },
-      outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+      inputs: {
+        prompt: { type: 'string', required: true },
+        filenamePrefix: { type: 'string', required: false, defaultValue: 'NovelTea' },
+      },
+      outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
     },
     requiredNodeClasses: [],
-    bindings: { prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' } },
-    outputBindings: {
-      images: [{ nodeId: '9', valueType: 'image-list', primary: 'first' }],
+    bindings: {
+      prompt: [{ nodeId: 'prompt', inputName: 'value' }],
+      filenamePrefix: [{ nodeId: '9', inputName: 'filename_prefix' }],
     },
-    defaults: { filenamePrefix: 'NovelTea' },
+    outputBindings: {
+      images: [{ nodeId: '9' }],
+    },
     manifestFile: 'workflow.manifest.json',
     ...overrides,
   };
@@ -83,10 +88,11 @@ function mockWorkflowList(
         source,
         id: definition.id,
         label: definition.label,
-        role: definition.role,
+        classification: definition.classification,
         definition,
         offlineStatus: 'valid',
         onlineStatus: 'unverified',
+        runnable: true,
         diagnostics: [],
         verificationDiagnostics: [],
       };
@@ -130,17 +136,17 @@ beforeEach(() => {
     workflow({
       id: 'flux2-klein-image-edit',
       label: 'Flux 2 Klein Image Edit',
-      role: 'image.edit',
+      classification: 'image.edit',
       contract: {
         inputs: {
           sourceImage: { type: 'image', required: true },
           prompt: { type: 'string', required: true },
         },
-        outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+        outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
       },
       bindings: {
-        sourceImage: { nodeId: 'source', inputName: 'image', valueType: 'image-upload-reference' },
-        prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
+        sourceImage: [{ nodeId: 'source', inputName: 'image' }],
+        prompt: [{ nodeId: 'prompt', inputName: 'value' }],
       },
     }),
   ]);
@@ -237,7 +243,6 @@ describe('ImageGenerationEditor', () => {
 
   it('resolves logical default workflow IDs to the active source-specific workflow key', async () => {
     usePreferencesStore.getState().setComfyUiConfig({
-      defaultWorkflowId: 'flux2-klein-text-to-image',
       defaultWorkflows: {
         'image.generate': 'flux2-klein-text-to-image',
         'image.edit': 'flux2-klein-image-edit',
@@ -250,28 +255,24 @@ describe('ImageGenerationEditor', () => {
         workflow({ id: 'flux2-klein-text-to-image', label: 'Project Override Generate' }),
         workflow({
           id: 'flux2-klein-image-edit',
-          label: 'Editor Override Edit',
-          role: 'image.edit',
+          label: 'User Override Edit',
+          classification: 'image.edit',
           contract: {
             inputs: {
               sourceImage: { type: 'image', required: true },
               prompt: { type: 'string', required: true },
             },
-            outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+            outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
           },
           bindings: {
-            sourceImage: {
-              nodeId: 'source',
-              inputName: 'image',
-              valueType: 'image-upload-reference',
-            },
-            prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
+            sourceImage: [{ nodeId: 'source', inputName: 'image' }],
+            prompt: [{ nodeId: 'prompt', inputName: 'value' }],
           },
         }),
       ],
       {
         'flux2-klein-text-to-image': 'project',
-        'flux2-klein-image-edit': 'editor',
+        'flux2-klein-image-edit': 'user',
         'other-generate': 'built-in',
       },
     );
@@ -284,7 +285,7 @@ describe('ImageGenerationEditor', () => {
       ),
     );
     expect(screen.getByLabelText('Edit workflow')).toHaveValue(
-      'editor:flux2-klein-image-edit.manifest.json',
+      'user:flux2-klein-image-edit.manifest.json',
     );
 
     fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'a default override' } });
@@ -385,19 +386,18 @@ describe('ImageGenerationEditor', () => {
         contract: {
           inputs: {
             prompt: { type: 'string', required: true },
-            negativePrompt: { type: 'string', required: false },
-            width: { type: 'integer', required: false },
-            cfg: { type: 'number', required: false },
+            negativePrompt: { type: 'string', required: false, defaultValue: 'blur' },
+            width: { type: 'integer', required: false, defaultValue: 768 },
+            cfg: { type: 'number', required: false, defaultValue: 6.5 },
           },
-          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+          outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
         },
         bindings: {
-          prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
-          negativePrompt: { nodeId: 'negative', inputName: 'value', valueType: 'string' },
-          width: { nodeId: 'width', inputName: 'value', valueType: 'integer' },
-          cfg: { nodeId: 'cfg', inputName: 'value', valueType: 'number' },
+          prompt: [{ nodeId: 'prompt', inputName: 'value' }],
+          negativePrompt: [{ nodeId: 'negative', inputName: 'value' }],
+          width: [{ nodeId: 'width', inputName: 'value' }],
+          cfg: [{ nodeId: 'cfg', inputName: 'value' }],
         },
-        defaults: { width: 768, cfg: 6.5, negativePrompt: 'blur', filenamePrefix: 'NovelTea' },
       }),
     ]);
 
@@ -437,26 +437,25 @@ describe('ImageGenerationEditor', () => {
         contract: {
           inputs: {
             prompt: { type: 'string', required: true },
-            negativePrompt: { type: 'string', required: false },
-            cfg: { type: 'number', required: false },
+            negativePrompt: { type: 'string', required: false, defaultValue: 'old default' },
+            cfg: { type: 'number', required: false, defaultValue: 4 },
           },
-          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+          outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
         },
         bindings: {
-          prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
-          negativePrompt: { nodeId: 'negative', inputName: 'value', valueType: 'string' },
-          cfg: { nodeId: 'cfg', inputName: 'value', valueType: 'number' },
+          prompt: [{ nodeId: 'prompt', inputName: 'value' }],
+          negativePrompt: [{ nodeId: 'negative', inputName: 'value' }],
+          cfg: [{ nodeId: 'cfg', inputName: 'value' }],
         },
-        defaults: { negativePrompt: 'old default', cfg: 4, filenamePrefix: 'NovelTea' },
       }),
       workflow({
         id: 'prompt-only',
         label: 'Prompt Only',
         contract: {
           inputs: { prompt: { type: 'string', required: true } },
-          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+          outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
         },
-        bindings: { prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' } },
+        bindings: { prompt: [{ nodeId: 'prompt', inputName: 'value' }] },
       }),
     ]);
 
@@ -488,33 +487,23 @@ describe('ImageGenerationEditor', () => {
       workflow({
         id: 'bound-edit',
         label: 'Bound Edit',
-        role: 'image.edit',
+        classification: 'image.edit',
         contract: {
           inputs: {
             sourceImage: { type: 'image', required: true },
             prompt: { type: 'string', required: true },
-            negativePrompt: { type: 'string', required: false },
-            steps: { type: 'integer', required: false },
-            cfg: { type: 'number', required: false },
+            negativePrompt: { type: 'string', required: false, defaultValue: 'low quality' },
+            steps: { type: 'integer', required: false, defaultValue: 12 },
+            cfg: { type: 'number', required: false, defaultValue: 5.5 },
           },
-          outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+          outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
         },
         bindings: {
-          sourceImage: {
-            nodeId: 'source',
-            inputName: 'image',
-            valueType: 'image-upload-reference',
-          },
-          prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' },
-          negativePrompt: { nodeId: 'negative', inputName: 'value', valueType: 'string' },
-          steps: { nodeId: 'steps', inputName: 'value', valueType: 'integer' },
-          cfg: { nodeId: 'cfg', inputName: 'value', valueType: 'number' },
-        },
-        defaults: {
-          negativePrompt: 'low quality',
-          steps: 12,
-          cfg: 5.5,
-          filenamePrefix: 'NovelTea',
+          sourceImage: [{ nodeId: 'source', inputName: 'image' }],
+          prompt: [{ nodeId: 'prompt', inputName: 'value' }],
+          negativePrompt: [{ nodeId: 'negative', inputName: 'value' }],
+          steps: [{ nodeId: 'steps', inputName: 'value' }],
+          cfg: [{ nodeId: 'cfg', inputName: 'value' }],
         },
       }),
     ]);

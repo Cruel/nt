@@ -27,18 +27,18 @@ import {
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import type { ComfyUiBindingCandidate } from '../../../shared/comfyui-workflow-inference';
 import {
+  COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG,
   COMFYUI_WORKFLOW_SCHEMA_VERSION,
-  COMFYUI_WORKFLOW_ROLE_CATALOG,
-  SUPPORTED_COMFYUI_WORKFLOW_ROLES,
+  KNOWN_COMFYUI_WORKFLOW_CLASSIFICATIONS,
+  parseComfyUiWorkflowDefinition,
   type ComfyUiAnalyzeWorkflowImportResponse,
+  type ComfyUiKnownWorkflowClassification,
   type ComfyUiSemanticInput,
+  type ComfyUiWorkflowClassificationInputDefinition,
   type ComfyUiWorkflowContract,
   type ComfyUiWorkflowDefinition,
-  type ComfyUiWorkflowRoleInputDefinition,
   type ComfyUiWorkflowDiagnostic,
   type ComfyUiWorkflowLibraryEntry,
-  type ComfyUiWorkflowRole,
-  type ComfyUiWorkflowValueType,
 } from '../../../shared/comfyui-workflows';
 
 interface ComfyUiWorkflowImportDialogProps {
@@ -88,37 +88,41 @@ function candidateKey(candidate: ComfyUiBindingCandidate) {
 }
 
 function inputEntries(
-  role: ComfyUiWorkflowRole,
-): Array<[ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition]> {
-  const inputs = COMFYUI_WORKFLOW_ROLE_CATALOG[role].contract.inputs;
+  role: ComfyUiKnownWorkflowClassification,
+): Array<[ComfyUiSemanticInput, ComfyUiWorkflowClassificationInputDefinition]> {
+  const inputs = COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[role].contract.inputs;
   return (
-    Object.entries(inputs) as Array<[ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition]>
+    Object.entries(inputs) as Array<
+      [ComfyUiSemanticInput, ComfyUiWorkflowClassificationInputDefinition]
+    >
   ).sort(
     (left, right) =>
       Number(right[1].required) - Number(left[1].required) || left[0].localeCompare(right[0]),
   );
 }
 
-function manifestContractForRole(role: ComfyUiWorkflowRole): ComfyUiWorkflowContract {
-  const roleContract = COMFYUI_WORKFLOW_ROLE_CATALOG[role].contract;
+function manifestContractForRole(
+  role: ComfyUiKnownWorkflowClassification,
+): ComfyUiWorkflowContract {
+  const roleContract = COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[role].contract;
   const inputs: ComfyUiWorkflowContract['inputs'] = {};
   for (const [semanticKey, input] of Object.entries(roleContract.inputs) as Array<
-    [ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition]
+    [ComfyUiSemanticInput, ComfyUiWorkflowClassificationInputDefinition]
   >) {
     inputs[semanticKey] = {
       type: input.type,
       required: input.required,
-      ...(input.editorField ? { editorField: input.editorField } : {}),
       ...(input.defaultValue !== undefined ? { defaultValue: input.defaultValue } : {}),
+      ...(input.editorField ? { authoring: { editorField: input.editorField } } : {}),
     };
   }
   return {
     inputs,
     outputs: {
       images: {
-        type: roleContract.outputs.images.type,
+        mediaType: roleContract.outputs.images.mediaType,
         required: roleContract.outputs.images.required,
-        primary: roleContract.outputs.images.primary,
+        cardinality: roleContract.outputs.images.cardinality,
       },
     },
   };
@@ -126,9 +130,9 @@ function manifestContractForRole(role: ComfyUiWorkflowRole): ComfyUiWorkflowCont
 
 function roleCandidates(
   response: ComfyUiAnalyzeWorkflowImportResponse | null,
-  role: ComfyUiWorkflowRole,
+  role: ComfyUiKnownWorkflowClassification,
 ) {
-  return response?.roleCandidates[role]?.candidates ?? {};
+  return response?.classificationCandidates[role]?.candidates ?? {};
 }
 
 function candidateLabel(candidate: ComfyUiBindingCandidate) {
@@ -145,7 +149,7 @@ function readableValue(value: unknown) {
 
 function defaultForCandidate(
   candidate: ComfyUiBindingCandidate | undefined,
-  fallback: string | number | undefined,
+  fallback: string | number | boolean | undefined,
   semanticKey: ComfyUiSemanticInput,
 ) {
   const current = readableValue(candidate?.currentValue);
@@ -171,28 +175,30 @@ function findCandidate(candidates: ComfyUiBindingCandidate[], key: string | unde
   return candidates.find((candidate) => candidateKey(candidate) === key);
 }
 
-function keyForBinding(
+function keyForBindings(
   candidates: ComfyUiBindingCandidate[],
-  binding: ComfyUiWorkflowDefinition['bindings'][ComfyUiSemanticInput],
+  bindings: ComfyUiWorkflowDefinition['bindings'][string] | undefined,
 ) {
-  if (!binding) return undefined;
-  const title = binding.selector?.title ?? binding.nodeTitle;
-  const classType = binding.selector?.classType ?? binding.classType;
-  const inputName = binding.selector?.inputName ?? binding.inputName;
-  const match =
-    candidates.find(
-      (candidate) =>
-        (binding.nodeId ? candidate.nodeId === binding.nodeId : true) &&
-        candidate.inputName === inputName &&
-        (!classType || candidate.classType === classType),
-    ) ??
-    candidates.find(
-      (candidate) =>
-        candidate.inputName === inputName &&
-        (!title || candidate.nodeTitle === title) &&
-        (!classType || candidate.classType === classType),
-    );
-  return match ? candidateKey(match) : undefined;
+  for (const binding of bindings ?? []) {
+    const title = binding.selector?.title ?? binding.nodeTitle;
+    const classType = binding.selector?.classType ?? binding.classType;
+    const inputName = binding.selector?.inputName ?? binding.inputName;
+    const match =
+      candidates.find(
+        (candidate) =>
+          (binding.nodeId ? candidate.nodeId === binding.nodeId : true) &&
+          candidate.inputName === inputName &&
+          (!classType || candidate.classType === classType),
+      ) ??
+      candidates.find(
+        (candidate) =>
+          candidate.inputName === inputName &&
+          (!title || candidate.nodeTitle === title) &&
+          (!classType || candidate.classType === classType),
+      );
+    if (match) return candidateKey(match);
+  }
+  return undefined;
 }
 
 function keyForOutputBinding(
@@ -211,7 +217,7 @@ function keyForOutputBinding(
 
 function selectedInputCandidates(
   response: ComfyUiAnalyzeWorkflowImportResponse | null,
-  role: ComfyUiWorkflowRole,
+  role: ComfyUiKnownWorkflowClassification,
   selections: InputSelections,
 ) {
   const candidates = roleCandidates(response, role);
@@ -227,7 +233,7 @@ function selectedInputCandidates(
 
 function buildInitialInputSelections(
   response: ComfyUiAnalyzeWorkflowImportResponse | null,
-  role: ComfyUiWorkflowRole,
+  role: ComfyUiKnownWorkflowClassification,
 ): InputSelections {
   const candidates = roleCandidates(response, role);
   const selections: InputSelections = {};
@@ -238,14 +244,25 @@ function buildInitialInputSelections(
   return selections;
 }
 
+function knownImageClassification(
+  definition: ComfyUiWorkflowDefinition,
+): ComfyUiKnownWorkflowClassification | null {
+  return definition.classification === 'image.generate' ||
+    definition.classification === 'image.edit'
+    ? definition.classification
+    : null;
+}
+
 function buildRepairInputSelections(
   response: ComfyUiAnalyzeWorkflowImportResponse | null,
   definition: ComfyUiWorkflowDefinition,
 ): InputSelections {
-  const candidates = roleCandidates(response, definition.role);
+  const classification = knownImageClassification(definition);
+  if (!classification) return {};
+  const candidates = roleCandidates(response, classification);
   const selections: InputSelections = {};
-  for (const [semanticKey] of inputEntries(definition.role)) {
-    const key = keyForBinding(candidates[semanticKey] ?? [], definition.bindings[semanticKey]);
+  for (const [semanticKey] of inputEntries(classification)) {
+    const key = keyForBindings(candidates[semanticKey] ?? [], definition.bindings[semanticKey]);
     if (key) selections[semanticKey] = key;
   }
   return selections;
@@ -253,7 +270,7 @@ function buildRepairInputSelections(
 
 function buildInitialOutputs(
   response: ComfyUiAnalyzeWorkflowImportResponse | null,
-  role: ComfyUiWorkflowRole,
+  role: ComfyUiKnownWorkflowClassification,
 ) {
   const candidates = roleCandidates(response, role).images ?? [];
   const preferred =
@@ -265,7 +282,9 @@ function buildRepairOutputs(
   response: ComfyUiAnalyzeWorkflowImportResponse | null,
   definition: ComfyUiWorkflowDefinition,
 ) {
-  const candidates = roleCandidates(response, definition.role).images ?? [];
+  const classification = knownImageClassification(definition);
+  if (!classification) return [];
+  const candidates = roleCandidates(response, classification).images ?? [];
   const bindings = definition.outputBindings.images ?? [];
   const keys = bindings
     .map((binding) => keyForOutputBinding(candidates, binding))
@@ -282,7 +301,7 @@ function selectorFor(candidate: ComfyUiBindingCandidate) {
 }
 
 function buildManifest(options: {
-  role: ComfyUiWorkflowRole;
+  role: ComfyUiKnownWorkflowClassification;
   workflowId: string;
   label: string;
   description: string;
@@ -292,7 +311,6 @@ function buildManifest(options: {
   outputSelections: string[];
   defaultsDraft: DefaultsDraft;
 }): ComfyUiWorkflowDefinition {
-  const roleDefinition = COMFYUI_WORKFLOW_ROLE_CATALOG[options.role];
   const candidates = roleCandidates(options.response, options.role);
   const selectedInputs = selectedInputCandidates(
     options.response,
@@ -308,34 +326,39 @@ function buildManifest(options: {
     [ComfyUiSemanticInput, ComfyUiBindingCandidate]
   >) {
     if (candidate.valueType === 'image-list') continue;
-    bindings[semanticKey] = {
-      nodeId: candidate.nodeId,
-      ...(candidate.nodeTitle ? { nodeTitle: candidate.nodeTitle } : {}),
-      classType: candidate.classType,
-      inputName: candidate.inputName,
-      valueType: candidate.valueType as ComfyUiWorkflowValueType,
-      selector: selectorFor(candidate),
-    };
+    bindings[semanticKey] = [
+      {
+        nodeId: candidate.nodeId,
+        ...(candidate.nodeTitle ? { nodeTitle: candidate.nodeTitle } : {}),
+        classType: candidate.classType,
+        inputName: candidate.inputName,
+        selector: selectorFor(candidate),
+      },
+    ];
   }
 
   const outputBindings = selectedOutputs.map((candidate) => ({
     nodeId: candidate.nodeId,
     ...(candidate.nodeTitle ? { nodeTitle: candidate.nodeTitle } : {}),
     classType: candidate.classType,
-    valueType: 'image-list' as const,
-    primary: 'first' as const,
   }));
 
-  const defaults: ComfyUiWorkflowDefinition['defaults'] = {
-    filenamePrefix: options.defaultsDraft.filenamePrefix || 'NovelTea',
-  };
-  for (const [semanticKey, value] of Object.entries(options.defaultsDraft) as Array<
-    [ComfyUiSemanticInput, string]
-  >) {
-    if (semanticKey === 'filenamePrefix' || value.trim() === '') continue;
-    const input = roleDefinition.contract.inputs[semanticKey];
+  const roleContract = manifestContractForRole(options.role);
+  const contractInputs: ComfyUiWorkflowContract['inputs'] = {};
+  for (const semanticKey of Object.keys(selectedInputs) as ComfyUiSemanticInput[]) {
+    const input = roleContract.inputs[semanticKey];
     if (!input) continue;
-    defaults[semanticKey] = input.type === 'string' ? value : Number(value);
+    const draft = options.defaultsDraft[semanticKey]?.trim();
+    let defaultValue = input.defaultValue;
+    if (draft) {
+      if (input.type === 'string' || input.type === 'image') defaultValue = draft;
+      else if (input.type === 'boolean') defaultValue = draft === 'true';
+      else defaultValue = Number(draft);
+    }
+    contractInputs[semanticKey] = {
+      ...input,
+      ...(defaultValue !== undefined ? { defaultValue } : {}),
+    };
   }
 
   return {
@@ -343,14 +366,13 @@ function buildManifest(options: {
     id: options.workflowId,
     label: options.label,
     provider: 'comfyui',
-    role: options.role,
+    classification: options.role,
     ...(options.description.trim() ? { description: options.description.trim() } : {}),
     workflowFile: options.workflowFileName,
-    contract: manifestContractForRole(options.role),
+    contract: { inputs: contractInputs, outputs: roleContract.outputs },
     requiredNodeClasses: [...(options.response.analysis?.classTypes ?? [])].sort(),
     bindings,
     outputBindings: { images: outputBindings },
-    defaults,
   };
 }
 
@@ -399,7 +421,7 @@ export function ComfyUiWorkflowImportDialog({
   const [saving, setSaving] = useState(false);
   const [analysisResponse, setAnalysisResponse] =
     useState<ComfyUiAnalyzeWorkflowImportResponse | null>(null);
-  const [role, setRole] = useState<ComfyUiWorkflowRole>('image.generate');
+  const [role, setRole] = useState<ComfyUiKnownWorkflowClassification>('image.generate');
   const [workflowId, setWorkflowId] = useState('imported-workflow');
   const [label, setLabel] = useState('Imported Workflow');
   const [description, setDescription] = useState('');
@@ -409,6 +431,8 @@ export function ComfyUiWorkflowImportDialog({
   const [defaultsDraft, setDefaultsDraft] = useState<DefaultsDraft>({ filenamePrefix: 'NovelTea' });
   const [saveDiagnostics, setSaveDiagnostics] = useState<ComfyUiWorkflowDiagnostic[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [manualManifestMode, setManualManifestMode] = useState(false);
+  const [manualManifestJson, setManualManifestJson] = useState('');
 
   const candidates = roleCandidates(analysisResponse, role);
   const workflowFileName = `${slugify(workflowId)}.workflow.json`;
@@ -441,10 +465,19 @@ export function ComfyUiWorkflowImportDialog({
     workflowFileName,
     workflowId,
   ]);
+  const manualManifest = useMemo(() => {
+    if (!manualManifestMode) return null;
+    try {
+      return parseComfyUiWorkflowDefinition(JSON.parse(manualManifestJson));
+    } catch {
+      return null;
+    }
+  }, [manualManifestJson, manualManifestMode]);
+  const effectiveManifest = manualManifestMode ? manualManifest : manifest;
   const requiredInputsMissing = inputEntries(role).some(
     ([semanticKey, input]) => input.required && !selectedInputs[semanticKey],
   );
-  const outputCardinality = COMFYUI_WORKFLOW_ROLE_CATALOG[role].contract.outputs.images;
+  const outputCardinality = COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[role].contract.outputs.images;
   const requiredOutputsMissing = outputSelections.length < outputCardinality.minBindings;
   const tooManyOutputsSelected = outputSelections.length > outputCardinality.maxBindings;
   const canContinue = analysisResponse?.ok && !analyzing;
@@ -468,23 +501,42 @@ export function ComfyUiWorkflowImportDialog({
       setDefaultsDraft({ filenamePrefix: 'NovelTea' });
       setSaveDiagnostics([]);
       setError(null);
+      setManualManifestMode(false);
+      setManualManifestJson('');
     }
   }, [open]);
 
   useEffect(() => {
     if (!open || !repairEntry?.definition || !repairEntry.workflowJsonText) return;
     const definition = repairEntry.definition;
+    const repairClassification = knownImageClassification(definition);
+    if (!repairClassification) {
+      setStep(6);
+      setFileName(definition.workflowFile);
+      setWorkflowJsonText(repairEntry.workflowJsonText);
+      setWorkflowId(definition.id);
+      setLabel(definition.label);
+      setDescription(definition.description ?? '');
+      setOverwrite(true);
+      setManualManifestMode(true);
+      setManualManifestJson(JSON.stringify(definition, null, 2));
+      setSaveDiagnostics([]);
+      setError(null);
+      return;
+    }
     setStep(1);
     setFileName(definition.workflowFile);
     setWorkflowJsonText(repairEntry.workflowJsonText);
-    setRole(definition.role);
+    setRole(repairClassification);
     setWorkflowId(definition.id);
     setLabel(definition.label);
     setDescription(definition.description ?? '');
     setOverwrite(true);
     setDefaultsDraft(
       Object.fromEntries(
-        Object.entries(definition.defaults).map(([key, value]) => [key, String(value)]),
+        Object.entries(definition.contract.inputs)
+          .filter(([, input]) => input.defaultValue !== undefined)
+          .map(([key, input]) => [key, String(input.defaultValue)]),
       ) as DefaultsDraft,
     );
     setSaveDiagnostics([]);
@@ -508,7 +560,7 @@ export function ComfyUiWorkflowImportDialog({
           caught instanceof Error ? caught.message : t('comfyuiImport.errors.analyzeRepairFailed');
         setAnalysisResponse({
           ok: false,
-          roleCandidates: {},
+          classificationCandidates: {},
           diagnostics: [
             { severity: 'error', category: 'comfyui-workflows', path: '/workflow', message },
           ],
@@ -565,7 +617,7 @@ export function ComfyUiWorkflowImportDialog({
         caught instanceof Error ? caught.message : t('comfyuiImport.errors.readFailed');
       setAnalysisResponse({
         ok: false,
-        roleCandidates: {},
+        classificationCandidates: {},
         diagnostics: [
           { severity: 'error', category: 'comfyui-workflows', path: '/workflow', message },
         ],
@@ -584,7 +636,11 @@ export function ComfyUiWorkflowImportDialog({
   }
 
   async function saveImport() {
-    if (!manifest || requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected)
+    if (
+      !effectiveManifest ||
+      (!manualManifestMode &&
+        (requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected))
+    )
       return;
     if (mode === 'repair' && repairEntry?.source === 'project' && !projectFilePath) {
       setError(t('comfyuiImport.errors.saveProjectBeforeImport'));
@@ -599,8 +655,8 @@ export function ComfyUiWorkflowImportDialog({
             workflowKey: repairEntry.workflowKey,
             projectFilePath,
             manifest: {
-              ...manifest,
-              workflowFile: repairEntry.definition?.workflowFile ?? manifest.workflowFile,
+              ...effectiveManifest,
+              workflowFile: repairEntry.definition?.workflowFile ?? effectiveManifest.workflowFile,
             },
             overwrite: true,
           })
@@ -608,7 +664,7 @@ export function ComfyUiWorkflowImportDialog({
             workflowFileName,
             manifestFileName,
             workflowJsonText,
-            manifest,
+            manifest: effectiveManifest,
             overwrite,
             config,
           });
@@ -672,19 +728,22 @@ export function ComfyUiWorkflowImportDialog({
       );
     }
     if (step === 1) {
-      const selectedRole = COMFYUI_WORKFLOW_ROLE_CATALOG[role];
+      const selectedRole = COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[role];
       return (
         <div className="grid gap-3 md:grid-cols-2">
           <div className="space-y-1 md:col-span-2">
             <Label>{t('comfyuiImport.metadata.role')}</Label>
-            <Select value={role} onValueChange={(value) => setRole(value as ComfyUiWorkflowRole)}>
+            <Select
+              value={role}
+              onValueChange={(value) => setRole(value as ComfyUiKnownWorkflowClassification)}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue>{selectedRole.label}</SelectValue>
               </SelectTrigger>
               <SelectContent align="start">
-                {SUPPORTED_COMFYUI_WORKFLOW_ROLES.map((nextRole) => (
+                {KNOWN_COMFYUI_WORKFLOW_CLASSIFICATIONS.map((nextRole) => (
                   <SelectItem key={nextRole} value={nextRole}>
-                    {COMFYUI_WORKFLOW_ROLE_CATALOG[nextRole].label}
+                    {COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[nextRole].label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -926,6 +985,30 @@ export function ComfyUiWorkflowImportDialog({
     }
     return (
       <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2 rounded border p-2 text-xs">
+          <div>
+            <div className="font-medium">Generic manifest authoring</div>
+            <div className="text-muted-foreground">
+              Image conventions can be inferred automatically; manual JSON supports arbitrary public
+              IDs, classifications, types, cardinalities, and binding arrays.
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant={manualManifestMode ? 'secondary' : 'outline'}
+            onClick={() => {
+              if (manualManifestMode) {
+                setManualManifestMode(false);
+                return;
+              }
+              if (manifest) setManualManifestJson(JSON.stringify(manifest, null, 2));
+              setManualManifestMode(true);
+            }}
+          >
+            {manualManifestMode ? 'Use inferred image manifest' : 'Edit generic manifest JSON'}
+          </Button>
+        </div>
         <div className="rounded border p-2 text-xs">
           <div>
             <span className="text-muted-foreground">{t('comfyuiImport.review.workflow')}:</span>{' '}
@@ -940,11 +1023,29 @@ export function ComfyUiWorkflowImportDialog({
           diagnostics={[...(analysisResponse?.diagnostics ?? []), ...saveDiagnostics]}
           emptyMessage={t('comfyuiImport.diagnostics.empty')}
         />
-        <pre className="max-h-80 overflow-auto rounded border bg-muted/30 p-2 text-[11px]">
-          {manifest
-            ? JSON.stringify(manifest, null, 2)
-            : t('comfyuiImport.review.manifestNotReady')}
-        </pre>
+        {manualManifestMode ? (
+          <div className="space-y-1">
+            <Label htmlFor="comfyui-generic-manifest-json">Strict V2 manifest JSON</Label>
+            <textarea
+              id="comfyui-generic-manifest-json"
+              className="min-h-80 w-full resize-y rounded border bg-background p-2 font-mono text-[11px]"
+              value={manualManifestJson}
+              onChange={(event) => setManualManifestJson(event.currentTarget.value)}
+              spellCheck={false}
+            />
+            {!manualManifest ? (
+              <div className="text-xs text-destructive">
+                Manifest JSON must parse as the current strict ComfyUI workflow V2 contract.
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <pre className="max-h-80 overflow-auto rounded border bg-muted/30 p-2 text-[11px]">
+            {manifest
+              ? JSON.stringify(manifest, null, 2)
+              : t('comfyuiImport.review.manifestNotReady')}
+          </pre>
+        )}
       </div>
     );
   }
@@ -979,7 +1080,15 @@ export function ComfyUiWorkflowImportDialog({
           <Button
             type="button"
             variant="outline"
-            disabled={step === 0 || (mode === 'repair' && step === 1) || saving}
+            disabled={
+              step === 0 ||
+              (mode === 'repair' &&
+                (step === 1 ||
+                  (manualManifestMode &&
+                    repairEntry?.definition !== undefined &&
+                    !knownImageClassification(repairEntry.definition)))) ||
+              saving
+            }
             onClick={() =>
               setStep((current) => Math.max(mode === 'repair' ? 1 : 0, current - 1) as Step)
             }
@@ -1002,10 +1111,9 @@ export function ComfyUiWorkflowImportDialog({
             <Button
               type="button"
               disabled={
-                !manifest ||
-                requiredInputsMissing ||
-                requiredOutputsMissing ||
-                tooManyOutputsSelected ||
+                !effectiveManifest ||
+                (!manualManifestMode &&
+                  (requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected)) ||
                 saving
               }
               onClick={() => void saveImport()}

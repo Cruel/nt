@@ -28,6 +28,8 @@ import { CliCommandUsageError, parseCliCommand } from './commands';
 import type { NovelTeaAgentKitPayload } from './agent-kit';
 import { runNovelTeaAgentSyncCli } from './agent-sync-cli';
 import { runNovelTeaProjectCreateCli } from './project-create-cli';
+import { runComfyUiCatalogCommand } from './comfyui-catalog-commands';
+import type { WorkflowLibraryServiceOptions } from '../main/services/comfyui-workflow-library-service';
 
 export interface RunNovelTeaCliOptions {
   readonly cwd?: string;
@@ -39,6 +41,9 @@ export interface RunNovelTeaCliOptions {
   readonly agentKitPayload?: NovelTeaAgentKitPayload;
   readonly stdinText?: string;
   readonly readStdinText?: () => string;
+  readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
+  readonly comfyUiAbortSignal?: AbortSignal;
+  readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
 }
 
 const unavailableNativeTools: NovelTeaCliNativeToolService = {
@@ -104,6 +109,29 @@ export async function runNovelTeaCli(
     return runNovelTeaProjectCreateCli(globals, fileSystem, workspace);
   if (globals.command[0] === 'agent' && globals.command[1] === 'sync')
     return runNovelTeaAgentSyncCli(globals, fileSystem, cwd, options.agentKitPayload);
+
+  try {
+    const comfyUiCatalog = await runComfyUiCatalogCommand({
+      command: globals.command,
+      projectOption: globals.project ?? null,
+      json: globals.json,
+      cwd,
+      fileSystem,
+      workspace,
+      libraryOptions: options.comfyUiWorkflowLibraryOptions,
+      abortSignal: options.comfyUiAbortSignal,
+      onRunProgress: options.onComfyUiProgress,
+    });
+    if (comfyUiCatalog) return comfyUiCatalog;
+  } catch (error) {
+    if (error instanceof CliCommandUsageError)
+      return novelTeaCliUsageFailure(error.message, globals.json);
+    return failure(
+      NOVELTEA_CLI_EXIT_CODES.internal,
+      [cliDiagnostic('CLI_INTERNAL', '/', error instanceof Error ? error.message : String(error))],
+      globals.json,
+    );
+  }
 
   try {
     const independent = await runProjectIndependentPlatformCommand({

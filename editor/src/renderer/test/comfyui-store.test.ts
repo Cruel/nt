@@ -15,6 +15,17 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  vi.mocked(window.noveltea.loadComfyUiUserConfig).mockReset();
+  vi.mocked(window.noveltea.loadComfyUiUserConfig).mockResolvedValue({
+    format: 'noveltea.comfyui-user-config',
+    formatVersion: 1,
+    serverUrl: 'http://127.0.0.1:8000',
+    requestTimeoutMs: 15000,
+    defaultWorkflows: {
+      'image.generate': 'flux2-klein-text-to-image',
+      'image.edit': 'flux2-klein-image-edit',
+    },
+  });
   vi.mocked(window.noveltea.checkComfyUiConnection).mockReset();
   vi.mocked(window.noveltea.getComfyUiQueue).mockReset();
   vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockReset();
@@ -52,7 +63,6 @@ beforeEach(() => {
     comfyUiConfig: {
       enabled: false,
       serverUrl: 'http://127.0.0.1:8000',
-      defaultWorkflowId: 'flux2-klein-text-to-image',
       defaultWorkflows: {
         'image.generate': 'flux2-klein-text-to-image',
         'image.edit': 'flux2-klein-image-edit',
@@ -65,6 +75,36 @@ beforeEach(() => {
 });
 
 describe('useComfyUiStore', () => {
+  it('hydrates shared server state without replacing editor-local enablement and cadence', async () => {
+    usePreferencesStore.getState().setComfyUiConfig({
+      enabled: true,
+      connectionCheckIntervalMs: 4321,
+    });
+    vi.mocked(window.noveltea.loadComfyUiUserConfig).mockResolvedValueOnce({
+      format: 'noveltea.comfyui-user-config',
+      formatVersion: 1,
+      serverUrl: 'https://comfy.example.test',
+      requestTimeoutMs: 2222,
+      defaultWorkflows: {
+        'image.generate': 'shared-generate',
+        'audio.generate': 'shared-audio',
+      },
+    });
+
+    await useComfyUiStore.getState().hydrateFromSharedUserConfig();
+
+    expect(useComfyUiStore.getState().config).toMatchObject({
+      enabled: true,
+      connectionCheckIntervalMs: 4321,
+      serverUrl: 'https://comfy.example.test',
+      requestTimeoutMs: 2222,
+      defaultWorkflows: {
+        'image.generate': 'shared-generate',
+        'audio.generate': 'shared-audio',
+      },
+    });
+  });
+
   it('syncs enabled preference changes into the runtime status store', () => {
     expect(useComfyUiStore.getState().status).toMatchObject({
       state: 'disabled',
@@ -173,7 +213,7 @@ describe('useComfyUiStore', () => {
           workflowKey: 'built-in:base.manifest.json',
           id: 'base',
           label: 'Base',
-          role: 'image.generate',
+          classification: 'image.generate',
           manifestFile: 'base.manifest.json',
           workflowFile: 'base.workflow.json',
           manifestPath: '/mock/base.manifest.json',
@@ -183,11 +223,12 @@ describe('useComfyUiStore', () => {
           overridden: false,
           offlineStatus: 'valid',
           onlineStatus: 'unverified',
+          runnable: true,
           repairable: false,
           diagnostics: [],
           verificationDiagnostics: [],
           capabilities: {
-            canCopyToEditor: true,
+            canCopyToUser: true,
             canCopyToProject: true,
             canDelete: false,
             canRepair: false,

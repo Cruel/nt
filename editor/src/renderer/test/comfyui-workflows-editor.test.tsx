@@ -24,22 +24,25 @@ function entry(overrides: Partial<ComfyUiWorkflowLibraryEntry>): ComfyUiWorkflow
     workflowKey: overrides.workflowKey ?? `${source}:${id}.manifest.json`,
     id,
     label: overrides.label ?? 'Flux 2 Klein Text to Image',
-    role: overrides.role ?? 'image.generate',
+    classification: overrides.classification ?? 'image.generate',
     manifestFile: overrides.manifestFile ?? `${id}.manifest.json`,
     workflowFile: overrides.workflowFile ?? `${id}.workflow.json`,
     manifestPath: overrides.manifestPath ?? `/mock/${source}/${id}.manifest.json`,
     workflowPath: overrides.workflowPath ?? `/mock/${source}/${id}.workflow.json`,
     packageHash: 'sha256:mock',
+    definition: overrides.definition,
+    workflowJsonText: overrides.workflowJsonText,
     active: overrides.active ?? true,
     overridden: overrides.overridden ?? false,
     overriddenBy: overrides.overriddenBy,
     offlineStatus: overrides.offlineStatus ?? 'valid',
     onlineStatus: overrides.onlineStatus ?? 'unverified',
+    runnable: overrides.runnable ?? true,
     repairable: overrides.repairable ?? false,
     diagnostics: overrides.diagnostics ?? [],
     verificationDiagnostics: overrides.verificationDiagnostics ?? [],
     capabilities: overrides.capabilities ?? {
-      canCopyToEditor: true,
+      canCopyToUser: true,
       canCopyToProject: true,
       canDelete: source !== 'built-in',
       canRepair: source !== 'built-in',
@@ -148,9 +151,13 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     expect(await screen.findByText('Built-in Portrait')).toBeInTheDocument();
     expect(screen.getByText('Built-in')).toBeInTheDocument();
-    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(null, {
-      includeOverridden: true,
-    });
+    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(
+      null,
+      expect.objectContaining({
+        includeOverridden: true,
+        serverIdentity: 'http://127.0.0.1:8000',
+      }),
+    );
   });
 
   it('shows project actions when a project is open and refreshes with the project path', async () => {
@@ -168,7 +175,10 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(await screen.findByRole('menuitem', { name: 'Copy to Project' })).toBeEnabled();
     expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(
       '11111111-1111-4111-8111-111111111111',
-      { includeOverridden: true },
+      expect.objectContaining({
+        includeOverridden: true,
+        serverIdentity: 'http://127.0.0.1:8000',
+      }),
     );
   });
 
@@ -180,7 +190,7 @@ describe('ComfyUiWorkflowsEditor', () => {
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
-      response([entry({ source: 'editor', id: 'custom', label: 'Custom Workflow' })]),
+      response([entry({ source: 'user', id: 'custom', label: 'Custom Workflow' })]),
     );
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
@@ -192,7 +202,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(window.noveltea.copyComfyUiWorkflow).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
       {
-        workflowKey: 'editor:custom.manifest.json',
+        workflowKey: 'user:custom.manifest.json',
         targetSource: 'project',
       },
     );
@@ -202,7 +212,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     await screen.findByText('Opened workflow in folder.');
     expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
-      'editor:custom.manifest.json',
+      'user:custom.manifest.json',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
@@ -211,7 +221,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(window.confirm).toHaveBeenCalledWith("Delete workflow 'Custom Workflow'?");
     expect(window.noveltea.deleteComfyUiWorkflow).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
-      { workflowKey: 'editor:custom.manifest.json' },
+      { workflowKey: 'user:custom.manifest.json' },
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -226,12 +236,12 @@ describe('ComfyUiWorkflowsEditor', () => {
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
       response([
         entry({
-          source: 'editor',
+          source: 'user',
           id: 'custom',
           label: 'Custom Workflow',
           repairable: true,
           capabilities: {
-            canCopyToEditor: false,
+            canCopyToUser: false,
             canCopyToProject: true,
             canDelete: true,
             canRepair: true,
@@ -253,9 +263,65 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(await screen.findByText('Repair ComfyUI Workflow')).toBeInTheDocument();
   });
 
+  it('opens future classifications in strict generic manifest repair mode', async () => {
+    const genericDefinition = {
+      schemaVersion: 2 as const,
+      id: 'audio-bed',
+      label: 'Audio Bed',
+      provider: 'comfyui' as const,
+      classification: 'audio.generate',
+      workflowFile: 'audio-bed.workflow.json',
+      contract: {
+        inputs: { prompt: { type: 'string' as const, required: true } },
+        outputs: { audio: { mediaType: 'audio', required: true, cardinality: 'one' as const } },
+      },
+      requiredNodeClasses: ['SaveAudio'],
+      bindings: {
+        prompt: [{ nodeId: 'prompt', classType: 'TextNode', inputName: 'text' }],
+      },
+      outputBindings: {
+        audio: [{ nodeId: 'out', classType: 'SaveAudio' }],
+      },
+    };
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
+      response([
+        entry({
+          source: 'user',
+          id: 'audio-bed',
+          label: 'Audio Bed',
+          classification: 'audio.generate',
+          repairable: true,
+          definition: genericDefinition,
+          workflowJsonText: JSON.stringify({
+            prompt: { class_type: 'TextNode', inputs: { text: '' } },
+            out: { class_type: 'SaveAudio', inputs: {} },
+          }),
+          capabilities: {
+            canCopyToUser: false,
+            canCopyToProject: true,
+            canDelete: true,
+            canRepair: true,
+            canReveal: true,
+          },
+        }),
+      ]),
+    );
+
+    render(<ComfyUiWorkflowsEditor tab={tab} />);
+
+    expect(await screen.findByText('Audio Bed')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Audio Bed' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Repair manifest' }));
+    expect(await screen.findByText('Strict V2 manifest JSON')).toBeInTheDocument();
+    expect(
+      (screen.getByLabelText('Strict V2 manifest JSON') as HTMLTextAreaElement).value,
+    ).toContain('audio.generate');
+    expect(screen.getByText(/manual JSON supports arbitrary public IDs/i)).toBeInTheDocument();
+  });
+
   it('edits a mutable workflow name inline', async () => {
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
-      response([entry({ source: 'editor', id: 'custom', label: 'Original Name' })]),
+      response([entry({ source: 'user', id: 'custom', label: 'Original Name' })]),
     );
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
@@ -268,7 +334,7 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     await screen.findByText('Workflow renamed.');
     expect(window.noveltea.renameComfyUiWorkflow).toHaveBeenCalledWith(null, {
-      workflowKey: 'editor:custom.manifest.json',
+      workflowKey: 'user:custom.manifest.json',
       label: 'Renamed Workflow',
     });
   });
