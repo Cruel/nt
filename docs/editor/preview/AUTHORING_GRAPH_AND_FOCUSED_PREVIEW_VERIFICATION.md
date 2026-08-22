@@ -14,9 +14,11 @@ movement of a relationship invalidates both its old and new preview roots.
 
 Ordinary delete is graph- and project-revision gated. The Project Explorer shows planned repairs,
 warnings, and required replacement selectors before confirmation. The command revalidates the current
-revision and applies delete plus repairs as one transaction. Room-placement occupants are moved to
-`{ kind: 'nowhere' }`; array removals use deterministic descending-index ordering. Force Delete
-remains an explicit bypass. The dialog uses the semantic repair-edge closure rather than the legacy
+revision and applies delete plus repairs as one transaction. Room placements are presentation
+anchors, so deleting one never rewrites a Character or Interactable's authoritative Location; only
+actual presentation/context references to that placement participate in repair. Array removals use
+deterministic descending-index ordering. Force Delete remains an explicit bypass. The dialog uses the
+semantic repair-edge closure rather than the legacy
 reference-index projection, so explicit/possible Lua evidence and Room-placement descendant repairs
 remain visible. Generic relationships without a role-specific authoring value encoding fail closed
 instead of constructing a guessed replacement payload.

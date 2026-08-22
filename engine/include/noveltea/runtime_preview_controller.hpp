@@ -50,8 +50,6 @@ public:
 
     std::string set_variable(const std::string& variable_id, core::RuntimeValue value);
     std::string reset_variable(const std::string& variable_id);
-    std::string give_object(const std::string& object_id);
-    std::string remove_inventory_object(const std::string& object_id);
     std::string teleport_room(const std::string& room_id);
 
     bool begin_recording();

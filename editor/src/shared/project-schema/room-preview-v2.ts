@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { shaderMaterialProjectWireSchema } from './shader-material-project';
+import { interactableLocationSchema } from './authoring-interactables';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 const safeProjectLogicalPath = z
@@ -116,15 +117,7 @@ export const focusedRoomQueryStateSchema = strict({
   interactableLocations: z.array(
     strict({
       interactableId: z.string().min(1),
-      location: z.discriminatedUnion('kind', [
-        strict({ kind: z.literal('inventory') }),
-        strict({ kind: z.literal('nowhere') }),
-        strict({
-          kind: z.literal('room-placement'),
-          roomId: z.string().min(1),
-          placementId: z.string().min(1),
-        }),
-      ]),
+      location: interactableLocationSchema,
     }),
   ),
 });
@@ -217,19 +210,24 @@ export const focusedRoomWorldDefinitionSchema = strict({
       characterId: z.string().min(1),
       condition: focusedConditionSchema,
       placementId: z.string().min(1),
+      enabled: z.boolean(),
       visible: z.boolean(),
+      occurrenceVisible: z.boolean(),
       order: z.number().int(),
       visual: focusedCharacterVisualSchema,
     }),
   ),
   interactables: z.array(
     strict({
+      occurrenceId: z.string().min(1),
       interactableId: z.string().min(1),
+      condition: focusedConditionSchema,
       placementId: z.string().min(1),
       spriteAssetId: z.string().min(1).nullable(),
       materialId: z.string().min(1).nullable(),
       enabled: z.boolean(),
       visible: z.boolean(),
+      occurrenceVisible: z.boolean(),
       order: z.number().int(),
     }),
   ),
@@ -433,6 +431,7 @@ export const roomPreviewDocumentV2Schema = strict({
   };
   document.world.overlays.forEach((value) => collectCondition(value.condition));
   document.world.cast.forEach((value) => collectCondition(value.condition));
+  document.world.interactables.forEach((value) => collectCondition(value.condition));
   document.world.props.forEach((value) => collectCondition(value.condition));
   document.world.environments.forEach((value) => collectCondition(value.condition));
   document.ui.exits.forEach((value) => collectCondition(value.condition));
@@ -491,7 +490,7 @@ export const roomPreviewDocumentV2Schema = strict({
     'persistentCharacters',
   ]);
   uniqueIds(document.world.cast, (value) => value.entryId, ['world', 'cast']);
-  uniqueIds(document.world.interactables, (value) => value.interactableId, [
+  uniqueIds(document.world.interactables, (value) => value.occurrenceId, [
     'world',
     'interactables',
   ]);
@@ -506,7 +505,7 @@ export const roomPreviewDocumentV2Schema = strict({
     'world',
     'persistentCharacters',
   ]);
-  canonicalKeys(document.world.interactables, (value) => value.interactableId, [
+  canonicalKeys(document.world.interactables, (value) => value.occurrenceId, [
     'world',
     'interactables',
   ]);
@@ -532,18 +531,6 @@ export const roomPreviewDocumentV2Schema = strict({
     if (!placements.has(value.placementId))
       issue(['world', 'props', index, 'placementId'], 'Referenced Room placement does not exist.');
   });
-  document.queryState.interactableLocations.forEach((value, index) => {
-    if (
-      value.location.kind === 'room-placement' &&
-      value.location.roomId === document.room.roomId &&
-      !placements.has(value.location.placementId)
-    )
-      issue(
-        ['queryState', 'interactableLocations', index, 'location', 'placementId'],
-        'Referenced current-Room placement does not exist.',
-      );
-  });
-
   const overlayLayouts = new Map<string, number>();
   let gameHudCount = 0;
   document.layouts.forEach((layout, index) => {

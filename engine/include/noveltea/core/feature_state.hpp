@@ -204,8 +204,7 @@ struct InteractableState {
     bool visible = true;
 };
 
-using CharacterWorldLocation =
-    std::variant<compiled::NowhereCharacterLocation, compiled::RoomPlacementRef>;
+using CharacterWorldLocation = compiled::CharacterInitialWorldLocation;
 
 struct CharacterWorldState {
     CharacterId character;

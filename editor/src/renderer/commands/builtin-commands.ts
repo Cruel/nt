@@ -310,21 +310,8 @@ function preflightStructuralPatches(
         roomId,
         placementId,
       });
-      if (preflight.kind === 'blocked') {
-        if (preflight.usages.length === 0)
-          return [
-            error(preflight.reason, buildJsonPointer(['rooms', roomId, 'data', 'placements'])),
-          ];
-        const unrepaired = preflight.usages.filter((usage) => {
-          if (!hasJsonAtPointer(candidate, usage.edge.sourcePath)) return false;
-          const location = getJsonAtPointer(candidate, usage.edge.sourcePath);
-          return !isJsonObject(location) || location.kind !== 'nowhere';
-        });
-        if (unrepaired.length > 0)
-          return [
-            error(preflight.reason, buildJsonPointer(['rooms', roomId, 'data', 'placements'])),
-          ];
-      }
+      if (preflight.kind === 'blocked')
+        return [error(preflight.reason, buildJsonPointer(['rooms', roomId, 'data', 'placements']))];
       if (preflight.kind === 'ready' && preflight.warnings.length > 0) {
         diagnostics.push({
           severity: 'warning',
@@ -337,68 +324,19 @@ function preflightStructuralPatches(
   return diagnostics;
 }
 
-function addRoomPlacementRepairPatches(
-  context: StructuralPatchPreflightContext,
-  result: CommandHandlerResult,
-): CommandHandlerResult {
-  if (!context.graphSnapshot || !context.projectInstanceId) return result;
-  let candidate: JsonValue;
-  try {
-    candidate = applyJsonPatch(context.document, [...result.patches]).document;
-  } catch {
-    return result;
-  }
-  const repairs: JsonPatchOperation[] = [];
-  const beforeRooms = recordMap(context.document, 'rooms');
-  for (const roomId of Object.keys(beforeRooms)) {
-    const remainingPlacements = placementIds(candidate, roomId);
-    for (const placementId of placementIds(context.document, roomId)) {
-      if (remainingPlacements.has(placementId)) continue;
-      for (const edge of context.graphSnapshot.graph.edgesById.values()) {
-        if (
-          edge.target.kind !== 'nested' ||
-          edge.target.ownerCollection !== 'rooms' ||
-          edge.target.ownerId !== roomId ||
-          edge.target.family !== 'room-placement' ||
-          edge.target.id !== placementId ||
-          (edge.role !== 'character-room-placement' &&
-            edge.role !== 'interactable-room-placement') ||
-          !hasJsonAtPointer(candidate, edge.sourcePath)
-        )
-          continue;
-        repairs.push({
-          op: 'replace',
-          path: buildJsonPointer(parseJsonPointer(edge.sourcePath).slice(0, -1)),
-          value: { kind: 'nowhere' },
-        });
-      }
-    }
-  }
-  if (repairs.length === 0) return result;
-  return {
-    ...result,
-    patches: [...result.patches, ...repairs],
-    affectedPaths: [
-      ...(result.affectedPaths ?? result.patches.map((patch) => patch.path)),
-      ...repairs.map((patch) => patch.path),
-    ],
-  };
-}
-
 function withStructuralPatchPreflight(
   context: StructuralPatchPreflightContext,
   result: CommandHandlerResult,
 ): CommandHandlerResult {
-  const repairedResult = addRoomPlacementRepairPatches(context, result);
-  const diagnostics = preflightStructuralPatches(context, repairedResult.patches);
+  const diagnostics = preflightStructuralPatches(context, result.patches);
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
     return { patches: [], diagnostics };
   }
   return diagnostics.length === 0
-    ? repairedResult
+    ? result
     : {
-        ...repairedResult,
-        diagnostics: [...(repairedResult.diagnostics ?? []), ...diagnostics],
+        ...result,
+        diagnostics: [...(result.diagnostics ?? []), ...diagnostics],
       };
 }
 

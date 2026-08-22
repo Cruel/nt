@@ -168,25 +168,55 @@ noveltea.properties.unset_feature(owner_kind, owner_id, feature_id, property_id)
 
 For Feature calls, `owner_kind` is `room` or `interactable`. Use `unset`/`unset_feature` to remove a runtime override. Do not infer "unset" solely from `value == nil`; inspect the `present` return.
 
-## Interactable location and navigation
+## Character and Interactable location
+
+Character Location is semantic world presence, independent of Room presentation placement:
+
+```text
+noveltea.characters.location(character_id) -> location, error
+noveltea.characters.set_location(character_id, location) -> ok, error
+```
+
+Character Location is one of:
+
+```lua
+{ kind = "unplaced" }
+{ kind = "room", room = "room-id" }
+```
+
+Interactables use the same Room/Unplaced forms and may additionally be contained by an owner-qualified Inventory:
 
 ```text
 noveltea.interactables.location(interactable_id) -> location, error
-noveltea.interactables.move_to_inventory(interactable_id) -> ok, error
-noveltea.interactables.move_to_nowhere(interactable_id) -> ok, error
-noveltea.interactables.move_to_placement(interactable_id, room_id, placement_id) -> ok, error
+noveltea.interactables.set_location(interactable_id, location) -> ok, error
 noveltea.navigation.via_exit(room_id, exit_id) -> ok, error
 ```
 
-`location` returns one of:
+Interactable Location is one of:
 
 ```lua
-{ kind = "inventory" }
-{ kind = "nowhere" }
-{ kind = "room-placement", room = "room-id", placement = "placement-id" }
+{ kind = "unplaced" }
+{ kind = "room", room = "room-id" }
+{
+    kind = "inventory",
+    inventory = {
+        id = "owner-local-inventory-id",
+        owner = { kind = "project" },
+    },
+}
 ```
 
-Room placement IDs are interpreted relative to the supplied Room ID.
+Inventory IDs are local to their owner. The complete owner vocabulary is:
+
+```lua
+{ kind = "project" }
+{ kind = "character", character = "character-id" }
+{ kind = "interactable", interactable = "interactable-id" }
+{ kind = "room-feature", room = "room-id", feature = "feature-id" }
+{ kind = "interactable-feature", interactable = "interactable-id", feature = "feature-id" }
+```
+
+Moving an Interactable into an Inventory derives membership from Location; there is no separate pickup/drop membership state. Room Location does not select a Room placement. Characters render through explicit Room cast entries and Interactables through explicit Room occurrences, so presentation placement can vary or repeat without changing semantic identity Location.
 
 ## Flow control
 

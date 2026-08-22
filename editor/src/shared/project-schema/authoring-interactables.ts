@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { assetRefSchema, materialRefSchema } from './authoring-flow';
+import { assetRefSchema, materialRefSchema, roomRefSchema } from './authoring-flow';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import {
@@ -8,6 +8,7 @@ import {
   rectHotspotShapeSchema,
 } from './authoring-hotspots';
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
+import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 export const interactableAssetRefSchema = assetRefSchema;
@@ -29,6 +30,12 @@ export const interactableHotspotsSchema = z.discriminatedUnion('kind', [
     ),
   }),
 ]);
+export const interactableLocationSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('unplaced') }),
+  strict({ kind: z.literal('room'), room: roomRefSchema }),
+  strict({ kind: z.literal('inventory'), inventory: inventoryReferenceSchema }),
+]);
+
 export const interactableDataSchema = strict({
   kind: z.literal('interactable'),
   displayName: z.string(),
@@ -38,7 +45,9 @@ export const interactableDataSchema = strict({
     hotspots: interactableHotspotsSchema,
   }),
   features: z.array(featureDataSchema),
+  inventories: z.array(inventoryDefinitionSchema),
   initialState: strict({
+    location: interactableLocationSchema,
     enabled: z.boolean(),
     visible: z.boolean(),
   }),
@@ -79,7 +88,8 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
       hotspots: { kind: 'sprite-alpha', hotspot: defaultHotspotBehavior(label) },
     },
     features: [],
-    initialState: { enabled: true, visible: true },
+    inventories: [],
+    initialState: { location: { kind: 'unplaced' }, enabled: true, visible: true },
   };
 }
 export const interactableAssetRef = (id: string) => ({
@@ -124,6 +134,16 @@ export function validateInteractableData(
       diagnostic(
         `${base}/presentation/material/$ref`,
         `Missing material '${data.presentation.material.$ref.id}'.`,
+      ),
+    );
+  if (
+    data.initialState.location.kind === 'room' &&
+    !project.rooms[data.initialState.location.room.$ref.id]
+  )
+    diagnostics.push(
+      diagnostic(
+        `${base}/initialState/location/room/$ref`,
+        `Missing room '${data.initialState.location.room.$ref.id}'.`,
       ),
     );
   return diagnostics;

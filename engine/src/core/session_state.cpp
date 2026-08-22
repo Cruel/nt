@@ -75,17 +75,40 @@ bool valid_character_state(const compiled::CharacterDefinition& character,
            std::isfinite(actor.placement.scale) && actor.placement.scale > 0.0;
 }
 
+bool valid_room_placement(const CompiledProject& project,
+                          const compiled::RoomPlacementRef& placement) noexcept
+{
+    const auto* room = project.find_room(placement.room);
+    return room != nullptr && std::any_of(room->placements.begin(), room->placements.end(),
+                                          [&placement](const compiled::RoomPlacement& item) {
+                                              return item.id == placement.placement_id;
+                                          });
+}
+
 bool valid_interactable_location(const CompiledProject& project,
                                  const compiled::InteractableLocation& location) noexcept
 {
-    const auto* placement = std::get_if<compiled::RoomPlacementRef>(&location);
-    if (placement == nullptr)
-        return true;
-    const auto* room = project.find_room(placement->room);
-    return room != nullptr && std::any_of(room->placements.begin(), room->placements.end(),
-                                          [placement](const compiled::RoomPlacement& item) {
-                                              return item.id == placement->placement_id;
-                                          });
+    if (const auto* room = std::get_if<compiled::RoomLocation>(&location))
+        return project.find_room(room->room) != nullptr;
+    if (const auto* inventory = std::get_if<compiled::InventoryLocation>(&location))
+        return project.find_inventory(inventory->inventory) != nullptr;
+    return true;
+}
+
+std::optional<InteractableId>
+inventory_interactable_owner(const compiled::InventoryRef& inventory) noexcept
+{
+    return std::visit(
+        [](const auto& owner) -> std::optional<InteractableId> {
+            using T = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>)
+                return owner.interactable;
+            else if constexpr (std::is_same_v<T, InteractableFeatureRef>)
+                return owner.interactable;
+            else
+                return std::nullopt;
+        },
+        inventory.owner);
 }
 
 const compiled::DialogueLineSegment*
@@ -395,7 +418,7 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
         if (!valid_interactable_location(project, definition.initial_state.location))
             return Result<SessionState, Diagnostics>::failure(
                 feature_error("runtime.invalid_interactable_location",
-                              "Interactable initial Room placement does not exist"));
+                              "Interactable initial Location is unresolved"));
         interactables.push_back(
             InteractableState{definition.identity.id, definition.initial_state.location,
                               definition.initial_state.enabled, definition.initial_state.visible});
@@ -404,16 +427,11 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
     characters.reserve(project.characters().size());
     for (const auto& definition : project.characters()) {
         if (const auto* placed =
-                std::get_if<compiled::RoomPlacementRef>(&definition.initial_world_state.location)) {
-            const auto* room = project.find_room(placed->room);
-            if (room == nullptr || std::none_of(room->placements.begin(), room->placements.end(),
-                                                [placed](const compiled::RoomPlacement& candidate) {
-                                                    return candidate.id == placed->placement_id;
-                                                }))
-                return Result<SessionState, Diagnostics>::failure(
-                    feature_error("runtime.invalid_character_location",
-                                  "Character initial Room placement does not exist"));
-        }
+                std::get_if<compiled::RoomLocation>(&definition.initial_world_state.location);
+            placed && project.find_room(placed->room) == nullptr)
+            return Result<SessionState, Diagnostics>::failure(
+                feature_error("runtime.invalid_character_location",
+                              "Character initial Room Location is unresolved"));
         characters.push_back(CharacterWorldState{
             definition.identity.id, definition.initial_world_state.location,
             definition.initial_world_state.enabled, definition.initial_world_state.visible});
@@ -827,7 +845,7 @@ Result<void, Diagnostics> SessionState::upsert_presentation_prop(const CompiledP
     auto owner = validate_presentation_owner(project, value.owner);
     const bool resources_valid = !value.asset || project.find_asset(*value.asset) != nullptr;
     const bool placement_valid =
-        !value.placement || valid_interactable_location(project, *value.placement);
+        !value.placement || valid_room_placement(project, *value.placement);
     if (!owner || !resources_valid || !placement_valid || !valid_prop_bounds(value.bounds) ||
         !valid_plane(value.plane))
         return Result<void, Diagnostics>::failure(feature_error(
@@ -990,6 +1008,71 @@ const CharacterWorldState* SessionState::character_world(const CharacterId& id) 
     return found == m_character_world.end() ? nullptr : &*found;
 }
 
+std::optional<RoomId> SessionState::effective_room(const CompiledProject& project,
+                                                   const CharacterId& id) const noexcept
+{
+    if (project.find_character(id) == nullptr)
+        return std::nullopt;
+    const auto* state = character_world(id);
+    if (state == nullptr)
+        return std::nullopt;
+    const auto* room = std::get_if<compiled::RoomLocation>(&state->location);
+    return room ? std::optional<RoomId>{room->room} : std::nullopt;
+}
+
+std::optional<RoomId> SessionState::effective_room(const CompiledProject& project,
+                                                   const InteractableId& id) const noexcept
+{
+    if (project.find_interactable(id) == nullptr)
+        return std::nullopt;
+    std::vector<InteractableId> visited;
+    InteractableId current = id;
+    while (std::find(visited.begin(), visited.end(), current) == visited.end()) {
+        visited.push_back(current);
+        const auto* state = interactable(current);
+        if (state == nullptr)
+            return std::nullopt;
+        if (const auto* room = std::get_if<compiled::RoomLocation>(&state->location))
+            return room->room;
+        const auto* inventory = std::get_if<compiled::InventoryLocation>(&state->location);
+        if (inventory == nullptr)
+            return std::nullopt;
+        std::optional<RoomId> resolved_room;
+        std::optional<InteractableId> next_interactable;
+        std::visit(
+            [&](const auto& owner) {
+                using T = std::decay_t<decltype(owner)>;
+                if constexpr (std::is_same_v<T, compiled::CharacterInventoryOwner>)
+                    resolved_room = effective_room(project, owner.character);
+                else if constexpr (std::is_same_v<T, RoomFeatureRef>)
+                    resolved_room = owner.room;
+                else if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>)
+                    next_interactable = owner.interactable;
+                else if constexpr (std::is_same_v<T, InteractableFeatureRef>)
+                    next_interactable = owner.interactable;
+            },
+            inventory->inventory.owner);
+        if (resolved_room)
+            return resolved_room;
+        if (!next_interactable)
+            return std::nullopt;
+        current = *next_interactable;
+    }
+    return std::nullopt;
+}
+
+std::vector<InteractableId>
+SessionState::inventory_members(const compiled::InventoryRef& inventory) const
+{
+    std::vector<InteractableId> members;
+    for (const auto& state : m_interactables) {
+        const auto* location = std::get_if<compiled::InventoryLocation>(&state.location);
+        if (location && location->inventory == inventory)
+            members.push_back(state.interactable);
+    }
+    return members;
+}
+
 Result<void, Diagnostics> SessionState::move_character(const CompiledProject& project,
                                                        const CharacterId& id,
                                                        CharacterWorldLocation location)
@@ -1000,15 +1083,10 @@ Result<void, Diagnostics> SessionState::move_character(const CompiledProject& pr
     if (project.find_character(id) == nullptr || found == m_character_world.end())
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.unknown_character", "Character has no definition or live world state"));
-    if (const auto* placed = std::get_if<compiled::RoomPlacementRef>(&location)) {
-        const auto* room = project.find_room(placed->room);
-        if (room == nullptr || std::none_of(room->placements.begin(), room->placements.end(),
-                                            [&placed](const compiled::RoomPlacement& candidate) {
-                                                return candidate.id == placed->placement_id;
-                                            }))
-            return Result<void, Diagnostics>::failure(feature_error(
-                "runtime.invalid_character_location", "Character Room placement does not exist"));
-    }
+    if (const auto* room = std::get_if<compiled::RoomLocation>(&location);
+        room && project.find_room(room->room) == nullptr)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_character_location", "Character Room Location is unresolved"));
     found->location = std::move(location);
     return Result<void, Diagnostics>::success();
 }
@@ -1050,9 +1128,28 @@ Result<void, Diagnostics> SessionState::move_interactable(const CompiledProject&
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.unknown_interactable", "Interactable has no definition or live state"));
     if (!valid_interactable_location(project, location))
-        return Result<void, Diagnostics>::failure(
-            feature_error("runtime.invalid_interactable_location",
-                          "Room placement does not exist or belongs to another Interactable"));
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_interactable_location", "Interactable Location is unresolved"));
+    if (const auto* inventory = std::get_if<compiled::InventoryLocation>(&location)) {
+        std::vector<InteractableId> visited{id};
+        auto owner = inventory_interactable_owner(inventory->inventory);
+        while (owner) {
+            if (std::find(visited.begin(), visited.end(), *owner) != visited.end())
+                return Result<void, Diagnostics>::failure(
+                    feature_error("runtime.inventory_containment_cycle",
+                                  "Inventory containment must be acyclic"));
+            visited.push_back(*owner);
+            const auto* owner_state = interactable(*owner);
+            if (owner_state == nullptr)
+                return Result<void, Diagnostics>::failure(
+                    feature_error("runtime.invalid_inventory_owner",
+                                  "Inventory owner has no live Interactable state"));
+            const auto* owner_inventory =
+                std::get_if<compiled::InventoryLocation>(&owner_state->location);
+            owner = owner_inventory ? inventory_interactable_owner(owner_inventory->inventory)
+                                    : std::nullopt;
+        }
+    }
     found->location = std::move(location);
     return Result<void, Diagnostics>::success();
 }

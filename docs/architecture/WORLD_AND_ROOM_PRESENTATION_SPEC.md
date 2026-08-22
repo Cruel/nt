@@ -84,9 +84,10 @@ Character in multiple actor slots without creating additional persistent world C
 
 ### Shared primitives do not imply a generic entity system
 
-Characters and Interactables share `RoomPlacementRef`, location validation, visibility concepts, and
-closed Interaction-subject variants where useful. They do not gain a common base class, downcasts,
-runtime component bags, or an ECS.
+Characters and Interactables share typed Room/Unplaced location validation, visibility concepts, and
+closed Interaction-subject variants where useful; Interactables additionally permit owner-qualified
+Inventory Location. Room placements remain presentation/context references, not world Locations. The
+types do not gain a common base class, downcasts, runtime component bags, or an ECS.
 
 ### Entry presentation is atomic
 
@@ -110,9 +111,9 @@ exits, and optional composition-hook configuration. It does not own mutable occu
 
 ### `RoomPlacementDefinition`
 
-A named Room-local spatial anchor and interaction/presentation region. It is no longer permanently
-bound to one Interactable. Characters and Interactables may reference the same placement vocabulary
-through typed runtime locations.
+A named Room-local spatial anchor and interaction/presentation region. It is not permanently bound to
+one Character or Interactable. Room cast and Interactable occurrence entries may reference the same
+placement vocabulary for presentation, independently of canonical gameplay Location.
 
 ### `RoomVisitContext`
 
@@ -222,8 +223,8 @@ The exact field names may follow existing conventions, but the following rules a
   editor visualization, but it does not own the occupant;
 - a placement is an anchor/region, not a mutable occupancy record.
 
-This removes the current duplicated relationship in which an Interactable location names a placement
-and the placement separately names that Interactable.
+This keeps visual geometry separate from canonical world presence: Location determines whether an
+identity belongs to a Room, while Room-local occurrence records determine where and how it is shown.
 
 ### Placement occupancy
 
@@ -237,36 +238,42 @@ must not be inferred from the existence of one placement reference.
 
 ### Interactable location
 
-The existing unique-Interactable location model remains:
+Each declared Interactable has one authoritative Location:
 
 ```cpp
 using InteractableLocation = std::variant<
     InventoryLocation,
-    NowhereLocation,
-    RoomPlacementRef>;
+    UnplacedLocation,
+    RoomLocation>;
 ```
 
-`InteractableState` remains authoritative for:
+`RoomLocation` names only a `RoomId`. `InventoryLocation` contains an owner-qualified `InventoryRef`,
+whose identity is the Inventory owner plus its owner-local `InventoryId`. A bare Inventory ID is not
+sufficient to identify a container.
 
-- current location;
-- enabled state;
-- visible state.
+`InteractableState` remains authoritative for current Location, enabled state, and visible state.
+Moving an Interactable changes only that live semantic state; it does not rewrite `RoomDefinition`, a
+Room presentation occurrence, a resolved Room result, or a renderer object. Failed moves—including
+containment-cycle failures—publish no partial mutation.
 
-Moving an Interactable changes `InteractableState`. It does not rewrite `RoomDefinition`, a resolved
-Room result, or a renderer object.
+An Interactable whose direct or derived effective Room is the active Room may participate in Room
+semantics. Visual placement is separate: an explicit Room Interactable occurrence supplies Room-local
+placement, condition, visibility, and order, and multiple occurrences may reference the same
+canonical Interactable identity.
 
-An Interactable located at a placement in the active Room is eligible for Room resolution. Its
-definition supplies reusable visual content; the placement supplies Room-local geometry; mutable
-state determines whether it is enabled or visible.
+Inventories may be owned by the Project/session convention, Characters, Interactables, Room Features,
+or Interactable Features. Direct Inventory membership is derived strictly from Interactable Location.
+Containment is acyclic. If an Inventory owner moves, descendants retain their direct Inventory
+Locations while their effective world Room is recomputed through the owner chain.
 
 ### Character world location
 
-The initial Character world-location model is:
+Each declared Character has one authoritative world Location:
 
 ```cpp
 using CharacterWorldLocation = std::variant<
-    NowhereCharacterLocation,
-    RoomPlacementRef>;
+    UnplacedLocation,
+    RoomLocation>;
 
 struct CharacterWorldState {
     CharacterId character;
@@ -276,17 +283,17 @@ struct CharacterWorldState {
 };
 ```
 
-The final implementation may reuse a common `NowhereLocation` marker where type safety remains
-clear. It must not permit Inventory as a Character location in this initial contract.
-
-Each `CharacterDefinition` has at most one persistent world state keyed by its `CharacterId`. A
-Character with `Nowhere` location remains valid for Dialogue and Scene presentation but is not a
-persistent occupant of a Room.
+Character Location never includes Inventory or Room placement. A Character with `Unplaced` Location
+remains valid for Dialogue and Scene presentation but is not a persistent occupant of a Room. A
+Character with `RoomLocation` is semantically present in that Room; an explicit Room cast occurrence
+controls any Room-local visual placement, and multiple cast occurrences may reference the same
+Character identity.
 
 The initial world state is declared with the Character authoring record and compiled into
 `CharacterDefinition` as one explicit `CharacterInitialWorldState`, analogous to an Interactable's
 initial state declaration. `SessionState` copies that declaration into live `CharacterWorldState`
-during initialization. No parallel compiled initial-state table or Room-owned duplicate is allowed.
+during initialization. No parallel compiled initial-state table or Room-owned duplicate gameplay
+identity is allowed.
 
 ### No Character-instance collection in the initial architecture
 
@@ -440,11 +447,11 @@ last-write-wins behavior accidentally.
 An Interactable continues to represent one unique world/inventory gameplay object. It is not a
 presentation prop and not a stackable Item count.
 
-An Interactable is included in active Room resolution when:
+An Interactable presentation occurrence is included in active Room resolution when:
 
-- its location is a `RoomPlacementRef` owned by the active Room;
-- the placement exists;
-- its state is visible for presentation;
+- the canonical Interactable is semantically present in the active Room;
+- the Room occurrence references an existing placement;
+- semantic and occurrence visibility admit presentation;
 - its definition and resources resolve successfully.
 
 Enabled state affects Interaction eligibility. Visible state affects presentation and, by default,
@@ -457,8 +464,9 @@ A decorative visual added by Room declarations, composition, Scene presentation,
 state is a prop or other presentation record. It cannot participate in an Interaction merely because
 it uses the same sprite as an Interactable.
 
-To make an object interactive, authors must define or reference an actual Interactable and move its
-authoritative state to a Room placement.
+To make an object interactive in a Room, authors must define or reference an actual Interactable,
+set its authoritative Location to that Room, and declare the appropriate Room presentation occurrence
+when visual placement is needed.
 
 ### Character and Interactable subjects
 
@@ -1073,20 +1081,21 @@ write Lua.
 
 ### Character editor
 
-The Character editor must support an optional initial world state:
+The Character editor must support an initial world state:
 
-- Nowhere or Room placement location;
+- Unplaced or Room Location;
 - enabled state;
 - visible state.
 
-Dialogue-only Characters default to Nowhere. Character pose/expression preview remains tooling state
-and is not confused with world location.
+Dialogue-only Characters default to Unplaced. Character pose/expression preview and Room cast placement
+remain presentation/tooling concerns and are not confused with world Location.
 
 ### Interactable editor
 
-Interactable initial Room location continues to reference a Room placement. The Room placement no
-longer points back to the Interactable. Editor operations must repair or reject stale initial/runtime
-references when a placement is deleted or renamed according to normal typed-reference policy.
+Interactable initial Location is Room, owner-qualified Inventory, or Unplaced. Room Location references
+a Room only; Room Interactable occurrences reference visual placements separately. Deleting or renaming
+a placement therefore repairs or rejects only actual presentation/context references and never
+synthesizes a gameplay Location change.
 
 ### Scene editor
 

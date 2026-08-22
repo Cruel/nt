@@ -31,9 +31,13 @@ Every runtime-relevant authoring collection has exactly one owner and compiled d
 
 ## Fixed relationships
 
-### Room placement and Interactable location
+### Locations, Inventories, and Room presentation
 
-`RoomPlacement { RoomPlacementId, InteractableId, bounds, presentation }` is nested immutable Room data. `InteractableState.location` is exactly Inventory, Nowhere, or `RoomPlacementRef { RoomId, RoomPlacementId }`. One unique Interactable has at most one active location. Stackable/count inventory is not V1 and awaits an explicit `ItemDefinition` design.
+Declared Characters and Interactables each have exactly one authoritative typed Location. Character Location is `Room` or `Unplaced`; Interactable Location is `Room`, `Inventory`, or `Unplaced`. Room presence and Inventory membership are derived only from that Location. A Room placement is presentation geometry and never establishes gameplay identity or Location.
+
+Inventories are stable named containers owned locally by the Project/session convention, Characters, Interactables, Room Features, or Interactable Features. An Inventory reference therefore includes both its owner and its owner-local `InventoryId`; a bare Inventory ID is not globally identifying. Inventory containment is acyclic. Moving an Inventory owner changes the effective world context of contained descendants without rewriting those descendants' direct Locations. Stackable/count inventory remains outside this contract and awaits an explicit item/quantity design.
+
+Room `cast` and Interactable occurrence entries are presentation occurrences. Multiple presentation occurrences may reference the same canonical Character or Interactable identity without creating additional gameplay identities or changing that identity's Location.
 
 ### Room exits and Maps
 

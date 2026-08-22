@@ -73,7 +73,6 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
     const auto hero = id<core::CharacterId>("hero");
     const auto key = id<core::InteractableId>("key");
     const auto hall = id<core::RoomId>("hall");
-    const auto coin_placement = id<core::RoomPlacementId>("coin-placement");
 
     const auto* hero_definition = world.resolved_configuration(hero);
     const auto* key_definition = world.resolved_configuration(key);
@@ -84,17 +83,16 @@ TEST_CASE("runtime world mutates declared gameplay instance state without mutati
 
     REQUIRE(world.set_character_visible(hero, false));
     REQUIRE(world.set_interactable_visible(key, false));
-    REQUIRE(world.move_interactable(key, core::compiled::RoomPlacementRef{hall, coin_placement}));
+    REQUIRE(world.move_interactable(key, core::compiled::RoomLocation{hall}));
 
     REQUIRE(world.character_state(hero) != nullptr);
     REQUIRE(world.interactable_state(key) != nullptr);
     CHECK_FALSE(world.character_state(hero)->visible);
     CHECK_FALSE(world.interactable_state(key)->visible);
     const auto* moved =
-        std::get_if<core::compiled::RoomPlacementRef>(&world.interactable_state(key)->location);
+        std::get_if<core::compiled::RoomLocation>(&world.interactable_state(key)->location);
     REQUIRE(moved != nullptr);
     CHECK(moved->room == hall);
-    CHECK(moved->placement_id == coin_placement);
 
     CHECK(hero_definition->initial_world_state.visible);
     CHECK(key_definition->initial_state.visible);

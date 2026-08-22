@@ -165,15 +165,8 @@ struct TypedFocusedRoomQueryState {
         std::optional<std::string> display_name;
     };
     struct InteractableLocation {
-        enum class Kind : std::uint8_t {
-            Inventory,
-            Nowhere,
-            RoomPlacement,
-        };
         std::string interactable_id;
-        Kind kind = Kind::Nowhere;
-        std::optional<std::string> room_id;
-        std::optional<std::string> placement_id;
+        compiled::InteractableLocation location = compiled::UnplacedLocation{};
     };
     std::vector<Variable> variables;
     std::vector<Property> properties;
@@ -273,17 +266,22 @@ struct TypedFocusedRoomWorldDefinition {
         std::string character_id;
         TypedFocusedCondition condition;
         std::string placement_id;
+        bool enabled = false;
         bool visible = false;
+        bool occurrence_visible = false;
         std::int32_t order = 0;
         TypedFocusedCharacterVisual visual;
     };
     struct Interactable {
+        std::string occurrence_id;
         std::string interactable_id;
+        TypedFocusedCondition condition;
         std::string placement_id;
         std::optional<std::string> sprite_asset_id;
         std::optional<std::string> material_id;
         bool enabled = false;
         bool visible = false;
+        bool occurrence_visible = false;
         std::int32_t order = 0;
     };
     struct Prop {

@@ -373,6 +373,101 @@ std::optional<RoomPlacementRef> decode_placement_ref(Decoder& decoder, const nlo
                              : std::nullopt;
 }
 
+namespace {
+std::optional<InventoryOwnerRef>
+decode_inventory_owner(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected an Inventory owner object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "project") {
+        decoder.object(value, pointer, {"kind"});
+        return InventoryOwnerRef{ProjectInventoryOwner{}};
+    }
+    if (*kind == "character") {
+        decoder.object(value, pointer, {"character", "kind"});
+        const auto* character_value = decoder.member(value, "character", pointer);
+        auto character =
+            character_value
+                ? decode_reference<CharacterId>(decoder, *character_value,
+                                                pointer_child(pointer, "character"), "character")
+                : std::nullopt;
+        return character ? std::optional<InventoryOwnerRef>(CharacterInventoryOwner{*character})
+                         : std::nullopt;
+    }
+    if (*kind == "interactable") {
+        decoder.object(value, pointer, {"interactable", "kind"});
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        return interactable
+                   ? std::optional<InventoryOwnerRef>(InteractableInventoryOwner{*interactable})
+                   : std::nullopt;
+    }
+    if (*kind == "room-feature") {
+        decoder.object(value, pointer, {"featureId", "kind", "room"});
+        const auto* feature_value = decoder.member(value, "featureId", pointer);
+        const auto* room_value = decoder.member(value, "room", pointer);
+        auto feature = feature_value ? decoder.id<FeatureId>(*feature_value,
+                                                             pointer_child(pointer, "featureId"))
+                                     : std::nullopt;
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        return feature && room ? std::optional<InventoryOwnerRef>(RoomFeatureRef{*room, *feature})
+                               : std::nullopt;
+    }
+    if (*kind == "interactable-feature") {
+        decoder.object(value, pointer, {"featureId", "interactable", "kind"});
+        const auto* feature_value = decoder.member(value, "featureId", pointer);
+        const auto* interactable_value = decoder.member(value, "interactable", pointer);
+        auto feature = feature_value ? decoder.id<FeatureId>(*feature_value,
+                                                             pointer_child(pointer, "featureId"))
+                                     : std::nullopt;
+        auto interactable = interactable_value
+                                ? decode_reference<InteractableId>(
+                                      decoder, *interactable_value,
+                                      pointer_child(pointer, "interactable"), "interactable")
+                                : std::nullopt;
+        return feature && interactable ? std::optional<InventoryOwnerRef>(
+                                             InteractableFeatureRef{*interactable, *feature})
+                                       : std::nullopt;
+    }
+    decoder.object(value, pointer, {"kind"});
+    decoder.error(k_code_variant, "Unknown Inventory owner variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<InventoryRef> decode_inventory_ref(Decoder& decoder, const nlohmann::json& value,
+                                                 std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"inventoryId", "owner"}))
+        return std::nullopt;
+    const auto* owner_value = decoder.member(value, "owner", pointer);
+    const auto* inventory_value = decoder.member(value, "inventoryId", pointer);
+    auto owner =
+        owner_value ? decode_inventory_owner(decoder, *owner_value, pointer_child(pointer, "owner"))
+                    : std::nullopt;
+    auto inventory =
+        inventory_value
+            ? decoder.id<InventoryId>(*inventory_value, pointer_child(pointer, "inventoryId"))
+            : std::nullopt;
+    return owner && inventory
+               ? std::optional<InventoryRef>(InventoryRef{std::move(*owner), *inventory})
+               : std::nullopt;
+}
+} // namespace
+
 std::optional<InteractableLocation> decode_location(Decoder& decoder, const nlohmann::json& value,
                                                     std::string_view pointer)
 {
@@ -386,21 +481,26 @@ std::optional<InteractableLocation> decode_location(Decoder& decoder, const nloh
     if (!kind)
         return std::nullopt;
     if (*kind == "inventory") {
-        decoder.object(value, pointer, {"kind"});
-        return InteractableLocation{InventoryLocation{}};
-    }
-    if (*kind == "nowhere") {
-        decoder.object(value, pointer, {"kind"});
-        return InteractableLocation{NowhereLocation{}};
-    }
-    if (*kind == "room-placement") {
-        decoder.object(value, pointer, {"kind", "placement"});
-        const auto* placement_value = decoder.member(value, "placement", pointer);
-        auto placement = placement_value ? decode_placement_ref(decoder, *placement_value,
-                                                                pointer_child(pointer, "placement"))
+        decoder.object(value, pointer, {"inventory", "kind"});
+        const auto* inventory_value = decoder.member(value, "inventory", pointer);
+        auto inventory = inventory_value ? decode_inventory_ref(decoder, *inventory_value,
+                                                                pointer_child(pointer, "inventory"))
                                          : std::nullopt;
-        return placement ? std::optional<InteractableLocation>(std::move(*placement))
-                         : std::nullopt;
+        return inventory
+                   ? std::optional<InteractableLocation>(InventoryLocation{std::move(*inventory)})
+                   : std::nullopt;
+    }
+    if (*kind == "unplaced") {
+        decoder.object(value, pointer, {"kind"});
+        return InteractableLocation{UnplacedLocation{}};
+    }
+    if (*kind == "room") {
+        decoder.object(value, pointer, {"kind", "room"});
+        const auto* room_value = decoder.member(value, "room", pointer);
+        auto room = room_value ? decode_reference<RoomId>(decoder, *room_value,
+                                                          pointer_child(pointer, "room"), "room")
+                               : std::nullopt;
+        return room ? std::optional<InteractableLocation>(RoomLocation{*room}) : std::nullopt;
     }
     decoder.object(value, pointer, {"kind"});
     decoder.error(k_code_variant, "Unknown interactable location variant '" + *kind + "'.",

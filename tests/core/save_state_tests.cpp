@@ -231,13 +231,13 @@ TEST_CASE("native SaveState projects all typed Property overrides")
     };
     const auto key = find_interactable("key");
     REQUIRE(key != save.interactables.end());
-    CHECK(std::holds_alternative<compiled::RoomPlacementRef>(key->location));
+    CHECK(std::holds_alternative<compiled::RoomLocation>(key->location));
     const auto coin = find_interactable("coin");
     REQUIRE(coin != save.interactables.end());
-    CHECK(std::holds_alternative<compiled::NowhereLocation>(coin->location));
+    CHECK(std::holds_alternative<compiled::UnplacedLocation>(coin->location));
     const auto dust = find_interactable("dust");
     REQUIRE(dust != save.interactables.end());
-    CHECK(std::holds_alternative<compiled::NowhereLocation>(dust->location));
+    CHECK(std::holds_alternative<compiled::UnplacedLocation>(dust->location));
     REQUIRE(save.room_visits.size() == 1);
     CHECK(save.room_visits.front().room == id<RoomId>("start"));
     CHECK(save.dialogue_line_history.size() == 1);
@@ -610,6 +610,16 @@ TEST_CASE("immutable Room loops and Character idles reconstruct after load witho
         REQUIRE(room != rooms.end());
         for (auto& hook : (*room)["lifecycle"]["hooks"])
             hook["effects"] = nlohmann::json::array();
+        (*room)["cast"] =
+            nlohmann::json::array({{{"id", "hero-cast"},
+                                    {"character", {{"kind", "character"}, {"id", "hero"}}},
+                                    {"condition", {{"kind", "always"}}},
+                                    {"placementId", "key-placement"},
+                                    {"poseId", nullptr},
+                                    {"expressionId", nullptr},
+                                    {"idleId", nullptr},
+                                    {"visible", true},
+                                    {"order", 0}}});
         (*room)["environments"] = nlohmann::json::array(
             {{{"id", "rain"},
               {"condition", {{"kind", "always"}}},
@@ -627,9 +637,8 @@ TEST_CASE("immutable Room loops and Character idles reconstruct after load witho
     FlowExecutor flow(project, state);
     finish_initial_room_transition(flow);
     REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
-    REQUIRE(state.move_character(
-        project, id<CharacterId>("hero"),
-        compiled::RoomPlacementRef{id<RoomId>("start"), id<RoomPlacementId>("key-placement")}));
+    REQUIRE(state.move_character(project, id<CharacterId>("hero"),
+                                 compiled::RoomLocation{id<RoomId>("start")}));
     const auto before = resolve_room(project, state);
     REQUIRE(before.environments.size() == 1);
     REQUIRE(before.actors.size() == 1);

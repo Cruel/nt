@@ -187,24 +187,216 @@ sol::object definition_object(sol::state_view lua, const core::ProjectDefinition
     return sol::make_object(lua, result);
 }
 
+sol::object inventory_owner_object(sol::state_view lua,
+                                   const core::compiled::InventoryOwnerRef& value)
+{
+    sol::table result = lua.create_table();
+    std::visit(
+        [&result](const auto& owner) {
+            using T = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<T, core::compiled::ProjectInventoryOwner>)
+                result["kind"] = "project";
+            else if constexpr (std::is_same_v<T, core::compiled::CharacterInventoryOwner>) {
+                result["kind"] = "character";
+                result["character"] = owner.character.text();
+            } else if constexpr (std::is_same_v<T, core::compiled::InteractableInventoryOwner>) {
+                result["kind"] = "interactable";
+                result["interactable"] = owner.interactable.text();
+            } else if constexpr (std::is_same_v<T, core::RoomFeatureRef>) {
+                result["kind"] = "room-feature";
+                result["room"] = owner.room.text();
+                result["feature"] = owner.feature_id.text();
+            } else {
+                result["kind"] = "interactable-feature";
+                result["interactable"] = owner.interactable.text();
+                result["feature"] = owner.feature_id.text();
+            }
+        },
+        value);
+    return sol::make_object(lua, result);
+}
+
+sol::object inventory_ref_object(sol::state_view lua, const core::compiled::InventoryRef& value)
+{
+    sol::table result = lua.create_table();
+    result["owner"] = inventory_owner_object(lua, value.owner);
+    result["id"] = value.inventory_id.text();
+    return sol::make_object(lua, result);
+}
+
 sol::object location_object(sol::state_view lua, const core::compiled::InteractableLocation& value)
+{
+    sol::table result = lua.create_table();
+    std::visit(
+        [&lua, &result](const auto& location) {
+            using T = std::decay_t<decltype(location)>;
+            if constexpr (std::is_same_v<T, core::compiled::InventoryLocation>) {
+                result["kind"] = "inventory";
+                result["inventory"] = inventory_ref_object(lua, location.inventory);
+            } else if constexpr (std::is_same_v<T, core::compiled::UnplacedLocation>)
+                result["kind"] = "unplaced";
+            else {
+                result["kind"] = "room";
+                result["room"] = location.room.text();
+            }
+        },
+        value);
+    return sol::make_object(lua, result);
+}
+
+sol::object character_location_object(sol::state_view lua,
+                                      const core::CharacterWorldLocation& value)
 {
     sol::table result = lua.create_table();
     std::visit(
         [&result](const auto& location) {
             using T = std::decay_t<decltype(location)>;
-            if constexpr (std::is_same_v<T, core::compiled::InventoryLocation>)
-                result["kind"] = "inventory";
-            else if constexpr (std::is_same_v<T, core::compiled::NowhereLocation>)
-                result["kind"] = "nowhere";
+            if constexpr (std::is_same_v<T, core::compiled::UnplacedLocation>)
+                result["kind"] = "unplaced";
             else {
-                result["kind"] = "room-placement";
+                result["kind"] = "room";
                 result["room"] = location.room.text();
-                result["placement"] = location.placement_id.text();
             }
         },
         value);
     return sol::make_object(lua, result);
+}
+
+core::Diagnostics location_error(std::string message)
+{
+    return core::Diagnostics{
+        core::Diagnostic{.code = "script_host.invalid_location", .message = std::move(message)}};
+}
+
+core::Result<core::compiled::InventoryOwnerRef, core::Diagnostics>
+parse_inventory_owner(const sol::table& value)
+{
+    using Result = core::Result<core::compiled::InventoryOwnerRef, core::Diagnostics>;
+    const sol::object kind_value = value["kind"];
+    if (!kind_value.is<std::string>())
+        return Result::failure(location_error("Inventory owner requires a string kind"));
+    const auto kind = kind_value.as<std::string>();
+    if (kind == "project")
+        return Result::success(core::compiled::ProjectInventoryOwner{});
+    if (kind == "character") {
+        const sol::object id = value["character"];
+        if (!id.is<std::string>())
+            return Result::failure(location_error("Character Inventory owner requires character"));
+        auto parsed = parse_id<core::CharacterId>(id.as<std::string>());
+        return parsed ? Result::success(
+                            core::compiled::CharacterInventoryOwner{std::move(*parsed.value_if())})
+                      : Result::failure(parsed.error());
+    }
+    if (kind == "interactable") {
+        const sol::object id = value["interactable"];
+        if (!id.is<std::string>())
+            return Result::failure(
+                location_error("Interactable Inventory owner requires interactable"));
+        auto parsed = parse_id<core::InteractableId>(id.as<std::string>());
+        return parsed ? Result::success(core::compiled::InteractableInventoryOwner{
+                            std::move(*parsed.value_if())})
+                      : Result::failure(parsed.error());
+    }
+    if (kind == "room-feature") {
+        const sol::object room = value["room"];
+        const sol::object feature = value["feature"];
+        if (!room.is<std::string>() || !feature.is<std::string>())
+            return Result::failure(
+                location_error("Room Feature Inventory owner requires room and feature"));
+        auto room_id = parse_id<core::RoomId>(room.as<std::string>());
+        auto feature_id = parse_id<core::FeatureId>(feature.as<std::string>());
+        if (!room_id)
+            return Result::failure(room_id.error());
+        if (!feature_id)
+            return Result::failure(feature_id.error());
+        return Result::success(core::RoomFeatureRef{std::move(*room_id.value_if()),
+                                                    std::move(*feature_id.value_if())});
+    }
+    if (kind == "interactable-feature") {
+        const sol::object interactable = value["interactable"];
+        const sol::object feature = value["feature"];
+        if (!interactable.is<std::string>() || !feature.is<std::string>())
+            return Result::failure(location_error(
+                "Interactable Feature Inventory owner requires interactable and feature"));
+        auto interactable_id = parse_id<core::InteractableId>(interactable.as<std::string>());
+        auto feature_id = parse_id<core::FeatureId>(feature.as<std::string>());
+        if (!interactable_id)
+            return Result::failure(interactable_id.error());
+        if (!feature_id)
+            return Result::failure(feature_id.error());
+        return Result::success(core::InteractableFeatureRef{std::move(*interactable_id.value_if()),
+                                                            std::move(*feature_id.value_if())});
+    }
+    return Result::failure(location_error("Unknown Inventory owner kind '" + kind + "'"));
+}
+
+core::Result<core::compiled::InventoryRef, core::Diagnostics>
+parse_inventory_ref(const sol::table& value)
+{
+    using Result = core::Result<core::compiled::InventoryRef, core::Diagnostics>;
+    const sol::object owner = value["owner"];
+    const sol::object id = value["id"];
+    if (!owner.is<sol::table>() || !id.is<std::string>())
+        return Result::failure(location_error("Inventory reference requires owner and string id"));
+    auto parsed_owner = parse_inventory_owner(owner.as<sol::table>());
+    auto parsed_id = parse_id<core::InventoryId>(id.as<std::string>());
+    if (!parsed_owner)
+        return Result::failure(parsed_owner.error());
+    if (!parsed_id)
+        return Result::failure(parsed_id.error());
+    return Result::success(core::compiled::InventoryRef{std::move(*parsed_owner.value_if()),
+                                                        std::move(*parsed_id.value_if())});
+}
+
+core::Result<core::compiled::InteractableLocation, core::Diagnostics>
+parse_interactable_location(const sol::table& value)
+{
+    using Result = core::Result<core::compiled::InteractableLocation, core::Diagnostics>;
+    const sol::object kind_value = value["kind"];
+    if (!kind_value.is<std::string>())
+        return Result::failure(location_error("Interactable Location requires a string kind"));
+    const auto kind = kind_value.as<std::string>();
+    if (kind == "unplaced")
+        return Result::success(core::compiled::UnplacedLocation{});
+    if (kind == "room") {
+        const sol::object room = value["room"];
+        if (!room.is<std::string>())
+            return Result::failure(location_error("Room Location requires room"));
+        auto parsed = parse_id<core::RoomId>(room.as<std::string>());
+        return parsed ? Result::success(core::compiled::RoomLocation{std::move(*parsed.value_if())})
+                      : Result::failure(parsed.error());
+    }
+    if (kind == "inventory") {
+        const sol::object inventory = value["inventory"];
+        if (!inventory.is<sol::table>())
+            return Result::failure(location_error("Inventory Location requires inventory"));
+        auto parsed = parse_inventory_ref(inventory.as<sol::table>());
+        return parsed ? Result::success(
+                            core::compiled::InventoryLocation{std::move(*parsed.value_if())})
+                      : Result::failure(parsed.error());
+    }
+    return Result::failure(location_error("Unknown Interactable Location kind '" + kind + "'"));
+}
+
+core::Result<core::CharacterWorldLocation, core::Diagnostics>
+parse_character_location(const sol::table& value)
+{
+    using Result = core::Result<core::CharacterWorldLocation, core::Diagnostics>;
+    const sol::object kind_value = value["kind"];
+    if (!kind_value.is<std::string>())
+        return Result::failure(location_error("Character Location requires a string kind"));
+    const auto kind = kind_value.as<std::string>();
+    if (kind == "unplaced")
+        return Result::success(core::compiled::UnplacedLocation{});
+    if (kind == "room") {
+        const sol::object room = value["room"];
+        if (!room.is<std::string>())
+            return Result::failure(location_error("Room Location requires room"));
+        auto parsed = parse_id<core::RoomId>(room.as<std::string>());
+        return parsed ? Result::success(core::compiled::RoomLocation{std::move(*parsed.value_if())})
+                      : Result::failure(parsed.error());
+    }
+    return Result::failure(location_error("Character Location kind must be room or unplaced"));
 }
 
 template<class Id, class Operation>
@@ -444,48 +636,54 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
             return location ? ObjectResult{location_object(view, *location), nil(view)}
                             : failure(view, value.error());
         });
-    interactables.set_function("move_to_inventory", [host](std::string id, sol::this_state state) {
-        sol::state_view view(state);
-        return id_mutation<core::InteractableId>(
-            view, std::move(id), [host](core::InteractableId parsed) {
-                return host->request_interactable_location(std::move(parsed),
-                                                           core::compiled::InventoryLocation{});
-            });
-    });
-    interactables.set_function("move_to_nowhere", [host](std::string id, sol::this_state state) {
-        sol::state_view view(state);
-        return id_mutation<core::InteractableId>(
-            view, std::move(id), [host](core::InteractableId parsed) {
-                return host->request_interactable_location(std::move(parsed),
-                                                           core::compiled::NowhereLocation{});
-            });
-    });
     interactables.set_function(
-        "move_to_placement",
-        [host](std::string id, std::string room, std::string placement,
-               sol::this_state state) -> MutationResult {
+        "set_location",
+        [host](std::string id, sol::table target, sol::this_state state) -> MutationResult {
             sol::state_view view(state);
             auto interactable = parse_id<core::InteractableId>(std::move(id));
-            auto room_id = parse_id<core::RoomId>(std::move(room));
-            auto placement_id = parse_id<core::RoomPlacementId>(std::move(placement));
-            auto* interactable_ref = interactable.value_if();
-            auto* room_ref = room_id.value_if();
-            auto* placement_ref = placement_id.value_if();
-            if (interactable_ref == nullptr)
+            auto location = parse_interactable_location(target);
+            if (!interactable)
                 return mutation(
                     view, core::Result<void, core::Diagnostics>::failure(interactable.error()));
-            if (room_ref == nullptr)
+            if (!location)
                 return mutation(view,
-                                core::Result<void, core::Diagnostics>::failure(room_id.error()));
-            if (placement_ref == nullptr)
-                return mutation(
-                    view, core::Result<void, core::Diagnostics>::failure(placement_id.error()));
-            return mutation(view, host->request_interactable_location(
-                                      std::move(*interactable_ref),
-                                      core::compiled::RoomPlacementRef{std::move(*room_ref),
-                                                                       std::move(*placement_ref)}));
+                                core::Result<void, core::Diagnostics>::failure(location.error()));
+            return mutation(view,
+                            host->request_interactable_location(std::move(*interactable.value_if()),
+                                                                std::move(*location.value_if())));
         });
     noveltea["interactables"] = interactables;
+
+    sol::table characters = lua.create_table();
+    characters.set_function(
+        "location", [host](std::string id, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::CharacterId>(std::move(id));
+            const auto* character = parsed.value_if();
+            if (character == nullptr)
+                return failure(view, parsed.error());
+            auto value = host->character_location(*character);
+            const auto* location = value.value_if();
+            return location ? ObjectResult{character_location_object(view, *location), nil(view)}
+                            : failure(view, value.error());
+        });
+    characters.set_function(
+        "set_location",
+        [host](std::string id, sol::table target, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto character = parse_id<core::CharacterId>(std::move(id));
+            auto location = parse_character_location(target);
+            if (!character)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(character.error()));
+            if (!location)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(location.error()));
+            return mutation(view,
+                            host->request_character_location(std::move(*character.value_if()),
+                                                             std::move(*location.value_if())));
+        });
+    noveltea["characters"] = characters;
 
     sol::table navigation = lua.create_table();
     navigation.set_function(

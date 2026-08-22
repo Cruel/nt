@@ -25,6 +25,7 @@ import {
 import { editorProjectStateSchema, emptyEditorProjectState } from './editor-project-state';
 import { defaultExportProfile, exportProfileSchema } from './authoring-export';
 import { platformExportProfileSchema } from './platform-export-contracts';
+import { inventoryDefinitionSchema } from './authoring-inventories';
 
 export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
 export type { EntityId } from './authoring-common';
@@ -78,6 +79,7 @@ export const authoringProjectSchema = z
     entrypoint: projectEntrypointSchema.nullable().default(null),
     properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
+    inventories: z.array(inventoryDefinitionSchema),
     localization: authoringLocalizationSchema.default(defaultAuthoringLocalization()),
     editor: editorProjectStateSchema.default(emptyEditorProjectState),
     ...authoringCollectionSchemas,
@@ -164,6 +166,7 @@ export function createAuthoringProject(
     entrypoint: null,
     properties: {},
     traits: {},
+    inventories: [],
     localization: defaultAuthoringLocalization(),
     editor: emptyEditorProjectState(),
     ...collections,

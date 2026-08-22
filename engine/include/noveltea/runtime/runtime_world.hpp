@@ -37,6 +37,13 @@ public:
     interactable_state(const core::InteractableId& id) const noexcept;
     [[nodiscard]] bool
     has_room_placement(const core::compiled::RoomPlacementRef& placement) const noexcept;
+    [[nodiscard]] bool has_inventory(const core::compiled::InventoryRef& inventory) const noexcept;
+    [[nodiscard]] std::optional<core::RoomId>
+    effective_room(const core::CharacterId& id) const noexcept;
+    [[nodiscard]] std::optional<core::RoomId>
+    effective_room(const core::InteractableId& id) const noexcept;
+    [[nodiscard]] std::vector<core::InteractableId>
+    inventory_members(const core::compiled::InventoryRef& inventory) const;
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     move_character(const core::CharacterId& id, core::CharacterWorldLocation location);

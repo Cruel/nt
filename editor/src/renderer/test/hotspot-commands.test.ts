@@ -23,7 +23,7 @@ describe('hotspot commands', () => {
   it('adds, moves, and undoes one Room hotspot command at a time', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
-    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {} });
+    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {}, inventories: [] });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     let state = createInitialCommandBusState(toJsonValue(project));
 
@@ -58,7 +58,7 @@ describe('hotspot commands', () => {
   it('renames and deletes Room geometry without rewriting semantic Feature identity', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
-    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {} });
+    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {}, inventories: [] });
     room.hotspots = [roomHotspot()];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     const state = createInitialCommandBusState(toJsonValue(project));
@@ -92,7 +92,7 @@ describe('hotspot commands', () => {
   it('rejects stale Room and sprite-alpha hotspot rename commands without patches', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
-    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {} });
+    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {}, inventories: [] });
     room.hotspots = [roomHotspot()];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.interactables.lamp = {
@@ -120,7 +120,13 @@ describe('hotspot commands', () => {
   it('can switch Interactable hotspot geometry modes because no semantic rule references Hotspot IDs', () => {
     const project = createAuthoringProject();
     const interactable = defaultInteractableData('Lamp');
-    interactable.features.push({ id: 'switch', label: 'Switch', traits: [], properties: {} });
+    interactable.features.push({
+      id: 'switch',
+      label: 'Switch',
+      traits: [],
+      properties: {},
+      inventories: [],
+    });
     if (interactable.presentation.hotspots.kind !== 'sprite-alpha')
       throw new Error('Expected sprite-alpha hotspot mode.');
     interactable.presentation.hotspots.hotspot.target = {

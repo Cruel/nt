@@ -14,6 +14,7 @@ import type {
 } from './project-schema/authoring-interaction-programs';
 import type { AuthoringProject } from './project-schema/authoring-project';
 import type { InteractionSubjectData } from './project-schema/authoring-features';
+import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
 import { parseVerbData } from './project-schema/authoring-verbs';
@@ -108,17 +109,45 @@ function compileFlowTarget(target: FlowTarget): CompiledFlowTarget {
   }
 }
 
+function compileInventoryReference(inventory: InventoryReferenceData) {
+  const owner = inventory.owner;
+  const compiledOwner =
+    owner.kind === 'project'
+      ? { kind: 'project' as const }
+      : owner.kind === 'character'
+        ? {
+            kind: 'character' as const,
+            character: { kind: 'character' as const, id: owner.character.$ref.id },
+          }
+        : owner.kind === 'interactable'
+          ? {
+              kind: 'interactable' as const,
+              interactable: { kind: 'interactable' as const, id: owner.interactable.$ref.id },
+            }
+          : owner.kind === 'room-feature'
+            ? {
+                kind: 'room-feature' as const,
+                room: { kind: 'room' as const, id: owner.room.$ref.id },
+                featureId: owner.featureId,
+              }
+            : {
+                kind: 'interactable-feature' as const,
+                interactable: {
+                  kind: 'interactable' as const,
+                  id: owner.interactable.$ref.id,
+                },
+                featureId: owner.featureId,
+              };
+  return { owner: compiledOwner, inventoryId: inventory.inventoryId };
+}
+
 function compileMoveTarget(
   target: InteractionMoveTarget,
 ): Extract<InteractionProgram['instructions'][number], { kind: 'move-interactable' }>['target'] {
-  if (target.kind !== 'room-placement') return { kind: target.kind };
-  return {
-    kind: 'room-placement',
-    placement: {
-      room: { kind: 'room', id: target.placement.room },
-      placementId: target.placement.placement,
-    },
-  };
+  if (target.kind === 'unplaced') return { kind: 'unplaced' };
+  if (target.kind === 'room')
+    return { kind: 'room', room: { kind: 'room', id: target.room.$ref.id } };
+  return { kind: 'inventory', inventory: compileInventoryReference(target.inventory) };
 }
 
 function compileInstruction(

@@ -122,9 +122,13 @@ public:
     unset_property(const core::PropertyOwnerRef& owner, const core::PropertyId& property);
     [[nodiscard]] core::Result<core::compiled::InteractableLocation, core::Diagnostics>
     interactable_location(const core::InteractableId& interactable) const;
+    [[nodiscard]] core::Result<core::CharacterWorldLocation, core::Diagnostics>
+    character_location(const core::CharacterId& character) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_interactable_location(core::InteractableId interactable,
                                   core::compiled::InteractableLocation target);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_character_location(core::CharacterId character, core::CharacterWorldLocation target);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_navigation(core::compiled::RoomExitRef exit);
     [[nodiscard]] core::Result<void, core::Diagnostics> request_transient(core::SceneId scene);

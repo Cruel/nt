@@ -78,7 +78,13 @@ describe('RoomEditor', () => {
   it('uses one temporary add action instead of persistent hotspot interaction modes', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
-    room.features.push({ id: 'surface', label: 'Surface', traits: [], properties: {} });
+    room.features.push({
+      id: 'surface',
+      label: 'Surface',
+      traits: [],
+      properties: {},
+      inventories: [],
+    });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
@@ -732,13 +738,16 @@ describe('RoomEditor', () => {
       },
     ];
     const key = defaultInteractableData('Brass Key');
+    key.initialState.location = {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    };
     room.interactables = [
       {
         id: 'key',
         interactable: { $ref: { collection: 'interactables', id: 'key' } },
         condition: { kind: 'always' },
         placementId: 'key-placement',
-        enabled: true,
         visible: true,
         order: 0,
       },
@@ -812,13 +821,16 @@ describe('RoomEditor', () => {
       },
     ];
     const key = defaultInteractableData('Brass Key');
+    key.initialState.location = {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    };
     room.interactables = [
       {
         id: 'key',
         interactable: { $ref: { collection: 'interactables', id: 'key' } },
         condition: { kind: 'always' },
         placementId: 'key-placement',
-        enabled: true,
         visible: true,
         order: 0,
       },

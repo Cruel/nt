@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
+import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { useTranslation } from 'react-i18next';
 import type { FeatureData } from '../../../shared/project-schema/authoring-features';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -79,7 +80,16 @@ export function FeatureAuthoringPanel({ project, features, anchorPrefix, onChang
           onClick={() => {
             const id = nextFeatureId(features);
             onChange(
-              [...features, { id, label: t('features.defaultLabel'), traits: [], properties: {} }],
+              [
+                ...features,
+                {
+                  id,
+                  label: t('features.defaultLabel'),
+                  traits: [],
+                  properties: {},
+                  inventories: [],
+                },
+              ],
               'Add Feature',
             );
           }}
@@ -307,6 +317,14 @@ export function FeatureAuthoringPanel({ project, features, anchorPrefix, onChang
                   ))}
                 </Select>
               </div>
+
+              <InventoryDeclarationsEditor
+                inventories={feature.inventories}
+                title="Feature Inventories"
+                onChange={(inventories, label) =>
+                  replace(feature.id, { ...feature, inventories }, label)
+                }
+              />
             </div>
           );
         })}

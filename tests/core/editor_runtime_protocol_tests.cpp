@@ -608,6 +608,22 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
     REQUIRE(selected);
     view.selected_subjects.push_back(
         compiled::InteractableInteractionSubject{std::move(selected.value())});
+    auto inventory_id = InventoryId::create("player");
+    auto room_id = RoomId::create("start");
+    auto key_id = InteractableId::create("key");
+    REQUIRE(inventory_id);
+    REQUIRE(room_id);
+    REQUIRE(key_id);
+    const compiled::InventoryRef inventory_ref{compiled::ProjectInventoryOwner{},
+                                               std::move(inventory_id.value())};
+    view.inventory.inventories.push_back({inventory_ref, "Player Inventory", room_id.value()});
+    view.inventory.items.push_back({std::move(key_id.value()),
+                                    inventory_ref,
+                                    room_id.value(),
+                                    "Key",
+                                    {.hotspots = compiled::CustomInteractableHotspots{}},
+                                    true,
+                                    true});
     std::vector<noveltea::runtime::RuntimeEvent> events;
     events.push_back(
         noveltea::runtime::ObservationEvent{RuntimeObservation{PlaybackObservation{3, true}}});
@@ -630,7 +646,17 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
                   {"gameplayPaused", false},
                   {"canContinue", true},
                   {"selectedSubjects", {{{"kind", "interactable"}, {"id", "door"}}}},
-                  {"inventory", nlohmann::json::array()},
+                  {"inventories",
+                   {{{"inventory", {{"owner", {{"kind", "project"}}}, {"id", "player"}}},
+                     {"label", "Player Inventory"},
+                     {"effectiveRoom", "start"}}}},
+                  {"inventory",
+                   {{{"id", "key"},
+                     {"inventory", {{"owner", {{"kind", "project"}}}, {"id", "player"}}},
+                     {"effectiveRoom", "start"},
+                     {"label", "Key"},
+                     {"enabled", true},
+                     {"visible", true}}}},
                   {"textLog", nlohmann::json::array()}}},
                 {"presentation",
                  {{"revision", 1},
@@ -695,6 +721,7 @@ TEST_CASE("typed playback report encoder has stable external shape")
                            {"gameplayPaused", false},
                            {"canContinue", false},
                            {"selectedSubjects", nlohmann::json::array()},
+                           {"inventories", nlohmann::json::array()},
                            {"inventory", nlohmann::json::array()},
                            {"textLog", nlohmann::json::array()}}},
                          {"presentation",

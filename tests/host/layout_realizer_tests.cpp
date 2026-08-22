@@ -943,13 +943,17 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"order", 0},
           {"label", nullptr},
           {"layoutId", nullptr}}});
-    composition_room["world"]["interactables"] = nlohmann::json::array({{{"interactableId", "key"},
-                                                                         {"placementId", "table"},
-                                                                         {"spriteAssetId", nullptr},
-                                                                         {"materialId", nullptr},
-                                                                         {"enabled", true},
-                                                                         {"visible", true},
-                                                                         {"order", 0}}});
+    composition_room["world"]["interactables"] =
+        nlohmann::json::array({{{"occurrenceId", "key-occurrence"},
+                                {"interactableId", "key"},
+                                {"condition", {{"kind", "always"}}},
+                                {"placementId", "table"},
+                                {"spriteAssetId", nullptr},
+                                {"materialId", nullptr},
+                                {"enabled", true},
+                                {"visible", true},
+                                {"occurrenceVisible", true},
+                                {"order", 0}}});
     composition_room["luaAdmission"]["compositionDraftInteractableIds"] =
         nlohmann::json::array({"key"});
     composition_room["composition"] = {

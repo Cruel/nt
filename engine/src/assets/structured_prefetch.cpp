@@ -652,7 +652,7 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
     }
     for (const auto& character : project.characters()) {
         impl->characters.emplace(character.identity.id, &character);
-        if (const auto* location = std::get_if<core::compiled::RoomPlacementRef>(
+        if (const auto* location = std::get_if<core::compiled::RoomLocation>(
                 &character.initial_world_state.location)) {
             impl->initial_characters_by_room[location->room].push_back(&character);
         }
@@ -675,8 +675,8 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
                     TexturePreparationRequirements{.retain_alpha_coverage = true});
             }
         }
-        if (const auto* location = std::get_if<core::compiled::RoomPlacementRef>(
-                &interactable.initial_state.location)) {
+        if (const auto* location =
+                std::get_if<core::compiled::RoomLocation>(&interactable.initial_state.location)) {
             impl->initial_interactables_by_room[location->room].push_back(&interactable);
         }
     }

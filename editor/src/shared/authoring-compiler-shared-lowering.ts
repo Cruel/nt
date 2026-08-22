@@ -24,7 +24,11 @@ import {
   type LayoutSourceData,
 } from './project-schema/authoring-layouts';
 import { parseMapData } from './project-schema/authoring-maps';
-import { parseInteractableData } from './project-schema/authoring-interactables';
+import {
+  parseInteractableData,
+  type InteractableData,
+} from './project-schema/authoring-interactables';
+import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
 import { compileRoomNavigationTransition, parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
@@ -71,6 +75,7 @@ export interface CompiledProjectSharedDraft {
   entrypoint: CompiledProjectWireV4['entrypoint'];
   properties: CompiledProjectWireV4['properties'];
   traits: CompiledProjectWireV4['traits'];
+  inventories: CompiledProjectWireV4['inventories'];
   localization: CompiledProjectWireV4['localization'];
   resources: WireResources;
   definitions: {
@@ -214,10 +219,57 @@ function propertyBase(id: string, record: Pick<AuthoringRecordBase, 'traits' | '
   };
 }
 
+function compileInventories(inventories: readonly { id: string; label: string }[]) {
+  return inventories.map((inventory) => ({ ...inventory }));
+}
+
+function compileInventoryReference(inventory: InventoryReferenceData) {
+  const owner = inventory.owner;
+  const compiledOwner =
+    owner.kind === 'project'
+      ? { kind: 'project' as const }
+      : owner.kind === 'character'
+        ? {
+            kind: 'character' as const,
+            character: { kind: 'character' as const, id: owner.character.$ref.id },
+          }
+        : owner.kind === 'interactable'
+          ? {
+              kind: 'interactable' as const,
+              interactable: { kind: 'interactable' as const, id: owner.interactable.$ref.id },
+            }
+          : owner.kind === 'room-feature'
+            ? {
+                kind: 'room-feature' as const,
+                room: roomRef(owner.room.$ref.id),
+                featureId: owner.featureId,
+              }
+            : {
+                kind: 'interactable-feature' as const,
+                interactable: {
+                  kind: 'interactable' as const,
+                  id: owner.interactable.$ref.id,
+                },
+                featureId: owner.featureId,
+              };
+  return { owner: compiledOwner, inventoryId: inventory.inventoryId };
+}
+
+function compileInteractableLocation(location: InteractableData['initialState']['location']) {
+  if (location.kind === 'unplaced') return { kind: 'unplaced' as const };
+  if (location.kind === 'room')
+    return { kind: 'room' as const, room: roomRef(location.room.$ref.id) };
+  return {
+    kind: 'inventory' as const,
+    inventory: compileInventoryReference(location.inventory),
+  };
+}
+
 function compileFeature(feature: FeatureData) {
   return {
     ...propertyBase(feature.id, feature),
     label: feature.label,
+    inventories: compileInventories(feature.inventories),
   };
 }
 
@@ -373,19 +425,14 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
             })),
           }
         : {}),
+      inventories: compileInventories(data.inventories),
       initialWorldState: {
         enabled: data.initialWorldState.enabled,
         visible: data.initialWorldState.visible,
         location:
-          data.initialWorldState.location.kind === 'nowhere'
-            ? { kind: 'nowhere' }
-            : {
-                kind: 'room-placement',
-                placement: {
-                  room: roomRef(data.initialWorldState.location.placement.room),
-                  placementId: data.initialWorldState.location.placement.placement,
-                },
-              },
+          data.initialWorldState.location.kind === 'unplaced'
+            ? { kind: 'unplaced' }
+            : { kind: 'room', room: roomRef(data.initialWorldState.location.room.$ref.id) },
       },
     });
   }
@@ -451,6 +498,14 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         visible: entry.visible,
         order: entry.order,
       })),
+      interactables: data.interactables.map((entry) => ({
+        id: entry.id,
+        interactable: { kind: 'interactable', id: entry.interactable.$ref.id },
+        condition: compileCondition(entry.condition),
+        placementId: entry.placementId,
+        visible: entry.visible,
+        order: entry.order,
+      })),
       ...(data.environments.length > 0
         ? {
             environments: data.environments.map((entry) => ({
@@ -487,18 +542,19 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   }
 
   const interactables: SharedInteractableDefinition[] = [];
-  const instantiatedDefinitions = new Set<string>();
-  const compileInteractable = (
-    id: string,
-    record: AuthoringRecordBase,
-    data: NonNullable<ReturnType<typeof parseInteractableData>>,
-    initialState: SharedInteractableDefinition['initialState'],
-  ): SharedInteractableDefinition => {
+  for (const [id, record] of sortedEntries(project.interactables)) {
+    const effectiveRecord = resolveGameplayInstanceRecord(project, 'interactable', record);
+    const data = requireData(
+      parseInteractableData(effectiveRecord?.data),
+      `/interactables/${id}/data`,
+    );
+    if (!data || !effectiveRecord) continue;
     const hotspotDefinition = data.presentation.hotspots!;
-    return {
-      ...propertyBase(id, record),
+    interactables.push({
+      ...propertyBase(id, effectiveRecord),
       displayName: data.displayName,
       features: data.features.map(compileFeature),
+      inventories: compileInventories(data.inventories),
       presentation: {
         sprite: assetRef(data.presentation.sprite),
         material: materialRef(data.presentation.material),
@@ -526,55 +582,12 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                 })),
               },
       },
-      initialState,
-    };
-  };
-  for (const [roomId, roomRecord] of sortedEntries(project.rooms)) {
-    const room = requireData(parseRoomData(roomRecord.data), `/rooms/${roomId}/data`);
-    if (!room) continue;
-    for (const instance of [...room.interactables].sort((left, right) =>
-      left.id.localeCompare(right.id),
-    )) {
-      const definitionRecord = project.interactables[instance.interactable.$ref.id];
-      const effectiveRecord = definitionRecord
-        ? resolveGameplayInstanceRecord(project, 'interactable', definitionRecord)
-        : null;
-      const data = requireData(
-        parseInteractableData(effectiveRecord?.data),
-        `/rooms/${roomId}/data/interactables/${instance.id}/interactable`,
-      );
-      if (!data || !effectiveRecord) continue;
-      instantiatedDefinitions.add(instance.interactable.$ref.id);
-      interactables.push(
-        compileInteractable(instance.id, effectiveRecord, data, {
-          enabled: instance.enabled,
-          visible: instance.visible,
-          location: {
-            kind: 'room-placement',
-            placement: {
-              room: roomRef(roomId),
-              placementId: instance.placementId,
-            },
-          },
-        }),
-      );
-    }
-  }
-  for (const [id, record] of sortedEntries(project.interactables)) {
-    if (instantiatedDefinitions.has(id)) continue;
-    const effectiveRecord = resolveGameplayInstanceRecord(project, 'interactable', record);
-    const data = requireData(
-      parseInteractableData(effectiveRecord?.data),
-      `/interactables/${id}/data`,
-    );
-    if (!data || !effectiveRecord) continue;
-    interactables.push(
-      compileInteractable(id, effectiveRecord, data, {
+      initialState: {
         enabled: data.initialState.enabled,
         visible: data.initialState.visible,
-        location: { kind: 'nowhere' },
-      }),
-    );
+        location: compileInteractableLocation(data.initialState.location),
+      },
+    });
   }
 
   const verbs: SharedVerbDefinition[] = [];
@@ -740,6 +753,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     entrypoint: compileEntrypoint(project.entrypoint),
     properties,
     traits,
+    inventories: compileInventories(project.inventories),
     localization: {
       defaultLocale: project.localization.defaultLocale,
       fallbackLocale: project.localization.fallbackLocale,

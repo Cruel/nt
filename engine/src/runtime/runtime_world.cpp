@@ -70,6 +70,28 @@ bool RuntimeWorld::has_room_placement(
                        });
 }
 
+bool RuntimeWorld::has_inventory(const core::compiled::InventoryRef& inventory) const noexcept
+{
+    return m_project.find_inventory(inventory) != nullptr;
+}
+
+std::optional<core::RoomId> RuntimeWorld::effective_room(const core::CharacterId& id) const noexcept
+{
+    return m_state.effective_room(m_project, id);
+}
+
+std::optional<core::RoomId>
+RuntimeWorld::effective_room(const core::InteractableId& id) const noexcept
+{
+    return m_state.effective_room(m_project, id);
+}
+
+std::vector<core::InteractableId>
+RuntimeWorld::inventory_members(const core::compiled::InventoryRef& inventory) const
+{
+    return m_state.inventory_members(inventory);
+}
+
 core::Result<void, core::Diagnostics>
 RuntimeWorld::move_character(const core::CharacterId& id, core::CharacterWorldLocation location)
 {

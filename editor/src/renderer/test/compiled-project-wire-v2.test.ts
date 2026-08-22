@@ -64,6 +64,7 @@ function representativeWireFixture() {
       },
     ],
     traits: [],
+    inventories: [{ id: 'player', label: 'Player Inventory' }],
     localization: {
       defaultLocale: 'en',
       fallbackLocale: null,
@@ -117,7 +118,12 @@ function representativeWireFixture() {
             },
           ],
           expressions: [{ id: 'neutral', poseId: null, sprite: null, material: null }],
-          initialWorldState: { location: { kind: 'nowhere' }, enabled: true, visible: true },
+          inventories: [{ id: 'pockets', label: 'Pockets' }],
+          initialWorldState: {
+            location: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
+            enabled: true,
+            visible: true,
+          },
         },
       ],
       rooms: [
@@ -135,6 +141,7 @@ function representativeWireFixture() {
           description: { markup: 'plain', source: { kind: 'localized', key: 'foyer-title' } },
           overlays: [],
           cast: [],
+          interactables: [],
           props: [],
           compose: null,
           placements: [],
@@ -166,6 +173,7 @@ function representativeWireFixture() {
           propertyAssignments: [],
           displayName: 'Key',
           features: [],
+          inventories: [{ id: 'compartment', label: 'Compartment' }],
           presentation: {
             sprite: null,
             material: null,
@@ -174,7 +182,14 @@ function representativeWireFixture() {
               hotspots: [],
             },
           },
-          initialState: { location: { kind: 'nowhere' }, enabled: true, visible: true },
+          initialState: {
+            location: {
+              kind: 'inventory',
+              inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+            },
+            enabled: true,
+            visible: true,
+          },
         },
       ],
       verbs: [

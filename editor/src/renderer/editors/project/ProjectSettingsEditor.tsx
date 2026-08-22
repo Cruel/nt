@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SourceEditor } from '@/components/source/SourceEditor';
+import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -769,6 +770,18 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               ) : null}
             </CardContent>
           </Card>
+
+          <InventoryDeclarationsEditor
+            inventories={project.inventories}
+            title="Project Inventories"
+            onChange={(inventories, label) =>
+              runProjectCommand(
+                'project.replaceAtPath',
+                { path: '/inventories', value: inventories },
+                label,
+              )
+            }
+          />
 
           <Card data-workbench-anchor="projectSettings.startup">
             <CardHeader>

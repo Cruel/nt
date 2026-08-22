@@ -77,6 +77,12 @@ private:
         return found == m_traits.end() ? nullptr : &m_input.traits[found->second];
     }
 
+    const CharacterDefinition* character(const CharacterId& id) const
+    {
+        const auto found = m_characters.find(id);
+        return found == m_characters.end() ? nullptr : &m_input.characters[found->second];
+    }
+
     const RoomDefinition* room(const RoomId& id) const
     {
         const auto found = m_rooms.find(id);
@@ -109,6 +115,95 @@ private:
             return value.identity.id == reference.feature_id;
         });
         return found == owner->features.end() ? nullptr : &*found;
+    }
+
+    const std::vector<InventoryDefinition>* inventories(const InventoryOwnerRef& owner) const
+    {
+        return std::visit(
+            [&](const auto& reference) -> const std::vector<InventoryDefinition>* {
+                using T = std::decay_t<decltype(reference)>;
+                if constexpr (std::is_same_v<T, ProjectInventoryOwner>)
+                    return &m_input.inventories;
+                else if constexpr (std::is_same_v<T, CharacterInventoryOwner>) {
+                    const auto* definition = character(reference.character);
+                    return definition ? &definition->inventories : nullptr;
+                } else if constexpr (std::is_same_v<T, InteractableInventoryOwner>) {
+                    const auto* definition = interactable(reference.interactable);
+                    return definition ? &definition->inventories : nullptr;
+                } else {
+                    const auto* definition = feature(reference);
+                    return definition ? &definition->inventories : nullptr;
+                }
+            },
+            owner);
+    }
+
+    const InventoryDefinition* inventory(const InventoryRef& reference) const
+    {
+        const auto* owned = inventories(reference.owner);
+        if (!owned)
+            return nullptr;
+        const auto found = std::ranges::find_if(*owned, [&](const InventoryDefinition& value) {
+            return value.id == reference.inventory_id;
+        });
+        return found == owned->end() ? nullptr : &*found;
+    }
+
+    void validate_inventories(const std::vector<InventoryDefinition>& values,
+                              const std::string& path)
+    {
+        std::unordered_set<InventoryId> ids;
+        for (std::size_t index = 0; index < values.size(); ++index)
+            if (!ids.insert(values[index].id).second)
+                error("compiled_project.duplicate_nested_id", "Duplicate Inventory ID.",
+                      path + "/" + std::to_string(index) + "/id");
+    }
+
+    void validate_inventory_ref(const InventoryRef& reference, const std::string& path)
+    {
+        std::visit(
+            [&](const auto& owner) {
+                using T = std::decay_t<decltype(owner)>;
+                if constexpr (std::is_same_v<T, CharacterInventoryOwner>)
+                    require(m_characters, owner.character, "character", path + "/owner/character");
+                else if constexpr (std::is_same_v<T, InteractableInventoryOwner>)
+                    require(m_interactables, owner.interactable, "interactable",
+                            path + "/owner/interactable");
+                else if constexpr (std::is_same_v<T, RoomFeatureRef>) {
+                    require(m_rooms, owner.room, "room", path + "/owner/room");
+                    if (!feature(owner))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Inventory owner Feature does not exist in its Room.",
+                              path + "/owner/featureId");
+                } else if constexpr (std::is_same_v<T, InteractableFeatureRef>) {
+                    require(m_interactables, owner.interactable, "interactable",
+                            path + "/owner/interactable");
+                    if (!feature(owner))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Inventory owner Feature does not exist in its Interactable.",
+                              path + "/owner/featureId");
+                }
+            },
+            reference.owner);
+        if (!inventory(reference))
+            error("compiled_project.unresolved_nested_reference",
+                  "Inventory reference does not identify an Inventory on its owner.",
+                  path + "/inventoryId");
+    }
+
+    std::optional<InteractableId> inventory_interactable_owner(const InventoryRef& reference) const
+    {
+        return std::visit(
+            [](const auto& owner) -> std::optional<InteractableId> {
+                using T = std::decay_t<decltype(owner)>;
+                if constexpr (std::is_same_v<T, InteractableInventoryOwner>)
+                    return owner.interactable;
+                else if constexpr (std::is_same_v<T, InteractableFeatureRef>)
+                    return owner.interactable;
+                else
+                    return std::nullopt;
+            },
+            reference.owner);
     }
 
     const VerbDefinition* verb(const VerbId& id) const
@@ -328,6 +423,7 @@ private:
                 error("compiled_project.duplicate_nested_id", "Duplicate Feature ID.",
                       feature_path + "/id");
             validate_assignments(feature, PropertyOwnerKind::Feature, feature_path);
+            validate_inventories(feature.inventories, feature_path + "/inventories");
         }
     }
 
@@ -343,26 +439,17 @@ private:
 
     void validate_location(const InteractableLocation& location, const std::string& path)
     {
-        const auto* reference = std::get_if<RoomPlacementRef>(&location);
-        if (!reference)
-            return;
-        require(m_rooms, reference->room, "room", path + "/placement/room");
-        const auto* linked = placement(*reference);
-        if (!linked) {
-            error("compiled_project.unresolved_nested_reference",
-                  "Room placement '" + reference->placement_id.text() +
-                      "' does not exist in room '" + reference->room.text() + "'.",
-                  path + "/placement/placementId");
-        }
+        if (const auto* room_location = std::get_if<RoomLocation>(&location))
+            require(m_rooms, room_location->room, "room", path + "/room");
+        else if (const auto* inventory_location = std::get_if<InventoryLocation>(&location))
+            validate_inventory_ref(inventory_location->inventory, path + "/inventory");
     }
 
     void validate_character_location(const CharacterInitialWorldLocation& location,
                                      const std::string& path)
     {
-        const auto* reference = std::get_if<RoomPlacementRef>(&location);
-        if (!reference)
-            return;
-        validate_location(InteractableLocation{*reference}, path);
+        if (const auto* room_location = std::get_if<RoomLocation>(&location))
+            require(m_rooms, room_location->room, "room", path + "/room");
     }
 
     void validate_transition(const RoomNavigationTransition& transition, const std::string& path)
@@ -560,6 +647,7 @@ private:
 
     void validate_root_and_resources()
     {
+        validate_inventories(m_input.inventories, "/inventories");
         validate_transition(m_input.settings.room_navigation_transition,
                             "/settings/roomNavigationTransition");
         std::visit(
@@ -615,6 +703,7 @@ private:
         validate_characters();
         validate_rooms();
         validate_interactables();
+        validate_inventory_cycles();
         validate_verbs_and_interactions();
         validate_scenes();
         validate_dialogues();
@@ -628,6 +717,7 @@ private:
             const auto& character = m_input.characters[index];
             const auto path = item("/definitions/characters", index);
             validate_assignments(character, PropertyOwnerKind::Character, path);
+            validate_inventories(character.inventories, path + "/inventories");
             std::unordered_set<CharacterPoseId> poses;
             std::unordered_set<CharacterExpressionId> expressions;
             std::unordered_set<CharacterIdleId> idles;
@@ -751,6 +841,23 @@ private:
                               cast_path + "/idleId");
                 }
             }
+            std::unordered_set<RoomInteractableEntryId> interactable_ids;
+            for (std::size_t interactable_index = 0;
+                 interactable_index < value.interactables.size(); ++interactable_index) {
+                const auto& entry = value.interactables[interactable_index];
+                const auto entry_path =
+                    path + "/interactables/" + std::to_string(interactable_index);
+                if (!interactable_ids.insert(entry.id).second)
+                    error("compiled_project.duplicate_nested_id",
+                          "Duplicate Room interactable occurrence ID.", entry_path + "/id");
+                require(m_interactables, entry.interactable, "interactable",
+                        entry_path + "/interactable");
+                if (!placement(RoomPlacementRef{value.identity.id, entry.placement_id}))
+                    error("compiled_project.unresolved_nested_reference",
+                          "Room interactable occurrence references a missing placement.",
+                          entry_path + "/placementId");
+                validate_condition(entry.condition, entry_path + "/condition");
+            }
             std::unordered_set<RoomPropId> prop_ids;
             for (std::size_t prop_index = 0; prop_index < value.props.size(); ++prop_index) {
                 const auto& prop = value.props[prop_index];
@@ -848,6 +955,7 @@ private:
             const auto path = item("/definitions/interactables", index);
             validate_assignments(value, PropertyOwnerKind::Interactable, path);
             validate_features(value, path);
+            validate_inventories(value.inventories, path + "/inventories");
             validate_location(value.initial_state.location, path + "/initialState/location");
             if (value.presentation.sprite)
                 require(m_assets, *value.presentation.sprite, "asset",
@@ -918,6 +1026,32 @@ private:
         }
     }
 
+    void validate_inventory_cycles()
+    {
+        for (std::size_t index = 0; index < m_input.interactables.size(); ++index) {
+            const auto& start = m_input.interactables[index];
+            std::unordered_set<InteractableId> visited;
+            visited.insert(start.identity.id);
+            const InteractableDefinition* current = &start;
+            while (const auto* location =
+                       std::get_if<InventoryLocation>(&current->initial_state.location)) {
+                const auto owner = inventory_interactable_owner(location->inventory);
+                if (!owner)
+                    break;
+                if (!visited.insert(*owner).second) {
+                    error("compiled_project.inventory_containment_cycle",
+                          "Inventory containment must be acyclic.",
+                          item("/definitions/interactables", index) +
+                              "/initialState/location/inventory");
+                    break;
+                }
+                current = interactable(*owner);
+                if (!current)
+                    break;
+            }
+        }
+    }
+
     void validate_verbs_and_interactions()
     {
         for (std::size_t index = 0; index < m_input.verbs.size(); ++index) {
@@ -945,10 +1079,14 @@ private:
                         using T = std::decay_t<decltype(context)>;
                         if constexpr (std::is_same_v<T, ActiveRoomInteractionContext>)
                             require(m_rooms, context.room, "room", rule_path + "/context/room");
-                        else if constexpr (std::is_same_v<T, PlacementInteractionContext>)
-                            validate_location(InteractableLocation{context.placement},
-                                              rule_path + "/context");
-                        else if constexpr (std::is_same_v<T, PredicateInteractionContext>)
+                        else if constexpr (std::is_same_v<T, PlacementInteractionContext>) {
+                            require(m_rooms, context.placement.room, "room",
+                                    rule_path + "/context/placement/room");
+                            if (!placement(context.placement))
+                                error("compiled_project.unresolved_nested_reference",
+                                      "Interaction context references a missing Room placement.",
+                                      rule_path + "/context/placement/placementId");
+                        } else if constexpr (std::is_same_v<T, PredicateInteractionContext>)
                             validate_condition(context.condition, rule_path + "/context/condition");
                     },
                     rule.context);

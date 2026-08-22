@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
+import { InteractableLocationEditor } from '@/components/inventories/InventoryControls';
 import {
   defaultInteractionProgram,
   type InteractionInstruction,
@@ -126,48 +127,6 @@ function InstructionEditor({
     );
   }
   if (instruction.kind === 'move-interactable') {
-    const target = instruction.target.kind;
-    const placementFields =
-      instruction.target.kind === 'room-placement'
-        ? (() => {
-            const placement = instruction.target.placement;
-            return (
-              <>
-                <Select
-                  value={placement.room}
-                  onValueChange={(room) =>
-                    onChange({
-                      ...instruction,
-                      target: {
-                        kind: 'room-placement',
-                        placement: { room: String(room), placement: '' },
-                      },
-                    })
-                  }
-                >
-                  {Object.entries(project.rooms).map(([id, record]) => (
-                    <SelectItem value={id} key={id}>
-                      {record.label}
-                    </SelectItem>
-                  ))}
-                </Select>
-                <Input
-                  placeholder="Placement ID"
-                  value={placement.placement}
-                  onChange={(event) =>
-                    onChange({
-                      ...instruction,
-                      target: {
-                        kind: 'room-placement',
-                        placement: { ...placement, placement: event.currentTarget.value },
-                      },
-                    })
-                  }
-                />
-              </>
-            );
-          })()
-        : null;
     return (
       <div className="grid gap-2 md:grid-cols-3">
         <Select
@@ -182,28 +141,13 @@ function InstructionEditor({
             </SelectItem>
           ))}
         </Select>
-        <Select
-          value={target}
-          onValueChange={(kind) => {
-            if (kind === 'room-placement')
-              onChange({
-                ...instruction,
-                target: {
-                  kind,
-                  placement: { room: Object.keys(project.rooms)[0] ?? '', placement: '' },
-                },
-              });
-            else if (kind === 'inventory' || kind === 'nowhere')
-              onChange({ ...instruction, target: { kind } });
-          }}
-        >
-          <SelectItem value="inventory">Inventory</SelectItem>
-          <SelectItem value="nowhere">Nowhere</SelectItem>
-          <SelectItem value="room-placement" disabled={!Object.keys(project.rooms).length}>
-            Room placement
-          </SelectItem>
-        </Select>
-        {placementFields}
+        <div className="md:col-span-2">
+          <InteractableLocationEditor
+            project={project}
+            location={instruction.target}
+            onChange={(target) => onChange({ ...instruction, target })}
+          />
+        </div>
       </div>
     );
   }
@@ -314,7 +258,7 @@ export function InteractionProgramEditor({
               id,
               kind,
               interactable: typedRef('interactables', interactable),
-              target: { kind: 'nowhere' },
+              target: { kind: 'unplaced' },
             }
           : kind === 'set-interactable-state' && interactable
             ? { id, kind, interactable: typedRef('interactables', interactable), enabled: true }

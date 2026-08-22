@@ -190,13 +190,14 @@ Delete remains a separate explicit path. Ordinary deletion presents its planned 
 in the Project Explorer. That dialog is driven by the complete semantic repair-edge closure, including
 Lua-only evidence and Room-placement descendants; the compatibility reference-index projection is
 not an admission or visibility gate. Required references must have a valid user-selected replacement
-before confirmation. Removing a Room placement, or a Room containing placements, atomically moves
-affected Character and Interactable initial locations to `{ kind: 'nowhere' }`.
+before confirmation. Character and Interactable Location is independent of Room placement identity:
+removing a placement or a Room placement descendant never synthesizes a Location change. Only actual
+presentation or Interaction-context references to that placement are repaired or blocked.
 
 The graph-backed repair registry converts confirmed repair descriptors into a previewable repair
 plan. It covers nullable references, nested-record removal, shared-parent array-item removal,
-replacement-required relationships, Room-placement occupants, editor metadata cleanup, and ID
-remaps. The confirmation command revalidates both project and graph revisions; a stale plan is
+replacement-required relationships, Room-placement presentation/context references, editor metadata
+cleanup, and ID remaps. The confirmation command revalidates both project and graph revisions; a stale plan is
 rejected and the UI derives a new plan from the current publication. Applying a plan is one command
 transaction and one structural persistence unit; shared arrays are edited in descending index order,
 partial repair is rejected, and Undo, Redo, cancellation, persistence rollback, and recovery overlays

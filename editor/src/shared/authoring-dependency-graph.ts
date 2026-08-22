@@ -997,11 +997,6 @@ function scanStructuralReferences(
   const structuralValue: Record<string, unknown> = value;
 
   if (typeof value.room === 'string' && typeof value.placement === 'string') {
-    const role: AuthoringDependencyRole = path.includes('/characters/')
-      ? 'character-room-placement'
-      : path.includes('/interactables/')
-        ? 'interactable-room-placement'
-        : 'explicit-ref';
     edges.push(
       structuralEdge(
         source,
@@ -1009,18 +1004,12 @@ function scanStructuralReferences(
         path,
         `/rooms/${escapeJsonPointerSegment(value.room)}/data/placements`,
         {
-          role,
+          role: 'explicit-ref',
           facets: ['reference-integrity', 'tooling-reference', 'preview-visual'],
-          repair:
-            role === 'character-room-placement' || role === 'interactable-room-placement'
-              ? {
-                  kind: 'set-nowhere',
-                  path: buildJsonPointer(parseJsonPointer(path).slice(0, -1)),
-                }
-              : {
-                  kind: 'blocked',
-                  reason: 'Room-placement pair references require a role-specific replacement.',
-                },
+          repair: {
+            kind: 'blocked',
+            reason: 'Room-placement pair references require a role-specific replacement.',
+          },
           detail: { roomId: value.room, placementId: value.placement },
         },
       ),
@@ -2776,23 +2765,6 @@ function edgeTargetIsImpacted(
   );
 }
 
-function incomingPlacementSourceImpactPaths(edge: AuthoringDependencyEdge): readonly JsonPointer[] {
-  if (edge.source.kind !== 'record') return [];
-  if (edge.role === 'character-room-placement') {
-    return recordImpactPaths(edge.source, [
-      '/data/initialWorldState',
-      '/data/defaults',
-      '/data/poses',
-      '/data/expressions',
-      '/data/idles',
-    ]);
-  }
-  if (edge.role === 'interactable-room-placement') {
-    return recordImpactPaths(edge.source, ['/data/initialState', '/data/presentation']);
-  }
-  return [];
-}
-
 function previewRootIsImpacted(
   graph: AuthoringDependencyGraph,
   rootKeyText: string,
@@ -2816,22 +2788,6 @@ function previewRootIsImpacted(
       if (edgeTargetIsImpacted(edge, changedPaths)) return true;
       const targetKey = serializeAuthoringDependencyNodeKey(edge.target);
       if (!visited.has(targetKey)) pending.push(targetKey);
-    }
-
-    if (current.key.kind === 'nested' && current.key.family === 'room-placement') {
-      for (const edge of incomingAuthoringDependencies(graph, currentKey, filter)) {
-        if (
-          edge.role !== 'character-room-placement' &&
-          edge.role !== 'interactable-room-placement'
-        ) {
-          continue;
-        }
-        if (changedPathOverlapsAny(changedPaths, incomingPlacementSourceImpactPaths(edge))) {
-          return true;
-        }
-        const sourceKey = serializeAuthoringDependencyNodeKey(edge.source);
-        if (!visited.has(sourceKey)) pending.push(sourceKey);
-      }
     }
   }
   return false;

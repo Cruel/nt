@@ -84,6 +84,8 @@ public:
     interactable_location(const core::InteractableId& interactable) const;
     [[nodiscard]] core::Result<core::InteractableState, core::Diagnostics>
     interactable_state(const core::InteractableId& interactable) const;
+    [[nodiscard]] core::Result<core::CharacterWorldLocation, core::Diagnostics>
+    character_location(const core::CharacterId& character) const;
     [[nodiscard]] core::Result<core::CharacterWorldState, core::Diagnostics>
     character_world_state(const core::CharacterId& character) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>

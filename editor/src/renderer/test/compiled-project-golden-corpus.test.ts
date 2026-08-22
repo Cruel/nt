@@ -138,7 +138,7 @@ describe('compiled project cross-language golden corpus', () => {
       'move-interactable',
       'next',
       'notify',
-      'nowhere',
+      'unplaced',
       'point',
       'predicate',
       'rect',
@@ -279,7 +279,7 @@ describe('compiled project cross-language golden corpus', () => {
           ),
         ),
       ),
-    ).toEqual(['inventory', 'nowhere', 'room-placement']);
+    ).toEqual(['inventory', 'room', 'unplaced']);
 
     expect(sorted(new Set(resources.resources.assets.map((asset) => asset.kind)))).toEqual([
       'audio',

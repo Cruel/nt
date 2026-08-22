@@ -355,24 +355,6 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_reset_variable(const char* var
     return result.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_give_object(const char* object_id)
-{
-    static std::string result;
-    result.clear();
-    if (auto* preview = preview_controller(); preview && object_id)
-        result = preview->give_object(object_id);
-    return result.c_str();
-}
-
-EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_remove_inventory_object(const char* object_id)
-{
-    static std::string result;
-    result.clear();
-    if (auto* preview = preview_controller(); preview && object_id)
-        result = preview->remove_inventory_object(object_id);
-    return result.c_str();
-}
-
 EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_teleport_room(const char* room_id)
 {
     static std::string result;

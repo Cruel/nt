@@ -353,10 +353,16 @@ TEST_CASE("Room resolution composes overlapping Character and Interactable occup
     RuntimeFixture fixture;
     install_room_scripts(fixture);
     auto document = load_document("comprehensive.json");
-    document["definitions"]["characters"][0]["initialWorldState"]["location"] = {
-        {"kind", "room-placement"},
-        {"placement",
-         {{"room", {{"kind", "room"}, {"id", "start"}}}, {"placementId", "key-placement"}}}};
+    room_document(document, "start")["cast"] =
+        nlohmann::json::array({{{"id", "hero-cast"},
+                                {"character", {{"kind", "character"}, {"id", "hero"}}},
+                                {"condition", {{"kind", "always"}}},
+                                {"placementId", "key-placement"},
+                                {"poseId", nullptr},
+                                {"expressionId", nullptr},
+                                {"idleId", nullptr},
+                                {"visible", true},
+                                {"order", 0}}});
     document["resources"]["scripts"].push_back(
         {{"id", "room-compose"},
          {"source",

@@ -10,6 +10,7 @@ import {
   textContentSchema,
 } from './authoring-flow';
 import { entityIdSchema } from './authoring-common';
+import { interactableLocationSchema } from './authoring-interactables';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -18,11 +19,7 @@ export const interactionRoomPlacementRefSchema = strict({
   placement: entityIdSchema,
 });
 
-export const interactionMoveTargetSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('inventory') }),
-  strict({ kind: z.literal('nowhere') }),
-  strict({ kind: z.literal('room-placement'), placement: interactionRoomPlacementRefSchema }),
-]);
+export const interactionMoveTargetSchema = interactableLocationSchema;
 
 const instructionBase = { id: entityIdSchema };
 

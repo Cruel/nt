@@ -134,14 +134,17 @@ TEST_CASE("typed Interaction selects exact operands before wildcard and mutates 
     auto document = load_document();
     definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
     auto& rules = definition(document, "interactions", "actions")["rules"];
-    rules[0]["program"] = program({{{"id", "exact-move"},
-                                    {"kind", "move-interactable"},
-                                    {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
-                                    {"target", {{"kind", "inventory"}}}}});
+    rules[0]["program"] = program(
+        {{{"id", "exact-move"},
+          {"kind", "move-interactable"},
+          {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
+          {"target",
+           {{"kind", "inventory"},
+            {"inventory", {{"owner", {{"kind", "project"}}}, {"inventoryId", "player"}}}}}}});
     rules[1]["program"] = program({{{"id", "wildcard-move"},
                                     {"kind", "move-interactable"},
                                     {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
-                                    {"target", {{"kind", "nowhere"}}}}});
+                                    {"target", {{"kind", "unplaced"}}}}});
 
     RuntimeFixture fixture;
     auto project = decode(std::move(document));

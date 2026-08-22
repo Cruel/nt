@@ -151,6 +151,12 @@ RuntimeScriptApi::interactable_location(const core::InteractableId& interactable
                            "Interactable location query",
                            provider->interactable_location(interactable));
 }
+core::Result<core::CharacterWorldLocation, core::Diagnostics>
+RuntimeScriptApi::character_location(const core::CharacterId& character) const
+{
+    NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Character, "Character location query",
+                           provider->character_location(character));
+}
 core::Result<void, core::Diagnostics>
 RuntimeScriptApi::request_interactable_location(core::InteractableId interactable,
                                                 core::compiled::InteractableLocation target)
@@ -158,6 +164,14 @@ RuntimeScriptApi::request_interactable_location(core::InteractableId interactabl
     NOVELTEA_WITH_COMMAND(
         runtime::RuntimeCapabilityGroup::Interactable, "Interactable move",
         gateway->request_interactable_location(std::move(interactable), std::move(target)));
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::request_character_location(core::CharacterId character,
+                                             core::CharacterWorldLocation target)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Character, "Character move",
+                          gateway->request_character_world_state(
+                              std::move(character), std::move(target), std::nullopt, std::nullopt));
 }
 core::Result<void, core::Diagnostics>
 RuntimeScriptApi::request_navigation(core::compiled::RoomExitRef exit)

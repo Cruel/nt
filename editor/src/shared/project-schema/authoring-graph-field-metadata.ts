@@ -141,6 +141,8 @@ const REVIEWED_FIELD_EFFECT_CODES =
 
 const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
   [/^\/assets\/\*\/data\/imageMetadata\//, OWNER],
+  [/\/inventor(?:y|ies)\//, OWNER],
+  [/^\/interactables\/\*\/data\/initialState\/location\//, OWNER],
   [/^\/interactables\/\*\/data\/features\//, OWNER],
   [/^\/interactables\/\*\/data\/presentation\/hotspots\//, OWNER],
   [/\/feature\//, OWNER],
@@ -270,6 +272,10 @@ const legacySchemaLeafPaths = [
     `/${root}/*/extends` as JsonPointer,
     `/${root}/*/properties/*` as JsonPointer,
   ]),
+  // #71 moves semantic enabled state off Room presentation occurrences and introduces canonical
+  // Interactable Location in its place. Keep the retired leaf only to preserve the pre-#71
+  // reviewed-effect alignment; the new Location leaves are classified explicitly above.
+  '/rooms/*/data/interactables/*/enabled' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
 if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
@@ -349,19 +355,20 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
   Object.freeze({
     archetypes: 'f71e0c56',
     assets: 'e718127a',
-    characters: 'd476b8e2',
+    characters: '50e127f4',
     dialogues: 'bfadec81',
     entrypoint: 'a61673d4',
     export: 'b9fd529f',
-    interactables: '4e7ff04f',
-    interactions: 'd5543d59',
+    interactables: 'e4428eba',
+    interactions: '835c2862',
+    inventories: 'a8c38dae',
     layouts: '87e0b859',
     localization: '3f6d0d11',
     maps: '9b969995',
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: 'c487e4e9',
+    rooms: '3e85a864',
     scenes: '911d4458',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
@@ -372,7 +379,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     tests: 'bf235591',
     traits: 'e06af863',
     variables: '9ac2af8d',
-    verbs: 'b5afbce6',
+    verbs: '1057096e',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {

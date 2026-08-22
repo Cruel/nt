@@ -249,7 +249,7 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(std::holds_alternative<PredicateInteractionContext>(rules[5].context));
         CHECK(std::holds_alternative<AnyInteractableOperand>(rules[3].operands.front()));
         CHECK(std::get<MoveInteractableInstruction>(rules[4].program.instructions.front())
-                  .id.text() == "room-placement");
+                  .id.text() == "room");
     }
 }
 
@@ -1172,16 +1172,17 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.interaction_arity_mismatch"));
     }
 
-    SECTION("Interactable initial location references a missing generic placement")
+    SECTION("Interactable initial location references a missing owner-qualified Inventory")
     {
         auto document = fixture("comprehensive");
         auto* key =
             test_support::json_object_by_id(document["definitions"]["interactables"], "key");
         REQUIRE(key != nullptr);
-        auto* placement = path_member(*key, {"initialState", "location", "placement"});
-        REQUIRE(placement != nullptr);
-        (*placement)["placementId"] = "missing-placement";
-        auto result = noveltea::core::decode_compiled_project(document, "room.json");
+        (*key)["initialState"]["location"] = {
+            {"kind", "inventory"},
+            {"inventory",
+             {{"owner", {{"kind", "project"}}}, {"inventoryId", "missing-inventory"}}}};
+        auto result = noveltea::core::decode_compiled_project(document, "inventory.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
     }

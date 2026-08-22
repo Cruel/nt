@@ -81,21 +81,6 @@ function repairPatchForEdge(
     : never,
   replacementId?: string,
 ): { patch?: JsonPatchOperation; action: string; warning?: string; blocked?: string } {
-  if (role === 'character-room-placement' || role === 'interactable-room-placement') {
-    if (repair.kind !== 'set-nowhere')
-      return {
-        action: 'Invalid placement repair descriptor',
-        blocked: 'The placement repair descriptor does not encode a nowhere location.',
-      };
-    return {
-      patch: {
-        op: 'replace',
-        path: repair.path,
-        value: { kind: 'nowhere' } as JsonValue,
-      },
-      action: 'Move initial location to nowhere',
-    };
-  }
   if (role === 'room-cast-character' || role === 'room-overlay-layout') {
     if (repair.kind !== 'remove-array-item')
       return {
@@ -186,11 +171,6 @@ function repairPatchForEdge(
   switch (repair.kind) {
     case 'set-null':
       return { patch: { op: 'replace', path: repair.path, value: null }, action: 'Set null' };
-    case 'set-nowhere':
-      return {
-        patch: { op: 'replace', path: repair.path, value: { kind: 'nowhere' } as JsonValue },
-        action: 'Move initial location to nowhere',
-      };
     case 'clear-field':
       return { patch: { op: 'remove', path: repair.path }, action: 'Clear field' };
     case 'remove-array-item':

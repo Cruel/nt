@@ -360,28 +360,54 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
     const auto coin = id<InteractableId>("coin");
     const auto key = id<InteractableId>("key");
 
+    const compiled::InventoryRef player_inventory{compiled::ProjectInventoryOwner{},
+                                                  id<InventoryId>("player")};
+    const compiled::InventoryRef key_hidden{compiled::InteractableInventoryOwner{key},
+                                            id<InventoryId>("hidden")};
+    const compiled::InventoryRef coin_pouch{compiled::InteractableInventoryOwner{coin},
+                                            id<InventoryId>("pouch")};
+
     REQUIRE(state.interactables().size() == compiled_project.interactables().size());
     REQUIRE(state.interactable(coin) != nullptr);
-    CHECK(std::holds_alternative<compiled::NowhereLocation>(state.interactable(coin)->location));
+    CHECK(std::holds_alternative<compiled::UnplacedLocation>(state.interactable(coin)->location));
     REQUIRE(state.interactable(key) != nullptr);
-    const auto* initial_placement =
-        std::get_if<compiled::RoomPlacementRef>(&state.interactable(key)->location);
-    REQUIRE(initial_placement != nullptr);
-    CHECK(initial_placement->room == id<RoomId>("start"));
+    const auto* initial_room =
+        std::get_if<compiled::RoomLocation>(&state.interactable(key)->location);
+    REQUIRE(initial_room != nullptr);
+    CHECK(initial_room->room == id<RoomId>("start"));
 
-    REQUIRE(state.move_interactable(compiled_project, key, compiled::InventoryLocation{}));
+    REQUIRE(
+        state.move_interactable(compiled_project, coin, compiled::InventoryLocation{key_hidden}));
+    CHECK(state.inventory_members(key_hidden) == std::vector<InteractableId>{coin});
+    CHECK(state.effective_room(compiled_project, coin) == id<RoomId>("start"));
+    const auto coin_direct_location = state.interactable(coin)->location;
+
+    REQUIRE(
+        state.move_interactable(compiled_project, key, compiled::RoomLocation{id<RoomId>("hall")}));
+    CHECK(state.interactable(coin)->location == coin_direct_location);
+    CHECK(state.effective_room(compiled_project, coin) == id<RoomId>("hall"));
+
+    const auto key_before_cycle = state.interactable(key)->location;
+    const auto cycle =
+        state.move_interactable(compiled_project, key, compiled::InventoryLocation{coin_pouch});
+    CHECK_FALSE(cycle);
+    REQUIRE(state.interactable(key) != nullptr);
+    CHECK(state.interactable(key)->location == key_before_cycle);
+    CHECK(state.interactable(coin)->location == coin_direct_location);
+
+    REQUIRE(state.move_interactable(compiled_project, key,
+                                    compiled::InventoryLocation{player_inventory}));
     REQUIRE(state.set_interactable_enabled(compiled_project, key, false));
     REQUIRE(state.set_interactable_visible(compiled_project, key, false));
-    CHECK(std::holds_alternative<compiled::InventoryLocation>(state.interactable(key)->location));
+    const auto* key_inventory =
+        std::get_if<compiled::InventoryLocation>(&state.interactable(key)->location);
+    REQUIRE(key_inventory != nullptr);
+    CHECK(key_inventory->inventory == player_inventory);
     CHECK_FALSE(state.interactable(key)->enabled);
     CHECK_FALSE(state.interactable(key)->visible);
 
-    REQUIRE(state.move_interactable(
-        compiled_project, key,
-        compiled::RoomPlacementRef{id<RoomId>("hall"), id<RoomPlacementId>("coin-placement")}));
-    REQUIRE(state.move_interactable(compiled_project, key, compiled::InventoryLocation{}));
     CHECK_FALSE(state.move_interactable(compiled_project, id<InteractableId>("missing"),
-                                        compiled::NowhereLocation{}));
+                                        compiled::UnplacedLocation{}));
     CHECK_FALSE(
         state.set_interactable_enabled(compiled_project, id<InteractableId>("missing"), true));
     CHECK_FALSE(
@@ -390,9 +416,12 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
     noveltea::runtime::RuntimeWorld world(compiled_project, state);
     noveltea::runtime::RuntimeCommandGateway gateway(
         compiled_project, state, world, *noveltea::runtime::CapabilityGeneration::from_number(1));
-    REQUIRE(gateway.interactable_location(key));
-    CHECK(std::holds_alternative<compiled::InventoryLocation>(
-        gateway.interactable_location(key).value()));
+    auto gateway_location = gateway.interactable_location(key);
+    REQUIRE(gateway_location);
+    const auto* gateway_inventory =
+        std::get_if<compiled::InventoryLocation>(gateway_location.value_if());
+    REQUIRE(gateway_inventory != nullptr);
+    CHECK(gateway_inventory->inventory == player_inventory);
 }
 
 TEST_CASE("session state validates actors and shared Scene presentation state")

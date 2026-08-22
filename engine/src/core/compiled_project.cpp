@@ -410,12 +410,13 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     : m_identity(std::move(input.identity)), m_settings(std::move(input.settings)),
       m_entrypoint(std::move(input.entrypoint)), m_startup_hook(std::move(input.startup_hook)),
       m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),
-      m_traits(std::move(input.traits)), m_assets(std::move(input.assets)),
-      m_layouts(std::move(input.layouts)), m_scripts(std::move(input.scripts)),
-      m_characters(std::move(input.characters)), m_rooms(std::move(input.rooms)),
-      m_interactables(std::move(input.interactables)), m_verbs(std::move(input.verbs)),
-      m_interactions(std::move(input.interactions)), m_scenes(std::move(input.scenes)),
-      m_dialogues(std::move(input.dialogues)), m_maps(std::move(input.maps))
+      m_traits(std::move(input.traits)), m_inventories(std::move(input.inventories)),
+      m_assets(std::move(input.assets)), m_layouts(std::move(input.layouts)),
+      m_scripts(std::move(input.scripts)), m_characters(std::move(input.characters)),
+      m_rooms(std::move(input.rooms)), m_interactables(std::move(input.interactables)),
+      m_verbs(std::move(input.verbs)), m_interactions(std::move(input.interactions)),
+      m_scenes(std::move(input.scenes)), m_dialogues(std::move(input.dialogues)),
+      m_maps(std::move(input.maps))
 {
     Diagnostics unused;
 #define INDEX(id_type, singular, plural, expression, label)                                        \
@@ -498,6 +499,35 @@ const compiled::FeatureDefinition*
 CompiledProject::find_feature(const FeatureRef& reference) const noexcept
 {
     return std::visit([this](const auto& value) { return find_feature(value); }, reference);
+}
+
+const compiled::InventoryDefinition*
+CompiledProject::find_inventory(const compiled::InventoryRef& reference) const noexcept
+{
+    const std::vector<compiled::InventoryDefinition>* values = std::visit(
+        [this](const auto& owner) -> const std::vector<compiled::InventoryDefinition>* {
+            using T = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<T, compiled::ProjectInventoryOwner>)
+                return &m_inventories;
+            else if constexpr (std::is_same_v<T, compiled::CharacterInventoryOwner>) {
+                const auto* definition = find_character(owner.character);
+                return definition ? &definition->inventories : nullptr;
+            } else if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>) {
+                const auto* definition = find_interactable(owner.interactable);
+                return definition ? &definition->inventories : nullptr;
+            } else {
+                const auto* definition = find_feature(owner);
+                return definition ? &definition->inventories : nullptr;
+            }
+        },
+        reference.owner);
+    if (!values)
+        return nullptr;
+    const auto found =
+        std::ranges::find_if(*values, [&](const compiled::InventoryDefinition& value) {
+            return value.id == reference.inventory_id;
+        });
+    return found == values->end() ? nullptr : &*found;
 }
 
 FIND(verb, verbs, VerbId, compiled::VerbDefinition)

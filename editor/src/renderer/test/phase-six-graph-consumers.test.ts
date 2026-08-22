@@ -371,7 +371,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       family: 'room-placement' as const,
       id: 'door',
     };
-    const current = snapshot([edge('placement:1', 'character-room-placement', target)]);
+    const current = snapshot([edge('placement:1', 'explicit-ref', target)]);
     expect(
       preflightRoomPlacementDeletion({
         snapshot: current,
@@ -383,7 +383,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     ).toMatchObject({ kind: 'blocked' });
   });
 
-  it('moves placement occupants to nowhere in the same structural transaction', () => {
+  it('does not rewrite semantic Room Location when deleting unrelated presentation placement', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Hall');
     room.placements = [
@@ -396,28 +396,11 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     project.rooms.hall = { id: 'hall', label: 'Hall', data: room };
     const character = defaultCharacterData('Alice');
     character.initialWorldState.location = {
-      kind: 'room-placement',
-      placement: { room: 'hall', placement: 'door' },
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'hall' } },
     };
     project.characters.alice = { id: 'alice', label: 'Alice', data: character };
-    const target = {
-      kind: 'nested' as const,
-      ownerCollection: 'rooms' as const,
-      ownerId: 'hall',
-      family: 'room-placement' as const,
-      id: 'door',
-    };
-    const placementEdge: AuthoringDependencyEdge = {
-      ...edge('placement:repair', 'character-room-placement', target),
-      source: { kind: 'record', collection: 'characters', id: 'alice' },
-      sourcePath: '/characters/alice/data/initialWorldState/location/placement',
-      facets: ['reference-integrity', 'tooling-reference', 'preview-visual'],
-      repair: {
-        kind: 'set-nowhere',
-        path: '/characters/alice/data/initialWorldState/location',
-      },
-    };
-    const current = snapshot([placementEdge]);
+    const current = snapshot([]);
     const result = projectRemoveAtPathCommand({
       document: toJsonValue(project),
       savedDocument: null,
@@ -432,14 +415,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
         persistencePolicy: 'manual-save',
       },
     });
-    expect(result.patches).toEqual([
-      { op: 'remove', path: '/rooms/hall/data/placements/0' },
-      {
-        op: 'replace',
-        path: '/characters/alice/data/initialWorldState/location',
-        value: { kind: 'nowhere' },
-      },
-    ]);
+    expect(result.patches).toEqual([{ op: 'remove', path: '/rooms/hall/data/placements/0' }]);
     expect(result.diagnostics).toBeUndefined();
   });
 
@@ -463,13 +439,13 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       id: 'door',
     };
     const placementEdge: AuthoringDependencyEdge = {
-      ...edge('placement:room-delete', 'character-room-placement', placementTarget),
-      source: { kind: 'record', collection: 'characters', id: 'alice' },
-      sourcePath: '/characters/alice/data/initialWorldState/location/placement',
+      ...edge('placement:room-delete', 'explicit-ref', placementTarget),
+      source: { kind: 'record', collection: 'interactions', id: 'unlock' },
+      sourcePath: '/interactions/unlock/data/rules/0/context/placement',
       facets: ['reference-integrity', 'tooling-reference', 'preview-visual'],
       repair: {
-        kind: 'set-nowhere',
-        path: '/characters/alice/data/initialWorldState/location',
+        kind: 'blocked',
+        reason: 'Room-placement context requires an explicit replacement.',
       },
     };
     const atticKey = recordNodeKey('rooms', 'attic');
@@ -512,22 +488,8 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       replacements: { [exitEdge.id]: 'attic' },
     });
     expect(result).toMatchObject({
-      status: 'ready',
-      plan: {
-        patches: [
-          { op: 'remove', path: '/rooms/hall' },
-          {
-            op: 'replace',
-            path: '/characters/alice/data/initialWorldState/location',
-            value: { kind: 'nowhere' },
-          },
-          {
-            op: 'replace',
-            path: '/rooms/foyer/data/exits/0/target/$ref',
-            value: { collection: 'rooms', id: 'attic' },
-          },
-        ],
-      },
+      status: 'blocked',
+      reason: 'Room-placement context requires an explicit replacement.',
     });
     expect(
       authoringRepairEdgesForTarget(current, recordTarget('rooms', 'hall')).map((item) => item.id),
