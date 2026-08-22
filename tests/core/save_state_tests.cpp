@@ -760,6 +760,24 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
     }
 
+    SECTION("current V8 item Stack fields are mandatory and stale identities are rejected")
+    {
+        auto invalid = encoded.value();
+        invalid["runtimeWorld"].erase("nextItemStackId");
+        CHECK_FALSE(decode_save_state_wire(invalid, "save-fixture.json"));
+
+        invalid = encoded.value();
+        invalid.erase("itemStacks");
+        CHECK_FALSE(decode_save_state_wire(invalid, "save-fixture.json"));
+
+        invalid = encoded.value();
+        invalid["propertyOverrides"].push_back(
+            {{"target", {{"kind", "item-stack"}, {"id", "ended-stack"}}},
+             {"property", "quality"},
+             {"value", "ordinary"}});
+        CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
+    }
+
     SECTION("Save Contract mismatch and missing contract data reject the entire candidate")
     {
         auto mismatched = encoded.value();

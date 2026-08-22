@@ -359,8 +359,12 @@ struct FeatureInteractionSubject {
     FeatureRef feature;
     bool operator==(const FeatureInteractionSubject&) const = default;
 };
+struct ItemStackInteractionSubject {
+    ItemStackId item_stack;
+    bool operator==(const ItemStackInteractionSubject&) const = default;
+};
 using InteractionSubject = std::variant<CharacterInteractionSubject, InteractableInteractionSubject,
-                                        FeatureInteractionSubject>;
+                                        FeatureInteractionSubject, ItemStackInteractionSubject>;
 
 struct RoomExitRef {
     RoomId room;
@@ -604,6 +608,28 @@ struct InteractableDefinition {
     InteractablePresentation presentation;
 };
 
+inline constexpr std::uint64_t max_item_stack_quantity = 9'007'199'254'740'991ULL;
+
+struct ItemDefinitionPresentation {
+    std::optional<MaterialId> material;
+    std::optional<AssetId> sprite;
+    bool operator==(const ItemDefinitionPresentation&) const = default;
+};
+struct ItemDefinition {
+    PropertyBearingDefinition<ItemDefinitionId> identity;
+    std::string display_name;
+    std::string description;
+    ItemDefinitionPresentation presentation;
+    std::optional<std::uint64_t> stack_limit;
+};
+using ItemStackLocation = InteractableLocation;
+struct ItemStackDeclaration {
+    ItemStackId id;
+    ItemDefinitionId definition;
+    std::uint64_t quantity;
+    ItemStackLocation location;
+};
+
 enum class GameplayInstanceKind : std::uint8_t {
     Room,
     Character,
@@ -678,9 +704,10 @@ struct ExactOperand {
 };
 struct AnyCharacterOperand {};
 struct AnyInteractableOperand {};
+struct AnyItemStackOperand {};
 struct AnyInteractionSubjectOperand {};
 using InteractionOperand = std::variant<ExactOperand, AnyCharacterOperand, AnyInteractableOperand,
-                                        AnyInteractionSubjectOperand>;
+                                        AnyItemStackOperand, AnyInteractionSubjectOperand>;
 struct InteractionRule {
     InteractionRuleId id;
     VerbId verb;
@@ -1047,6 +1074,8 @@ struct CompiledProjectInput {
     std::vector<CharacterDefinition> characters;
     std::vector<RoomDefinition> rooms;
     std::vector<InteractableDefinition> interactables;
+    std::vector<ItemDefinition> item_definitions;
+    std::vector<ItemStackDeclaration> item_stacks;
     std::vector<VerbDefinition> verbs;
     std::vector<InteractionDefinition> interactions;
     std::vector<SceneDefinition> scenes;
@@ -1116,6 +1145,14 @@ public:
     {
         return m_interactables;
     }
+    [[nodiscard]] const std::vector<compiled::ItemDefinition>& item_definitions() const noexcept
+    {
+        return m_item_definitions;
+    }
+    [[nodiscard]] const std::vector<compiled::ItemStackDeclaration>& item_stacks() const noexcept
+    {
+        return m_item_stacks;
+    }
     [[nodiscard]] const std::vector<compiled::VerbDefinition>& verbs() const noexcept
     {
         return m_verbs;
@@ -1151,6 +1188,10 @@ public:
     [[nodiscard]] const compiled::RoomDefinition* find_room(const RoomId& id) const noexcept;
     [[nodiscard]] const compiled::InteractableDefinition*
     find_interactable(const InteractableId& id) const noexcept;
+    [[nodiscard]] const compiled::ItemDefinition*
+    find_item_definition(const ItemDefinitionId& id) const noexcept;
+    [[nodiscard]] const compiled::ItemStackDeclaration*
+    find_item_stack(const ItemStackId& id) const noexcept;
     [[nodiscard]] const compiled::FeatureDefinition*
     find_feature(const RoomFeatureRef& reference) const noexcept;
     [[nodiscard]] const compiled::FeatureDefinition*
@@ -1184,6 +1225,8 @@ private:
     std::vector<compiled::CharacterDefinition> m_characters;
     std::vector<compiled::RoomDefinition> m_rooms;
     std::vector<compiled::InteractableDefinition> m_interactables;
+    std::vector<compiled::ItemDefinition> m_item_definitions;
+    std::vector<compiled::ItemStackDeclaration> m_item_stacks;
     std::vector<compiled::VerbDefinition> m_verbs;
     std::vector<compiled::InteractionDefinition> m_interactions;
     std::vector<compiled::SceneDefinition> m_scenes;
@@ -1200,6 +1243,8 @@ private:
     NOVELTEA_COMPILED_INDEX(CharacterId, character);
     NOVELTEA_COMPILED_INDEX(RoomId, room);
     NOVELTEA_COMPILED_INDEX(InteractableId, interactable);
+    NOVELTEA_COMPILED_INDEX(ItemDefinitionId, item_definition);
+    NOVELTEA_COMPILED_INDEX(ItemStackId, item_stack);
     NOVELTEA_COMPILED_INDEX(VerbId, verb);
     NOVELTEA_COMPILED_INDEX(InteractionId, interaction);
     NOVELTEA_COMPILED_INDEX(SceneId, scene);

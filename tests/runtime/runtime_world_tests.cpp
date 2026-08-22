@@ -334,6 +334,14 @@ TEST_CASE(
         ArchetypeInstanceConfiguration{id<core::ArchetypeId>("runtime-interactable")},
         core::compiled::RoomLocation{room.value()}, true, false);
     REQUIRE(interactable);
+    const auto wallet = id<core::ItemStackId>("wallet");
+    auto split_stack = world.split_item_stack(wallet, 5);
+    REQUIRE(split_stack);
+    REQUIRE(split_stack.value().created.size() == 1);
+    const auto split_stack_id = split_stack.value().created.front();
+    core::PropertyResolver properties(project, state);
+    REQUIRE(properties.set(core::PropertyOwnerRef{split_stack_id}, id<core::PropertyId>("quality"),
+                           core::RuntimeValue{std::string{"ordinary"}}));
 
     auto saved = core::make_save_state(project, state);
     REQUIRE(saved);
@@ -363,6 +371,22 @@ TEST_CASE(
     CHECK(provenance->kind == core::RuntimeInstanceProvenanceKind::Archetype);
     CHECK(provenance->archetype == id<core::ArchetypeId>("runtime-character"));
     CHECK(restored.next_runtime_instance_id() == 4);
+    REQUIRE(restored_world.item_stack(wallet) != nullptr);
+    CHECK(restored_world.item_stack(wallet)->quantity == 20);
+    REQUIRE(restored_world.item_stack(split_stack_id) != nullptr);
+    CHECK(restored_world.item_stack(split_stack_id)->quantity == 5);
+    core::PropertyResolver restored_properties(project, restored);
+    auto restored_quality = restored_properties.get(core::PropertyOwnerRef{split_stack_id},
+                                                    id<core::PropertyId>("quality"));
+    REQUIRE(restored_quality);
+    CHECK(std::get<core::RuntimeValue>(restored_quality.value()) ==
+          core::RuntimeValue{std::string{"ordinary"}});
+    CHECK(restored.next_item_stack_id() == 2);
+
+    auto next_stack = restored_world.split_item_stack(wallet, 1);
+    REQUIRE(next_stack);
+    REQUIRE(next_stack.value().created.size() == 1);
+    CHECK(next_stack.value().created.front().text() == "runtime-item-stack-2");
 
     auto next = restored_world.create_interactable(
         CompiledInstanceConfiguration{core::GameplayInstanceRef{id<core::InteractableId>("dust")}});
@@ -400,6 +424,67 @@ TEST_CASE("runtime destruction is explicit non-cascading and rejects live depend
     auto declared = world.destroy(core::GameplayInstanceRef{id<core::RoomId>("start")});
     REQUIRE_FALSE(declared);
     CHECK(declared.error().front().code == "runtime.declared_instance_not_destroyable");
+}
+
+TEST_CASE("Item Stack arithmetic preserves exact identities compatibility and stable order")
+{
+    const auto project = load_fixture("comprehensive.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto wallet = id<core::ItemStackId>("wallet");
+    const auto credits = id<core::ItemDefinitionId>("credits");
+    const auto quality = id<core::PropertyId>("quality");
+    REQUIRE(world.item_stack(wallet) != nullptr);
+    CHECK(world.item_stack(wallet)->quantity == 25);
+
+    auto split = world.split_item_stack(wallet, 5);
+    REQUIRE(split);
+    REQUIRE(split.value().created.size() == 1);
+    const auto split_id = split.value().created.front();
+    CHECK(split_id.text() == "runtime-item-stack-1");
+    CHECK(split.value().changed == std::vector<core::ItemStackId>{wallet});
+    REQUIRE(world.item_stack(split_id) != nullptr);
+    CHECK(world.item_stack(split_id)->quantity == 5);
+    CHECK(world.item_stack(wallet)->quantity == 20);
+
+    core::PropertyResolver properties(project, state);
+    REQUIRE(properties.set(core::PropertyOwnerRef{split_id}, quality,
+                           core::RuntimeValue{std::string{"ordinary"}}));
+    auto incompatible = world.merge_item_stacks(wallet, split_id);
+    REQUIRE_FALSE(incompatible);
+    CHECK(world.item_stack(wallet)->quantity == 20);
+    CHECK(world.item_stack(split_id)->quantity == 5);
+    REQUIRE(properties.unset(core::PropertyOwnerRef{split_id}, quality));
+
+    auto merged = world.merge_item_stacks(wallet, split_id);
+    REQUIRE(merged);
+    CHECK(world.item_stack(wallet)->quantity == 25);
+    CHECK(world.item_stack(split_id) == nullptr);
+    CHECK(merged.value().changed == std::vector<core::ItemStackId>{wallet});
+    CHECK(merged.value().ended == std::vector<core::ItemStackId>{split_id});
+
+    auto granted = world.grant_item_quantity(
+        credits, 180,
+        core::compiled::InventoryLocation{core::compiled::InventoryRef{
+            core::compiled::ProjectInventoryOwner{}, id<core::InventoryId>("player")}});
+    REQUIRE(granted);
+    CHECK(granted.value().created.size() == 2);
+    CHECK(granted.value().created[0].text() == "runtime-item-stack-2");
+    CHECK(granted.value().created[1].text() == "runtime-item-stack-3");
+
+    ItemStackFilter filter{.definition = credits};
+    auto total = world.aggregate_item_quantity(filter);
+    REQUIRE(total);
+    CHECK(total.value() == 205);
+    auto consumed = world.consume_item_quantity(filter, 110);
+    REQUIRE(consumed);
+    CHECK(consumed.value().ended == granted.value().created);
+    REQUIRE(world.item_stack(wallet) != nullptr);
+    CHECK(world.item_stack(wallet)->quantity == 95);
+    CHECK(state.next_item_stack_id() == 4);
 }
 
 } // namespace

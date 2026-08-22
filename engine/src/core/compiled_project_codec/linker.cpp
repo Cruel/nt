@@ -316,6 +316,12 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                           "/definitions/interactables/" + std::to_string(index) + "/features"),
             std::move(value.inventories), std::move(value.initial_state),
             std::move(value.presentation)}));
+    LINK_PROPERTY_DEFINITIONS(
+        item_definitions, item_definitions, ItemDefinition, PropertyOwnerKind::ItemStack,
+        "/definitions/itemDefinitions",
+        (compiled::ItemDefinition{std::move(*identity), std::move(value.display_name),
+                                  std::move(value.description), std::move(value.presentation),
+                                  value.stack_limit}));
 
     std::vector<compiled::ArchetypeDefinition> archetypes;
     archetypes.reserve(wire.archetypes.size());
@@ -426,6 +432,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         .characters = std::move(characters),
         .rooms = std::move(rooms),
         .interactables = std::move(interactables),
+        .item_definitions = std::move(item_definitions),
+        .item_stacks = std::move(wire.item_stacks),
         .verbs = std::move(verbs),
         .interactions = std::move(interactions),
         .scenes = std::move(scenes),

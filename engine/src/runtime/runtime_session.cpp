@@ -1518,6 +1518,15 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
         drain_deferred_commands(result.events, result.observations, result.diagnostics);
     else
         m_kernel->gateway().command_queue().clear();
+    const auto stale_selection =
+        std::remove_if(m_selection.begin(), m_selection.end(), [&](const auto& subject) {
+            const auto* stack = std::get_if<core::compiled::ItemStackInteractionSubject>(&subject);
+            return stack != nullptr && m_kernel->world().item_stack(stack->item_stack) == nullptr;
+        });
+    if (stale_selection != m_selection.end()) {
+        m_selection.erase(stale_selection, m_selection.end());
+        m_transaction_impacts.record(runtime::MutationImpact::GameplayUiInvalidated);
+    }
     attach_runtime_context(result.diagnostics, *m_kernel);
     if (!result.diagnostics.empty())
         result.disposition = runtime::RuntimeInputDisposition::Failed;

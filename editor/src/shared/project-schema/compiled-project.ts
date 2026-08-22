@@ -27,6 +27,8 @@ const assetReferenceSchema = typedReference('asset');
 const characterReferenceSchema = typedReference('character');
 const dialogueReferenceSchema = typedReference('dialogue');
 const interactableReferenceSchema = typedReference('interactable');
+const itemDefinitionReferenceSchema = typedReference('item-definition');
+const itemStackReferenceSchema = typedReference('item-stack');
 const layoutReferenceSchema = typedReference('layout');
 const materialReferenceSchema = typedReference('material');
 const roomReferenceSchema = typedReference('room');
@@ -46,6 +48,7 @@ export const compiledInteractionSubjectSchema = z.discriminatedUnion('kind', [
   strict({ character: characterReferenceSchema, kind: z.literal('character') }),
   strict({ interactable: interactableReferenceSchema, kind: z.literal('interactable') }),
   strict({ feature: featureReferenceSchema, kind: z.literal('feature') }),
+  strict({ itemStack: itemStackReferenceSchema, kind: z.literal('item-stack') }),
 ]);
 
 export const compiledTextSourceSchema = z.discriminatedUnion('kind', [
@@ -109,7 +112,13 @@ const propertyBearingDefinition = {
   propertyAssignments: z.array(propertyAssignmentSchema),
 };
 
-const propertyOwnerKindSchema = z.enum(['room', 'character', 'interactable', 'feature']);
+const propertyOwnerKindSchema = z.enum([
+  'room',
+  'character',
+  'interactable',
+  'feature',
+  'item-stack',
+]);
 
 const inventoryDefinitionSchema = strict({ id, label: z.string().min(1) });
 const inventoryOwnerSchema = z.discriminatedUnion('kind', [
@@ -460,6 +469,24 @@ const interactableDefinitionSchema = strict({
   }),
 });
 
+const itemDefinitionSchema = strict({
+  ...propertyBearingDefinition,
+  displayName: z.string(),
+  description: z.string(),
+  presentation: strict({
+    material: materialReferenceSchema.nullable(),
+    sprite: assetReferenceSchema.nullable(),
+  }),
+  stackLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
+});
+
+const itemStackDeclarationSchema = strict({
+  id,
+  definition: itemDefinitionReferenceSchema,
+  quantity: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  location: interactableLocationSchema,
+});
+
 const archetypeDefinitionSchema = z.discriminatedUnion('instanceKind', [
   strict({
     id,
@@ -516,6 +543,7 @@ const interactionOperandSchema = z.discriminatedUnion('kind', [
   }),
   strict({ kind: z.literal('any-character') }),
   strict({ kind: z.literal('any-interactable') }),
+  strict({ kind: z.literal('any-item-stack') }),
   strict({ kind: z.literal('any-subject') }),
 ]);
 const interactionRuleSchema = strict({
@@ -924,6 +952,7 @@ export const compiledProjectWireV4Schema = strict({
     characters: z.array(characterDefinitionSchema),
     dialogues: z.array(dialogueDefinitionSchema),
     interactables: z.array(interactableDefinitionSchema),
+    itemDefinitions: z.array(itemDefinitionSchema),
     interactions: z.array(interactionDefinitionSchema),
     maps: z.array(mapDefinitionSchema),
     rooms: z.array(roomDefinitionSchema),
@@ -946,6 +975,7 @@ export const compiledProjectWireV4Schema = strict({
   properties: z.array(propertyDefinitionSchema),
   traits: z.array(traitDefinitionSchema),
   inventories: z.array(inventoryDefinitionSchema),
+  itemStacks: z.array(itemStackDeclarationSchema),
   resources: strict({
     assets: z.array(assetResourceSchema),
     layouts: z.array(layoutResourceSchema),
@@ -961,6 +991,7 @@ export const compiledProjectWireV4Schema = strict({
     { path: ['definitions', 'characters'], records: project.definitions.characters },
     { path: ['definitions', 'dialogues'], records: project.definitions.dialogues },
     { path: ['definitions', 'interactables'], records: project.definitions.interactables },
+    { path: ['definitions', 'itemDefinitions'], records: project.definitions.itemDefinitions },
     { path: ['definitions', 'interactions'], records: project.definitions.interactions },
     { path: ['definitions', 'maps'], records: project.definitions.maps },
     { path: ['definitions', 'rooms'], records: project.definitions.rooms },
@@ -969,6 +1000,7 @@ export const compiledProjectWireV4Schema = strict({
     { path: ['properties'], records: project.properties },
     { path: ['traits'], records: project.traits },
     { path: ['archetypes'], records: project.archetypes },
+    { path: ['itemStacks'], records: project.itemStacks },
     { path: ['resources', 'assets'], records: project.resources.assets },
     { path: ['resources', 'layouts'], records: project.resources.layouts },
     { path: ['resources', 'scripts'], records: project.resources.scripts },
@@ -1136,6 +1168,7 @@ export function computeCompiledProjectSaveContract(
     archetypes: project.archetypes as CanonicalJson,
     definitions: project.definitions as CanonicalJson,
     inventories: project.inventories as CanonicalJson,
+    itemStacks: project.itemStacks as CanonicalJson,
     properties: project.properties as CanonicalJson,
     resources: {
       assets: project.resources.assets.map((asset) => asset.id),

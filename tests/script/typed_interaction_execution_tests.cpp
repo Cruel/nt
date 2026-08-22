@@ -212,6 +212,53 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
     CHECK(selected->rule == id<core::InteractionRuleId>("typed-interactable"));
 }
 
+TEST_CASE("typed Interaction and Room publication preserve exact live item Stack identity")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto exact = definition(document, "interactions", "actions")["rules"][2];
+    exact["id"] = "exact-wallet";
+    exact["operands"] = nlohmann::json::array(
+        {{{"kind", "exact"},
+          {"subject",
+           {{"kind", "item-stack"}, {"itemStack", {{"kind", "item-stack"}, {"id", "wallet"}}}}}}});
+    exact["context"] = {{"kind", "any"}};
+    exact["program"] = program(nlohmann::json::array());
+    auto wildcard = exact;
+    wildcard["id"] = "any-item-stack";
+    wildcard["operands"] = nlohmann::json::array({{{"kind", "any-item-stack"}}});
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(wildcard), std::move(exact)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    const auto wallet = id<core::ItemStackId>("wallet");
+    REQUIRE(kernel->gateway().transfer_item_quantity(
+        wallet, 25, core::compiled::RoomLocation{id<core::RoomId>("start")},
+        runtime::ItemStackPlacementPolicy::KeepSeparate));
+    drive_to_room(*kernel);
+    auto room = kernel->room_view("en");
+    REQUIRE(room);
+    REQUIRE(room.value().item_stacks.size() == 1);
+    CHECK(room.value().item_stacks.front().stack == wallet);
+    CHECK(room.value().item_stacks.front().quantity == 25);
+
+    const core::compiled::InteractionSubject subject =
+        core::compiled::ItemStackInteractionSubject{wallet};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {subject}));
+    auto interaction = kernel->interaction_view("en");
+    REQUIRE(interaction);
+    CHECK(interaction.value().operands == std::vector<core::compiled::InteractionSubject>{subject});
+    REQUIRE(interaction.value().program);
+    const auto* selected =
+        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+    REQUIRE(selected != nullptr);
+    CHECK(selected->rule == id<core::InteractionRuleId>("exact-wallet"));
+}
+
 TEST_CASE(
     "typed Interaction falls back to the selected Verb default then emits typed undefined fallback")
 {
@@ -245,6 +292,9 @@ TEST_CASE(
 
     auto inventory = kernel->inventory_view("en");
     REQUIRE(inventory);
+    REQUIRE(inventory.value().item_stacks.size() == 1);
+    CHECK(inventory.value().item_stacks.front().stack == id<core::ItemStackId>("wallet"));
+    CHECK(inventory.value().item_stacks.front().quantity == 25);
     CHECK(std::any_of(inventory.value().controls.begin(), inventory.value().controls.end(),
                       [](const auto& control) { return control.quick_action; }));
     auto room = kernel->room_view("en");

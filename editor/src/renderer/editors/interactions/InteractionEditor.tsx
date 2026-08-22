@@ -234,6 +234,7 @@ function RuleEditor({
                 const next = [...rule.operands];
                 const firstInteractable = Object.keys(project.interactables)[0];
                 const firstCharacter = Object.keys(project.characters)[0];
+                const firstItemStack = Object.keys(project.itemStacks)[0];
                 next[operandIndex] =
                   kind === 'exact-interactable' && firstInteractable
                     ? {
@@ -245,22 +246,33 @@ function RuleEditor({
                       }
                     : kind === 'any-character'
                       ? { kind: 'any-character' }
-                      : kind === 'any-subject'
-                        ? { kind: 'any-subject' }
-                        : kind === 'exact-character' && firstCharacter
-                          ? {
-                              kind: 'exact',
-                              subject: {
-                                kind: 'character',
-                                character: typedRef('characters', firstCharacter),
-                              },
-                            }
-                          : { kind: 'any-interactable' };
+                      : kind === 'any-item-stack'
+                        ? { kind: 'any-item-stack' }
+                        : kind === 'any-subject'
+                          ? { kind: 'any-subject' }
+                          : kind === 'exact-item-stack' && firstItemStack
+                            ? {
+                                kind: 'exact',
+                                subject: {
+                                  kind: 'item-stack',
+                                  itemStack: typedRef('itemStacks', firstItemStack),
+                                },
+                              }
+                            : kind === 'exact-character' && firstCharacter
+                              ? {
+                                  kind: 'exact',
+                                  subject: {
+                                    kind: 'character',
+                                    character: typedRef('characters', firstCharacter),
+                                  },
+                                }
+                              : { kind: 'any-interactable' };
                 onChange({ ...rule, operands: next });
               }}
             >
               <SelectItem value="any-interactable">Any interactable</SelectItem>
               <SelectItem value="any-character">Any character</SelectItem>
+              <SelectItem value="any-item-stack">Any item Stack</SelectItem>
               <SelectItem value="any-subject">Any subject</SelectItem>
               <SelectItem
                 value="exact-interactable"
@@ -273,6 +285,12 @@ function RuleEditor({
                 disabled={!Object.keys(project.characters).length}
               >
                 Exact character
+              </SelectItem>
+              <SelectItem
+                value="exact-item-stack"
+                disabled={!Object.keys(project.itemStacks).length}
+              >
+                Exact item Stack
               </SelectItem>
             </Select>
             {operand.kind === 'exact' && operand.subject.kind === 'interactable' && (
@@ -310,6 +328,28 @@ function RuleEditor({
                 }}
               >
                 {Object.entries(project.characters).map(([id, record]) => (
+                  <SelectItem value={id} key={id}>
+                    {record.label}
+                  </SelectItem>
+                ))}
+              </Select>
+            )}
+            {operand.kind === 'exact' && operand.subject.kind === 'item-stack' && (
+              <Select
+                value={operand.subject.itemStack.$ref.id}
+                onValueChange={(id) => {
+                  const next = [...rule.operands];
+                  next[operandIndex] = {
+                    kind: 'exact',
+                    subject: {
+                      kind: 'item-stack',
+                      itemStack: typedRef('itemStacks', String(id)),
+                    },
+                  };
+                  onChange({ ...rule, operands: next });
+                }}
+              >
+                {Object.entries(project.itemStacks).map(([id, record]) => (
                   <SelectItem value={id} key={id}>
                     {record.label}
                   </SelectItem>

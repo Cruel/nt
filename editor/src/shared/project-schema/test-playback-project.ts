@@ -47,6 +47,7 @@ function typedSubject(
   if (subject.kind === 'character') return { kind: 'character', id: subject.character.$ref.id };
   if (subject.kind === 'interactable')
     return { kind: 'interactable', id: subject.interactable.$ref.id };
+  if (subject.kind === 'item-stack') return { kind: 'item-stack', id: subject.itemStack.$ref.id };
   return subject.feature.ownerKind === 'room'
     ? {
         kind: 'feature',

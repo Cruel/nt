@@ -17,6 +17,7 @@ import {
 import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
 import { parseInteractableData, validateInteractableData } from './authoring-interactables';
+import { parseItemDefinitionData, parseItemStackData } from './authoring-items';
 import { validateInteractionData, validateInteractionProgram } from './authoring-interactions';
 import { validateLayoutData } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
@@ -68,6 +69,7 @@ const propertyOwnerKindByCollection: Partial<Record<AuthoringCollectionKey, Prop
   rooms: 'room',
   characters: 'character',
   interactables: 'interactable',
+  itemDefinitions: 'item-stack',
 };
 
 function recordsFor(
@@ -669,6 +671,48 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
     diagnostics.push(...validateRoomData(effectiveProject, id, record));
   for (const [id, record] of Object.entries(effectiveProject.interactables))
     diagnostics.push(...validateInteractableData(effectiveProject, id, record));
+  for (const [id, record] of Object.entries(effectiveProject.itemDefinitions)) {
+    const data = parseItemDefinitionData(record.data);
+    if (!data)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `/itemDefinitions/${escapePathSegment(id)}/data`,
+          'Item Definition record data is invalid.',
+          'Item Definitions',
+        ),
+      );
+  }
+  for (const [id, record] of Object.entries(effectiveProject.itemStacks)) {
+    const data = parseItemStackData(record.data);
+    const base = `/itemStacks/${escapePathSegment(id)}/data`;
+    if (!data) {
+      diagnostics.push(
+        diagnostic('error', base, 'Item Stack record data is invalid.', 'Item Stacks'),
+      );
+      continue;
+    }
+    const definition = effectiveProject.itemDefinitions[data.definition.$ref.id];
+    const definitionData = parseItemDefinitionData(definition?.data);
+    if (!definitionData)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${base}/definition/$ref`,
+          `Missing Item Definition '${data.definition.$ref.id}'.`,
+          'Item Stacks',
+        ),
+      );
+    else if (definitionData.stackLimit !== null && data.quantity > definitionData.stackLimit)
+      diagnostics.push(
+        diagnostic(
+          'error',
+          `${base}/quantity`,
+          `Quantity exceeds Item Definition Stack limit ${definitionData.stackLimit}.`,
+          'Item Stacks',
+        ),
+      );
+  }
   diagnostics.push(...validateHotspotAuthoringSemantics(effectiveProject));
   for (const [id, record] of Object.entries(project.verbs)) {
     const data = parseVerbData(record.data);

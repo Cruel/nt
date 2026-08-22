@@ -503,7 +503,8 @@ std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohm
                                    {{"room", PropertyOwnerKind::Room},
                                     {"character", PropertyOwnerKind::Character},
                                     {"interactable", PropertyOwnerKind::Interactable},
-                                    {"feature", PropertyOwnerKind::Feature}});
+                                    {"feature", PropertyOwnerKind::Feature},
+                                    {"item-stack", PropertyOwnerKind::ItemStack}});
                            })
                      : std::nullopt;
     }
@@ -555,7 +556,8 @@ std::optional<TraitDeclaration> decode_trait(Decoder& decoder, const nlohmann::j
                                     {{"room", PropertyOwnerKind::Room},
                                      {"character", PropertyOwnerKind::Character},
                                      {"interactable", PropertyOwnerKind::Interactable},
-                                     {"feature", PropertyOwnerKind::Feature}});
+                                     {"feature", PropertyOwnerKind::Feature},
+                                     {"item-stack", PropertyOwnerKind::ItemStack}});
                             })
                       : std::nullopt;
     auto properties =

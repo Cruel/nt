@@ -34,8 +34,9 @@ payload must be `noveltea.compiled.project` version 4.
 Live commands lower to stable typed inputs for start/stop/reset/time, continue, dialogue choice,
 navigation, semantic subject selection, interaction invocation, declared variable changes, inventory
 location changes, room teleport, fast-forward, recorder controls, and debug snapshot requests.
-Interaction subjects include Characters, Interactables, and owner-qualified Features. Hotspot identity
-is not a runtime command surface.
+Interaction subjects include Characters, Interactables, exact live Item Stacks, and owner-qualified
+Features. Hotspot identity is not a runtime command surface. Gameplay publication carries exact Room
+and Inventory Stack entries; any editor grouping is derived and non-authoritative.
 
 The interactive Player Input panel does not enumerate authored Hotspot definitions. Runtime debug
 snapshots publish semantic clickable targets that are currently presented and eligible: either an

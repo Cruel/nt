@@ -731,11 +731,16 @@ subject_array(const nlohmann::json& object, std::string_view key, Diagnostics& d
                                             "Feature ownerKind must be room or interactable.",
                                             item_path + "/ownerKind"));
             }
+        } else if (kind && *kind == "item-stack") {
+            exact_fields(item, {"kind", "id"}, diagnostics, item_path);
+            auto id = id_field<ItemStackId>(item, "id", diagnostics, item_path, limits);
+            if (id)
+                result.emplace_back(compiled::ItemStackInteractionSubject{std::move(*id)});
         } else if (kind) {
-            diagnostics.push_back(
-                error("editor_protocol.invalid_subject_kind",
-                      "Interaction subject kind must be character, interactable, or feature.",
-                      item_path + "/kind"));
+            diagnostics.push_back(error(
+                "editor_protocol.invalid_subject_kind",
+                "Interaction subject kind must be character, interactable, feature, or item-stack.",
+                item_path + "/kind"));
         }
     }
     return diagnostics.empty() ? std::optional{std::move(result)} : std::nullopt;
@@ -750,7 +755,7 @@ nlohmann::json encode_subject(const compiled::InteractionSubject& subject)
                 return nlohmann::json{{"kind", "character"}, {"id", value.character.text()}};
             else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>)
                 return nlohmann::json{{"kind", "interactable"}, {"id", value.interactable.text()}};
-            else
+            else if constexpr (std::is_same_v<T, compiled::FeatureInteractionSubject>)
                 return std::visit(
                     [](const auto& reference) -> nlohmann::json {
                         using R = std::decay_t<decltype(reference)>;
@@ -766,6 +771,8 @@ nlohmann::json encode_subject(const compiled::InteractionSubject& subject)
                                     {"featureId", reference.feature_id.text()}};
                     },
                     value.feature);
+            else
+                return nlohmann::json{{"kind", "item-stack"}, {"id", value.item_stack.text()}};
         },
         subject);
 }
@@ -949,6 +956,43 @@ nlohmann::json encode_inventory_ref(const compiled::InventoryRef& inventory)
             {"id", inventory.inventory_id.text()}};
 }
 
+nlohmann::json encode_item_stack_location(const compiled::ItemStackLocation& location)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::UnplacedLocation>)
+                return {{"kind", "unplaced"}};
+            else if constexpr (std::is_same_v<T, compiled::RoomLocation>)
+                return {{"kind", "room"}, {"room", value.room.text()}};
+            else
+                return {{"kind", "inventory"},
+                        {"inventory", encode_inventory_ref(value.inventory)}};
+        },
+        location);
+}
+
+nlohmann::json encode_item_stack_view(const ItemStackView& stack)
+{
+    nlohmann::json traits = nlohmann::json::array();
+    for (const auto& trait : stack.traits)
+        traits.push_back(trait.text());
+    return {{"id", stack.stack.text()},
+            {"definition", stack.definition.text()},
+            {"quantity", stack.quantity},
+            {"location", encode_item_stack_location(stack.location)},
+            {"effectiveRoom", stack.effective_room ? nlohmann::json(stack.effective_room->text())
+                                                   : nlohmann::json(nullptr)},
+            {"label", stack.display_name},
+            {"description", stack.description},
+            {"sprite", stack.presentation.sprite ? nlohmann::json(stack.presentation.sprite->text())
+                                                 : nlohmann::json(nullptr)},
+            {"material", stack.presentation.material
+                             ? nlohmann::json(stack.presentation.material->text())
+                             : nlohmann::json(nullptr)},
+            {"traits", std::move(traits)}};
+}
+
 nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
 {
     nlohmann::json out = {{"mode", view.mode},
@@ -957,6 +1001,7 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                           {"selectedSubjects", nlohmann::json::array()},
                           {"inventories", nlohmann::json::array()},
                           {"inventory", nlohmann::json::array()},
+                          {"itemStacks", nlohmann::json::array()},
                           {"textLog", nlohmann::json::array()}};
     for (const auto& id : view.selected_subjects)
         out["selectedSubjects"].push_back(encode_subject(id));
@@ -978,19 +1023,22 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
              {"enabled", item.enabled},
              {"visible", item.visible}});
     }
+    for (const auto& stack : view.inventory.item_stacks)
+        out["itemStacks"].push_back(encode_item_stack_view(stack));
     for (const auto& entry : view.text_log.entries)
         out["textLog"].push_back(entry.text);
     if (view.room) {
-        out["room"] = {{"id", view.room->room.text()},
-                       {"visits", view.room->visits},
-                       {"description", view.room->description},
-                       {"exits", nlohmann::json::array()},
-                       {"placements", nlohmann::json::array()}};
+        out["room"] = {
+            {"id", view.room->room.text()},          {"visits", view.room->visits},
+            {"description", view.room->description}, {"exits", nlohmann::json::array()},
+            {"itemStacks", nlohmann::json::array()}, {"placements", nlohmann::json::array()}};
         for (const auto& exit : view.room->exits)
             out["room"]["exits"].push_back({{"id", exit.exit.text()},
                                             {"target", exit.target.text()},
                                             {"label", exit.label},
                                             {"enabled", exit.enabled}});
+        for (const auto& stack : view.room->item_stacks)
+            out["room"]["itemStacks"].push_back(encode_item_stack_view(stack));
         for (const auto& placement : view.room->placements) {
             nlohmann::json occupants = nlohmann::json::array();
             for (const auto& occupant : placement.occupants) {
@@ -1006,7 +1054,8 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                                                  T, compiled::InteractableInteractionSubject>) {
                             encoded["kind"] = "interactable";
                             encoded["interactable"] = subject.interactable.text();
-                        } else {
+                        } else if constexpr (std::is_same_v<T,
+                                                            compiled::FeatureInteractionSubject>) {
                             encoded.update(std::visit(
                                 [](const auto& reference) -> nlohmann::json {
                                     using R = std::decay_t<decltype(reference)>;
@@ -1022,6 +1071,9 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                                                 {"featureId", reference.feature_id.text()}};
                                 },
                                 subject.feature));
+                        } else {
+                            encoded["kind"] = "item-stack";
+                            encoded["itemStack"] = subject.item_stack.text();
                         }
                     },
                     occupant.subject);
@@ -1329,6 +1381,10 @@ decode_editor_interaction_subjects_text(std::string_view text,
             auto id = id_field<InteractableId>(item, "id", diagnostics, path, limits);
             if (id)
                 subjects.emplace_back(compiled::InteractableInteractionSubject{std::move(*id)});
+        } else if (*kind == "item-stack") {
+            auto id = id_field<ItemStackId>(item, "id", diagnostics, path, limits);
+            if (id)
+                subjects.emplace_back(compiled::ItemStackInteractionSubject{std::move(*id)});
         } else {
             diagnostics.push_back(error("editor_protocol.invalid_subject_kind",
                                         "Interaction subject kind is unsupported.",

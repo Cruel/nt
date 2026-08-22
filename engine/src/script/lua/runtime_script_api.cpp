@@ -187,6 +187,76 @@ RuntimeScriptApi::create_interactable(runtime::RuntimeInstanceConfigurationReque
         gateway->create_interactable(std::move(source), std::move(location), enabled, visible));
 }
 
+core::Result<core::ItemStackState, core::Diagnostics>
+RuntimeScriptApi::item_stack(const core::ItemStackId& id) const
+{
+    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack query",
+                        gateway->item_stack(id));
+}
+
+core::Result<runtime::ItemStackMutation, core::Diagnostics>
+RuntimeScriptApi::split_item_stack(core::ItemStackId source, std::uint64_t quantity)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack split",
+                          gateway->split_item_stack(std::move(source), quantity));
+}
+
+core::Result<runtime::ItemStackMutation, core::Diagnostics>
+RuntimeScriptApi::merge_item_stacks(core::ItemStackId receiver, core::ItemStackId donor)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack merge",
+                          gateway->merge_item_stacks(std::move(receiver), std::move(donor)));
+}
+
+core::Result<runtime::ItemStackMutation, core::Diagnostics>
+RuntimeScriptApi::transfer_item_quantity(core::ItemStackId source, std::uint64_t quantity,
+                                         core::compiled::ItemStackLocation location,
+                                         runtime::ItemStackPlacementPolicy policy)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack transfer",
+        gateway->transfer_item_quantity(std::move(source), quantity, std::move(location), policy));
+}
+
+core::Result<runtime::ItemStackMutation, core::Diagnostics>
+RuntimeScriptApi::grant_item_quantity(core::ItemDefinitionId definition, std::uint64_t quantity,
+                                      core::compiled::ItemStackLocation location,
+                                      runtime::ItemStackPlacementPolicy policy)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack grant",
+        gateway->grant_item_quantity(std::move(definition), quantity, std::move(location), policy));
+}
+
+core::Result<runtime::ItemStackMutation, core::Diagnostics>
+RuntimeScriptApi::consume_item_quantity(core::ItemStackId stack, std::uint64_t quantity)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack consume",
+                          gateway->consume_item_quantity(std::move(stack), quantity));
+}
+
+core::Result<runtime::ItemStackMutation, core::Diagnostics>
+RuntimeScriptApi::consume_item_quantity(runtime::ItemStackFilter filter, std::uint64_t quantity)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::ItemStack,
+                          "Item Stack aggregate consume",
+                          gateway->consume_item_quantity(std::move(filter), quantity));
+}
+
+core::Result<std::uint64_t, core::Diagnostics>
+RuntimeScriptApi::aggregate_item_quantity(const runtime::ItemStackFilter& filter) const
+{
+    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack aggregate",
+                        gateway->aggregate_item_quantity(filter));
+}
+
+core::Result<runtime::ItemStackMutation, core::Diagnostics>
+RuntimeScriptApi::set_item_stack_traits(core::ItemStackId stack, std::vector<core::TraitId> traits)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::ItemStack, "Item Stack Trait mutation",
+                          gateway->set_item_stack_traits(std::move(stack), std::move(traits)));
+}
+
 core::Result<void, core::Diagnostics> RuntimeScriptApi::replace_instance_configuration(
     core::GameplayInstanceRef instance, runtime::RuntimeInstanceConfigurationRequest source)
 {

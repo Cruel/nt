@@ -7,6 +7,7 @@ import {
   defaultTestStep,
   testCharacterSubject,
   testInteractableSubject,
+  testItemStackSubject,
   testSceneRef,
   testVariableRef,
   validateTestData,
@@ -73,6 +74,7 @@ describe('authoring tests schema', () => {
           operands: [
             testCharacterSubject('missing-character'),
             testInteractableSubject('missing-interactable'),
+            testItemStackSubject('missing-stack'),
           ],
         },
       },
@@ -108,6 +110,10 @@ describe('authoring tests schema', () => {
         }),
         expect.objectContaining({
           path: '/tests/smoke/data/steps/0/runInteraction/operands/1/interactable/$ref',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/0/runInteraction/operands/2/itemStack/$ref',
           severity: 'error',
         }),
         expect.objectContaining({

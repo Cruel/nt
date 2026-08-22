@@ -53,6 +53,17 @@ function validateSubject(
             'hotspot.authoring.target.interactable-missing',
           ),
         ];
+  if (subject.kind === 'item-stack')
+    return project.itemStacks[subject.itemStack.$ref.id]
+      ? []
+      : [
+          diagnostic(
+            category,
+            `${path}/itemStack/$ref`,
+            `Missing Item Stack '${subject.itemStack.$ref.id}'.`,
+            'hotspot.authoring.target.item-stack-missing',
+          ),
+        ];
   const feature = subject.feature;
   if (feature.ownerKind === 'room') {
     const room = parseRoomData(project.rooms[feature.room.$ref.id]?.data);

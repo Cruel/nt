@@ -80,6 +80,18 @@ struct InteractionControlView {
     bool enabled = false;
 };
 
+struct ItemStackView {
+    ItemStackId stack;
+    ItemDefinitionId definition;
+    std::uint64_t quantity;
+    compiled::ItemStackLocation location;
+    std::optional<RoomId> effective_room;
+    std::string display_name;
+    std::string description;
+    compiled::ItemDefinitionPresentation presentation;
+    std::vector<TraitId> traits;
+};
+
 struct RoomView {
     RoomId room;
     std::uint64_t visits = 0;
@@ -89,6 +101,7 @@ struct RoomView {
     std::vector<RoomOverlayView> overlays;
     std::vector<RoomPlacementView> placements;
     std::vector<RoomExitView> exits;
+    std::vector<ItemStackView> item_stacks;
     std::vector<InteractionControlView> controls;
 };
 
@@ -117,6 +130,7 @@ struct InventoryItemView {
 struct InventoryView {
     std::vector<InventoryContainerView> inventories;
     std::vector<InventoryItemView> items;
+    std::vector<ItemStackView> item_stacks;
     std::vector<InteractionControlView> controls;
 };
 

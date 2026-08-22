@@ -19,6 +19,10 @@ import {
 } from '../../../shared/project-schema/authoring-interactables';
 import { defaultInteractionData } from '../../../shared/project-schema/authoring-interactions';
 import {
+  defaultItemDefinitionData,
+  defaultItemStackData,
+} from '../../../shared/project-schema/authoring-items';
+import {
   defaultLayoutData,
   layoutRecordRef,
 } from '../../../shared/project-schema/authoring-layouts';
@@ -276,6 +280,15 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     defaultValue: null,
     ownerKinds: ['interactable'],
   };
+  project.properties.quality = {
+    id: 'quality',
+    label: 'Quality',
+    type: 'enum',
+    nullable: false,
+    defaultValue: 'ordinary',
+    enumValues: ['ordinary', 'polished'],
+    ownerKinds: ['item-stack'],
+  };
   project.traits['tense-room'] = {
     id: 'tense-room',
     label: 'Tense Room',
@@ -293,7 +306,34 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     ownerKinds: ['feature'],
     properties: [{ kind: 'required', propertyId: 'enabled' }],
   };
+  project.traits.currency = {
+    id: 'currency',
+    label: 'Currency',
+    ownerKinds: ['item-stack'],
+    properties: [{ kind: 'configured', propertyId: 'quality', value: 'polished' }],
+  };
   project.inventories = [{ id: 'player', label: 'Player Inventory' }];
+
+  const credits = defaultItemDefinitionData('Credits');
+  credits.description = 'Standard currency';
+  credits.presentation = {
+    sprite: assetReference('image-main'),
+    material: { $ref: { collection: 'materials', id: 'sprite-material' } },
+  };
+  credits.stackLimit = 100;
+  project.itemDefinitions.credits = {
+    id: 'credits',
+    label: 'Credits',
+    traits: ['currency'],
+    data: credits,
+  };
+  const wallet = defaultItemStackData('credits');
+  wallet.quantity = 25;
+  wallet.location = {
+    kind: 'inventory',
+    inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+  };
+  project.itemStacks.wallet = { id: 'wallet', label: 'Wallet credits', data: wallet };
 
   const hero = defaultCharacterData('Hero');
   hero.poses[0]!.sprite = characterAssetRef('image-main');

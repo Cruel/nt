@@ -101,6 +101,7 @@ function representativeWireFixture() {
       scripts: [{ id: 'bootstrap', source: { kind: 'inline-lua', source: 'return {}' } }],
     },
     definitions: {
+      itemDefinitions: [],
       characters: [
         {
           id: 'hero',
@@ -295,6 +296,7 @@ function representativeWireFixture() {
         },
       ],
     },
+    itemStacks: [],
   };
 }
 

@@ -33,6 +33,8 @@ The current capability surface includes:
 
 - `noveltea.instances.create`, `replace_configuration`, `clear_configuration`, `retarget_exit`,
   `destroy`, and `provenance` for session-owned Gameplay Instances;
+- `noveltea.item_stacks.get`, `set_traits`, `split`, `merge`, `transfer`, `grant`, `consume`, and
+  definition-filtered `consume_definition`/`aggregate_definition` for exact checked Item Stack state;
 - `noveltea.random.seed`, `noveltea.random.integer`, and `noveltea.random.number`; Lua's
   `math.random` and `math.randomseed` are wrappers over the same saved session generator;
 - `noveltea.map.present`, `hide`, `select`, `activate`, and `state`;

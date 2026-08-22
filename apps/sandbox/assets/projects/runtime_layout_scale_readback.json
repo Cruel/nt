@@ -1,7 +1,7 @@
 {
   "schema": "noveltea.compiled.project",
   "schemaVersion": 4,
-  "saveContract": "sc1:f9b3139abf577ef8abe26e0a67d2b5fc",
+  "saveContract": "sc1:de1e3725769ba83f2b235bd5d3cfe2e3",
   "project": {
     "id": "runtime-layout-scale-readback",
     "name": "Runtime Layout Scale Readback",
@@ -53,6 +53,7 @@
   "properties": [],
   "inventories": [],
   "traits": [],
+  "archetypes": [],
   "localization": {
     "defaultLocale": "en",
     "fallbackLocale": null,
@@ -133,6 +134,7 @@
     ]
   },
   "definitions": {
+    "itemDefinitions": [],
     "characters": [],
     "dialogues": [],
     "interactables": [],
@@ -182,5 +184,6 @@
         "continuation": { "kind": "end" }
       }
     ]
-  }
+  },
+  "itemStacks": []
 }

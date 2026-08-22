@@ -201,6 +201,9 @@ bool owner_exists(const CompiledProject& project, const SaveState& save,
                 return resolved_character(project, save, id).has_value();
             else if constexpr (std::is_same_v<T, InteractableId>)
                 return resolved_interactable(project, save, id).has_value();
+            else if constexpr (std::is_same_v<T, ItemStackId>)
+                return std::ranges::any_of(save.item_stacks,
+                                           [&](const auto& value) { return value.id == id; });
             else
                 return feature_exists(project, save, id);
         },
@@ -352,10 +355,8 @@ bool inventory_exists(const CompiledProject& project, const SaveState& save,
 }
 
 bool valid_location(const CompiledProject& project, const SaveState& save,
-                    const InteractableId& interactable,
                     const compiled::InteractableLocation& location)
 {
-    (void)interactable;
     if (const auto* room = std::get_if<compiled::RoomLocation>(&location))
         return resolved_room(project, save, room->room).has_value();
     if (const auto* inventory = std::get_if<compiled::InventoryLocation>(&location))
@@ -913,6 +914,9 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     if (save.next_runtime_instance_id == 0)
         error("save_codec.invalid_runtime_allocator",
               "Runtime Gameplay Instance allocator position must be positive.");
+    if (save.next_item_stack_id == 0)
+        error("save_codec.invalid_item_stack_allocator",
+              "Item Stack identity allocator position must be positive.");
 
     std::unordered_set<std::uint64_t> runtime_ordinals;
     const auto validate_runtime_identity = [&](std::string_view text, std::string_view prefix,
@@ -1103,13 +1107,51 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (!interactables.insert(item.interactable.text()).second)
             error("save_codec.duplicate_record", "Interactable state appears more than once.");
         if (!resolved_interactable(project, save, item.interactable) ||
-            !valid_location(project, save, item.interactable, item.location))
+            !valid_location(project, save, item.location))
             error("save_codec.invalid_interactable",
                   "Interactable state has an invalid reference or location.");
     }
     if (save.interactables.size() != save.runtime_interactables.size())
         error("save_codec.incomplete_interactables",
               "Save must contain state for every live Interactable Gameplay Instance.");
+    std::unordered_set<std::string> item_stack_ids;
+    std::unordered_set<std::uint64_t> item_stack_ordinals;
+    for (const auto& item : save.item_stacks) {
+        if (!item_stack_ids.insert(item.id.text()).second)
+            error("save_codec.duplicate_record", "Item Stack state appears more than once.");
+        const auto* definition = project.find_item_definition(item.definition);
+        if (definition == nullptr || item.quantity == 0 ||
+            item.quantity > compiled::max_item_stack_quantity ||
+            (definition->stack_limit && item.quantity > *definition->stack_limit) ||
+            !valid_location(project, save, item.location))
+            error("save_codec.invalid_item_stack",
+                  "Item Stack has an invalid definition, quantity, or Location.");
+        std::unordered_set<std::string> traits;
+        for (const auto& trait_id : item.traits) {
+            const auto* trait = project.find_trait(trait_id);
+            if (!traits.insert(trait_id.text()).second || trait == nullptr ||
+                !std::binary_search(trait->allowed_owners.begin(), trait->allowed_owners.end(),
+                                    PropertyOwnerKind::ItemStack))
+                error("save_codec.invalid_item_stack_trait",
+                      "Item Stack Trait is duplicate, missing, or disallows Item Stacks.");
+        }
+        const auto* declared = project.find_item_stack(item.id);
+        if (item.declared != (declared != nullptr))
+            error("save_codec.invalid_item_stack",
+                  "Item Stack declared flag does not match compiled Project identity.");
+        if (declared != nullptr) {
+            if (item.definition != declared->definition)
+                error("save_codec.invalid_item_stack",
+                      "Declared Item Stack cannot change its Item Definition.");
+        } else {
+            const auto ordinal = runtime_ordinal(item.id.text(), "runtime-item-stack-");
+            if (!ordinal || *ordinal >= save.next_item_stack_id ||
+                !item_stack_ordinals.insert(*ordinal).second)
+                error("save_codec.invalid_item_stack_identity",
+                      "Runtime-created Item Stack identity is invalid, reused, or beyond the saved "
+                      "allocator position.");
+        }
+    }
     for (const auto& start : save.interactables) {
         std::unordered_set<InteractableId> visited;
         visited.insert(start.interactable);
@@ -1290,13 +1332,20 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                                                return resolved_interactable(project, save,
                                                                             value.interactable)
                                                    .has_value();
-                                           else
+                                           else if constexpr (std::is_same_v<
+                                                                  S, compiled::
+                                                                         FeatureInteractionSubject>)
                                                return std::visit(
                                                    [&project, &save](const auto& reference) {
                                                        return feature_exists(project, save,
                                                                              reference);
                                                    },
                                                    value.feature);
+                                           else
+                                               return std::ranges::any_of(
+                                                   save.item_stacks, [&](const auto& stack) {
+                                                       return stack.id == value.item_stack;
+                                                   });
                                        },
                                        subject);
                                }) &&

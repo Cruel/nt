@@ -371,7 +371,8 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                                                    S, compiled::InteractableInteractionSubject>)
                                 return nlohmann::json{{"kind", "interactable"},
                                                       {"id", subject.interactable.text()}};
-                            else
+                            else if constexpr (std::is_same_v<S,
+                                                              compiled::FeatureInteractionSubject>)
                                 return std::visit(
                                     [](const auto& reference) {
                                         using F = std::decay_t<decltype(reference)>;
@@ -389,6 +390,9 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                                                 {"featureId", reference.feature_id.text()}};
                                     },
                                     subject.feature);
+                            else
+                                return nlohmann::json{{"kind", "item-stack"},
+                                                      {"id", subject.item_stack.text()}};
                         },
                         operand));
                 return {{"kind", "interaction"},
@@ -548,6 +552,14 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                     d.error(k_variant, "Unknown Feature owner kind '" + *owner_name + "'.",
                             child(operand_path, "ownerKind"));
                 }
+            } else if (name && *name == "item-stack") {
+                d.object(*source, operand_path, {"kind", "id"});
+                const auto* id = d.member(*source, "id", operand_path);
+                auto subject_id =
+                    id ? d.id<ItemStackId>(*id, child(operand_path, "id")) : std::nullopt;
+                if (subject_id)
+                    decoded_operands.emplace_back(
+                        compiled::ItemStackInteractionSubject{std::move(*subject_id)});
             } else if (name) {
                 d.error(k_variant, "Unknown Interaction subject kind '" + *name + "'.",
                         child(operand_path, "kind"));

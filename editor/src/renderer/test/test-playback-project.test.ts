@@ -10,6 +10,7 @@ import {
   testInteractableRef,
   testFeatureSubject,
   testInteractableSubject,
+  testItemStackSubject,
   testSceneRef,
   testVariableRef,
   testVerbRef,
@@ -35,6 +36,7 @@ describe('authoring test playback project adapter', () => {
           subjects: [
             testCharacterSubject('guard'),
             testInteractableSubject('lamp'),
+            testItemStackSubject('coins'),
             testFeatureSubject(roomFeatureRef('foyer', 'door')),
           ],
         },
@@ -73,6 +75,7 @@ describe('authoring test playback project adapter', () => {
             subjects: [
               { kind: 'character', id: 'guard' },
               { kind: 'interactable', id: 'lamp' },
+              { kind: 'item-stack', id: 'coins' },
               { kind: 'feature', ownerKind: 'room', ownerId: 'foyer', featureId: 'door' },
             ],
           },

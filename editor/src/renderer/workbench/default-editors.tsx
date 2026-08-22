@@ -22,6 +22,7 @@ import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
 import { InteractableEditor } from '@/editors/interactables/InteractableEditor';
+import { ItemEditor } from '@/editors/items/ItemEditor';
 import { ImageGenerationEditor } from '@/editors/comfyui/ImageGenerationEditor';
 import { ComfyUiWorkflowsEditor } from '@/editors/comfyui/ComfyUiWorkflowsEditor';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
@@ -173,6 +174,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Placeholder Entity',
     icon: Puzzle,
     component: PlaceholderEntityEditor,
+  },
+  {
+    type: 'item-detail',
+    label: 'Item Detail',
+    icon: Puzzle,
+    component: ItemEditor,
   },
   {
     type: 'verb-detail',

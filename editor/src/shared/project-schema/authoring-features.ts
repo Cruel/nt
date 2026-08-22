@@ -31,6 +31,12 @@ export const interactionSubjectSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('character'), character: characterRefSchema }),
   strict({ kind: z.literal('interactable'), interactable: interactableRefSchema }),
   strict({ kind: z.literal('feature'), feature: featureRefSchema }),
+  strict({
+    kind: z.literal('item-stack'),
+    itemStack: strict({
+      $ref: strict({ collection: z.literal('itemStacks'), id: entityIdSchema }),
+    }),
+  }),
 ]);
 
 export const roomHotspotTargetSchema = z.discriminatedUnion('kind', [

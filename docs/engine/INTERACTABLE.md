@@ -28,7 +28,8 @@ Room geometry belongs to nested `RoomPlacement`, not the definition. A mutable `
 
 An Interactable may declare owner-local Inventories. Inventory membership is derived solely from Interactable Location, and each Inventory reference includes both its owner and owner-local `InventoryId`. Inventory ownership may also belong to the Project/session convention, Characters, or Features. Containment is acyclic, and moving an Inventory owner changes descendants' derived effective Room without rewriting their direct Inventory Locations.
 
-V1 models unique interactables only. Stackable/count-based inventory is explicitly deferred until a separate `ItemDefinition` contract exists; counts must not be simulated with generic properties.
+Interactables remain unique objects. Fungible inventory uses the separate Item Definition/Item Stack
+contract in `docs/engine/ITEM.md`; counts must not be simulated with generic Interactable Properties.
 
 ## Authoring, compiled, and state disposition
 

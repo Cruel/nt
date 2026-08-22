@@ -20,7 +20,11 @@ A Property member is exactly one of:
 
 Trait members always reference existing identity-scoped Property declarations. Their configured values use the same `RuntimeValue` scalar vocabulary, type/nullability/enum validation, and owner-kind restrictions as direct Property assignments.
 
-Traits currently attach only to stateful Gameplay Instances: Room, Character, and Interactable. Scene, Dialogue, Verb, Interaction, and Map are immutable program/vocabulary definitions rather than stateful Property- or Trait-bearing identities. Assets, Layouts, Script Modules, Shaders, Materials, Variables/Global Properties, Tests, and the Project root are also not Trait owners.
+Traits attach to stateful Gameplay Instances—Room, Character, and Interactable—and to Item Stack
+semantic state through its immutable Item Definition defaults plus live Stack Trait set. Scene,
+Dialogue, Verb, Interaction, and Map are immutable program/vocabulary definitions rather than
+stateful Property- or Trait-bearing identities. Assets, Layouts, Script Modules, Shaders, Materials,
+Variables/Global Properties, Tests, and the Project root are also not Trait owners.
 
 Traits cannot attach Traits and cannot inherit from another Trait. A Trait never contributes structural fields such as Room exits, Scene instructions, Dialogue blocks, Character poses, Interactable presentation, Interaction rules, Verb programs, or Map topology.
 
@@ -40,7 +44,9 @@ Two attached Traits may configure the same Property only when they provide the s
 
 ## Discovery, Lua, tests, and saves
 
-The compiled project retains Trait declarations and Trait attachments on declared Room, Character, and Interactable instances. This metadata remains discoverable to editor dependency/search tooling and to runtime code that needs capability identity, while the actual values continue to resolve through the Property system.
+The compiled project retains Trait declarations and Trait attachments on declared Room, Character,
+Interactable, and Item Definition records. Live Item Stacks retain their canonical effective Trait
+set. This metadata remains discoverable while values continue to resolve through the Property system.
 
 Lua does not have a separate Trait-value API. Trait-backed values are read and mutated through the same typed Property APIs described in `docs/engine/VARIABLE.md`, including `noveltea.properties.get`, `set`, and `unset`. Conditions, focused previews, test playback, and runtime execution use the same Property resolution seam.
 

@@ -338,6 +338,10 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                                             decoder.object(operand, operand_pointer, {"kind"});
                                             return InteractionOperand{AnyCharacterOperand{}};
                                         }
+                                        if (kind && *kind == "any-item-stack") {
+                                            decoder.object(operand, operand_pointer, {"kind"});
+                                            return InteractionOperand{AnyItemStackOperand{}};
+                                        }
                                         if (kind && *kind == "any-subject") {
                                             decoder.object(operand, operand_pointer, {"kind"});
                                             return InteractionOperand{

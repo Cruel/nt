@@ -832,6 +832,81 @@ describe('authoring compiler framework', () => {
     });
   });
 
+  it('lowers Item Definitions and declared Item Stacks without changing the compiled schema version', () => {
+    const project = validProject() as ReturnType<typeof validProject> & {
+      itemDefinitions: Record<string, unknown>;
+      itemStacks: Record<string, unknown>;
+    };
+    project.properties.quality = {
+      id: 'quality',
+      label: 'Quality',
+      description: 'Stack condition',
+      type: 'enum',
+      nullable: false,
+      defaultValue: 'ordinary',
+      enumValues: ['ordinary', 'polished'],
+      ownerKinds: ['item-stack'] as never,
+    };
+    project.traits.currency = {
+      id: 'currency',
+      label: 'Currency',
+      ownerKinds: ['item-stack'] as never,
+      properties: [{ kind: 'configured', propertyId: 'quality', value: 'polished' }],
+    };
+    project.itemDefinitions = {
+      credits: {
+        id: 'credits',
+        label: 'Credits',
+        traits: ['currency'],
+        properties: {},
+        data: {
+          kind: 'item-definition',
+          displayName: 'Credits',
+          description: 'Standard currency',
+          presentation: { sprite: null, material: null },
+          stackLimit: 100,
+        },
+      },
+    };
+    project.itemStacks = {
+      wallet: {
+        id: 'wallet',
+        label: 'Wallet credits',
+        data: {
+          kind: 'item-stack',
+          definition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
+          quantity: 25,
+          location: { kind: 'unplaced' },
+        },
+      },
+    };
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.project.schemaVersion).toBe(4);
+    expect(result.project.definitions.itemDefinitions).toEqual([
+      {
+        id: 'credits',
+        displayName: 'Credits',
+        description: 'Standard currency',
+        presentation: { sprite: null, material: null },
+        stackLimit: 100,
+        traits: ['currency'],
+        propertyAssignments: [],
+      },
+    ]);
+    expect(result.project.itemStacks).toEqual([
+      {
+        id: 'wallet',
+        definition: { kind: 'item-definition', id: 'credits' },
+        quantity: 25,
+        location: { kind: 'unplaced' },
+      },
+    ]);
+  });
+
   it('strictly rejects invalid V2 boundary data and produces deterministic diagnostics independent of map insertion order', () => {
     const invalid = Object.assign(validProject(), { unknownWireInput: true });
     const invalidResult = compileAuthoringProject(invalid);

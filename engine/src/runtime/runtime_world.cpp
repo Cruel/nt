@@ -87,7 +87,7 @@ bool interaction_subject_references(const core::compiled::InteractionSubject& su
                 return instance_is(instance, value.character);
             else if constexpr (std::is_same_v<T, core::compiled::InteractableInteractionSubject>)
                 return instance_is(instance, value.interactable);
-            else
+            else if constexpr (std::is_same_v<T, core::compiled::FeatureInteractionSubject>)
                 return std::visit(
                     [&](const auto& feature) {
                         using F = std::decay_t<decltype(feature)>;
@@ -97,6 +97,8 @@ bool interaction_subject_references(const core::compiled::InteractionSubject& su
                             return instance_is(instance, feature.interactable);
                     },
                     value.feature);
+            else
+                return false;
         },
         subject);
 }
@@ -1280,6 +1282,13 @@ RuntimeWorld::resolve_property(const core::InteractableId& id,
     return resolver.get(core::PropertyOwnerRef{id}, property);
 }
 
+core::Result<core::PropertyLookupResult, core::Diagnostics>
+RuntimeWorld::resolve_property(const core::ItemStackId& id, const core::PropertyId& property) const
+{
+    core::PropertyResolver resolver(m_project, m_state);
+    return resolver.get(core::PropertyOwnerRef{id}, property);
+}
+
 const core::CharacterWorldState*
 RuntimeWorld::character_state(const core::CharacterId& id) const noexcept
 {
@@ -1403,6 +1412,528 @@ RuntimeWorld::inventory_members(const core::compiled::InventoryRef& inventory) c
             members.push_back(state.interactable);
     }
     return members;
+}
+
+const core::ItemStackState* RuntimeWorld::item_stack(const core::ItemStackId& id) const noexcept
+{
+    return find_record(m_state.m_item_stacks, id);
+}
+
+std::vector<core::ItemStackId>
+RuntimeWorld::item_stack_inventory_members(const core::compiled::InventoryRef& inventory) const
+{
+    std::vector<core::ItemStackId> members;
+    for (const auto& stack : m_state.m_item_stacks) {
+        const auto* location = std::get_if<core::compiled::InventoryLocation>(&stack.location);
+        if (location != nullptr && location->inventory == inventory)
+            members.push_back(stack.id);
+    }
+    std::ranges::sort(members, {}, [](const auto& id) { return id.text(); });
+    return members;
+}
+
+std::optional<core::RoomId> RuntimeWorld::effective_room(const core::ItemStackId& id) const noexcept
+{
+    const auto* stack = item_stack(id);
+    if (stack == nullptr)
+        return std::nullopt;
+    if (const auto* room = std::get_if<core::compiled::RoomLocation>(&stack->location))
+        return room->room;
+    const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&stack->location);
+    if (inventory == nullptr)
+        return std::nullopt;
+    return std::visit(
+        [&](const auto& owner) -> std::optional<core::RoomId> {
+            using T = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<T, core::compiled::CharacterInventoryOwner>)
+                return effective_room(owner.character);
+            else if constexpr (std::is_same_v<T, core::compiled::InteractableInventoryOwner>)
+                return effective_room(owner.interactable);
+            else if constexpr (std::is_same_v<T, core::RoomFeatureRef>)
+                return owner.room;
+            else if constexpr (std::is_same_v<T, core::InteractableFeatureRef>)
+                return effective_room(owner.interactable);
+            else
+                return std::nullopt;
+        },
+        inventory->inventory.owner);
+}
+
+core::Result<core::ItemStackId, core::Diagnostics> RuntimeWorld::allocate_item_stack_id()
+{
+    for (;;) {
+        const auto ordinal = m_state.m_next_item_stack_id;
+        if (ordinal == std::numeric_limits<std::uint64_t>::max())
+            return core::Result<core::ItemStackId, core::Diagnostics>::failure(
+                world_error("runtime.item_stack_identity_exhausted",
+                            "Item Stack identity allocator is exhausted"));
+        auto candidate = core::ItemStackId::create("runtime-item-stack-" + std::to_string(ordinal));
+        if (!candidate)
+            return core::Result<core::ItemStackId, core::Diagnostics>::failure(candidate.error());
+        ++m_state.m_next_item_stack_id;
+        const auto* id = candidate.value_if();
+        if (id != nullptr && item_stack(*id) == nullptr)
+            return core::Result<core::ItemStackId, core::Diagnostics>::success(*id);
+    }
+}
+
+bool RuntimeWorld::item_stack_compatible(const core::ItemStackState& left,
+                                         const core::ItemStackState& right) const
+{
+    if (left.definition != right.definition || left.traits != right.traits)
+        return false;
+    for (const auto& property : m_project.properties()) {
+        if (property.is_global() ||
+            !std::binary_search(property.allowed_owners().begin(), property.allowed_owners().end(),
+                                core::PropertyOwnerKind::ItemStack))
+            continue;
+        const auto left_value = resolve_property(left.id, property.id());
+        const auto right_value = resolve_property(right.id, property.id());
+        if (!left_value || !right_value)
+            return false;
+        const auto* left_result = left_value.value_if();
+        const auto* right_result = right_value.value_if();
+        const auto* left_runtime =
+            left_result != nullptr ? std::get_if<core::RuntimeValue>(left_result) : nullptr;
+        const auto* right_runtime =
+            right_result != nullptr ? std::get_if<core::RuntimeValue>(right_result) : nullptr;
+        if ((left_runtime == nullptr) != (right_runtime == nullptr) ||
+            (left_runtime != nullptr && *left_runtime != *right_runtime))
+            return false;
+    }
+    return true;
+}
+
+void RuntimeWorld::copy_item_stack_overrides(const core::ItemStackId& source,
+                                             const core::ItemStackId& target)
+{
+    const auto original = m_state.m_property_overrides;
+    for (const auto& value : original) {
+        const auto* stack = std::get_if<core::ItemStackId>(&value.target());
+        if (stack == nullptr || *stack != source)
+            continue;
+        const auto* definition = m_project.find_property(value.property_id());
+        if (definition == nullptr)
+            continue;
+        auto copy = core::make_property_override(core::PropertyTargetRef{target}, *definition,
+                                                 value.override_value());
+        if (auto* copied = copy.value_if(); copied != nullptr)
+            m_state.store_property_override(std::move(*copied));
+    }
+}
+
+void RuntimeWorld::erase_item_stack(const core::ItemStackId& id)
+{
+    m_state.m_item_stacks.erase(std::remove_if(m_state.m_item_stacks.begin(),
+                                               m_state.m_item_stacks.end(),
+                                               [&](const auto& stack) { return stack.id == id; }),
+                                m_state.m_item_stacks.end());
+    m_state.m_property_overrides.erase(
+        std::remove_if(m_state.m_property_overrides.begin(), m_state.m_property_overrides.end(),
+                       [&](const auto& value) {
+                           const auto* stack = std::get_if<core::ItemStackId>(&value.target());
+                           return stack != nullptr && *stack == id;
+                       }),
+        m_state.m_property_overrides.end());
+}
+
+core::Result<ItemStackMutation, core::Diagnostics>
+RuntimeWorld::split_item_stack(const core::ItemStackId& source, std::uint64_t quantity)
+{
+    auto* stack = find_record(m_state.m_item_stacks, source);
+    if (stack == nullptr)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.stale_item_stack", "Item Stack identity is not live"));
+    if (quantity == 0 || quantity >= stack->quantity)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_item_stack_quantity",
+                        "Split quantity must be positive and smaller than the source Stack"));
+    auto allocated = allocate_item_stack_id();
+    if (!allocated)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(allocated.error());
+    const auto id = *allocated.value_if();
+    const auto definition = stack->definition;
+    const auto location = stack->location;
+    const auto traits = stack->traits;
+    stack->quantity -= quantity;
+    m_state.m_item_stacks.push_back(
+        core::ItemStackState{id, definition, quantity, location, traits, false});
+    copy_item_stack_overrides(source, id);
+    ItemStackMutation result{quantity, {source, id}, {source}, {id}, {}};
+    std::ranges::sort(result.surviving, {}, [](const auto& value) { return value.text(); });
+    return core::Result<ItemStackMutation, core::Diagnostics>::success(std::move(result));
+}
+
+core::Result<ItemStackMutation, core::Diagnostics>
+RuntimeWorld::merge_item_stacks(const core::ItemStackId& receiver, const core::ItemStackId& donor)
+{
+    auto* target = find_record(m_state.m_item_stacks, receiver);
+    const auto* source = item_stack(donor);
+    if (target == nullptr || source == nullptr || receiver == donor)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(world_error(
+            "runtime.stale_item_stack", "Merge requires two distinct live Item Stacks"));
+    const auto* definition = m_project.find_item_definition(target->definition);
+    const auto limit = definition && definition->stack_limit
+                           ? *definition->stack_limit
+                           : core::compiled::max_item_stack_quantity;
+    if (target->location != source->location || !item_stack_compatible(*target, *source) ||
+        source->quantity > limit - target->quantity)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.incompatible_item_stacks",
+                        "Item Stacks are incompatible or exceed the Stack limit"));
+    const auto moved = source->quantity;
+    target->quantity += moved;
+    erase_item_stack(donor);
+    return core::Result<ItemStackMutation, core::Diagnostics>::success(
+        ItemStackMutation{moved, {receiver}, {receiver}, {}, {donor}});
+}
+
+core::Result<ItemStackMutation, core::Diagnostics>
+RuntimeWorld::transfer_item_quantity(const core::ItemStackId& source_id, std::uint64_t quantity,
+                                     core::compiled::ItemStackLocation location,
+                                     ItemStackPlacementPolicy policy)
+{
+    auto* source = find_record(m_state.m_item_stacks, source_id);
+    const bool location_valid =
+        std::holds_alternative<core::compiled::UnplacedLocation>(location) ||
+        (std::get_if<core::compiled::RoomLocation>(&location) != nullptr &&
+         resolved_configuration(std::get<core::compiled::RoomLocation>(location).room) !=
+             nullptr) ||
+        (std::get_if<core::compiled::InventoryLocation>(&location) != nullptr &&
+         has_inventory(std::get<core::compiled::InventoryLocation>(location).inventory));
+    if (source == nullptr)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.stale_item_stack", "Item Stack identity is not live"));
+    if (quantity == 0 || quantity > source->quantity || !location_valid)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_item_stack_transfer",
+                        "Transfer quantity or target Location is invalid"));
+    if (source->location == location)
+        return core::Result<ItemStackMutation, core::Diagnostics>::success(
+            ItemStackMutation{quantity, {source_id}, {}, {}, {}});
+
+    const auto saved_stacks = m_state.m_item_stacks;
+    const auto saved_overrides = m_state.m_property_overrides;
+    const auto saved_allocator = m_state.m_next_item_stack_id;
+    const auto definition_id = source->definition;
+    const auto traits = source->traits;
+    const auto* definition = m_project.find_item_definition(definition_id);
+    const auto limit = definition && definition->stack_limit
+                           ? *definition->stack_limit
+                           : core::compiled::max_item_stack_quantity;
+    ItemStackMutation result{quantity, {}, {}, {}, {}};
+    std::uint64_t remaining = quantity;
+
+    if (policy == ItemStackPlacementPolicy::Coalesce) {
+        std::vector<core::ItemStackId> candidates;
+        for (const auto& candidate : m_state.m_item_stacks) {
+            if (candidate.id != source_id && candidate.location == location &&
+                item_stack_compatible(*source, candidate) && candidate.quantity < limit)
+                candidates.push_back(candidate.id);
+        }
+        std::ranges::sort(candidates, {}, [](const auto& id) { return id.text(); });
+        for (const auto& candidate_id : candidates) {
+            auto* current_source = find_record(m_state.m_item_stacks, source_id);
+            auto* candidate = find_record(m_state.m_item_stacks, candidate_id);
+            const auto moved =
+                std::min({remaining, current_source->quantity, limit - candidate->quantity});
+            current_source->quantity -= moved;
+            candidate->quantity += moved;
+            remaining -= moved;
+            if (moved != 0) {
+                result.surviving.push_back(candidate_id);
+                result.changed.push_back(candidate_id);
+            }
+            if (remaining == 0)
+                break;
+        }
+    }
+
+    source = find_record(m_state.m_item_stacks, source_id);
+    if (remaining != 0) {
+        if (remaining == source->quantity) {
+            source->location = std::move(location);
+            result.surviving.push_back(source_id);
+            remaining = 0;
+        } else {
+            auto allocated = allocate_item_stack_id();
+            if (!allocated) {
+                m_state.m_item_stacks = saved_stacks;
+                m_state.m_property_overrides = saved_overrides;
+                m_state.m_next_item_stack_id = saved_allocator;
+                return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+                    allocated.error());
+            }
+            const auto new_id = *allocated.value_if();
+            source = find_record(m_state.m_item_stacks, source_id);
+            source->quantity -= remaining;
+            m_state.m_item_stacks.push_back(core::ItemStackState{
+                new_id, definition_id, remaining, std::move(location), traits, false});
+            copy_item_stack_overrides(source_id, new_id);
+            result.created.push_back(new_id);
+            result.surviving.push_back(new_id);
+            remaining = 0;
+        }
+    }
+    source = find_record(m_state.m_item_stacks, source_id);
+    if (source != nullptr && source->quantity == 0) {
+        erase_item_stack(source_id);
+        result.ended.push_back(source_id);
+    } else if (source != nullptr &&
+               std::ranges::find(result.surviving, source_id) == result.surviving.end()) {
+        result.surviving.push_back(source_id);
+    }
+    if (source != nullptr)
+        result.changed.push_back(source_id);
+    std::ranges::sort(result.surviving, {}, [](const auto& id) { return id.text(); });
+    std::ranges::sort(result.changed, {}, [](const auto& id) { return id.text(); });
+    return core::Result<ItemStackMutation, core::Diagnostics>::success(std::move(result));
+}
+
+core::Result<ItemStackMutation, core::Diagnostics> RuntimeWorld::grant_item_quantity(
+    const core::ItemDefinitionId& definition_id, std::uint64_t quantity,
+    core::compiled::ItemStackLocation location, ItemStackPlacementPolicy policy)
+{
+    const auto* definition = m_project.find_item_definition(definition_id);
+    const bool location_valid =
+        std::holds_alternative<core::compiled::UnplacedLocation>(location) ||
+        (std::get_if<core::compiled::RoomLocation>(&location) != nullptr &&
+         resolved_configuration(std::get<core::compiled::RoomLocation>(location).room) !=
+             nullptr) ||
+        (std::get_if<core::compiled::InventoryLocation>(&location) != nullptr &&
+         has_inventory(std::get<core::compiled::InventoryLocation>(location).inventory));
+    if (definition == nullptr || quantity == 0 ||
+        quantity > core::compiled::max_item_stack_quantity || !location_valid)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_item_stack_grant",
+                        "Grant definition, quantity, or Location is invalid"));
+    const auto saved_stacks = m_state.m_item_stacks;
+    const auto saved_overrides = m_state.m_property_overrides;
+    const auto saved_allocator = m_state.m_next_item_stack_id;
+    const auto limit = definition->stack_limit.value_or(core::compiled::max_item_stack_quantity);
+    auto traits = definition->identity.traits;
+    std::ranges::sort(traits, {}, [](const auto& id) { return id.text(); });
+    ItemStackMutation result{quantity, {}, {}, {}, {}};
+    std::uint64_t remaining = quantity;
+
+    const auto has_initial_property_state = [&](const core::ItemStackState& candidate) {
+        for (const auto& property : m_project.properties()) {
+            if (property.is_global() || !std::binary_search(property.allowed_owners().begin(),
+                                                            property.allowed_owners().end(),
+                                                            core::PropertyOwnerKind::ItemStack))
+                continue;
+            std::optional<core::RuntimeValue> expected;
+            const auto assignment = std::ranges::find_if(
+                definition->identity.property_assignments,
+                [&](const auto& value) { return value.property_id() == property.id(); });
+            if (assignment != definition->identity.property_assignments.end())
+                expected = assignment->value();
+            if (!expected) {
+                for (const auto& trait_id : traits) {
+                    const auto* trait = m_project.find_trait(trait_id);
+                    const auto configured =
+                        std::ranges::find_if(trait->properties, [&](const auto& member) {
+                            return member.property_id == property.id() &&
+                                   member.configured_value.has_value();
+                        });
+                    if (configured != trait->properties.end()) {
+                        expected = *configured->configured_value;
+                        break;
+                    }
+                }
+            }
+            if (!expected && property.default_value())
+                expected = *property.default_value();
+            const auto actual = resolve_property(candidate.id, property.id());
+            const auto* lookup = actual ? actual.value_if() : nullptr;
+            const auto* value =
+                lookup != nullptr ? std::get_if<core::RuntimeValue>(lookup) : nullptr;
+            if ((value == nullptr) != !expected || (value != nullptr && *value != *expected))
+                return false;
+        }
+        return true;
+    };
+
+    if (policy == ItemStackPlacementPolicy::Coalesce) {
+        std::vector<core::ItemStackId> candidates;
+        for (const auto& candidate : m_state.m_item_stacks) {
+            if (candidate.definition == definition_id && candidate.location == location &&
+                candidate.traits == traits && candidate.quantity < limit &&
+                has_initial_property_state(candidate))
+                candidates.push_back(candidate.id);
+        }
+        std::ranges::sort(candidates, {}, [](const auto& id) { return id.text(); });
+        for (const auto& candidate_id : candidates) {
+            auto* candidate = find_record(m_state.m_item_stacks, candidate_id);
+            const auto moved = std::min(remaining, limit - candidate->quantity);
+            candidate->quantity += moved;
+            remaining -= moved;
+            if (moved != 0) {
+                result.surviving.push_back(candidate_id);
+                result.changed.push_back(candidate_id);
+            }
+            if (remaining == 0)
+                break;
+        }
+    }
+    while (remaining != 0) {
+        auto allocated = allocate_item_stack_id();
+        if (!allocated) {
+            m_state.m_item_stacks = saved_stacks;
+            m_state.m_property_overrides = saved_overrides;
+            m_state.m_next_item_stack_id = saved_allocator;
+            return core::Result<ItemStackMutation, core::Diagnostics>::failure(allocated.error());
+        }
+        const auto granted = std::min(remaining, limit);
+        const auto new_id = *allocated.value_if();
+        m_state.m_item_stacks.push_back(
+            core::ItemStackState{new_id, definition_id, granted, location, traits, false});
+        result.created.push_back(new_id);
+        result.surviving.push_back(new_id);
+        remaining -= granted;
+    }
+    return core::Result<ItemStackMutation, core::Diagnostics>::success(std::move(result));
+}
+
+core::Result<ItemStackMutation, core::Diagnostics>
+RuntimeWorld::consume_item_quantity(const core::ItemStackId& id, std::uint64_t quantity)
+{
+    auto* stack = find_record(m_state.m_item_stacks, id);
+    if (stack == nullptr)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.stale_item_stack", "Item Stack identity is not live"));
+    if (quantity == 0 || quantity > stack->quantity)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_item_stack_quantity", "Consume quantity exceeds the live Item Stack"));
+    if (quantity == stack->quantity) {
+        erase_item_stack(id);
+        return core::Result<ItemStackMutation, core::Diagnostics>::success(
+            ItemStackMutation{quantity, {}, {}, {}, {id}});
+    }
+    stack->quantity -= quantity;
+    return core::Result<ItemStackMutation, core::Diagnostics>::success(
+        ItemStackMutation{quantity, {id}, {id}, {}, {}});
+}
+
+bool RuntimeWorld::item_stack_matches(const core::ItemStackState& stack,
+                                      const ItemStackFilter& filter) const
+{
+    if ((filter.definition && stack.definition != *filter.definition) ||
+        (filter.location && stack.location != *filter.location))
+        return false;
+    for (const auto& trait : filter.traits) {
+        if (!std::binary_search(
+                stack.traits.begin(), stack.traits.end(), trait,
+                [](const auto& left, const auto& right) { return left.text() < right.text(); }))
+            return false;
+    }
+    for (const auto& constraint : filter.properties) {
+        const auto resolved = resolve_property(stack.id, constraint.property);
+        const auto* lookup = resolved ? resolved.value_if() : nullptr;
+        const auto* value = lookup != nullptr ? std::get_if<core::RuntimeValue>(lookup) : nullptr;
+        if (value == nullptr || *value != constraint.value)
+            return false;
+    }
+    return true;
+}
+
+core::Result<std::uint64_t, core::Diagnostics>
+RuntimeWorld::aggregate_item_quantity(const ItemStackFilter& filter) const
+{
+    std::uint64_t quantity = 0;
+    for (const auto& stack : m_state.m_item_stacks) {
+        if (!item_stack_matches(stack, filter))
+            continue;
+        if (stack.quantity > core::compiled::max_item_stack_quantity - quantity)
+            return core::Result<std::uint64_t, core::Diagnostics>::failure(
+                world_error("runtime.item_stack_quantity_overflow",
+                            "Aggregate Item Stack quantity exceeds the portable range"));
+        quantity += stack.quantity;
+    }
+    return core::Result<std::uint64_t, core::Diagnostics>::success(quantity);
+}
+
+core::Result<ItemStackMutation, core::Diagnostics>
+RuntimeWorld::consume_item_quantity(const ItemStackFilter& filter, std::uint64_t quantity)
+{
+    if (quantity == 0)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(world_error(
+            "runtime.invalid_item_stack_quantity", "Consume quantity must be positive"));
+    const auto available = aggregate_item_quantity(filter);
+    if (!available)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(available.error());
+    if (*available.value_if() < quantity)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.insufficient_item_quantity",
+                        "Matching Item Stacks do not contain the requested quantity"));
+    std::vector<core::ItemStackId> matches;
+    for (const auto& stack : m_state.m_item_stacks) {
+        if (item_stack_matches(stack, filter))
+            matches.push_back(stack.id);
+    }
+    std::ranges::sort(matches, {}, [](const auto& id) { return id.text(); });
+    ItemStackMutation result{quantity, {}, {}, {}, {}};
+    auto remaining = quantity;
+    for (const auto& id : matches) {
+        const auto* stack = item_stack(id);
+        const auto consumed = std::min(remaining, stack->quantity);
+        auto mutation = consume_item_quantity(id, consumed);
+        if (!mutation)
+            return mutation;
+        const auto* applied = mutation.value_if();
+        result.surviving.insert(result.surviving.end(), applied->surviving.begin(),
+                                applied->surviving.end());
+        result.changed.insert(result.changed.end(), applied->changed.begin(),
+                              applied->changed.end());
+        result.ended.insert(result.ended.end(), applied->ended.begin(), applied->ended.end());
+        remaining -= consumed;
+        if (remaining == 0)
+            break;
+    }
+    return core::Result<ItemStackMutation, core::Diagnostics>::success(std::move(result));
+}
+
+core::Result<ItemStackMutation, core::Diagnostics>
+RuntimeWorld::set_item_stack_traits(const core::ItemStackId& id, std::vector<core::TraitId> traits)
+{
+    auto* stack = find_record(m_state.m_item_stacks, id);
+    if (stack == nullptr)
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.stale_item_stack", "Item Stack identity is not live"));
+    std::ranges::sort(traits, {}, [](const auto& value) { return value.text(); });
+    if (std::ranges::adjacent_find(traits) != traits.end())
+        return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+            world_error("runtime.invalid_item_stack_traits", "Item Stack Traits must be unique"));
+    for (const auto& trait_id : traits) {
+        const auto* trait = m_project.find_trait(trait_id);
+        if (trait == nullptr ||
+            !std::binary_search(trait->allowed_owners.begin(), trait->allowed_owners.end(),
+                                core::PropertyOwnerKind::ItemStack))
+            return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+                world_error("runtime.invalid_item_stack_traits",
+                            "Trait is missing or does not admit Item Stacks"));
+    }
+    if (stack->traits == traits)
+        return core::Result<ItemStackMutation, core::Diagnostics>::success(
+            ItemStackMutation{0, {id}, {}, {}, {}});
+    const auto original = stack->traits;
+    stack->traits = std::move(traits);
+    core::PropertyResolver resolver(m_project, m_state);
+    for (const auto& trait_id : stack->traits) {
+        const auto* trait = m_project.find_trait(trait_id);
+        for (const auto& member : trait->properties) {
+            const auto resolved = resolver.get(core::PropertyOwnerRef{id}, member.property_id);
+            if (!resolved || resolved.value_if() == nullptr ||
+                std::holds_alternative<core::MissingPropertyValue>(*resolved.value_if())) {
+                stack->traits = original;
+                return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+                    world_error("runtime.invalid_item_stack_traits",
+                                "Trait Property requirements are not satisfied"));
+            }
+        }
+    }
+    return core::Result<ItemStackMutation, core::Diagnostics>::success(
+        ItemStackMutation{0, {id}, {id}, {}, {}});
 }
 
 core::Result<void, core::Diagnostics>
