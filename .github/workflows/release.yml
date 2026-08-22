@@ -386,9 +386,8 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
             -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @ccacheArgs
-          cmake --build --preset ${{ matrix.preset }} --target noveltea-player
-          cmake --build --preset ${{ matrix.preset }} --target noveltea-tooling-bridge
-          cmake --build --preset ${{ matrix.preset }} --target cxx-policy
+          cmake --build --preset ${{ matrix.preset }} --target noveltea-player noveltea-tooling-bridge cxx-policy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Audit Linux player dependency closure
         if: matrix.platform == 'linux'
