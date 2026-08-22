@@ -26,8 +26,8 @@ function activeWorkflow(
   classification: ComfyUiKnownWorkflowClassification,
 ): ComfyUiWorkflowActiveEntry {
   return {
-    workflowKey: `editor:${id}.manifest.json`,
-    source: 'editor',
+    workflowKey: `user:${id}.manifest.json`,
+    source: 'user',
     id,
     label: id,
     classification,

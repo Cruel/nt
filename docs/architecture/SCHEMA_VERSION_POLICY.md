@@ -25,6 +25,12 @@ and media/cardinality outputs. The retired same-version semantic `role`, top-lev
 object, binding/output `valueType`, and `image-list`/`primary` representation are noncanonical V2 data and
 must be rejected rather than upgraded or interpreted.
 
+Issue #105 likewise preserves the already-selected ComfyUI verification-cache `schemaVersion: 1` while
+moving workflow source identity from the retired Electron-specific `editor:` key space to the shared
+`user:` source. Current verification records use only `built-in:`, `user:`, or `project:` workflow keys;
+cache data containing the retired `editor:` source is noncanonical V1 data and is discarded rather than
+migrated or aliased.
+
 ## Definitions
 
 - **Current version:** the one version emitted and accepted for a particular contract. Different

@@ -188,7 +188,7 @@ describe('useComfyUiStore', () => {
           diagnostics: [],
           verificationDiagnostics: [],
           capabilities: {
-            canCopyToEditor: true,
+            canCopyToUser: true,
             canCopyToProject: true,
             canDelete: false,
             canRepair: false,

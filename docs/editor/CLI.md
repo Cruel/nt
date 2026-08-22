@@ -24,6 +24,23 @@ noveltea agent sync [--fix]
 
 `project create` accepts a new destination path that does not exist, including paths containing spaces, and rejects every existing file, directory, or symlink. It assembles and validates the complete initial workspace in a sibling staging directory before atomic activation. The editor uses the same creation service and project defaults. Creation does not generate `.noveltea/agent/`; run `agent sync` afterward.
 
+ComfyUI workflow discovery is available headlessly:
+
+```text
+noveltea comfyui workflows [--all]
+noveltea comfyui workflows <id>
+```
+
+These commands use the same catalog as the editor workflow manager. Built-in and shared-user workflows are available
+without a Project; when `--project` selects a Project or upward discovery finds one, project-local workflows are added.
+Source precedence is `project > user > built-in` by logical workflow ID. Bare listing returns only the effective workflow
+set. `--all` is diagnostic and also exposes overridden or invalid package copies without changing precedence. Inspection
+reports the selected workflow's source, classification, description, public inputs/outputs and authoring metadata,
+offline validation/runnability, package hash, and available cached verification state. Shared user packages live under
+`<NovelTea user config>/comfyui/workflows/`, so `NOVELTEA_USER_CONFIG_ROOT` also provides hermetic ComfyUI catalog storage
+for CI. ComfyUI execution/status/verification commands are introduced by their owning implementation slices; this
+catalog command does not contact a server or rewrite workflow packages.
+
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export also accepts `--include-unused-assets` and `--include-shader-sources` as explicit developer overrides of the normal pruning/source-stripping policy. `noveltea --help` is authoritative for the installed version's exact syntax.
 
 Platform publication is a separate command family from Runtime Package creation:
@@ -67,10 +84,11 @@ Unused assets are excluded by default using the same authoring dependency graph 
 `--include-shader-sources` preserves authored shader sources that normal runtime packaging strips.
 These are the headless equivalents of the Export pane's Developer Mode options.
 
-The editor and CLI share reusable machine-level export configuration at
-`~/.noveltea/export-config-v1.json`: toolchain paths plus named Windows, macOS, and Android signing
-configurations. Signing secrets remain explicit `env:NAME` references. `NOVELTEA_USER_CONFIG_ROOT`
-provides a hermetic override for the shared NovelTea user-config directory in CI. The optional `--config` file continues to use the
+The editor and CLI share reusable machine-level state beneath the NovelTea user configuration root. Export configuration
+is stored at `~/.noveltea/export-config-v1.json`; shared ComfyUI workflows are under `~/.noveltea/comfyui/workflows/`.
+Export configuration contains toolchain paths plus named Windows, macOS, and Android signing configurations. Signing
+secrets remain explicit `env:NAME` references. `NOVELTEA_USER_CONFIG_ROOT` provides a hermetic override for the shared
+NovelTea user-config directory, including both export and ComfyUI catalog state, in CI. The optional `--config` file continues to use the
 `noveltea.editor-export-local-state` contract as an explicit per-command override; generate a safe,
 secret-free skeleton with `platform config init`. `--config` does not combine with
 `--signing-profile`.

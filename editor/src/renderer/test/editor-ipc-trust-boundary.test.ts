@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   cancelPlatformExportArgumentsSchema,
   comfyUiConfigArgumentsSchema,
+  comfyUiCopyWorkflowArgumentsSchema,
   comfyUiEditImageArgumentsSchema,
   comfyUiGenerateImageArgumentsSchema,
   comfyUiImportWorkflowArgumentsSchema,
@@ -541,6 +542,21 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(generateService).not.toHaveBeenCalled();
+  });
+
+  it('admits current shared-user ComfyUI workflow keys and rejects the retired editor source', () => {
+    expect(
+      comfyUiCopyWorkflowArgumentsSchema.safeParse([
+        null,
+        { workflowKey: 'user:custom.manifest.json', targetSource: 'project' },
+      ]).success,
+    ).toBe(true);
+    expect(
+      comfyUiCopyWorkflowArgumentsSchema.safeParse([
+        null,
+        { workflowKey: 'editor:custom.manifest.json', targetSource: 'project' },
+      ]).success,
+    ).toBe(false);
   });
 
   it('rejects malformed or oversized nested ComfyUI workflow manifests at the IPC parser', () => {

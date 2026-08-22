@@ -1,14 +1,14 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import {
   defaultUserExportConfig,
   parseUserExportConfig,
   type UserExportConfig,
 } from '../../shared/project-schema/platform-export-contracts';
+import { novelTeaUserConfigRoot } from '../../shared/user-config-root';
 
 export function userExportConfigRoot(): string {
-  return process.env.NOVELTEA_USER_CONFIG_ROOT || path.join(os.homedir(), '.noveltea');
+  return novelTeaUserConfigRoot();
 }
 
 export function userExportConfigPath(): string {

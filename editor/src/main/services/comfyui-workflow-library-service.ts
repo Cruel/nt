@@ -2,8 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { app, shell } from 'electron';
 import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
+import { novelTeaComfyUiConfigRoot } from '../../shared/user-config-root';
 import {
   analyzeComfyUiApiWorkflow,
   analyzeComfyUiObjectInfoCompatibility,
@@ -43,7 +43,7 @@ import {
 
 interface WorkflowLibraryRoots {
   builtInRoot: string | null;
-  editorRoot: string;
+  userRoot: string;
   projectRoot: string | null;
   cacheFile: string;
 }
@@ -59,6 +59,10 @@ type WorkflowSourceRoot = {
   writable: boolean;
   available: boolean;
 };
+
+const MAX_COMFYUI_WORKFLOW_PACKAGES_PER_SOURCE = 256;
+const MAX_COMFYUI_MANIFEST_BYTES = 1024 * 1024;
+const MAX_COMFYUI_WORKFLOW_JSON_BYTES = 32 * 1024 * 1024;
 
 function diagnostic(
   pathValue: string,
@@ -77,7 +81,7 @@ function entryStatus(diagnostics: ComfyUiWorkflowDiagnostic[]): ComfyUiWorkflowV
 
 function sourceRank(source: ComfyUiWorkflowSource) {
   if (source === 'project') return 3;
-  if (source === 'editor') return 2;
+  if (source === 'user') return 2;
   return 1;
 }
 
@@ -97,19 +101,16 @@ function projectRootFromFile(projectFilePath: string | null | undefined) {
   return projectFilePath ? path.dirname(path.resolve(projectFilePath)) : null;
 }
 
-function resolveEditorAssetsRoot(): string | null {
-  if (app.isPackaged) {
-    const packagedRoot = path.join(process.resourcesPath, 'editor-assets');
-    return existsSync(packagedRoot) && statSync(packagedRoot).isDirectory() ? packagedRoot : null;
-  }
-
-  const cwd = process.cwd();
+function resolveBuiltInAssetsRoot(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+  const entryDirectory = entryPath ? path.dirname(entryPath) : null;
   const candidates = [
-    path.resolve(cwd, 'assets'),
-    path.resolve(cwd, 'editor', 'assets'),
-    path.resolve(app.getAppPath(), 'assets'),
-    path.resolve(app.getAppPath(), 'editor', 'assets'),
-  ];
+    resourcesPath ? path.join(resourcesPath, 'editor-assets') : null,
+    entryDirectory ? path.resolve(entryDirectory, '..', '..', 'assets') : null,
+    path.resolve(process.cwd(), 'assets'),
+    path.resolve(process.cwd(), 'editor', 'assets'),
+  ].filter((candidate): candidate is string => Boolean(candidate));
   return (
     candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isDirectory()) ??
     null
@@ -120,22 +121,21 @@ export function resolveComfyUiWorkflowLibraryRoots(
   projectFilePath?: string | null,
   options: WorkflowLibraryServiceOptions = {},
 ): WorkflowLibraryRoots {
-  const needsUserData = !options.roots?.editorRoot || !options.roots?.cacheFile;
-  const userData = needsUserData ? app.getPath('userData') : '';
-  const editorRoot = options.roots?.editorRoot ?? path.join(userData, 'workflows');
+  const comfyUiRoot = novelTeaComfyUiConfigRoot();
+  const userRoot = options.roots?.userRoot ?? path.join(comfyUiRoot, 'workflows');
   const projectRoot =
     options.roots?.projectRoot ??
     (projectRootFromFile(projectFilePath)
       ? path.join(projectRootFromFile(projectFilePath)!, 'workflows')
       : null);
-  const assetRoot = options.roots?.builtInRoot === undefined ? resolveEditorAssetsRoot() : null;
+  const assetRoot = options.roots?.builtInRoot === undefined ? resolveBuiltInAssetsRoot() : null;
   return {
     builtInRoot:
       options.roots?.builtInRoot ??
       (assetRoot ? path.join(assetRoot, 'comfyui', 'workflows') : null),
-    editorRoot,
+    userRoot,
     projectRoot,
-    cacheFile: options.roots?.cacheFile ?? path.join(editorRoot, '.verification-cache.json'),
+    cacheFile: options.roots?.cacheFile ?? path.join(comfyUiRoot, 'verification-cache-v1.json'),
   };
 }
 
@@ -151,7 +151,7 @@ function sourceRoots(
       writable: false,
       available: Boolean(roots.builtInRoot),
     },
-    { source: 'editor', root: roots.editorRoot, writable: true, available: true },
+    { source: 'user', root: roots.userRoot, writable: true, available: true },
     {
       source: 'project',
       root: roots.projectRoot ?? '',
@@ -165,10 +165,21 @@ async function readManifestFiles(root: WorkflowSourceRoot): Promise<string[]> {
   if (!root.available || !root.root) return [];
   try {
     const entries = await fs.readdir(root.root);
-    return entries.filter((entry) => entry.endsWith('.manifest.json')).sort();
+    return entries
+      .filter((entry) => entry.endsWith('.manifest.json'))
+      .sort()
+      .slice(0, MAX_COMFYUI_WORKFLOW_PACKAGES_PER_SOURCE);
   } catch {
     return [];
   }
+}
+
+async function readBoundedUtf8File(filePath: string, maximumBytes: number, label: string) {
+  const stats = await fs.stat(filePath);
+  if (!stats.isFile()) throw new Error(`${label} is not a regular file.`);
+  if (stats.size > maximumBytes)
+    throw new Error(`${label} exceeds the ${maximumBytes}-byte catalog parsing limit.`);
+  return fs.readFile(filePath, 'utf8');
 }
 
 function canonicalJson(value: unknown): string {
@@ -244,7 +255,7 @@ function capabilities(
 ) {
   const mutable = source !== 'built-in';
   return {
-    canCopyToEditor: status !== 'invalid' && source !== 'editor',
+    canCopyToUser: status !== 'invalid' && source !== 'user',
     canCopyToProject: status !== 'invalid' && hasProject && source !== 'project',
     canDelete: mutable,
     canRepair: mutable && hasWorkflowText,
@@ -263,14 +274,22 @@ async function discoverSource(
     let manifestJsonText: string | undefined;
     let workflowJsonText: string | undefined;
     try {
-      manifestJsonText = await fs.readFile(manifestPath, 'utf8');
+      manifestJsonText = await readBoundedUtf8File(
+        manifestPath,
+        MAX_COMFYUI_MANIFEST_BYTES,
+        'Workflow manifest',
+      );
       const manifest = JSON.parse(manifestJsonText);
       const definition = parseComfyUiWorkflowDefinition(manifest, manifestFile);
       const workflowPath = path.join(root.root, definition.workflowFile);
       const relative = path.relative(root.root, workflowPath);
       if (relative.startsWith('..') || path.isAbsolute(relative))
         throw new Error('Workflow file escapes the workflows directory.');
-      workflowJsonText = await fs.readFile(workflowPath, 'utf8');
+      workflowJsonText = await readBoundedUtf8File(
+        workflowPath,
+        MAX_COMFYUI_WORKFLOW_JSON_BYTES,
+        'ComfyUI workflow JSON',
+      );
       const workflow = JSON.parse(workflowJsonText);
       const diagnostics = validateWorkflowBindings(workflow as ComfyUiWorkflowGraphLike, {
         definition,
@@ -384,7 +403,7 @@ async function readVerificationCache(
             key !== 'diagnostics',
         ) ||
         typeof record.workflowKey !== 'string' ||
-        !/^(?:built-in|editor|project):.+/.test(record.workflowKey) ||
+        !/^(?:built-in|user|project):.+/.test(record.workflowKey) ||
         typeof record.id !== 'string' ||
         !record.id ||
         typeof record.packageHash !== 'string' ||
@@ -587,7 +606,7 @@ export async function listComfyUiWorkflowLibrary(
 
 function rootForSource(source: ComfyUiWorkflowSource, roots: WorkflowLibraryRoots): string | null {
   if (source === 'built-in') return roots.builtInRoot;
-  if (source === 'editor') return roots.editorRoot;
+  if (source === 'user') return roots.userRoot;
   return roots.projectRoot;
 }
 
@@ -808,9 +827,9 @@ export async function importComfyUiWorkflowToLibrary(
         error: bindingDiagnostics[0]?.message ?? 'Workflow bindings are invalid.',
       };
 
-    const { editorRoot } = resolveComfyUiWorkflowLibraryRoots(null, options);
-    const workflowPath = path.join(editorRoot, workflowFileName);
-    const manifestPath = path.join(editorRoot, manifestFileName);
+    const { userRoot } = resolveComfyUiWorkflowLibraryRoots(null, options);
+    const workflowPath = path.join(userRoot, workflowFileName);
+    const manifestPath = path.join(userRoot, manifestFileName);
     if (
       !request.overwrite &&
       ((await pathExists(workflowPath)) || (await pathExists(manifestPath)))
@@ -832,7 +851,7 @@ export async function importComfyUiWorkflowToLibrary(
     await writeFileAtomic(manifestPath, `${JSON.stringify(request.manifest, null, 2)}\n`);
     const refreshed = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
     const entry = refreshed.entries.find(
-      (item) => item.source === 'editor' && item.manifestFile === manifestFileName,
+      (item) => item.source === 'user' && item.manifestFile === manifestFileName,
     );
     return {
       ok: true,
@@ -1067,7 +1086,8 @@ export async function revealComfyUiWorkflow(
   const root = rootForSource(sourceFromWorkflowKey(workflowKeyValue), roots);
   if (!root) return false;
   const itemPath = path.join(root, manifestFileFromWorkflowKey(workflowKeyValue));
-  void (options.showItemInFolder ?? ((path: string) => shell.showItemInFolder(path)))(itemPath);
+  if (!options.showItemInFolder) return false;
+  void options.showItemInFolder(itemPath);
   return true;
 }
 
