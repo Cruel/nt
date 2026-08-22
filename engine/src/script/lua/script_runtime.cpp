@@ -69,6 +69,123 @@ std::string prefixed_chunk(std::string_view chunk_name)
     return "=" + name;
 }
 
+runtime::ProjectHookKind project_hook_kind(core::compiled::RoomScriptHookKind kind) noexcept
+{
+    using Compiled = core::compiled::RoomScriptHookKind;
+    using Runtime = runtime::ProjectHookKind;
+    switch (kind) {
+    case Compiled::CanEnter:
+        return Runtime::RoomCanEnter;
+    case Compiled::CanLeave:
+        return Runtime::RoomCanLeave;
+    case Compiled::RejectEnter:
+        return Runtime::RoomRejectEnter;
+    case Compiled::RejectLeave:
+        return Runtime::RoomRejectLeave;
+    case Compiled::BeforeEnter:
+        return Runtime::RoomBeforeEnter;
+    case Compiled::AfterEnter:
+        return Runtime::RoomAfterEnter;
+    case Compiled::BeforeLeave:
+        return Runtime::RoomBeforeLeave;
+    case Compiled::AfterLeave:
+        return Runtime::RoomAfterLeave;
+    case Compiled::Compose:
+        return Runtime::RoomCompose;
+    }
+    return Runtime::RoomCanEnter;
+}
+
+runtime::RuntimeCapabilityProfile hook_capability_profile(runtime::ProjectHookKind kind) noexcept
+{
+    using Hook = runtime::ProjectHookKind;
+    switch (kind) {
+    case Hook::RoomCanEnter:
+    case Hook::RoomCanLeave:
+        return runtime::RuntimeCapabilityProfile::SynchronousExpression;
+    case Hook::RoomCompose:
+        return runtime::RuntimeCapabilityProfile::RoomComposition;
+    case Hook::RoomRejectEnter:
+    case Hook::RoomRejectLeave:
+    case Hook::RoomBeforeEnter:
+    case Hook::RoomAfterEnter:
+    case Hook::RoomBeforeLeave:
+    case Hook::RoomAfterLeave:
+        return runtime::RuntimeCapabilityProfile::GameplayLayoutEvent;
+    }
+    return runtime::RuntimeCapabilityProfile::SynchronousExpression;
+}
+
+std::optional<runtime::ProjectHookKind> parse_project_hook_kind(std::string_view value) noexcept
+{
+    using Hook = runtime::ProjectHookKind;
+    if (value == "can-enter")
+        return Hook::RoomCanEnter;
+    if (value == "can-leave")
+        return Hook::RoomCanLeave;
+    if (value == "reject-enter")
+        return Hook::RoomRejectEnter;
+    if (value == "reject-leave")
+        return Hook::RoomRejectLeave;
+    if (value == "before-enter")
+        return Hook::RoomBeforeEnter;
+    if (value == "after-enter")
+        return Hook::RoomAfterEnter;
+    if (value == "before-leave")
+        return Hook::RoomBeforeLeave;
+    if (value == "after-leave")
+        return Hook::RoomAfterLeave;
+    if (value == "compose")
+        return Hook::RoomCompose;
+    return std::nullopt;
+}
+
+std::optional<runtime::ProjectHookSelector> parse_room_hook_selector(std::string_view value)
+{
+    using Kind = runtime::ProjectHookSelectorKind;
+    if (value == "*")
+        return runtime::ProjectHookSelector{
+            runtime::ProjectHookSemanticKind::Room, Kind::Catchall, {}};
+    if (value.empty() || value.find('*') != std::string_view::npos) {
+        if (value.size() > 2 && value.ends_with(".*") &&
+            value.substr(0, value.size() - 2).find('*') == std::string_view::npos) {
+            return runtime::ProjectHookSelector{runtime::ProjectHookSemanticKind::Room,
+                                                Kind::QualifiedPrefix,
+                                                std::string(value.substr(0, value.size() - 1))};
+        }
+        return std::nullopt;
+    }
+    return runtime::ProjectHookSelector{runtime::ProjectHookSemanticKind::Room, Kind::Exact,
+                                        std::string(value)};
+}
+
+bool selector_matches(const runtime::ProjectHookSelector& selector,
+                      std::string_view target) noexcept
+{
+    switch (selector.kind) {
+    case runtime::ProjectHookSelectorKind::Exact:
+        return target == selector.value;
+    case runtime::ProjectHookSelectorKind::QualifiedPrefix:
+        return target.starts_with(selector.value);
+    case runtime::ProjectHookSelectorKind::Catchall:
+        return true;
+    }
+    return false;
+}
+
+int selector_specificity(const runtime::ProjectHookSelector& selector) noexcept
+{
+    switch (selector.kind) {
+    case runtime::ProjectHookSelectorKind::Exact:
+        return 3;
+    case runtime::ProjectHookSelectorKind::QualifiedPrefix:
+        return 2;
+    case runtime::ProjectHookSelectorKind::Catchall:
+        return 1;
+    }
+    return 0;
+}
+
 int focused_load(lua_State* state)
 {
     std::size_t size = 0;
@@ -213,6 +330,10 @@ struct ScriptRuntime::Impl {
     std::uint64_t next_environment = 1;
     std::unordered_map<std::string, ProjectModule> project_modules;
     std::optional<std::string> bootstrap_module;
+    std::vector<runtime::ProjectHookRegistration> project_hooks;
+    bool bootstrap_running = false;
+    bool bootstrap_complete = false;
+    bool hooks_frozen = false;
     bool game_ready_running = false;
 
     lua_State* thread(int reference)
@@ -318,6 +439,12 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     sol::protected_function::set_default_handler(m_impl->traceback);
     bind_noveltea(m_impl->lua.lua_state());
     install_host_print(m_impl->lua.lua_state());
+    lua_State* state = m_impl->lua.lua_state();
+    lua_newtable(state);
+    lua_pushlightuserdata(state, this);
+    lua_pushcclosure(state, &ScriptRuntime::project_hook_register_callback, 1);
+    lua_setfield(state, -2, "register");
+    lua_setglobal(state, "hooks");
     m_impl->runtime_api = std::make_unique<RuntimeScriptApi>();
     bind_typed_script_host(m_impl->lua.lua_state(), m_impl->runtime_api.get());
     m_impl->initialized = true;
@@ -419,6 +546,11 @@ void ScriptRuntime::clear_project_modules() noexcept
     }
     m_impl->project_modules.clear();
     m_impl->bootstrap_module.reset();
+    m_impl->project_hooks.clear();
+    m_impl->bootstrap_running = false;
+    m_impl->bootstrap_complete = false;
+    m_impl->hooks_frozen = false;
+    m_impl->game_ready_running = false;
 }
 
 core::Result<void, runtime::ScriptInvocationError>
@@ -452,6 +584,22 @@ ScriptRuntime::prepare_project_modules(const core::CompiledProject& project)
         m_impl->project_modules.emplace(resource.id.text(), std::move(module));
     }
     m_impl->bootstrap_module = project.bootstrap_module().text();
+    for (std::size_t room_index = 0; room_index < project.rooms().size(); ++room_index) {
+        const auto& room = project.rooms()[room_index];
+        for (std::size_t hook_index = 0; hook_index < room.script_hooks.size(); ++hook_index) {
+            const auto& mapping = room.script_hooks[hook_index];
+            m_impl->project_hooks.push_back(runtime::ProjectHookRegistration{
+                .hook = project_hook_kind(mapping.hook),
+                .selector = {runtime::ProjectHookSemanticKind::Room,
+                             runtime::ProjectHookSelectorKind::Exact, room.identity.id.text()},
+                .handler = {mapping.handler.module.text(), mapping.handler.export_name},
+                .source = runtime::ProjectHookRegistrationSource::DirectDefinition,
+                .source_path = "/definitions/rooms/" + std::to_string(room_index) +
+                               "/scriptHooks/" + std::to_string(hook_index),
+                .capability_profile = hook_capability_profile(project_hook_kind(mapping.hook)),
+            });
+        }
+    }
     return Result::success();
 }
 
@@ -479,6 +627,56 @@ int ScriptRuntime::project_import_callback(lua_State* state)
         return lua_error(state);
     }
     return 1;
+}
+
+int ScriptRuntime::project_hook_register_callback(lua_State* state)
+{
+    auto* runtime = static_cast<ScriptRuntime*>(lua_touserdata(state, lua_upvalueindex(1)));
+    if (runtime == nullptr || !runtime->m_impl)
+        return luaL_error(state, "Project Hook Registry is unavailable");
+    if (!runtime->m_impl->bootstrap_running || runtime->m_impl->hooks_frozen)
+        return luaL_error(state, "Hook Registry registration is only available during Bootstrap");
+
+    std::size_t semantic_size = 0;
+    std::size_t hook_size = 0;
+    std::size_t selector_size = 0;
+    std::size_t module_size = 0;
+    std::size_t export_size = 0;
+    const char* semantic_text = luaL_checklstring(state, 1, &semantic_size);
+    const char* hook_text = luaL_checklstring(state, 2, &hook_size);
+    const char* selector_text = luaL_checklstring(state, 3, &selector_size);
+    const char* module_text = luaL_checklstring(state, 4, &module_size);
+    const char* export_text = luaL_checklstring(state, 5, &export_size);
+    const std::string_view semantic(semantic_text, semantic_size);
+    const std::string_view hook_name(hook_text, hook_size);
+    const std::string_view selector_name(selector_text, selector_size);
+    const std::string_view module_id(module_text, module_size);
+    const std::string_view export_name(export_text, export_size);
+
+    if (semantic != "room")
+        return luaL_error(state, "Hook semantic kind '%s' is unsupported", semantic_text);
+    const auto hook = parse_project_hook_kind(hook_name);
+    if (!hook)
+        return luaL_error(state, "Room hook kind '%s' is unsupported", hook_text);
+    const auto selector = parse_room_hook_selector(selector_name);
+    if (!selector)
+        return luaL_error(
+            state,
+            "Room Hook Selector '%s' must be exact, a trailing qualified-prefix wildcard like "
+            "chapter.*, or '*'",
+            selector_text);
+    if (module_id.empty() || export_name.empty())
+        return luaL_error(state, "Hook handler module and export names must be non-empty");
+
+    runtime->m_impl->project_hooks.push_back(runtime::ProjectHookRegistration{
+        .hook = *hook,
+        .selector = *selector,
+        .handler = {std::string(module_id), std::string(export_name)},
+        .source = runtime::ProjectHookRegistrationSource::Bootstrap,
+        .source_path = "module:" + runtime->m_impl->bootstrap_module.value_or("bootstrap"),
+        .capability_profile = hook_capability_profile(*hook),
+    });
+    return 0;
 }
 
 std::optional<ScriptError>
@@ -619,12 +817,116 @@ core::Result<void, runtime::ScriptInvocationError> ScriptRuntime::run_project_bo
         return Result::failure(make_error(ScriptErrorCode::NotInitialized,
                                           "Project Script Modules have not been prepared",
                                           "bootstrap"));
+    if (m_impl->hooks_frozen)
+        return Result::failure(make_error(ScriptErrorCode::RuntimeFailed,
+                                          "Hook Registry is already frozen", "bootstrap"));
     m_impl->runtime_api->clear_capabilities();
+    m_impl->bootstrap_running = true;
+    struct BootstrapScope final {
+        bool& active;
+        ~BootstrapScope() { active = false; }
+    } bootstrap_scope{m_impl->bootstrap_running};
     lua_State* state = m_impl->lua.lua_state();
     const int stack_base = lua_gettop(state);
     auto error = push_project_import(state, *m_impl->bootstrap_module, std::nullopt);
     lua_settop(state, stack_base);
-    return error ? Result::failure(std::move(*error)) : Result::success();
+    if (error)
+        return Result::failure(std::move(*error));
+    m_impl->bootstrap_complete = true;
+    return Result::success();
+}
+
+core::Result<void, runtime::ScriptInvocationError> ScriptRuntime::freeze_project_hooks()
+{
+    using Result = core::Result<void, runtime::ScriptInvocationError>;
+    if (!is_initialized() || !m_impl->bootstrap_complete)
+        return Result::failure(make_error(
+            ScriptErrorCode::NotInitialized,
+            "Project Bootstrap must complete before Hook Registry freeze", "hook-registry"));
+    if (m_impl->hooks_frozen)
+        return Result::success();
+
+    for (std::size_t index = 0; index < m_impl->project_hooks.size(); ++index) {
+        const auto& candidate = m_impl->project_hooks[index];
+        for (std::size_t previous = 0; previous < index; ++previous) {
+            const auto& existing = m_impl->project_hooks[previous];
+            if (candidate.hook == existing.hook &&
+                candidate.selector.semantic_kind == existing.selector.semantic_kind &&
+                candidate.selector.kind == existing.selector.kind &&
+                candidate.selector.value == existing.selector.value) {
+                return Result::failure(make_error(
+                    ScriptErrorCode::RuntimeFailed,
+                    "Duplicate Hook Registry mapping conflicts with '" + existing.source_path + "'",
+                    candidate.source_path));
+            }
+        }
+    }
+
+    lua_State* state = m_impl->lua.lua_state();
+    for (const auto& registration : m_impl->project_hooks) {
+        const int stack_base = lua_gettop(state);
+        auto error = push_project_import(state, registration.handler.module_id,
+                                         registration.handler.export_name);
+        if (error) {
+            lua_settop(state, stack_base);
+            error->chunk = registration.source_path;
+            return Result::failure(std::move(*error));
+        }
+        if (!lua_isfunction(state, -1)) {
+            const std::string type = lua_type_name(state, -1);
+            lua_settop(state, stack_base);
+            return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                              "Hook handler '" + registration.handler.module_id +
+                                                  "#" + registration.handler.export_name +
+                                                  "' must be a function, not " + type,
+                                              registration.source_path));
+        }
+        lua_settop(state, stack_base);
+    }
+
+    m_impl->hooks_frozen = true;
+    return Result::success();
+}
+
+core::Result<runtime::ProjectHookExplanation, runtime::ScriptInvocationError>
+ScriptRuntime::explain_project_hook(runtime::ProjectHookSemanticKind semantic_kind,
+                                    runtime::ProjectHookKind hook, std::string_view target) const
+{
+    using Result = core::Result<runtime::ProjectHookExplanation, runtime::ScriptInvocationError>;
+    if (!is_initialized() || !m_impl->hooks_frozen)
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "Hook Registry is not frozen", "hook-registry"));
+
+    runtime::ProjectHookExplanation explanation{
+        .semantic_kind = semantic_kind,
+        .hook = hook,
+        .target = std::string(target),
+        .winner = std::nullopt,
+        .fallbacks = {},
+        .frozen = true,
+    };
+    std::vector<const runtime::ProjectHookRegistration*> matches;
+    for (const auto& registration : m_impl->project_hooks) {
+        if (registration.hook == hook && registration.selector.semantic_kind == semantic_kind &&
+            selector_matches(registration.selector, target))
+            matches.push_back(&registration);
+    }
+    std::sort(matches.begin(), matches.end(), [](const auto* left, const auto* right) {
+        const int left_specificity = selector_specificity(left->selector);
+        const int right_specificity = selector_specificity(right->selector);
+        if (left_specificity != right_specificity)
+            return left_specificity > right_specificity;
+        if (left->selector.kind == runtime::ProjectHookSelectorKind::QualifiedPrefix &&
+            left->selector.value.size() != right->selector.value.size())
+            return left->selector.value.size() > right->selector.value.size();
+        return left->source_path < right->source_path;
+    });
+    if (!matches.empty()) {
+        explanation.winner = *matches.front();
+        for (std::size_t index = 1; index < matches.size(); ++index)
+            explanation.fallbacks.push_back(*matches[index]);
+    }
+    return Result::success(std::move(explanation));
 }
 
 core::Result<void, runtime::ScriptInvocationError>
@@ -634,6 +936,10 @@ ScriptRuntime::run_project_on_game_ready(const runtime::RuntimeCapabilitySet& ca
     if (!is_initialized() || !m_impl->runtime_api)
         return Result::failure(make_error(ScriptErrorCode::NotInitialized,
                                           "ScriptRuntime is not initialized", "on-game-ready"));
+    if (!m_impl->hooks_frozen)
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "Hook Registry must be frozen before On Game Ready",
+                                          "on-game-ready"));
     if (capabilities.profile() != runtime::RuntimeCapabilityProfile::OnGameReady)
         return Result::failure(make_error(ScriptErrorCode::InvalidResult,
                                           "On Game Ready requires its read-only capability profile",

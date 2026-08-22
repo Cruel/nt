@@ -87,6 +87,7 @@ struct RoomDefinition {
     std::vector<RoomProp> props;
     std::vector<RoomEnvironment> environments;
     std::optional<RoomCompositionHook> compose;
+    std::vector<RoomScriptHookMapping> script_hooks;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;
     std::vector<FeatureDefinition> features;

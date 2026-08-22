@@ -1828,7 +1828,9 @@ function FullGamePreviewTransportBar({
         size="sm"
         variant="ghost"
         onClick={context.reload}
-        disabled={runtimeDisabled || compiledProjectState.freshness === 'stale'}
+        disabled={
+          runtimeDisabled || currentRuntimeBlocked || compiledProjectState.freshness === 'stale'
+        }
         aria-label="Reload engine preview"
       >
         <RefreshCw className="h-4 w-4" />

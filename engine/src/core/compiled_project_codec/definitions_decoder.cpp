@@ -614,7 +614,7 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                         {"background", "cast", "compose", "description", "displayName",
                          "environments", "exits", "features", "hotspots", "id", "interactables",
                          "lifecycle", "overlays", "placements", "props", "propertyAssignments",
-                         "traits"}))
+                         "scriptHooks", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<RoomId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -631,6 +631,7 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     const auto* props_value = decoder.member(value, "props", pointer);
     const auto* environments_value = json_access::member(value, "environments");
     const auto* compose_value = decoder.member(value, "compose", pointer);
+    const auto* script_hooks_value = decoder.member(value, "scriptHooks", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
                        : std::nullopt;
@@ -1201,6 +1202,56 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
             compose = RoomCompositionHook{std::move(*script)};
         compose_ok = compose.has_value();
     }
+    auto script_hooks =
+        script_hooks_value
+            ? decoder.array<RoomScriptHookMapping>(
+                  *script_hooks_value, pointer_child(pointer, "scriptHooks"),
+                  [&](const nlohmann::json& mapping,
+                      const std::string& mapping_pointer) -> std::optional<RoomScriptHookMapping> {
+                      if (!decoder.object(mapping, mapping_pointer, {"handler", "hook"}))
+                          return std::nullopt;
+                      const auto* hook_value = decoder.member(mapping, "hook", mapping_pointer);
+                      const auto* handler_value =
+                          decoder.member(mapping, "handler", mapping_pointer);
+                      auto hook = hook_value
+                                      ? decoder.enumeration<RoomScriptHookKind>(
+                                            *hook_value, pointer_child(mapping_pointer, "hook"),
+                                            {{"can-enter", RoomScriptHookKind::CanEnter},
+                                             {"can-leave", RoomScriptHookKind::CanLeave},
+                                             {"reject-enter", RoomScriptHookKind::RejectEnter},
+                                             {"reject-leave", RoomScriptHookKind::RejectLeave},
+                                             {"before-enter", RoomScriptHookKind::BeforeEnter},
+                                             {"after-enter", RoomScriptHookKind::AfterEnter},
+                                             {"before-leave", RoomScriptHookKind::BeforeLeave},
+                                             {"after-leave", RoomScriptHookKind::AfterLeave},
+                                             {"compose", RoomScriptHookKind::Compose}})
+                                      : std::nullopt;
+                      if (!handler_value ||
+                          !decoder.object(*handler_value, pointer_child(mapping_pointer, "handler"),
+                                          {"export", "module"}))
+                          return std::nullopt;
+                      const auto handler_pointer = pointer_child(mapping_pointer, "handler");
+                      const auto* module_value =
+                          decoder.member(*handler_value, "module", handler_pointer);
+                      const auto* export_value =
+                          decoder.member(*handler_value, "export", handler_pointer);
+                      auto module = module_value
+                                        ? decode_reference<ScriptId>(
+                                              decoder, *module_value,
+                                              pointer_child(handler_pointer, "module"), "script")
+                                        : std::nullopt;
+                      auto export_name =
+                          export_value ? decoder.string(*export_value,
+                                                        pointer_child(handler_pointer, "export"),
+                                                        false, true)
+                                       : std::nullopt;
+                      if (!hook || !module || !export_name)
+                          return std::nullopt;
+                      return RoomScriptHookMapping{
+                          *hook,
+                          ScriptHookHandlerReference{std::move(*module), std::move(*export_name)}};
+                  })
+            : std::nullopt;
     if (overlays)
         decoder.duplicate_ids(
             *overlays, pointer_child(pointer, "overlays"),
@@ -1241,14 +1292,15 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               });
     if (!identity || !display || !description || !background || !lifecycle || !overlays ||
         !placements || !exits || !features || !hotspots || !cast || !interactables || !props ||
-        !environments || !compose_ok)
+        !environments || !compose_ok || !script_hooks)
         return std::nullopt;
     return RoomDefinition{
         std::move(*identity),     std::move(*display),       std::move(*description),
         std::move(*background),   std::move(*lifecycle),     std::move(*overlays),
         std::move(*cast),         std::move(*interactables), std::move(*props),
-        std::move(*environments), std::move(compose),        std::move(*placements),
-        std::move(*exits),        std::move(*features),      std::move(*hotspots)};
+        std::move(*environments), std::move(compose),        std::move(*script_hooks),
+        std::move(*placements),   std::move(*exits),         std::move(*features),
+        std::move(*hotspots)};
 }
 
 std::optional<InteractableDefinition>

@@ -144,6 +144,7 @@ function representativeWireFixture() {
           interactables: [],
           props: [],
           compose: null,
+          scriptHooks: [],
           placements: [],
           exits: [],
           features: [],

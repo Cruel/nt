@@ -150,6 +150,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/\/featureId$/, OWNER],
   [/^\/rooms\/\*\/data\/features\//, OWNER],
   [/^\/rooms\/\*\/data\/hotspots\//, OWNER],
+  // #74 adds direct Room Hook Registry mappings at the preserved authoring schema version.
+  // Hook kind, stable module reference, and named export all contribute runtime dependencies.
+  [/^\/rooms\/\*\/data\/scriptHooks\//, OWNER],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
 ]);
 
@@ -375,7 +378,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: '3e85a864',
+    rooms: 'dc573d61',
     scenes: '911d4458',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',

@@ -71,6 +71,39 @@ load_script_project_with_modules(std::initializer_list<std::pair<std::string, st
     return std::move(decoded).value();
 }
 
+core::CompiledProject load_script_project_with_room_hook(
+    std::initializer_list<std::pair<std::string, std::string>> modules, std::string_view room_id,
+    std::string_view hook, std::string_view handler_module, std::string_view handler_export)
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/scene-program.json");
+    REQUIRE(input.good());
+    auto document = nlohmann::json::parse(input, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    document["resources"]["scripts"] = nlohmann::json::array();
+    for (const auto& [id, source] : modules) {
+        document["resources"]["scripts"].push_back(
+            {{"id", id}, {"source", {{"kind", "inline-lua"}, {"source", source}}}});
+    }
+    bool found_room = false;
+    for (auto& room : document["definitions"]["rooms"]) {
+        if (room["id"] != room_id)
+            continue;
+        room["scriptHooks"].push_back({{"hook", hook},
+                                       {"handler",
+                                        {{"module", {{"kind", "script"}, {"id", handler_module}}},
+                                         {"export", handler_export}}}});
+        found_room = true;
+        break;
+    }
+    REQUIRE(found_room);
+    document["bootstrapModule"] = {{"kind", "script"}, {"id", "bootstrap"}};
+    auto decoded = core::decode_compiled_project(document, "script-hook-test");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
 struct RuntimeFixture {
     test_support::MemoryScriptSource sources;
     script::ScriptRuntime runtime;
@@ -713,6 +746,134 @@ TEST_CASE("Project Script Module imports reject cycles missing modules exports a
     }
 }
 
+TEST_CASE("Hook Registry freezes validated handlers and resolves exact prefix and catchall")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto project = load_script_project_with_room_hook(
+        {
+            {"direct-hooks", "return { before_enter = function() end }"},
+            {"prefix-hooks", "return { before_enter = function() end }"},
+            {"specific-hooks", "return { before_enter = function() end }"},
+            {"catchall-hooks", "return { before_enter = function() end }"},
+            {"bootstrap",
+             "hooks.register('room', 'before-enter', 'start.*', 'prefix-hooks', "
+             "'before_enter')\n"
+             "hooks.register('room', 'before-enter', 'start.chapter.*', 'specific-hooks', "
+             "'before_enter')\n"
+             "hooks.register('room', 'before-enter', '*', 'catchall-hooks', 'before_enter')\n"
+             "return {}"},
+        },
+        "start", "before-enter", "direct-hooks", "before_enter");
+
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+    REQUIRE(fixture.runtime.run_project_bootstrap());
+    REQUIRE(fixture.runtime.freeze_project_hooks());
+
+    auto direct = fixture.runtime.explain_project_hook(
+        runtime::ProjectHookSemanticKind::Room, runtime::ProjectHookKind::RoomBeforeEnter, "start");
+    REQUIRE(direct);
+    REQUIRE(direct.value().winner);
+    CHECK(direct.value().winner->handler.module_id == "direct-hooks");
+    CHECK(direct.value().winner->source ==
+          runtime::ProjectHookRegistrationSource::DirectDefinition);
+    CHECK(direct.value().winner->capability_profile ==
+          runtime::RuntimeCapabilityProfile::GameplayLayoutEvent);
+    REQUIRE(direct.value().fallbacks.size() == 1);
+    CHECK(direct.value().fallbacks[0].handler.module_id == "catchall-hooks");
+
+    auto specific = fixture.runtime.explain_project_hook(runtime::ProjectHookSemanticKind::Room,
+                                                         runtime::ProjectHookKind::RoomBeforeEnter,
+                                                         "start.chapter.scene");
+    REQUIRE(specific);
+    REQUIRE(specific.value().winner);
+    CHECK(specific.value().winner->handler.module_id == "specific-hooks");
+    REQUIRE(specific.value().fallbacks.size() == 2);
+    CHECK(specific.value().fallbacks[0].handler.module_id == "prefix-hooks");
+    CHECK(specific.value().fallbacks[1].handler.module_id == "catchall-hooks");
+
+    auto catchall = fixture.runtime.explain_project_hook(runtime::ProjectHookSemanticKind::Room,
+                                                         runtime::ProjectHookKind::RoomBeforeEnter,
+                                                         "elsewhere");
+    REQUIRE(catchall);
+    REQUIRE(catchall.value().winner);
+    CHECK(catchall.value().winner->handler.module_id == "catchall-hooks");
+}
+
+TEST_CASE("Hook Registry rejects conflicts invalid selectors handlers and post-freeze mutation")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+
+    SECTION("duplicate direct and Bootstrap selector")
+    {
+        auto project = load_script_project_with_room_hook(
+            {{"room-hooks", "return { guard = function() return true end }"},
+             {"bootstrap",
+              "hooks.register('room', 'can-enter', 'start', 'room-hooks', 'guard')\nreturn {}"}},
+            "start", "can-enter", "room-hooks", "guard");
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        REQUIRE(fixture.runtime.run_project_bootstrap());
+        auto frozen = fixture.runtime.freeze_project_hooks();
+        REQUIRE_FALSE(frozen);
+        CHECK(frozen.error().message.find("Duplicate Hook Registry mapping") != std::string::npos);
+    }
+
+    SECTION("invalid selector")
+    {
+        auto project = load_script_project_with_modules(
+            {{"room-hooks", "return { guard = function() return true end }"},
+             {"bootstrap",
+              "hooks.register('room', 'can-enter', 'bad*selector', 'room-hooks', 'guard')\n"
+              "return {}"}});
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        auto bootstrapped = fixture.runtime.run_project_bootstrap();
+        REQUIRE_FALSE(bootstrapped);
+        CHECK(bootstrapped.error().message.find("Hook Selector") != std::string::npos);
+    }
+
+    SECTION("cross-kind semantic selector")
+    {
+        auto project = load_script_project_with_modules(
+            {{"room-hooks", "return { guard = function() return true end }"},
+             {"bootstrap",
+              "hooks.register('entity', 'can-enter', '*', 'room-hooks', 'guard')\nreturn {}"}});
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        auto bootstrapped = fixture.runtime.run_project_bootstrap();
+        REQUIRE_FALSE(bootstrapped);
+        CHECK(bootstrapped.error().message.find("semantic kind") != std::string::npos);
+    }
+
+    SECTION("referenced modules auto-load and exports must be functions")
+    {
+        auto project = load_script_project_with_modules(
+            {{"room-hooks", "return { guard = true }"},
+             {"bootstrap",
+              "hooks.register('room', 'can-enter', '*', 'room-hooks', 'guard')\nreturn {}"}});
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        REQUIRE(fixture.runtime.run_project_bootstrap());
+        auto frozen = fixture.runtime.freeze_project_hooks();
+        REQUIRE_FALSE(frozen);
+        CHECK(frozen.error().message.find("must be a function") != std::string::npos);
+    }
+
+    SECTION("mutation is unavailable after freeze")
+    {
+        auto project = load_script_project_with_modules(
+            {{"room-hooks", "return { guard = function() return true end }"},
+             {"bootstrap",
+              "hooks.register('room', 'can-enter', '*', 'room-hooks', 'guard')\nreturn {}"}});
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        REQUIRE(fixture.runtime.run_project_bootstrap());
+        REQUIRE(fixture.runtime.freeze_project_hooks());
+        auto mutated = fixture.runtime.execute(
+            "hooks.register('room', 'can-enter', 'late', 'room-hooks', 'guard')",
+            "post-freeze-hook-registration");
+        REQUIRE_FALSE(mutated);
+        CHECK(mutated.error().message.find("only available during Bootstrap") != std::string::npos);
+    }
+}
+
 TEST_CASE("On Game Ready runs loaded module handlers dependency-first with read-only live state")
 {
     RuntimeFixture fixture;
@@ -739,6 +900,7 @@ TEST_CASE("On Game Ready runs loaded module handlers dependency-first with read-
     });
     REQUIRE(fixture.runtime.prepare_project_modules(project));
     REQUIRE(fixture.runtime.run_project_bootstrap());
+    REQUIRE(fixture.runtime.freeze_project_hooks());
 
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -763,6 +925,7 @@ TEST_CASE("On Game Ready rejects yielding handlers invalid exports and late modu
         auto project = load_script_project_with_modules(modules);
         REQUIRE(fixture.runtime.prepare_project_modules(project));
         REQUIRE(fixture.runtime.run_project_bootstrap());
+        REQUIRE(fixture.runtime.freeze_project_hooks());
         auto state_result = core::SessionState::create(project);
         REQUIRE(state_result);
         auto state = std::move(state_result).value();
@@ -797,6 +960,18 @@ TEST_CASE("On Game Ready rejects yielding handlers invalid exports and late modu
                            {"bootstrap", "import('ready')\nreturn {}"}});
         REQUIRE_FALSE(result);
         CHECK(result.error().message.find("during Bootstrap") != std::string::npos);
+    }
+
+    SECTION("Hook Registry mutation")
+    {
+        auto result = run({
+            {"room-hooks", "return { guard = function() return true end }"},
+            {"ready", "return { on_ready = function() hooks.register('room', 'can-enter', '*', "
+                      "'room-hooks', 'guard') end }"},
+            {"bootstrap", "import('ready')\nreturn {}"},
+        });
+        REQUIRE_FALSE(result);
+        CHECK(result.error().message.find("only available during Bootstrap") != std::string::npos);
     }
 }
 

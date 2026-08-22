@@ -735,6 +735,11 @@ function semanticEdgeOptions(
       ['reference-integrity', 'tooling-reference', 'runtime-only'],
     ],
     [
+      /\/data\/scriptHooks\/\d+\/handler\/module\/\$ref$/,
+      'room-script-hook',
+      ['reference-integrity', 'tooling-reference', 'validation', 'runtime-only'],
+    ],
+    [
       /\/data\/exits\/\d+\/target\/\$ref$/,
       'room-exit-target',
       ['reference-integrity', 'tooling-reference', 'runtime-only'],
@@ -940,7 +945,7 @@ function semanticEdgeOptions(
       '/data/expressions',
       '/data/idles',
     ]);
-  } else if (role === 'room-compose-script') {
+  } else if (role === 'room-compose-script' || role === 'room-script-hook') {
     targetImpactPaths = recordImpactPaths(target, ['/data/source']);
   }
 
@@ -961,6 +966,11 @@ function semanticEdgeOptions(
     repair = { kind: 'set-null', path: buildJsonPointer(parseJsonPointer(path).slice(0, -1)) };
   } else if (role === 'room-compose-script') {
     repair = { kind: 'set-null', path: buildJsonPointer(parseJsonPointer(path).slice(0, -2)) };
+  } else if (role === 'room-script-hook') {
+    repair = {
+      kind: 'remove-array-item',
+      itemPath: buildJsonPointer(parseJsonPointer(path).slice(0, -3)),
+    };
   } else if (nullableReferenceRoles.has(role)) {
     repair = { kind: 'set-null', path: buildJsonPointer(parseJsonPointer(path).slice(0, -1)) };
   } else if (role === 'room-environment-material') {

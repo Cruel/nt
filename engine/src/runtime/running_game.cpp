@@ -321,6 +321,13 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
                                                .message = bootstrapped.error().message,
                                                .source_path = bootstrapped.error().chunk}});
     }
+    auto frozen_hooks = script_certifier.freeze_project_hooks();
+    if (!frozen_hooks) {
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
+            core::Diagnostics{core::Diagnostic{.code = "runtime.project_hook_registry_failed",
+                                               .message = frozen_hooks.error().message,
+                                               .source_path = frozen_hooks.error().chunk}});
+    }
 
     auto runtime = std::unique_ptr<RunningGame>(new RunningGame(std::move(package)));
     runtime->m_scripts = &scripts;

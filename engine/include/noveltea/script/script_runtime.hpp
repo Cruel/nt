@@ -104,6 +104,11 @@ public:
     prepare_project_modules(const core::CompiledProject& project) override;
     [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
     run_project_bootstrap() override;
+    [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
+    freeze_project_hooks() override;
+    [[nodiscard]] core::Result<runtime::ProjectHookExplanation, runtime::ScriptInvocationError>
+    explain_project_hook(runtime::ProjectHookSemanticKind semantic_kind,
+                         runtime::ProjectHookKind hook, std::string_view target) const;
     [[nodiscard]] core::Result<void, ScriptError>
     execute_asset(std::string_view logical_asset_path);
     [[nodiscard]] core::Result<ScriptValue, ScriptError>
@@ -166,6 +171,7 @@ private:
                         std::optional<std::string_view> export_name,
                         std::optional<std::string_view> requester = std::nullopt);
     static int project_import_callback(lua_State* state);
+    static int project_hook_register_callback(lua_State* state);
     void clear_project_modules() noexcept;
 
     struct Impl;

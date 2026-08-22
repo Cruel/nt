@@ -92,6 +92,8 @@ non-yielding profile cannot start a yield-capable invocation. Opaque Lua suspens
 engine-defined input, duration, presentation, audio, and child-flow waits. Cancellation and stale
 handles return explicit errors.
 
+Before `RuntimeCapabilityProfile::OnGameReady` is issued, the Project Hook Registry is completed and frozen. Direct compiled Room mappings and Bootstrap `hooks.register(...)` mappings use stable Script Module/named-export handlers and typed Room selectors. The native freeze step rejects duplicate selector/kind registrations, unsupported semantic kinds or hook kinds, malformed wildcards, missing modules/exports, and non-function exports; referenced handler modules are imported during this phase. Resolution is exact identity, then longest matching qualified-prefix selector, then catchall. Registry inspection retains source, capability profile, winner, and fallback information. Once frozen, no later invocation—including On Game Ready—may add or replace registrations.
+
 `RuntimeCapabilityProfile::OnGameReady` is a synchronous read-only profile. RuntimeSession issues it only after the candidate/default/restored authoritative kernel exists, runs loaded module `on_ready` handlers, and clears it when the call returns. It admits gameplay queries but no command groups and no yielding. Initial session creation, reset, and successful load all pass through this lifecycle; failures are surfaced as `runtime.on_game_ready_failed` and the candidate kernel is not accepted.
 
 Script errors use `core::Result<..., ScriptError>` with stable error categories, chunk/source

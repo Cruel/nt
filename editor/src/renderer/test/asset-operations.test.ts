@@ -120,6 +120,7 @@ describe('asset operations', () => {
         interactables: [],
         environments: [],
         compose: null,
+        scriptHooks: [],
         features: [],
         hotspots: [],
       },

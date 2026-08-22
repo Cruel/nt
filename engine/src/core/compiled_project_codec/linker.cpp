@@ -303,7 +303,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                     std::move(value.lifecycle.hooks)},
             std::move(value.overlays), std::move(value.cast), std::move(value.interactables),
             std::move(value.props), std::move(value.environments), std::move(value.compose),
-            std::move(value.placements), std::move(value.exits),
+            std::move(value.script_hooks), std::move(value.placements), std::move(value.exits),
             link_features(std::move(value.features),
                           "/definitions/rooms/" + std::to_string(index) + "/features"),
             std::move(value.hotspots)}));

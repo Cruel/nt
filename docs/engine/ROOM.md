@@ -5,7 +5,8 @@
 A `RoomDefinition` is immutable compiled gameplay content. It owns its background, owner-local
 Features, image-relative Hotspots, conditional world-overlay Layout mounts, declarative cast, props,
 and reconstructible environment loops, an optional typed composition Script hook, description,
-ordered enter/leave hooks, exits, and generic `RoomPlacement` anchors. Room is a Property-bearing
+ordered declarative enter/leave effect programs, direct Script Hook mappings, exits, and generic
+`RoomPlacement` anchors. Room is a Property-bearing
 identity and may attach compatible Traits; Trait members are ordinary Properties and do not merge
 Features, exits, placements, overlays, resources, or programs.
 
@@ -20,8 +21,12 @@ state are editor-only metadata.
 
 ## Navigation and lifecycle
 
-The sole Room-transition path is `FlowExecutor`. It validates the source/target and ordered
-before-leave, before-enter, after-leave, and after-enter hooks. The Room switch, visit increment, and
+The current Room-transition path is `FlowExecutor`. It validates the source/target and ordered
+before-leave, before-enter, after-leave, and after-enter declarative effect programs. Script Hook
+selection is a separate frozen-registry contract: each Room may map supported lifecycle kinds to a
+stable Script Module/named export, while Bootstrap may add exact, qualified-prefix, or catchall
+mappings. #79 owns invoking those registry handlers in the canonical navigation lifecycle; #74 only
+establishes and validates the deterministic registry boundary. The Room switch, visit increment, and
 view publication occur at the defined commit point. Failed pre-commit work resumes the source;
 post-commit fault handling preserves the target. Yielding effects retain their exact lifecycle stage
 and effect index.
@@ -79,13 +84,14 @@ with explicit presentation owners use the scoped desired-state path and are pers
 
 ## Authoring and validation
 
-The current version-3 authoring schema uses strict Room records with typed descriptions,
+The current version-4 authoring schema uses strict Room records with typed descriptions,
 conditions/effects, owner-local Features, semantic Hotspot targets, exits and optional transition
-overrides, placements, cast, props, environment loops, overlays, and composition hooks. Validation
+overrides, placements, cast, props, environment loops, overlays, composition hooks, and required
+`scriptHooks` storage for zero or more direct lifecycle handler mappings. Validation
 rejects duplicate nested IDs, stale Room/Character/Interactable/Feature/Layout/resource/Script
 references, incompatible Feature Trait/Property assignments, invalid owner-local Feature or Exit
 Hotspot targets, invalid placement ownership, invalid pose/expression/idle combinations, invalid
-environment resources/opacity/planes, invalid transitions, bounds, and hook data. The compiled
+environment resources/opacity/planes, invalid transitions, bounds, direct Script Hook module references/exports, and hook data. The compiled
 transition precedence contract is explicit request, selected exit override, then project default.
 Live realization uses the final revision-bound Room-navigation operation contract described above.
 

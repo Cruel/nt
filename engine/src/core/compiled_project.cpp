@@ -262,6 +262,12 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
             std::any_of(room.lifecycle.hooks.begin(), room.lifecycle.hooks.end(),
                         [](const compiled::RoomHookProgram& hook) {
                             return !enum_at_most(hook.hook, compiled::RoomHookKind::AfterLeave);
+                        }) ||
+            std::any_of(room.script_hooks.begin(), room.script_hooks.end(),
+                        [](const compiled::RoomScriptHookMapping& mapping) {
+                            return !enum_at_most(mapping.hook,
+                                                 compiled::RoomScriptHookKind::Compose) ||
+                                   mapping.handler.export_name.empty();
                         })) {
             diagnostics = invalid_model("Room definition is invalid");
             return false;
