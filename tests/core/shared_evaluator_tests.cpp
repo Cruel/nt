@@ -59,7 +59,7 @@ CompiledProject make_project()
                      {std::nullopt},
                      {false, true, "Start", "", std::nullopt}},
         .entrypoint = id<RoomId>("hall"),
-        .startup_hook = std::nullopt,
+        .bootstrap_module = id<ScriptId>("bootstrap"),
         .localization = {"en",
                          std::string{"fr"},
                          {compiled::LocalizationCatalog{
@@ -78,7 +78,7 @@ CompiledProject make_project()
         .traits = {},
         .assets = {},
         .layouts = {},
-        .scripts = {},
+        .scripts = {{id<ScriptId>("bootstrap"), compiled::InlineLuaSource{"return {}"}}},
         .characters = {},
         .rooms = {std::move(room)},
         .interactables = {},

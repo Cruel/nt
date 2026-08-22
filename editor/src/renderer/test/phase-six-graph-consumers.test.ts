@@ -190,12 +190,18 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       label: 'Shared',
       data: defaultRoomData('Shared'),
     };
-    project.startupHook = { source: `future_ref('shared'); local note = 'shared'` };
+    project.scripts.bootstrap!.data = {
+      kind: 'script-module',
+      source: {
+        kind: 'inline-lua',
+        source: `future_ref('shared'); local note = 'shared'`,
+      },
+    };
     const target = { kind: 'record', collection: 'rooms', id: 'shared' } as const;
     const exact: AuthoringDependencyEdge = {
       ...edge('exact:1', 'lua-recognized-reference', target),
-      source: { kind: 'project-field', path: '/startupHook' },
-      sourcePath: '/startupHook/source',
+      source: { kind: 'record', collection: 'scripts', id: 'bootstrap' },
+      sourcePath: '/scripts/bootstrap/data/source/source',
       repair: {
         kind: 'warning-only',
         reason: 'Recognized source reference is safely rewriteable.',
@@ -207,8 +213,8 @@ describe('Phase 6 graph consumers and structural preflight', () => {
           recognizedBy: 'test.future-reference',
           rewriteRange: { startUtf16: 12, endUtf16: 18, expectedText: 'shared' },
           occurrence: {
-            sourcePath: '/startupHook/source',
-            sourceUrl: 'project:/project.json',
+            sourcePath: '/scripts/bootstrap/data/source/source',
+            sourceUrl: 'authoring:inline-lua',
             sourceContentHash: `sha256:${'1'.repeat(64)}`,
             regionOrdinal: 0,
             regionStartUtf16: 11,
@@ -227,15 +233,15 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     };
     const possible: AuthoringDependencyEdge = {
       ...edge('possible:2', 'lua-possible-reference', target),
-      source: { kind: 'project-field', path: '/startupHook' },
-      sourcePath: '/startupHook/source',
+      source: { kind: 'record', collection: 'scripts', id: 'bootstrap' },
+      sourcePath: '/scripts/bootstrap/data/source/source',
       evidence: [
         {
           kind: 'lua-occurrence',
           classification: 'possible-lexical',
           occurrence: {
-            sourcePath: '/startupHook/source',
-            sourceUrl: 'project:/project.json',
+            sourcePath: '/scripts/bootstrap/data/source/source',
+            sourceUrl: 'authoring:inline-lua',
             sourceContentHash: `sha256:${'1'.repeat(64)}`,
             regionOrdinal: 0,
             regionStartUtf16: 34,
@@ -269,7 +275,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     ]);
     expect(result.patches).toContainEqual({
       op: 'replace',
-      path: '/startupHook/source',
+      path: '/scripts/bootstrap/data/source/source',
       value: `future_ref('renamed'); local note = 'shared'`,
     });
     expect(
@@ -290,12 +296,15 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       label: 'Shared',
       data: defaultRoomData('Shared'),
     };
-    project.startupHook = { source: `future_ref('shared'); future_ref('shared')` };
+    project.scripts.bootstrap!.data = {
+      kind: 'script-module',
+      source: { kind: 'inline-lua', source: `future_ref('shared'); future_ref('shared')` },
+    };
     const target = { kind: 'record', collection: 'rooms', id: 'shared' } as const;
     const exact: AuthoringDependencyEdge = {
       ...edge('exact:collapsed', 'lua-recognized-reference', target),
-      source: { kind: 'project-field', path: '/startupHook' },
-      sourcePath: '/startupHook/source',
+      source: { kind: 'record', collection: 'scripts', id: 'bootstrap' },
+      sourcePath: '/scripts/bootstrap/data/source/source',
       repair: {
         kind: 'warning-only',
         reason: 'Recognized source reference is safely rewriteable.',
@@ -307,8 +316,8 @@ describe('Phase 6 graph consumers and structural preflight', () => {
           recognizedBy: 'test.future-reference',
           rewriteRange: { startUtf16: 12, endUtf16: 18, expectedText: 'shared' },
           occurrence: {
-            sourcePath: '/startupHook/source',
-            sourceUrl: 'project:/project.json',
+            sourcePath: '/scripts/bootstrap/data/source/source',
+            sourceUrl: 'authoring:inline-lua',
             sourceContentHash: `sha256:${'1'.repeat(64)}`,
             regionOrdinal: 0,
             regionStartUtf16: 11,
@@ -329,8 +338,8 @@ describe('Phase 6 graph consumers and structural preflight', () => {
           recognizedBy: 'test.future-reference',
           rewriteRange: { startUtf16: 34, endUtf16: 40, expectedText: 'shared' },
           occurrence: {
-            sourcePath: '/startupHook/source',
-            sourceUrl: 'project:/project.json',
+            sourcePath: '/scripts/bootstrap/data/source/source',
+            sourceUrl: 'authoring:inline-lua',
             sourceContentHash: `sha256:${'1'.repeat(64)}`,
             regionOrdinal: 0,
             regionStartUtf16: 33,
@@ -358,7 +367,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     });
     expect(result.patches).toContainEqual({
       op: 'replace',
-      path: '/startupHook/source',
+      path: '/scripts/bootstrap/data/source/source',
       value: `future_ref('renamed'); future_ref('renamed')`,
     });
   });

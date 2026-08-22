@@ -105,7 +105,7 @@ const workspaceManifestSchema = z
     project: authoringProjectSchema.shape.project,
     settings: authoringProjectSchema.shape.settings,
     export: authoringProjectSchema.shape.export,
-    startupHook: authoringProjectSchema.shape.startupHook,
+    bootstrapModule: authoringProjectSchema.shape.bootstrapModule,
     entrypoint: authoringProjectSchema.shape.entrypoint,
     inventories: authoringProjectSchema.shape.inventories,
   })
@@ -426,7 +426,7 @@ function ownershipFor(
   const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
       files: ['project.json'],
-      paths: ['/project', '/settings', '/startupHook', '/entrypoint', '/inventories'],
+      paths: ['/project', '/settings', '/bootstrapModule', '/entrypoint', '/inventories'],
     },
     'project:properties': { files: ['properties.json'], paths: ['/properties'] },
     'project:traits': { files: ['traits.json'], paths: ['/traits'] },
@@ -579,7 +579,7 @@ export function projectWorkspaceFiles(
       project: project.project,
       settings: project.settings,
       export: project.export,
-      startupHook: project.startupHook,
+      bootstrapModule: project.bootstrapModule,
       entrypoint: project.entrypoint,
       inventories: project.inventories,
     },
@@ -763,7 +763,7 @@ export class ProjectWorkspaceService {
             'project',
             'settings',
             'export',
-            'startupHook',
+            'bootstrapModule',
             'entrypoint',
             'inventories',
           ];

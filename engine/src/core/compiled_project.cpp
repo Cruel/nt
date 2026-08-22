@@ -408,7 +408,8 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
 
 CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     : m_identity(std::move(input.identity)), m_settings(std::move(input.settings)),
-      m_entrypoint(std::move(input.entrypoint)), m_startup_hook(std::move(input.startup_hook)),
+      m_entrypoint(std::move(input.entrypoint)),
+      m_bootstrap_module(std::move(input.bootstrap_module)),
       m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),
       m_traits(std::move(input.traits)), m_inventories(std::move(input.inventories)),
       m_assets(std::move(input.assets)), m_layouts(std::move(input.layouts)),

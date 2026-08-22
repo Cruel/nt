@@ -35,7 +35,7 @@ describe('ProjectWorkspaceService', () => {
   it('keeps declared workspace field order while sorting record dictionaries', () => {
     const files = projectWorkspaceFiles(createAuthoringProject(), createAuthoringProject().editor);
     expect(files['project.json']).toMatch(
-      /^\{\n  "schema":.*\n  "schemaVersion":.*\n  "project":.*\n  "settings":.*\n  "startupHook":.*\n  "entrypoint":/s,
+      /^\{\n  "schema":.*\n  "schemaVersion":.*\n  "project":.*\n  "settings":.*\n  "bootstrapModule":.*\n  "entrypoint":/s,
     );
   });
 

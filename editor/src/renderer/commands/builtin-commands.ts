@@ -79,7 +79,7 @@ import {
   setProjectIconPatches,
   setProjectReferenceResolutionPatches,
   setProjectRoomNavigationTransitionPatches,
-  setProjectStartupPatches,
+  setProjectBootstrapModulePatches,
   setProjectSystemLayoutPatches,
   setProjectTagColorPatches,
   setProjectTitleScreenPatches,
@@ -786,7 +786,7 @@ const projectEntrypointSchema = z.object({
     ])
     .nullable(),
 });
-const projectStartupSchema = z.object({ initScript: z.string() });
+const projectBootstrapModuleSchema = z.object({ scriptId: z.string() });
 const projectDisplaySchema = z.object({
   referenceResolution: z.object({
     width: z.number().finite(),
@@ -1355,9 +1355,9 @@ export const projectSetEntrypointCommand: CommandHandler = ({ document, payload 
     setProjectEntrypointPatches(document, parsed as never),
   );
 
-export const projectSetStartupCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectStartupSchema, payload, (parsed) =>
-    setProjectStartupPatches(document, parsed),
+export const projectSetBootstrapModuleCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectBootstrapModuleSchema, payload, (parsed) =>
+    setProjectBootstrapModulePatches(document, parsed),
   );
 
 export const projectSetDisplayCommand: CommandHandler = ({ document, payload }) =>
@@ -1505,7 +1505,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'script.replaceData': scriptModuleReplaceDataCommand,
     'project.updateMetadata': projectUpdateMetadataCommand,
     'project.setEntrypoint': projectSetEntrypointCommand,
-    'project.setStartup': projectSetStartupCommand,
+    'project.setBootstrapModule': projectSetBootstrapModuleCommand,
     'project.setDisplay': projectSetDisplayCommand,
     'project.setReferenceResolution': projectSetReferenceResolutionCommand,
     'project.setAccessibilityScale': projectSetAccessibilityScaleCommand,
@@ -1618,7 +1618,7 @@ export function labelForCommand(type: string): string {
       return 'Update project metadata';
     case 'project.setEntrypoint':
       return 'Set project entrypoint';
-    case 'project.setStartup':
+    case 'project.setBootstrapModule':
       return 'Update project startup';
     case 'project.setDisplay':
       return 'Update project display';

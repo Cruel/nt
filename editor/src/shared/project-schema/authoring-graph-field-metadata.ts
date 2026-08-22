@@ -140,6 +140,7 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'oonnsssssssssovssnoonoonnnnnnoyop';
 
 const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = Object.freeze([
+  [/^\/bootstrapModule\//, OWNER],
   [/^\/assets\/\*\/data\/imageMetadata\//, OWNER],
   [/\/inventor(?:y|ies)\//, OWNER],
   [/^\/interactables\/\*\/data\/initialState\/location\//, OWNER],
@@ -276,6 +277,11 @@ const legacySchemaLeafPaths = [
   // Interactable Location in its place. Keep the retired leaf only to preserve the pre-#71
   // reviewed-effect alignment; the new Location leaves are classified explicitly above.
   '/rooms/*/data/interactables/*/enabled' as JsonPointer,
+  // #72 atomically replaces the one-leaf startupHook source with a two-leaf typed Script Module
+  // reference at the same schema version. The new reference leaves are classified explicitly above;
+  // retain the retired source leaf only so the preserved pre-replacement reviewed sequence does not
+  // shift unrelated field effects.
+  '/startupHook/source' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
 if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
@@ -355,6 +361,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
   Object.freeze({
     archetypes: 'f71e0c56',
     assets: 'e718127a',
+    bootstrapModule: 'd01eb484',
     characters: '50e127f4',
     dialogues: 'bfadec81',
     entrypoint: 'a61673d4',
@@ -375,7 +382,6 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scripts: 'f3482815',
     settings: 'faa09891',
     shaders: '94d3aa6e',
-    startupHook: '4fa45604',
     tests: 'bf235591',
     traits: 'e06af863',
     variables: '9ac2af8d',

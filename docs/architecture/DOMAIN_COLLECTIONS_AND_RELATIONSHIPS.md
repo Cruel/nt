@@ -6,7 +6,7 @@ This table is the authoritative current ownership map. Authoring records are edi
 
 | V2 collection/section | Authoring owner | Compiled representation | Runtime disposition |
 | --- | --- | --- | --- |
-| Project root/settings | Editor project/compiler | Compiled root, settings, startup hook, entrypoint, indexes | Immutable project-owned configuration; root is not an entity |
+| Project root/settings | Editor project/compiler | Compiled root, settings, Bootstrap Module reference, entrypoint, indexes | Immutable project-owned configuration; root is not an entity |
 | Properties | Typed declarations and owner assignments | Global and identity-scoped `PropertyDefinition`s plus retained direct assignments | One sparse typed override store; every override is checkpoint/save state |
 | Traits | Capability/configuration declarations over ordinary Properties | `TraitDefinition`s plus per-definition Trait attachments | Immutable metadata/configuration; values resolve through the Property system |
 | Archetypes | Same-kind reusable Room/Character/Interactable configuration chains | Fully flattened into the attached declared instance; no Archetype wire/runtime collection | Authoring-only blueprint; no runtime identity, Location, or mutable state |

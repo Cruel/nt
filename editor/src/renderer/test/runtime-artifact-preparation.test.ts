@@ -196,7 +196,10 @@ describe('Prepared Runtime Artifact module', () => {
         imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
       }),
     };
-    project.startupHook = { source: "local image = 'lua-only'" };
+    project.scripts.bootstrap!.data = {
+      kind: 'script-module',
+      source: { kind: 'inline-lua', source: "local image = 'lua-only'\nreturn {}\n" },
+    };
 
     const result = await prepareRuntimeAssessmentForTest(project, {
       projectRoot: '/project',
@@ -351,7 +354,10 @@ describe('Prepared Runtime Artifact module', () => {
         source: { kind: 'inline-lua', source: 'Game.start_room("foyer")' },
       },
     };
-    project.startupHook = { source: 'require("bootstrap")' };
+    project.scripts.bootstrap!.data = {
+      kind: 'script-module',
+      source: { kind: 'inline-lua', source: 'import("bootstrap-dependency")\nreturn {}\n' },
+    };
     expect(project.entrypoint).toEqual({ kind: 'room', id: 'foyer' });
   });
 

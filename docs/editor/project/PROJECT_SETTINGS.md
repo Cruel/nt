@@ -71,7 +71,7 @@ Startup uses:
 
 ```ts
 entrypoint
-startupHook.source
+bootstrapModule // typed Script Module reference
 ```
 
 Runtime defaults use:
@@ -160,7 +160,7 @@ Project layout/font records can override those fallbacks. The editor writes only
 
 ## Entrypoint and startup
 
-The V2 entrypoint is a strict Room, Scene, or Dialogue union. Project Settings exposes only those three collections; Script Modules cannot be selected. Startup Lua is edited separately and stored at `startupHook.source`.
+The V2 entrypoint is a strict Room, Scene, or Dialogue union. Project Settings exposes only those three collections for the entrypoint. Bootstrap is configured separately by selecting one Script Module through `bootstrapModule`; Project Settings does not embed startup Lua. The selected module executes synchronously in each fresh Project VM and may import other Script Modules by stable ID.
 
 Package Export remains strict: a missing or unresolved entrypoint blocks export.
 
@@ -170,7 +170,7 @@ Project Settings adds typed validation for:
 
 - project title;
 - semver-like project version warnings;
-- startup init script shape;
+- required Bootstrap Module reference and target existence;
 - system layout role refs;
 - default font refs, which must point to font assets;
 - title image refs, which must point to image assets;

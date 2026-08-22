@@ -12,19 +12,21 @@ import {
 } from '../../shared/project-schema/editor-project-state';
 
 describe('authoring project V4 schema', () => {
-  it('creates a complete empty V4 project root', () => {
+  it('creates a complete V4 project root with an explicit Bootstrap Module', () => {
     const project = createAuthoringProject({ id: 'demo-project', name: 'Demo Project' });
     expect(project).toMatchObject({
       schema: 'noveltea.authoring.project',
       schemaVersion: 4,
       project: { id: 'demo-project', name: 'Demo Project' },
-      startupHook: null,
+      bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
       entrypoint: null,
       properties: {},
       localization: { defaultLocale: 'en', fallbackLocale: null, catalogs: { en: {} } },
       editor: { schema: EDITOR_PROJECT_STATE_SCHEMA, recordMetadata: {} },
     });
-    for (const key of authoringCollectionKeys) expect(project[key]).toEqual({});
+    for (const key of authoringCollectionKeys)
+      if (key === 'scripts') expect(Object.keys(project.scripts)).toEqual(['bootstrap']);
+      else expect(project[key]).toEqual({});
     expect('objects' in project).toBe(false);
     expect('actions' in project).toBe(false);
   });

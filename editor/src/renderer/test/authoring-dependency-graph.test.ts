@@ -588,7 +588,7 @@ describe('authoring structural dependency graph and queries', () => {
     ).toBeDefined();
     expect(
       graph.nodesByKey.has(
-        serializeAuthoringDependencyNodeKey({ kind: 'project-field', path: '/startupHook' }),
+        serializeAuthoringDependencyNodeKey({ kind: 'project-field', path: '/bootstrapModule' }),
       ),
     ).toBe(true);
     expect(findAuthoringDependencyUsages(graph, recordNodeKey('layouts', 'hud'))).toContainEqual(

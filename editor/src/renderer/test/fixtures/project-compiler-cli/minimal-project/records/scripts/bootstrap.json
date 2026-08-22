@@ -1,0 +1,12 @@
+{
+  "id": "bootstrap",
+  "label": "Bootstrap",
+  "description": "Project bootstrap module.",
+  "data": {
+    "kind": "script-module",
+    "source": {
+      "kind": "file",
+      "path": "scripts/bootstrap.lua"
+    }
+  }
+}

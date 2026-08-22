@@ -70,7 +70,7 @@ function isObject(value: JsonValue): value is { [key: string]: JsonValue } {
 function contentSaveUnitForPath(path: string): string {
   const segments = parseJsonPointer(path);
   const root = segments[0] ?? '';
-  if (['project', 'settings', 'startupHook', 'entrypoint'].includes(root))
+  if (['project', 'settings', 'bootstrapModule', 'entrypoint'].includes(root))
     return PROJECT_SETTINGS_SAVE_UNIT_ID;
   if (root === 'properties') return 'project:properties';
   if (root === 'localization') return 'project:localization';

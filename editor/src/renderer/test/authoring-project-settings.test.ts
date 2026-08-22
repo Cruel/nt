@@ -47,7 +47,7 @@ describe('authoring project settings', () => {
       showAuthor: false,
       startLabel: 'Start',
     });
-    expect(project.startupHook).toBeNull();
+    expect(project.bootstrapModule).toEqual({ $ref: { collection: 'scripts', id: 'bootstrap' } });
     expect(settings.display).toEqual({
       referenceResolution: { width: 1920, height: 1080 },
       worldRasterPolicy: 'capped',

@@ -38,9 +38,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 {
     Decoder decoder(std::move(source_path));
     if (!decoder.object(document, "",
-                        {"definitions", "entrypoint", "inventories", "localization", "project",
-                         "properties", "resources", "schema", "schemaVersion", "settings",
-                         "startupHook", "traits"}))
+                        {"bootstrapModule", "definitions", "entrypoint", "inventories",
+                         "localization", "project", "properties", "resources", "schema",
+                         "schemaVersion", "settings", "traits"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -48,7 +48,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* project_value = decoder.member(document, "project", "");
     const auto* settings_value = decoder.member(document, "settings", "");
     const auto* entrypoint_value = decoder.member(document, "entrypoint", "");
-    const auto* startup_value = decoder.member(document, "startupHook", "");
+    const auto* bootstrap_value = decoder.member(document, "bootstrapModule", "");
     const auto* localization_value = decoder.member(document, "localization", "");
     const auto* inventories_value = decoder.member(document, "inventories", "");
     const auto* properties_value = decoder.member(document, "properties", "");
@@ -83,21 +83,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     auto entrypoint = entrypoint_value
                           ? decode_entrypoint(decoder, *entrypoint_value, "/entrypoint")
                           : std::nullopt;
-    std::optional<StartupHook> startup;
-    bool startup_ok = startup_value != nullptr;
-    if (startup_value && !startup_value->is_null()) {
-        if (decoder.object(*startup_value, "/startupHook", {"source"})) {
-            const auto* source_value = decoder.member(*startup_value, "source", "/startupHook");
-            auto source =
-                source_value ? decoder.string(*source_value, "/startupHook/source") : std::nullopt;
-            if (source)
-                startup = StartupHook{std::move(*source)};
-            else
-                startup_ok = false;
-        } else {
-            startup_ok = false;
-        }
-    }
+    auto bootstrap = bootstrap_value ? decode_reference<ScriptId>(decoder, *bootstrap_value,
+                                                                  "/bootstrapModule", "script")
+                                     : std::nullopt;
     auto localization = localization_value
                             ? decode_localization(decoder, *localization_value, "/localization")
                             : std::nullopt;
@@ -233,7 +221,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     NOVELTEA_DUPLICATE_DEFINITION(maps, "/definitions/maps", MapId);
 #undef NOVELTEA_DUPLICATE_DEFINITION
 
-    const bool complete = schema && version && identity && settings && entrypoint && startup_ok &&
+    const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
                           localization && inventories && properties && traits && assets &&
                           layouts && scripts && characters && rooms && interactables && verbs &&
                           interactions && scenes && dialogues && maps;
@@ -241,7 +229,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     return Result<SharedProject, Diagnostics>::success(SharedProject{
-        std::move(*identity), std::move(*settings), std::move(*entrypoint), std::move(startup),
+        std::move(*identity), std::move(*settings), std::move(*entrypoint), std::move(*bootstrap),
         std::move(*localization), std::move(*properties), std::move(*traits),
         std::move(*inventories), std::move(*assets), std::move(*layouts), std::move(*scripts),
         std::move(*characters), std::move(*rooms), std::move(*interactables), std::move(*verbs),

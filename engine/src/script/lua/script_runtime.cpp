@@ -184,6 +184,22 @@ struct ScriptRuntime::Impl {
         runtime::CapabilityGeneration generation;
     };
 
+    enum class ModuleStatus : std::uint8_t {
+        Unloaded,
+        Loading,
+        Loaded,
+        Failed,
+    };
+
+    struct ProjectModule {
+        std::string source;
+        std::optional<std::string> asset_path;
+        ModuleStatus status = ModuleStatus::Unloaded;
+        ScriptEnvironmentHandle environment{};
+        int exports_reference = LUA_NOREF;
+        std::string failure;
+    };
+
     sol::state lua{panic_handler};
     const runtime::ScriptSourcePort* sources = nullptr;
     bool initialized = false;
@@ -192,6 +208,8 @@ struct ScriptRuntime::Impl {
     std::unique_ptr<RuntimeScriptApi> runtime_api;
     std::unordered_map<std::uint64_t, int> environments;
     std::uint64_t next_environment = 1;
+    std::unordered_map<std::string, ProjectModule> project_modules;
+    std::optional<std::string> bootstrap_module;
 
     lua_State* thread(int reference)
     {
@@ -307,6 +325,7 @@ void ScriptRuntime::shutdown()
     if (m_impl) {
         if (m_impl->runtime_api)
             m_impl->runtime_api->clear_capabilities();
+        clear_project_modules();
         m_impl->initialized = false;
         m_impl->invocations.clear();
         for (const auto& [_, reference] : m_impl->environments)
@@ -382,6 +401,208 @@ core::Result<void, runtime::ScriptInvocationError>
 ScriptRuntime::certify_asset_source(std::string_view logical_path)
 {
     return certify_asset(logical_path);
+}
+
+void ScriptRuntime::clear_project_modules() noexcept
+{
+    if (!m_impl)
+        return;
+    for (auto& [_, module] : m_impl->project_modules) {
+        if (module.exports_reference != LUA_NOREF)
+            m_impl->release(module.exports_reference);
+        if (module.environment)
+            destroy_environment(module.environment);
+    }
+    m_impl->project_modules.clear();
+    m_impl->bootstrap_module.reset();
+}
+
+core::Result<void, runtime::ScriptInvocationError>
+ScriptRuntime::prepare_project_modules(const core::CompiledProject& project)
+{
+    using Result = core::Result<void, runtime::ScriptInvocationError>;
+    if (!is_initialized() || !m_impl->runtime_api)
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized", "project-modules"));
+
+    clear_project_modules();
+    m_impl->runtime_api->clear_capabilities();
+    for (const auto& resource : project.scripts()) {
+        Impl::ProjectModule module;
+        if (const auto* inline_source =
+                std::get_if<core::compiled::InlineLuaSource>(&resource.source)) {
+            module.source = inline_source->source;
+        } else if (const auto* asset_source =
+                       std::get_if<core::compiled::AssetScriptSource>(&resource.source)) {
+            const auto* asset = project.find_asset(asset_source->asset);
+            if (!asset) {
+                return Result::failure(make_error(ScriptErrorCode::LoadFailed,
+                                                  "Script Module '" + resource.id.text() +
+                                                      "' references a missing source Asset",
+                                                  "module:" + resource.id.text()));
+            }
+            module.asset_path = asset->path.find(":/") == std::string::npos
+                                    ? "project:/" + asset->path
+                                    : asset->path;
+        }
+        m_impl->project_modules.emplace(resource.id.text(), std::move(module));
+    }
+    m_impl->bootstrap_module = project.bootstrap_module().text();
+    return Result::success();
+}
+
+int ScriptRuntime::project_import_callback(lua_State* state)
+{
+    auto* runtime = static_cast<ScriptRuntime*>(lua_touserdata(state, lua_upvalueindex(1)));
+    if (runtime == nullptr)
+        return luaL_error(state, "Project module loader is unavailable");
+
+    std::size_t module_size = 0;
+    const char* module = luaL_checklstring(state, 1, &module_size);
+    std::optional<std::string_view> export_name;
+    std::size_t export_size = 0;
+    if (!lua_isnoneornil(state, 2)) {
+        const char* export_text = luaL_checklstring(state, 2, &export_size);
+        export_name = std::string_view(export_text, export_size);
+    }
+    if (auto error = runtime->push_project_import(state, std::string_view(module, module_size),
+                                                  export_name)) {
+        lua_pushlstring(state, error->message.data(), error->message.size());
+        return lua_error(state);
+    }
+    return 1;
+}
+
+std::optional<ScriptError>
+ScriptRuntime::push_project_import(lua_State* state, std::string_view module_id,
+                                   std::optional<std::string_view> export_name)
+{
+    if (!is_initialized() || !m_impl->runtime_api)
+        return make_error(ScriptErrorCode::NotInitialized, "ScriptRuntime is not initialized",
+                          "module:" + std::string(module_id));
+
+    auto found = m_impl->project_modules.find(std::string(module_id));
+    if (found == m_impl->project_modules.end())
+        return make_error(ScriptErrorCode::LoadFailed,
+                          "Script Module '" + std::string(module_id) + "' does not exist",
+                          "module:" + std::string(module_id));
+    auto& module = found->second;
+    if (module.status == Impl::ModuleStatus::Loading)
+        return make_error(ScriptErrorCode::RuntimeFailed,
+                          "Script Module import cycle detected at '" + std::string(module_id) + "'",
+                          "module:" + std::string(module_id));
+    if (module.status == Impl::ModuleStatus::Failed)
+        return make_error(ScriptErrorCode::RuntimeFailed,
+                          "Script Module '" + std::string(module_id) +
+                              "' previously failed initialization: " + module.failure,
+                          "module:" + std::string(module_id));
+
+    if (module.status == Impl::ModuleStatus::Unloaded) {
+        module.status = Impl::ModuleStatus::Loading;
+        auto environment = create_environment();
+        if (!environment) {
+            module.status = Impl::ModuleStatus::Failed;
+            module.failure = environment.error().message;
+            return std::move(environment).error();
+        }
+        module.environment = *environment.value_if();
+        const int environment_reference = m_impl->environment_reference(module.environment);
+        lua_rawgeti(state, LUA_REGISTRYINDEX, environment_reference);
+        lua_pushliteral(state, "import");
+        lua_pushlightuserdata(state, this);
+        lua_pushcclosure(state, &ScriptRuntime::project_import_callback, 1);
+        lua_rawset(state, -3);
+        lua_pop(state, 1);
+
+        std::string asset_source;
+        std::string_view source = module.source;
+        std::string chunk = "@module:" + std::string(module_id);
+        if (module.asset_path) {
+            auto text = m_impl->sources->read_script_source(*module.asset_path);
+            if (!text) {
+                module.status = Impl::ModuleStatus::Failed;
+                module.failure = text.error().message;
+                destroy_environment(module.environment);
+                module.environment = {};
+                return make_error(ScriptErrorCode::LoadFailed, module.failure, *module.asset_path);
+            }
+            asset_source = std::move(*text.value_if());
+            source = asset_source;
+            chunk = "@" + *module.asset_path;
+        }
+
+        const int stack_base = lua_gettop(state);
+        const int loaded =
+            luaL_loadbufferx(state, source.data(), source.size(), chunk.c_str(), "t");
+        if (loaded != LUA_OK) {
+            module.status = Impl::ModuleStatus::Failed;
+            module.failure = lua_value_message(state, -1);
+            lua_settop(state, stack_base);
+            destroy_environment(module.environment);
+            module.environment = {};
+            return make_error(ScriptErrorCode::LoadFailed, module.failure, chunk, module.failure);
+        }
+        lua_rawgeti(state, LUA_REGISTRYINDEX, environment_reference);
+        if (lua_setupvalue(state, -2, 1) == nullptr)
+            lua_pop(state, 1);
+
+        m_impl->runtime_api->clear_capabilities();
+        const int status = lua_pcall(state, 0, LUA_MULTRET, 0);
+        if (status != LUA_OK) {
+            const std::string raw = lua_value_message(state, -1);
+            const auto error_code = status == LUA_YIELD ? ScriptErrorCode::YieldForbidden
+                                                        : ScriptErrorCode::RuntimeFailed;
+            luaL_traceback(state, state, raw.c_str(), 1);
+            const std::string traceback = lua_value_message(state, -1);
+            module.status = Impl::ModuleStatus::Failed;
+            module.failure = raw;
+            lua_settop(state, stack_base);
+            destroy_environment(module.environment);
+            module.environment = {};
+            return make_error(error_code, raw, chunk, traceback);
+        }
+        const int returns = lua_gettop(state) - stack_base;
+        if (returns != 1 || !lua_istable(state, -1)) {
+            module.status = Impl::ModuleStatus::Failed;
+            module.failure = "Script Modules must return exactly one exports table";
+            lua_settop(state, stack_base);
+            destroy_environment(module.environment);
+            module.environment = {};
+            return make_error(ScriptErrorCode::InvalidResult, module.failure, chunk);
+        }
+        module.exports_reference = luaL_ref(state, LUA_REGISTRYINDEX);
+        module.status = Impl::ModuleStatus::Loaded;
+    }
+
+    lua_rawgeti(state, LUA_REGISTRYINDEX, module.exports_reference);
+    if (export_name) {
+        lua_pushlstring(state, export_name->data(), export_name->size());
+        lua_rawget(state, -2);
+        if (lua_isnil(state, -1)) {
+            lua_pop(state, 2);
+            return make_error(ScriptErrorCode::InvalidResult,
+                              "Script Module '" + std::string(module_id) + "' has no export '" +
+                                  std::string(*export_name) + "'",
+                              "module:" + std::string(module_id));
+        }
+        lua_remove(state, -2);
+    }
+    return std::nullopt;
+}
+
+core::Result<void, runtime::ScriptInvocationError> ScriptRuntime::run_project_bootstrap()
+{
+    using Result = core::Result<void, runtime::ScriptInvocationError>;
+    if (!is_initialized() || !m_impl->bootstrap_module)
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "Project Script Modules have not been prepared",
+                                          "bootstrap"));
+    m_impl->runtime_api->clear_capabilities();
+    lua_State* state = m_impl->lua.lua_state();
+    const int stack_base = lua_gettop(state);
+    auto error = push_project_import(state, *m_impl->bootstrap_module, std::nullopt);
+    lua_settop(state, stack_base);
+    return error ? Result::failure(std::move(*error)) : Result::success();
 }
 
 core::Result<ScriptValue, ScriptError> ScriptRuntime::evaluate(std::string_view expression,

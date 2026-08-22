@@ -95,7 +95,11 @@ describe('Phase 5 incremental authoring graph service', () => {
       sourceReadBatches: 0,
     });
     expect(service.currentSourceAnalysis('instance', 1)).toBeNull();
-    expect(service.currentSourceAnalysis('instance', 2)).toEqual([]);
+    expect(service.currentSourceAnalysis('instance', 2)).toEqual([
+      expect.objectContaining({
+        semanticOwnerKey: `record:${JSON.stringify(['record', 'scripts', 'bootstrap'])}`,
+      }),
+    ]);
   });
 
   it('uses retained Script Module paths for full graph source analysis', async () => {

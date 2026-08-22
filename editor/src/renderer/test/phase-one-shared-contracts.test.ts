@@ -312,7 +312,6 @@ describe('Phase 1 shared contracts', () => {
       }).script,
     ).toMatchObject({ additionalDependencies: { targets: [] } });
     expect(AUTHORING_LUA_EXECUTION_SURFACES).toEqual([
-      'project-startup-hook',
       'script-record',
       'layout-rml',
       'layout-dedicated-lua',

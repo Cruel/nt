@@ -18,6 +18,10 @@
 #include <variant>
 #include <vector>
 
+namespace noveltea::core {
+class CompiledProject;
+}
+
 namespace noveltea::runtime {
 
 class RuntimeWorld;
@@ -113,6 +117,9 @@ public:
     certify_source(std::string_view source, std::string_view chunk_name) = 0;
     [[nodiscard]] virtual core::Result<void, ScriptInvocationError>
     certify_asset_source(std::string_view logical_path) = 0;
+    [[nodiscard]] virtual core::Result<void, ScriptInvocationError>
+    prepare_project_modules(const core::CompiledProject& project) = 0;
+    [[nodiscard]] virtual core::Result<void, ScriptInvocationError> run_project_bootstrap() = 0;
 };
 
 class ScriptRuntimePort : public ScriptInvocationPort, public ScriptCertificationPort {

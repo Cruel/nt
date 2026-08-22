@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { SourceEditor } from '@/components/source/SourceEditor';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import {
   CategorizedEditorLayout,
@@ -151,6 +150,7 @@ function projectSettingsCategoryForTarget(targetId: string): ProjectSettingsCate
     targetId.startsWith('projectSettings.metadata') ||
     targetId.startsWith('projectSettings.startup') ||
     targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/entrypoint'] ||
+    targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/bootstrapModule'] ||
     targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/project/name'] ||
     targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/project/version']
   )
@@ -193,6 +193,7 @@ function projectSettingsCategoryForTarget(targetId: string): ProjectSettingsCate
 
 const PROJECT_SETTINGS_FIELD_ANCHORS: Record<string, string> = {
   '/entrypoint': 'projectSettings.field.entrypoint',
+  '/bootstrapModule': 'projectSettings.field.bootstrapModule',
   '/project/name': 'projectSettings.field.projectName',
   '/project/version': 'projectSettings.field.projectVersion',
   '/settings/text/defaultFont': 'projectSettings.field.defaultFont',
@@ -442,6 +443,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     () => filterSelectorItems(selectorItems, { collections: ['layouts'], includeActions: false }),
     [selectorItems],
   );
+  const scriptItems = useMemo(
+    () => filterSelectorItems(selectorItems, { collections: ['scripts'], includeActions: false }),
+    [selectorItems],
+  );
   const [workflowSummary, setWorkflowSummary] = useState({
     activeCount: 0,
     projectCount: 0,
@@ -449,6 +454,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   });
   const [workflowSummaryMessage, setWorkflowSummaryMessage] = useState<string | null>(null);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
+  const [bootstrapModuleSelectorOpen, setBootstrapModuleSelectorOpen] = useState(false);
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(
     null,
   );
@@ -819,16 +825,23 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label>Init Lua script</Label>
-                <SourceEditor
-                  ref={sourceEditors.refFor('startupInitScript')}
-                  className="h-40"
-                  language="lua"
-                  value={project.startupHook?.source ?? ''}
-                  onChange={(initScript) =>
-                    runProjectCommand('project.setStartup', { initScript }, 'Update startup script')
-                  }
-                />
+                <Label>Bootstrap Module</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 min-w-64 justify-start px-2 text-left text-xs font-normal"
+                  aria-invalid={fieldInvalid('/bootstrapModule')}
+                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/bootstrapModule']}
+                  onClick={() => setBootstrapModuleSelectorOpen(true)}
+                >
+                  <span className="truncate">
+                    {project.scripts[project.bootstrapModule.$ref.id]?.label ??
+                      project.bootstrapModule.$ref.id}
+                  </span>
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Runs once in a fresh Project Lua VM before gameplay state is available.
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -1574,6 +1587,23 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           }
         }}
         onOpenChange={setEntrypointSelectorOpen}
+      />
+      <SearchSelectorDialog
+        open={bootstrapModuleSelectorOpen}
+        title="Choose Bootstrap Module"
+        placeholder="Search Script Modules..."
+        emptyMessage="No Script Modules found."
+        items={scriptItems}
+        selectedId={`record:scripts:${project.bootstrapModule.$ref.id}`}
+        onSelect={(item) => {
+          if (item.collection !== 'scripts' || !item.entityId) return;
+          runProjectCommand(
+            'project.setBootstrapModule',
+            { scriptId: item.entityId },
+            'Set Bootstrap Module',
+          );
+        }}
+        onOpenChange={setBootstrapModuleSelectorOpen}
       />
       <SearchSelectorDialog
         open={!!systemLayoutSelectorRole}

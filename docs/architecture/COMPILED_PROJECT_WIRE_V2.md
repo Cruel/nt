@@ -6,7 +6,7 @@ defensive validation, but must not invent a second wire shape.
 
 The document contains immutable gameplay definitions (Characters, Rooms, Interactables, Verbs,
 Interactions, Scenes, Dialogues, and Maps), typed properties and variables, typed runtime resources
-(assets, layouts, and scripts), localization, runtime settings, startup hook, and one Room/Scene/
+(assets, layouts, and scripts), localization, runtime settings, one stable Bootstrap Module reference, and one Room/Scene/
 Dialogue entrypoint. Cross-references, including references into separately versioned material data,
 are typed discriminated references; generic collection/id
 references, authoring collection maps, legacy Object/Action names, comments, categories, tags, and

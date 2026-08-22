@@ -13,7 +13,7 @@ export const PROJECT_SETTINGS_SAVE_UNIT_ID: SaveUnitId = 'project:settings';
 export const PROJECT_SETTINGS_OWNED_PATHS: JsonPointer[] = [
   '/project',
   '/settings',
-  '/startupHook',
+  '/bootstrapModule',
   '/entrypoint',
 ];
 

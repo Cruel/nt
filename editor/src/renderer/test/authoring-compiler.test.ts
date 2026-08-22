@@ -136,7 +136,10 @@ describe('authoring compiler framework', () => {
     project.maps.house = { id: 'house', label: 'House', data: defaultMapData() };
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
-    project.startupHook = { source: 'bootstrap()' };
+    project.scripts.bootstrap!.data = {
+      kind: 'script-module',
+      source: { kind: 'inline-lua', source: 'bootstrap()\nreturn {}\n' },
+    };
     project.localization.catalogs.en = { greeting: 'Hello' };
 
     const result = lowerSharedAuthoringProject(project);

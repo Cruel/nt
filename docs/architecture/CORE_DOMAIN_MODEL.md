@@ -77,7 +77,7 @@ Assets and aliases, layouts, shaders/materials, script modules, and localization
 resources, not gameplay entities. They need no common entity interface. Script modules never autorun
 because they are present in a collection or package.
 
-The compiled project root owns project identity, runtime settings, feature flags, startup hook,
+The compiled project root owns project identity, runtime settings, feature flags, Bootstrap Module reference,
 entrypoint, definition collections, resource IDs, and lookup indexes. It is not an entity and cannot
 be addressed through property-owner APIs.
 
@@ -108,7 +108,7 @@ lookup tables.
 
 A project entrypoint is exactly Room, Scene, or Dialogue. A continuation/flow target is exactly Scene,
 Dialogue, Room, Return, or End. Script is neither an entrypoint nor a continuation target; the
-non-yielding startup hook runs successfully before the entrypoint starts.
+non-yielding Bootstrap Module import runs successfully before the entrypoint starts.
 
 ## Properties and Traits
 

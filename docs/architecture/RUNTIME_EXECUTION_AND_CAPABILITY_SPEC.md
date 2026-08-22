@@ -1187,7 +1187,7 @@ Failed construction publishes no partial running game.
 
 ### Start
 
-Starting the session runs the non-yielding startup hook, then starts the typed project entrypoint. A
+Starting a fresh session candidate synchronously imports the configured non-yielding Bootstrap Module, then starts the typed project entrypoint. A
 start transaction settles and publishes a complete initial state or faults with diagnostics.
 
 ### Stop

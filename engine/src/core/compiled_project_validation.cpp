@@ -661,6 +661,7 @@ private:
                     require(m_dialogues, id, "dialogue", "/entrypoint");
             },
             m_input.entrypoint);
+        require(m_scripts, m_input.bootstrap_module, "script", "/bootstrapModule");
         for (std::size_t index = 0; index < m_input.settings.system_layouts.size(); ++index)
             if (m_input.settings.system_layouts[index].layout)
                 require(m_layouts, *m_input.settings.system_layouts[index].layout, "layout",

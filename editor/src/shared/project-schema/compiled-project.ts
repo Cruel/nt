@@ -916,7 +916,7 @@ export const compiledProjectWireV4Schema = strict({
   schema: z.literal(COMPILED_PROJECT_SCHEMA),
   schemaVersion: z.literal(COMPILED_PROJECT_SCHEMA_VERSION),
   settings: runtimeSettingsSchema,
-  startupHook: strict({ source: z.string() }).nullable(),
+  bootstrapModule: scriptReferenceSchema,
 }).superRefine((project, context) => {
   const collections = [
     { path: ['definitions', 'characters'], records: project.definitions.characters },

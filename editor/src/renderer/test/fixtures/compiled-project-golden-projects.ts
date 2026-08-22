@@ -586,7 +586,10 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       'scene-choice': 'Elige un camino.',
     },
   };
-  project.startupHook = { source: 'initialize_fixture()' };
+  project.scripts.bootstrap!.data = {
+    kind: 'script-module',
+    source: { kind: 'inline-lua', source: 'initialize_fixture()\nreturn {}\n' },
+  };
   project.entrypoint = { kind: 'room', id: 'start' };
   return project;
 }

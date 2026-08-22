@@ -8,7 +8,7 @@ inline Lua text in the record JSON: file-backed modules store an explicit safe `
 the source bytes live in that file. Script Modules are not entities, property owners, entrypoints,
 continuation targets, or mutable session records.
 
-Modules never autorun because they exist in a collection or package. Lua executes only through the explicit synchronous project startup hook, a typed expression/effect/instruction reference, or an explicit host request. The startup hook must complete without yielding before the Room/Scene/Dialogue entrypoint begins.
+Modules never autorun because they exist in a collection or package. Every Project names one Bootstrap Module by stable Script Module ID. A fresh Project VM imports that module synchronously before the Room/Scene/Dialogue entrypoint begins; other modules execute only when the Bootstrap Module or another explicit runtime reference imports them. Bootstrap and module initialization cannot yield.
 
 ## Execution and state
 
@@ -30,6 +30,13 @@ The TypeScript compiler treats Lua as opaque text after structural validation. P
 The editor's assembled model supports a strict mutually exclusive source union: inline Lua or a typed
 script Asset. The workspace codec maps the inline branch only to/from its explicit file source and
 rejects persisted Script Module `inline-lua` JSON. Validation confirms that an asset-backed source is
-a script asset. The compiler preserves either assembled source in the canonical compiled artifact;
-native package loading certifies and executes it through the single Lua runtime. There is no legacy
-Script/CustomScript entity path, implicit execution, or generic property API.
+a script asset. The compiler preserves either assembled source in the canonical compiled artifact and
+emits the Project's stable `bootstrapModule` reference without changing compiled schema version 4.
+
+The native Project loader gives every Script Module a module-local environment with an `import(id, export?)`
+function. First import executes the target once in the current Project VM, requires the module to return an
+exports table, caches that table, and returns either the table or the requested named export. Repeated imports
+return the cached object. Missing modules, missing named exports, import cycles, yielded initialization, and
+failed initialization are hard errors; a failed module is not retried in the same VM. `package`, `require`,
+`dofile`, `loadfile`, and unrestricted filesystem loaders remain unavailable. There is no legacy
+Script/CustomScript entity path, implicit collection execution, or generic property API.
