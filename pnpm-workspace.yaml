@@ -6,9 +6,9 @@ injectWorkspacePackages: true
 autoInstallPeers: false
 
 minimumReleaseAgeExclude:
-  - "scriptc@0.0.30"
-  - "@scriptc/compiler@0.0.30"
-  - "@scriptc/runtime@0.0.30"
+  - "scriptc@0.0.34"
+  - "@scriptc/compiler@0.0.34"
+  - "@scriptc/runtime@0.0.34"
 
 catalog:
   "@electron/fuses": 2.1.3
