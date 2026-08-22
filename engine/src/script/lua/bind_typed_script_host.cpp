@@ -463,8 +463,12 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
 
     lua.new_usertype<GameplayIdentityReference>(
         "__noveltea_gameplay_identity", sol::no_constructor, "kind",
-        sol::readonly(&GameplayIdentityReference::kind), "id",
-        sol::readonly(&GameplayIdentityReference::id), "prop",
+        sol::property(
+            [](const GameplayIdentityReference& self) -> const std::string& { return self.kind; }),
+        "id", sol::property([](const GameplayIdentityReference& self) -> const std::string& {
+            return self.id;
+        }),
+        "prop",
         [](GameplayIdentityReference& self, std::string property_id,
            sol::this_state state) -> std::tuple<sol::object, bool, sol::object> {
             sol::state_view view(state);
