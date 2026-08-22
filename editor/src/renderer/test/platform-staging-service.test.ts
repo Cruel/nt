@@ -14,7 +14,7 @@ import {
   templateRootForToken,
 } from '../../main/services/template-registry-service';
 import { createHash } from 'node:crypto';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createContext, Script } from 'node:vm';
 import * as ResEdit from 'resedit';
 import { installPlayerTemplate } from '../../main/services/template-registry-service';
@@ -95,6 +95,97 @@ afterEach(() => {
   resetPlatformFileModeService();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
+
+function childExited(child: ChildProcess) {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (childExited(child)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      child.off('exit', onExit);
+      resolve(false);
+    }, timeoutMs);
+    child.once('exit', onExit);
+  });
+}
+
+function linuxProcessGroupExists(pid: number) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+async function waitForLinuxProcessGroupExit(pid: number, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!linuxProcessGroupExists(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return !linuxProcessGroupExists(pid);
+}
+
+async function terminateLinuxProcessGroup(child: ChildProcess) {
+  const pid = child.pid;
+  if (pid === undefined) return;
+
+  if (linuxProcessGroupExists(pid)) process.kill(-pid, 'SIGTERM');
+  await waitForChildExit(child, 2_000);
+  if (linuxProcessGroupExists(pid)) process.kill(-pid, 'SIGKILL');
+  const groupExited = await waitForLinuxProcessGroupExit(pid, 5_000);
+  const childProcessExited = await waitForChildExit(child, 5_000);
+  if (!groupExited || !childProcessExited)
+    throw new Error(`Linux smoke player process group ${pid} did not terminate`);
+}
+
+describe.runIf(process.platform === 'linux')('Linux native smoke process cleanup', () => {
+  it('terminates surviving descendants before removing the export tree', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'NovelTea cleanup race '));
+    roots.push(root);
+    const writer = `
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const root = process.env.NOVELTEA_CLEANUP_ROOT;
+      process.on('SIGTERM', () => {});
+      fs.writeFileSync(path.join(root, 'ready'), 'ready');
+      let index = 0;
+      setInterval(() => fs.writeFileSync(path.join(root, 'write-' + index++), 'x'), 5);
+    `;
+    const supervisor = `
+      const { spawn } = require('node:child_process');
+      spawn(process.execPath, ['-e', process.env.NOVELTEA_CLEANUP_WRITER], { stdio: 'ignore' });
+      setInterval(() => {}, 1000);
+    `;
+    const child = spawn(process.execPath, ['-e', supervisor], {
+      detached: true,
+      env: {
+        ...process.env,
+        NOVELTEA_CLEANUP_ROOT: root,
+        NOVELTEA_CLEANUP_WRITER: writer,
+      },
+      stdio: 'ignore',
+    });
+    const ready = path.join(root, 'ready');
+    const deadline = Date.now() + 5_000;
+    while (!fs.existsSync(ready) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(fs.existsSync(ready)).toBe(true);
+
+    await terminateLinuxProcessGroup(child);
+    expect(child.pid && linuxProcessGroupExists(child.pid)).toBe(false);
+    expect(() => fs.rmSync(root, { recursive: true, force: true })).not.toThrow();
+  }, 10_000);
+});
+
 function configureModeFallbackHost() {
   configurePlatformFileModeService(async (_filePath, fallback) => fallback);
 }
@@ -1260,6 +1351,7 @@ describe.runIf(
     roots.push(unrelatedWorkingDirectory);
     const child = spawn(path.join(outputDirectory, 'tea-game'), [], {
       cwd: unrelatedWorkingDirectory,
+      detached: true,
       env: { ...process.env, HOME: home, XDG_DATA_HOME: xdgDataHome },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
@@ -1280,17 +1372,12 @@ describe.runIf(
       expect(stderr).not.toContain('Engine initialization failed');
       expect(child.exitCode).toBeNull();
     } finally {
-      if (child.exitCode === null) {
-        child.kill();
-        await Promise.race([
-          new Promise<void>((resolve) => child.once('exit', () => resolve())),
-          new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-        ]);
-      }
+      await terminateLinuxProcessGroup(child);
     }
 
     const appImageChild = spawn(appImagePath, [], {
       cwd: unrelatedWorkingDirectory,
+      detached: true,
       env: {
         ...process.env,
         APPIMAGE_EXTRACT_AND_RUN: '1',
@@ -1318,13 +1405,7 @@ describe.runIf(
       expect(appImageStderr).not.toContain('Engine initialization failed');
       expect(appImageChild.exitCode).toBeNull();
     } finally {
-      if (appImageChild.exitCode === null) {
-        appImageChild.kill();
-        await Promise.race([
-          new Promise<void>((resolve) => appImageChild.once('exit', () => resolve())),
-          new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-        ]);
-      }
+      await terminateLinuxProcessGroup(appImageChild);
     }
     const wayland = process.env.SDL_VIDEODRIVER === 'wayland';
     writeNativeSmokeEvidence(
