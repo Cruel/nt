@@ -1538,20 +1538,27 @@ describe('NovelTea headless CLI', () => {
       for (const name of functions) expect(guide).toContain(`${prefix}.${name}`);
     }
 
-    const projectReaders = [
+    const projectDefinitionReaders = [
       ...typedBindings.matchAll(/bind_definition_reader\(project,\s*"([^"]+)"/g),
     ].map((match) => match[1]);
-    expect(projectReaders).toEqual([
-      'room',
-      'scene',
-      'dialogue',
-      'character',
-      'interactable',
-      'verb',
-      'interaction',
-      'map',
-    ]);
-    for (const name of projectReaders) expect(guide).toContain(`noveltea.project.${name}`);
+    expect(projectDefinitionReaders).toEqual(['scene', 'dialogue', 'verb', 'interaction', 'map']);
+    const projectIdentityReaders = [
+      ...typedBindings.matchAll(/bind_identity_reader<[^>]+>\(project,\s*"([^"]+)"/g),
+    ].map((match) => match[1]);
+    expect(projectIdentityReaders).toEqual(['room', 'character', 'interactable']);
+    for (const name of [...projectDefinitionReaders, ...projectIdentityReaders])
+      expect(guide).toContain(`noveltea.project.${name}`);
+    expect(guide).toContain('noveltea.project.feature');
+    for (const member of [
+      'kind',
+      'id',
+      'prop',
+      'set_prop',
+      'unset_prop',
+      'location',
+      'set_location',
+    ])
+      expect(guide).toContain(member);
 
     const audioFunctions = setFunctions(capabilityBindings, 'audio');
     expect(audioFunctions).toEqual([
@@ -1578,6 +1585,9 @@ describe('NovelTea headless CLI', () => {
       /case RuntimeCapabilityProfile::GameplayScript:\s*return \{profile, all_gameplay_queries, gameplay_commands, true, false\};/,
     );
     expect(capabilityProfiles).toMatch(
+      /case RuntimeCapabilityProfile::OnGameReady:\s*return \{profile, all_gameplay_queries, 0, false, false\};/,
+    );
+    expect(capabilityProfiles).toMatch(
       /case RuntimeCapabilityProfile::SynchronousExpression:\s*return \{profile, expression_queries, 0, false, false\};/,
     );
     expect(capabilityProfiles).toMatch(
@@ -1591,6 +1601,7 @@ describe('NovelTea headless CLI', () => {
     );
     for (const profile of [
       'Gameplay Script',
+      'On Game Ready',
       'Synchronous expression',
       'Room composition',
       'Gameplay Layout event',

@@ -32,6 +32,12 @@ public:
                                       noveltea::runtime::ScriptInvocationError>::failure({});
     }
 
+    [[nodiscard]] noveltea::core::Result<void, noveltea::runtime::ScriptInvocationError>
+    run_project_on_game_ready(const noveltea::runtime::RuntimeCapabilitySet&) override
+    {
+        return noveltea::core::Result<void, noveltea::runtime::ScriptInvocationError>::success();
+    }
+
     void cancel(const noveltea::core::ScriptInvocationHandle&,
                 noveltea::runtime::ScriptCancellationReason) override
     {

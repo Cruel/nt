@@ -41,7 +41,11 @@ The `coroutine` library being present does **not** mean every authored invocatio
 
 A `.lua` file does not execute merely because it exists in the project. Lua source participates only through an explicitly owned Script Module, Layout Lua source, expression/effect/instruction reference, or another documented invocation site. The Project names one Bootstrap Module by stable Script Module ID.
 
-Script Modules do not autorun. A fresh Project VM synchronously imports only the configured Bootstrap Module; that module may explicitly import other modules by stable ID, and module initialization must finish without yielding before the initial Room/Scene/Dialogue flow begins. Imports are cached once per VM and missing modules/exports, cycles, or failed initialization are hard errors. Conditions and text expressions are synchronous. Effect/explicit script instructions can yield only when their authored invocation is declared yield-capable and the engine admits the corresponding capability profile.
+Script Modules do not autorun. A fresh Project VM synchronously imports only the configured Bootstrap Module; that module may explicitly import other modules by stable ID, and module initialization must finish without yielding before the initial Room/Scene/Dialogue flow begins. Imports are cached once per VM and missing modules/exports, cycles, or failed initialization are hard errors.
+
+A loaded Script Module can opt into **On Game Ready** by exporting `on_ready = function() ... end`. NovelTea runs these handlers after authoritative state exists on initial session creation, reset, and successful restoration. Imported dependencies run first; otherwise handlers use stable Script Module ID order. On Game Ready is synchronous, query-only, and cannot initialize a previously unloaded module. It may inspect authoritative gameplay state and rebuild transient/module-local Lua state, but gameplay mutations and yielding fail. There is no separate effectful New Game Hook.
+
+Conditions and text expressions are synchronous. Effect/explicit script instructions can yield only when their authored invocation is declared yield-capable and the engine admits the corresponding capability profile.
 
 Lua VM/coroutine state is not save-game state. Do not use globals as durable game variables. Persist game state through NovelTea Variables, Properties, desired presentation/audio state, and the other typed runtime APIs below.
 
@@ -85,6 +89,7 @@ NovelTea selects capabilities from the invocation site. Code must not assume tha
 | Invocation             | Author-visible authority                                                                                              | Yield?                                            |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | Gameplay Script        | All normal gameplay queries and mutations below; definition lookup remains query-only.                                | Yes, when the invocation itself is yield-capable. |
+| On Game Ready          | All normal gameplay queries, but no gameplay mutation; intended for rebuilding transient/module-local Lua state.      | No.                                               |
 | Synchronous expression | Query-only access to definitions, Properties, Room/Character/Interactable state, Game state, and Text Log state.      | No.                                               |
 | Room composition       | Same query surface as a synchronous expression plus the two `noveltea.room_presentation.*` draft visibility commands. | No.                                               |
 | Gameplay Layout event  | Normal gameplay queries/mutations plus current `Game.ui.*` Layout input helpers.                                      | No.                                               |
@@ -106,31 +111,42 @@ noveltea.sol_version()      -- bound sol2 version string
 
 They are diagnostics/convenience helpers, not gameplay state APIs.
 
-## Project definition queries
+## Project definitions and gameplay identity references
 
-The following look up compiled project definitions by stable ID:
+The following look up compiled project definitions by stable ID and return small immutable `summary, error` values:
 
 ```text
-noveltea.project.room(room_id)
 noveltea.project.scene(scene_id)
 noveltea.project.dialogue(dialogue_id)
-noveltea.project.character(character_id)
-noveltea.project.interactable(interactable_id)
 noveltea.project.verb(verb_id)
 noveltea.project.interaction(interaction_id)
 noveltea.project.map(map_id)
 ```
 
-Each returns `summary, error`. A summary is deliberately small:
+A summary contains `id` and, when available, `display_name`. This is not a generic project-record reflection API.
 
-```lua
-{
-    id = "stable-id",
-    display_name = "optional display name", -- omitted when absent
-}
+Rooms, Characters, Interactables, and Features instead use capability-bound identity references:
+
+```text
+noveltea.project.room(room_id) -> reference, error
+noveltea.project.character(character_id) -> reference, error
+noveltea.project.interactable(interactable_id) -> reference, error
+noveltea.project.feature(owner_kind, owner_id, feature_id) -> reference, error
 ```
 
-This is not a generic project-record reflection API. Definitions cannot be mutated through this namespace.
+A reference retains only typed semantic identity (`kind` plus stable `id`; Feature IDs are owner-qualified). It does **not** retain a session, command gateway, or prior invocation capability. Every method resolves through the capability active at call time, so keeping a reference in a module/global cannot preserve stronger authority into a later invocation or replaced session.
+
+```text
+reference.kind
+reference.id
+reference:prop(property_id) -> value, present, error
+reference:set_prop(property_id, value) -> ok, error
+reference:unset_prop(property_id) -> ok, error
+reference:location() -> location, error              # Character / Interactable
+reference:set_location(location) -> ok, error       # Character / Interactable
+```
+
+`set_prop`, `unset_prop`, and `set_location` fail in read-only profiles such as On Game Ready and synchronous expressions. Room/Feature references intentionally have no Location operation.
 
 ## Variables and Properties
 

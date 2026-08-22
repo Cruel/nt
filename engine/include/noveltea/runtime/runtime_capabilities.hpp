@@ -62,6 +62,7 @@ private:
 
 enum class RuntimeCapabilityProfile : std::uint8_t {
     GameplayScript,
+    OnGameReady,
     SynchronousExpression,
     RoomComposition,
     GameplayLayoutEvent,
@@ -229,6 +230,8 @@ describe(RuntimeCapabilityProfile profile) noexcept
     switch (profile) {
     case RuntimeCapabilityProfile::GameplayScript:
         return {profile, all_gameplay_queries, gameplay_commands, true, false};
+    case RuntimeCapabilityProfile::OnGameReady:
+        return {profile, all_gameplay_queries, 0, false, false};
     case RuntimeCapabilityProfile::SynchronousExpression:
         return {profile, expression_queries, 0, false, false};
     case RuntimeCapabilityProfile::RoomComposition:
@@ -249,6 +252,7 @@ describe(RuntimeCapabilityProfile profile) noexcept
 {
     switch (profile) {
     case RuntimeCapabilityProfile::GameplayScript:
+    case RuntimeCapabilityProfile::OnGameReady:
     case RuntimeCapabilityProfile::SynchronousExpression:
     case RuntimeCapabilityProfile::RoomComposition:
     case RuntimeCapabilityProfile::GameplayLayoutEvent:

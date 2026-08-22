@@ -51,6 +51,8 @@ Mutation functions return `ok, error`. Query functions return `value, error`; a 
 value is represented by `nil, nil`. Stable project IDs are used instead of file paths, resource
 aliases, indexes, or generic JSON records.
 
+`noveltea.project.room(id)`, `character(id)`, and `interactable(id)` now return typed gameplay identity references rather than copied definition summaries. `noveltea.project.feature(owner_kind, owner_id, feature_id)` returns the corresponding qualified Feature identity reference. A reference stores only its semantic kind and stable ID(s); methods such as `prop`, `set_prop`, `unset_prop`, `location`, and `set_location` resolve through the `RuntimeScriptApi` capability active at the moment of the call. Retaining a reference in Lua therefore retains identity only: it cannot retain an old command gateway, session object, or prior invocation authority.
+
 Scoped presentation owner options select `scene`, `session`, `current-room`, or a named `room`.
 Scene ownership resolves the nearest active Scene frame, including while that Scene is blocked in a
 child Dialogue. Reusing the same owner and stable instance ID deterministically replaces one desired
@@ -89,6 +91,8 @@ started them; mismatched resume authority fails without advancing or discarding 
 non-yielding profile cannot start a yield-capable invocation. Opaque Lua suspension is distinct from
 engine-defined input, duration, presentation, audio, and child-flow waits. Cancellation and stale
 handles return explicit errors.
+
+`RuntimeCapabilityProfile::OnGameReady` is a synchronous read-only profile. RuntimeSession issues it only after the candidate/default/restored authoritative kernel exists, runs loaded module `on_ready` handlers, and clears it when the call returns. It admits gameplay queries but no command groups and no yielding. Initial session creation, reset, and successful load all pass through this lifecycle; failures are surfaced as `runtime.on_game_ready_failed` and the candidate kernel is not accepted.
 
 Script errors use `core::Result<..., ScriptError>` with stable error categories, chunk/source
 identity, message, and traceback. No C++ exception crosses the runtime boundary.

@@ -33,6 +33,12 @@ public:
              .traceback = "runtime-contract-test:1: stale test invocation"});
     }
 
+    [[nodiscard]] core::Result<void, ScriptInvocationError>
+    run_project_on_game_ready(const RuntimeCapabilitySet&) override
+    {
+        return core::Result<void, ScriptInvocationError>::success();
+    }
+
     void cancel(const core::ScriptInvocationHandle&, ScriptCancellationReason) override {}
     void invalidate_capabilities(CapabilityGeneration) noexcept override {}
 };

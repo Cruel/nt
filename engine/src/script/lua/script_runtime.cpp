@@ -9,9 +9,11 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <utility>
 
@@ -198,6 +200,7 @@ struct ScriptRuntime::Impl {
         ScriptEnvironmentHandle environment{};
         int exports_reference = LUA_NOREF;
         std::string failure;
+        std::vector<std::string> dependencies;
     };
 
     sol::state lua{panic_handler};
@@ -210,6 +213,7 @@ struct ScriptRuntime::Impl {
     std::uint64_t next_environment = 1;
     std::unordered_map<std::string, ProjectModule> project_modules;
     std::optional<std::string> bootstrap_module;
+    bool game_ready_running = false;
 
     lua_State* thread(int reference)
     {
@@ -465,8 +469,12 @@ int ScriptRuntime::project_import_callback(lua_State* state)
         const char* export_text = luaL_checklstring(state, 2, &export_size);
         export_name = std::string_view(export_text, export_size);
     }
+    std::optional<std::string_view> requester;
+    std::size_t requester_size = 0;
+    if (const char* requester_text = lua_tolstring(state, lua_upvalueindex(2), &requester_size))
+        requester = std::string_view(requester_text, requester_size);
     if (auto error = runtime->push_project_import(state, std::string_view(module, module_size),
-                                                  export_name)) {
+                                                  export_name, requester)) {
         lua_pushlstring(state, error->message.data(), error->message.size());
         return lua_error(state);
     }
@@ -475,7 +483,8 @@ int ScriptRuntime::project_import_callback(lua_State* state)
 
 std::optional<ScriptError>
 ScriptRuntime::push_project_import(lua_State* state, std::string_view module_id,
-                                   std::optional<std::string_view> export_name)
+                                   std::optional<std::string_view> export_name,
+                                   std::optional<std::string_view> requester)
 {
     if (!is_initialized() || !m_impl->runtime_api)
         return make_error(ScriptErrorCode::NotInitialized, "ScriptRuntime is not initialized",
@@ -487,6 +496,18 @@ ScriptRuntime::push_project_import(lua_State* state, std::string_view module_id,
                           "Script Module '" + std::string(module_id) + "' does not exist",
                           "module:" + std::string(module_id));
     auto& module = found->second;
+    if (requester) {
+        auto owner = m_impl->project_modules.find(std::string(*requester));
+        if (owner != m_impl->project_modules.end() &&
+            std::find(owner->second.dependencies.begin(), owner->second.dependencies.end(),
+                      module_id) == owner->second.dependencies.end())
+            owner->second.dependencies.emplace_back(module_id);
+    }
+    if (m_impl->game_ready_running && module.status == Impl::ModuleStatus::Unloaded)
+        return make_error(ScriptErrorCode::RuntimeFailed,
+                          "On Game Ready cannot initialize Script Module '" +
+                              std::string(module_id) + "'; import it during Bootstrap",
+                          "module:" + std::string(module_id));
     if (module.status == Impl::ModuleStatus::Loading)
         return make_error(ScriptErrorCode::RuntimeFailed,
                           "Script Module import cycle detected at '" + std::string(module_id) + "'",
@@ -510,7 +531,8 @@ ScriptRuntime::push_project_import(lua_State* state, std::string_view module_id,
         lua_rawgeti(state, LUA_REGISTRYINDEX, environment_reference);
         lua_pushliteral(state, "import");
         lua_pushlightuserdata(state, this);
-        lua_pushcclosure(state, &ScriptRuntime::project_import_callback, 1);
+        lua_pushlstring(state, module_id.data(), module_id.size());
+        lua_pushcclosure(state, &ScriptRuntime::project_import_callback, 2);
         lua_rawset(state, -3);
         lua_pop(state, 1);
 
@@ -603,6 +625,93 @@ core::Result<void, runtime::ScriptInvocationError> ScriptRuntime::run_project_bo
     auto error = push_project_import(state, *m_impl->bootstrap_module, std::nullopt);
     lua_settop(state, stack_base);
     return error ? Result::failure(std::move(*error)) : Result::success();
+}
+
+core::Result<void, runtime::ScriptInvocationError>
+ScriptRuntime::run_project_on_game_ready(const runtime::RuntimeCapabilitySet& capabilities)
+{
+    using Result = core::Result<void, runtime::ScriptInvocationError>;
+    if (!is_initialized() || !m_impl->runtime_api)
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized", "on-game-ready"));
+    if (capabilities.profile() != runtime::RuntimeCapabilityProfile::OnGameReady)
+        return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                          "On Game Ready requires its read-only capability profile",
+                                          "on-game-ready"));
+
+    std::vector<std::string> loaded;
+    for (const auto& [id, module] : m_impl->project_modules)
+        if (module.status == Impl::ModuleStatus::Loaded)
+            loaded.push_back(id);
+    std::sort(loaded.begin(), loaded.end());
+
+    std::unordered_set<std::string> visited;
+    std::vector<std::string> ordered;
+    const auto visit = [&](const auto& self, const std::string& id) -> void {
+        if (!visited.emplace(id).second)
+            return;
+        const auto found = m_impl->project_modules.find(id);
+        if (found == m_impl->project_modules.end())
+            return;
+        auto dependencies = found->second.dependencies;
+        std::sort(dependencies.begin(), dependencies.end());
+        for (const auto& dependency : dependencies) {
+            const auto dependency_module = m_impl->project_modules.find(dependency);
+            if (dependency_module != m_impl->project_modules.end() &&
+                dependency_module->second.status == Impl::ModuleStatus::Loaded)
+                self(self, dependency);
+        }
+        ordered.push_back(id);
+    };
+    for (const auto& id : loaded)
+        visit(visit, id);
+
+    m_impl->runtime_api->replace_capabilities(capabilities);
+    struct CapabilityScope final {
+        RuntimeScriptApi& api;
+        ~CapabilityScope() { api.clear_capabilities(); }
+    } capability_scope{*m_impl->runtime_api};
+    m_impl->game_ready_running = true;
+    struct ReadyScope final {
+        bool& active;
+        ~ReadyScope() { active = false; }
+    } ready_scope{m_impl->game_ready_running};
+
+    lua_State* state = m_impl->lua.lua_state();
+    for (const auto& id : ordered) {
+        const auto found = m_impl->project_modules.find(id);
+        if (found == m_impl->project_modules.end())
+            continue;
+        auto& module = found->second;
+        const int stack_base = lua_gettop(state);
+        lua_rawgeti(state, LUA_REGISTRYINDEX, module.exports_reference);
+        lua_getfield(state, -1, "on_ready");
+        if (lua_isnil(state, -1)) {
+            lua_settop(state, stack_base);
+            continue;
+        }
+        if (!lua_isfunction(state, -1)) {
+            lua_settop(state, stack_base);
+            return Result::failure(
+                make_error(ScriptErrorCode::InvalidResult,
+                           "Script Module '" + id + "' export 'on_ready' must be a function",
+                           "module:" + id + "#on_ready"));
+        }
+        lua_remove(state, -2);
+        const int status = lua_pcall(state, 0, 0, 0);
+        if (status != LUA_OK) {
+            const std::string raw = lua_value_message(state, -1);
+            luaL_traceback(state, state, raw.c_str(), 1);
+            const std::string traceback = lua_value_message(state, -1);
+            lua_settop(state, stack_base);
+            const auto code = raw.find("yield") != std::string::npos
+                                  ? ScriptErrorCode::YieldForbidden
+                                  : ScriptErrorCode::RuntimeFailed;
+            return Result::failure(make_error(code, raw, "module:" + id + "#on_ready", traceback));
+        }
+        lua_settop(state, stack_base);
+    }
+    return Result::success();
 }
 
 core::Result<ScriptValue, ScriptError> ScriptRuntime::evaluate(std::string_view expression,

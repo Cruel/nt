@@ -139,6 +139,8 @@ public:
     [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
     resume(const core::ScriptInvocationHandle& invocation,
            const runtime::RuntimeCapabilitySet& capabilities) override;
+    [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
+    run_project_on_game_ready(const runtime::RuntimeCapabilitySet& capabilities) override;
     void cancel(const core::ScriptInvocationHandle& invocation,
                 runtime::ScriptCancellationReason reason) override;
     void invalidate_capabilities(runtime::CapabilityGeneration generation) noexcept override;
@@ -161,7 +163,8 @@ private:
     void restore_environment(int previous_reference) noexcept;
     [[nodiscard]] std::optional<ScriptError>
     push_project_import(lua_State* state, std::string_view module_id,
-                        std::optional<std::string_view> export_name);
+                        std::optional<std::string_view> export_name,
+                        std::optional<std::string_view> requester = std::nullopt);
     static int project_import_callback(lua_State* state);
     void clear_project_modules() noexcept;
 
