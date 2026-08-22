@@ -154,8 +154,10 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         return Result<SaveState, Diagnostics>::failure(std::move(diagnostics));
 
     SaveState save{
-        .metadata = {SaveStateMetadata::current_format_version, project.identity().id,
-                     project.identity().version},
+        .metadata = {.format_version = SaveStateMetadata::current_format_version,
+                     .project = project.identity().id,
+                     .project_version = project.identity().version,
+                     .save_contract = project.save_contract()},
         .play_time = session.m_play_time,
         .random_state = session.m_random_state,
         .property_overrides = {},

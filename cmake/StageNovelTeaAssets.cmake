@@ -34,20 +34,25 @@ if(EXISTS "${_transition_template}")
             set(_transition_duration 0)
             set(_transition_color "null")
             set(_transition_wait "false")
+            set(_transition_save_contract "sc1:ccdf8f50c8fbe4864de9e440ce41d27a")
         elseif(_transition_kind STREQUAL "fade")
             set(_transition_duration 1000)
             set(_transition_color "\"#000000\"")
             set(_transition_wait "false")
+            set(_transition_save_contract "sc1:e9e0f557fb1dc9c13e2a86a7a4be40f5")
         else()
             set(_transition_duration 1000)
             set(_transition_color "null")
             set(_transition_wait "false")
+            set(_transition_save_contract "sc1:c8fb2c58fbaceb9a8c4dfe4862a3ce26")
         endif()
         string(REPLACE "@DURATION_MS@" "${_transition_duration}" _transition_document
                        "${_transition_document}")
         string(REPLACE "@TRANSITION_COLOR@" "${_transition_color}" _transition_document
                        "${_transition_document}")
         string(REPLACE "@WAIT_FOR_COMPLETION@" "${_transition_wait}" _transition_document
+                       "${_transition_document}")
+        string(REPLACE "@SAVE_CONTRACT@" "${_transition_save_contract}" _transition_document
                        "${_transition_document}")
         file(WRITE
             "${_tmp}/project/projects/runtime_transition_${_transition_kind}_readback.json"
@@ -74,6 +79,11 @@ if(EXISTS "${_compiled_package_source}/game")
     string(REPLACE
         "\"background\":{\"asset\":null,\"color\":null,\"fit\":\"cover\",\"material\":null}"
         "\"background\":{\"asset\":null,\"color\":\"#204060\",\"fit\":\"cover\",\"material\":null}"
+        _compiled_demo_game
+        "${_compiled_demo_game}")
+    string(REPLACE
+        "\"saveContract\":\"sc1:3a00b6888fd0dc16349f15985ba1cbea\""
+        "\"saveContract\":\"sc1:92ae23f3684d8ccda09c0da3fe01e7b1\""
         _compiled_demo_game
         "${_compiled_demo_game}")
     file(WRITE "${_compiled_package_tmp}/game" "${_compiled_demo_game}")

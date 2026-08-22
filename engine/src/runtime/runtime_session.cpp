@@ -215,10 +215,6 @@ const core::SessionState& RuntimeSession::presentation_state() const noexcept
 
 core::Diagnostics RuntimeSession::settle_transaction()
 {
-    if (m_skip_next_checkpoint_settlement) {
-        m_skip_next_checkpoint_settlement = false;
-        return {};
-    }
     // The execution fault is already reported. Re-projecting the same unsaveable state every frame
     // only repeats save.execution_fault and cannot produce a usable checkpoint.
     if (m_kernel->state().execution_fault())
@@ -388,10 +384,15 @@ RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvo
     if (!ready_diagnostics.empty())
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             std::move(ready_diagnostics));
+    auto session = std::unique_ptr<RuntimeSession>(new RuntimeSession(
+        project, scripts, presentation_model, presentation, saves, save_codec,
+        std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget));
+    auto checkpoint = session->m_checkpoint_service.publish_candidate(session->m_kernel->state());
+    if (!checkpoint)
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            std::move(checkpoint).error());
     return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::success(
-        std::unique_ptr<RuntimeSession>(new RuntimeSession(
-            project, scripts, presentation_model, presentation, saves, save_codec,
-            std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget)));
+        std::move(session));
 }
 
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
@@ -1278,7 +1279,6 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 m_pending_audio.reset();
                                 m_pending_events.clear();
                                 m_checkpoint_service.reset();
-                                m_skip_next_checkpoint_settlement = true;
                                 m_force_publication = true;
                             }
                         } else
@@ -1382,23 +1382,16 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         result.diagnostics = std::move(changed).error();
                 } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
                     if (value.slot.is_autosave()) {
-                        auto requested = m_checkpoint_service.request(
-                            core::ImmediateRetainedCheckpointWriteRequest{value.slot});
+                        (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});
+                    } else {
+                        auto requested =
+                            m_checkpoint_service.request(core::ManualSaveRequest{value.slot});
                         if (const auto* failed =
                                 std::get_if<core::CheckpointSaveFailed>(&requested))
                             result.diagnostics = failed->diagnostics;
                         else
                             result.events.emplace_back(runtime::SaveOutcomeEvent{core::SaveOutcome{
-                                value.slot, core::SaveOutcomeStatus::Saved, true}});
-                    } else {
-                        auto requested =
-                            m_checkpoint_service.request(core::ManualSaveRequest{value.slot});
-                        if (!requested) {
-                            const auto& outcome = requested.error();
-                            if (const auto* failed =
-                                    std::get_if<core::CheckpointSaveFailed>(&outcome))
-                                result.diagnostics = failed->diagnostics;
-                        }
+                                value.slot, core::SaveOutcomeStatus::Saved, false}});
                     }
                 } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
                     auto stored = m_saves.read_checkpoint(value.slot);

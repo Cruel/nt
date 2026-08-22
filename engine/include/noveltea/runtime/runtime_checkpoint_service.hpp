@@ -87,8 +87,7 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     settle(const core::SessionState& session, const RuntimeCheckpointFacts& facts,
            RuntimeTransactionMutations mutations);
-    [[nodiscard]] core::Result<void, core::CheckpointSaveOutcome>
-    request(const core::ManualSaveRequest& request) noexcept;
+    [[nodiscard]] core::CheckpointSaveOutcome request(const core::ManualSaveRequest& request);
     [[nodiscard]] core::CheckpointSaveOutcome
     request(const core::DeferredAutosaveRequest& request) noexcept;
     [[nodiscard]] core::CheckpointSaveOutcome
@@ -125,7 +124,6 @@ private:
     core::PresentationCheckpointStatus m_presentation_status{
         core::CheckpointStatusRevision::from_number(1), {}, std::nullopt};
     std::optional<core::DeferredAutosaveRequest> m_pending_deferred_autosave;
-    std::vector<core::TypedSaveSlotId> m_pending_manual_saves;
     std::optional<core::LatestSaveCheckpoint> m_deferred_autosave_target;
     std::vector<core::CheckpointSaveOutcome> m_completed_save_outcomes;
     std::unordered_map<core::TypedSaveSlotId, core::SaveCheckpointRevision,

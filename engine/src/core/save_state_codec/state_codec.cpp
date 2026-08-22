@@ -180,7 +180,8 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
          {"version", SaveStateMetadata::current_format_version},
          {"metadata",
           {{"project", save.metadata.project.text()},
-           {"projectVersion", save.metadata.project_version}}},
+           {"projectVersion", save.metadata.project_version},
+           {"saveContract", save.metadata.save_contract}}},
          {"playTimeMs", save.play_time.count()},
          {"randomState", save.random_state},
          {"propertyOverrides", std::move(overrides)},
@@ -234,15 +235,21 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     if (format && *format != SaveStateMetadata::current_format_version)
         d.error(k_value, "Unsupported save format version.", "/version");
     std::optional<SaveStateMetadata> saved_metadata;
-    if (metadata && d.object(*metadata, "/metadata", {"project", "projectVersion"})) {
+    if (metadata &&
+        d.object(*metadata, "/metadata", {"project", "projectVersion", "saveContract"})) {
         const auto* project = d.member(*metadata, "project", "/metadata");
         const auto* project_version = d.member(*metadata, "projectVersion", "/metadata");
+        const auto* save_contract = d.member(*metadata, "saveContract", "/metadata");
         auto project_id = project ? d.id<ProjectId>(*project, "/metadata/project") : std::nullopt;
         auto saved_version =
             project_version ? d.string(*project_version, "/metadata/projectVersion") : std::nullopt;
-        if (format && project_id && saved_version)
-            saved_metadata =
-                SaveStateMetadata{*format, std::move(*project_id), std::move(*saved_version)};
+        auto saved_contract =
+            save_contract ? d.string(*save_contract, "/metadata/saveContract") : std::nullopt;
+        if (format && project_id && saved_version && saved_contract)
+            saved_metadata = SaveStateMetadata{.format_version = *format,
+                                               .project = std::move(*project_id),
+                                               .project_version = std::move(*saved_version),
+                                               .save_contract = std::move(*saved_contract)};
     }
     auto milliseconds =
         play_time ? d.unsigned_integer<std::uint64_t>(*play_time, "/playTimeMs") : std::nullopt;

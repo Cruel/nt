@@ -162,8 +162,11 @@ Property override is serialized once at its actual target; authored assignments,
 declaration defaults, and other effective values are never materialized into a save. There is no Session-versus-Save Property class. A missing
 override record means unset, while an admitted nullable null is an explicit saved override. Stable flow
 positions and remaining logical duration waits may be saved. Visual/audio operations restore to
-documented logical post-step state rather than backend snapshots. Saving fails with structured
-diagnostics at nonserializable suspension points; autosaves occur only at compiler-marked safe points.
+documented logical post-step state rather than backend snapshots. Every save carries the exact
+compiler-produced Save Contract for persistent declarations and checkpoint-addressable structure;
+load rejects a mismatch without migration or repair. Opaque/nonserializable suspension points prevent
+new checkpoint promotion. Manual saves immediately persist the latest retained safe checkpoint,
+whereas autosaves defer until the first newly promoted eligible checkpoint after the request.
 
 Lua accesses Global Properties and identity-scoped Properties only through typed host APIs. Conditions and text
 expressions are synchronous and cannot yield. Effect scripts and explicit script instructions may

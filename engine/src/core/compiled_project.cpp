@@ -23,6 +23,16 @@ Diagnostics invalid_model(std::string message)
     return Diagnostics{Diagnostic{.code = "compiled.invalid_model", .message = std::move(message)}};
 }
 
+bool valid_save_contract(std::string_view value) noexcept
+{
+    if (!value.starts_with("sc1:") || value.size() != 36)
+        return false;
+    for (const char character : value.substr(4))
+        if (!((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')))
+            return false;
+    return true;
+}
+
 template<class Enum> bool enum_at_most(Enum value, Enum maximum) noexcept
 {
     using Underlying = std::underlying_type_t<Enum>;
@@ -365,6 +375,9 @@ const Value* checked_find(const Id& id, const std::unordered_map<Id, std::size_t
 Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledProjectInput input)
 {
     Diagnostics diagnostics;
+    if (!valid_save_contract(input.save_contract))
+        return Result<CompiledProject, Diagnostics>::failure(
+            invalid_model("Compiled Project Save Contract identity is invalid."));
     if (!validate_structural_model(input, diagnostics))
         return Result<CompiledProject, Diagnostics>::failure(std::move(diagnostics));
 #define BUILD_INDEX(id_type, member, expression, label)                                            \
@@ -416,6 +429,7 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     : m_identity(std::move(input.identity)), m_settings(std::move(input.settings)),
       m_entrypoint(std::move(input.entrypoint)),
       m_bootstrap_module(std::move(input.bootstrap_module)),
+      m_save_contract(std::move(input.save_contract)),
       m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),
       m_traits(std::move(input.traits)), m_inventories(std::move(input.inventories)),
       m_assets(std::move(input.assets)), m_layouts(std::move(input.layouts)),

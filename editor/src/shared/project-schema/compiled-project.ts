@@ -9,6 +9,7 @@ import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
  */
 export const COMPILED_PROJECT_SCHEMA = 'noveltea.compiled.project' as const;
 export const COMPILED_PROJECT_SCHEMA_VERSION = 4 as const;
+export const COMPILED_PROJECT_SAVE_CONTRACT_PATTERN = /^sc1:[0-9a-f]{32}$/u;
 
 const strict = <Shape extends z.ZodRawShape>(shape: Shape) => z.object(shape).strict();
 const id = entityIdSchema;
@@ -931,6 +932,7 @@ export const compiledProjectWireV4Schema = strict({
     layouts: z.array(layoutResourceSchema),
     scripts: z.array(scriptResourceSchema),
   }),
+  saveContract: z.string().regex(COMPILED_PROJECT_SAVE_CONTRACT_PATTERN),
   schema: z.literal(COMPILED_PROJECT_SCHEMA),
   schemaVersion: z.literal(COMPILED_PROJECT_SCHEMA_VERSION),
   settings: runtimeSettingsSchema,
@@ -1089,6 +1091,43 @@ function canonicalizeJson(value: CanonicalJson): CanonicalJson {
   }
 
   return root;
+}
+
+function fnv1a32(value: string, seed: number): string {
+  let hash = seed >>> 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Computes the compiler-owned identity for state that a save may retain or resume through.
+ * Project display metadata, localization, runtime settings, and asset/layout source details are
+ * deliberately excluded; persistent declarations, executable checkpoint-addressable definitions,
+ * Bootstrap/module code, and referenced resource identities are included.
+ */
+export function computeCompiledProjectSaveContract(
+  project: CompiledProjectWireV4,
+): `sc1:${string}` {
+  const projection: CanonicalJson = {
+    bootstrapModule: project.bootstrapModule as CanonicalJson,
+    definitions: project.definitions as CanonicalJson,
+    inventories: project.inventories as CanonicalJson,
+    properties: project.properties as CanonicalJson,
+    resources: {
+      assets: project.resources.assets.map((asset) => asset.id),
+      layouts: project.resources.layouts.map((layout) => layout.id),
+      scripts: project.resources.scripts as CanonicalJson,
+    },
+    traits: project.traits as CanonicalJson,
+  };
+  const canonical = JSON.stringify(canonicalizeJson(projection));
+  const digest = [2166136261, 2246822507, 3266489909, 668265263]
+    .map((seed) => fnv1a32(canonical, seed))
+    .join('');
+  return `sc1:${digest}`;
 }
 
 /**

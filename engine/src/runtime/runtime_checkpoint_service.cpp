@@ -170,20 +170,6 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
               reconstructibility);
     if (!issues.empty()) {
         auto published = publish_readiness(std::move(issues));
-        if (published && !m_pending_manual_saves.empty()) {
-            for (const auto slot : m_pending_manual_saves) {
-                if (m_latest_checkpoint)
-                    m_completed_save_outcomes.push_back(
-                        write_checkpoint(slot, *m_latest_checkpoint,
-                                         core::CheckpointWriteSource::RetainedCheckpoint));
-                else
-                    m_completed_save_outcomes.emplace_back(core::CheckpointSaveFailed{
-                        slot, core::CheckpointSaveFailureStage::NoRetainedCheckpoint,
-                        checkpoint_error("checkpoint.no_retained_checkpoint",
-                                         "No retained checkpoint is available to write.")});
-            }
-            m_pending_manual_saves.clear();
-        }
         fulfill_deferred_autosave();
         return published;
     }
@@ -195,51 +181,36 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
         m_generations.structural_generation != m_generations.captured_structural_generation;
     const bool time_newer = m_generations.time_generation != m_generations.captured_time_generation;
     const bool refresh_requested = !m_latest_checkpoint || structural_newer ||
-                                   (time_newer && (!m_pending_manual_saves.empty() ||
-                                                   time_only_refresh_due(m_elapsed_runtime)));
-    const auto revision_before =
-        m_latest_checkpoint ? std::optional{m_latest_checkpoint->revision} : std::nullopt;
+                                   (time_newer && time_only_refresh_due(m_elapsed_runtime));
     core::Result<void, core::Diagnostics> captured =
         core::Result<void, core::Diagnostics>::success();
     if (refresh_requested)
         captured = publish_candidate(session, facts.presentation_revision);
-    if (!m_pending_manual_saves.empty()) {
-        for (const auto slot : m_pending_manual_saves) {
-            if (!captured) {
-                m_completed_save_outcomes.emplace_back(core::CheckpointSaveFailed{
-                    slot, core::CheckpointSaveFailureStage::Capture, captured.error()});
-            } else if (!m_latest_checkpoint) {
-                m_completed_save_outcomes.emplace_back(core::CheckpointSaveFailed{
-                    slot, core::CheckpointSaveFailureStage::NoRetainedCheckpoint,
-                    checkpoint_error("checkpoint.no_retained_checkpoint",
-                                     "No retained checkpoint is available to write.")});
-            } else {
-                m_completed_save_outcomes.push_back(write_checkpoint(
-                    slot, *m_latest_checkpoint,
-                    (!revision_before || m_latest_checkpoint->revision != *revision_before)
-                        ? core::CheckpointWriteSource::CapturedCurrentState
-                        : core::CheckpointWriteSource::RetainedCheckpoint));
-            }
-        }
-        m_pending_manual_saves.clear();
-    }
     fulfill_deferred_autosave();
     if (!captured)
         return captured;
     return core::Result<void, core::Diagnostics>::success();
 }
 
-core::Result<void, core::CheckpointSaveOutcome>
-RuntimeCheckpointService::request(const core::ManualSaveRequest& request) noexcept
+core::CheckpointSaveOutcome
+RuntimeCheckpointService::request(const core::ManualSaveRequest& request)
 {
-    if (request.slot.is_autosave())
-        return core::Result<void, core::CheckpointSaveOutcome>::failure(
-            core::CheckpointSaveOutcome{core::CheckpointSaveFailed{
+    core::CheckpointSaveOutcome outcome = [&]() -> core::CheckpointSaveOutcome {
+        if (request.slot.is_autosave())
+            return core::CheckpointSaveFailed{
                 request.slot, core::CheckpointSaveFailureStage::InvalidRequest,
                 checkpoint_error("checkpoint.manual_autosave_slot",
-                                 "Manual save requests cannot target the autosave slot.")}});
-    m_pending_manual_saves.push_back(request.slot);
-    return core::Result<void, core::CheckpointSaveOutcome>::success();
+                                 "Manual save requests cannot target the autosave slot.")};
+        if (!m_latest_checkpoint)
+            return core::CheckpointSaveFailed{
+                request.slot, core::CheckpointSaveFailureStage::NoRetainedCheckpoint,
+                checkpoint_error("checkpoint.no_retained_checkpoint",
+                                 "No retained checkpoint is available to write.")};
+        return write_checkpoint(request.slot, *m_latest_checkpoint,
+                                core::CheckpointWriteSource::RetainedCheckpoint);
+    }();
+    m_completed_save_outcomes.push_back(outcome);
+    return outcome;
 }
 
 core::CheckpointSaveOutcome
@@ -283,15 +254,18 @@ RuntimeCheckpointService::prepare_loaded_checkpoint(
     if (!revision)
         return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
             std::move(revision).error());
-    const core::SaveCheckpointMetadata decoded_metadata{decoded.metadata.format_version,
-                                                        decoded.metadata.project,
-                                                        decoded.metadata.project_version,
-                                                        decoded.play_time,
-                                                        {}};
+    const core::SaveCheckpointMetadata decoded_metadata{
+        .save_format_version = decoded.metadata.format_version,
+        .project = decoded.metadata.project,
+        .project_version = decoded.metadata.project_version,
+        .save_contract = decoded.metadata.save_contract,
+        .play_time = decoded.play_time,
+        .generations = {}};
     if (stored_metadata &&
         (stored_metadata->save_format_version != decoded_metadata.save_format_version ||
          stored_metadata->project != decoded_metadata.project ||
          stored_metadata->project_version != decoded_metadata.project_version ||
+         stored_metadata->save_contract != decoded_metadata.save_contract ||
          stored_metadata->play_time != decoded_metadata.play_time)) {
         return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
             checkpoint_error("checkpoint.stored_metadata_mismatch",
@@ -310,7 +284,6 @@ void RuntimeCheckpointService::commit_loaded_checkpoint(
     m_generations = {};
     m_latest_checkpoint = std::move(checkpoint);
     m_pending_deferred_autosave.reset();
-    m_pending_manual_saves.clear();
     m_deferred_autosave_target.reset();
     m_completed_save_outcomes.clear();
     m_written_slots.clear();
@@ -325,7 +298,6 @@ void RuntimeCheckpointService::reset() noexcept
     m_latest_checkpoint.reset();
     m_presentation_status = {core::CheckpointStatusRevision::from_number(1), {}, std::nullopt};
     m_pending_deferred_autosave.reset();
-    m_pending_manual_saves.clear();
     m_deferred_autosave_target.reset();
     m_completed_save_outcomes.clear();
     m_written_slots.clear();
@@ -448,6 +420,7 @@ core::Result<void, core::Diagnostics> RuntimeCheckpointService::publish_candidat
                     .save_format_version = projected->metadata.format_version,
                     .project = projected->metadata.project,
                     .project_version = projected->metadata.project_version,
+                    .save_contract = projected->metadata.save_contract,
                     .play_time = projected->play_time,
                     .generations = m_generations};
                 core::LatestSaveCheckpoint candidate{*revision_value, std::move(*encoded_value),

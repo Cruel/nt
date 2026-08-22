@@ -1,6 +1,7 @@
 {
   "schema": "noveltea.compiled.project",
   "schemaVersion": 4,
+  "saveContract": "sc1:f9b3139abf577ef8abe26e0a67d2b5fc",
   "project": {
     "id": "runtime-layout-scale-readback",
     "name": "Runtime Layout Scale Readback",

@@ -183,7 +183,6 @@ private:
     bool m_draining_script_inputs = false;
     RuntimeBudgetConfiguration m_runtime_budget;
     bool m_draining_deferred_commands = false;
-    bool m_skip_next_checkpoint_settlement = false;
     std::string m_runtime_locale;
     bool m_running = false;
     bool m_playback = false;

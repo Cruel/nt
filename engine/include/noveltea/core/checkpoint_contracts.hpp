@@ -125,6 +125,7 @@ struct SaveCheckpointMetadata {
     std::uint32_t save_format_version = SaveStateMetadata::current_format_version;
     ProjectId project;
     std::string project_version;
+    std::string save_contract;
     std::chrono::milliseconds play_time{0};
     CheckpointGenerationState generations;
     bool operator==(const SaveCheckpointMetadata&) const = default;

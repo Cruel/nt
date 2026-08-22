@@ -78,6 +78,7 @@ export interface CompiledProjectSharedDraft {
   inventories: CompiledProjectWireV4['inventories'];
   localization: CompiledProjectWireV4['localization'];
   resources: WireResources;
+  saveContract: CompiledProjectWireV4['saveContract'];
   definitions: {
     characters: SharedCharacterDefinition[];
     rooms: SharedRoomDefinition[];
@@ -729,6 +730,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   const draft: CompiledProjectSharedDraft = {
     schema: COMPILED_PROJECT_SCHEMA,
     schemaVersion: COMPILED_PROJECT_SCHEMA_VERSION,
+    saveContract: 'sc1:00000000000000000000000000000000',
     project: { ...project.project },
     settings: {
       display: {

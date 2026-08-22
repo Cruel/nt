@@ -85,6 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
+    CHECK(project.save_contract == "sc1:fd5af67ae30073982c44f00af110a064");
     CHECK(project.properties.size() == 10);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -493,6 +494,24 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         REQUIRE(diagnostic != nullptr);
         CHECK(diagnostic->source_path == "minimal.json");
         CHECK(diagnostic->json_pointer == "/project");
+    }
+
+    SECTION("missing and malformed Save Contract")
+    {
+        auto missing = fixture("minimal");
+        missing.erase("saveContract");
+        auto missing_result = decode_shared_project(missing, "minimal.json");
+        REQUIRE_FALSE(missing_result);
+        const auto* diagnostic =
+            find_code(missing_result.error(), "compiled_project.missing_field");
+        REQUIRE(diagnostic != nullptr);
+        CHECK(diagnostic->json_pointer == "/saveContract");
+
+        auto malformed = fixture("minimal");
+        malformed["saveContract"] = "sc1:NOT-CANONICAL";
+        auto malformed_result = decode_shared_project(malformed, "minimal.json");
+        REQUIRE_FALSE(malformed_result);
+        CHECK(has_code(malformed_result.error(), "compiled_project.invalid_save_contract"));
     }
 
     SECTION("unsupported schema and version")

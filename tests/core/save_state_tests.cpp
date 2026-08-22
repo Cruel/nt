@@ -203,6 +203,7 @@ TEST_CASE("native SaveState projects all typed Property overrides")
     CHECK(save.metadata.format_version == SaveStateMetadata::current_format_version);
     CHECK(save.metadata.project == project.identity().id);
     CHECK(save.metadata.project_version == project.identity().version);
+    CHECK(save.metadata.save_contract == project.save_contract());
     CHECK(save.play_time == 10ms);
     CHECK(save.random_state == state.random_state());
     REQUIRE(save.property_overrides.size() == 3);
@@ -293,7 +294,7 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     CHECK(std::holds_alternative<SavedInteractionFrame>(interaction.value().flow_stack.front()));
 }
 
-TEST_CASE("save-state version 7 round-trips owner-qualified Feature interaction subjects")
+TEST_CASE("current save-state round-trips owner-qualified Feature interaction subjects")
 {
     const auto project = load_fixture("interaction-program.json");
     auto state = make_state(project);
@@ -741,6 +742,7 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
     REQUIRE(encoded);
     CHECK(encoded.value()["schema"] == "noveltea.save.state");
     CHECK(encoded.value()["version"] == SaveStateMetadata::current_format_version);
+    CHECK(encoded.value()["metadata"]["saveContract"] == project.save_contract());
 
     auto decoded = decode_save_state(project, encoded.value(), "save-fixture.json");
     REQUIRE(decoded);
@@ -756,6 +758,36 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         invalid = encoded.value();
         invalid["propertyOverrides"].push_back(invalid["propertyOverrides"][0]);
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
+    }
+
+    SECTION("Save Contract mismatch and missing contract data reject the entire candidate")
+    {
+        auto mismatched = encoded.value();
+        mismatched["metadata"]["saveContract"] = "sc1:00000000000000000000000000000000";
+        auto rejected = decode_save_state(project, mismatched, "save-fixture.json");
+        REQUIRE_FALSE(rejected);
+        CHECK(std::any_of(
+            rejected.error().begin(), rejected.error().end(),
+            [](const Diagnostic& item) { return item.code == "save_codec.contract_mismatch"; }));
+
+        auto missing = encoded.value();
+        missing["metadata"].erase("saveContract");
+        CHECK_FALSE(decode_save_state_wire(missing, "save-fixture.json"));
+    }
+
+    SECTION(
+        "Project version metadata may change when Project identity and Save Contract remain exact")
+    {
+        const auto version_changed =
+            load_fixture("trait-properties-localization.json", [](nlohmann::json& document) {
+                document["project"]["version"] = "99.0.0";
+            });
+        CHECK(version_changed.identity().id == project.identity().id);
+        CHECK(version_changed.identity().version != project.identity().version);
+        CHECK(version_changed.save_contract() == project.save_contract());
+        auto compatible = decode_save_state(version_changed, encoded.value(), "save-fixture.json");
+        REQUIRE(compatible);
+        CHECK(compatible.value().metadata.project_version == project.identity().version);
     }
 
     SECTION("project-aware linking rejects stale references and invalid typed values")

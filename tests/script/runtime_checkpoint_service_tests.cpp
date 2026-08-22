@@ -116,6 +116,7 @@ TEST_CASE(
     CHECK(retained.metadata.generations == service.generations());
     CHECK(retained.metadata.project == project.identity().id);
     CHECK(retained.metadata.project_version == project.identity().version);
+    CHECK(retained.metadata.save_contract == project.save_contract());
     CHECK(retained.revision.number() == 1);
 
     auto decoded =
@@ -124,6 +125,7 @@ TEST_CASE(
     CHECK(decoded.value().play_time == retained.metadata.play_time);
     CHECK(decoded.value().metadata.project == retained.metadata.project);
     CHECK(decoded.value().metadata.project_version == retained.metadata.project_version);
+    CHECK(decoded.value().metadata.save_contract == retained.metadata.save_contract);
 
     core::FlowExecutor flow(project, state);
     REQUIRE(flow.block_top(core::FlowBlockerKind::Presentation));
@@ -255,40 +257,37 @@ TEST_CASE("checkpoint settlement reports suspended Lua with deterministic revisi
     CHECK(service.readiness().revision == revision);
 }
 
-TEST_CASE("manual checkpoint saves refresh, retain, and reject invalid requests")
+TEST_CASE("manual checkpoint save immediately writes the latest retained checkpoint")
 {
     const auto project = load_fixture("scene-program.json");
     auto state = make_state(project);
     RecordingSaveStore saves;
     RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
-
-    const auto manual = core::TypedSaveSlotId::manual(2);
-    REQUIRE(service.request(core::ManualSaveRequest{manual}));
-    REQUIRE(service.settle(state, ready_facts(), {}));
-    auto outcomes = service.take_completed_save_outcomes();
-    REQUIRE(outcomes.size() == 1);
-    const auto* retained = std::get_if<core::CheckpointWriteSucceeded>(&outcomes.front());
-    REQUIRE(retained);
-    CHECK(retained->source == core::CheckpointWriteSource::RetainedCheckpoint);
+    const auto retained = *service.latest_checkpoint();
 
     REQUIRE(set_global(state, project, "count", std::int64_t{8}));
-    (void)service.request(core::ManualSaveRequest{manual});
+    const auto manual = core::TypedSaveSlotId::manual(2);
+    const auto written = service.request(core::ManualSaveRequest{manual});
+    const auto* saved = std::get_if<core::CheckpointWriteSucceeded>(&written);
+    REQUIRE(saved);
+    CHECK(saved->checkpoint == retained.revision);
+    CHECK(saved->source == core::CheckpointWriteSource::RetainedCheckpoint);
+    CHECK(saves.slots[manual] == retained.encoded_save);
+
     REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
-    outcomes = service.take_completed_save_outcomes();
-    REQUIRE(outcomes.size() == 1);
-    const auto* captured = std::get_if<core::CheckpointWriteSucceeded>(&outcomes.front());
-    REQUIRE(captured);
-    CHECK(captured->source == core::CheckpointWriteSource::CapturedCurrentState);
+    REQUIRE(service.latest_checkpoint());
+    CHECK(service.latest_checkpoint()->revision != retained.revision);
+    CHECK(saves.slots[manual] == retained.encoded_save);
 
     const auto invalid =
         service.request(core::ManualSaveRequest{core::TypedSaveSlotId::autosave()});
-    REQUIRE_FALSE(invalid);
-    CHECK(std::get<core::CheckpointSaveFailed>(invalid.error()).stage ==
+    REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(invalid));
+    CHECK(std::get<core::CheckpointSaveFailed>(invalid).stage ==
           core::CheckpointSaveFailureStage::InvalidRequest);
 }
 
-TEST_CASE("multiple manual checkpoint requests in one settlement all write the same revision")
+TEST_CASE("multiple manual checkpoint requests write the same retained revision")
 {
     const auto project = load_fixture("scene-program.json");
     auto state = make_state(project);
@@ -299,23 +298,19 @@ TEST_CASE("multiple manual checkpoint requests in one settlement all write the s
 
     const auto first = core::TypedSaveSlotId::manual(5);
     const auto second = core::TypedSaveSlotId::manual(6);
-    REQUIRE(service.request(core::ManualSaveRequest{first}));
-    REQUIRE(service.request(core::ManualSaveRequest{second}));
-    REQUIRE(service.settle(state, ready_facts(), {.structural = true}));
-
-    const auto outcomes = service.take_completed_save_outcomes();
-    REQUIRE(outcomes.size() == 2);
-    const auto* first_written = std::get_if<core::CheckpointWriteSucceeded>(&outcomes[0]);
-    const auto* second_written = std::get_if<core::CheckpointWriteSucceeded>(&outcomes[1]);
+    const auto first_outcome = service.request(core::ManualSaveRequest{first});
+    const auto second_outcome = service.request(core::ManualSaveRequest{second});
+    const auto* first_written = std::get_if<core::CheckpointWriteSucceeded>(&first_outcome);
+    const auto* second_written = std::get_if<core::CheckpointWriteSucceeded>(&second_outcome);
     REQUIRE(first_written);
     REQUIRE(second_written);
     CHECK(first_written->checkpoint == second_written->checkpoint);
-    CHECK(first_written->source == core::CheckpointWriteSource::CapturedCurrentState);
-    CHECK(second_written->source == core::CheckpointWriteSource::CapturedCurrentState);
+    CHECK(first_written->source == core::CheckpointWriteSource::RetainedCheckpoint);
+    CHECK(second_written->source == core::CheckpointWriteSource::RetainedCheckpoint);
     CHECK(saves.slots[first] == saves.slots[second]);
 }
 
-TEST_CASE("manual checkpoint save uses retained state while ineligible and reports capture failure")
+TEST_CASE("manual checkpoint save remains available while new promotion is ineligible")
 {
     const auto project = load_fixture("scene-program.json");
     auto state = make_state(project);
@@ -326,25 +321,24 @@ TEST_CASE("manual checkpoint save uses retained state while ineligible and repor
     const auto manual = core::TypedSaveSlotId::manual(3);
 
     core::FlowExecutor flow(project, state);
-    auto blocker = flow.block_top(core::FlowBlockerKind::Presentation);
+    auto blocker = flow.block_top(core::FlowBlockerKind::Script);
     REQUIRE(blocker);
-    (void)service.request(core::ManualSaveRequest{manual});
+    const auto blocked_save = service.request(core::ManualSaveRequest{manual});
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(blocked_save));
+    CHECK(saves.slots[manual] == retained_bytes);
+
     auto blocked_facts = ready_facts();
     blocked_facts.flow_blocker = state.blocker();
     REQUIRE(service.settle(state, blocked_facts, {.structural = true}));
-    auto outcomes = service.take_completed_save_outcomes();
-    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(outcomes.front()));
-    CHECK(saves.slots[manual] == retained_bytes);
+    CHECK_FALSE(service.readiness().can_capture());
+    CHECK(service.latest_checkpoint()->encoded_save == retained_bytes);
 
     REQUIRE(flow.cancel_blocker(core::flow_blocker_owner(blocker.value()),
                                 core::flow_blocker_handle(blocker.value())));
     REQUIRE(set_global(state, project, "player-name", core::RuntimeValue{std::string{"\xff"}}));
-    (void)service.request(core::ManualSaveRequest{manual});
-    REQUIRE_FALSE(service.settle(state, ready_facts(), {.structural = true}));
-    outcomes = service.take_completed_save_outcomes();
-    REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(outcomes.front()));
-    CHECK(std::get<core::CheckpointSaveFailed>(outcomes.front()).stage ==
-          core::CheckpointSaveFailureStage::Capture);
+    const auto invalid_live_save = service.request(core::ManualSaveRequest{manual});
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(invalid_live_save));
+    CHECK(saves.slots[manual] == retained_bytes);
 }
 
 TEST_CASE("deferred autosave targets the next publication and retries identical retained bytes")
@@ -390,7 +384,7 @@ TEST_CASE("immediate retained write never captures and reports missing retained 
     CHECK(std::get<core::CheckpointWriteSucceeded>(written).checkpoint == revision);
 }
 
-TEST_CASE("ineligible manual save without retained state reports missing checkpoint")
+TEST_CASE("manual save without retained state reports missing checkpoint immediately")
 {
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
@@ -399,14 +393,9 @@ TEST_CASE("ineligible manual save without retained state reports missing checkpo
     core::FlowExecutor flow(project, state);
     REQUIRE(flow.block_top(core::FlowBlockerKind::Presentation));
     const auto slot = core::TypedSaveSlotId::manual(9);
-    REQUIRE(service.request(core::ManualSaveRequest{slot}));
-    auto blocked_facts = ready_facts();
-    blocked_facts.flow_blocker = state.blocker();
-    REQUIRE(service.settle(state, blocked_facts, {.structural = true}));
-    auto outcomes = service.take_completed_save_outcomes();
-    REQUIRE(outcomes.size() == 1);
-    REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(outcomes.front()));
-    CHECK(std::get<core::CheckpointSaveFailed>(outcomes.front()).stage ==
+    const auto outcome = service.request(core::ManualSaveRequest{slot});
+    REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(outcome));
+    CHECK(std::get<core::CheckpointSaveFailed>(outcome).stage ==
           core::CheckpointSaveFailureStage::NoRetainedCheckpoint);
 }
 
@@ -426,6 +415,7 @@ TEST_CASE("loaded checkpoint becomes exact retained baseline and service reset c
         .save_format_version = decoded.value().metadata.format_version,
         .project = decoded.value().metadata.project,
         .project_version = decoded.value().metadata.project_version,
+        .save_contract = decoded.value().metadata.save_contract,
         .play_time = decoded.value().play_time,
         .generations = {4, 4, 7, 7}};
     const core::SaveCheckpointThumbnail thumbnail{.encoding =
@@ -628,6 +618,7 @@ TEST_CASE("loaded checkpoint rejects metadata that describes different save cont
         .save_format_version = decoded.value().metadata.format_version,
         .project = decoded.value().metadata.project,
         .project_version = decoded.value().metadata.project_version,
+        .save_contract = decoded.value().metadata.save_contract,
         .play_time = std::chrono::milliseconds{99},
         .generations = {}};
     auto prepared = service.prepare_loaded_checkpoint("exact", decoded.value(), mismatched);

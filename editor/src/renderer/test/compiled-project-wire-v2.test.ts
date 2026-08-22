@@ -10,6 +10,7 @@ function representativeWireFixture() {
   return {
     schema: 'noveltea.compiled.project',
     schemaVersion: 4,
+    saveContract: 'sc1:0123456789abcdef0123456789abcdef',
     project: {
       id: 'wire-demo',
       name: 'Wire Demo',

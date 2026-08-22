@@ -13,10 +13,15 @@ the validated compiled object together with the exact canonical gameplay JSON. P
 must not independently parse, lower, canonicalize, or serialize a compiled project.
 
 The compiler always runs named stages: normalization, semantic validation, symbol linking, lowering,
-resource collection, assembly, wire validation, and canonical serialization. Diagnostics use the
-closed `CompiledDiagnostic` shape with stable codes, source path, JSON pointer, deterministic sort
-keys, and de-duplication. A compiled project and canonical JSON are published together only when no
-error diagnostic exists.
+resource collection, assembly, wire validation, and canonical serialization. During assembly it also
+binds the complete runtime document to one deterministic `saveContract` identity. That identity is
+derived only from state declarations and checkpoint-addressable executable structure: Property/Trait
+and Inventory declarations, compiled gameplay definitions/programs, Bootstrap Module identity/source,
+and referenced runtime resource identities. Project display metadata, localization text, runtime
+settings, and asset/layout source details do not change the Save Contract by themselves. Diagnostics
+use the closed `CompiledDiagnostic` shape with stable codes, source path, JSON pointer, deterministic
+sort keys, and de-duplication. A compiled project and canonical JSON are published together only when
+no error diagnostic exists.
 
 The compiler builds complete collection and nested-ID symbol tables and runs a semantic link pass over
 authored references. Before shared-definition lowering, declared Room, Character, and Interactable
@@ -76,8 +81,9 @@ minimal, comprehensive, Trait/property/localization, resources, Scene program, D
 API; the test suite rejects byte drift and explicitly verifies the closed decoder vocabulary.
 
 Tests also prove editor metadata and representative authoring collection insertion order cannot affect
-bytes. Preview, playback, package export, and CLI consume the published canonical artifact; no
-runtime-project adapter remains.
+bytes, and that metadata-only project changes leave `saveContract` stable while executable changes
+change it deterministically. Preview, playback, package export, and CLI consume the published
+canonical artifact; no runtime-project adapter remains.
 
 ## Standalone Project Compilation
 

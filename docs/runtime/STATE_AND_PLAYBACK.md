@@ -98,10 +98,13 @@ description continuation remains suppressed while the transition lifecycle is st
 ## Saves
 
 `SaveState` is a typed native snapshot. Its codec is an explicit serialization boundary and
-validates project identity/version, strong IDs, runtime values, flow state, blockers, feature state,
-and safe-point rules.
+validates Project identity plus the compiler-produced Save Contract, strong IDs, runtime values,
+flow state, blockers, feature state, and safe-point rules. Normal load is strict and atomic: a missing
+or mismatched Save Contract, stale declaration/reference, invalid value/type, or invalid Flow position
+rejects the save without migration, repair, or partial restoration. The saved Project version remains
+metadata and need not equal the currently loaded Project version when identity and Save Contract match.
 
-Save format V6 persists the deterministic random-generator position and authoritative desired
+Save format V8 persists the deterministic random-generator position and authoritative desired
 presentation. It stores logical identities and owner-remap data rather than effective snapshot caches,
 backend handles, or operation progress. Scene owners remap through snapshot-local Flow-frame IDs;
 current-Room owners bind to the restored visit; named-Room and session owners restore semantically;
@@ -130,19 +133,25 @@ slots below its configured root.
 `RuntimeSession` owns the runtime checkpoint service and one private, non-reentrant outer
 dispatch transaction. Nested Flow, Lua, and deferred-command work appends to that transaction rather
 than recursively dispatching. After commands and synchronous presentation/audio acceptance settle,
-the service receives typed queue, Flow, Lua, presentation-barrier, and mutation facts. It publishes
-deterministic readiness and an immutable retained candidate only at an eligible boundary. Structural
-changes capture checkpoint state immediately; time-only changes coalesce on one second of
-deterministic elapsed runtime input, while unchanged idle transactions do not re-encode. Retained
-checkpoint publication does not request a visual thumbnail. A thumbnail capture is queued only after
-a manual save, autosave, or other typed save-slot write actually persists that checkpoint, and the
-asynchronous result updates only slots still bound to the same checkpoint revision.
+the service receives typed queue, Flow, Lua, presentation-barrier, and mutation facts. It continuously
+publishes deterministic readiness and replaces one immutable retained candidate only at an eligible
+semantic boundary. Structural changes capture checkpoint state immediately; time-only changes coalesce
+on one second of deterministic elapsed runtime input, while unchanged idle transactions do not
+re-encode. A manual save is retained by default: it immediately writes the latest already-promoted
+checkpoint and never forces capture of the current live state. An autosave is deferred by default: it
+waits for the first newly promoted eligible checkpoint after the request and pins that exact revision
+for retry if the slot write fails. Retained checkpoint publication does not request a visual thumbnail.
+A thumbnail capture is queued only after a manual save, autosave, or other typed save-slot write
+actually persists that checkpoint, and the asynchronous result updates only slots still bound to the
+same checkpoint revision.
 
 The presentation coordinator publishes exact causal status before backend work. Awaited finite
-presentation/audio, voice and gameplay SFX until semantic termination, and ActiveText reveal/fade
-block checkpoint replacement. Reconstructible desired actor idles, environment loops, Layouts, and
-desired audio remain checkpoint-safe; backend transition progress, tween progress, audio voices, and
-decoder positions are never runtime checkpoint facts.
+presentation/audio, voice and gameplay SFX until semantic termination, ActiveText reveal/fade, and any
+opaque Lua suspension block checkpoint replacement. Those barriers do not invalidate the latest
+retained checkpoint, so a manual save can still persist it while new promotion is ineligible.
+Reconstructible desired actor idles, environment loops, Layouts, and desired audio remain
+checkpoint-safe; backend transition progress, tween progress, audio voices, and decoder positions are
+never runtime checkpoint facts.
 
 Save/load requests travel through `SaveRuntimeInput` and `LoadRuntimeInput`. Unsupported or unsafe
 save points return typed outcomes/diagnostics. `SaveDocument` and controller checkpoint JSON no

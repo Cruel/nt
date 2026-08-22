@@ -6,9 +6,11 @@ defensive validation, but must not invent a second wire shape.
 
 The document contains immutable gameplay definitions (Characters, Rooms, Interactables, Verbs,
 Interactions, Scenes, Dialogues, and Maps), typed properties and variables, typed runtime resources
-(assets, layouts, and scripts), localization, runtime settings, one stable Bootstrap Module reference, and one Room/Scene/
-Dialogue entrypoint. Cross-references, including references into separately versioned material data,
-are typed discriminated references; generic collection/id
+(assets, layouts, and scripts), localization, runtime settings, one stable Bootstrap Module reference,
+one deterministic `saveContract`, and one Room/Scene/Dialogue entrypoint. `saveContract` uses canonical
+`sc1:<32 lowercase hex digits>` spelling and is compiler-owned; native decoding validates and retains
+it but never recomputes or repairs it. Cross-references, including references into separately
+versioned material data, are typed discriminated references; generic collection/id
 references, authoring collection maps, legacy Object/Action names, comments, categories, tags, and
 editor state are not legal fields.
 
@@ -42,7 +44,9 @@ overrides through mounted presentation policy.
 
 This is a TypeScript-owned contract. The native decoder consumes it defensively, and preview,
 playback, package, and CLI consumers receive its canonical publication; no alternate runtime wire
-shape or provisional-version decoder is retained.
+shape or provisional-version decoder is retained. Save-state load requires the persisted Save Contract
+to equal this compiled value exactly; missing or mismatched contracts are normal hard validation
+failures, not migration or repair inputs.
 
 The compiler uses a separate `CompiledProjectSharedDraft` implementation type while specialized
 programs are still incomplete. That draft contains all shared declarations, resources, definitions, Trait declarations/attachments, and authored Property assignments, but omits program-owned fields entirely. It is never
