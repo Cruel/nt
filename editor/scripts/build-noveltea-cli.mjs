@@ -9,7 +9,7 @@ import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
-const scriptcVersion = '0.0.30';
+const scriptcVersion = '0.0.34';
 const isWindows = process.platform === 'win32';
 const releasePlatform = isWindows ? 'windows' : 'linux';
 const releasePreset = isWindows ? 'windows-cli-gnu' : 'linux-release';
