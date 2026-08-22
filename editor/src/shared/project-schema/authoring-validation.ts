@@ -1,5 +1,6 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
 import { collectAuthoringLuaSources } from '../authoring-source-analysis';
+import { analyzeHookRegistry } from '../hook-registry-analysis';
 import {
   authoringCollectionKeys,
   isAuthoringCollectionKey,
@@ -727,6 +728,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
     diagnostics.push(...validateMapData(project, id, record));
   for (const [id, record] of Object.entries(project.scripts))
     diagnostics.push(...validateScriptModuleData(project, id, record));
+  diagnostics.push(...analyzeHookRegistry(effectiveProject).diagnostics);
   for (const [id, record] of Object.entries(project.tests))
     diagnostics.push(...validateTestData(project, id, record));
   return collectProjectValidationDiagnostics(

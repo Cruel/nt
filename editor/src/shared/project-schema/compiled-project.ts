@@ -316,6 +316,23 @@ const roomHookProgramSchema = strict({
   effects: z.array(compiledEffectSchema),
   hook: z.enum(['before-enter', 'after-enter', 'before-leave', 'after-leave']),
 });
+const roomScriptHookMappingSchema = strict({
+  hook: z.enum([
+    'can-enter',
+    'can-leave',
+    'reject-enter',
+    'reject-leave',
+    'before-enter',
+    'after-enter',
+    'before-leave',
+    'after-leave',
+    'compose',
+  ]),
+  handler: strict({
+    module: scriptReferenceSchema,
+    export: z.string().check(z.trim(), z.minLength(1)),
+  }),
+});
 const roomDefinitionSchema = strict({
   ...propertyBearingDefinition,
   background: strict({
@@ -393,6 +410,7 @@ const roomDefinitionSchema = strict({
     )
     .optional(),
   compose: strict({ script: scriptReferenceSchema }).nullable(),
+  scriptHooks: z.array(roomScriptHookMappingSchema),
   placements: z.array(roomPlacementSchema),
   features: z.array(featureDefinitionSchema),
   hotspots: z.array(

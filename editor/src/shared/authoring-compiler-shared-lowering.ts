@@ -526,6 +526,13 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       compose: data.compose
         ? { script: { kind: 'script', id: data.compose.script.$ref.id } }
         : null,
+      scriptHooks: data.scriptHooks.map((mapping) => ({
+        hook: mapping.hook,
+        handler: {
+          module: { kind: 'script', id: mapping.handler.module.$ref.id },
+          export: mapping.handler.export.trim(),
+        },
+      })),
       exits: data.exits.map((exit) => ({
         id: exit.id,
         label: compileText({ markup: 'plain', source: { kind: 'inline', text: exit.label } }),

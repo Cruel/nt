@@ -26,6 +26,66 @@ namespace noveltea::runtime {
 
 class RuntimeWorld;
 
+enum class ProjectHookSemanticKind : std::uint8_t {
+    Room
+};
+
+enum class ProjectHookSelectorKind : std::uint8_t {
+    Exact,
+    QualifiedPrefix,
+    Catchall
+};
+
+enum class ProjectHookKind : std::uint8_t {
+    RoomCanEnter,
+    RoomCanLeave,
+    RoomRejectEnter,
+    RoomRejectLeave,
+    RoomBeforeEnter,
+    RoomAfterEnter,
+    RoomBeforeLeave,
+    RoomAfterLeave,
+    RoomCompose
+};
+
+enum class ProjectHookRegistrationSource : std::uint8_t {
+    DirectDefinition,
+    Bootstrap
+};
+
+struct ProjectHookSelector {
+    ProjectHookSemanticKind semantic_kind = ProjectHookSemanticKind::Room;
+    ProjectHookSelectorKind kind = ProjectHookSelectorKind::Exact;
+    std::string value;
+    bool operator==(const ProjectHookSelector&) const = default;
+};
+
+struct ProjectHookHandlerReference {
+    std::string module_id;
+    std::string export_name;
+    bool operator==(const ProjectHookHandlerReference&) const = default;
+};
+
+struct ProjectHookRegistration {
+    ProjectHookKind hook = ProjectHookKind::RoomCanEnter;
+    ProjectHookSelector selector;
+    ProjectHookHandlerReference handler;
+    ProjectHookRegistrationSource source = ProjectHookRegistrationSource::DirectDefinition;
+    std::string source_path;
+    RuntimeCapabilityProfile capability_profile = RuntimeCapabilityProfile::SynchronousExpression;
+    bool operator==(const ProjectHookRegistration&) const = default;
+};
+
+struct ProjectHookExplanation {
+    ProjectHookSemanticKind semantic_kind = ProjectHookSemanticKind::Room;
+    ProjectHookKind hook = ProjectHookKind::RoomCanEnter;
+    std::string target;
+    std::optional<ProjectHookRegistration> winner;
+    std::vector<ProjectHookRegistration> fallbacks;
+    bool frozen = false;
+    bool operator==(const ProjectHookExplanation&) const = default;
+};
+
 enum class ScriptInvocationResultKind : std::uint8_t {
     None,
     Boolean,
@@ -122,6 +182,7 @@ public:
     [[nodiscard]] virtual core::Result<void, ScriptInvocationError>
     prepare_project_modules(const core::CompiledProject& project) = 0;
     [[nodiscard]] virtual core::Result<void, ScriptInvocationError> run_project_bootstrap() = 0;
+    [[nodiscard]] virtual core::Result<void, ScriptInvocationError> freeze_project_hooks() = 0;
 };
 
 class ScriptRuntimePort : public ScriptInvocationPort, public ScriptCertificationPort {

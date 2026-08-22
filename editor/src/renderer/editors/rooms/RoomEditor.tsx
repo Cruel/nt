@@ -66,6 +66,7 @@ import {
   roomLayoutRef,
   roomMaterialRef,
   roomRoomRef,
+  roomScriptHookKindValues,
   type RoomCastData,
   type RoomData,
   type RoomEnvironmentData,
@@ -2573,6 +2574,97 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               ))}
             </section>
           </>
+        ) : null}
+        {activeCategory === 'behavior' ? (
+          <section
+            className="space-y-4 rounded-xl border bg-card/20 p-4"
+            data-workbench-anchor="room.script-hooks"
+          >
+            <div>
+              <h3 className="text-sm font-semibold">Script hook mappings</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Optional exact Room mappings compiled into the frozen Hook Registry. Bootstrap may
+                add qualified-prefix and catchall mappings.
+              </p>
+            </div>
+            <div className="space-y-3">
+              {roomScriptHookKindValues.map((hook) => {
+                const mapping = data.scriptHooks.find((item) => item.hook === hook);
+                return (
+                  <div key={hook} className="grid gap-2 rounded-lg border p-3 md:grid-cols-3">
+                    <div>
+                      <Label>Hook</Label>
+                      <div className="mt-2 font-mono text-xs">{hook}</div>
+                    </div>
+                    <div>
+                      <Label>Script Module</Label>
+                      <Select
+                        value={mapping?.handler.module.$ref.id ?? '__none__'}
+                        onValueChange={(value) => {
+                          const remaining = data.scriptHooks.filter((item) => item.hook !== hook);
+                          commit(
+                            {
+                              ...data,
+                              scriptHooks:
+                                value === '__none__'
+                                  ? remaining
+                                  : [
+                                      ...remaining,
+                                      {
+                                        hook,
+                                        handler: {
+                                          module: {
+                                            $ref: { collection: 'scripts', id: String(value) },
+                                          },
+                                          export:
+                                            mapping?.handler.export || hook.replaceAll('-', '_'),
+                                        },
+                                      },
+                                    ],
+                            },
+                            'Update room script hook mapping',
+                          );
+                        }}
+                      >
+                        <SelectItem value="__none__">No direct mapping</SelectItem>
+                        {scripts.map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Named export</Label>
+                      <Input
+                        value={mapping?.handler.export ?? ''}
+                        disabled={!mapping}
+                        placeholder={hook.replaceAll('-', '_')}
+                        onChange={(event) => {
+                          if (!mapping) return;
+                          const exportName = event.currentTarget.value;
+                          commit(
+                            {
+                              ...data,
+                              scriptHooks: data.scriptHooks.map((item) =>
+                                item.hook === hook
+                                  ? {
+                                      ...item,
+                                      handler: { ...item.handler, export: exportName },
+                                    }
+                                  : item,
+                              ),
+                            },
+                            'Update room script hook export',
+                          );
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         ) : null}
         {activeCategory === 'behavior' ? (
           <section

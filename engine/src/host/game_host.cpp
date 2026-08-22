@@ -537,6 +537,26 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     };
 
     if (request.stop_runtime_after_load) {
+        auto prepared_scripts = m_dependencies.script_certifier.prepare_project_modules(
+            m_running_game->package().project());
+        if (!prepared_scripts) {
+            return rollback_to_previous(one({.code = "host.game_load_live_script_modules_failed",
+                                             .message = prepared_scripts.error().message,
+                                             .source_path = prepared_scripts.error().chunk}));
+        }
+        auto bootstrapped = m_dependencies.script_certifier.run_project_bootstrap();
+        if (!bootstrapped) {
+            return rollback_to_previous(one({.code = "host.game_load_live_bootstrap_failed",
+                                             .message = bootstrapped.error().message,
+                                             .source_path = bootstrapped.error().chunk}));
+        }
+        auto frozen_hooks = m_dependencies.script_certifier.freeze_project_hooks();
+        if (!frozen_hooks) {
+            return rollback_to_previous(one({.code = "host.game_load_live_hook_registry_failed",
+                                             .message = frozen_hooks.error().message,
+                                             .source_path = frozen_hooks.error().chunk}));
+        }
+
         auto fresh_presentation = std::make_unique<RunningGamePresentationPort>();
         auto recreated =
             m_running_game->recreate_session(*m_script_invocation_router, *fresh_presentation);

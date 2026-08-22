@@ -385,12 +385,24 @@ struct Fixture {
                                 "function prepare_transition() end\n"
                                 "function transition_label() return 'Transition' end\n",
                                 "typed-session-fixture"));
+        REQUIRE(runtime.prepare_project_modules(project));
+        REQUIRE(runtime.run_project_bootstrap());
+        REQUIRE(runtime.freeze_project_hooks());
         auto created = test_support::create_runtime_session(project, script_port, presentation,
                                                             saves, "en", runtime_budget);
         REQUIRE(created);
         session = std::move(created).value();
     }
 };
+
+void prepare_project_scripts(ScriptRuntime& runtime, const core::CompiledProject& project)
+{
+    REQUIRE(
+        runtime.execute("function initialize_fixture() end", "direct-session-bootstrap-fixture"));
+    REQUIRE(runtime.prepare_project_modules(project));
+    REQUIRE(runtime.run_project_bootstrap());
+    REQUIRE(runtime.freeze_project_hooks());
+}
 
 core::Result<void, ScriptError> execute_session_lua(Fixture& fixture, std::string source,
                                                     std::string chunk_name)
@@ -709,6 +721,7 @@ TEST_CASE("failed Room recomposition republishes diagnostics with the prior comp
     REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function room_description() return 'Stable room.' end",
                             "room-recomposition-stable"));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     auto created =
@@ -897,6 +910,7 @@ TEST_CASE("runtime dispatch distinguishes instruction budget yield from executio
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     auto created =
@@ -987,6 +1001,7 @@ TEST_CASE("presentation acceptance installs its checkpoint barrier before dispat
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_audio_accept = true;
     core::TypedMemorySaveSlotStore saves;
@@ -1012,6 +1027,7 @@ TEST_CASE("presentation acceptance failure is diagnosed without retaining an inv
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     presentation.reject_audio = true;
     core::TypedMemorySaveSlotStore saves;
@@ -1039,6 +1055,7 @@ TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function initialize_fixture() end", "transition-group-startup"));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_presentation_accept = true;
     core::TypedMemorySaveSlotStore saves;
@@ -1082,6 +1099,7 @@ TEST_CASE("disposable TransitionGroup emits and ends the transaction before adja
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function initialize_fixture() end", "transition-group-startup"));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     auto created =
@@ -1115,6 +1133,7 @@ TEST_CASE("finite target reconciliation failure restores the source before opera
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function initialize_fixture() end", "transition-group-startup"));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     presentation.reject_reconcile_call = 2;
     core::TypedMemorySaveSlotStore saves;
@@ -1149,6 +1168,7 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
                             "function key_label() return 'Key' end\n"
                             "function tower_open() return true end\n",
                             "room-navigation-startup"));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_presentation_accept = true;
     core::TypedMemorySaveSlotStore saves;
@@ -1237,6 +1257,7 @@ TEST_CASE("reentrant public runtime dispatch is rejected without disturbing the 
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
+    prepare_project_scripts(scripts, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     auto created =
@@ -2016,6 +2037,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
     REQUIRE(runtime.initialize({&sources}));
+    prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     auto created =
@@ -2175,6 +2197,7 @@ TEST_CASE(
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
     REQUIRE(runtime.initialize({&sources}));
+    prepare_project_scripts(runtime, project);
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     auto created =

@@ -74,6 +74,7 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'room-environment-asset',
   'room-environment-material',
   'room-compose-script',
+  'room-script-hook',
   'room-exit-target',
   'interactable-sprite',
   'interactable-material',

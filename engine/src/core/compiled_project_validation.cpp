@@ -891,6 +891,15 @@ private:
             }
             if (value.compose)
                 require(m_scripts, value.compose->script, "script", path + "/compose/script");
+            std::unordered_set<RoomScriptHookKind> script_hook_kinds;
+            for (std::size_t hook_index = 0; hook_index < value.script_hooks.size(); ++hook_index) {
+                const auto& mapping = value.script_hooks[hook_index];
+                const auto hook_path = path + "/scriptHooks/" + std::to_string(hook_index);
+                if (!script_hook_kinds.insert(mapping.hook).second)
+                    error("compiled_project.duplicate_hook_mapping",
+                          "Duplicate Room script hook mapping.", hook_path + "/hook");
+                require(m_scripts, mapping.handler.module, "script", hook_path + "/handler/module");
+            }
             std::unordered_set<RoomExitId> exit_ids;
             std::unordered_set<RoomExitDirection> exit_directions;
             for (std::size_t exit_index = 0; exit_index < value.exits.size(); ++exit_index) {

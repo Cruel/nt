@@ -546,6 +546,25 @@ struct RoomEnvironment {
 struct RoomCompositionHook {
     ScriptId script;
 };
+enum class RoomScriptHookKind : std::uint8_t {
+    CanEnter,
+    CanLeave,
+    RejectEnter,
+    RejectLeave,
+    BeforeEnter,
+    AfterEnter,
+    BeforeLeave,
+    AfterLeave,
+    Compose
+};
+struct ScriptHookHandlerReference {
+    ScriptId module;
+    std::string export_name;
+};
+struct RoomScriptHookMapping {
+    RoomScriptHookKind hook;
+    ScriptHookHandlerReference handler;
+};
 struct RoomDefinition {
     PropertyBearingDefinition<RoomId> identity;
     std::string display_name;
@@ -558,6 +577,7 @@ struct RoomDefinition {
     std::vector<RoomProp> props;
     std::vector<RoomEnvironment> environments;
     std::optional<RoomCompositionHook> compose;
+    std::vector<RoomScriptHookMapping> script_hooks;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;
     std::vector<FeatureDefinition> features;

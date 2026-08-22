@@ -130,6 +130,24 @@ export const roomCompositionHookSchema = strict({
   script: roomScriptRefSchema,
   additionalDependencies: defaultedLuaExplicitDependenciesSchema,
 });
+export const roomScriptHookKindValues = [
+  'can-enter',
+  'can-leave',
+  'reject-enter',
+  'reject-leave',
+  'before-enter',
+  'after-enter',
+  'before-leave',
+  'after-leave',
+  'compose',
+] as const;
+export const roomScriptHookMappingSchema = strict({
+  hook: z.enum(roomScriptHookKindValues),
+  handler: strict({
+    module: roomScriptRefSchema,
+    export: z.string().check(z.trim(), z.minLength(1)),
+  }),
+});
 export const roomExitDataSchema = strict({
   id: entityIdSchema,
   label: z.string().min(1),
@@ -162,6 +180,7 @@ export const roomDataSchema = strict({
   interactables: z.array(roomInteractableDataSchema),
   environments: z.array(roomEnvironmentDataSchema).default([]),
   compose: roomCompositionHookSchema.nullable(),
+  scriptHooks: z.array(roomScriptHookMappingSchema),
   lifecycle: roomLifecycleDataSchema,
   exits: z.array(roomExitDataSchema),
   placements: z.array(roomPlacementDataSchema),
@@ -224,6 +243,7 @@ export function defaultRoomData(label = 'Room'): RoomData {
     interactables: [],
     environments: [],
     compose: null,
+    scriptHooks: [],
     exits: [],
     features: [],
     hotspots: [],
@@ -530,6 +550,22 @@ export function validateRoomData(
     diagnostics.push(
       diagnostic(`${base}/compose/script/$ref`, `Missing script '${data.compose.script.$ref.id}'.`),
     );
+  const scriptHookKinds = new Set<string>();
+  data.scriptHooks.forEach((mapping, index) => {
+    const path = `${base}/scriptHooks/${index}`;
+    if (scriptHookKinds.has(mapping.hook))
+      diagnostics.push(
+        diagnostic(`${path}/hook`, `Duplicate Room script hook mapping '${mapping.hook}'.`),
+      );
+    scriptHookKinds.add(mapping.hook);
+    if (!project.scripts[mapping.handler.module.$ref.id])
+      diagnostics.push(
+        diagnostic(
+          `${path}/handler/module/$ref`,
+          `Missing Script Module '${mapping.handler.module.$ref.id}'.`,
+        ),
+      );
+  });
   validateCondition(project, data.lifecycle.canEnter, `${base}/lifecycle/canEnter`, diagnostics);
   validateCondition(project, data.lifecycle.canLeave, `${base}/lifecycle/canLeave`, diagnostics);
   (['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).forEach((hook) =>
