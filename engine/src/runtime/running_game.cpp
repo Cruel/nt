@@ -92,6 +92,58 @@ void certify_interaction_program(core::Diagnostics& diagnostics, ScriptCertifica
 
 } // namespace
 
+class SessionScriptInvocationPort final : public ScriptInvocationPort {
+public:
+    explicit SessionScriptInvocationPort(ScriptInvocationPort& delegate) noexcept
+        : m_delegate(&delegate)
+    {
+    }
+
+    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptInvocationError>
+    invoke(const ScriptInvocationRequest& request,
+           const RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate->invoke(request, capabilities);
+    }
+
+    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptInvocationError>
+    resume(const core::ScriptInvocationHandle& invocation,
+           const RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate->resume(invocation, capabilities);
+    }
+
+    [[nodiscard]] core::Result<void, ScriptInvocationError>
+    run_project_on_game_ready(const RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate->run_project_on_game_ready(capabilities);
+    }
+
+    void cancel(const core::ScriptInvocationHandle& invocation,
+                ScriptCancellationReason reason) override
+    {
+        m_delegate->cancel(invocation, reason);
+    }
+
+    void invalidate_capabilities(CapabilityGeneration generation) noexcept override
+    {
+        m_delegate->invalidate_capabilities(generation);
+    }
+
+private:
+    ScriptInvocationPort* m_delegate = nullptr;
+};
+
+RuntimeSessionCandidate::RuntimeSessionCandidate(
+    std::unique_ptr<SessionScriptInvocationPort> scripts, std::unique_ptr<RuntimeSession> session,
+    RuntimeDispatchResult initial_result) noexcept
+    : m_scripts(std::move(scripts)), m_session(std::move(session)),
+      m_initial_result(std::move(initial_result))
+{
+}
+
+RuntimeSessionCandidate::~RuntimeSessionCandidate() = default;
+
 core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& project,
                                                ScriptCertificationPort& scripts)
 {
@@ -296,6 +348,8 @@ RunningGame::RunningGame(core::LoadedCompiledPackage package) noexcept
 {
 }
 
+RunningGame::~RunningGame() = default;
+
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
 RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort& script_certifier,
                     ScriptInvocationPort& scripts, PresentationModelPort& presentation_model,
@@ -330,14 +384,14 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
     }
 
     auto runtime = std::unique_ptr<RunningGame>(new RunningGame(std::move(package)));
-    runtime->m_scripts = &scripts;
+    runtime->m_script_binding = std::make_unique<SessionScriptInvocationPort>(scripts);
     runtime->m_presentation_model = &presentation_model;
     runtime->m_saves = &saves;
     runtime->m_save_codec = &save_codec;
     runtime->m_runtime_locale = runtime_locale;
-    auto session =
-        RuntimeSession::create(runtime->m_package.project(), scripts, presentation_model,
-                               presentation, saves, save_codec, std::move(runtime_locale));
+    auto session = RuntimeSession::create(runtime->m_package.project(), *runtime->m_script_binding,
+                                          presentation_model, presentation, saves, save_codec,
+                                          std::move(runtime_locale));
     if (!session)
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(session).error());
@@ -346,34 +400,87 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
         std::move(runtime));
 }
 
-core::Result<void, core::Diagnostics>
-RunningGame::recreate_session(PresentationRuntimePort& presentation)
-{
-    if (m_scripts == nullptr || m_presentation_model == nullptr || m_saves == nullptr ||
-        m_save_codec == nullptr) {
-        return core::Result<void, core::Diagnostics>::failure(
-            {{.code = "runtime.running_game_dependencies_missing",
-              .message = "Running game cannot recreate its runtime session"}});
-    }
-    return recreate_session(*m_scripts, presentation);
-}
-
-core::Result<void, core::Diagnostics>
-RunningGame::recreate_session(ScriptInvocationPort& scripts, PresentationRuntimePort& presentation)
+core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>
+RunningGame::prepare_reset_candidate(ScriptInvocationPort& scripts,
+                                     PresentationRuntimePort& presentation)
 {
     if (m_presentation_model == nullptr || m_saves == nullptr || m_save_codec == nullptr) {
-        return core::Result<void, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::failure(
             {{.code = "runtime.running_game_dependencies_missing",
-              .message = "Running game cannot recreate its runtime session"}});
+              .message = "Running game cannot construct a reset candidate"}});
     }
-    auto replacement =
-        RuntimeSession::create(m_package.project(), scripts, *m_presentation_model, presentation,
-                               *m_saves, *m_save_codec, m_runtime_locale);
-    if (!replacement)
-        return core::Result<void, core::Diagnostics>::failure(std::move(replacement).error());
-    m_session = std::move(*replacement.value_if());
-    m_scripts = &scripts;
-    return core::Result<void, core::Diagnostics>::success();
+
+    auto binding = std::make_unique<SessionScriptInvocationPort>(scripts);
+    auto session = RuntimeSession::create(m_package.project(), *binding, *m_presentation_model,
+                                          presentation, *m_saves, *m_save_codec, m_runtime_locale);
+    if (!session)
+        return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::failure(
+            std::move(session).error());
+    auto initial =
+        (*session.value_if())->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    if (!initial.diagnostics.empty() || initial.disposition == RuntimeInputDisposition::Failed ||
+        !initial.publication) {
+        auto diagnostics = std::move(initial.diagnostics);
+        if (diagnostics.empty()) {
+            diagnostics.push_back(
+                {.code = "runtime.reset_candidate_start_failed",
+                 .message = "Reset candidate did not publish a settled entrypoint"});
+        }
+        return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::failure(
+            std::move(diagnostics));
+    }
+
+    return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::success(
+        std::unique_ptr<RuntimeSessionCandidate>(new RuntimeSessionCandidate(
+            std::move(binding), std::move(*session.value_if()), std::move(initial))));
+}
+
+core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>
+RunningGame::prepare_load_candidate(core::TypedSaveSlotId slot, ScriptInvocationPort& scripts,
+                                    PresentationRuntimePort& presentation)
+{
+    if (m_presentation_model == nullptr || m_saves == nullptr || m_save_codec == nullptr) {
+        return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::failure(
+            {{.code = "runtime.running_game_dependencies_missing",
+              .message = "Running game cannot construct a load candidate"}});
+    }
+
+    auto binding = std::make_unique<SessionScriptInvocationPort>(scripts);
+    auto session =
+        RuntimeSession::restore(m_package.project(), *binding, *m_presentation_model, presentation,
+                                *m_saves, *m_save_codec, slot, m_runtime_locale);
+    if (!session)
+        return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::failure(
+            std::move(session).error());
+    auto initial = (*session.value_if())->publish_initial_state();
+    if (!initial.diagnostics.empty() || initial.disposition == RuntimeInputDisposition::Failed ||
+        !initial.publication) {
+        auto diagnostics = std::move(initial.diagnostics);
+        if (diagnostics.empty()) {
+            diagnostics.push_back({.code = "runtime.load_candidate_publication_failed",
+                                   .message = "Load candidate did not publish restored state"});
+        }
+        return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::failure(
+            std::move(diagnostics));
+    }
+    initial.events.emplace_back(SaveOutcomeEvent{
+        core::SaveOutcome{slot, core::SaveOutcomeStatus::Loaded, slot.is_autosave()}});
+
+    return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::success(
+        std::unique_ptr<RuntimeSessionCandidate>(new RuntimeSessionCandidate(
+            std::move(binding), std::move(*session.value_if()), std::move(initial))));
+}
+
+std::unique_ptr<RuntimeSessionCandidate>
+RunningGame::commit_candidate(std::unique_ptr<RuntimeSessionCandidate> candidate) noexcept
+{
+    if (!candidate)
+        return nullptr;
+    auto previous = std::unique_ptr<RuntimeSessionCandidate>(
+        new RuntimeSessionCandidate(std::move(m_script_binding), std::move(m_session), {}));
+    m_script_binding = std::move(candidate->m_scripts);
+    m_session = std::move(candidate->m_session);
+    return previous;
 }
 
 } // namespace noveltea::runtime

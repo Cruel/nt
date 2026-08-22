@@ -395,6 +395,53 @@ RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvo
         std::move(session));
 }
 
+core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics> RuntimeSession::restore(
+    const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+    runtime::PresentationModelPort& presentation_model,
+    runtime::PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
+    const core::SaveStateCodecPort& save_codec, core::TypedSaveSlotId slot,
+    std::string runtime_locale, runtime::RuntimeBudgetConfiguration runtime_budget)
+{
+    if (runtime_budget.instruction_limit == 0 || runtime_budget.command_limit == 0) {
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            {core::Diagnostic{.code = "runtime.invalid_budget",
+                              .message =
+                                  "Runtime instruction and command budgets must be positive"}});
+    }
+
+    auto stored = saves.read_checkpoint(slot);
+    if (!stored)
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            std::move(stored).error());
+    auto decoded = save_codec.decode(project, stored.value_if()->encoded_save, "save-slot");
+    if (!decoded)
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            std::move(decoded).error());
+
+    auto kernel = RuntimeExecutor::restore(project, scripts, presentation_model,
+                                           *decoded.value_if(), save_codec);
+    if (!kernel)
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            std::move(kernel).error());
+    auto ready_diagnostics = run_on_game_ready(scripts, **kernel.value_if());
+    if (!ready_diagnostics.empty())
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            std::move(ready_diagnostics));
+
+    auto session = std::unique_ptr<RuntimeSession>(new RuntimeSession(
+        project, scripts, presentation_model, presentation, saves, save_codec,
+        std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget));
+    auto checkpoint = session->m_checkpoint_service.prepare_loaded_checkpoint(
+        std::move(stored.value_if()->encoded_save), *decoded.value_if(),
+        std::move(stored.value_if()->metadata), std::move(stored.value_if()->thumbnail));
+    if (!checkpoint)
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            std::move(checkpoint).error());
+    session->m_checkpoint_service.commit_loaded_checkpoint(std::move(*checkpoint.value_if()));
+    return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::success(
+        std::move(session));
+}
+
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
 RuntimeSession::accept_presentation(const core::PresentationOperation& operation)
 {
@@ -1188,9 +1235,54 @@ RuntimeDispatchResult RuntimeSession::dispatch(const core::RuntimeInputMessage& 
 
     m_dispatch_active = true;
     m_transaction_budget_outcome = {};
+    m_session_replacement_request.reset();
     auto work = apply_input(input);
     result.disposition = work.disposition;
     core::append_diagnostics(result.diagnostics, std::move(work.diagnostics));
+    project_publication(work, result);
+    core::append_diagnostics(result.diagnostics, settle_transaction());
+    result.events = std::move(work.events);
+    const auto checkpoint_observation = m_checkpoint_service.observation(m_kernel->state());
+    const bool checkpoint_observation_changed =
+        !m_last_checkpoint_observation || *m_last_checkpoint_observation != checkpoint_observation;
+    if (result.publication) {
+        result.publication->observations.values.emplace_back(checkpoint_observation);
+        m_current_publication = *result.publication;
+    }
+    if (checkpoint_observation_changed) {
+        result.events.emplace_back(
+            runtime::ObservationEvent{core::RuntimeObservation{checkpoint_observation}});
+        m_last_checkpoint_observation = checkpoint_observation;
+    }
+    if (!result.diagnostics.empty()) {
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        m_session_replacement_request.reset();
+    } else {
+        result.session_replacement_request = std::move(m_session_replacement_request);
+    }
+    result.budget = m_transaction_budget_outcome;
+    m_transaction_impacts.clear();
+    m_transaction_elapsed = std::chrono::milliseconds{0};
+    m_dispatch_active = false;
+    return result;
+}
+
+RuntimeDispatchResult RuntimeSession::publish_initial_state()
+{
+    assert_owner_thread();
+    runtime::RuntimeDispatchResult result;
+    if (m_dispatch_active) {
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        result.diagnostics.push_back(diagnostic(
+            "runtime.reentrant_dispatch", "Public runtime dispatch cannot be called recursively"));
+        return result;
+    }
+
+    m_dispatch_active = true;
+    m_transaction_budget_outcome = {};
+    m_session_replacement_request.reset();
+    m_force_publication = true;
+    WorkResult work;
     project_publication(work, result);
     core::append_diagnostics(result.diagnostics, settle_transaction());
     result.events = std::move(work.events);
@@ -1251,39 +1343,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     m_pending_presentation.reset();
                     m_pending_audio.reset();
                 } else if constexpr (std::is_same_v<T, core::ResetRuntimeInput>) {
-                    const auto subsequent_generation = m_next_capability_generation.next();
-                    if (!subsequent_generation) {
-                        result.diagnostics = core::Diagnostics{
-                            diagnostic("runtime.capability_generation_exhausted",
-                                       "Runtime capability generation space is exhausted")};
-                    } else {
-                        auto reset =
-                            RuntimeExecutor::create(m_project, m_scripts, m_presentation_model,
-                                                    m_next_capability_generation);
-                        if (reset) {
-                            auto ready_diagnostics =
-                                run_on_game_ready(m_scripts, **reset.value_if());
-                            if (!ready_diagnostics.empty()) {
-                                result.diagnostics = std::move(ready_diagnostics);
-                            } else {
-                                m_presentation.terminate(
-                                    core::PresentationCancellationReason::RuntimeReset);
-                                invalidate_kernel(runtime::ScriptCancellationReason::RuntimeReset);
-                                m_kernel = std::move(*reset.value_if());
-                                m_next_capability_generation = *subsequent_generation;
-                                m_kernel->gateway().bind_services(this);
-                                m_selection.clear();
-                                m_room_description_visit.reset();
-                                m_room_description_visible = false;
-                                m_pending_presentation.reset();
-                                m_pending_audio.reset();
-                                m_pending_events.clear();
-                                m_checkpoint_service.reset();
-                                m_force_publication = true;
-                            }
-                        } else
-                            result.diagnostics = std::move(reset).error();
-                    }
+                    m_session_replacement_request = core::RuntimeInputMessage{value};
                 } else if constexpr (std::is_same_v<T, core::AdvanceTimeInput>) {
                     const auto elapsed =
                         std::chrono::duration_cast<std::chrono::milliseconds>(value.elapsed);
@@ -1394,64 +1454,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 value.slot, core::SaveOutcomeStatus::Saved, false}});
                     }
                 } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
-                    auto stored = m_saves.read_checkpoint(value.slot);
-                    auto decoded =
-                        stored ? m_save_codec.decode(m_project, stored.value_if()->encoded_save,
-                                                     "save-slot")
-                               : core::Result<core::SaveState, core::Diagnostics>::failure(
-                                     stored.error());
-                    if (!decoded) {
-                        result.diagnostics = std::move(decoded).error();
-                    } else {
-                        const auto subsequent_generation = m_next_capability_generation.next();
-                        if (!subsequent_generation) {
-                            result.diagnostics = core::Diagnostics{
-                                diagnostic("runtime.capability_generation_exhausted",
-                                           "Runtime capability generation space is exhausted")};
-                        } else {
-                            auto loaded = RuntimeExecutor::restore(
-                                m_project, m_scripts, m_presentation_model, *decoded.value_if(),
-                                m_save_codec, m_next_capability_generation);
-                            auto checkpoint =
-                                loaded
-                                    ? m_checkpoint_service.prepare_loaded_checkpoint(
-                                          stored.value_if()->encoded_save, *decoded.value_if(),
-                                          stored.value_if()->metadata, stored.value_if()->thumbnail)
-                                    : core::Result<core::LatestSaveCheckpoint,
-                                                   core::Diagnostics>::failure(loaded.error());
-                            if (checkpoint) {
-                                auto ready_diagnostics =
-                                    run_on_game_ready(m_scripts, **loaded.value_if());
-                                if (!ready_diagnostics.empty()) {
-                                    result.diagnostics = std::move(ready_diagnostics);
-                                } else {
-                                    m_presentation.terminate(
-                                        core::PresentationCancellationReason::CheckpointLoad);
-                                    invalidate_kernel(
-                                        runtime::ScriptCancellationReason::CheckpointLoad);
-                                    m_kernel = std::move(*loaded.value_if());
-                                    m_next_capability_generation = *subsequent_generation;
-                                    m_kernel->gateway().bind_services(this);
-                                    static_cast<void>(m_kernel->gateway().take_mutation_impacts());
-                                    m_transaction_impacts.clear();
-                                    m_selection.clear();
-                                    m_room_description_visit.reset();
-                                    m_room_description_visible = false;
-                                    m_pending_presentation.reset();
-                                    m_pending_audio.reset();
-                                    m_pending_events.clear();
-                                    m_checkpoint_service.commit_loaded_checkpoint(
-                                        std::move(*checkpoint.value_if()));
-                                    result.events.emplace_back(runtime::SaveOutcomeEvent{
-                                        core::SaveOutcome{value.slot,
-                                                          core::SaveOutcomeStatus::Loaded,
-                                                          value.slot.is_autosave()}});
-                                    m_force_publication = true;
-                                }
-                            } else
-                                result.diagnostics = std::move(checkpoint).error();
-                        }
-                    }
+                    m_session_replacement_request = core::RuntimeInputMessage{value};
                 } else if constexpr (std::is_same_v<T, core::BeginPlaybackInput>) {
                     m_playback = true;
                     m_playback_step = 0;

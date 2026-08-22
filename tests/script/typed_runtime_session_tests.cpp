@@ -362,10 +362,11 @@ struct Fixture {
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     std::unique_ptr<TypedRuntimeSession> session;
+    runtime::RuntimeBudgetConfiguration runtime_budget;
 
     explicit Fixture(std::string_view filename = "comprehensive.json",
-                     runtime::RuntimeBudgetConfiguration runtime_budget = {})
-        : project(load_project(filename))
+                     runtime::RuntimeBudgetConfiguration budget = {})
+        : project(load_project(filename)), runtime_budget(budget)
     {
         REQUIRE(runtime.initialize({&sources}));
         REQUIRE(runtime.execute("function initialize_fixture() end\n"
@@ -394,6 +395,32 @@ struct Fixture {
         session = std::move(created).value();
     }
 };
+
+void commit_reset_candidate(Fixture& fixture)
+{
+    auto replacement = test_support::create_runtime_session(fixture.project, fixture.script_port,
+                                                            fixture.presentation, fixture.saves,
+                                                            "en", fixture.runtime_budget);
+    REQUIRE(replacement);
+    auto started =
+        (*replacement.value_if())->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE_FALSE(started.session_replacement_request);
+    fixture.session = std::move(*replacement.value_if());
+}
+
+void commit_load_candidate(Fixture& fixture, core::TypedSaveSlotId slot)
+{
+    auto replacement = runtime::RuntimeSession::restore(
+        fixture.project, fixture.script_port, test_support::presentation_model(),
+        fixture.presentation, fixture.saves, test_support::save_codec(), slot, "en",
+        fixture.runtime_budget);
+    REQUIRE(replacement);
+    auto initial = (*replacement.value_if())->publish_initial_state();
+    REQUIRE(initial.diagnostics.empty());
+    REQUIRE_FALSE(initial.session_replacement_request);
+    fixture.session = std::move(*replacement.value_if());
+}
 
 void prepare_project_scripts(ScriptRuntime& runtime, const core::CompiledProject& project)
 {
@@ -463,8 +490,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 } // namespace
 
-TEST_CASE(
-    "typed runtime session dispatches lifecycle debug mutation and save load without legacy IO")
+TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
     STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 25);
     Fixture fixture;
@@ -500,32 +526,47 @@ TEST_CASE(
 
     const auto corrupt_slot = core::TypedSaveSlotId::manual(5);
     REQUIRE(fixture.saves.write_slot(corrupt_slot, "{corrupt"));
-    auto failed_load =
+    auto failed_load_request =
         fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{corrupt_slot}});
-    REQUIRE_FALSE(failed_load.diagnostics.empty());
+    REQUIRE(failed_load_request.diagnostics.empty());
+    REQUIRE(failed_load_request.session_replacement_request);
+    const auto* corrupt_request =
+        std::get_if<core::LoadRuntimeInput>(&*failed_load_request.session_replacement_request);
+    REQUIRE(corrupt_request);
+    CHECK(corrupt_request->slot == corrupt_slot);
+    auto rejected_candidate = runtime::RuntimeSession::restore(
+        fixture.project, fixture.script_port, test_support::presentation_model(),
+        fixture.presentation, fixture.saves, test_support::save_codec(), corrupt_slot, "en",
+        fixture.runtime_budget);
+    REQUIRE_FALSE(rejected_candidate);
     CHECK(fixture.presentation.terminations.empty());
     CHECK(*fixture.session->checkpoint_service().latest_checkpoint() ==
           retained_before_failed_load);
     CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{9}});
 
-    auto loaded =
+    auto load_request =
         fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
-    CHECK(has_output_kind(loaded, DispatchArtifactKind::SaveOutcome));
-    REQUIRE(fixture.presentation.terminations.size() == 1);
-    CHECK(fixture.presentation.terminations.front() ==
-          core::PresentationCancellationReason::CheckpointLoad);
+    REQUIRE(load_request.diagnostics.empty());
+    REQUIRE(load_request.session_replacement_request);
+    const auto* requested_load =
+        std::get_if<core::LoadRuntimeInput>(&*load_request.session_replacement_request);
+    REQUIRE(requested_load);
+    CHECK(requested_load->slot == slot);
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{9}});
+
+    commit_load_candidate(fixture, slot);
     REQUIRE(fixture.session->gateway().global_property(count));
     CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{7}});
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->encoded_save == saved_bytes);
-    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision.number() ==
-          retained_before_failed_load.revision.number() + 1);
+    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision.number() == 1);
     CHECK(fixture.session->checkpoint_service().generations() == core::CheckpointGenerationState{});
 }
 
-TEST_CASE("On Game Ready runs for session creation reset and successful restoration")
+TEST_CASE("On Game Ready runs during candidate construction before replacement commit")
 {
     Fixture fixture("minimal.json");
     REQUIRE(fixture.script_port.ready_calls == 1);
@@ -541,39 +582,52 @@ TEST_CASE("On Game Ready runs for session creation reset and successful restorat
 
     fixture.presentation.terminations.clear();
     fixture.script_port.fail_next_ready = true;
-    const auto generation_before_failed_reset = fixture.session->gateway().generation();
-    auto failed_reset =
+    auto* const live_session = fixture.session.get();
+    auto reset_request =
         fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
-    REQUIRE_FALSE(failed_reset.diagnostics.empty());
-    CHECK(diagnostics_have_code(failed_reset.diagnostics, "runtime.on_game_ready_failed"));
+    REQUIRE(reset_request.diagnostics.empty());
+    REQUIRE(reset_request.session_replacement_request);
+    CHECK(std::holds_alternative<core::ResetRuntimeInput>(
+        *reset_request.session_replacement_request));
+    CHECK(fixture.script_port.ready_calls == 1);
+
+    auto failed_reset = test_support::create_runtime_session(fixture.project, fixture.script_port,
+                                                             fixture.presentation, fixture.saves,
+                                                             "en", fixture.runtime_budget);
+    REQUIRE_FALSE(failed_reset);
+    CHECK(diagnostics_have_code(failed_reset.error(), "runtime.on_game_ready_failed"));
     CHECK(fixture.presentation.terminations.empty());
-    CHECK(fixture.session->gateway().generation() == generation_before_failed_reset);
+    CHECK(fixture.session.get() == live_session);
     CHECK(fixture.script_port.ready_calls == 2);
 
-    auto reset = fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
-    REQUIRE(reset.diagnostics.empty());
+    commit_reset_candidate(fixture);
     CHECK(fixture.script_port.ready_calls == 3);
 
     const auto corrupt_slot = core::TypedSaveSlotId::manual(7);
     REQUIRE(fixture.saves.write_slot(corrupt_slot, "{corrupt"));
-    auto corrupt =
+    auto corrupt_request =
         fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{corrupt_slot}});
-    REQUIRE_FALSE(corrupt.diagnostics.empty());
+    REQUIRE(corrupt_request.diagnostics.empty());
+    REQUIRE(corrupt_request.session_replacement_request);
+    auto corrupt = runtime::RuntimeSession::restore(
+        fixture.project, fixture.script_port, test_support::presentation_model(),
+        fixture.presentation, fixture.saves, test_support::save_codec(), corrupt_slot, "en",
+        fixture.runtime_budget);
+    REQUIRE_FALSE(corrupt);
     CHECK(fixture.script_port.ready_calls == 3);
 
     fixture.presentation.terminations.clear();
-    auto loaded =
+    auto load_request =
         fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
-    REQUIRE(loaded.diagnostics.empty());
+    REQUIRE(load_request.diagnostics.empty());
+    REQUIRE(load_request.session_replacement_request);
+    commit_load_candidate(fixture, slot);
     CHECK(fixture.script_port.ready_calls == 4);
     CHECK(fixture.script_port.ready_profiles.back() ==
           runtime::RuntimeCapabilityProfile::OnGameReady);
-    REQUIRE(fixture.presentation.terminations.size() == 1);
-    CHECK(fixture.presentation.terminations.front() ==
-          core::PresentationCancellationReason::CheckpointLoad);
 }
 
-TEST_CASE("runtime reset clears checkpoint and transient lifecycle without fabricated completion")
+TEST_CASE("reset replacement request leaves live checkpoint state untouched until candidate commit")
 {
     Fixture fixture("minimal.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
@@ -581,17 +635,21 @@ TEST_CASE("runtime reset clears checkpoint and transient lifecycle without fabri
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
     fixture.presentation.terminations.clear();
 
-    auto reset =
+    const auto checkpoint_before = *fixture.session->checkpoint_service().latest_checkpoint();
+    auto reset_request =
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::ResetRuntimeInput{}});
-    REQUIRE(reset.diagnostics.empty());
-    REQUIRE(fixture.presentation.terminations.size() == 1);
-    CHECK(fixture.presentation.terminations.front() ==
-          core::PresentationCancellationReason::RuntimeReset);
+    REQUIRE(reset_request.diagnostics.empty());
+    REQUIRE(reset_request.session_replacement_request);
+    CHECK(std::holds_alternative<core::ResetRuntimeInput>(
+        *reset_request.session_replacement_request));
+    CHECK(fixture.presentation.terminations.empty());
+    CHECK(*fixture.session->checkpoint_service().latest_checkpoint() == checkpoint_before);
+
+    commit_reset_candidate(fixture);
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
-    CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision.number() == 1);
 }
 
-TEST_CASE("stop and reset cancel staged runtime commands without mutation")
+TEST_CASE("stop and candidate replacement cancel staged runtime commands without mutation")
 {
     Fixture fixture;
     const auto key = make_id<core::InteractableIdTag>("key");
@@ -619,8 +677,7 @@ TEST_CASE("stop and reset cancel staged runtime commands without mutation")
 
     REQUIRE(
         fixture.session->gateway().request_interactable_location(key, player_inventory_location()));
-    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
-                .diagnostics.empty());
+    commit_reset_candidate(fixture);
     auto after_reset = fixture.session->gateway().interactable_location(key);
     REQUIRE(after_reset);
     const auto* reset_room = std::get_if<core::compiled::RoomLocation>(after_reset.value_if());
@@ -629,7 +686,7 @@ TEST_CASE("stop and reset cancel staged runtime commands without mutation")
     CHECK(fixture.session->pending_command_count() == 0);
 }
 
-TEST_CASE("successful load cancels commands staged against the replaced session state")
+TEST_CASE("successful load candidate discards commands staged against the replaced session state")
 {
     Fixture fixture;
     const auto key = make_id<core::InteractableIdTag>("key");
@@ -642,9 +699,7 @@ TEST_CASE("successful load cancels commands staged against the replaced session 
 
     REQUIRE(
         fixture.session->gateway().request_interactable_location(key, player_inventory_location()));
-    auto loaded =
-        fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
-    REQUIRE(loaded.diagnostics.empty());
+    commit_load_candidate(fixture, slot);
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
@@ -1339,12 +1394,11 @@ TEST_CASE("runtime events retain order while script audio is accepted directly")
     CHECK(notifications == std::vector<std::string>{"before", "after"});
 }
 
-TEST_CASE("runtime script API survives reset and load without kernel-owned Lua closures")
+TEST_CASE(
+    "runtime script API routes load through session replacement without kernel-owned closures")
 {
     Fixture fixture;
     const auto count = make_id<core::PropertyIdTag>("count");
-    const auto initial_generation = fixture.session->gateway().generation();
-
     REQUIRE(execute_session_lua(
         fixture, "local ok, err = Game.set_prop('count', 12); assert(ok and err == nil)",
         "script-api-before-reset"));
@@ -1363,10 +1417,13 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
     CHECK(fixture.saves.has_slot(slot).value());
     CHECK_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
 
-    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
-                .diagnostics.empty());
-    const auto reset_generation = fixture.session->gateway().generation();
-    CHECK(reset_generation.number() == initial_generation.number() + 1);
+    auto reset_request =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+    REQUIRE(reset_request.diagnostics.empty());
+    REQUIRE(reset_request.session_replacement_request);
+    CHECK(std::holds_alternative<core::ResetRuntimeInput>(
+        *reset_request.session_replacement_request));
+    commit_reset_candidate(fixture);
     REQUIRE(execute_session_lua(
         fixture, "local ok, err = Game.set_prop('count', 21); assert(ok and err == nil)",
         "script-api-after-reset"));
@@ -1376,15 +1433,24 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
 
     REQUIRE(execute_session_lua(fixture, "local ok = Game.load(7); assert(ok)",
                                 "script-api-queued-load"));
-    (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    const auto loaded_generation = fixture.session->gateway().generation();
-    CHECK(loaded_generation.number() == reset_generation.number() + 1);
+    auto load_request =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(load_request.diagnostics.empty());
+    REQUIRE(load_request.session_replacement_request);
+    const auto* requested_load =
+        std::get_if<core::LoadRuntimeInput>(&*load_request.session_replacement_request);
+    REQUIRE(requested_load);
+    CHECK(requested_load->slot == slot);
+    CHECK(fixture.session->gateway().global_property(count).value() ==
+          core::RuntimeValue{std::int64_t{21}});
+
+    commit_load_candidate(fixture, slot);
     REQUIRE(fixture.session->gateway().global_property(count));
     CHECK(fixture.session->gateway().global_property(count).value() ==
           core::RuntimeValue{std::int64_t{12}});
 }
 
-TEST_CASE("runtime script API remains attached after a failed typed load")
+TEST_CASE("runtime script API remains attached when a requested load candidate fails")
 {
     Fixture fixture;
     const auto bad_slot = core::TypedSaveSlotId::manual(9);
@@ -1392,8 +1458,14 @@ TEST_CASE("runtime script API remains attached after a failed typed load")
 
     REQUIRE(execute_session_lua(fixture, "local ok, err = Game.load(9); assert(ok and err == nil)",
                                 "script-api-failed-load-request"));
-    auto failed = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    REQUIRE_FALSE(failed.diagnostics.empty());
+    auto requested = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(requested.diagnostics.empty());
+    REQUIRE(requested.session_replacement_request);
+    auto failed = runtime::RuntimeSession::restore(
+        fixture.project, fixture.script_port, test_support::presentation_model(),
+        fixture.presentation, fixture.saves, test_support::save_codec(), bad_slot, "en",
+        fixture.runtime_budget);
+    REQUIRE_FALSE(failed);
 
     REQUIRE(execute_session_lua(
         fixture, "local ok, err = Game.set_prop('count', 33); assert(ok and err == nil)",
@@ -1563,7 +1635,11 @@ TEST_CASE("runtime Lua random state is deterministic across save load and invali
 
     REQUIRE(
         execute_session_lua(fixture, "local ok = Game.load(12); assert(ok)", "typed-random-load"));
-    (void)fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto load_request =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(load_request.diagnostics.empty());
+    REQUIRE(load_request.session_replacement_request);
+    commit_load_candidate(fixture, core::TypedSaveSlotId::manual(12));
     REQUIRE(execute_session_lua(fixture,
                                 "random_restored = assert(noveltea.random.integer(-20, 20))",
                                 "typed-random-restored"));
@@ -1869,7 +1945,11 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
 
     REQUIRE(execute_session_lua(fixture, "local ok, err = Game.load(23); assert(ok and err == nil)",
                                 "typed-custom-layout-load"));
-    (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto load_request =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(load_request.diagnostics.empty());
+    REQUIRE(load_request.session_replacement_request);
+    commit_load_candidate(fixture, core::TypedSaveSlotId::manual(23));
     const auto& restored = fixture.session->presentation_state().mounted_layouts();
     CHECK(std::ranges::any_of(restored, [](const auto& layout) {
         const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
@@ -2028,9 +2108,12 @@ TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")
 
     REQUIRE(
         execute_session_lua(fixture, "local ok = Game.load(13); assert(ok)", "typed-pause-load"));
-    auto loaded = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    REQUIRE(loaded.diagnostics.empty());
-    CHECK_FALSE(published_view(loaded).gameplay_paused);
+    auto load_request =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(load_request.diagnostics.empty());
+    REQUIRE(load_request.session_replacement_request);
+    commit_load_candidate(fixture, core::TypedSaveSlotId::manual(13));
+    CHECK_FALSE(fixture.session->explicit_gameplay_paused());
     REQUIRE(execute_session_lua(fixture,
                                 "local ok, err = Game.resume(); assert(ok and err == nil); "
                                 "assert(Game.paused() == false)",
@@ -2162,7 +2245,12 @@ TEST_CASE("runtime Lua text log validates metadata and survives save restore")
                                 "local ok = noveltea.text_log.clear(); assert(ok)\n"
                                 "ok = Game.load(14); assert(ok)",
                                 "typed-text-log-load"));
-    auto restored = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto load_request =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(load_request.diagnostics.empty());
+    REQUIRE(load_request.session_replacement_request);
+    commit_load_candidate(fixture, core::TypedSaveSlotId::manual(14));
+    auto restored = fixture.session->publish_initial_state();
     REQUIRE(restored.diagnostics.empty());
     const auto& restored_view = published_view(restored);
     REQUIRE(restored_view.text_log.entries.size() == 1);

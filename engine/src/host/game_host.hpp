@@ -300,12 +300,19 @@ public:
     {
         return m_compiled_project_path;
     }
+    [[nodiscard]] script::ScriptRuntime* project_script_runtime() noexcept
+    {
+        return m_project_scripts.get();
+    }
+    [[nodiscard]] const script::ScriptRuntime* project_script_runtime() const noexcept
+    {
+        return m_project_scripts.get();
+    }
     void report_runtime_diagnostics(HostFrameStage stage, core::Diagnostics diagnostics);
 
 private:
     class RunningGamePresentationPort;
     class RuntimeUiInputAdapter;
-    class ScriptInvocationRouter;
 
     void advance_session_generation() noexcept;
     void advance_backend_generation() noexcept;
@@ -318,6 +325,8 @@ private:
                                                         core::MountedLayoutOwner owner,
                                                         const std::function<bool()>& dispatch);
     void deliver_runtime_ui_events(std::span<const runtime::RuntimeEvent> events);
+    [[nodiscard]] HostRuntimeDispatchResult
+    replace_runtime_session(const core::RuntimeInputMessage& input);
     [[nodiscard]] HostRuntimeDispatchResult
     stale_runtime_input_result(GameSessionGeneration generation);
     [[nodiscard]] HostRuntimeDispatchResult lifecycle_noop_result() const noexcept;
@@ -355,7 +364,6 @@ private:
 
     std::unique_ptr<RuntimeUiInputAdapter> m_runtime_ui_input_sink;
     std::vector<std::unique_ptr<RuntimeUiInputAdapter>> m_retired_runtime_ui_input_sinks;
-    std::unique_ptr<ScriptInvocationRouter> m_script_invocation_router;
 
     std::string m_compiled_project_path;
     GameSessionGeneration m_session_generation = *GameSessionGeneration::from_number(1);
@@ -365,6 +373,7 @@ private:
     bool m_defer_presentation_flush = false;
     bool m_backend_reset_active = false;
     bool m_shutdown = false;
+    std::unique_ptr<script::ScriptRuntime> m_project_scripts;
     std::unique_ptr<RunningGamePresentationPort> m_running_game_presentation_port;
     std::unique_ptr<runtime::RunningGame> m_running_game;
 };

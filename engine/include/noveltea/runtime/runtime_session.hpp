@@ -29,9 +29,16 @@ public:
            PresentationModelPort& presentation_model, PresentationRuntimePort& presentation,
            core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
            std::string runtime_locale = {}, RuntimeBudgetConfiguration runtime_budget = {});
+    [[nodiscard]] static core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>
+    restore(const core::CompiledProject& project, ScriptInvocationPort& scripts,
+            PresentationModelPort& presentation_model, PresentationRuntimePort& presentation,
+            core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
+            core::TypedSaveSlotId slot, std::string runtime_locale = {},
+            RuntimeBudgetConfiguration runtime_budget = {});
     ~RuntimeSession() override;
 
     [[nodiscard]] RuntimeDispatchResult dispatch(const core::RuntimeInputMessage& input);
+    [[nodiscard]] RuntimeDispatchResult publish_initial_state();
     [[nodiscard]] core::PresentationOperationId allocate_presentation_operation_id() noexcept
     {
         assert_owner_thread();
@@ -177,9 +184,9 @@ private:
     RuntimePublicationRevision m_next_publication_revision =
         *RuntimePublicationRevision::from_number(1);
     std::unique_ptr<RuntimeExecutor> m_kernel;
-    CapabilityGeneration m_next_capability_generation = *CapabilityGeneration::from_number(2);
     core::TypedRuntimeUIViewState m_script_view;
     std::vector<core::RuntimeInputMessage> m_script_inputs;
+    std::optional<core::RuntimeInputMessage> m_session_replacement_request;
     bool m_draining_script_inputs = false;
     RuntimeBudgetConfiguration m_runtime_budget;
     bool m_draining_deferred_commands = false;
