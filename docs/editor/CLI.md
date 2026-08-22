@@ -27,19 +27,33 @@ noveltea agent sync [--fix]
 ComfyUI workflow discovery is available headlessly:
 
 ```text
+noveltea comfyui status [--server <url>]
 noveltea comfyui workflows [--all]
 noveltea comfyui workflows <id>
+noveltea comfyui verify [<id>] [--server <url>]
 ```
 
-These commands use the same catalog as the editor workflow manager. Built-in and shared-user workflows are available
-without a Project; when `--project` selects a Project or upward discovery finds one, project-local workflows are added.
-Source precedence is `project > user > built-in` by logical workflow ID. Bare listing returns only the effective workflow
-set. `--all` is diagnostic and also exposes overridden or invalid package copies without changing precedence. Inspection
-reports the selected workflow's source, classification, description, public inputs/outputs and authoring metadata,
-offline validation/runnability, package hash, and available cached verification state. Shared user packages live under
-`<NovelTea user config>/comfyui/workflows/`, so `NOVELTEA_USER_CONFIG_ROOT` also provides hermetic ComfyUI catalog storage
-for CI. ComfyUI execution/status/verification commands are introduced by their owning implementation slices; this
-catalog command does not contact a server or rewrite workflow packages.
+These commands use the same catalog, machine configuration, and verification cache as the editor workflow manager.
+Built-in and shared-user workflows are available without a Project; when `--project` selects a Project or upward
+discovery finds one, project-local workflows are added. Source precedence is `project > user > built-in` by logical
+workflow ID. Bare listing returns only the effective workflow set. `--all` is diagnostic and also exposes overridden or
+invalid package copies without changing precedence. Inspection reports the selected workflow's source, classification,
+description, public inputs/outputs and authoring metadata, offline validation/runnability, package hash, and cached
+verification state relevant to the configured server.
+
+`comfyui status` is deliberately Project-independent and rejects global `--project`. It resolves one server for the
+invocation as `--server`, then the shared user configuration, then `http://127.0.0.1:8000`, and reports connection,
+ComfyUI version, and queue information without exposing arbitrary response bodies. `comfyui verify <id>` verifies one
+effective workflow; omitting the ID verifies the active workflow set in the optional-Project context. Verification checks
+the manifest-required node classes and every mapped node input against `/object_info`. CLI verification is diagnostic
+only except for updating the disposable shared verification cache; it never repairs or rewrites packages.
+
+Shared user packages live under `<NovelTea user config>/comfyui/workflows/`. The strict
+`noveltea.comfyui-user-config` version 1 document at `<NovelTea user config>/comfyui/config-v1.json` owns the server URL,
+per-request timeout, and logical default-workflow mappings. Editor enablement and periodic connection-check cadence are
+editor-local preferences and are not part of that shared file. `NOVELTEA_USER_CONFIG_ROOT` therefore provides hermetic
+ComfyUI configuration, workflow, and cache storage for CI. An invocation `--server` override is ephemeral and does not
+rewrite the shared configuration.
 
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export also accepts `--include-unused-assets` and `--include-shader-sources` as explicit developer overrides of the normal pruning/source-stripping policy. `noveltea --help` is authoritative for the installed version's exact syntax.
 
@@ -85,7 +99,8 @@ Unused assets are excluded by default using the same authoring dependency graph 
 These are the headless equivalents of the Export pane's Developer Mode options.
 
 The editor and CLI share reusable machine-level state beneath the NovelTea user configuration root. Export configuration
-is stored at `~/.noveltea/export-config-v1.json`; shared ComfyUI workflows are under `~/.noveltea/comfyui/workflows/`.
+is stored at `~/.noveltea/export-config-v1.json`; shared ComfyUI configuration, workflows, and disposable verification
+cache are under `~/.noveltea/comfyui/`.
 Export configuration contains toolchain paths plus named Windows, macOS, and Android signing configurations. Signing
 secrets remain explicit `env:NAME` references. `NOVELTEA_USER_CONFIG_ROOT` provides a hermetic override for the shared
 NovelTea user-config directory, including both export and ComfyUI catalog state, in CI. The optional `--config` file continues to use the

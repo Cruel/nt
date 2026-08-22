@@ -8,7 +8,9 @@ import {
 import {
   COMFYUI_IPC_LIMITS,
   comfyUiConfigSchema,
+  comfyUiSharedUserConfigSchema,
   comfyUiPromptSchema,
+  comfyUiServerUrlSchema,
   comfyUiWorkflowIdSchema,
   comfyUiWorkflowLabelSchema,
   utf8ByteLength,
@@ -769,11 +771,13 @@ const comfyUiWorkflowManifestSchema = z.unknown().superRefine((value, context) =
 });
 
 export const comfyUiConfigArgumentsSchema = z.tuple([comfyUiConfigSchema]);
+export const comfyUiUserConfigArgumentsSchema = z.tuple([comfyUiSharedUserConfigSchema]);
 export const comfyUiListWorkflowLibraryArgumentsSchema = z.tuple([
   comfyUiSessionSchema,
   z
     .object({
       includeOverridden: z.boolean().optional(),
+      serverIdentity: comfyUiServerUrlSchema.optional(),
       comfyUiVersion: comfyUiWorkflowIdSchema.optional(),
     })
     .strict(),
@@ -829,7 +833,13 @@ export const comfyUiRevealWorkflowArgumentsSchema = z.tuple([
 ]);
 export const comfyUiVerifyWorkflowArgumentsSchema = z.tuple([
   comfyUiSessionSchema,
-  z.object({ config: comfyUiConfigSchema, force: z.boolean().optional() }).strict(),
+  z
+    .object({
+      config: comfyUiConfigSchema,
+      workflowId: comfyUiWorkflowIdSchema.optional(),
+      force: z.boolean().optional(),
+    })
+    .strict(),
 ]);
 export const comfyUiAnalyzeWorkflowArgumentsSchema = z.tuple([
   comfyUiSessionSchema,

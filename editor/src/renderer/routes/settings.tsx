@@ -47,6 +47,10 @@ import {
 } from '@/stores/preferences-store';
 import type { EditorPreviewLayoutPreference } from '@/components/editor-preview-layout';
 import type { RmlUiRasterSnapMode } from '../../shared/preview-protocol';
+import {
+  comfyUiSharedUserConfigFromRuntime,
+  defaultComfyUiSharedUserConfig,
+} from '../../shared/comfyui';
 import { buildComfyUiWorkflowsTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
@@ -614,6 +618,20 @@ export function SettingsPage({
     setComfyUiConfig(patch);
     useComfyUiStore.getState().hydrateFromPreferences();
     const nextConfig = usePreferencesStore.getState().comfyUiConfig;
+    if (
+      'serverUrl' in patch ||
+      'requestTimeoutMs' in patch ||
+      'defaultWorkflowId' in patch ||
+      'defaultWorkflows' in patch
+    ) {
+      try {
+        void window.noveltea
+          .saveComfyUiUserConfig(comfyUiSharedUserConfigFromRuntime(nextConfig))
+          .catch(() => undefined);
+      } catch {
+        // Keep an in-progress editor value local until it forms a valid shared configuration.
+      }
+    }
     if (!wasEnabled && nextConfig.enabled) {
       void useComfyUiStore
         .getState()
@@ -812,7 +830,7 @@ export function SettingsPage({
   }
 
   async function testComfyUiConnection() {
-    const config = usePreferencesStore.getState().comfyUiConfig;
+    const config = useComfyUiStore.getState().config;
     await checkComfyUiConnection(config, { showChecking: true });
   }
 
@@ -834,6 +852,7 @@ export function SettingsPage({
     if (!userExportConfigLoaded) return;
     const defaultExportConfig = defaultUserExportConfig();
     await saveSharedExportConfig(defaultExportConfig);
+    await window.noveltea.saveComfyUiUserConfig(defaultComfyUiSharedUserConfig());
     resetPreferencesToDefaults();
     setDefaultProjectDirectoryError(null);
     useComfyUiStore.getState().hydrateFromPreferences();

@@ -95,6 +95,23 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 
+  it('persists only editor-local ComfyUI enablement and check cadence', () => {
+    usePreferencesStore.getState().setComfyUiConfig({
+      enabled: true,
+      serverUrl: 'https://comfy.example.test',
+      requestTimeoutMs: 2345,
+      connectionCheckIntervalMs: 6789,
+      defaultWorkflowId: 'shared-default',
+      defaultWorkflows: { 'image.generate': 'shared-default' },
+    });
+
+    const persisted = JSON.parse(localStorage.getItem('noveltea-preferences')!);
+    expect(persisted.state.comfyUiConfig).toEqual({
+      enabled: true,
+      connectionCheckIntervalMs: 6789,
+    });
+  });
+
   it('stores only editor-local export conveniences outside project data', () => {
     usePreferencesStore.getState().setExportPreferences({
       defaultOutputDirectory: '/tmp/exports',

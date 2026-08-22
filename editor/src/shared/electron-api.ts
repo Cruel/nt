@@ -171,6 +171,8 @@ interface NovelTeaElectronApiContract {
   readProjectTextSources(
     request: import('./project-text-sources').ReadProjectTextSourcesRequest,
   ): Promise<import('./project-text-sources').ReadProjectTextSourcesResponse>;
+  loadComfyUiUserConfig(): Promise<ComfyUiSharedUserConfig>;
+  saveComfyUiUserConfig(config: ComfyUiSharedUserConfig): Promise<ComfyUiSharedUserConfig>;
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
   listComfyUiWorkflowLibrary(
@@ -237,7 +239,12 @@ import type {
   AssetImportResponse,
   AssetReimportResponse,
 } from './asset-import';
-import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfyui';
+import type {
+  ComfyUiConfig,
+  ComfyUiQueueProgress,
+  ComfyUiSharedUserConfig,
+  ComfyUiStatus,
+} from './comfyui';
 import type {
   ComfyUiCancelJobResponse,
   ComfyUiEditImageRequest,

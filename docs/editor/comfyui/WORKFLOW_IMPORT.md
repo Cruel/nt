@@ -14,7 +14,10 @@ The workflow catalog discovers packages from three sources:
 
 The NovelTea user configuration root is `~/.noveltea` by default and honors `NOVELTEA_USER_CONFIG_ROOT`, including in
 headless CLI and CI usage. The editor and CLI therefore consume the same shared user workflow directory rather than an
-Electron application-data workflow directory.
+Electron application-data workflow directory. `<NovelTea user config>/comfyui/config-v1.json` is the strict
+`noveltea.comfyui-user-config` version 1 machine configuration. It owns the ComfyUI server URL, per-request timeout, and
+logical default-workflow mappings. Editor enablement and periodic connection-check cadence remain editor-local
+preferences and are deliberately absent from the shared document.
 
 Project workflows are contextual. The editor includes them when an active saved Project session exists. The CLI includes
 them when `--project` selects a valid Project or upward `project.json` discovery succeeds; absence of a Project does not
@@ -48,6 +51,12 @@ normal NovelTea machine contract of one compact JSON object on stdout and empty 
 `noveltea comfyui workflows --all` is diagnostic: it includes overridden and invalid package copies with source,
 manifest identity, validation status, override state, and diagnostics. It does not change which package is effective.
 Invalid packages are surfaced as data rather than normalized, upgraded, or interpreted as an older shape.
+
+`noveltea comfyui status [--server <url>]` is Project-independent and rejects global `--project`. It resolves the server
+from the invocation override, then shared user configuration, then `http://127.0.0.1:8000`. `noveltea comfyui verify
+[<id>] [--server <url>]` uses optional Project discovery: a named ID verifies that one effective workflow, while omission
+verifies the active workflow set. Verification is diagnostic-only apart from the disposable cache and never repairs or
+rewrites a package.
 
 ## Author Workflow
 
@@ -131,13 +140,17 @@ the target package.
 ## Verification
 
 Offline validation checks package shape, bindings, output nodes, and required metadata. Online verification runs against
-the configured ComfyUI `/object_info` endpoint and records whether workflow node classes and mapped inputs are available.
+the selected ComfyUI `/object_info` endpoint and requires every manifest `requiredNodeClasses` entry plus every mapped
+node input to exist before verification succeeds.
 
-Refresh verifies workflows that are failing or do not have a cached success. Cached successes are skipped, while changed
-package hashes naturally become unverified and are checked again. A label-only rename updates the package hash but
-rekeys its cached verification because the name does not affect ComfyUI compatibility. The cache is
-itself the strict `noveltea.comfyui-workflow-verification-cache` version 1 document stored under the shared
-`<NovelTea user config>/comfyui/` area; incompatible or malformed cache files are discarded and rebuilt. If offline checks pass but no server is
+Editor refresh verifies active workflows that are failing or do not have a cached success. Cached successes are skipped,
+while changed package hashes naturally become unverified and are checked again. Explicit CLI `verify` performs the
+requested check even when a prior success exists. A label-only rename updates the package hash but rekeys its cached
+verification because the name does not affect ComfyUI compatibility. The cache is itself the strict
+`noveltea.comfyui-workflow-verification-cache` version 1 document stored under the shared `<NovelTea user
+config>/comfyui/` area. Records are scoped by normalized server identity, workflow package hash, and observed ComfyUI
+version. Issue #106 deliberately preserved cache version 1 while requiring that server identity in the canonical record;
+older same-version records without it are discarded rather than migrated. If offline checks pass but no server is
 available, the verification light is yellow and its tooltip says `Need ComfyUI server to verify`.
 
 ## IPC Authority and Bounds

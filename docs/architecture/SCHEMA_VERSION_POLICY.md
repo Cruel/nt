@@ -25,11 +25,16 @@ and media/cardinality outputs. The retired same-version semantic `role`, top-lev
 object, binding/output `valueType`, and `image-list`/`primary` representation are noncanonical V2 data and
 must be rejected rather than upgraded or interpreted.
 
-Issue #105 likewise preserves the already-selected ComfyUI verification-cache `schemaVersion: 1` while
-moving workflow source identity from the retired Electron-specific `editor:` key space to the shared
-`user:` source. Current verification records use only `built-in:`, `user:`, or `project:` workflow keys;
-cache data containing the retired `editor:` source is noncanonical V1 data and is discarded rather than
-migrated or aliased.
+Issue #105 preserves the already-selected ComfyUI verification-cache `schemaVersion: 1` while moving
+workflow source identity from the retired Electron-specific `editor:` key space to the shared `user:` source.
+Issue #106 preserves that same cache version while adding normalized `serverIdentity` to every canonical record
+so verification cannot be reused across servers. Current verification records use only `built-in:`, `user:`, or
+`project:` workflow keys and require server identity, package hash, and observed ComfyUI version. Same-version
+cache data with the retired `editor:` source or without server identity is discarded rather than migrated or aliased.
+
+The shared `noveltea.comfyui-user-config` contract begins at `formatVersion: 1` under the general NovelTea user
+configuration root. It contains server URL, per-request timeout, and default-workflow mappings only; editor enablement
+and periodic connection cadence are intentionally outside this machine-level contract.
 
 ## Definitions
 
@@ -54,6 +59,7 @@ migrated or aliased.
 | Browser-local shell session | Version mismatch or malformed state | Discard and initialize `shellSession: null`. |
 | Editor tab or draft state | Wrong identity/version for the owning editor | Discard that state; do not invoke the editor restore path. |
 | ComfyUI workflow manifest | Wrong/missing version or noncanonical shape | Mark invalid; do not execute, copy, install, or repair by interpretation. |
+| ComfyUI shared user config | Wrong/missing identity/version or noncanonical fields | Discard it and use the current machine-level defaults; do not infer editor-local fields. |
 | ComfyUI verification cache | Wrong/missing identity/version or malformed record | Discard the cache and rebuild current verification records. |
 | Compiled project or package | Wrong version or noncanonical resource | Reject the complete artifact through decoder diagnostics. |
 | Focused preview candidate | Wrong protocol/schema or resource shape | Reject the candidate and preserve the last committed preview. |

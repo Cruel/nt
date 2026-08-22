@@ -149,9 +149,13 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     expect(await screen.findByText('Built-in Portrait')).toBeInTheDocument();
     expect(screen.getByText('Built-in')).toBeInTheDocument();
-    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(null, {
-      includeOverridden: true,
-    });
+    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(
+      null,
+      expect.objectContaining({
+        includeOverridden: true,
+        serverIdentity: 'http://127.0.0.1:8000',
+      }),
+    );
   });
 
   it('shows project actions when a project is open and refreshes with the project path', async () => {
@@ -169,7 +173,10 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(await screen.findByRole('menuitem', { name: 'Copy to Project' })).toBeEnabled();
     expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(
       '11111111-1111-4111-8111-111111111111',
-      { includeOverridden: true },
+      expect.objectContaining({
+        includeOverridden: true,
+        serverIdentity: 'http://127.0.0.1:8000',
+      }),
     );
   });
 

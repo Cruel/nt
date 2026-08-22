@@ -182,6 +182,9 @@ const api: NovelTeaElectronApi = {
   },
   readProjectTextSources: (request) =>
     invokeGuarded(IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES, request),
+  loadComfyUiUserConfig: () => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_LOAD_USER_CONFIG),
+  saveComfyUiUserConfig: (config) =>
+    ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_SAVE_USER_CONFIG, config),
   checkComfyUiConnection: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CHECK_CONNECTION, config),
   getComfyUiQueue: (config) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),

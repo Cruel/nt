@@ -10,8 +10,10 @@ Usage:
 Commands:
   project create <directory> --name <project-name>
   agent sync [--fix]
+  comfyui status [--server <url>]
   comfyui workflows [--all]
   comfyui workflows <id>
+  comfyui verify [<id>] [--server <url>]
   validate
   entity create <collection> <id> [--dry-run]
   entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]

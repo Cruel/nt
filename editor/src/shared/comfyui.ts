@@ -41,7 +41,7 @@ export const comfyUiWorkflowLabelSchema = utf8BoundedStringSchema(
   1,
 );
 export const comfyUiPromptSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.promptBytes);
-const comfyUiServerUrlSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.serverUrlBytes, 1)
+export const comfyUiServerUrlSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.serverUrlBytes, 1)
   .url()
   .refine((value) => {
     const protocol = new URL(value).protocol;
@@ -65,6 +65,18 @@ export const comfyUiConfigSchema = z
       .max(COMFYUI_IPC_LIMITS.connectionCheckIntervalMs),
   })
   .strict();
+
+export const COMFYUI_USER_CONFIG_FORMAT = 'noveltea.comfyui-user-config' as const;
+export const COMFYUI_USER_CONFIG_FORMAT_VERSION = 1 as const;
+
+export interface ComfyUiSharedUserConfig {
+  format: typeof COMFYUI_USER_CONFIG_FORMAT;
+  formatVersion: typeof COMFYUI_USER_CONFIG_FORMAT_VERSION;
+  serverUrl: string;
+  requestTimeoutMs: number;
+  defaultWorkflowId: string;
+  defaultWorkflows: Partial<Record<ComfyUiKnownWorkflowClassification, ComfyUiWorkflowId>>;
+}
 
 export interface ComfyUiConfig {
   enabled: boolean;
@@ -105,9 +117,10 @@ export interface ComfyUiQueueProgress {
   updatedAt?: string;
 }
 
-export function defaultComfyUiConfig(): ComfyUiConfig {
+export function defaultComfyUiSharedUserConfig(): ComfyUiSharedUserConfig {
   return {
-    enabled: false,
+    format: COMFYUI_USER_CONFIG_FORMAT,
+    formatVersion: COMFYUI_USER_CONFIG_FORMAT_VERSION,
     serverUrl: 'http://127.0.0.1:8000',
     defaultWorkflowId: 'flux2-klein-text-to-image',
     defaultWorkflows: {
@@ -115,6 +128,59 @@ export function defaultComfyUiConfig(): ComfyUiConfig {
       'image.edit': 'flux2-klein-image-edit',
     },
     requestTimeoutMs: 15000,
+  };
+}
+
+export const comfyUiSharedUserConfigSchema = z
+  .object({
+    format: z.literal(COMFYUI_USER_CONFIG_FORMAT),
+    formatVersion: z.literal(COMFYUI_USER_CONFIG_FORMAT_VERSION),
+    serverUrl: comfyUiServerUrlSchema,
+    defaultWorkflowId: boundedWorkflowIdSchema,
+    defaultWorkflows: z
+      .partialRecord(z.enum(['image.generate', 'image.edit']), boundedWorkflowIdSchema)
+      .refine((value) => Object.keys(value).length <= COMFYUI_IPC_LIMITS.defaultWorkflowEntries),
+    requestTimeoutMs: z.number().int().positive().max(COMFYUI_IPC_LIMITS.requestTimeoutMs),
+  })
+  .strict();
+
+export function normalizeComfyUiSharedUserConfig(
+  config: Partial<ComfyUiSharedUserConfig> = {},
+): ComfyUiSharedUserConfig {
+  const defaults = defaultComfyUiSharedUserConfig();
+  const defaultWorkflowId = config.defaultWorkflowId ?? defaults.defaultWorkflowId;
+  return comfyUiSharedUserConfigSchema.parse({
+    ...defaults,
+    ...config,
+    serverUrl: normalizeComfyUiServerUrl(config.serverUrl ?? defaults.serverUrl),
+    defaultWorkflowId,
+    defaultWorkflows: {
+      ...defaults.defaultWorkflows,
+      ...config.defaultWorkflows,
+      'image.generate': config.defaultWorkflows?.['image.generate'] ?? defaultWorkflowId,
+    },
+  });
+}
+
+export function comfyUiSharedUserConfigFromRuntime(config: ComfyUiConfig): ComfyUiSharedUserConfig {
+  return normalizeComfyUiSharedUserConfig({
+    format: COMFYUI_USER_CONFIG_FORMAT,
+    formatVersion: COMFYUI_USER_CONFIG_FORMAT_VERSION,
+    serverUrl: config.serverUrl,
+    requestTimeoutMs: config.requestTimeoutMs,
+    defaultWorkflowId: config.defaultWorkflowId,
+    defaultWorkflows: config.defaultWorkflows,
+  });
+}
+
+export function defaultComfyUiConfig(): ComfyUiConfig {
+  const shared = defaultComfyUiSharedUserConfig();
+  return {
+    enabled: false,
+    serverUrl: shared.serverUrl,
+    defaultWorkflowId: shared.defaultWorkflowId,
+    defaultWorkflows: shared.defaultWorkflows,
+    requestTimeoutMs: shared.requestTimeoutMs,
     connectionCheckIntervalMs: 10000,
   };
 }
@@ -137,4 +203,14 @@ export function normalizeComfyUiConfig(config: Partial<ComfyUiConfig> = {}): Com
 
 export function normalizeComfyUiServerUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, '');
+}
+
+export function comfyUiServerIdentity(serverUrl: string): string {
+  const url = new URL(normalizeComfyUiServerUrl(serverUrl));
+  url.username = '';
+  url.password = '';
+  url.search = '';
+  url.hash = '';
+  const pathname = url.pathname.replace(/\/+$/, '');
+  return `${url.protocol}//${url.host.toLowerCase()}${pathname}`;
 }
