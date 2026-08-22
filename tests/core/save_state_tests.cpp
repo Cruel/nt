@@ -778,6 +778,60 @@ TEST_CASE("typed save codec strictly decodes and links a save against its Compil
         CHECK_FALSE(decode_save_state(project, invalid, "save-fixture.json"));
     }
 
+    SECTION("saved item Stack Traits are canonical, conflict-free, and satisfied")
+    {
+        const auto trait_project =
+            load_fixture("trait-properties-localization.json", [](nlohmann::json& document) {
+                document["properties"].push_back({{"description", ""},
+                                                  {"enumValues", nlohmann::json::array()},
+                                                  {"id", "serial"},
+                                                  {"label", "Serial"},
+                                                  {"nullable", false},
+                                                  {"ownerKinds", {"item-stack"}},
+                                                  {"scope", "identity"},
+                                                  {"type", "string"}});
+                document["traits"].push_back({{"description", ""},
+                                              {"id", "matching-currency"},
+                                              {"label", "Matching Currency"},
+                                              {"ownerKinds", {"item-stack"}},
+                                              {"properties",
+                                               {{{"kind", "configured"},
+                                                 {"propertyId", "quality"},
+                                                 {"value", "polished"}}}}});
+                document["traits"].push_back({{"description", ""},
+                                              {"id", "ordinary-currency"},
+                                              {"label", "Ordinary Currency"},
+                                              {"ownerKinds", {"item-stack"}},
+                                              {"properties",
+                                               {{{"kind", "configured"},
+                                                 {"propertyId", "quality"},
+                                                 {"value", "ordinary"}}}}});
+                document["traits"].push_back(
+                    {{"description", ""},
+                     {"id", "serial-required"},
+                     {"label", "Serial Required"},
+                     {"ownerKinds", {"item-stack"}},
+                     {"properties", {{{"kind", "required"}, {"propertyId", "serial"}}}}});
+            });
+        auto trait_state = make_state(trait_project);
+        auto trait_snapshot = make_save_state(trait_project, trait_state);
+        REQUIRE(trait_snapshot);
+        auto trait_encoded = encode_save_state(trait_project, trait_snapshot.value());
+        REQUIRE(trait_encoded);
+
+        auto invalid = trait_encoded.value();
+        invalid["itemStacks"][0]["traits"] = {"matching-currency", "currency"};
+        CHECK_FALSE(decode_save_state(trait_project, invalid, "save-fixture.json"));
+
+        invalid = trait_encoded.value();
+        invalid["itemStacks"][0]["traits"] = {"currency", "ordinary-currency"};
+        CHECK_FALSE(decode_save_state(trait_project, invalid, "save-fixture.json"));
+
+        invalid = trait_encoded.value();
+        invalid["itemStacks"][0]["traits"] = {"serial-required"};
+        CHECK_FALSE(decode_save_state(trait_project, invalid, "save-fixture.json"));
+    }
+
     SECTION("Save Contract mismatch and missing contract data reject the entire candidate")
     {
         auto mismatched = encoded.value();

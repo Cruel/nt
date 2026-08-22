@@ -133,19 +133,22 @@ RuntimeExecutor::interact(core::VerbId verb_id,
                     ++exact;
                 } else if (std::holds_alternative<core::compiled::AnyCharacterOperand>(
                                rule.operands[index])) {
-                    matches = std::holds_alternative<core::compiled::CharacterInteractionSubject>(
-                        operands[index]);
+                    matches = matches &&
+                              std::holds_alternative<core::compiled::CharacterInteractionSubject>(
+                                  operands[index]);
                     ++typed_wildcards;
                 } else if (std::holds_alternative<core::compiled::AnyInteractableOperand>(
                                rule.operands[index])) {
                     matches =
+                        matches &&
                         std::holds_alternative<core::compiled::InteractableInteractionSubject>(
                             operands[index]);
                     ++typed_wildcards;
                 } else if (std::holds_alternative<core::compiled::AnyItemStackOperand>(
                                rule.operands[index])) {
-                    matches = std::holds_alternative<core::compiled::ItemStackInteractionSubject>(
-                        operands[index]);
+                    matches = matches &&
+                              std::holds_alternative<core::compiled::ItemStackInteractionSubject>(
+                                  operands[index]);
                     ++typed_wildcards;
                 }
             }

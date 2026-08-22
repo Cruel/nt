@@ -212,6 +212,49 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
     CHECK(selected->rule == id<core::InteractionRuleId>("typed-interactable"));
 }
 
+TEST_CASE("typed Interaction wildcard operands cannot overwrite an earlier mismatch")
+{
+    auto document = load_document();
+    auto exact_then_wildcard = definition(document, "interactions", "actions")["rules"][2];
+    exact_then_wildcard["id"] = "mismatched-exact";
+    exact_then_wildcard["verb"] = {{"kind", "verb"}, {"id", "combine"}};
+    auto mismatched_operands = nlohmann::json::array();
+    mismatched_operands.push_back(
+        {{"kind", "exact"},
+         {"subject",
+          {{"kind", "interactable"},
+           {"interactable", {{"kind", "interactable"}, {"id", "coin"}}}}}});
+    mismatched_operands.push_back({{"kind", "any-interactable"}});
+    exact_then_wildcard["operands"] = std::move(mismatched_operands);
+    exact_then_wildcard["context"] = {{"kind", "any"}};
+    exact_then_wildcard["program"] = program(nlohmann::json::array());
+    auto generic = exact_then_wildcard;
+    generic["id"] = "matching-wildcards";
+    generic["operands"] = nlohmann::json::array();
+    generic["operands"].push_back({{"kind", "any-interactable"}});
+    generic["operands"].push_back({{"kind", "any-interactable"}});
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(exact_then_wildcard), std::move(generic)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const auto key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("combine"), {key, key}));
+    auto interaction = kernel->interaction_view("en");
+    REQUIRE(interaction);
+    REQUIRE(interaction.value().program);
+    const auto* selected =
+        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+    REQUIRE(selected != nullptr);
+    CHECK(selected->rule == id<core::InteractionRuleId>("matching-wildcards"));
+}
+
 TEST_CASE("typed Interaction and Room publication preserve exact live item Stack identity")
 {
     auto document = load_document();

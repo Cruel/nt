@@ -6,6 +6,7 @@
 #include <limits>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 
 namespace noveltea::runtime {
@@ -1904,6 +1905,7 @@ RuntimeWorld::set_item_stack_traits(const core::ItemStackId& id, std::vector<cor
     if (std::ranges::adjacent_find(traits) != traits.end())
         return core::Result<ItemStackMutation, core::Diagnostics>::failure(
             world_error("runtime.invalid_item_stack_traits", "Item Stack Traits must be unique"));
+    std::unordered_map<core::PropertyId, core::RuntimeValue> configured_values;
     for (const auto& trait_id : traits) {
         const auto* trait = m_project.find_trait(trait_id);
         if (trait == nullptr ||
@@ -1912,6 +1914,16 @@ RuntimeWorld::set_item_stack_traits(const core::ItemStackId& id, std::vector<cor
             return core::Result<ItemStackMutation, core::Diagnostics>::failure(
                 world_error("runtime.invalid_item_stack_traits",
                             "Trait is missing or does not admit Item Stacks"));
+        for (const auto& member : trait->properties) {
+            if (!member.configured_value)
+                continue;
+            const auto [existing, inserted] =
+                configured_values.emplace(member.property_id, *member.configured_value);
+            if (!inserted && existing->second != *member.configured_value)
+                return core::Result<ItemStackMutation, core::Diagnostics>::failure(
+                    world_error("runtime.invalid_item_stack_traits",
+                                "Item Stack Traits configure a Property with conflicting values"));
+        }
     }
     if (stack->traits == traits)
         return core::Result<ItemStackMutation, core::Diagnostics>::success(
