@@ -908,11 +908,17 @@ export async function runComfyUiWorkflow(options: {
   imageInputs?: PreparedComfyUiImageInput[];
   config: ComfyUiConfig;
   signal?: AbortSignal;
-  onProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
+  promptId?: string;
+  clientId?: string;
+  onProgress?: (
+    stage: 'queued' | 'running' | 'completed',
+    message: string,
+    details: { promptId: string; clientId: string },
+  ) => void;
 }): Promise<ComfyUiRunResult> {
   const { entry, config } = options;
-  const clientId = randomUUID();
-  const requestedPromptId = randomUUID();
+  const clientId = options.clientId ?? randomUUID();
+  const requestedPromptId = options.promptId ?? randomUUID();
   if (options.signal?.aborted) throw abortError(requestedPromptId);
   await bindPreparedImageInputs(config, options.workflow, entry, options.imageInputs ?? []);
   if (options.signal?.aborted) throw abortError(requestedPromptId);
@@ -939,7 +945,7 @@ export async function runComfyUiWorkflow(options: {
   const onAbort = () => void cancelPrompt(config, promptId);
   options.signal?.addEventListener('abort', onAbort, { once: true });
   if (options.signal?.aborted) onAbort();
-  options.onProgress?.('queued', `Queued ComfyUI prompt ${promptId}.`);
+  options.onProgress?.('queued', `Queued ComfyUI prompt ${promptId}.`, { promptId, clientId });
   try {
     let history: unknown;
     for (;;) {
@@ -948,7 +954,10 @@ export async function runComfyUiWorkflow(options: {
       const failure = historyFailure(history, promptId);
       if (failure) throw failure;
       if (historyCompleted(history, promptId)) break;
-      options.onProgress?.('running', `Waiting for ComfyUI prompt ${promptId}.`);
+      options.onProgress?.('running', `Waiting for ComfyUI prompt ${promptId}.`, {
+        promptId,
+        clientId,
+      });
       await new Promise<void>((resolve) => setTimeout(resolve, HISTORY_POLL_INTERVAL_MS));
     }
 
@@ -995,7 +1004,10 @@ export async function runComfyUiWorkflow(options: {
       }
       outputs[outputId] = generated;
     }
-    options.onProgress?.('completed', `Downloaded and validated ComfyUI prompt ${promptId}.`);
+    options.onProgress?.('completed', `Downloaded and validated ComfyUI prompt ${promptId}.`, {
+      promptId,
+      clientId,
+    });
     return {
       workflowId: entry.id,
       workflowKey: entry.workflowKey,

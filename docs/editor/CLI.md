@@ -105,6 +105,14 @@ editor-local preferences and are not part of that shared file. `NOVELTEA_USER_CO
 ComfyUI configuration, workflow, and cache storage for CI. An invocation `--server` override is ephemeral and does not
 rewrite the shared configuration.
 
+The editor's Generate Image and Edit Image surfaces are thin Project-session adapters over this same execution core.
+They use the same catalog/default resolution, verification, public bindings, HTTP history polling, prompt-specific
+cancellation, image validation, and publication preparation. Edit Image first reads the selected source Asset through
+editor-owned Project authority, then hands a private temporary local image to the shared secure media handler. Therefore
+`localhost` is not an editor exception: use a literal loopback server such as `http://127.0.0.1:<port>` when local image
+bytes must be uploaded. The workflow manager retains image-specific automatic inference, while its strict V2 manual
+manifest editor can author or repair arbitrary named generic contracts and future classifications.
+
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export also accepts `--include-unused-assets` and `--include-shader-sources` as explicit developer overrides of the normal pruning/source-stripping policy. `noveltea --help` is authoritative for the installed version's exact syntax.
 
 Platform publication is a separate command family from Runtime Package creation:

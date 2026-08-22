@@ -287,17 +287,21 @@ export async function publishComfyUiOutputs(options: {
   outputs: Record<string, ComfyUiGeneratedImage[]>;
   force: boolean;
 }): Promise<Record<string, ComfyUiPublishedOutput[]>> {
-  const assetPlan = options.projectRoot
-    ? await planAssets({
-        projectRoot: options.projectRoot,
-        workspace: options.workspace,
-        fileSystem: options.fileSystem,
-        workflow: options.workflow,
-        promptId: options.promptId,
-        plan: options.plan,
-        outputs: options.outputs,
-      })
-    : null;
+  const hasAssetRoutes = Object.values(options.plan.routes).some(
+    (route) => route.target === 'asset',
+  );
+  const assetPlan =
+    options.projectRoot && hasAssetRoutes
+      ? await planAssets({
+          projectRoot: options.projectRoot,
+          workspace: options.workspace,
+          fileSystem: options.fileSystem,
+          workflow: options.workflow,
+          promptId: options.promptId,
+          plan: options.plan,
+          outputs: options.outputs,
+        })
+      : null;
   if (
     !options.projectRoot &&
     Object.values(options.plan.routes).some((route) => route.target === 'asset')

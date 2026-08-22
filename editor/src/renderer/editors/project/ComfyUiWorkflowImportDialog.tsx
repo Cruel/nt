@@ -30,6 +30,7 @@ import {
   COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG,
   COMFYUI_WORKFLOW_SCHEMA_VERSION,
   KNOWN_COMFYUI_WORKFLOW_CLASSIFICATIONS,
+  parseComfyUiWorkflowDefinition,
   type ComfyUiAnalyzeWorkflowImportResponse,
   type ComfyUiKnownWorkflowClassification,
   type ComfyUiSemanticInput,
@@ -430,6 +431,8 @@ export function ComfyUiWorkflowImportDialog({
   const [defaultsDraft, setDefaultsDraft] = useState<DefaultsDraft>({ filenamePrefix: 'NovelTea' });
   const [saveDiagnostics, setSaveDiagnostics] = useState<ComfyUiWorkflowDiagnostic[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [manualManifestMode, setManualManifestMode] = useState(false);
+  const [manualManifestJson, setManualManifestJson] = useState('');
 
   const candidates = roleCandidates(analysisResponse, role);
   const workflowFileName = `${slugify(workflowId)}.workflow.json`;
@@ -462,6 +465,15 @@ export function ComfyUiWorkflowImportDialog({
     workflowFileName,
     workflowId,
   ]);
+  const manualManifest = useMemo(() => {
+    if (!manualManifestMode) return null;
+    try {
+      return parseComfyUiWorkflowDefinition(JSON.parse(manualManifestJson));
+    } catch {
+      return null;
+    }
+  }, [manualManifestJson, manualManifestMode]);
+  const effectiveManifest = manualManifestMode ? manualManifest : manifest;
   const requiredInputsMissing = inputEntries(role).some(
     ([semanticKey, input]) => input.required && !selectedInputs[semanticKey],
   );
@@ -489,6 +501,8 @@ export function ComfyUiWorkflowImportDialog({
       setDefaultsDraft({ filenamePrefix: 'NovelTea' });
       setSaveDiagnostics([]);
       setError(null);
+      setManualManifestMode(false);
+      setManualManifestJson('');
     }
   }, [open]);
 
@@ -497,9 +511,17 @@ export function ComfyUiWorkflowImportDialog({
     const definition = repairEntry.definition;
     const repairClassification = knownImageClassification(definition);
     if (!repairClassification) {
-      setError(
-        'Automatic binding repair is only available for known image workflow classifications.',
-      );
+      setStep(6);
+      setFileName(definition.workflowFile);
+      setWorkflowJsonText(repairEntry.workflowJsonText);
+      setWorkflowId(definition.id);
+      setLabel(definition.label);
+      setDescription(definition.description ?? '');
+      setOverwrite(true);
+      setManualManifestMode(true);
+      setManualManifestJson(JSON.stringify(definition, null, 2));
+      setSaveDiagnostics([]);
+      setError(null);
       return;
     }
     setStep(1);
@@ -614,7 +636,11 @@ export function ComfyUiWorkflowImportDialog({
   }
 
   async function saveImport() {
-    if (!manifest || requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected)
+    if (
+      !effectiveManifest ||
+      (!manualManifestMode &&
+        (requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected))
+    )
       return;
     if (mode === 'repair' && repairEntry?.source === 'project' && !projectFilePath) {
       setError(t('comfyuiImport.errors.saveProjectBeforeImport'));
@@ -629,8 +655,8 @@ export function ComfyUiWorkflowImportDialog({
             workflowKey: repairEntry.workflowKey,
             projectFilePath,
             manifest: {
-              ...manifest,
-              workflowFile: repairEntry.definition?.workflowFile ?? manifest.workflowFile,
+              ...effectiveManifest,
+              workflowFile: repairEntry.definition?.workflowFile ?? effectiveManifest.workflowFile,
             },
             overwrite: true,
           })
@@ -638,7 +664,7 @@ export function ComfyUiWorkflowImportDialog({
             workflowFileName,
             manifestFileName,
             workflowJsonText,
-            manifest,
+            manifest: effectiveManifest,
             overwrite,
             config,
           });
@@ -959,6 +985,30 @@ export function ComfyUiWorkflowImportDialog({
     }
     return (
       <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2 rounded border p-2 text-xs">
+          <div>
+            <div className="font-medium">Generic manifest authoring</div>
+            <div className="text-muted-foreground">
+              Image conventions can be inferred automatically; manual JSON supports arbitrary public
+              IDs, classifications, types, cardinalities, and binding arrays.
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant={manualManifestMode ? 'secondary' : 'outline'}
+            onClick={() => {
+              if (manualManifestMode) {
+                setManualManifestMode(false);
+                return;
+              }
+              if (manifest) setManualManifestJson(JSON.stringify(manifest, null, 2));
+              setManualManifestMode(true);
+            }}
+          >
+            {manualManifestMode ? 'Use inferred image manifest' : 'Edit generic manifest JSON'}
+          </Button>
+        </div>
         <div className="rounded border p-2 text-xs">
           <div>
             <span className="text-muted-foreground">{t('comfyuiImport.review.workflow')}:</span>{' '}
@@ -973,11 +1023,29 @@ export function ComfyUiWorkflowImportDialog({
           diagnostics={[...(analysisResponse?.diagnostics ?? []), ...saveDiagnostics]}
           emptyMessage={t('comfyuiImport.diagnostics.empty')}
         />
-        <pre className="max-h-80 overflow-auto rounded border bg-muted/30 p-2 text-[11px]">
-          {manifest
-            ? JSON.stringify(manifest, null, 2)
-            : t('comfyuiImport.review.manifestNotReady')}
-        </pre>
+        {manualManifestMode ? (
+          <div className="space-y-1">
+            <Label htmlFor="comfyui-generic-manifest-json">Strict V2 manifest JSON</Label>
+            <textarea
+              id="comfyui-generic-manifest-json"
+              className="min-h-80 w-full resize-y rounded border bg-background p-2 font-mono text-[11px]"
+              value={manualManifestJson}
+              onChange={(event) => setManualManifestJson(event.currentTarget.value)}
+              spellCheck={false}
+            />
+            {!manualManifest ? (
+              <div className="text-xs text-destructive">
+                Manifest JSON must parse as the current strict ComfyUI workflow V2 contract.
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <pre className="max-h-80 overflow-auto rounded border bg-muted/30 p-2 text-[11px]">
+            {manifest
+              ? JSON.stringify(manifest, null, 2)
+              : t('comfyuiImport.review.manifestNotReady')}
+          </pre>
+        )}
       </div>
     );
   }
@@ -1012,7 +1080,15 @@ export function ComfyUiWorkflowImportDialog({
           <Button
             type="button"
             variant="outline"
-            disabled={step === 0 || (mode === 'repair' && step === 1) || saving}
+            disabled={
+              step === 0 ||
+              (mode === 'repair' &&
+                (step === 1 ||
+                  (manualManifestMode &&
+                    repairEntry?.definition !== undefined &&
+                    !knownImageClassification(repairEntry.definition)))) ||
+              saving
+            }
             onClick={() =>
               setStep((current) => Math.max(mode === 'repair' ? 1 : 0, current - 1) as Step)
             }
@@ -1035,10 +1111,9 @@ export function ComfyUiWorkflowImportDialog({
             <Button
               type="button"
               disabled={
-                !manifest ||
-                requiredInputsMissing ||
-                requiredOutputsMissing ||
-                tooManyOutputsSelected ||
+                !effectiveManifest ||
+                (!manualManifestMode &&
+                  (requiredInputsMissing || requiredOutputsMissing || tooManyOutputsSelected)) ||
                 saving
               }
               onClick={() => void saveImport()}
