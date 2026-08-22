@@ -14,6 +14,15 @@ namespace compiled = noveltea::core::compiled;
 namespace noveltea::core {
 struct FlowExecutorTestAccess {
     static void set_running(FlowExecutor& executor, bool value) { executor.running_flag() = value; }
+    static Result<void, Diagnostics> commit_current_room(FlowExecutor& executor)
+    {
+        const auto* mode = std::get_if<RoomMode>(&executor.m_state.mode());
+        if (mode == nullptr)
+            return Result<void, Diagnostics>::failure(
+                {Diagnostic{.code = "test.invalid_room_mode",
+                            .message = "Expected completed Room mode in test helper"}});
+        return executor.m_state.commit_room_entry(executor.m_project, mode->room);
+    }
 };
 } // namespace noveltea::core
 
@@ -50,25 +59,11 @@ compiled::RoomDefinition make_room(RoomId room_id, std::vector<compiled::RoomExi
         .display_name = "Room",
         .description = text("Room"),
         .background = {std::nullopt, std::nullopt, compiled::BackgroundFit::Cover, std::nullopt},
-        .lifecycle = {Always{}, Always{}, {}},
+        .lifecycle = {Always{}, Always{}},
         .overlays = {},
         .placements = {},
         .exits = std::move(exits),
     };
-}
-
-compiled::RoomDefinition make_room_with_hooks(RoomId room_id,
-                                              std::vector<compiled::RoomExit> exits = {})
-{
-    auto room = make_room(std::move(room_id), std::move(exits));
-    room.lifecycle.hooks = {
-        compiled::RoomHookProgram{compiled::RoomHookKind::BeforeEnter,
-                                  {SetGlobalProperty{id<PropertyId>("flag"), RuntimeValue{true}},
-                                   SetGlobalProperty{id<PropertyId>("flag"), RuntimeValue{false}}}},
-        compiled::RoomHookProgram{compiled::RoomHookKind::AfterEnter,
-                                  {SetGlobalProperty{id<PropertyId>("flag"), RuntimeValue{true}}}},
-    };
-    return room;
 }
 
 compiled::SceneDefinition make_scene(SceneId scene_id, std::string first, std::string second)
@@ -176,6 +171,7 @@ void finish_initial_room_transition(FlowExecutor& executor)
     REQUIRE(executor.advance_room_transition(RoomTransitionStage::AfterEnter));
     REQUIRE(executor.advance_room_transition(RoomTransitionStage::Complete));
     REQUIRE(executor.complete_room_transition());
+    REQUIRE(FlowExecutorTestAccess::commit_current_room(executor));
 }
 
 SceneFramePosition scene_position(std::string step)
@@ -549,7 +545,7 @@ TEST_CASE("child-call cursor validation rejects incoherent Dialogue and Room pos
     }
 }
 
-TEST_CASE("Room transition hooks advance one indexed effect at a time and cannot be skipped")
+TEST_CASE("Room lifecycle stages are atomic and cannot be skipped")
 {
     const auto hall = id<RoomId>("hall");
     compiled::CompiledProjectInput input{
@@ -570,7 +566,7 @@ TEST_CASE("Room transition hooks advance one indexed effect at a time and cannot
         .layouts = {},
         .scripts = {{id<ScriptId>("bootstrap"), compiled::InlineLuaSource{"return {}"}}},
         .characters = {},
-        .rooms = {make_room_with_hooks(hall)},
+        .rooms = {make_room(hall)},
         .interactables = {},
         .verbs = {},
         .interactions = {},
@@ -585,7 +581,7 @@ TEST_CASE("Room transition hooks advance one indexed effect at a time and cannot
     FlowExecutor executor(project, state);
 
     REQUIRE(executor.advance_room_transition(RoomTransitionStage::BeforeEnter));
-    CHECK_FALSE(executor.advance_room_transition(RoomTransitionStage::BeforeEnter, 2));
+    CHECK_FALSE(executor.advance_room_transition(RoomTransitionStage::BeforeEnter, 1));
     REQUIRE(state.execution_fault());
     const auto& failed = std::get<RoomTransitionFrame>(state.flow_stack().back());
     CHECK(failed.position.next_effect == 0);
@@ -595,7 +591,7 @@ TEST_CASE("Room transition hooks advance one indexed effect at a time and cannot
     auto fresh_state = make_state(project);
     FlowExecutor fresh_executor(project, fresh_state);
     REQUIRE(fresh_executor.advance_room_transition(RoomTransitionStage::BeforeEnter));
-    CHECK_FALSE(fresh_executor.advance_room_transition(RoomTransitionStage::CommitRoomSwitch));
+    CHECK_FALSE(fresh_executor.advance_room_transition(RoomTransitionStage::AfterEnter));
     REQUIRE(fresh_state.execution_fault());
 }
 

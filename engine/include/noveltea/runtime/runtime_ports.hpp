@@ -105,6 +105,23 @@ struct ScriptInvocationRequest {
 
 using ScriptInvocationValue = std::variant<std::monostate, bool, std::string>;
 
+struct ProjectHookInvocationRequest {
+    ProjectHookSemanticKind semantic_kind = ProjectHookSemanticKind::Room;
+    ProjectHookKind hook = ProjectHookKind::RoomCanEnter;
+    std::string target;
+    std::optional<core::RoomTransitionContext> room_transition;
+    std::optional<core::RoomVisitContext> active_room_context;
+    std::optional<core::RoomRejectionStage> rejection_stage;
+    ScriptInvocationResultKind result_kind = ScriptInvocationResultKind::None;
+    bool operator==(const ProjectHookInvocationRequest&) const = default;
+};
+
+struct ProjectHookInvocationResult {
+    bool invoked = false;
+    ScriptInvocationValue value = std::monostate{};
+    bool operator==(const ProjectHookInvocationResult&) const = default;
+};
+
 struct ScriptInvocationCompleted {
     ScriptInvocationValue value = std::monostate{};
     bool operator==(const ScriptInvocationCompleted&) const = default;
@@ -153,6 +170,13 @@ public:
     [[nodiscard]] virtual core::Result<ScriptInvocationOutcome, ScriptInvocationError>
     resume(const core::ScriptInvocationHandle& invocation,
            const RuntimeCapabilitySet& capabilities) = 0;
+    [[nodiscard]] virtual core::Result<ProjectHookInvocationResult, ScriptInvocationError>
+    invoke_project_hook(const ProjectHookInvocationRequest&,
+                        const RuntimeCapabilitySet&)
+    {
+        return core::Result<ProjectHookInvocationResult, ScriptInvocationError>::success(
+            ProjectHookInvocationResult{});
+    }
     [[nodiscard]] virtual core::Result<void, ScriptInvocationError>
     run_project_on_game_ready(const RuntimeCapabilitySet& capabilities) = 0;
     virtual void cancel(const core::ScriptInvocationHandle& invocation,

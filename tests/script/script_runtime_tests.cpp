@@ -65,6 +65,8 @@ load_script_project_with_modules(std::initializer_list<std::pair<std::string, st
     auto document = nlohmann::json::parse(input, nullptr, false);
     REQUIRE_FALSE(document.is_discarded());
     document["resources"]["scripts"] = nlohmann::json::array();
+    for (auto& room : document["definitions"]["rooms"])
+        room["scriptHooks"] = nlohmann::json::array();
     for (const auto& [id, source] : modules) {
         document["resources"]["scripts"].push_back(
             {{"id", id}, {"source", {{"kind", "inline-lua"}, {"source", source}}}});
@@ -94,6 +96,7 @@ core::CompiledProject load_script_project_with_room_hook(
     for (auto& room : document["definitions"]["rooms"]) {
         if (room["id"] != room_id)
             continue;
+        room["scriptHooks"] = nlohmann::json::array();
         room["scriptHooks"].push_back({{"hook", hook},
                                        {"handler",
                                         {{"module", {{"kind", "script"}, {"id", handler_module}}},
@@ -1409,10 +1412,8 @@ TEST_CASE("typed Lua host services distinguish Room transient and navigation req
     core::FlowExecutor executor(project, state);
 
     REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::BeforeEnter));
-    REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::BeforeEnter, 1));
     REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::CommitRoomSwitch));
     REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::AfterEnter));
-    REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::AfterEnter, 1));
     REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::Complete));
     REQUIRE(executor.complete_room_transition());
 

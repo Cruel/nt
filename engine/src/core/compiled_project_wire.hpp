@@ -73,7 +73,6 @@ struct FeatureDefinition {
 struct RoomLifecycle {
     Condition can_enter;
     Condition can_leave;
-    std::vector<RoomHookProgram> hooks;
 };
 struct RoomDefinition {
     PropertyBearingDefinition<RoomId> identity;
@@ -86,7 +85,6 @@ struct RoomDefinition {
     std::vector<RoomInteractableEntry> interactables;
     std::vector<RoomProp> props;
     std::vector<RoomEnvironment> environments;
-    std::optional<RoomCompositionHook> compose;
     std::vector<RoomScriptHookMapping> script_hooks;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;

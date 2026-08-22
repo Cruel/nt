@@ -146,7 +146,6 @@ function representativeWireFixture() {
           cast: [],
           interactables: [],
           props: [],
-          compose: null,
           scriptHooks: [],
           placements: [],
           exits: [],
@@ -155,18 +154,6 @@ function representativeWireFixture() {
           lifecycle: {
             canEnter: { kind: 'always' },
             canLeave: { kind: 'always' },
-            hooks: [
-              {
-                hook: 'before-enter',
-                effects: [
-                  {
-                    kind: 'set-global-property',
-                    property: { kind: 'property', id: 'visited' },
-                    value: true,
-                  },
-                ],
-              },
-            ],
           },
         },
       ],

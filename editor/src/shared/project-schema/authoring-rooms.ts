@@ -5,7 +5,6 @@ import {
   assetRefSchema,
   characterRefSchema,
   conditionSchema,
-  effectSchema,
   inlineTextContent,
   interactableRefSchema,
   layoutRefSchema,
@@ -15,7 +14,6 @@ import {
   textContentSchema,
 } from './authoring-flow';
 import { parseLayoutData } from './authoring-layouts';
-import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
@@ -126,10 +124,6 @@ export const roomEnvironmentDataSchema = strict({
   opacity: z.number().finite().min(0).max(1),
   visible: z.boolean(),
 });
-export const roomCompositionHookSchema = strict({
-  script: roomScriptRefSchema,
-  additionalDependencies: defaultedLuaExplicitDependenciesSchema,
-});
 export const roomScriptHookKindValues = [
   'can-enter',
   'can-leave',
@@ -164,10 +158,6 @@ export const roomHotspotDataSchema = strict({
 export const roomLifecycleDataSchema = strict({
   canEnter: conditionSchema,
   canLeave: conditionSchema,
-  beforeEnter: z.array(effectSchema),
-  afterEnter: z.array(effectSchema),
-  beforeLeave: z.array(effectSchema),
-  afterLeave: z.array(effectSchema),
 });
 export const roomDataSchema = strict({
   kind: z.literal('room'),
@@ -179,7 +169,6 @@ export const roomDataSchema = strict({
   props: z.array(roomPropDataSchema),
   interactables: z.array(roomInteractableDataSchema),
   environments: z.array(roomEnvironmentDataSchema).default([]),
-  compose: roomCompositionHookSchema.nullable(),
   scriptHooks: z.array(roomScriptHookMappingSchema),
   lifecycle: roomLifecycleDataSchema,
   exits: z.array(roomExitDataSchema),
@@ -242,7 +231,6 @@ export function defaultRoomData(label = 'Room'): RoomData {
     props: [],
     interactables: [],
     environments: [],
-    compose: null,
     scriptHooks: [],
     exits: [],
     features: [],
@@ -250,10 +238,6 @@ export function defaultRoomData(label = 'Room'): RoomData {
     lifecycle: {
       canEnter: { kind: 'always' },
       canLeave: { kind: 'always' },
-      beforeEnter: [],
-      afterEnter: [],
-      beforeLeave: [],
-      afterLeave: [],
     },
   };
 }
@@ -311,24 +295,6 @@ function validateCondition(
         result.message,
       ),
     );
-}
-function validateEffects(
-  project: AuthoringProject,
-  effects: readonly z.infer<typeof effectSchema>[],
-  path: string,
-  diagnostics: RoomSchemaDiagnostic[],
-) {
-  effects.forEach((effect, index) => {
-    if (effect.kind !== 'set-variable') return;
-    const result = validateVariableRuntimeValue(project, effect.variable.$ref.id, effect.value);
-    if (!result.ok)
-      diagnostics.push(
-        diagnostic(
-          result.kind === 'missing' ? `${path}/${index}/variable/$ref` : `${path}/${index}/value`,
-          result.message,
-        ),
-      );
-  });
 }
 export function validateRoomNavigationTransition(
   value: z.infer<typeof roomNavigationTransitionSchema>,
@@ -546,10 +512,6 @@ export function validateRoomData(
       );
     validateCondition(project, entry.condition, `${path}/condition`, diagnostics);
   });
-  if (data.compose && !project.scripts[data.compose.script.$ref.id])
-    diagnostics.push(
-      diagnostic(`${base}/compose/script/$ref`, `Missing script '${data.compose.script.$ref.id}'.`),
-    );
   const scriptHookKinds = new Set<string>();
   data.scriptHooks.forEach((mapping, index) => {
     const path = `${base}/scriptHooks/${index}`;
@@ -568,8 +530,5 @@ export function validateRoomData(
   });
   validateCondition(project, data.lifecycle.canEnter, `${base}/lifecycle/canEnter`, diagnostics);
   validateCondition(project, data.lifecycle.canLeave, `${base}/lifecycle/canLeave`, diagnostics);
-  (['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).forEach((hook) =>
-    validateEffects(project, data.lifecycle[hook], `${base}/lifecycle/${hook}`, diagnostics),
-  );
   return diagnostics;
 }

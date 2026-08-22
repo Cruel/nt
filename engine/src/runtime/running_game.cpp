@@ -113,6 +113,13 @@ public:
         return m_delegate->resume(invocation, capabilities);
     }
 
+    [[nodiscard]] core::Result<ProjectHookInvocationResult, ScriptInvocationError>
+    invoke_project_hook(const ProjectHookInvocationRequest& request,
+                        const RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate->invoke_project_hook(request, capabilities);
+    }
+
     [[nodiscard]] core::Result<void, ScriptInvocationError>
     run_project_on_game_ready(const RuntimeCapabilitySet& capabilities) override
     {
@@ -188,13 +195,6 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                           base + "/lifecycle/canEnter");
         certify_condition(diagnostics, scripts, room.lifecycle.can_leave,
                           base + "/lifecycle/canLeave");
-        for (std::size_t hook_index = 0; hook_index < room.lifecycle.hooks.size(); ++hook_index)
-            for (std::size_t effect_index = 0;
-                 effect_index < room.lifecycle.hooks[hook_index].effects.size(); ++effect_index)
-                certify_effect(diagnostics, scripts,
-                               room.lifecycle.hooks[hook_index].effects[effect_index],
-                               base + "/lifecycle/hooks/" + std::to_string(hook_index) +
-                                   "/effects/" + std::to_string(effect_index));
         for (std::size_t placement_index = 0; placement_index < room.placements.size();
              ++placement_index) {
             const auto& placement = room.placements[placement_index];

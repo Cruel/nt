@@ -446,6 +446,9 @@ Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project
                     .source_room = std::nullopt,
                     .target_room = id,
                     .selected_exit = std::nullopt,
+                    .kind = RoomTransitionKind::DirectedRoomChange,
+                    .entry_cause = RoomEntryCause::Entrypoint,
+                    .source_context = std::nullopt,
                     .position = {RoomTransitionStage::TargetCanEnter, 0},
                 });
                 return true;
@@ -1363,6 +1366,9 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
     if (visit != m_room_visits.end() && visit->second == std::numeric_limits<std::uint64_t>::max())
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.history_overflow", "Room visit counter cannot be incremented"));
+    if (m_room_entry_sequence == std::numeric_limits<std::uint64_t>::max())
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.history_overflow", "Room entry sequence cannot be incremented"));
 
     std::vector<DesiredMountedLayout> mounted_layouts = m_mounted_layouts;
     for (const auto& overlay : definition->overlays) {
@@ -1415,7 +1421,10 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
         ++visit->second;
     if (const auto current_owner = current_room_presentation_owner())
         remove_presentation_owned_by(*current_owner);
-    m_room_visit = RoomVisitContext{room, source_room, std::move(entry_exit), room_visits(room)};
+    ++m_room_entry_sequence;
+    m_room_visit = RoomVisitContext{room, source_room, std::move(entry_exit),
+                                    RoomEntryCause::DirectedRoomChange, m_room_entry_sequence,
+                                    room_visits(room)};
     m_room_visit_instance = *visit_instance.value_if();
     m_mounted_layouts = std::move(mounted_layouts);
     m_presented_text.reset();
@@ -1438,10 +1447,12 @@ SessionState::commit_room_navigation(const CompiledProject& project,
                           "Prepared Room background contains an invalid Asset reference"));
     const auto expected_visit = room_visits(target_visit.room);
     if (expected_visit == std::numeric_limits<std::uint64_t>::max() ||
-        target_visit.visit_index != expected_visit + 1)
+        target_visit.visit_index != expected_visit + 1 ||
+        m_room_entry_sequence == std::numeric_limits<std::uint64_t>::max() ||
+        target_visit.entry_sequence != m_room_entry_sequence + 1)
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_room_visit_context",
-            "Prepared Room navigation visit index does not follow the committed history"));
+            "Prepared Room navigation context does not follow committed history"));
 
     if (target_visit.entry_exit) {
         const auto* source = runtime_room(*this, target_visit.entry_exit->room);
@@ -1493,6 +1504,7 @@ SessionState::commit_room_navigation(const CompiledProject& project,
             return mounted;
     }
 
+    candidate.m_room_entry_sequence = target_visit.entry_sequence;
     candidate.m_room_visit = target_visit;
     candidate.m_room_visit_instance = *visit_instance.value_if();
     candidate.m_presented_text.reset();

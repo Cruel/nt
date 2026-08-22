@@ -22,7 +22,6 @@
     "props": [],
     "interactables": [],
     "environments": [],
-    "compose": null,
     "scriptHooks": [],
     "lifecycle": {
       "canEnter": {
@@ -30,11 +29,7 @@
       },
       "canLeave": {
         "kind": "always"
-      },
-      "beforeEnter": [],
-      "afterEnter": [],
-      "beforeLeave": [],
-      "afterLeave": []
+      }
     },
     "exits": [],
     "placements": [],

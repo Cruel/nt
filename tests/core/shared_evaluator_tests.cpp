@@ -45,7 +45,7 @@ CompiledProject make_project()
         .display_name = "Hall",
         .description = text("Hall"),
         .background = {std::nullopt, std::nullopt, compiled::BackgroundFit::Cover, std::nullopt},
-        .lifecycle = {Always{}, Always{}, {}},
+        .lifecycle = {Always{}, Always{}},
         .overlays = {},
         .placements = {},
         .exits = {},

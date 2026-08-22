@@ -611,8 +611,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                           std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"background", "cast", "compose", "description", "displayName",
-                         "environments", "exits", "features", "hotspots", "id", "interactables",
+                        {"background", "cast", "description", "displayName", "environments",
+                         "exits", "features", "hotspots", "id", "interactables",
                          "lifecycle", "overlays", "placements", "props", "propertyAssignments",
                          "scriptHooks", "traits"}))
         return std::nullopt;
@@ -630,7 +630,6 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     const auto* interactables_value = decoder.member(value, "interactables", pointer);
     const auto* props_value = decoder.member(value, "props", pointer);
     const auto* environments_value = json_access::member(value, "environments");
-    const auto* compose_value = decoder.member(value, "compose", pointer);
     const auto* script_hooks_value = decoder.member(value, "scriptHooks", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
@@ -643,11 +642,10 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                        : std::nullopt;
     std::optional<RoomLifecycle> lifecycle;
     if (lifecycle_value && decoder.object(*lifecycle_value, pointer_child(pointer, "lifecycle"),
-                                          {"canEnter", "canLeave", "hooks"})) {
+                                          {"canEnter", "canLeave"})) {
         const auto lifecycle_pointer = pointer_child(pointer, "lifecycle");
         const auto* enter_value = decoder.member(*lifecycle_value, "canEnter", lifecycle_pointer);
         const auto* leave_value = decoder.member(*lifecycle_value, "canLeave", lifecycle_pointer);
-        const auto* hooks_value = decoder.member(*lifecycle_value, "hooks", lifecycle_pointer);
         auto enter = enter_value
                          ? decode_condition_impl(decoder, *enter_value,
                                                  pointer_child(lifecycle_pointer, "canEnter"))
@@ -656,35 +654,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                          ? decode_condition_impl(decoder, *leave_value,
                                                  pointer_child(lifecycle_pointer, "canLeave"))
                          : std::nullopt;
-        auto hooks =
-            hooks_value
-                ? decoder.array<RoomHookProgram>(
-                      *hooks_value, pointer_child(lifecycle_pointer, "hooks"),
-                      [&](const nlohmann::json& hook,
-                          const std::string& hook_pointer) -> std::optional<RoomHookProgram> {
-                          if (!decoder.object(hook, hook_pointer, {"effects", "hook"}))
-                              return std::nullopt;
-                          const auto* kind_value = decoder.member(hook, "hook", hook_pointer);
-                          const auto* effects_value = decoder.member(hook, "effects", hook_pointer);
-                          auto kind = kind_value
-                                          ? decoder.enumeration<RoomHookKind>(
-                                                *kind_value, pointer_child(hook_pointer, "hook"),
-                                                {{"before-enter", RoomHookKind::BeforeEnter},
-                                                 {"after-enter", RoomHookKind::AfterEnter},
-                                                 {"before-leave", RoomHookKind::BeforeLeave},
-                                                 {"after-leave", RoomHookKind::AfterLeave}})
-                                          : std::nullopt;
-                          auto effects =
-                              effects_value ? decode_effects(decoder, *effects_value,
-                                                             pointer_child(hook_pointer, "effects"))
-                                            : std::nullopt;
-                          return kind && effects ? std::optional<RoomHookProgram>(
-                                                       RoomHookProgram{*kind, std::move(*effects)})
-                                                 : std::nullopt;
-                      })
-                : std::nullopt;
-        if (enter && leave && hooks)
-            lifecycle = RoomLifecycle{std::move(*enter), std::move(*leave), std::move(*hooks)};
+        if (enter && leave)
+            lifecycle = RoomLifecycle{std::move(*enter), std::move(*leave)};
     }
     auto overlays =
         overlays_value
@@ -1187,21 +1158,6 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       return std::nullopt;
                   })
             : std::nullopt;
-    std::optional<RoomCompositionHook> compose;
-    bool compose_ok = compose_value != nullptr;
-    if (compose_value && !compose_value->is_null() &&
-        decoder.object(*compose_value, pointer_child(pointer, "compose"), {"script"})) {
-        const auto compose_pointer = pointer_child(pointer, "compose");
-        const auto* script_value = decoder.member(*compose_value, "script", compose_pointer);
-        auto script =
-            script_value
-                ? decode_reference<ScriptId>(decoder, *script_value,
-                                             pointer_child(compose_pointer, "script"), "script")
-                : std::nullopt;
-        if (script)
-            compose = RoomCompositionHook{std::move(*script)};
-        compose_ok = compose.has_value();
-    }
     auto script_hooks =
         script_hooks_value
             ? decoder.array<RoomScriptHookMapping>(
@@ -1292,15 +1248,14 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               });
     if (!identity || !display || !description || !background || !lifecycle || !overlays ||
         !placements || !exits || !features || !hotspots || !cast || !interactables || !props ||
-        !environments || !compose_ok || !script_hooks)
+        !environments || !script_hooks)
         return std::nullopt;
     return RoomDefinition{
         std::move(*identity),     std::move(*display),       std::move(*description),
         std::move(*background),   std::move(*lifecycle),     std::move(*overlays),
         std::move(*cast),         std::move(*interactables), std::move(*props),
-        std::move(*environments), std::move(compose),        std::move(*script_hooks),
-        std::move(*placements),   std::move(*exits),         std::move(*features),
-        std::move(*hotspots)};
+        std::move(*environments), std::move(*script_hooks),  std::move(*placements),
+        std::move(*exits),        std::move(*features),      std::move(*hotspots)};
 }
 
 std::optional<InteractableDefinition>

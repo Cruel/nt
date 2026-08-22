@@ -433,11 +433,37 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   start.lifecycle = {
     canEnter: { kind: 'always' },
     canLeave: { kind: 'lua-predicate', source: 'can_leave_start()' },
-    beforeEnter: [{ kind: 'set-variable', variable: variableReference('flag'), value: true }],
-    afterEnter: [{ kind: 'run-lua-effect', source: 'after_enter_start()' }],
-    beforeLeave: [{ kind: 'run-lua-effect', source: 'before_leave_start()' }],
-    afterLeave: [{ kind: 'set-variable', variable: variableReference('count'), value: 3 }],
   };
+  start.scriptHooks = [
+    {
+      hook: 'before-enter',
+      handler: {
+        module: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+        export: 'before_enter_start',
+      },
+    },
+    {
+      hook: 'after-enter',
+      handler: {
+        module: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+        export: 'after_enter_start',
+      },
+    },
+    {
+      hook: 'before-leave',
+      handler: {
+        module: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+        export: 'before_leave_start',
+      },
+    },
+    {
+      hook: 'after-leave',
+      handler: {
+        module: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+        export: 'after_leave_start',
+      },
+    },
+  ];
   project.rooms.start = {
     id: 'start',
     label: 'Start',
@@ -628,7 +654,11 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   };
   project.scripts.bootstrap!.data = {
     kind: 'script-module',
-    source: { kind: 'inline-lua', source: 'initialize_fixture()\nreturn {}\n' },
+    source: {
+      kind: 'inline-lua',
+      source:
+        "return { before_enter_start = function(...) local ok, err = Game.set_prop('flag', true); assert(ok, err); if type(before_enter_start) == 'function' then before_enter_start(...) end end, after_enter_start = function(...) if type(after_enter_start) == 'function' then after_enter_start(...) end end, before_leave_start = function(...) if type(before_leave_start) == 'function' then before_leave_start(...) end end, after_leave_start = function(...) local ok, err = Game.set_prop('count', 3); assert(ok, err); if type(after_leave_start) == 'function' then after_leave_start(...) end end }\n",
+    },
   };
   project.entrypoint = { kind: 'room', id: 'start' };
   return project;

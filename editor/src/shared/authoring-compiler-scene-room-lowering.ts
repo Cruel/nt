@@ -8,7 +8,6 @@ import type {
 } from './project-schema/compiled-project';
 import type { Condition, Effect, FlowTarget, TextContent } from './project-schema/authoring-flow';
 import type { AuthoringProject } from './project-schema/authoring-project';
-import { parseRoomData } from './project-schema/authoring-rooms';
 import {
   parseSceneData,
   type SceneStepData,
@@ -467,34 +466,7 @@ export function lowerSceneAndRoomPrograms(
     });
   }
 
-  const hookNames = [
-    ['beforeEnter', 'before-enter'],
-    ['afterEnter', 'after-enter'],
-    ['beforeLeave', 'before-leave'],
-    ['afterLeave', 'after-leave'],
-  ] as const;
-  const rooms: WireDefinitions['rooms'] = [];
-  for (const room of shared.definitions.rooms) {
-    const data = parseRoomData(project.rooms[room.id]?.data);
-    if (!data) {
-      diagnostics.push({
-        code: 'COMPILER_ROOM_DATA_MISSING',
-        path: `/rooms/${room.id}/data`,
-        message: 'Validated Room data could not be lowered.',
-      });
-      continue;
-    }
-    rooms.push({
-      ...room,
-      lifecycle: {
-        ...room.lifecycle,
-        hooks: hookNames.map(([field, hook]) => ({
-          hook,
-          effects: data.lifecycle[field].map(compileEffect),
-        })),
-      },
-    });
-  }
+  const rooms: WireDefinitions['rooms'] = shared.definitions.rooms;
 
   if (diagnostics.length > 0) return { diagnostics };
   return {

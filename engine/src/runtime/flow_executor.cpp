@@ -360,21 +360,9 @@ Result<void, Diagnostics> FlowExecutor::validate_position(const FlowFrame& frame
                 const auto* candidate = std::get_if<RoomTransitionPosition>(&position);
                 if (candidate == nullptr || candidate->stage > RoomTransitionStage::Complete)
                     return false;
-                switch (candidate->stage) {
-                case RoomTransitionStage::BeforeLeave:
-                case RoomTransitionStage::BeforeEnter:
-                case RoomTransitionStage::AfterLeave:
-                case RoomTransitionStage::AfterEnter: {
-                    const auto effect_count = room_hook_effect_count(value, candidate->stage);
-                    return candidate->next_effect <= effect_count &&
-                           (!candidate->awaiting_completion ||
-                            candidate->next_effect < effect_count);
-                }
-                case RoomTransitionStage::CommitRoomSwitch:
-                    return candidate->next_effect == 0;
-                default:
-                    return candidate->next_effect == 0 && !candidate->awaiting_completion;
-                }
+                return candidate->next_effect == 0 &&
+                       (!candidate->awaiting_completion ||
+                        candidate->stage == RoomTransitionStage::CommitRoomSwitch);
             }
         },
         frame);
@@ -633,15 +621,21 @@ Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
 {
     if (room_definition(room) == nullptr)
         return fail(execution_error("execution.invalid_target", "Room target is missing"));
+
+    const std::optional<RoomVisitContext> source_context = m_state.m_room_visit;
+    const std::optional<RoomId> source =
+        source_context ? std::optional<RoomId>{source_context->room} : std::nullopt;
+    if (source && *source == room) {
+        remove_scene_presentation(m_state, m_state.m_flow_stack);
+        m_state.m_flow_stack.clear();
+        m_state.m_blocker.reset();
+        m_state.m_mode = RoomMode{room};
+        return Result<void, Diagnostics>::success();
+    }
+
     if (m_state.m_next_frame_id == std::numeric_limits<std::uint64_t>::max())
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
-    std::optional<RoomId> source;
-    if (!m_state.m_flow_stack.empty()) {
-        const auto& root_destination = flow_return_destination(m_state.m_flow_stack.front());
-        if (const auto* resume = std::get_if<ResumeRoomDestination>(&root_destination))
-            source = resume->room;
-    }
     const auto first_stage =
         source ? RoomTransitionStage::SourceCanLeave : RoomTransitionStage::TargetCanEnter;
     const FlowFrameId id{m_state.m_next_frame_id++};
@@ -649,7 +643,15 @@ Result<void, Diagnostics> FlowExecutor::replace_with_room(const RoomId& room)
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();
     m_state.m_flow_stack.emplace_back(RoomTransitionFrame{
-        id, source, room, std::nullopt, {first_stage, 0}, NoReturnDestination{}});
+        id,
+        source,
+        room,
+        std::nullopt,
+        RoomTransitionKind::DirectedRoomChange,
+        RoomEntryCause::DirectedRoomChange,
+        source_context,
+        {first_stage, 0},
+        NoReturnDestination{}});
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
@@ -751,7 +753,10 @@ Result<void, Diagnostics> FlowExecutor::discard_fault()
     }
 
     if (const auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back())) {
-        const bool committed = transition->position.stage > RoomTransitionStage::CommitRoomSwitch;
+        const bool committed =
+            transition->position.stage > RoomTransitionStage::CommitRoomSwitch ||
+            (transition->position.stage == RoomTransitionStage::CommitRoomSwitch &&
+             transition->position.awaiting_completion);
         const std::optional<RoomId> destination =
             committed ? std::optional<RoomId>{transition->target_room} : transition->source_room;
         remove_scene_presentation(m_state, m_state.m_flow_stack);

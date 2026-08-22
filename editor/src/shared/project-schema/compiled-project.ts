@@ -322,10 +322,6 @@ const roomExitSchema = strict({
   target: roomReferenceSchema,
   transition: roomNavigationTransitionSchema.nullable(),
 });
-const roomHookProgramSchema = strict({
-  effects: z.array(compiledEffectSchema),
-  hook: z.enum(['before-enter', 'after-enter', 'before-leave', 'after-leave']),
-});
 const roomScriptHookMappingSchema = strict({
   hook: z.enum([
     'can-enter',
@@ -357,7 +353,6 @@ const roomDefinitionSchema = strict({
   lifecycle: strict({
     canEnter: compiledConditionSchema,
     canLeave: compiledConditionSchema,
-    hooks: z.array(roomHookProgramSchema),
   }),
   overlays: z.array(
     strict({
@@ -419,7 +414,6 @@ const roomDefinitionSchema = strict({
       }),
     )
     .optional(),
-  compose: strict({ script: scriptReferenceSchema }).nullable(),
   scriptHooks: z.array(roomScriptHookMappingSchema),
   placements: z.array(roomPlacementSchema),
   features: z.array(featureDefinitionSchema),

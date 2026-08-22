@@ -483,20 +483,9 @@ struct RoomExit {
     RoomId target;
     std::optional<RoomNavigationTransition> transition;
 };
-enum class RoomHookKind : std::uint8_t {
-    BeforeEnter,
-    AfterEnter,
-    BeforeLeave,
-    AfterLeave
-};
-struct RoomHookProgram {
-    RoomHookKind hook;
-    std::vector<Effect> effects;
-};
 struct RoomLifecycle {
     Condition can_enter;
     Condition can_leave;
-    std::vector<RoomHookProgram> hooks;
 };
 struct RoomOverlay {
     RoomOverlayId id;
@@ -547,9 +536,6 @@ struct RoomEnvironment {
     bool visible;
     bool operator==(const RoomEnvironment&) const = default;
 };
-struct RoomCompositionHook {
-    ScriptId script;
-};
 enum class RoomScriptHookKind : std::uint8_t {
     CanEnter,
     CanLeave,
@@ -580,7 +566,6 @@ struct RoomDefinition {
     std::vector<RoomInteractableEntry> interactables;
     std::vector<RoomProp> props;
     std::vector<RoomEnvironment> environments;
-    std::optional<RoomCompositionHook> compose;
     std::vector<RoomScriptHookMapping> script_hooks;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;

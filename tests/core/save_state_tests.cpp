@@ -275,10 +275,8 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     auto interaction_state = make_state(interaction_project);
     FlowExecutor flow(interaction_project, interaction_state);
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::BeforeEnter));
-    REQUIRE(flow.advance_room_transition(RoomTransitionStage::BeforeEnter, 1));
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::CommitRoomSwitch));
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::AfterEnter));
-    REQUIRE(flow.advance_room_transition(RoomTransitionStage::AfterEnter, 1));
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::Complete));
     REQUIRE(flow.complete_room_transition());
     REQUIRE(flow.start_interaction(
@@ -300,10 +298,8 @@ TEST_CASE("current save-state round-trips owner-qualified Feature interaction su
     auto state = make_state(project);
     FlowExecutor flow(project, state);
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::BeforeEnter));
-    REQUIRE(flow.advance_room_transition(RoomTransitionStage::BeforeEnter, 1));
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::CommitRoomSwitch));
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::AfterEnter));
-    REQUIRE(flow.advance_room_transition(RoomTransitionStage::AfterEnter, 1));
     REQUIRE(flow.advance_room_transition(RoomTransitionStage::Complete));
     REQUIRE(flow.complete_room_transition());
     const compiled::InteractionSubject feature = compiled::FeatureInteractionSubject{
@@ -609,8 +605,7 @@ TEST_CASE("immutable Room loops and Character idles reconstruct after load witho
             return value["id"] == "start";
         });
         REQUIRE(room != rooms.end());
-        for (auto& hook : (*room)["lifecycle"]["hooks"])
-            hook["effects"] = nlohmann::json::array();
+        (*room)["scriptHooks"] = nlohmann::json::array();
         (*room)["cast"] =
             nlohmann::json::array({{{"id", "hero-cast"},
                                     {"character", {{"kind", "character"}, {"id", "hero"}}},
@@ -1000,8 +995,9 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         snapshot.value().flow_stack.clear();
         snapshot.value().blocker.reset();
         snapshot.value().room_visits = {{id<RoomId>("start"), 1}};
-        snapshot.value().active_room_visit =
-            RoomVisitContext{id<RoomId>("start"), std::nullopt, std::nullopt, 1};
+        snapshot.value().room_entry_sequence = 1;
+        snapshot.value().active_room_visit = RoomVisitContext{
+            id<RoomId>("start"), std::nullopt, std::nullopt, RoomEntryCause::Entrypoint, 1, 1};
         auto restored = test_support::restore_session(project, snapshot.value());
         REQUIRE(restored);
         CHECK(std::holds_alternative<RoomMode>(restored.value().mode()));

@@ -298,12 +298,6 @@ describe('Phase 1 shared contracts', () => {
       additionalDependencies: { targets: [] },
     });
     const room = defaultRoomData('Room');
-    expect(
-      roomDataSchema.parse({
-        ...room,
-        compose: { script: { $ref: { collection: 'scripts', id: 'compose' } } },
-      }).compose,
-    ).toMatchObject({ additionalDependencies: { targets: [] } });
     const layout = defaultLayoutData('Layout');
     expect(
       layoutDataSchema.parse({
@@ -315,7 +309,6 @@ describe('Phase 1 shared contracts', () => {
       'script-record',
       'layout-rml',
       'layout-dedicated-lua',
-      'room-composition-script',
       'shared-lua-predicate',
       'shared-lua-expression',
       'shared-run-lua-effect',
@@ -325,7 +318,6 @@ describe('Phase 1 shared contracts', () => {
       'test-check-script',
     ]);
     expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/exits/0/condition')).toBe(true);
-    expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/compose')).toBe(true);
     expect(isSupportedLuaExplicitFallbackOwner('/layouts/hud/data/script')).toBe(true);
     expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/lifecycle/canEnter')).toBe(false);
     expect(validateLuaExplicitFallbackOwner('/verbs/use/data/availability', dependency)).toEqual([
@@ -452,7 +444,7 @@ describe('Phase 1 shared contracts', () => {
     expect(() =>
       roomPreviewDocumentV2Schema.parse({
         ...base,
-        composition: { scriptId: 'compose', source: { kind: 'inline' } },
+        composition: { moduleId: 'compose', exportName: 'compose', source: { kind: 'inline' } },
       }),
     ).toThrow();
     const protocol = fs.readFileSync(path.resolve('src/shared/preview-protocol.ts'), 'utf8');
@@ -463,7 +455,15 @@ describe('Phase 1 shared contracts', () => {
     const project = createAuthoringProject({ id: 'metadata', name: 'Metadata' });
     const room = defaultRoomData('Room');
     room.description.source = { kind: 'lua-expression', source: 'label()' };
-    room.compose = { script: { $ref: { collection: 'scripts', id: 'compose' } } };
+    room.scriptHooks = [
+      {
+        hook: 'compose',
+        handler: {
+          module: { $ref: { collection: 'scripts', id: 'compose' } },
+          export: 'compose',
+        },
+      },
+    ];
     project.rooms.room = { id: 'room', label: 'Room', data: room };
     project.scripts.compose = {
       id: 'compose',
@@ -479,10 +479,6 @@ describe('Phase 1 shared contracts', () => {
 
     project.rooms.room!.data = roomDataSchema.parse({
       ...room,
-      compose: {
-        ...room.compose,
-        additionalDependencies: { targets: [] },
-      },
       description: {
         ...room.description,
         source: {

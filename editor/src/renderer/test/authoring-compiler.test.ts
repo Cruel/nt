@@ -346,20 +346,20 @@ describe('authoring compiler framework', () => {
     scene.continuation = { kind: 'room', id: 'foyer' };
     project.scenes.opening = { id: 'opening', label: 'Opening', data: scene };
     const room = project.rooms.foyer!.data;
-    room.lifecycle.beforeEnter = [
+    room.scriptHooks = [
       {
-        kind: 'set-variable',
-        variable: { $ref: { collection: 'variables', id: 'flag' } },
-        value: true,
+        hook: 'before-enter',
+        handler: {
+          module: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+          export: 'before_enter',
+        },
       },
-    ];
-    room.lifecycle.afterEnter = [{ kind: 'run-lua-effect', source: 'after_enter()' }];
-    room.lifecycle.beforeLeave = [{ kind: 'run-lua-effect', source: 'before_leave()' }];
-    room.lifecycle.afterLeave = [
       {
-        kind: 'set-variable',
-        variable: { $ref: { collection: 'variables', id: 'flag' } },
-        value: false,
+        hook: 'after-enter',
+        handler: {
+          module: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+          export: 'after_enter',
+        },
       },
     ];
 
@@ -390,21 +390,15 @@ describe('authoring compiler framework', () => {
       room: { kind: 'room', id: 'foyer' },
     });
     expect(
-      lowered.definitions.rooms.find((candidate) => candidate.id === 'foyer')!.lifecycle.hooks,
+      lowered.definitions.rooms.find((candidate) => candidate.id === 'foyer')!.scriptHooks,
     ).toEqual([
       {
         hook: 'before-enter',
-        effects: [
-          { kind: 'set-global-property', property: { kind: 'property', id: 'flag' }, value: true },
-        ],
+        handler: { module: { kind: 'script', id: 'bootstrap' }, export: 'before_enter' },
       },
-      { hook: 'after-enter', effects: [{ kind: 'run-lua-effect', source: 'after_enter()' }] },
-      { hook: 'before-leave', effects: [{ kind: 'run-lua-effect', source: 'before_leave()' }] },
       {
-        hook: 'after-leave',
-        effects: [
-          { kind: 'set-global-property', property: { kind: 'property', id: 'flag' }, value: false },
-        ],
+        hook: 'after-enter',
+        handler: { module: { kind: 'script', id: 'bootstrap' }, export: 'after_enter' },
       },
     ]);
   });
@@ -448,7 +442,7 @@ describe('authoring compiler framework', () => {
     ]);
   });
 
-  it('rejects type-invalid variable conditions and effects before Scene and Room lowering', () => {
+  it('rejects type-invalid variable conditions before Scene and Room lowering', () => {
     const project = validProject();
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
     const scene = defaultSceneData('Typed Scene');
@@ -465,20 +459,19 @@ describe('authoring compiler framework', () => {
       },
     ];
     project.scenes.typed = { id: 'typed', label: 'Typed', data: scene };
-    project.rooms.foyer!.data.lifecycle.beforeEnter = [
-      {
-        kind: 'set-variable',
-        variable: { $ref: { collection: 'variables', id: 'flag' } },
-        value: 'not-a-boolean',
-      },
-    ];
+    project.rooms.foyer!.data.lifecycle.canEnter = {
+      kind: 'variable-comparison',
+      variable: { $ref: { collection: 'variables', id: 'flag' } },
+      operator: 'equal',
+      value: 'not-a-boolean',
+    };
 
     const result = compileAuthoringProject(project);
 
     expect(result.ok).toBe(false);
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({
-        jsonPointer: '/rooms/foyer/data/lifecycle/beforeEnter/0/value',
+        jsonPointer: '/rooms/foyer/data/lifecycle/canEnter/value',
         message: "Value does not match variable 'flag'.",
       }),
     );

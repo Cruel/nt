@@ -340,7 +340,8 @@ struct TypedFocusedRoomCompositionDefinition {
         bool inline_source = true;
         std::string value;
     };
-    std::string script_id;
+    std::string module_id;
+    std::string export_name;
     Source source;
 };
 
