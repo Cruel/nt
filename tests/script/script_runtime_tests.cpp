@@ -14,6 +14,7 @@
 #include <sol/sol.hpp>
 
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -33,7 +34,8 @@ template<class Command> bool is_runtime_command(const runtime::DeferredRuntimeCo
     return std::holds_alternative<Command>(command.payload);
 }
 
-core::CompiledProject load_compiled_fixture(std::string_view filename)
+core::CompiledProject load_compiled_fixture(std::string_view filename,
+                                            const std::function<void(nlohmann::json&)>& amend = {})
 {
     std::ifstream input(std::string(NOVELTEA_SOURCE_DIR) +
                         "/editor/src/renderer/test/fixtures/compiled-project-golden/" +
@@ -43,6 +45,8 @@ core::CompiledProject load_compiled_fixture(std::string_view filename)
                              std::istreambuf_iterator<char>());
     auto document = nlohmann::json::parse(source, nullptr, false);
     REQUIRE_FALSE(document.is_discarded());
+    if (amend)
+        amend(document);
     auto decoded = core::decode_compiled_project(document, std::string(filename));
     REQUIRE(decoded);
     return std::move(decoded).value();
@@ -1362,6 +1366,36 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     CHECK(std::holds_alternative<runtime::NotificationEvent>(events.front()));
     CHECK(invoker.gateway().command_queue().empty());
     CHECK(invoker.gateway().events().empty());
+}
+
+TEST_CASE("typed Lua item Stack Trait changes reject conflicting configured values")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto project = load_compiled_fixture("scene-program.json", [](nlohmann::json& document) {
+        document["traits"].push_back(
+            {{"description", ""},
+             {"id", "ordinary-currency"},
+             {"label", "Ordinary Currency"},
+             {"ownerKinds", {"item-stack"}},
+             {"properties",
+              {{{"kind", "configured"}, {"propertyId", "quality"}, {"value", "ordinary"}}}}});
+    });
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor executor(project, state);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
+
+    auto executed = invoker.execute(R"(
+        local change, error_message =
+            noveltea.item_stacks.set_traits("wallet", { "currency", "ordinary-currency" })
+        assert(change == nil and type(error_message) == "string")
+        local wallet, lookup_error = noveltea.item_stacks.get("wallet")
+        assert(lookup_error == nil and wallet.traits[1] == "currency" and wallet.traits[2] == nil)
+    )",
+                                    "conflicting-item-stack-traits");
+    REQUIRE(executed);
 }
 
 TEST_CASE("typed Lua host services distinguish Room transient and navigation requests")
