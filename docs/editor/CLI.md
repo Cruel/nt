@@ -31,7 +31,7 @@ noveltea comfyui status [--server <url>]
 noveltea comfyui workflows [--all]
 noveltea comfyui workflows <id>
 noveltea comfyui verify [<id>] [--server <url>]
-noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... --output <path> [--server <url>] [--force]
+noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <path>] [--server <url>] [--force]
 ```
 
 These commands use the same catalog, machine configuration, and verification cache as the editor workflow manager.
@@ -70,10 +70,18 @@ and do not expose the local basename. Online verification completes before uploa
 `/prompt` and NovelTea does not claim to roll back already accepted remote uploads.
 
 Execution then submits one uniquely identified prompt, polls HTTP history without a fixed whole-job timeout, downloads a
-bounded image result, validates its media format, and atomically publishes it to the explicit filesystem path. Missing
-parent directories are created. Existing destinations require `--force`, and the destination extension must match the
-returned image format because this path does not transcode. This slice does not yet support Asset publication,
-classification-default selection, cardinality-many filesystem routing, or named multi-output routing.
+bounded image result, and validates its media format before local publication. With a Project available, omitting
+`--output` publishes the image as a normal NovelTea Asset in `assets/generated/`. Generated IDs and filenames are derived
+from the logical workflow identity plus collision-safe timestamp/random suffixes rather than separate generate/edit name
+categories. Publication reopens the latest Project state after remote success and uses one short standard workspace
+transaction for both the Asset record and generated file, so no Project writer lock is held while ComfyUI is queued or
+running and unrelated Project edits are preserved. If the Project disappears, becomes invalid, or conflicts at
+publication time, the command reports a distinct local-publication failure after remote success.
+
+An explicit `--output` remains a filesystem-only route even when a Project exists. Missing parent directories are
+created for final filesystem publication, existing destinations require `--force`, and the destination extension must
+match the returned image format because this path does not transcode. Without a Project, an explicit filesystem
+`--output` is required. Cardinality-many filesystem routing and named multi-output routing remain later slices.
 
 Ctrl-C installs an invocation-scoped cancellation handler. Once a prompt exists, NovelTea attempts to delete only that
 prompt from the ComfyUI queue and returns conventional exit status 130; it does not call the global `/interrupt` endpoint

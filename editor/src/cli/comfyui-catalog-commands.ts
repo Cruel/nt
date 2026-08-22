@@ -2,6 +2,10 @@ import path from 'node:path';
 import { checkHeadlessComfyUiConnection } from '../main/services/comfyui-connection-service';
 import { loadComfyUiUserConfig } from '../main/services/comfyui-user-config-service';
 import {
+  preflightComfyUiAssetPublication,
+  publishComfyUiGeneratedAsset,
+} from '../main/services/comfyui-asset-publication-service';
+import {
   ComfyUiRunError,
   prepareComfyUiWorkflow,
   preflightComfyUiScalarRun,
@@ -31,6 +35,7 @@ import {
   validateExplicitProjectRoot,
   type ProjectWorkspaceDiscoveryResult,
   type ProjectWorkspaceFileSystem,
+  type ProjectWorkspaceService,
 } from '../shared/project-workspace';
 import { CliCommandUsageError } from './commands/types';
 import {
@@ -47,6 +52,7 @@ interface RunComfyUiCatalogCommandOptions {
   json: boolean;
   cwd: string;
   fileSystem: ProjectWorkspaceFileSystem;
+  workspace: ProjectWorkspaceService;
   libraryOptions?: WorkflowLibraryServiceOptions;
   abortSignal?: AbortSignal;
   onRunProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
@@ -184,7 +190,10 @@ function parseRunCommand(command: readonly string[]) {
     throw new CliCommandUsageError(
       "'comfyui run' requires an explicit workflow id or '--type <classification>'.",
     );
-  if (!outputPath) throw new CliCommandUsageError("'comfyui run' requires '--output <path>'.");
+  if (force && !outputPath)
+    throw new CliCommandUsageError(
+      "Option '--force' is valid only with an explicit filesystem '--output'.",
+    );
   return { workflowId, classification, outputPath, server, force, inputs };
 }
 
@@ -515,13 +524,23 @@ export async function runComfyUiCatalogCommand(
     }
     const entry = selectedEntry as ComfyUiRunnableWorkflowEntry;
 
-    const absoluteOutputPath = path.resolve(options.cwd, runCommand.outputPath);
+    const absoluteOutputPath = runCommand.outputPath
+      ? path.resolve(options.cwd, runCommand.outputPath)
+      : null;
     let prepared;
     try {
+      if (!absoluteOutputPath && !project.projectRoot)
+        throw new ComfyUiRunError(
+          'COMFYUI_OUTPUT_ROUTE_REQUIRED',
+          '/outputs',
+          'ComfyUI execution without a Project requires an explicit filesystem --output path.',
+        );
+      if (!absoluteOutputPath && project.projectRoot)
+        await preflightComfyUiAssetPublication(project.projectRoot, options.workspace);
       prepared = await prepareComfyUiWorkflow(entry, runCommand.inputs, options.cwd);
       await preflightComfyUiScalarRun({
         entry,
-        outputPath: absoluteOutputPath,
+        ...(absoluteOutputPath ? { outputPath: absoluteOutputPath } : {}),
         force: runCommand.force,
         config,
         imageInputs: prepared.imageInputs,
@@ -611,11 +630,28 @@ export async function runComfyUiCatalogCommand(
         workflow: prepared.workflow,
         imageInputs: prepared.imageInputs,
         config,
-        outputPath: absoluteOutputPath,
+        ...(absoluteOutputPath ? { outputPath: absoluteOutputPath } : {}),
         force: runCommand.force,
         signal,
         onProgress: options.json ? undefined : options.onRunProgress,
       });
+      const publishedOutput =
+        result.output.target === 'pending'
+          ? await publishComfyUiGeneratedAsset({
+              projectRoot: project.projectRoot!,
+              workspace: options.workspace,
+              fileSystem: options.fileSystem,
+              workflow: entry,
+              promptId: result.promptId,
+              output: result.output,
+            })
+          : result.output;
+      if (publishedOutput.target === 'asset')
+        options.onRunProgress?.('completed', `Published Project Asset ${publishedOutput.assetId}.`);
+      const outputDescription =
+        publishedOutput.target === 'asset'
+          ? `asset:${publishedOutput.assetId}`
+          : publishedOutput.path;
       return formatCliResult(
         {
           success: true,
@@ -631,11 +667,11 @@ export async function runComfyUiCatalogCommand(
           serverUrl: result.serverUrl,
           clientId: result.clientId,
           promptId: result.promptId,
-          outputs: { [result.output.outputId]: result.output },
+          outputs: { [publishedOutput.outputId]: publishedOutput },
         },
         options.json,
         {
-          success: `ComfyUI workflow '${entry.id}' completed.\n${result.output.outputId}: ${result.output.path}`,
+          success: `ComfyUI workflow '${entry.id}' completed.\n${publishedOutput.outputId}: ${outputDescription}`,
         },
       );
     } catch (error) {

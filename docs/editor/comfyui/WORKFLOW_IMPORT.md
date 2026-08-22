@@ -62,7 +62,7 @@ verifies the active workflow set. Verification is diagnostic-only apart from the
 rewrites a package.
 
 `noveltea comfyui run [<workflow-id> | --type <classification>]` accepts repeated `--input name=value` arguments,
-splitting only on the first `=`, and requires one explicit `--output <path>`. An explicit workflow ID is definitive.
+splitting only on the first `=`. An explicit workflow ID is definitive.
 `--type` instead reads the configured logical default for that dotted classification and resolves it through normal
 `project > user > built-in` precedence. The two selection modes are mutually exclusive, omission of both is invalid, and
 missing or temporarily unavailable configured defaults fail explicitly rather than selecting another workflow. Duplicate
@@ -83,10 +83,19 @@ and a failed upload aborts before `/prompt` without claiming remote rollback.
 
 The current runner still requires exactly one required cardinality-`one` image output. It submits one uniquely identified
 prompt, polls `/history/<prompt-id>` over HTTP with no fixed whole-job timeout, resolves the named output binding,
-downloads one bounded image, validates its media format, and publishes it atomically to the requested filesystem path.
-Missing parent directories are created only for final publication. `.png`, `.jpg`/`.jpeg`, `.webp`, and `.gif`
-destinations are admitted, and the extension must agree with the returned image format; NovelTea does not transcode.
-Project Asset publication, cardinality-many routing, and named multi-output routing remain later slices.
+downloads one bounded image, and validates its media format before publication. When a Project is available, omitting
+`--output` publishes the result as a normal Asset in `assets/generated/`. Generated names are workflow-oriented and
+collision-safe. NovelTea does not hold the workspace writer lock during verification, upload, queueing, polling, or
+download; immediately before publication it reopens the latest Project and performs one short normal workspace
+transaction containing the generated file and Asset record. This preserves unrelated Project edits and makes existing
+workspace collision/recovery behavior authoritative. The generated Asset stores normal content hash and image metadata;
+lightweight `originalPath` provenance identifies ComfyUI, the logical workflow, and prompt without storing prompt text or
+local source filenames.
+
+An explicit `--output` routes the result only to the filesystem, including when a Project exists. Missing parent
+directories are created only for final filesystem publication. `.png`, `.jpg`/`.jpeg`, `.webp`, and `.gif` destinations
+are admitted, and the extension must agree with the returned image format; NovelTea does not transcode. Without a
+Project, `--output` is required. Cardinality-many routing and named multi-output routing remain later slices.
 
 Ctrl-C attempts prompt-specific cancellation by deleting only this invocation's prompt from the ComfyUI queue; it never
 uses the global `/interrupt` endpoint. Interrupted runs use exit status 130. Independent CLI runs are not serialized and

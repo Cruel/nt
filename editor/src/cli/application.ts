@@ -117,6 +117,7 @@ export async function runNovelTeaCli(
       json: globals.json,
       cwd,
       fileSystem,
+      workspace,
       libraryOptions: options.comfyUiWorkflowLibraryOptions,
       abortSignal: options.comfyUiAbortSignal,
       onRunProgress: options.onComfyUiProgress,

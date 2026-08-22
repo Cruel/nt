@@ -44,16 +44,25 @@ interface ImageDescriptor {
   type?: string;
 }
 
-export interface ComfyUiScalarRunOutput {
+export interface ComfyUiGeneratedImage {
   outputId: string;
-  target: 'filesystem';
-  path: string;
   format: 'png' | 'jpeg' | 'webp' | 'gif';
   mimeType: string;
   byteSize: number;
   contentHash: `sha256:${string}`;
   width: number;
   height: number;
+  hasAlpha: boolean;
+  bytes: Uint8Array;
+}
+
+export interface ComfyUiScalarRunOutput extends Omit<ComfyUiGeneratedImage, 'bytes'> {
+  target: 'filesystem';
+  path: string;
+}
+
+export interface ComfyUiPendingRunOutput extends ComfyUiGeneratedImage {
+  target: 'pending';
 }
 
 export interface ComfyUiScalarRunResult {
@@ -64,7 +73,7 @@ export interface ComfyUiScalarRunResult {
   serverUrl: string;
   clientId: string;
   promptId: string;
-  output: ComfyUiScalarRunOutput;
+  output: ComfyUiScalarRunOutput | ComfyUiPendingRunOutput;
 }
 
 export { ComfyUiRunError } from './comfyui-run-errors';
@@ -267,6 +276,7 @@ function imageFormat(bytes: Uint8Array): {
   mimeType: string;
   width: number;
   height: number;
+  hasAlpha: boolean;
 } {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (
@@ -285,6 +295,7 @@ function imageFormat(bytes: Uint8Array): {
     let height = 0;
     let sawImageData = false;
     let sawEnd = false;
+    let sawTransparency = false;
     while (offset + 12 <= bytes.byteLength) {
       const length = view.getUint32(offset, false);
       const chunkEnd = offset + 12 + length;
@@ -295,14 +306,24 @@ function imageFormat(bytes: Uint8Array): {
         height = view.getUint32(offset + 12, false);
       } else if (type === 'IDAT') {
         sawImageData = true;
+      } else if (type === 'tRNS') {
+        sawTransparency = true;
       } else if (type === 'IEND' && length === 0) {
         sawEnd = true;
         break;
       }
       offset = chunkEnd;
     }
-    if (width && height && sawImageData && sawEnd)
-      return { format: 'png', mimeType: 'image/png', width, height };
+    if (width && height && sawImageData && sawEnd) {
+      const colorType = bytes[25];
+      return {
+        format: 'png',
+        mimeType: 'image/png',
+        width,
+        height,
+        hasAlpha: colorType === 4 || colorType === 6 || sawTransparency,
+      };
+    }
   }
   if (
     bytes.byteLength >= 10 &&
@@ -311,14 +332,50 @@ function imageFormat(bytes: Uint8Array): {
   ) {
     const width = view.getUint16(6, true);
     const height = view.getUint16(8, true);
-    if (width && height) return { format: 'gif', mimeType: 'image/gif', width, height };
+    if (width && height) {
+      let hasAlpha = false;
+      for (let index = 13; index + 3 < bytes.byteLength; index += 1)
+        if (bytes[index] === 0x21 && bytes[index + 1] === 0xf9 && bytes[index + 2] === 0x04) {
+          hasAlpha ||= (bytes[index + 3]! & 0x01) !== 0;
+          if (hasAlpha) break;
+        }
+      return { format: 'gif', mimeType: 'image/gif', width, height, hasAlpha };
+    }
   }
   if (
-    bytes.byteLength >= 12 &&
+    bytes.byteLength >= 30 &&
     String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' &&
     String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP'
-  )
-    return { format: 'webp', mimeType: 'image/webp', width: 1, height: 1 };
+  ) {
+    const chunk = String.fromCharCode(...bytes.slice(12, 16));
+    if (chunk === 'VP8X' && bytes.byteLength >= 30) {
+      const width = 1 + bytes[24]! + (bytes[25]! << 8) + (bytes[26]! << 16);
+      const height = 1 + bytes[27]! + (bytes[28]! << 8) + (bytes[29]! << 16);
+      return {
+        format: 'webp',
+        mimeType: 'image/webp',
+        width,
+        height,
+        hasAlpha: (bytes[20]! & 0x10) !== 0,
+      };
+    }
+    if (chunk === 'VP8L' && bytes.byteLength >= 25 && bytes[20] === 0x2f) {
+      const bits = bytes[21]! | (bytes[22]! << 8) | (bytes[23]! << 16) | (bytes[24]! << 24);
+      return {
+        format: 'webp',
+        mimeType: 'image/webp',
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >>> 14) & 0x3fff) + 1,
+        hasAlpha: ((bits >>> 28) & 1) !== 0,
+      };
+    }
+    if (chunk === 'VP8 ' && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+      const width = view.getUint16(26, true) & 0x3fff;
+      const height = view.getUint16(28, true) & 0x3fff;
+      if (width && height)
+        return { format: 'webp', mimeType: 'image/webp', width, height, hasAlpha: false };
+    }
+  }
   if (bytes.byteLength >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
     let offset = 2;
     while (offset + 9 < bytes.byteLength) {
@@ -337,7 +394,8 @@ function imageFormat(bytes: Uint8Array): {
       ) {
         const height = view.getUint16(offset + 5, false);
         const width = view.getUint16(offset + 7, false);
-        if (width && height) return { format: 'jpeg', mimeType: 'image/jpeg', width, height };
+        if (width && height)
+          return { format: 'jpeg', mimeType: 'image/jpeg', width, height, hasAlpha: false };
       }
       offset += 2 + length;
     }
@@ -466,7 +524,7 @@ async function validateFilesystemOutputParent(outputPath: string, outputId: stri
 
 export async function preflightComfyUiScalarRun(options: {
   entry: ComfyUiRunnableWorkflowEntry;
-  outputPath: string;
+  outputPath?: string;
   force: boolean;
   config?: ComfyUiConfig;
   imageInputs?: PreparedComfyUiImageInput[];
@@ -501,6 +559,7 @@ export async function preflightComfyUiScalarRun(options: {
       `/outputs/${outputId}`,
       `Output '${outputId}' must be a required cardinality-'one' image for file publication in this execution slice.`,
     );
+  if (!options.outputPath) return { outputId, absoluteOutputPath: null };
   const absoluteOutputPath = path.resolve(options.outputPath);
   const extension = path.extname(absoluteOutputPath).toLowerCase();
   if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(extension))
@@ -536,7 +595,7 @@ export async function runComfyUiScalarWorkflow(options: {
   workflow: WorkflowGraph;
   imageInputs?: PreparedComfyUiImageInput[];
   config: ComfyUiConfig;
-  outputPath: string;
+  outputPath?: string;
   force: boolean;
   signal?: AbortSignal;
   onProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
@@ -619,26 +678,38 @@ export async function runComfyUiScalarWorkflow(options: {
       MAX_IMAGE_OUTPUT_BYTES,
     );
     const metadata = imageFormat(bytes);
-    if (!extensionMatches(absoluteOutputPath, metadata.format))
-      throw new ComfyUiRunError(
-        'COMFYUI_OUTPUT_EXTENSION',
-        `/outputs/${outputId}`,
-        `Destination extension does not match returned ${metadata.format} image format.`,
+    const generated: ComfyUiGeneratedImage = {
+      outputId,
+      ...metadata,
+      byteSize: bytes.byteLength,
+      contentHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+      bytes,
+    };
+    let output: ComfyUiScalarRunOutput | ComfyUiPendingRunOutput;
+    if (absoluteOutputPath) {
+      if (!extensionMatches(absoluteOutputPath, metadata.format))
+        throw new ComfyUiRunError(
+          'COMFYUI_OUTPUT_EXTENSION',
+          `/outputs/${outputId}`,
+          `Destination extension does not match returned ${metadata.format} image format.`,
+        );
+      await fs.mkdir(path.dirname(absoluteOutputPath), { recursive: true });
+      const temporaryPath = path.join(
+        path.dirname(absoluteOutputPath),
+        `.${path.basename(absoluteOutputPath)}.${randomUUID()}.tmp`,
       );
-    await fs.mkdir(path.dirname(absoluteOutputPath), { recursive: true });
-    const temporaryPath = path.join(
-      path.dirname(absoluteOutputPath),
-      `.${path.basename(absoluteOutputPath)}.${randomUUID()}.tmp`,
-    );
-    try {
-      await fs.writeFile(temporaryPath, bytes, { flag: 'wx' });
-      if (options.force) await fs.rm(absoluteOutputPath, { force: true });
-      await fs.rename(temporaryPath, absoluteOutputPath);
-    } catch (error) {
-      await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-      throw error;
-    }
-    options.onProgress?.('completed', `Wrote ${absoluteOutputPath}.`);
+      try {
+        await fs.writeFile(temporaryPath, bytes, { flag: 'wx' });
+        if (options.force) await fs.rm(absoluteOutputPath, { force: true });
+        await fs.rename(temporaryPath, absoluteOutputPath);
+      } catch (error) {
+        await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+        throw error;
+      }
+      options.onProgress?.('completed', `Wrote ${absoluteOutputPath}.`);
+      const { bytes: _bytes, ...published } = generated;
+      output = { ...published, target: 'filesystem', path: absoluteOutputPath };
+    } else output = { ...generated, target: 'pending' };
     return {
       workflowId: entry.id,
       workflowKey: entry.workflowKey,
@@ -647,14 +718,7 @@ export async function runComfyUiScalarWorkflow(options: {
       serverUrl: normalizeComfyUiServerUrl(config.serverUrl),
       clientId,
       promptId,
-      output: {
-        outputId,
-        target: 'filesystem',
-        path: absoluteOutputPath,
-        ...metadata,
-        byteSize: bytes.byteLength,
-        contentHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
-      },
+      output,
     };
   } finally {
     options.signal?.removeEventListener('abort', onAbort);

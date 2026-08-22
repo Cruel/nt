@@ -9,6 +9,8 @@ import {
   resetImageInspectionService,
 } from '../../main/services/image-inspection-service';
 import type { WorkflowLibraryServiceOptions } from '../../main/services/comfyui-workflow-library-service';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { projectWorkspaceFiles } from '../../shared/project-workspace';
 
 const tempRoots: string[] = [];
 const servers: http.Server[] = [];
@@ -145,6 +147,18 @@ function writeImagePackage(root: string, id = 'image-run') {
   );
 }
 
+function writeProjectWorkspace(root: string) {
+  const project = createAuthoringProject({ id: 'comfyui-run', name: 'ComfyUI Run' });
+  for (const [relativePath, text] of Object.entries(
+    projectWorkspaceFiles(project, project.editor),
+  )) {
+    const absolutePath = path.join(root, relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    fs.writeFileSync(absolutePath, text);
+  }
+  return project;
+}
+
 function libraryOptions(builtInRoot: string, userRoot: string): WorkflowLibraryServiceOptions {
   return {
     roots: {
@@ -169,6 +183,7 @@ interface FakeServerOptions {
   neverComplete?: boolean;
   uploadStatus?: number;
   host?: string;
+  onPrompt?: () => void;
 }
 
 async function fakeComfyUi(options: FakeServerOptions = {}) {
@@ -224,6 +239,7 @@ async function fakeComfyUi(options: FakeServerOptions = {}) {
       }
       if (requestPath === '/prompt' && request.method === 'POST') {
         const promptId = (body as { prompt_id?: string })?.prompt_id;
+        options.onPrompt?.();
         response.end(JSON.stringify({ prompt_id: promptId, number: 0 }));
         return;
       }
@@ -920,6 +936,215 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
     expect(result.exitCode).toBe(4);
     expect(server.requests.some((request) => request.path === '/upload/image')).toBe(true);
     expect(server.requests.some((request) => request.path === '/prompt')).toBe(false);
+  });
+
+  it('publishes to a normal Project Asset by default when --output is omitted', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writePackage(userRoot);
+    const server = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+
+    const result = await runNovelTeaCli(
+      runArguments(server.url, 'ignored.png').filter(
+        (value, index, values) => value !== '--output' && values[index - 1] !== '--output',
+      ),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    const parsed = envelope(result);
+    const output = (parsed.outputs as Record<string, Record<string, unknown>>).image;
+    expect(output).toMatchObject({
+      target: 'asset',
+      projectRelativePath: expect.stringMatching(/^assets\/generated\//),
+    });
+    const assetId = output.assetId as string;
+    const recordPath = path.join(root, 'records', 'assets', `${assetId}.json`);
+    const record = JSON.parse(fs.readFileSync(recordPath, 'utf8')) as Record<string, unknown>;
+    expect(record).toMatchObject({
+      id: assetId,
+      data: { source: { type: 'project-file', path: output.projectRelativePath } },
+    });
+    expect(fs.readFileSync(path.join(root, output.projectRelativePath as string))).toEqual(png());
+    expect(assetId).toMatch(/^scalar-run-/);
+  });
+
+  it('keeps an explicit filesystem route definitive even when a Project is available', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writePackage(userRoot);
+    const server = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+    const outputPath = path.join(root, 'explicit.png');
+    const result = await runNovelTeaCli(runArguments(server.url, outputPath), {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(
+      (envelope(result).outputs as Record<string, Record<string, unknown>>).image,
+    ).toMatchObject({
+      target: 'filesystem',
+      path: outputPath,
+    });
+    expect(fs.existsSync(path.join(root, 'records', 'assets'))).toBe(false);
+  });
+
+  it('requires explicit filesystem output outside a Project before any network work', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writePackage(userRoot);
+    const server = await fakeComfyUi();
+    const result = await runNovelTeaCli(
+      runArguments(server.url, 'ignored.png').filter(
+        (value, index, values) => value !== '--output' && values[index - 1] !== '--output',
+      ),
+      { cwd: root, comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot) },
+    );
+    expect(result.exitCode).toBe(4);
+    expect(envelope(result).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_OUTPUT_ROUTE_REQUIRED' }),
+    ]);
+    expect(server.requests).toEqual([]);
+  });
+
+  it('reopens latest Project state after remote success and preserves unrelated edits', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writePackage(userRoot);
+    let edited = false;
+    let writerLockObserved = false;
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 2,
+      onPrompt: () => {
+        writerLockObserved = fs.existsSync(
+          path.join(root, '.noveltea', 'transactions', '.writer-lock'),
+        );
+        if (edited) return;
+        edited = true;
+        const projectFile = path.join(root, 'project.json');
+        const document = JSON.parse(fs.readFileSync(projectFile, 'utf8')) as {
+          project: { name: string };
+        };
+        document.project.name = 'Edited During Generation';
+        fs.writeFileSync(projectFile, `${JSON.stringify(document, null, 2)}\n`);
+      },
+    });
+    const argv = runArguments(server.url, 'ignored.png').filter(
+      (value, index, values) => value !== '--output' && values[index - 1] !== '--output',
+    );
+    const result = await runNovelTeaCli(argv, {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(writerLockObserved).toBe(false);
+    expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8'))).toMatchObject({
+      project: { name: 'Edited During Generation' },
+    });
+  });
+
+  it('reports remote-success/local-publication failure distinctly when the Project disappears', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writePackage(userRoot);
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      onPrompt: () => fs.rmSync(path.join(root, 'project.json')),
+    });
+    const argv = runArguments(server.url, 'ignored.png').filter(
+      (value, index, values) => value !== '--output' && values[index - 1] !== '--output',
+    );
+    const result = await runNovelTeaCli(argv, {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(4);
+    expect(envelope(result).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_ASSET_PUBLICATION_PROJECT_INVALID' }),
+    ]);
+    expect(server.requests.some((request) => request.path === '/prompt')).toBe(true);
+    expect(server.requests.some((request) => request.path.startsWith('/view?'))).toBe(true);
+  });
+
+  it('keeps publication tied to the captured project-local workflow package when that package changes during the job', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    const projectWorkflows = path.join(root, 'workflows');
+    writePackage(projectWorkflows);
+    const inspected = await runNovelTeaCli(['--json', 'comfyui', 'workflows', 'scalar-run'], {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(inspected.exitCode).toBe(0);
+    const capturedHash = (envelope(inspected).workflow as { packageHash: string }).packageHash;
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 2,
+      onPrompt: () => {
+        const workflowPath = path.join(projectWorkflows, 'scalar-run.workflow.json');
+        const changed = workflow();
+        changed.a.inputs.text = 'changed-after-submit';
+        fs.writeFileSync(workflowPath, `${JSON.stringify(changed, null, 2)}\n`);
+      },
+    });
+    const argv = runArguments(server.url, 'ignored.png').filter(
+      (value, index, values) => value !== '--output' && values[index - 1] !== '--output',
+    );
+    const result = await runNovelTeaCli(argv, {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(envelope(result).workflow).toMatchObject({
+      source: 'project',
+      packageHash: capturedHash,
+    });
+  });
+
+  it('allows concurrent remote runs to publish independent Assets without clobbering', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writePackage(userRoot);
+    const fast = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+    const slow = await fakeComfyUi({ completeAfterHistoryCalls: 3 });
+    const withoutOutput = (serverUrl: string) =>
+      runArguments(serverUrl, 'ignored.png').filter(
+        (value, index, values) => value !== '--output' && values[index - 1] !== '--output',
+      );
+    const [left, right] = await Promise.all([
+      runNovelTeaCli(withoutOutput(fast.url), {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      }),
+      runNovelTeaCli(withoutOutput(slow.url), {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      }),
+    ]);
+    expect(left.exitCode).toBe(0);
+    expect(right.exitCode).toBe(0);
+    const leftId = (envelope(left).outputs as Record<string, Record<string, unknown>>).image
+      .assetId as string;
+    const rightId = (envelope(right).outputs as Record<string, Record<string, unknown>>).image
+      .assetId as string;
+    expect(leftId).not.toBe(rightId);
+    expect(fs.existsSync(path.join(root, 'records', 'assets', `${leftId}.json`))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'records', 'assets', `${rightId}.json`))).toBe(true);
   });
 
   it('returns 130 on interruption and attempts prompt-specific queue cancellation without /interrupt', async () => {
