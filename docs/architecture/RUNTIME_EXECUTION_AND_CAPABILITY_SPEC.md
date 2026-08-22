@@ -1157,18 +1157,21 @@ that stored metadata describes the decoded save before committing replacement st
 
 ### Load behavior
 
-Successful load is an atomic session-state replacement:
+Successful load is an atomic Runtime Session replacement:
 
-1. decode and validate the selected retained save;
-2. construct a fresh valid `SessionState` and runtime execution state;
-3. cancel old script invocations, presentation/audio operations, internal commands, and external
-   requests with typed reasons;
-4. replace the session state only after construction succeeds;
-5. reset checkpoint generations and retained checkpoint ownership according to the checkpoint spec;
-6. publish one complete new runtime publication;
-7. reconcile presentation from logical desired state without restoring backend progress.
+1. decode and validate the selected retained save against the immutable compiled Project baseline;
+2. create a fresh Project Lua VM, run Bootstrap, freeze the Hook Registry, and construct a fresh
+   restored `RuntimeSession` with valid authoritative state and execution state;
+3. run On Game Ready against that restored state without dispatching Start or rerunning entrypoint,
+   Room lifecycle, crossed cues, or completed Flow work;
+4. project one complete candidate runtime publication and validate candidate presentation realization;
+5. replace the live Runtime Session and Project VM only after candidate construction succeeds;
+6. invalidate/cancel old script capabilities, presentation/audio operations, internal commands, and
+   external requests with typed replacement reasons;
+7. publish and reconcile only the new coherent desired state without restoring backend progress.
 
-A failed load leaves the current running session unchanged except for the typed failure outcome.
+A failed load leaves the current running session, Project Lua VM, publication, and host generations
+unchanged except for the typed failure result.
 
 ## Lifecycle
 
@@ -1187,8 +1190,10 @@ Failed construction publishes no partial running game.
 
 ### Start
 
-Starting a fresh session candidate synchronously imports the configured non-yielding Bootstrap Module, then starts the typed project entrypoint. A
-start transaction settles and publishes a complete initial state or faults with diagnostics.
+Starting a fresh session candidate uses a fresh Project Lua VM, synchronously imports the configured
+non-yielding Bootstrap Module, freezes the Hook Registry, constructs authoritative session state,
+runs On Game Ready, then starts and settles the typed project entrypoint before the candidate becomes
+live. Candidate failure publishes nothing and cannot mutate the previously live session or Project VM.
 
 ### Stop
 
@@ -1197,9 +1202,11 @@ It does not destroy immutable package state until the running game is destroyed.
 
 ### Reset
 
-Reset constructs fresh initial session state for the same loaded package, cancels current transient
-work, resets checkpoint/session-local allocators as specified, rebinds script capability generation,
-and publishes a complete initial state.
+Reset constructs a complete candidate for the same immutable loaded package with a fresh Project Lua
+VM and authored-default authoritative state. It runs Bootstrap, Hook Registry freeze, On Game Ready,
+and the entrypoint to settlement before replacement. Only successful replacement cancels the old
+session's transient work and Lua capabilities, resets checkpoint/session-local ownership through the
+new session, and publishes the candidate's complete initial state.
 
 ### Project reload
 

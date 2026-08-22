@@ -219,15 +219,23 @@ fallible candidate-commit gate: failure while priming the already-bound backend 
 new backend fails the load and restores the previous game/resources rather than activating a target
 whose source revision was never realized.
 
-Title-screen loads instead use the started candidate only for isolated validation. That validation
-session executes against a disposable `ScriptRuntime`/Lua VM with the candidate's script source
-context; authored Lua globals and coroutine state from validation never enter the live scripting VM.
-After the old live runtime is detached, the host recreates a fresh stopped session over the validated
-package, explicitly binds that session to the live script invocation port, and publishes its
-revision-1 baseline. The later user Start therefore owns the complete initial Room transition and is
-the first execution of authored startup/entry Lua in the installed session. Backend `Running`
-acknowledgements update lifecycle state only; they never synthesize completion or cancellation input.
-Only terminal Completed/Failed facts resume or cancel the owning Flow operation.
+New-game, reset, and load replacement are host-owned candidate transactions. Each candidate owns a
+fresh Project `ScriptRuntime`/Lua VM and a complete candidate `RuntimeSession`; the frontend/RmlUi Lua
+state is separate and remains stable across gameplay-session replacement. Bootstrap and Hook Registry
+freeze finish before candidate session construction. New-game and reset candidates then run On Game
+Ready and synchronously start/settle the typed entrypoint before they are eligible to replace live
+state. A title-screen load may stop that already-settled candidate after validation, so a later shell
+Start changes lifecycle admission only; it does not execute authored startup a second time.
+
+Save restoration decodes and validates against the immutable compiled Project, reconstructs a fresh
+executor/session, runs On Game Ready against the restored authoritative state, and projects one
+coherent initial publication without dispatching Start. It therefore does not rerun the entrypoint,
+Room lifecycle, crossed cues, or completed Flow instructions. Failed reset/load construction keeps the
+previous session, Project VM, publication, and host generations untouched. On successful replacement,
+the old session is destroyed before its old Project VM, invalidating its capability generation and
+cancelling any retained script invocation authority. Backend `Running` acknowledgements update
+lifecycle state only; they never synthesize completion or cancellation input. Only terminal
+Completed/Failed facts resume or cancel the owning Flow operation.
 
 The engine settles terminal presentation inputs immediately after advancing and flushing the
 presentation backends in the same frame. This publishes post-transition Room, ActiveText, and

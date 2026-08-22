@@ -293,6 +293,19 @@ std::string lua_counter_compiled_project_fixture()
     return project.dump();
 }
 
+std::string asset_bootstrap_compiled_project_fixture()
+{
+    auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    project["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                              {"id", "bootstrap-script"},
+                                              {"kind", "script"},
+                                              {"path", "assets/scripts/bootstrap.lua"}});
+    project["resources"]["scripts"][0]["source"] = {
+        {"asset", {{"id", "bootstrap-script"}, {"kind", "asset"}}}, {"kind", "asset"}};
+    return project.dump();
+}
+
 std::shared_ptr<assets::ZipAssetSource>
 runtime_package_source(std::string_view fixture,
                        std::span<const std::pair<std::string, std::string>> additional_files = {})
@@ -544,7 +557,7 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     scripts.on_invalidate = {};
 }
 
-TEST_CASE("GameHost validates stopped loads in an isolated Lua VM")
+TEST_CASE("GameHost constructs stopped loads in a dedicated Project Lua VM")
 {
     assets::AssetManager assets;
     auto project_assets = std::make_shared<assets::MemoryAssetSource>();
@@ -585,15 +598,56 @@ TEST_CASE("GameHost validates stopped loads in an isolated Lua VM")
                                         .load_title_screen = false,
                                         .stop_runtime_after_load = true},
                                        {}));
-    auto untouched = scripts.evaluate_bool("counter == nil", "stopped-load-validation-isolation");
+    auto untouched = scripts.evaluate_bool("counter == nil", "stopped-load-frontend-isolation");
     REQUIRE(untouched);
     CHECK(*untouched.value_if());
+    auto* project_scripts = host.project_script_runtime();
+    REQUIRE(project_scripts);
+    auto executed_once =
+        project_scripts->evaluate_bool("counter == 1", "stopped-load-candidate-start");
+    REQUIRE(executed_once);
+    CHECK(*executed_once.value_if());
 
     auto started = host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.accepted());
-    auto executed_once = scripts.evaluate_bool("counter == 1", "stopped-load-live-start");
+    CHECK(host.project_script_runtime() == project_scripts);
+    executed_once = project_scripts->evaluate_bool("counter == 1", "stopped-load-live-start");
     REQUIRE(executed_once);
     CHECK(*executed_once.value_if());
+
+    const auto slot = core::TypedSaveSlotId::manual(7);
+    auto saved = host.submit_runtime_input(core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
+    REQUIRE(saved.accepted());
+    REQUIRE(saves.has_slot(slot));
+    CHECK(*saves.has_slot(slot).value_if());
+
+    auto& gateway = host.running_game()->session().gateway();
+    runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
+    auto capabilities = issuer.issue(runtime::RuntimeCapabilityProfile::GameplayScript);
+    REQUIRE(capabilities);
+    auto requested_load = project_scripts->invoke(
+        runtime::ScriptInvocationRequest{.source = "sentinel = 99; local ok, err = Game.load(7); "
+                                                   "assert(ok and err == nil)",
+                                         .chunk_name = "host-lua-load-request",
+                                         .source_context = gateway.current_source_context(),
+                                         .result_kind = runtime::ScriptInvocationResultKind::None},
+        *capabilities);
+    REQUIRE(requested_load);
+    REQUIRE(std::holds_alternative<runtime::ScriptInvocationCompleted>(*requested_load.value_if()));
+
+    const auto generation_before_load = host.session_generation();
+    auto loaded = host.submit_runtime_input(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
+    REQUIRE(loaded.accepted());
+    CHECK(host.session_generation().number() == generation_before_load.number() + 1);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
+    auto* restored_scripts = host.project_script_runtime();
+    REQUIRE(restored_scripts);
+    CHECK(restored_scripts != project_scripts);
+    auto fresh_vm = restored_scripts->evaluate_bool("sentinel == nil and counter == nil",
+                                                    "host-lua-load-fresh-vm");
+    REQUIRE(fresh_vm);
+    CHECK(*fresh_vm.value_if());
 }
 
 TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
@@ -1585,18 +1639,121 @@ TEST_CASE("GameHost advances only admitted loaded-game runtime work")
     CHECK(host.runtime_publication()->revision.number() >= publication_before.number());
 }
 
+TEST_CASE("GameHost failed reset and load candidates preserve the live session and Project VM")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = asset_bootstrap_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-candidate-failure-test");
+    const std::string valid_bootstrap = "return {}\n";
+    project_assets->add("assets/scripts/bootstrap.lua",
+                        assets::AssetBytes(valid_bootstrap.begin(), valid_bootstrap.end()),
+                        "game-host-candidate-failure-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    FakeRuntimeUiHost runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = {}});
+
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = false},
+                                       {}));
+    auto* live_scripts = host.project_script_runtime();
+    REQUIRE(live_scripts);
+    REQUIRE(live_scripts->execute("sentinel = 41", "reset-failure-sentinel"));
+    auto* live_session = &host.running_game()->session();
+    const auto live_generation = host.session_generation();
+    const auto live_backend = host.backend_generation();
+    REQUIRE(host.runtime_publication());
+    const auto live_revision = host.runtime_publication()->revision;
+
+    const std::string invalid_bootstrap = "local =";
+    project_assets->add("assets/scripts/bootstrap.lua",
+                        assets::AssetBytes(invalid_bootstrap.begin(), invalid_bootstrap.end()),
+                        "game-host-candidate-failure-test");
+    auto failed_reset =
+        host.submit_runtime_input(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+    REQUIRE_FALSE(failed_reset.accepted());
+    CHECK(host.project_script_runtime() == live_scripts);
+    CHECK(&host.running_game()->session() == live_session);
+    CHECK(host.session_generation() == live_generation);
+    CHECK(host.backend_generation() == live_backend);
+    REQUIRE(host.runtime_publication());
+    CHECK(host.runtime_publication()->revision == live_revision);
+    auto reset_sentinel = live_scripts->evaluate_bool("sentinel == 41", "reset-failure-live-vm");
+    REQUIRE(reset_sentinel);
+    CHECK(*reset_sentinel.value_if());
+
+    project_assets->add("assets/scripts/bootstrap.lua",
+                        assets::AssetBytes(valid_bootstrap.begin(), valid_bootstrap.end()),
+                        "game-host-candidate-failure-test");
+    auto reset = host.submit_runtime_input(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+    REQUIRE(reset.accepted());
+    REQUIRE(host.submit_runtime_input(core::RuntimeInputMessage{core::SaveRuntimeInput{
+                                          core::TypedSaveSlotId::autosave()}})
+                .accepted());
+
+    live_scripts = host.project_script_runtime();
+    REQUIRE(live_scripts);
+    REQUIRE(live_scripts->execute("sentinel = 73", "load-failure-sentinel"));
+    live_session = &host.running_game()->session();
+    const auto load_generation = host.session_generation();
+    const auto load_backend = host.backend_generation();
+    REQUIRE(host.runtime_publication());
+    const auto load_revision = host.runtime_publication()->revision;
+    REQUIRE(saves.write_slot(core::TypedSaveSlotId::autosave(), "not-a-valid-save"));
+
+    auto failed_load = host.submit_runtime_input(
+        core::RuntimeInputMessage{core::LoadRuntimeInput{core::TypedSaveSlotId::autosave()}});
+    REQUIRE_FALSE(failed_load.accepted());
+    CHECK(host.project_script_runtime() == live_scripts);
+    CHECK(&host.running_game()->session() == live_session);
+    CHECK(host.session_generation() == load_generation);
+    CHECK(host.backend_generation() == load_backend);
+    REQUIRE(host.runtime_publication());
+    CHECK(host.runtime_publication()->revision == load_revision);
+    auto load_sentinel = live_scripts->evaluate_bool("sentinel == 73", "load-failure-live-vm");
+    REQUIRE(load_sentinel);
+    CHECK(*load_sentinel.value_if());
+}
+
 TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime generations")
 {
     assets::AssetManager assets;
     auto project_assets = std::make_shared<assets::MemoryAssetSource>();
-    const auto fixture = minimal_compiled_project_fixture();
+    const auto fixture = lua_counter_compiled_project_fixture();
     project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
                         "game-host-test");
     assets.mount("project", project_assets);
 
     FakeScriptInvocationPort scripts;
-    std::size_t invalidations = 0;
-    scripts.on_invalidate = [&]() { ++invalidations; };
     script::ScriptRuntime script_certifier;
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
@@ -1635,6 +1792,11 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
                                         .stop_runtime_after_load = true},
                                        hooks));
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+    auto* initial_project_scripts = host.project_script_runtime();
+    REQUIRE(initial_project_scripts);
+    auto initial_counter = initial_project_scripts->evaluate_bool("counter == 1", "initial-game");
+    REQUIRE(initial_counter);
+    CHECK(*initial_counter.value_if());
 
     const auto loaded_generation = host.session_generation();
     auto duplicate_stop =
@@ -1659,7 +1821,12 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     CHECK(host.session_generation().number() == pre_reset_session.number() + 1);
     CHECK(host.backend_generation().number() == pre_reset_backend.number() + 1);
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
-    CHECK(invalidations == 1);
+    auto* reset_project_scripts = host.project_script_runtime();
+    REQUIRE(reset_project_scripts);
+    CHECK(reset_project_scripts != initial_project_scripts);
+    auto reset_counter = reset_project_scripts->evaluate_bool("counter == 1", "reset-game");
+    REQUIRE(reset_counter);
+    CHECK(*reset_counter.value_if());
 
     auto stale = host.submit_runtime_input(pre_reset_session,
                                            core::RuntimeInputMessage{core::ContinueInput{}});
@@ -1692,7 +1859,13 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     CHECK(host.session_generation().number() == pre_load_session.number() + 1);
     CHECK(host.backend_generation().number() == pre_load_backend.number() + 1);
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
-    CHECK(invalidations == 2);
+    auto* restored_project_scripts = host.project_script_runtime();
+    REQUIRE(restored_project_scripts);
+    CHECK(restored_project_scripts != reset_project_scripts);
+    auto restored_counter =
+        restored_project_scripts->evaluate_bool("counter == nil", "restored-game");
+    REQUIRE(restored_counter);
+    CHECK(*restored_counter.value_if());
 
     auto stopped = host.submit_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(stopped.accepted());
@@ -1714,8 +1887,6 @@ TEST_CASE("GameHost suspend backend reset and shutdown ordering is idempotent")
     assets.mount("project", project_assets);
 
     FakeScriptInvocationPort scripts;
-    std::size_t invalidations = 0;
-    scripts.on_invalidate = [&]() { ++invalidations; };
     script::ScriptRuntime script_certifier;
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
@@ -1811,14 +1982,14 @@ TEST_CASE("GameHost suspend backend reset and shutdown ordering is idempotent")
     CHECK(host.session_generation().number() == shutdown_session.number() + 1);
     CHECK(host.backend_generation().number() == shutdown_backend.number() + 1);
     CHECK_FALSE(host.host_values().host_suspended);
-    CHECK(invalidations == 1);
+    CHECK(host.project_script_runtime() == nullptr);
 
     const auto final_session = host.session_generation();
     const auto final_backend = host.backend_generation();
     host.shutdown();
     CHECK(host.session_generation() == final_session);
     CHECK(host.backend_generation() == final_backend);
-    CHECK(invalidations == 1);
+    CHECK(host.project_script_runtime() == nullptr);
 }
 
 } // namespace
