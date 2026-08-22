@@ -101,7 +101,6 @@ describe('preferences-store', () => {
       serverUrl: 'https://comfy.example.test',
       requestTimeoutMs: 2345,
       connectionCheckIntervalMs: 6789,
-      defaultWorkflowId: 'shared-default',
       defaultWorkflows: { 'image.generate': 'shared-default' },
     });
 

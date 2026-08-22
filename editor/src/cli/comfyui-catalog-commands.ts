@@ -20,10 +20,11 @@ import {
   type ComfyUiConfig,
   type ComfyUiSharedUserConfig,
 } from '../shared/comfyui';
-import type {
-  ComfyUiWorkflowActiveEntry,
-  ComfyUiWorkflowDiagnostic,
-  ComfyUiWorkflowLibraryEntry,
+import {
+  isComfyUiWorkflowClassification,
+  type ComfyUiWorkflowActiveEntry,
+  type ComfyUiWorkflowDiagnostic,
+  type ComfyUiWorkflowLibraryEntry,
 } from '../shared/comfyui-workflows';
 import {
   discoverProjectRoot,
@@ -107,6 +108,7 @@ function parseStatusCommand(command: readonly string[]) {
 function parseRunCommand(command: readonly string[]) {
   if (command[0] !== 'comfyui' || command[1] !== 'run') return null;
   let workflowId: string | null = null;
+  let classification: string | null = null;
   let outputPath: string | null = null;
   let server: string | null = null;
   let force = false;
@@ -123,6 +125,20 @@ function parseRunCommand(command: readonly string[]) {
       if (inputs.has(name))
         throw new CliCommandUsageError(`Input '${name}' was supplied more than once.`);
       inputs.set(name, value.slice(equals + 1));
+      index += 1;
+      continue;
+    }
+    if (argument === '--type') {
+      if (classification)
+        throw new CliCommandUsageError("Option '--type' may be supplied only once.");
+      const value = command[index + 1];
+      if (!value || value.startsWith('--'))
+        throw new CliCommandUsageError("Option '--type' requires a workflow classification.");
+      if (!isComfyUiWorkflowClassification(value))
+        throw new CliCommandUsageError(
+          "Option '--type' requires a dotted workflow classification such as 'image.generate'.",
+        );
+      classification = value;
       index += 1;
       continue;
     }
@@ -156,15 +172,20 @@ function parseRunCommand(command: readonly string[]) {
       throw new CliCommandUsageError(`Unknown command option '${argument}'.`);
     if (workflowId)
       throw new CliCommandUsageError(
-        'Usage: noveltea comfyui run <workflow-id> [--input <name=value>]... --output <path> [--server <url>] [--force].',
+        'Usage: noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... --output <path> [--server <url>] [--force].',
       );
     workflowId = argument;
   }
-  if (!workflowId)
-    throw new CliCommandUsageError("'comfyui run' requires an explicit workflow id in issue #107.");
-  if (!outputPath)
-    throw new CliCommandUsageError("'comfyui run' requires '--output <path>' in issue #107.");
-  return { workflowId, outputPath, server, force, inputs };
+  if (workflowId && classification)
+    throw new CliCommandUsageError(
+      "'comfyui run' accepts either an explicit workflow id or '--type <classification>', not both.",
+    );
+  if (!workflowId && !classification)
+    throw new CliCommandUsageError(
+      "'comfyui run' requires an explicit workflow id or '--type <classification>'.",
+    );
+  if (!outputPath) throw new CliCommandUsageError("'comfyui run' requires '--output <path>'.");
+  return { workflowId, classification, outputPath, server, force, inputs };
 }
 
 function parseVerifyCommand(command: readonly string[]) {
@@ -194,7 +215,6 @@ function resolvedComfyUiConfig(
     enabled: true,
     serverUrl: resolved.serverUrl,
     requestTimeoutMs: resolved.requestTimeoutMs,
-    defaultWorkflowId: resolved.defaultWorkflowId,
     defaultWorkflows: resolved.defaultWorkflows,
   };
 }
@@ -402,21 +422,65 @@ export async function runComfyUiCatalogCommand(
       },
       options.libraryOptions,
     );
-    const selectedEntry = library.entries.find(
-      (candidate) => candidate.active && candidate.id === runCommand.workflowId,
-    );
-    if (!selectedEntry) {
+    const resolvedWorkflowId =
+      runCommand.workflowId ?? config.defaultWorkflows[runCommand.classification!];
+    if (!resolvedWorkflowId) {
       const diagnostic = cliDiagnostic(
-        'COMFYUI_WORKFLOW_NOT_FOUND',
+        'COMFYUI_DEFAULT_WORKFLOW_NOT_CONFIGURED',
         '/workflow',
-        `ComfyUI workflow '${runCommand.workflowId}' is not available in the effective catalog.`,
+        `No default ComfyUI workflow is configured for classification '${runCommand.classification}'.`,
       );
       return formatCliResult(
         {
           success: false,
           exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
           diagnostics: [diagnostic],
-          workflowId: runCommand.workflowId,
+          classification: runCommand.classification,
+          serverUrl: config.serverUrl,
+        },
+        options.json,
+        { failure: diagnostic.message },
+      );
+    }
+    const selectedEntry = library.entries.find(
+      (candidate) => candidate.active && candidate.id === resolvedWorkflowId,
+    );
+    if (!selectedEntry) {
+      const diagnostic = cliDiagnostic(
+        runCommand.classification
+          ? 'COMFYUI_DEFAULT_WORKFLOW_UNAVAILABLE'
+          : 'COMFYUI_WORKFLOW_NOT_FOUND',
+        '/workflow',
+        runCommand.classification
+          ? `Configured default ComfyUI workflow '${resolvedWorkflowId}' for classification '${runCommand.classification}' is not available in the effective catalog.`
+          : `ComfyUI workflow '${resolvedWorkflowId}' is not available in the effective catalog.`,
+      );
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics: [diagnostic],
+          workflowId: resolvedWorkflowId,
+          ...(runCommand.classification ? { classification: runCommand.classification } : {}),
+          serverUrl: config.serverUrl,
+        },
+        options.json,
+        { failure: diagnostic.message },
+      );
+    }
+    if (runCommand.classification && selectedEntry.classification !== runCommand.classification) {
+      const diagnostic = cliDiagnostic(
+        'COMFYUI_DEFAULT_WORKFLOW_CLASSIFICATION_MISMATCH',
+        '/workflow',
+        `Configured default ComfyUI workflow '${resolvedWorkflowId}' is classified as '${selectedEntry.classification ?? 'unclassified'}', not '${runCommand.classification}'.`,
+      );
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics: [diagnostic],
+          workflowId: resolvedWorkflowId,
+          classification: runCommand.classification,
           serverUrl: config.serverUrl,
         },
         options.json,
@@ -434,14 +498,15 @@ export async function runComfyUiCatalogCommand(
       const diagnostic = cliDiagnostic(
         'COMFYUI_WORKFLOW_NOT_RUNNABLE',
         '/workflow',
-        `ComfyUI workflow '${selectedEntry.id ?? runCommand.workflowId}' is not runnable by this NovelTea build.`,
+        `ComfyUI workflow '${selectedEntry.id ?? resolvedWorkflowId}' is not runnable by this NovelTea build.`,
       );
       return formatCliResult(
         {
           success: false,
           exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
           diagnostics: [diagnostic],
-          workflowId: selectedEntry.id ?? runCommand.workflowId,
+          workflowId: selectedEntry.id ?? resolvedWorkflowId,
+          ...(runCommand.classification ? { classification: runCommand.classification } : {}),
           serverUrl: config.serverUrl,
         },
         options.json,

@@ -243,7 +243,6 @@ describe('ImageGenerationEditor', () => {
 
   it('resolves logical default workflow IDs to the active source-specific workflow key', async () => {
     usePreferencesStore.getState().setComfyUiConfig({
-      defaultWorkflowId: 'flux2-klein-text-to-image',
       defaultWorkflows: {
         'image.generate': 'flux2-klein-text-to-image',
         'image.edit': 'flux2-klein-image-edit',

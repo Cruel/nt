@@ -73,8 +73,8 @@ import {
   WandSparkles,
 } from 'lucide-react';
 import type {
-  ComfyUiKnownWorkflowClassification,
   ComfyUiWorkflowActiveEntry,
+  ComfyUiWorkflowClassification,
 } from '../../shared/comfyui-workflows';
 import type {
   ExportPlatform,
@@ -237,7 +237,7 @@ function signingDraftFromProfile(profile: UserSigningProfile): SigningDraft {
 
 function workflowDefaultOptions(
   workflows: ComfyUiWorkflowActiveEntry[],
-  classification: ComfyUiKnownWorkflowClassification,
+  classification: ComfyUiWorkflowClassification,
   selectedId: string,
 ): WorkflowDefaultOption[] {
   const options = workflows.filter(
@@ -529,20 +529,14 @@ export function SettingsPage({
     nativeFrame === nativeFrameDefault &&
     exportConfigAtDefaults;
   const effectiveProjectDirectory = defaultProjectDirectory ?? appDefaultProjectDirectory;
-  const defaultGenerateWorkflowId =
-    comfyUiConfig.defaultWorkflows['image.generate'] || comfyUiConfig.defaultWorkflowId;
-  const defaultEditWorkflowId =
-    comfyUiConfig.defaultWorkflows['image.edit'] || 'flux2-klein-image-edit';
-  const generateWorkflowOptions = workflowDefaultOptions(
-    comfyUiWorkflows,
-    'image.generate',
-    defaultGenerateWorkflowId,
-  );
-  const editWorkflowOptions = workflowDefaultOptions(
-    comfyUiWorkflows,
-    'image.edit',
-    defaultEditWorkflowId,
-  );
+  const comfyUiDefaultClassifications = Array.from(
+    new Set([
+      ...comfyUiWorkflows.flatMap((workflow) =>
+        workflow.classification ? [workflow.classification] : [],
+      ),
+      ...Object.keys(comfyUiConfig.defaultWorkflows),
+    ]),
+  ).sort((left, right) => left.localeCompare(right));
 
   useEffect(() => {
     let mounted = true;
@@ -618,12 +612,7 @@ export function SettingsPage({
     setComfyUiConfig(patch);
     useComfyUiStore.getState().hydrateFromPreferences();
     const nextConfig = usePreferencesStore.getState().comfyUiConfig;
-    if (
-      'serverUrl' in patch ||
-      'requestTimeoutMs' in patch ||
-      'defaultWorkflowId' in patch ||
-      'defaultWorkflows' in patch
-    ) {
+    if ('serverUrl' in patch || 'requestTimeoutMs' in patch || 'defaultWorkflows' in patch) {
       try {
         void window.noveltea
           .saveComfyUiUserConfig(comfyUiSharedUserConfigFromRuntime(nextConfig))
@@ -640,17 +629,21 @@ export function SettingsPage({
   }
 
   function updateDefaultWorkflow(
-    classification: ComfyUiKnownWorkflowClassification,
+    classification: ComfyUiWorkflowClassification,
     workflowId: string,
   ) {
     updateComfyUiConfig({
-      defaultWorkflowId:
-        classification === 'image.generate' ? workflowId : comfyUiConfig.defaultWorkflowId,
       defaultWorkflows: {
         ...comfyUiConfig.defaultWorkflows,
         [classification]: workflowId,
       },
     });
+  }
+
+  function comfyUiClassificationLabel(classification: string) {
+    if (classification === 'image.generate') return t('settings:comfyui.defaultWorkflow');
+    if (classification === 'image.edit') return t('settings:comfyui.defaultEditWorkflow');
+    return classification;
   }
 
   function openComfyUiWorkflows() {
@@ -1770,7 +1763,7 @@ export function SettingsPage({
                   onCheckedChange={(enabled) => updateComfyUiConfig({ enabled: Boolean(enabled) })}
                 />
               </div>
-              <div className="grid gap-2 md:grid-cols-[minmax(240px,1fr)_minmax(190px,240px)_minmax(190px,240px)]">
+              <div className="grid gap-4">
                 <div className="space-y-1">
                   <Label htmlFor="comfyui-server-url">{t('settings:comfyui.serverUrl')}</Label>
                   <Input
@@ -1782,52 +1775,58 @@ export function SettingsPage({
                     placeholder="http://127.0.0.1:8000"
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="comfyui-default-workflow">
-                    {t('settings:comfyui.defaultWorkflow')}
-                  </Label>
-                  <select
-                    id="comfyui-default-workflow"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring"
-                    value={defaultGenerateWorkflowId}
-                    onChange={(event) =>
-                      updateDefaultWorkflow('image.generate', event.currentTarget.value)
-                    }
-                  >
-                    {generateWorkflowOptions.length > 0 ? (
-                      generateWorkflowOptions.map((workflow) => (
-                        <option key={workflow.id} value={workflow.id}>
-                          {workflow.label}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="">{t('settings:comfyui.noWorkflows')}</option>
-                    )}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="comfyui-default-edit-workflow">
-                    {t('settings:comfyui.defaultEditWorkflow')}
-                  </Label>
-                  <select
-                    id="comfyui-default-edit-workflow"
-                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring"
-                    value={defaultEditWorkflowId}
-                    onChange={(event) =>
-                      updateDefaultWorkflow('image.edit', event.currentTarget.value)
-                    }
-                  >
-                    {editWorkflowOptions.length > 0 ? (
-                      editWorkflowOptions.map((workflow) => (
-                        <option key={workflow.id} value={workflow.id}>
-                          {workflow.label}
-                        </option>
-                      ))
-                    ) : (
-                      <option value="">{t('settings:comfyui.noWorkflows')}</option>
-                    )}
-                  </select>
-                </div>
+                {comfyUiDefaultClassifications.length > 0 ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {comfyUiDefaultClassifications.map((classification) => {
+                      const selectedId = comfyUiConfig.defaultWorkflows[classification] ?? '';
+                      const options = workflowDefaultOptions(
+                        comfyUiWorkflows,
+                        classification,
+                        selectedId,
+                      );
+                      const selectedAvailable = comfyUiWorkflows.some(
+                        (workflow) =>
+                          workflow.classification === classification &&
+                          workflow.runnable &&
+                          workflow.id === selectedId,
+                      );
+                      const inputId = `comfyui-default-${classification.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+                      return (
+                        <div key={classification} className="space-y-1">
+                          <Label htmlFor={inputId}>
+                            {comfyUiClassificationLabel(classification)}
+                          </Label>
+                          <select
+                            id={inputId}
+                            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring"
+                            value={selectedId}
+                            onChange={(event) =>
+                              updateDefaultWorkflow(classification, event.currentTarget.value)
+                            }
+                          >
+                            {!selectedId ? <option value="">Not configured</option> : null}
+                            {options.length > 0 ? (
+                              options.map((workflow) => (
+                                <option key={workflow.id} value={workflow.id}>
+                                  {workflow.label}
+                                </option>
+                              ))
+                            ) : selectedId ? null : (
+                              <option value="" disabled>
+                                {t('settings:comfyui.noWorkflows')}
+                              </option>
+                            )}
+                          </select>
+                          {selectedId && !selectedAvailable ? (
+                            <p className="text-xs text-destructive">
+                              Configured workflow '{selectedId}' is currently unavailable.
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-md border px-2 py-1 text-muted-foreground">

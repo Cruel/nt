@@ -439,7 +439,6 @@ describe('guarded editor IPC registrar', () => {
     const config = {
       enabled: true,
       serverUrl: 'http://127.0.0.1:8188',
-      defaultWorkflowId: 'image-generate',
       defaultWorkflows: { 'image.generate': 'image-generate' },
       requestTimeoutMs: 15_000,
       connectionCheckIntervalMs: 10_000,
@@ -566,10 +565,16 @@ describe('guarded editor IPC registrar', () => {
       formatVersion: 1,
       serverUrl: 'http://127.0.0.1:8188',
       requestTimeoutMs: 15_000,
-      defaultWorkflowId: 'image-generate',
-      defaultWorkflows: { 'image.generate': 'image-generate' },
+      defaultWorkflows: {
+        'image.generate': 'image-generate',
+        'audio.generate': 'audio-generate',
+      },
     };
     expect(comfyUiUserConfigArgumentsSchema.safeParse([shared]).success).toBe(true);
+    expect(
+      comfyUiUserConfigArgumentsSchema.safeParse([{ ...shared, defaultWorkflowId: 'retired' }])
+        .success,
+    ).toBe(false);
     expect(comfyUiUserConfigArgumentsSchema.safeParse([{ ...shared, enabled: true }]).success).toBe(
       false,
     );

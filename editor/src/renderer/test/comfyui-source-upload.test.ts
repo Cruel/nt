@@ -27,7 +27,6 @@ function config(serverUrl: string): ComfyUiConfig {
     serverUrl,
     requestTimeoutMs: 2_000,
     connectionCheckIntervalMs: 1_000,
-    defaultWorkflowId: 'custom',
     defaultWorkflows: {},
   };
 }

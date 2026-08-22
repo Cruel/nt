@@ -32,8 +32,11 @@ so verification cannot be reused across servers. Current verification records us
 `project:` workflow keys and require server identity, package hash, and observed ComfyUI version. Same-version
 cache data with the retired `editor:` source or without server identity is discarded rather than migrated or aliased.
 
-The shared `noveltea.comfyui-user-config` contract begins at `formatVersion: 1` under the general NovelTea user
-configuration root. It contains server URL, per-request timeout, and default-workflow mappings only; editor enablement
+The shared `noveltea.comfyui-user-config` contract remains at `formatVersion: 1` under the general NovelTea user
+configuration root. Issue #109 explicitly rewrites that selected V1 shape in place so defaults are represented only as
+an extensible dotted-classification-to-logical-workflow-ID map. The retired singular `defaultWorkflowId` alias and the
+closed image-only classification map are noncanonical V1 data and are discarded rather than migrated or dual-read. The
+current contract contains server URL, per-request timeout, and generic default-workflow mappings only; editor enablement
 and periodic connection cadence are intentionally outside this machine-level contract.
 
 ## Definitions

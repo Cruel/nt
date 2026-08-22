@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import type {
-  ComfyUiKnownWorkflowClassification,
-  ComfyUiWorkflowClassification,
-  ComfyUiWorkflowId,
+import {
+  isComfyUiWorkflowClassification,
+  type ComfyUiWorkflowClassification,
+  type ComfyUiWorkflowId,
 } from './comfyui-workflows';
 
 export type ComfyUiConnectionState = 'disabled' | 'unchecked' | 'checking' | 'ready' | 'error';
@@ -49,14 +49,20 @@ export const comfyUiServerUrlSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS
   });
 
 const boundedWorkflowIdSchema = comfyUiWorkflowIdSchema;
+const workflowClassificationSchema = z
+  .string()
+  .min(3)
+  .max(256)
+  .refine(isComfyUiWorkflowClassification);
+const defaultWorkflowsSchema = z
+  .record(workflowClassificationSchema, boundedWorkflowIdSchema)
+  .refine((value) => Object.keys(value).length <= COMFYUI_IPC_LIMITS.defaultWorkflowEntries);
+
 export const comfyUiConfigSchema = z
   .object({
     enabled: z.boolean(),
     serverUrl: comfyUiServerUrlSchema,
-    defaultWorkflowId: boundedWorkflowIdSchema,
-    defaultWorkflows: z
-      .partialRecord(z.enum(['image.generate', 'image.edit']), boundedWorkflowIdSchema)
-      .refine((value) => Object.keys(value).length <= COMFYUI_IPC_LIMITS.defaultWorkflowEntries),
+    defaultWorkflows: defaultWorkflowsSchema,
     requestTimeoutMs: z.number().int().positive().max(COMFYUI_IPC_LIMITS.requestTimeoutMs),
     connectionCheckIntervalMs: z
       .number()
@@ -74,15 +80,13 @@ export interface ComfyUiSharedUserConfig {
   formatVersion: typeof COMFYUI_USER_CONFIG_FORMAT_VERSION;
   serverUrl: string;
   requestTimeoutMs: number;
-  defaultWorkflowId: string;
-  defaultWorkflows: Partial<Record<ComfyUiKnownWorkflowClassification, ComfyUiWorkflowId>>;
+  defaultWorkflows: Partial<Record<ComfyUiWorkflowClassification, ComfyUiWorkflowId>>;
 }
 
 export interface ComfyUiConfig {
   enabled: boolean;
   serverUrl: string;
-  defaultWorkflowId: string;
-  defaultWorkflows: Partial<Record<ComfyUiKnownWorkflowClassification, ComfyUiWorkflowId>>;
+  defaultWorkflows: Partial<Record<ComfyUiWorkflowClassification, ComfyUiWorkflowId>>;
   requestTimeoutMs: number;
   connectionCheckIntervalMs: number;
 }
@@ -122,7 +126,6 @@ export function defaultComfyUiSharedUserConfig(): ComfyUiSharedUserConfig {
     format: COMFYUI_USER_CONFIG_FORMAT,
     formatVersion: COMFYUI_USER_CONFIG_FORMAT_VERSION,
     serverUrl: 'http://127.0.0.1:8000',
-    defaultWorkflowId: 'flux2-klein-text-to-image',
     defaultWorkflows: {
       'image.generate': 'flux2-klein-text-to-image',
       'image.edit': 'flux2-klein-image-edit',
@@ -136,10 +139,7 @@ export const comfyUiSharedUserConfigSchema = z
     format: z.literal(COMFYUI_USER_CONFIG_FORMAT),
     formatVersion: z.literal(COMFYUI_USER_CONFIG_FORMAT_VERSION),
     serverUrl: comfyUiServerUrlSchema,
-    defaultWorkflowId: boundedWorkflowIdSchema,
-    defaultWorkflows: z
-      .partialRecord(z.enum(['image.generate', 'image.edit']), boundedWorkflowIdSchema)
-      .refine((value) => Object.keys(value).length <= COMFYUI_IPC_LIMITS.defaultWorkflowEntries),
+    defaultWorkflows: defaultWorkflowsSchema,
     requestTimeoutMs: z.number().int().positive().max(COMFYUI_IPC_LIMITS.requestTimeoutMs),
   })
   .strict();
@@ -148,16 +148,13 @@ export function normalizeComfyUiSharedUserConfig(
   config: Partial<ComfyUiSharedUserConfig> = {},
 ): ComfyUiSharedUserConfig {
   const defaults = defaultComfyUiSharedUserConfig();
-  const defaultWorkflowId = config.defaultWorkflowId ?? defaults.defaultWorkflowId;
   return comfyUiSharedUserConfigSchema.parse({
     ...defaults,
     ...config,
     serverUrl: normalizeComfyUiServerUrl(config.serverUrl ?? defaults.serverUrl),
-    defaultWorkflowId,
     defaultWorkflows: {
       ...defaults.defaultWorkflows,
       ...config.defaultWorkflows,
-      'image.generate': config.defaultWorkflows?.['image.generate'] ?? defaultWorkflowId,
     },
   });
 }
@@ -168,7 +165,6 @@ export function comfyUiSharedUserConfigFromRuntime(config: ComfyUiConfig): Comfy
     formatVersion: COMFYUI_USER_CONFIG_FORMAT_VERSION,
     serverUrl: config.serverUrl,
     requestTimeoutMs: config.requestTimeoutMs,
-    defaultWorkflowId: config.defaultWorkflowId,
     defaultWorkflows: config.defaultWorkflows,
   });
 }
@@ -178,7 +174,6 @@ export function defaultComfyUiConfig(): ComfyUiConfig {
   return {
     enabled: false,
     serverUrl: shared.serverUrl,
-    defaultWorkflowId: shared.defaultWorkflowId,
     defaultWorkflows: shared.defaultWorkflows,
     requestTimeoutMs: shared.requestTimeoutMs,
     connectionCheckIntervalMs: 10000,
@@ -187,16 +182,13 @@ export function defaultComfyUiConfig(): ComfyUiConfig {
 
 export function normalizeComfyUiConfig(config: Partial<ComfyUiConfig> = {}): ComfyUiConfig {
   const defaults = defaultComfyUiConfig();
-  const defaultWorkflowId = config.defaultWorkflowId ?? defaults.defaultWorkflowId;
   return {
     ...defaults,
     ...config,
     serverUrl: normalizeComfyUiServerUrl(config.serverUrl ?? defaults.serverUrl),
-    defaultWorkflowId,
     defaultWorkflows: {
       ...defaults.defaultWorkflows,
       ...config.defaultWorkflows,
-      'image.generate': config.defaultWorkflows?.['image.generate'] ?? defaultWorkflowId,
     },
   };
 }

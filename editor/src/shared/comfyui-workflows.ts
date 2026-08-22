@@ -679,6 +679,10 @@ const publicIdPattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const classificationPattern = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
 const mediaTypePattern = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
 
+export function isComfyUiWorkflowClassification(value: string): boolean {
+  return classificationPattern.test(value);
+}
+
 function asRecord(value: unknown, message: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(message);
   return value as Record<string, unknown>;

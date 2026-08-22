@@ -114,7 +114,6 @@ function writeUserConfig(root: string, serverUrl = 'http://127.0.0.1:8188') {
       formatVersion: 1,
       serverUrl,
       requestTimeoutMs: 1000,
-      defaultWorkflowId: 'starter',
       defaultWorkflows: { 'image.generate': 'starter' },
     })}\n`,
   );

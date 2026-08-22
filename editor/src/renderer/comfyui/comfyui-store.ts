@@ -90,11 +90,9 @@ function configChanged(previous: ComfyUiConfig, next: ComfyUiConfig) {
   return (
     previous.enabled !== next.enabled ||
     previous.serverUrl !== next.serverUrl ||
-    previous.defaultWorkflowId !== next.defaultWorkflowId ||
     previous.requestTimeoutMs !== next.requestTimeoutMs ||
     previous.connectionCheckIntervalMs !== next.connectionCheckIntervalMs ||
-    previous.defaultWorkflows['image.generate'] !== next.defaultWorkflows['image.generate'] ||
-    previous.defaultWorkflows['image.edit'] !== next.defaultWorkflows['image.edit']
+    JSON.stringify(previous.defaultWorkflows) !== JSON.stringify(next.defaultWorkflows)
   );
 }
 
@@ -115,7 +113,6 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
     usePreferencesStore.getState().setComfyUiConfig({
       serverUrl: shared.serverUrl,
       requestTimeoutMs: shared.requestTimeoutMs,
-      defaultWorkflowId: shared.defaultWorkflowId,
       defaultWorkflows: shared.defaultWorkflows,
     });
     get().hydrateFromPreferences();

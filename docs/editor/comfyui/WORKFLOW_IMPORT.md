@@ -16,8 +16,11 @@ The NovelTea user configuration root is `~/.noveltea` by default and honors `NOV
 headless CLI and CI usage. The editor and CLI therefore consume the same shared user workflow directory rather than an
 Electron application-data workflow directory. `<NovelTea user config>/comfyui/config-v1.json` is the strict
 `noveltea.comfyui-user-config` version 1 machine configuration. It owns the ComfyUI server URL, per-request timeout, and
-logical default-workflow mappings. Editor enablement and periodic connection-check cadence remain editor-local
-preferences and are deliberately absent from the shared document.
+logical default-workflow mappings keyed by extensible dotted classifications. The current V1 shape has no singular
+default-workflow alias. Editor enablement and periodic connection-check cadence remain editor-local preferences and are
+deliberately absent from the shared document. Global Settings derives the classification list from the active catalog,
+shows friendly labels for `image.generate` and `image.edit`, and shows the dotted ID for other classifications. A configured
+workflow ID that is currently unavailable stays selected and is visibly marked unavailable rather than being rewritten.
 
 Project workflows are contextual. The editor includes them when an active saved Project session exists. The CLI includes
 them when `--project` selects a valid Project or upward `project.json` discovery succeeds; absence of a Project does not
@@ -58,11 +61,15 @@ from the invocation override, then shared user configuration, then `http://127.0
 verifies the active workflow set. Verification is diagnostic-only apart from the disposable cache and never repairs or
 rewrites a package.
 
-`noveltea comfyui run <workflow-id>` accepts repeated `--input name=value` arguments, splitting only on the first `=`,
-and requires one explicit `--output <path>`. Duplicate or unknown inputs, missing required inputs, invalid scalar values,
-incompatible output contracts, unusable parent paths, and existing destinations without `--force` fail locally. Manifest
-defaults fill omitted optional inputs, and one public value is written to every graph binding declared for that input.
-Scalar inputs support string, integer, number, and boolean values.
+`noveltea comfyui run [<workflow-id> | --type <classification>]` accepts repeated `--input name=value` arguments,
+splitting only on the first `=`, and requires one explicit `--output <path>`. An explicit workflow ID is definitive.
+`--type` instead reads the configured logical default for that dotted classification and resolves it through normal
+`project > user > built-in` precedence. The two selection modes are mutually exclusive, omission of both is invalid, and
+missing or temporarily unavailable configured defaults fail explicitly rather than selecting another workflow. Duplicate
+or unknown inputs, missing required inputs, invalid scalar values, incompatible output contracts, unusable parent paths,
+and existing destinations without `--force` fail locally. Manifest defaults fill omitted optional inputs, and one public
+value is written to every graph binding declared for that input. Scalar inputs support string, integer, number, and
+boolean values.
 
 A public `image` input accepts an explicitly named local file, with relative paths resolved from the invocation working
 directory. The reusable image media handler enforces the 32 MiB source ceiling and decodes the file through NovelTea's
@@ -79,8 +86,7 @@ prompt, polls `/history/<prompt-id>` over HTTP with no fixed whole-job timeout, 
 downloads one bounded image, validates its media format, and publishes it atomically to the requested filesystem path.
 Missing parent directories are created only for final publication. `.png`, `.jpg`/`.jpeg`, `.webp`, and `.gif`
 destinations are admitted, and the extension must agree with the returned image format; NovelTea does not transcode.
-Project Asset publication, classification-default selection, cardinality-many routing, and named multi-output routing
-remain later slices.
+Project Asset publication, cardinality-many routing, and named multi-output routing remain later slices.
 
 Ctrl-C attempts prompt-specific cancellation by deleting only this invocation's prompt from the ComfyUI queue; it never
 uses the global `/interrupt` endpoint. Interrupted runs use exit status 130. Independent CLI runs are not serialized and
