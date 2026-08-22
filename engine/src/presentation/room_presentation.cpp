@@ -29,9 +29,10 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
     if (input.owner.number() == 0)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
             "room_navigation.invalid_owner", "Room navigation preparation requires a Flow owner"));
-    if (input.target_visit_index == 0)
+    if (input.target_entry_sequence == 0 || input.target_visit_index == 0)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
-            "room_navigation.invalid_visit", "Prepared Room visit index must be non-zero"));
+            "room_navigation.invalid_visit",
+            "Prepared Room entry sequence and visit index must be non-zero"));
     const auto* target = world.resolved_configuration(input.target_room);
     if (target == nullptr)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
@@ -63,6 +64,7 @@ Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target
     }
 
     RoomVisitContext target_visit{input.target_room, input.source_room, input.selected_exit,
+                                  input.entry_cause, input.target_entry_sequence,
                                   input.target_visit_index};
     RoomPresentationResolver resolver;
     auto resolution = resolver.resolve(project, world, settled_state, target_visit,
@@ -110,7 +112,6 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
         .environments = {},
         .placements = {},
         .exits = {},
-        .has_composition = room->compose.has_value(),
     };
 
     std::vector<const Condition*> conditions;
@@ -210,7 +211,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                           "Room text token is outside the definition view"));
             return resolve_text(*texts[token]);
         },
-        composition, room->compose ? &*room->compose : nullptr);
+        composition);
     if (!resolved)
         return resolved;
 
@@ -441,8 +442,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
 Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::resolve(
     const RoomPresentationDefinitionView& room, const RoomPresentationStateView& state,
     const RoomVisitContext& visit, RoomPresentationConditionTokenEvaluator evaluate,
-    RoomPresentationTextTokenResolver resolve_text, RoomCompositionCallback* composition,
-    const compiled::RoomCompositionHook* composition_hook) const
+    RoomPresentationTextTokenResolver resolve_text, RoomCompositionCallback* composition) const
 {
     if (visit.room != room.room || visit.visit_index == 0)
         return Result<RoomPresentationResolution, Diagnostics>::failure(error(
@@ -544,12 +544,8 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
                                           environment.clock, environment.scroll_per_second,
                                           environment.opacity, environment.visible});
     }
-    if (room.has_composition) {
-        if (composition == nullptr || composition_hook == nullptr)
-            return Result<RoomPresentationResolution, Diagnostics>::failure(error(
-                "room_resolution.composition_unavailable",
-                "Room defines a composition hook but no restricted composition callback is bound"));
-        auto composed = composition->compose(*composition_hook, visit, draft);
+    if (composition != nullptr) {
+        auto composed = composition->compose(visit, draft);
         if (!composed)
             return Result<RoomPresentationResolution, Diagnostics>::failure(composed.error());
     }

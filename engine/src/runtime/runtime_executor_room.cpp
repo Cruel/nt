@@ -36,50 +36,6 @@ const core::compiled::RoomExit* find_exit(const core::compiled::RoomDefinition& 
     return found == room.exits.end() ? nullptr : &*found;
 }
 
-const core::compiled::RoomHookProgram* find_hook(const core::compiled::RoomDefinition& room,
-                                                 core::compiled::RoomHookKind hook)
-{
-    const auto found = std::find_if(room.lifecycle.hooks.begin(), room.lifecycle.hooks.end(),
-                                    [hook](const core::compiled::RoomHookProgram& candidate) {
-                                        return candidate.hook == hook;
-                                    });
-    return found == room.lifecycle.hooks.end() ? nullptr : &*found;
-}
-
-struct HookSelection {
-    const core::compiled::RoomDefinition* room = nullptr;
-    const core::compiled::RoomHookProgram* hook = nullptr;
-};
-
-HookSelection select_hook(const RuntimeWorld& world, const core::RoomTransitionFrame& transition)
-{
-    const core::compiled::RoomDefinition* room = nullptr;
-    std::optional<core::compiled::RoomHookKind> kind;
-    switch (transition.position.stage) {
-    case core::RoomTransitionStage::BeforeLeave:
-        room = transition.source_room ? world.resolved_configuration(*transition.source_room)
-                                      : nullptr;
-        kind = core::compiled::RoomHookKind::BeforeLeave;
-        break;
-    case core::RoomTransitionStage::BeforeEnter:
-        room = world.resolved_configuration(transition.target_room);
-        kind = core::compiled::RoomHookKind::BeforeEnter;
-        break;
-    case core::RoomTransitionStage::AfterLeave:
-        room = transition.source_room ? world.resolved_configuration(*transition.source_room)
-                                      : nullptr;
-        kind = core::compiled::RoomHookKind::AfterLeave;
-        break;
-    case core::RoomTransitionStage::AfterEnter:
-        room = world.resolved_configuration(transition.target_room);
-        kind = core::compiled::RoomHookKind::AfterEnter;
-        break;
-    default:
-        break;
-    }
-    return {room, room != nullptr && kind ? find_hook(*room, *kind) : nullptr};
-}
-
 core::RoomTransitionStage next_hook_stage(const core::RoomTransitionFrame& transition) noexcept
 {
     switch (transition.position.stage) {
@@ -96,35 +52,53 @@ core::RoomTransitionStage next_hook_stage(const core::RoomTransitionFrame& trans
     }
 }
 
-std::string lua_quote(std::string_view value)
+core::RoomTransitionContext transition_context(const core::RoomTransitionFrame& transition)
 {
-    std::string result{"\""};
-    for (const char character : value) {
-        if (character == '\\' || character == '"')
-            result.push_back('\\');
-        result.push_back(character);
+    return core::RoomTransitionContext{transition.source_room, transition.target_room,
+                                       transition.selected_exit, transition.entry_cause,
+                                       transition.source_context};
+}
+
+std::optional<ProjectHookKind> lifecycle_hook(core::RoomTransitionStage stage) noexcept
+{
+    switch (stage) {
+    case core::RoomTransitionStage::BeforeLeave:
+        return ProjectHookKind::RoomBeforeLeave;
+    case core::RoomTransitionStage::BeforeEnter:
+        return ProjectHookKind::RoomBeforeEnter;
+    case core::RoomTransitionStage::AfterLeave:
+        return ProjectHookKind::RoomAfterLeave;
+    case core::RoomTransitionStage::AfterEnter:
+        return ProjectHookKind::RoomAfterEnter;
+    default:
+        return std::nullopt;
     }
-    result.push_back('"');
-    return result;
+}
+
+std::optional<core::RoomId> lifecycle_hook_target(const core::RoomTransitionFrame& transition) noexcept
+{
+    switch (transition.position.stage) {
+    case core::RoomTransitionStage::BeforeLeave:
+    case core::RoomTransitionStage::AfterLeave:
+        return transition.source_room;
+    case core::RoomTransitionStage::BeforeEnter:
+    case core::RoomTransitionStage::AfterEnter:
+        return transition.target_room;
+    default:
+        return std::nullopt;
+    }
 }
 
 class RuntimeRoomComposition final : public core::RoomCompositionCallback {
 public:
-    RuntimeRoomComposition(const core::CompiledProject& project, ScriptInvocationPort& scripts,
-                           RuntimeCommandGateway& gateway) noexcept
-        : m_project(project), m_scripts(scripts), m_gateway(gateway)
+    RuntimeRoomComposition(ScriptInvocationPort& scripts, RuntimeCommandGateway& gateway) noexcept
+        : m_scripts(scripts), m_gateway(gateway)
     {
     }
 
-    core::Result<void, core::Diagnostics> compose(const core::compiled::RoomCompositionHook& hook,
-                                                  const core::RoomVisitContext& visit,
+    core::Result<void, core::Diagnostics> compose(const core::RoomVisitContext& visit,
                                                   core::RoomPresentationDraft& draft) override
     {
-        const auto* resource = m_project.find_script(hook.script);
-        if (resource == nullptr)
-            return core::Result<void, core::Diagnostics>::failure(execution_error(
-                "room_composition.missing_script", "Room composition Script is missing"));
-
         runtime::RoomCompositionDraftAccess access(draft);
         runtime::RuntimeCapabilityIssuer issuer(m_gateway, m_gateway.generation());
         const auto capabilities = issuer.issue_room_composition(access);
@@ -133,65 +107,23 @@ public:
             ~CloseDraft() { access.close(); }
         } close{access};
 
-        runtime::ScriptInvocationRequest load{.source = {},
-                                              .chunk_name = "room-compose-resource",
-                                              .owner = std::nullopt,
-                                              .invocation = std::nullopt,
-                                              .source_context = m_gateway.current_source_context(),
-                                              .result_kind =
-                                                  runtime::ScriptInvocationResultKind::None,
-                                              .asset_path = std::nullopt};
-        if (const auto* inline_source =
-                std::get_if<core::compiled::InlineLuaSource>(&resource->source)) {
-            load.source = inline_source->source;
-        } else {
-            const auto* asset_source =
-                std::get_if<core::compiled::AssetScriptSource>(&resource->source);
-            const auto* asset = asset_source ? m_project.find_asset(asset_source->asset) : nullptr;
-            if (asset == nullptr)
-                return core::Result<void, core::Diagnostics>::failure(execution_error(
-                    "room_composition.missing_asset", "Room composition Script asset is missing"));
-            load.asset_path = asset->path;
-        }
-        auto loaded = m_scripts.invoke(load, capabilities);
-        if (!loaded)
-            return core::Result<void, core::Diagnostics>::failure(
-                script_diagnostics(loaded.error()));
-
-        std::ostringstream invocation;
-        invocation << "local context = { room = " << lua_quote(visit.room.text())
-                   << ", visit_index = " << visit.visit_index;
-        if (visit.source_room)
-            invocation << ", source_room = " << lua_quote(visit.source_room->text());
-        if (visit.entry_exit)
-            invocation << ", entry_room = " << lua_quote(visit.entry_exit->room.text())
-                       << ", entry_exit = " << lua_quote(visit.entry_exit->exit_id.text());
-        invocation << " }; if type(room) ~= 'table' or type(room.compose) ~= 'function' then "
-                      "error('Room composition Script must define room.compose(context, "
-                      "presentation)') end; room.compose(context, noveltea.room_presentation)";
-        runtime::ScriptInvocationRequest call{.source = invocation.str(),
-                                              .chunk_name = "room-compose-call",
-                                              .owner = std::nullopt,
-                                              .invocation = std::nullopt,
-                                              .source_context = m_gateway.current_source_context(),
-                                              .result_kind =
-                                                  runtime::ScriptInvocationResultKind::None,
-                                              .asset_path = std::nullopt};
-        auto invoked = m_scripts.invoke(call, capabilities);
+        ProjectHookInvocationRequest request{
+            .semantic_kind = ProjectHookSemanticKind::Room,
+            .hook = ProjectHookKind::RoomCompose,
+            .target = visit.room.text(),
+            .room_transition = std::nullopt,
+            .active_room_context = visit,
+            .rejection_stage = std::nullopt,
+            .result_kind = ScriptInvocationResultKind::None,
+        };
+        auto invoked = m_scripts.invoke_project_hook(request, capabilities);
         if (!invoked)
             return core::Result<void, core::Diagnostics>::failure(
                 script_diagnostics(invoked.error()));
-        const auto* outcome = invoked.value_if();
-        if (outcome == nullptr ||
-            !std::holds_alternative<runtime::ScriptInvocationCompleted>(*outcome))
-            return core::Result<void, core::Diagnostics>::failure(
-                execution_error("room_composition.invalid_completion",
-                                "Room composition must complete synchronously without yielding"));
         return core::Result<void, core::Diagnostics>::success();
     }
 
 private:
-    const core::CompiledProject& m_project;
     ScriptInvocationPort& m_scripts;
     RuntimeCommandGateway& m_gateway;
 };
@@ -230,16 +162,69 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
             return core::FlowFaultOutcome{rejected.error()};
         return core::FlowModeChangedOutcome{m_state.mode()};
     };
-    auto condition = [this, &fault, &reject](
-                         const core::Condition& value) -> std::optional<core::FlowRunOutcome> {
-        auto evaluated = evaluate(value);
+    const auto transition_value = transition_context(transition);
+    auto invoke_hook = [this, &transition_value](
+                           ProjectHookKind hook, const core::RoomId& target_id,
+                           const RuntimeCapabilitySet& capabilities,
+                           ScriptInvocationResultKind result_kind,
+                           std::optional<core::RoomRejectionStage> rejection_stage = std::nullopt)
+        -> core::Result<ProjectHookInvocationResult, core::Diagnostics> {
+        ProjectHookInvocationRequest request{
+            .semantic_kind = ProjectHookSemanticKind::Room,
+            .hook = hook,
+            .target = target_id.text(),
+            .room_transition = transition_value,
+            .active_room_context = m_state.room_visit(),
+            .rejection_stage = rejection_stage,
+            .result_kind = result_kind,
+        };
+        auto invoked = m_scripts.invoke_project_hook(request, capabilities);
+        if (!invoked)
+            return core::Result<ProjectHookInvocationResult, core::Diagnostics>::failure(
+                script_diagnostics(invoked.error()));
+        return core::Result<ProjectHookInvocationResult, core::Diagnostics>::success(
+            std::move(*invoked.value_if()));
+    };
+    auto reject_navigation = [this, &fault, &reject, &invoke_hook](
+                                 ProjectHookKind hook, const core::RoomId& target_id,
+                                 core::RoomRejectionStage stage)
+        -> std::optional<core::FlowRunOutcome> {
+        auto rejected_hook = invoke_hook(hook, target_id, m_room_lifecycle_capabilities,
+                                         ScriptInvocationResultKind::None, stage);
+        if (!rejected_hook)
+            return fault(rejected_hook.error());
+        return reject();
+    };
+    auto record_directed_guard = [this](std::string message) {
+        m_room_lifecycle_diagnostics.push_back(core::Diagnostic{
+            .code = "execution.directed_room_guard_false", .message = std::move(message)});
+    };
+    auto guard_result = [&fault](const core::Result<bool, RuntimeExecutionError>& evaluated)
+        -> core::Result<bool, core::Diagnostics> {
         if (!evaluated)
-            return fault(execution_diagnostics(evaluated.error()));
+            return core::Result<bool, core::Diagnostics>::failure(
+                execution_diagnostics(evaluated.error()));
         const auto* result = evaluated.value_if();
         if (result == nullptr)
-            return fault(execution_error("execution.invalid_condition_result",
-                                         "Room lifecycle condition produced no value"));
-        return *result ? std::nullopt : reject();
+            return core::Result<bool, core::Diagnostics>::failure(execution_error(
+                "execution.invalid_condition_result", "Room lifecycle condition produced no value"));
+        return core::Result<bool, core::Diagnostics>::success(*result);
+    };
+    auto hook_guard = [this, &invoke_hook](ProjectHookKind hook, const core::RoomId& target_id)
+        -> core::Result<bool, core::Diagnostics> {
+        auto invoked = invoke_hook(hook, target_id, m_expression_capabilities,
+                                   ScriptInvocationResultKind::Boolean);
+        if (!invoked)
+            return core::Result<bool, core::Diagnostics>::failure(invoked.error());
+        const auto* value = invoked.value_if();
+        if (value == nullptr || !value->invoked)
+            return core::Result<bool, core::Diagnostics>::success(true);
+        const auto* allowed = std::get_if<bool>(&value->value);
+        return allowed != nullptr
+                   ? core::Result<bool, core::Diagnostics>::success(*allowed)
+                   : core::Result<bool, core::Diagnostics>::failure(execution_error(
+                         "execution.invalid_room_hook_result",
+                         "Room guard hook did not return a boolean value"));
     };
 
     switch (transition.position.stage) {
@@ -247,11 +232,27 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         const auto* source = transition.source_room
                                  ? m_world.resolved_configuration(*transition.source_room)
                                  : nullptr;
-        if (source == nullptr)
+        if (source == nullptr || !transition.source_room)
             return fault(execution_error("execution.invalid_room_source",
                                          "Room transition source is missing"));
-        if (auto outcome = condition(source->lifecycle.can_leave))
-            return outcome;
+        auto declarative = guard_result(evaluate(source->lifecycle.can_leave));
+        if (!declarative)
+            return fault(declarative.error());
+        bool allowed = *declarative.value_if();
+        if (allowed) {
+            auto scripted = hook_guard(ProjectHookKind::RoomCanLeave, *transition.source_room);
+            if (!scripted)
+                return fault(scripted.error());
+            allowed = *scripted.value_if();
+        }
+        if (!allowed) {
+            if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
+                return reject_navigation(ProjectHookKind::RoomRejectLeave,
+                                         *transition.source_room,
+                                         core::RoomRejectionStage::SourceCanLeave);
+            record_directed_guard("Directed Room Change ignored a false source can-leave guard for '" +
+                                  transition.source_room->text() + "'.");
+        }
         return advance({transition.selected_exit ? core::RoomTransitionStage::ExitCondition
                                                  : core::RoomTransitionStage::TargetCanEnter,
                         0, false});
@@ -263,55 +264,63 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         const auto* exit = source != nullptr && transition.selected_exit
                                ? find_exit(*source, transition.selected_exit->exit_id)
                                : nullptr;
-        if (exit == nullptr || exit->target != transition.target_room)
+        if (exit == nullptr || exit->target != transition.target_room || !transition.source_room)
             return fault(execution_error("execution.invalid_room_exit",
                                          "Selected Room exit is missing or mismatched"));
-        if (auto outcome = condition(exit->condition))
-            return outcome;
+        auto eligible = guard_result(evaluate(exit->condition));
+        if (!eligible)
+            return fault(eligible.error());
+        if (!*eligible.value_if()) {
+            if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
+                return reject_navigation(ProjectHookKind::RoomRejectLeave,
+                                         *transition.source_room,
+                                         core::RoomRejectionStage::ExitEligibility);
+            record_directed_guard("Directed Room Change ignored a false selected-exit guard for '" +
+                                  transition.source_room->text() + "." + exit->id.text() + "'.");
+        }
         return advance({core::RoomTransitionStage::TargetCanEnter, 0, false});
     }
-    case core::RoomTransitionStage::TargetCanEnter:
-        if (auto outcome = condition(target->lifecycle.can_enter))
-            return outcome;
+    case core::RoomTransitionStage::TargetCanEnter: {
+        auto declarative = guard_result(evaluate(target->lifecycle.can_enter));
+        if (!declarative)
+            return fault(declarative.error());
+        bool allowed = *declarative.value_if();
+        if (allowed) {
+            auto scripted = hook_guard(ProjectHookKind::RoomCanEnter, transition.target_room);
+            if (!scripted)
+                return fault(scripted.error());
+            allowed = *scripted.value_if();
+        }
+        if (!allowed) {
+            if (transition.kind == core::RoomTransitionKind::NavigationAttempt)
+                return reject_navigation(ProjectHookKind::RoomRejectEnter,
+                                         transition.target_room,
+                                         core::RoomRejectionStage::TargetCanEnter);
+            if (transition.entry_cause == core::RoomEntryCause::Entrypoint)
+                return fault(execution_error(
+                    "execution.room_entry_rejected",
+                    "Entrypoint Room rejected entry and no source Room exists to resume"));
+            record_directed_guard("Directed Room Change ignored a false target can-enter guard for '" +
+                                  transition.target_room.text() + "'.");
+        }
         return advance({transition.source_room ? core::RoomTransitionStage::BeforeLeave
                                                : core::RoomTransitionStage::BeforeEnter,
                         0, false});
+    }
     case core::RoomTransitionStage::BeforeLeave:
     case core::RoomTransitionStage::BeforeEnter:
     case core::RoomTransitionStage::AfterLeave:
     case core::RoomTransitionStage::AfterEnter: {
-        const auto selected = select_hook(m_world, transition);
-        if (selected.room == nullptr)
+        const auto hook = lifecycle_hook(transition.position.stage);
+        const auto target_id = lifecycle_hook_target(transition);
+        if (!hook || !target_id)
             return fault(execution_error("execution.invalid_room_hook_owner",
                                          "Room lifecycle hook owner is missing"));
-        const std::size_t effect_count =
-            selected.hook == nullptr ? 0 : selected.hook->effects.size();
-        if (transition.position.awaiting_completion) {
-            auto position = transition.position;
-            ++position.next_effect;
-            position.awaiting_completion = false;
-            return advance(std::move(position));
-        }
-        if (transition.position.next_effect >= effect_count)
-            return advance({next_hook_stage(transition), 0, false});
-
-        auto applied =
-            apply(selected.hook->effects[transition.position.next_effect], "room-lifecycle-effect");
-        if (!applied)
-            return fault(execution_diagnostics(applied.error()));
-        const auto* effect = applied.value_if();
-        const bool suspended =
-            effect != nullptr && std::holds_alternative<ScriptInvocationSuspended>(*effect);
-        auto position = transition.position;
-        if (suspended) {
-            position.awaiting_completion = true;
-            auto marked = m_flow.mark_room_transition_wait(transition.position, position);
-            if (!marked)
-                return fault(marked.error());
-            return core::FlowBlockedOutcome{*m_state.blocker()};
-        }
-        ++position.next_effect;
-        return advance(std::move(position));
+        auto invoked = invoke_hook(*hook, *target_id, m_room_lifecycle_capabilities,
+                                   ScriptInvocationResultKind::None);
+        if (!invoked)
+            return fault(invoked.error());
+        return advance({next_hook_stage(transition), 0, false});
     }
     case core::RoomTransitionStage::CommitRoomSwitch: {
         if (transition.position.awaiting_completion)
@@ -320,17 +329,24 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
                             0, false});
 
         if (m_state.room_visits(transition.target_room) ==
-            std::numeric_limits<std::uint64_t>::max())
+                std::numeric_limits<std::uint64_t>::max() ||
+            m_state.room_entry_sequence() == std::numeric_limits<std::uint64_t>::max())
             return fault(execution_error("runtime.history_overflow",
-                                         "Room visit counter cannot be incremented"));
+                                         "Room entry history cannot be incremented"));
 
-        RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
+        RuntimeRoomComposition composition(m_scripts, m_gateway);
         auto prepared = m_presentation_model.prepare_room_navigation(
             m_project, m_world, m_state,
-            core::RoomNavigationPreparationInput{transition.frame_id, transition.source_room,
-                                                 transition.target_room, transition.selected_exit,
-                                                 std::nullopt,
-                                                 m_state.room_visits(transition.target_room) + 1},
+            core::RoomNavigationPreparationInput{
+                transition.frame_id,
+                transition.source_room,
+                transition.target_room,
+                transition.selected_exit,
+                transition.entry_cause,
+                transition.source_context,
+                std::nullopt,
+                m_state.room_entry_sequence() + 1,
+                m_state.room_visits(transition.target_room) + 1},
             [this](const core::Condition& value) -> core::Result<bool, core::Diagnostics> {
                 auto evaluated = evaluate(value);
                 const auto* result = evaluated.value_if();
@@ -469,20 +485,7 @@ RuntimeExecutor::room_view(std::string_view runtime_locale)
 
 bool RuntimeExecutor::has_current_room_context() const noexcept
 {
-    const auto* visit = m_state.room_visit() ? &*m_state.room_visit() : nullptr;
-    if (visit == nullptr)
-        return false;
-    if (const auto* mode = std::get_if<core::RoomMode>(&m_state.mode()))
-        return m_state.flow_stack().empty() && visit->room == mode->room;
-    if (m_state.flow_stack().empty())
-        return false;
-    const auto* transition = std::get_if<core::RoomTransitionFrame>(&m_state.flow_stack().front());
-    if (transition == nullptr)
-        return false;
-    if (visit->room == transition->target_room)
-        return transition->position.stage >= core::RoomTransitionStage::CommitRoomSwitch;
-    return transition->source_room && visit->room == *transition->source_room &&
-           transition->position.stage <= core::RoomTransitionStage::CommitRoomSwitch;
+    return m_state.room_visit().has_value();
 }
 
 core::Result<void, RuntimeExecutionError>
@@ -501,7 +504,7 @@ RuntimeExecutor::refresh_room_presentation(std::string_view runtime_locale)
         m_room_presentation_locale == runtime_locale)
         return core::Result<void, RuntimeExecutionError>::success();
 
-    RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
+    RuntimeRoomComposition composition(m_scripts, m_gateway);
     auto resolution = m_presentation_model.resolve_room(
         m_project, m_world, m_state, *visit,
         [this](const core::Condition& condition) -> core::Result<bool, core::Diagnostics> {

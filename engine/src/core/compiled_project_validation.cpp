@@ -768,12 +768,6 @@ private:
             validate_background(value.background, path + "/background");
             validate_condition(value.lifecycle.can_enter, path + "/lifecycle/canEnter");
             validate_condition(value.lifecycle.can_leave, path + "/lifecycle/canLeave");
-            for (std::size_t hook = 0; hook < value.lifecycle.hooks.size(); ++hook)
-                for (std::size_t effect = 0; effect < value.lifecycle.hooks[hook].effects.size();
-                     ++effect)
-                    validate_effect(value.lifecycle.hooks[hook].effects[effect],
-                                    path + "/lifecycle/hooks/" + std::to_string(hook) +
-                                        "/effects/" + std::to_string(effect));
             std::unordered_set<RoomOverlayId> overlay_ids;
             for (std::size_t overlay = 0; overlay < value.overlays.size(); ++overlay) {
                 if (!overlay_ids.insert(value.overlays[overlay].id).second)
@@ -894,8 +888,6 @@ private:
                     require(m_assets, *environment.asset, "asset", environment_path + "/asset");
                 validate_condition(environment.condition, environment_path + "/condition");
             }
-            if (value.compose)
-                require(m_scripts, value.compose->script, "script", path + "/compose/script");
             std::unordered_set<RoomScriptHookKind> script_hook_kinds;
             for (std::size_t hook_index = 0; hook_index < value.script_hooks.size(); ++hook_index) {
                 const auto& mapping = value.script_hooks[hook_index];

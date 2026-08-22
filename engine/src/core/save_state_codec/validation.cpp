@@ -517,57 +517,51 @@ bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
     return false;
 }
 
-std::size_t hook_effects(const CompiledProject& project, const SaveState& save,
-                         const SavedRoomTransitionFrame& frame, RoomTransitionStage stage)
-{
-    std::optional<compiled::RoomDefinition> room;
-    std::optional<compiled::RoomHookKind> hook;
-    switch (stage) {
-    case RoomTransitionStage::BeforeLeave:
-        room = frame.source_room ? resolved_room(project, save, *frame.source_room) : std::nullopt;
-        hook = compiled::RoomHookKind::BeforeLeave;
-        break;
-    case RoomTransitionStage::BeforeEnter:
-        room = resolved_room(project, save, frame.target_room);
-        hook = compiled::RoomHookKind::BeforeEnter;
-        break;
-    case RoomTransitionStage::AfterLeave:
-        room = frame.source_room ? resolved_room(project, save, *frame.source_room) : std::nullopt;
-        hook = compiled::RoomHookKind::AfterLeave;
-        break;
-    case RoomTransitionStage::AfterEnter:
-        room = resolved_room(project, save, frame.target_room);
-        hook = compiled::RoomHookKind::AfterEnter;
-        break;
-    default:
-        return 0;
-    }
-    if (!room || !hook)
-        return 0;
-    const auto found = std::find_if(
-        room->lifecycle.hooks.begin(), room->lifecycle.hooks.end(),
-        [&hook](const compiled::RoomHookProgram& program) { return program.hook == *hook; });
-    return found == room->lifecycle.hooks.end() ? 0 : found->effects.size();
-}
-
-bool valid_room_position(const CompiledProject& project, const SaveState& save,
+bool valid_room_position(const CompiledProject&, const SaveState&,
                          const SavedRoomTransitionFrame& frame)
 {
     const auto& position = frame.position;
-    if (position.stage > RoomTransitionStage::Complete)
+    if (position.stage > RoomTransitionStage::Complete || position.next_effect != 0)
         return false;
-    switch (position.stage) {
-    case RoomTransitionStage::BeforeLeave:
-    case RoomTransitionStage::BeforeEnter:
-    case RoomTransitionStage::AfterLeave:
-    case RoomTransitionStage::AfterEnter: {
-        const auto count = hook_effects(project, save, frame, position.stage);
-        return position.next_effect <= count &&
-               (!position.awaiting_completion || position.next_effect < count);
+    return !position.awaiting_completion ||
+           position.stage == RoomTransitionStage::CommitRoomSwitch;
+}
+
+bool valid_room_visit_context(const CompiledProject& project, const SaveState& save,
+                              const RoomVisitContext& visit, bool active) noexcept
+{
+    if (!resolved_room(project, save, visit.room) || visit.visit_index == 0 ||
+        visit.entry_sequence == 0 || visit.entry_sequence > save.room_entry_sequence ||
+        visit.entry_cause > RoomEntryCause::DirectedRoomChange)
+        return false;
+    if (visit.source_room && !resolved_room(project, save, *visit.source_room))
+        return false;
+    const auto history =
+        std::find_if(save.room_visits.begin(), save.room_visits.end(),
+                     [&visit](const SavedRoomVisits& item) { return item.room == visit.room; });
+    if (history == save.room_visits.end() ||
+        (active ? history->count != visit.visit_index : history->count < visit.visit_index))
+        return false;
+
+    bool entry_valid = !visit.entry_exit;
+    if (visit.entry_exit) {
+        auto source = resolved_room(project, save, visit.entry_exit->room);
+        const auto* exit = source ? find_exit(*source, visit.entry_exit->exit_id) : nullptr;
+        entry_valid = source.has_value() && exit != nullptr && exit->target == visit.room &&
+                      visit.source_room == visit.entry_exit->room;
     }
-    default:
-        return position.next_effect == 0 && !position.awaiting_completion;
+    if (!entry_valid)
+        return false;
+
+    switch (visit.entry_cause) {
+    case RoomEntryCause::Entrypoint:
+        return !visit.source_room && !visit.entry_exit;
+    case RoomEntryCause::NavigationAttempt:
+        return visit.source_room.has_value() && visit.entry_exit.has_value();
+    case RoomEntryCause::DirectedRoomChange:
+        return !visit.entry_exit;
     }
+    return false;
 }
 
 const SavedFlowFrame* saved_frame(const SaveState& save, SavedFlowFrameId id) noexcept
@@ -1240,22 +1234,13 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     }
     if (save.active_room_visit) {
         const auto& visit = *save.active_room_visit;
-        auto room = resolved_room(project, save, visit.room);
-        const auto history =
-            std::find_if(save.room_visits.begin(), save.room_visits.end(),
-                         [&visit](const SavedRoomVisits& item) { return item.room == visit.room; });
-        bool entry_valid = !visit.entry_exit;
-        if (visit.entry_exit) {
-            auto source = resolved_room(project, save, visit.entry_exit->room);
-            const auto* exit = source ? find_exit(*source, visit.entry_exit->exit_id) : nullptr;
-            entry_valid = source.has_value() && exit != nullptr && exit->target == visit.room &&
-                          visit.source_room == visit.entry_exit->room;
-        }
-        if (!room || (visit.source_room && !resolved_room(project, save, *visit.source_room)) ||
-            history == save.room_visits.end() || visit.visit_index == 0 ||
-            history->count != visit.visit_index || !entry_valid)
+        if (visit.entry_sequence != save.room_entry_sequence ||
+            !valid_room_visit_context(project, save, visit, true))
             error("save_codec.invalid_active_room_visit",
-                  "Active Room visit context is stale or inconsistent with Room history.");
+                  "Active Room context is stale or inconsistent with Room history and Entry Sequence.");
+    } else if (save.room_entry_sequence != 0) {
+        error("save_codec.invalid_room_entry_sequence",
+              "Room Entry Sequence requires an authoritative Active Room Context.");
     }
     if (const auto* room_mode = std::get_if<RoomMode>(&save.mode);
         room_mode && (!save.active_room_visit || save.active_room_visit->room != room_mode->room))
@@ -1404,20 +1389,37 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                 } else {
                     if (!resolved_room(project, save, item.target_room) ||
                         (item.source_room && !resolved_room(project, save, *item.source_room)) ||
-                        !valid_room_position(project, save, item))
+                        !valid_room_position(project, save, item) ||
+                        item.kind > RoomTransitionKind::DirectedRoomChange ||
+                        item.entry_cause > RoomEntryCause::DirectedRoomChange)
                         return false;
-                    if (!item.selected_exit)
-                        return !item.source_room;
-                    auto room = resolved_room(project, save, item.selected_exit->room);
-                    if (!room)
+                    if (item.source_context &&
+                        (!item.source_room || item.source_context->room != *item.source_room ||
+                         !valid_room_visit_context(project, save, *item.source_context, false)))
                         return false;
-                    const auto found =
-                        std::find_if(room->exits.begin(), room->exits.end(),
-                                     [&item](const compiled::RoomExit& exit) {
-                                         return exit.id == item.selected_exit->exit_id;
-                                     });
-                    return item.source_room && item.selected_exit->room == *item.source_room &&
-                           found != room->exits.end() && found->target == item.target_room;
+                    if (item.source_room.has_value() != item.source_context.has_value())
+                        return false;
+
+                    if (item.kind == RoomTransitionKind::NavigationAttempt) {
+                        if (item.entry_cause != RoomEntryCause::NavigationAttempt ||
+                            !item.source_room || !item.selected_exit)
+                            return false;
+                        auto room = resolved_room(project, save, item.selected_exit->room);
+                        if (!room || item.selected_exit->room != *item.source_room)
+                            return false;
+                        const auto found =
+                            std::find_if(room->exits.begin(), room->exits.end(),
+                                         [&item](const compiled::RoomExit& exit) {
+                                             return exit.id == item.selected_exit->exit_id;
+                                         });
+                        return found != room->exits.end() && found->target == item.target_room;
+                    }
+
+                    if (item.selected_exit || item.entry_cause == RoomEntryCause::NavigationAttempt)
+                        return false;
+                    if (item.entry_cause == RoomEntryCause::Entrypoint)
+                        return !item.source_room && !item.source_context;
+                    return item.entry_cause == RoomEntryCause::DirectedRoomChange;
                 }
             },
             frame);

@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:4d8821caa18a510c195da67a4f9befd0");
+    CHECK(project.save_contract == "sc1:ddddb10c05675136859b6f9c76d26192");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -223,8 +223,8 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(std::holds_alternative<TransitionGroupSetBackgroundMutation>(
             transition.children.front()));
         REQUIRE(project.rooms.size() == 3);
-        REQUIRE(project.rooms[1].lifecycle.hooks.size() == 4);
-        CHECK(project.rooms[1].lifecycle.hooks.front().effects.size() == 1);
+        REQUIRE(project.rooms[1].script_hooks.size() == 4);
+        CHECK(project.rooms[1].script_hooks.front().hook == RoomScriptHookKind::BeforeEnter);
     }
 
     SECTION("Dialogue program")

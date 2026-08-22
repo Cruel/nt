@@ -11,6 +11,7 @@ import type {
   PreviewResourceManifestEntry,
   RoomPreviewInputs,
 } from '../../shared/focused-preview-contracts';
+import { analyzeHookRegistry } from '../../shared/hook-registry-analysis';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
@@ -439,19 +440,10 @@ function admissionTargets(
 
 function compositionDraftTargets(
   snapshot: AuthoringDependencyGraphSnapshot,
-  roomId: string,
-  room: RoomData,
-  analyses: readonly AuthoringSourceAnalysisArtifact<Diagnostic>[],
+  moduleId: string | null,
 ): AdmissionTarget[] {
-  if (!room.compose) return [];
-  const ownerKey = recordContributionKey('rooms', roomId);
-  const compositionSourcePaths = new Set(
-    analyses
-      .filter((artifact) => artifact.semanticOwnerKey === ownerKey)
-      .flatMap((artifact) => artifact.regions)
-      .filter((region) => region.sourcePath.startsWith(`/rooms/${roomId}/data/compose/script`))
-      .map((region) => region.sourcePath),
-  );
+  if (!moduleId) return [];
+  const moduleSourcePrefix = `/scripts/${moduleId}/`;
   const targets: AdmissionTarget[] = [];
   for (const edge of snapshot.graph.edgesById.values()) {
     if (
@@ -461,11 +453,11 @@ function compositionDraftTargets(
     )
       continue;
     const fromComposition =
-      compositionSourcePaths.has(edge.sourcePath) ||
+      edge.sourcePath.startsWith(moduleSourcePrefix) ||
       edge.evidence?.some(
         (evidence) =>
           evidence.kind === 'lua-occurrence' &&
-          compositionSourcePaths.has(evidence.occurrence.sourcePath),
+          evidence.occurrence.sourcePath.startsWith(moduleSourcePrefix),
       );
     if (!fromComposition) continue;
     const target = admissionTargetFromNode(edge.target);
@@ -805,6 +797,16 @@ export async function buildFocusedRoomPreview(
   const record = recordForOwner(project, 'room', roomId);
   const room = parseRoomData(record?.data);
   if (!sourceRecord || !record || !room) throw new Error(`Room '${roomId}' is missing or invalid.`);
+  const hookRegistry = analyzeHookRegistry(project);
+  diagnostics.push(
+    ...hookRegistry.diagnostics.map((item) => ({
+      severity: item.severity === 'info' ? ('warning' as const) : item.severity,
+      code: item.code,
+      path: item.path,
+      message: item.message,
+    })),
+  );
+  const compositionHook = hookRegistry.explain('compose', roomId).winner ?? null;
   const closure = roomClosure(graph, roomId);
   const analysisOwnerKeys = closureAnalysisOwnerKeys(graph, closure);
   const relevantSourceAnalysis = sourceAnalysis.filter((artifact) =>
@@ -856,7 +858,7 @@ export async function buildFocusedRoomPreview(
     roomId,
     room,
     targets,
-    compositionDraftTargets(graph, roomId, room, relevantSourceAnalysis),
+    compositionDraftTargets(graph, compositionHook?.moduleId ?? null),
     structuredConditionVariableIds(room),
   );
   const profile = effectivePreviewDisplay(
@@ -982,22 +984,30 @@ export async function buildFocusedRoomPreview(
         condition: focusedCondition(item.condition),
       })),
     },
-    composition: room.compose
+    composition: compositionHook
       ? (() => {
-          const scriptId = room.compose.script.$ref.id;
-          const source = parseScriptModuleData(project.scripts[scriptId]?.data)?.source;
+          const moduleId = compositionHook.moduleId;
+          const source = parseScriptModuleData(project.scripts[moduleId]?.data)?.source;
           if (!source) {
             diagnostics.push(
-              diagnostic(`/scripts/${scriptId}`, `Composition Script '${scriptId}' is invalid.`),
+              diagnostic(
+                `/scripts/${moduleId}`,
+                `Composition Script Module '${moduleId}' is invalid.`,
+              ),
             );
             return null;
           }
           if (source.kind === 'inline-lua')
-            return { scriptId, source: { kind: 'inline' as const, text: source.source } };
+            return {
+              moduleId,
+              exportName: compositionHook.exportName,
+              source: { kind: 'inline' as const, text: source.source },
+            };
           const assetId = source.asset.$ref.id;
           const asset = parseAssetData(project.assets[assetId]?.data);
           return {
-            scriptId,
+            moduleId,
+            exportName: compositionHook.exportName,
             source: {
               kind: 'asset' as const,
               logicalPath: asset
@@ -1016,7 +1026,7 @@ export async function buildFocusedRoomPreview(
   for (const id of layoutIds.assets) visual.assets.add(id);
   for (const id of layoutIds.materials) visual.materials.add(id);
   if (data.composition?.source.kind === 'asset') {
-    const script = parseScriptModuleData(project.scripts[data.composition.scriptId]?.data);
+    const script = parseScriptModuleData(project.scripts[data.composition.moduleId]?.data);
     if (script?.source.kind === 'asset') visual.assets.add(script.source.asset.$ref.id);
   }
   const materialClosure = completeMaterialClosure(project, visual.materials);

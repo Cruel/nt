@@ -116,6 +116,9 @@ struct SavedRoomTransitionFrame {
     std::optional<RoomId> source_room;
     RoomId target_room;
     std::optional<compiled::RoomExitRef> selected_exit;
+    RoomTransitionKind kind = RoomTransitionKind::DirectedRoomChange;
+    RoomEntryCause entry_cause = RoomEntryCause::DirectedRoomChange;
+    std::optional<RoomVisitContext> source_context;
     RoomTransitionPosition position;
     ReturnDestination destination;
 };
@@ -229,6 +232,7 @@ struct SaveState {
     std::uint64_t random_state = 0;
     std::uint64_t next_runtime_instance_id = 1;
     std::uint64_t next_item_stack_id = 1;
+    std::uint64_t room_entry_sequence = 0;
     std::vector<SavedRuntimeRoomConfiguration> runtime_rooms;
     std::vector<SavedRuntimeCharacterConfiguration> runtime_characters;
     std::vector<SavedRuntimeInteractableConfiguration> runtime_interactables;

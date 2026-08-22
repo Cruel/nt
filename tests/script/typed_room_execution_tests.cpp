@@ -66,17 +66,6 @@ nlohmann::json& room_document(nlohmann::json& document, std::string_view room)
     return *found;
 }
 
-nlohmann::json& hook_document(nlohmann::json& room, std::string_view hook)
-{
-    auto& hooks = room["lifecycle"]["hooks"];
-    const auto found =
-        std::find_if(hooks.begin(), hooks.end(), [hook](const nlohmann::json& value) {
-            return value.value("hook", std::string{}) == hook;
-        });
-    REQUIRE(found != hooks.end());
-    return *found;
-}
-
 struct RuntimeFixture {
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
@@ -247,7 +236,7 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
 
     REQUIRE(kernel->start_transient(id<core::SceneId>("opening")));
     REQUIRE(std::holds_alternative<core::SceneFrame>(kernel->state().flow_stack().back()));
-    REQUIRE_FALSE(kernel->room_view("en"));
+    REQUIRE(kernel->room_view("en"));
     REQUIRE(kernel->flow().return_from_flow());
     CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("start"));
 
@@ -283,9 +272,12 @@ TEST_CASE("Room navigation preparation resolves a complete target without mutati
         .target_room = id<core::RoomId>("hall"),
         .selected_exit = core::compiled::RoomExitRef{id<core::RoomId>("start"),
                                                      id<core::RoomExitId>("north-exit")},
+        .entry_cause = core::RoomEntryCause::NavigationAttempt,
+        .source_context = source_visit,
         .explicit_transition =
             core::compiled::RoomNavigationTransition{core::compiled::TransitionKind::Fade, 250,
                                                      std::string{"#000000"}, false},
+        .target_entry_sequence = kernel->state().room_entry_sequence() + 1,
         .target_visit_index = source_visits + 1,
     };
     auto prepared = core::prepare_room_navigation_target(
@@ -367,12 +359,15 @@ TEST_CASE("Room resolution composes overlapping Character and Interactable occup
         {{"id", "room-compose"},
          {"source",
           {{"kind", "inline-lua"},
-           {"source", "room = room or {}; function room.compose(context, presentation) "
+           {"source", "return { compose = function(context, presentation) "
                       "assert(context.room == 'start'); local ok, err = "
                       "presentation.set_interactable_visible('key', false); "
-                      "if not ok then error(err) end end"}}}});
-    room_document(document,
-                  "start")["compose"] = {{"script", {{"kind", "script"}, {"id", "room-compose"}}}};
+                      "if not ok then error(err) end end }"}}}});
+    room_document(document, "start")["scriptHooks"].push_back(
+        {{"hook", "compose"},
+         {"handler",
+          {{"module", {{"kind", "script"}, {"id", "room-compose"}}},
+           {"export", "compose"}}}});
     auto project = decode_document(std::move(document), "room-composition");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
@@ -401,11 +396,25 @@ TEST_CASE("Room resolution composes overlapping Character and Interactable occup
     CHECK_FALSE(interactable->visible);
 }
 
-TEST_CASE("typed Room navigation preserves lifecycle order and exact yielding hook cursor")
+TEST_CASE("typed Room navigation preserves serialized atomic lifecycle order")
 {
     RuntimeFixture fixture;
-    install_room_scripts(fixture, true, true);
-    auto project = decode_document(load_document("comprehensive.json"), "room-navigation");
+    install_room_scripts(fixture);
+    auto document = load_document("comprehensive.json");
+    document["resources"]["scripts"].push_back(
+        {{"id", "ordered-room-hooks"},
+         {"source",
+          {{"kind", "inline-lua"},
+           {"source", "return { before_leave = function() "
+                      "noveltea.notify('before-leave-start'); "
+                      "noveltea.notify('before-leave-end') end }"}}}});
+    for (auto& hook : room_document(document, "start")["scriptHooks"]) {
+        if (hook["hook"] == "before-leave")
+            hook["handler"] = {
+                {"module", {{"kind", "script"}, {"id", "ordered-room-hooks"}}},
+                {"export", "before_leave"}};
+    }
+    auto project = decode_document(std::move(document), "room-navigation");
     auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
@@ -423,31 +432,17 @@ TEST_CASE("typed Room navigation preserves lifecycle order and exact yielding ho
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::BeforeLeave);
 
-    auto blocked = kernel->run_until_blocked(1, "en");
-    const auto* blocked_outcome = std::get_if<core::FlowBlockedOutcome>(&blocked);
-    REQUIRE(blocked_outcome != nullptr);
-    const auto* script = std::get_if<core::ScriptFlowBlocker>(&blocked_outcome->blocker);
-    REQUIRE(script != nullptr);
-    CHECK(active_transition(*kernel).position.next_effect == 0);
-    CHECK(active_transition(*kernel).position.awaiting_completion);
-    CHECK(notifications(*kernel) == std::vector<std::string>{"before-leave-start"});
-
-    auto resumed = kernel->resume_script(script->owner, script->handle);
-    REQUIRE(resumed);
-    REQUIRE(std::holds_alternative<ScriptInvocationCompleted>(resumed.value()));
-    CHECK(notifications(*kernel) ==
-          std::vector<std::string>{"before-leave-start", "before-leave-end"});
-    REQUIRE(
-        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    CHECK(active_transition(*kernel).position.next_effect == 1);
-    CHECK_FALSE(active_transition(*kernel).position.awaiting_completion);
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::BeforeEnter);
+    CHECK(active_transition(*kernel).position.next_effect == 0);
+    CHECK_FALSE(active_transition(*kernel).position.awaiting_completion);
+    CHECK(notifications(*kernel) ==
+          std::vector<std::string>{"before-leave-start", "before-leave-end"});
+
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::CommitRoomSwitch);
-
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::AfterLeave);
@@ -518,9 +513,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         auto kernel = std::move(created).value();
         drive_to_room(*kernel, id<core::RoomId>("start"));
         REQUIRE(kernel->navigate(id<core::RoomExitId>("north-exit")));
-        REQUIRE(std::holds_alternative<core::FlowBudgetYieldOutcome>(
-            kernel->run_until_blocked(2, "en")));
-        const auto outcome = kernel->run_until_blocked(1, "en");
+        const auto outcome = kernel->run_until_blocked(3, "en");
         REQUIRE(std::holds_alternative<core::FlowModeChangedOutcome>(outcome));
         CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("start"));
     }
@@ -569,12 +562,17 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
     {
         RuntimeFixture fixture;
         install_room_scripts(fixture);
-        REQUIRE(
-            fixture.runtime.execute("function after_enter_hall() error('after-enter failed') end",
-                                    "room-postcommit-failure"));
         auto document = load_document("comprehensive.json");
-        hook_document(room_document(document, "hall"), "after-enter")["effects"] =
-            nlohmann::json::array({{{"kind", "run-lua-effect"}, {"source", "after_enter_hall()"}}});
+        document["resources"]["scripts"].push_back(
+            {{"id", "failing-after-enter"},
+             {"source",
+              {{"kind", "inline-lua"},
+               {"source", "return { after_enter = function() error('after-enter failed') end }"}}}});
+        room_document(document, "hall")["scriptHooks"].push_back(
+            {{"hook", "after-enter"},
+             {"handler",
+              {{"module", {{"kind", "script"}, {"id", "failing-after-enter"}}},
+               {"export", "after_enter"}}}});
         auto project = decode_document(std::move(document), "room-postcommit-failure");
         auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
@@ -588,6 +586,127 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         REQUIRE(kernel->flow().discard_fault());
         CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("hall"));
     }
+}
+
+TEST_CASE("Room self-loop navigation creates a distinct Active Room Context")
+{
+    RuntimeFixture fixture;
+    install_room_scripts(fixture);
+    auto document = load_document("comprehensive.json");
+    room_document(document, "start")["exits"].push_back(
+        {{"id", "self-loop"},
+         {"condition", {{"kind", "always"}}},
+         {"direction", "custom"},
+         {"label", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Stay"}}}}},
+         {"target", {{"kind", "room"}, {"id", "start"}}},
+         {"transition", nullptr}});
+    auto project = decode_document(std::move(document), "room-self-loop");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+    const auto before = *kernel->state().room_visit();
+
+    REQUIRE(kernel->navigate(id<core::RoomExitId>("self-loop")));
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+    REQUIRE(kernel->state().room_visit());
+    const auto& after = *kernel->state().room_visit();
+    CHECK(after.room == before.room);
+    CHECK(after.source_room == id<core::RoomId>("start"));
+    REQUIRE(after.entry_exit);
+    CHECK(after.entry_exit->exit_id == id<core::RoomExitId>("self-loop"));
+    CHECK(after.entry_cause == core::RoomEntryCause::NavigationAttempt);
+    CHECK(after.entry_sequence == before.entry_sequence + 1);
+    CHECK(after.visit_index == before.visit_index + 1);
+    CHECK(kernel->state().room_entry_sequence() == after.entry_sequence);
+}
+
+TEST_CASE("Directed Room Change diagnoses false guards and remains authoritative")
+{
+    RuntimeFixture fixture;
+    install_room_scripts(fixture, true, false, false, false);
+    auto document = load_document("comprehensive.json");
+    room_document(document, "hall")["lifecycle"]["canEnter"] =
+        {{"kind", "lua-predicate"}, {"source", "can_enter_hall()"}};
+    auto project = decode_document(std::move(document), "directed-room-guard");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+
+    REQUIRE(kernel->start_transient(id<core::SceneId>("opening")));
+    REQUIRE(kernel->flow().apply_target(core::FlowTarget{id<core::RoomId>("hall")}));
+    drive_to_room(*kernel, id<core::RoomId>("hall"));
+    auto diagnostics = kernel->take_room_presentation_diagnostics();
+    REQUIRE_FALSE(diagnostics.empty());
+    CHECK(std::any_of(diagnostics.begin(), diagnostics.end(), [](const core::Diagnostic& item) {
+        return item.code == "execution.directed_room_guard_false";
+    }));
+    CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("hall"));
+}
+
+TEST_CASE("Navigation rejection hook receives the failed stage and Active Room Context")
+{
+    RuntimeFixture fixture;
+    install_room_scripts(fixture, false);
+    auto document = load_document("comprehensive.json");
+    document["resources"]["scripts"].push_back(
+        {{"id", "room-rejection-hooks"},
+         {"source",
+          {{"kind", "inline-lua"},
+           {"source", "return { reject_leave = function(context) "
+                      "assert(context.origin == 'start'); assert(context.target == 'hall'); "
+                      "assert(context.entry_cause == 'navigation-attempt'); "
+                      "assert(context.rejection_stage == 'source-can-leave'); "
+                      "assert(context.active_room_context.room == 'start'); "
+                      "noveltea.notify('navigation-rejected') end }"}}}});
+    room_document(document, "start")["scriptHooks"].push_back(
+        {{"hook", "reject-leave"},
+         {"handler",
+          {{"module", {{"kind", "script"}, {"id", "room-rejection-hooks"}}},
+           {"export", "reject_leave"}}}});
+    auto project = decode_document(std::move(document), "room-rejection-context");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+
+    REQUIRE(kernel->navigate(id<core::RoomExitId>("north-exit")));
+    const auto outcome = kernel->run_until_blocked(1, "en");
+    REQUIRE(std::holds_alternative<core::FlowModeChangedOutcome>(outcome));
+    CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("start"));
+    CHECK(notifications(*kernel) == std::vector<std::string>{"navigation-rejected"});
+}
+
+TEST_CASE("Room lifecycle Hook Registry handlers cannot yield")
+{
+    RuntimeFixture fixture;
+    install_room_scripts(fixture);
+    auto document = load_document("comprehensive.json");
+    document["resources"]["scripts"].push_back(
+        {{"id", "yielding-room-hooks"},
+         {"source",
+          {{"kind", "inline-lua"},
+           {"source", "return { before_leave = function() coroutine.yield() end }"}}}});
+    for (auto& hook : room_document(document, "start")["scriptHooks"]) {
+        if (hook["hook"] == "before-leave")
+            hook["handler"] = {
+                {"module", {{"kind", "script"}, {"id", "yielding-room-hooks"}}},
+                {"export", "before_leave"}};
+    }
+    auto project = decode_document(std::move(document), "room-yield-forbidden");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+    REQUIRE(kernel->navigate(id<core::RoomExitId>("north-exit")));
+    REQUIRE(std::holds_alternative<core::FlowBudgetYieldOutcome>(
+        kernel->run_until_blocked(3, "en")));
+    const auto failed = kernel->run_until_blocked(1, "en");
+    REQUIRE(std::holds_alternative<core::FlowFaultOutcome>(failed));
+    CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::BeforeLeave);
+    REQUIRE(kernel->flow().discard_fault());
+    CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("start"));
 }
 
 TEST_CASE("typed Room flow targets run lifecycle and Trait-backed Properties have one resolver")
@@ -648,14 +767,33 @@ TEST_CASE("typed Room flow targets run lifecycle and Trait-backed Properties hav
           core::RuntimeValue{std::string{"house"}});
 
     drive_to_room(*kernel, id<core::RoomId>("start"));
+    const auto start_sequence = kernel->state().room_entry_sequence();
+    const auto start_context = *kernel->state().room_visit();
+
+    REQUIRE(kernel->start_transient(id<core::SceneId>("opening")));
+    REQUIRE(kernel->flow().apply_target(core::FlowTarget{id<core::RoomId>("start")}));
+    CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("start"));
+    CHECK(kernel->state().room_entry_sequence() == start_sequence);
+    CHECK(kernel->state().room_visits(id<core::RoomId>("start")) == 1);
+    CHECK(*kernel->state().room_visit() == start_context);
+
     REQUIRE(kernel->start_transient(id<core::SceneId>("opening")));
     REQUIRE(kernel->flow().apply_target(core::FlowTarget{id<core::RoomId>("hall")}));
     const auto& transition = active_transition(*kernel);
     REQUIRE(transition.source_room);
     CHECK(*transition.source_room == id<core::RoomId>("start"));
     CHECK_FALSE(transition.selected_exit);
+    CHECK(transition.kind == core::RoomTransitionKind::DirectedRoomChange);
+    CHECK(transition.entry_cause == core::RoomEntryCause::DirectedRoomChange);
+    REQUIRE(transition.source_context);
+    CHECK(*transition.source_context == start_context);
     drive_to_room(*kernel, id<core::RoomId>("hall"));
     CHECK(kernel->state().room_visits(id<core::RoomId>("hall")) == 1);
+    CHECK(kernel->state().room_entry_sequence() == start_sequence + 1);
+    REQUIRE(kernel->state().room_visit());
+    CHECK(kernel->state().room_visit()->entry_cause == core::RoomEntryCause::DirectedRoomChange);
+    CHECK(kernel->state().room_visit()->source_room == id<core::RoomId>("start"));
+    CHECK_FALSE(kernel->state().room_visit()->entry_exit);
 }
 
 } // namespace noveltea::script::test

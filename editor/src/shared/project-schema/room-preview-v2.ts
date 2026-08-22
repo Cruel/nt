@@ -330,7 +330,8 @@ export const focusedRoomUiDefinitionSchema = strict({
 });
 
 export const focusedRoomCompositionDefinitionSchema = strict({
-  scriptId: z.string().min(1),
+  moduleId: z.string().min(1),
+  exportName: z.string().min(1),
   source: focusedLayoutSourceComponentSchema,
 });
 

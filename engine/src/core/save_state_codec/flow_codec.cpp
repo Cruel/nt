@@ -1,6 +1,127 @@
 #include "codec_internal.hpp"
 
 namespace noveltea::core::save_state_codec {
+namespace {
+
+std::string_view room_entry_cause_name(RoomEntryCause cause) noexcept
+{
+    switch (cause) {
+    case RoomEntryCause::Entrypoint:
+        return "entrypoint";
+    case RoomEntryCause::NavigationAttempt:
+        return "navigation-attempt";
+    case RoomEntryCause::DirectedRoomChange:
+        return "directed-room-change";
+    }
+    return "directed-room-change";
+}
+
+std::optional<RoomEntryCause> decode_room_entry_cause(Decoder& d, const nlohmann::json& value,
+                                                       std::string_view pointer)
+{
+    auto name = d.string(value, pointer);
+    if (!name)
+        return std::nullopt;
+    if (*name == "entrypoint")
+        return RoomEntryCause::Entrypoint;
+    if (*name == "navigation-attempt")
+        return RoomEntryCause::NavigationAttempt;
+    if (*name == "directed-room-change")
+        return RoomEntryCause::DirectedRoomChange;
+    d.error(k_variant, "Unknown Room entry cause '" + *name + "'.", std::string(pointer));
+    return std::nullopt;
+}
+
+std::optional<RoomTransitionKind> decode_room_transition_kind(Decoder& d,
+                                                              const nlohmann::json& value,
+                                                              std::string_view pointer)
+{
+    auto name = d.string(value, pointer);
+    if (!name)
+        return std::nullopt;
+    if (*name == "navigation-attempt")
+        return RoomTransitionKind::NavigationAttempt;
+    if (*name == "directed-room-change")
+        return RoomTransitionKind::DirectedRoomChange;
+    d.error(k_variant, "Unknown Room transition kind '" + *name + "'.", std::string(pointer));
+    return std::nullopt;
+}
+
+nlohmann::json encode_room_context(const std::optional<RoomVisitContext>& context)
+{
+    if (!context)
+        return nullptr;
+    nlohmann::json entry_exit = nullptr;
+    if (context->entry_exit)
+        entry_exit = {{"room", context->entry_exit->room.text()},
+                      {"exit", context->entry_exit->exit_id.text()}};
+    return {{"room", context->room.text()},
+            {"sourceRoom", context->source_room ? nlohmann::json(context->source_room->text())
+                                                : nlohmann::json(nullptr)},
+            {"entryExit", std::move(entry_exit)},
+            {"entryCause", room_entry_cause_name(context->entry_cause)},
+            {"entrySequence", context->entry_sequence},
+            {"visitIndex", context->visit_index}};
+}
+
+std::optional<std::optional<RoomVisitContext>>
+decode_room_context(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (value.is_null())
+        return std::optional<RoomVisitContext>{};
+    if (!d.object(value, pointer,
+                  {"room", "sourceRoom", "entryExit", "entryCause", "entrySequence",
+                   "visitIndex"}))
+        return std::nullopt;
+    const auto* room = d.member(value, "room", pointer);
+    const auto* source = d.member(value, "sourceRoom", pointer);
+    const auto* entry = d.member(value, "entryExit", pointer);
+    const auto* cause = d.member(value, "entryCause", pointer);
+    const auto* sequence = d.member(value, "entrySequence", pointer);
+    const auto* visit = d.member(value, "visitIndex", pointer);
+    auto room_id = room ? d.id<RoomId>(*room, child(pointer, "room")) : std::nullopt;
+    auto source_id = source ? d.optional_id<RoomId>(*source, child(pointer, "sourceRoom"))
+                            : Decoder::OptionalId<RoomId>{};
+    std::optional<compiled::RoomExitRef> entry_exit;
+    bool entry_ok = entry != nullptr;
+    if (entry && !entry->is_null()) {
+        const auto entry_pointer = child(pointer, "entryExit");
+        if (d.object(*entry, entry_pointer, {"room", "exit"})) {
+            const auto* exit_room = d.member(*entry, "room", entry_pointer);
+            const auto* exit_id = d.member(*entry, "exit", entry_pointer);
+            auto parsed_room = exit_room
+                                   ? d.id<RoomId>(*exit_room, child(entry_pointer, "room"))
+                                   : std::nullopt;
+            auto parsed_exit = exit_id
+                                   ? d.id<RoomExitId>(*exit_id, child(entry_pointer, "exit"))
+                                   : std::nullopt;
+            entry_ok = parsed_room.has_value() && parsed_exit.has_value();
+            if (entry_ok)
+                entry_exit = compiled::RoomExitRef{std::move(*parsed_room),
+                                                   std::move(*parsed_exit)};
+        } else {
+            entry_ok = false;
+        }
+    }
+    auto parsed_cause = cause
+                            ? decode_room_entry_cause(d, *cause, child(pointer, "entryCause"))
+                            : std::nullopt;
+    auto parsed_sequence = sequence
+                               ? d.unsigned_integer<std::uint64_t>(
+                                     *sequence, child(pointer, "entrySequence"), true)
+                               : std::nullopt;
+    auto parsed_visit = visit ? d.unsigned_integer<std::uint64_t>(
+                                   *visit, child(pointer, "visitIndex"), true)
+                              : std::nullopt;
+    if (!room_id || !source_id || !entry_ok || !parsed_cause || !parsed_sequence || !parsed_visit)
+        return std::nullopt;
+    return std::optional<RoomVisitContext>{RoomVisitContext{
+        std::move(*room_id), std::move(source_id.value), std::move(entry_exit), *parsed_cause,
+        *parsed_sequence, *parsed_visit}};
+}
+
+} // namespace
+
 nlohmann::json encode_destination(const ReturnDestination& destination)
 {
     return std::visit(
@@ -414,6 +535,12 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                              ? nlohmann::json{{"room", value.selected_exit->room.text()},
                                               {"exit", value.selected_exit->exit_id.text()}}
                              : nlohmann::json(nullptr)},
+                        {"transitionKind",
+                         value.kind == RoomTransitionKind::NavigationAttempt
+                             ? "navigation-attempt"
+                             : "directed-room-change"},
+                        {"entryCause", room_entry_cause_name(value.entry_cause)},
+                        {"sourceContext", encode_room_context(value.source_context)},
                         {"position", encode_room_position(value.position)},
                         {"destination", encode_destination(value.destination)}};
         },
@@ -585,12 +712,15 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                    : std::nullopt;
     }
     if (*name == "room-transition") {
-        d.object(
-            value, pointer,
-            {"kind", "id", "sourceRoom", "targetRoom", "selectedExit", "position", "destination"});
+        d.object(value, pointer,
+                 {"kind", "id", "sourceRoom", "targetRoom", "selectedExit",
+                  "transitionKind", "entryCause", "sourceContext", "position", "destination"});
         const auto* source = d.member(value, "sourceRoom", pointer);
         const auto* target = d.member(value, "targetRoom", pointer);
         const auto* selected = d.member(value, "selectedExit", pointer);
+        const auto* transition_kind = d.member(value, "transitionKind", pointer);
+        const auto* entry_cause = d.member(value, "entryCause", pointer);
+        const auto* source_context = d.member(value, "sourceContext", pointer);
         const auto* position = d.member(value, "position", pointer);
         const auto* destination = d.member(value, "destination", pointer);
         auto source_id = source ? d.optional_id<RoomId>(*source, child(pointer, "sourceRoom"))
@@ -612,19 +742,35 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                     exit = compiled::RoomExitRef{std::move(*room_id), std::move(*parsed_exit)};
             }
         }
+        auto parsed_kind = transition_kind
+                               ? decode_room_transition_kind(d, *transition_kind,
+                                                             child(pointer, "transitionKind"))
+                               : std::nullopt;
+        auto parsed_cause = entry_cause
+                                ? decode_room_entry_cause(d, *entry_cause,
+                                                          child(pointer, "entryCause"))
+                                : std::nullopt;
+        auto parsed_source_context = source_context
+                                         ? decode_room_context(d, *source_context,
+                                                               child(pointer, "sourceContext"))
+                                         : std::nullopt;
         auto saved_position = position
                                   ? decode_room_position(d, *position, child(pointer, "position"))
                                   : std::nullopt;
         auto saved_destination =
             destination ? decode_destination(d, *destination, child(pointer, "destination"))
                         : std::nullopt;
-        return source_id && target_id && saved_position && saved_destination &&
+        return source_id && target_id && parsed_kind && parsed_cause && parsed_source_context &&
+                       saved_position && saved_destination &&
                        (selected == nullptr || selected->is_null() || exit)
                    ? std::optional<SavedFlowFrame>(
                          SavedRoomTransitionFrame{{*snapshot},
                                                   std::move(source_id.value),
                                                   std::move(*target_id),
                                                   std::move(exit),
+                                                  *parsed_kind,
+                                                  *parsed_cause,
+                                                  std::move(*parsed_source_context),
                                                   std::move(*saved_position),
                                                   std::move(*saved_destination)})
                    : std::nullopt;

@@ -81,7 +81,6 @@ import { projectSettingsFromProject } from '../../../shared/project-schema/autho
 import {
   inlineTextContent,
   type Condition,
-  type Effect,
   type TextContent,
 } from '../../../shared/project-schema/authoring-flow';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -152,7 +151,7 @@ const roomEditorCategories: readonly CategorizedEditorCategory<RoomEditorCategor
   {
     id: 'behavior',
     label: 'Behavior',
-    description: 'Configure lifecycle hooks and the optional composition script.',
+    description: 'Configure Room guards and frozen Hook Registry mappings.',
     icon: Workflow,
   },
 ];
@@ -177,7 +176,7 @@ function roomEditorCategoryForTarget(targetId: string): RoomEditorCategory {
     targetId.startsWith('room.environment')
   )
     return 'contents';
-  if (targetId.startsWith('room.lifecycle') || targetId.startsWith('room.compose'))
+  if (targetId.startsWith('room.lifecycle') || targetId.startsWith('room.script-hooks'))
     return 'behavior';
   return 'general';
 }
@@ -485,96 +484,6 @@ function CompactExitConditionEditor({
           />
         </>
       ) : null}
-    </div>
-  );
-}
-
-function EffectsEditor({
-  effects,
-  variables,
-  onChange,
-}: {
-  effects: Effect[];
-  variables: string[];
-  onChange: (next: Effect[]) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => onChange([...effects, { kind: 'run-lua-effect', source: '-- Lua' }])}
-        >
-          Add Lua effect
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!variables[0]}
-          onClick={() =>
-            variables[0] &&
-            onChange([
-              ...effects,
-              {
-                kind: 'set-variable',
-                variable: { $ref: { collection: 'variables', id: variables[0] } },
-                value: '',
-              },
-            ])
-          }
-        >
-          Set variable
-        </Button>
-      </div>
-      {effects.map((effect, index) => (
-        <div key={`${effect.kind}-${index}`} className="flex gap-2">
-          {effect.kind === 'set-variable' ? (
-            <Select
-              value={effect.variable.$ref.id}
-              onValueChange={(value) =>
-                onChange(
-                  effects.map((item, itemIndex) =>
-                    itemIndex !== index || item.kind !== 'set-variable'
-                      ? item
-                      : {
-                          ...item,
-                          variable: { $ref: { collection: 'variables', id: String(value) } },
-                        },
-                  ),
-                )
-              }
-            >
-              {variables.map((id) => (
-                <SelectItem key={id} value={id}>
-                  {id}
-                </SelectItem>
-              ))}
-            </Select>
-          ) : null}
-          <Input
-            value={effect.kind === 'run-lua-effect' ? effect.source : String(effect.value)}
-            onChange={(event) =>
-              onChange(
-                effects.map((item, itemIndex) =>
-                  itemIndex !== index
-                    ? item
-                    : item.kind === 'run-lua-effect'
-                      ? { kind: 'run-lua-effect', source: event.currentTarget.value }
-                      : { ...item, value: event.currentTarget.value },
-                ),
-              )
-            }
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onChange(effects.filter((_, itemIndex) => itemIndex !== index))}
-          >
-            Delete
-          </Button>
-        </div>
-      ))}
     </div>
   );
 }
@@ -1650,29 +1559,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 />
               </div>
             ))}
-            {(['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).map((hook) => (
-              <div key={hook} className="space-y-1.5 border-t pt-3">
-                <Label>
-                  {hook === 'beforeEnter'
-                    ? 'Before entering'
-                    : hook === 'afterEnter'
-                      ? 'After entering'
-                      : hook === 'beforeLeave'
-                        ? 'Before leaving'
-                        : 'After leaving'}
-                </Label>
-                <EffectsEditor
-                  effects={data.lifecycle[hook]}
-                  variables={variables}
-                  onChange={(next) =>
-                    commit(
-                      { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
-                      `Update room ${hook}`,
-                    )
-                  }
-                />
-              </div>
-            ))}
           </section>
         ) : null}
         {activeCategory === 'composition' ? (
@@ -2664,61 +2550,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 );
               })}
             </div>
-          </section>
-        ) : null}
-        {activeCategory === 'behavior' ? (
-          <section
-            className="space-y-4 rounded-xl border bg-card/20 p-4"
-            data-workbench-anchor="room.compose"
-          >
-            <div>
-              <h3 className="text-sm font-semibold">Composition hook</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Optional script used to customize the final room composition.
-              </p>
-            </div>
-            <Select
-              value={data.compose?.script.$ref.id ?? '__none__'}
-              onValueChange={(value) =>
-                commit(
-                  {
-                    ...data,
-                    compose:
-                      value === '__none__'
-                        ? null
-                        : {
-                            script: { $ref: { collection: 'scripts', id: String(value) } },
-                            additionalDependencies: data.compose?.additionalDependencies ?? {
-                              targets: [],
-                            },
-                          },
-                  },
-                  'Update room composition hook',
-                )
-              }
-            >
-              <SelectItem value="__none__">No composition hook</SelectItem>
-              {scripts.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </Select>
-            {data.compose ? (
-              <LuaExplicitFallbackEditor
-                value={data.compose.additionalDependencies}
-                onChange={(additionalDependencies) =>
-                  commit(
-                    { ...data, compose: { ...data.compose!, additionalDependencies } },
-                    'Update room composition dependencies',
-                  )
-                }
-              />
-            ) : null}
-            <p className="text-xs text-muted-foreground">
-              The compiled hook has one fixed compose entrypoint, invoked when room composition is
-              evaluated at runtime.
-            </p>
           </section>
         ) : null}
 

@@ -607,8 +607,7 @@ public:
     {
     }
 
-    core::Result<void, core::Diagnostics> compose(const core::compiled::RoomCompositionHook&,
-                                                  const core::RoomVisitContext& visit,
+    core::Result<void, core::Diagnostics> compose(const core::RoomVisitContext& visit,
                                                   core::RoomPresentationDraft& draft) override
     {
         std::unordered_set<std::string> characters(
@@ -626,31 +625,38 @@ public:
             ~Close() { access.close(); }
         } close{access};
 
-        runtime::ScriptInvocationRequest load{
-            .source = m_definition.source.inline_source ? m_definition.source.value : std::string{},
-            .chunk_name = "focused-room-compose-resource",
-            .owner = std::nullopt,
-            .invocation = std::nullopt,
-            .source_context = {},
-            .result_kind = runtime::ScriptInvocationResultKind::None,
-            .asset_path = m_definition.source.inline_source
-                              ? std::nullopt
-                              : std::optional<std::string>{m_definition.source.value}};
-        auto loaded = m_scripts.invoke_in_environment(m_environment, load, capabilities);
-        if (!loaded)
-            return core::Result<void, core::Diagnostics>::failure(script_error(loaded.error()));
+        std::string module_source;
+        if (m_definition.source.inline_source) {
+            module_source = m_definition.source.value;
+        } else {
+            auto loaded = m_scripts.read_script_source(m_definition.source.value);
+            if (!loaded)
+                return core::Result<void, core::Diagnostics>::failure(
+                    {error("editor_preview.focused_composition_load_failed",
+                           loaded.error().message)});
+            module_source = std::move(*loaded.value_if());
+        }
 
-        std::string invocation = "local context = { room = " + lua_quote(visit.room.text()) +
-                                 ", visit_index = " + std::to_string(visit.visit_index);
+        std::string invocation = "local __module = (function()\n" + module_source +
+                                 "\nend)(); if type(__module) ~= 'table' then "
+                                 "error('Room Hook Registry module must return a table') end; "
+                                 "local __handler = __module[" + lua_quote(m_definition.export_name) +
+                                 "]; if type(__handler) ~= 'function' then error('Room Compose hook export is not callable') end; "
+                                 "local context = { room = " + lua_quote(visit.room.text()) +
+                                 ", visit_index = " + std::to_string(visit.visit_index) +
+                                 ", entry_sequence = " + std::to_string(visit.entry_sequence) +
+                                 ", entry_cause = " + lua_quote(
+                                     visit.entry_cause == core::RoomEntryCause::Entrypoint
+                                         ? "entrypoint"
+                                     : visit.entry_cause == core::RoomEntryCause::NavigationAttempt
+                                         ? "navigation-attempt"
+                                         : "directed-room-change");
         if (visit.source_room)
             invocation += ", source_room = " + lua_quote(visit.source_room->text());
         if (visit.entry_exit)
             invocation += ", entry_room = " + lua_quote(visit.entry_exit->room.text()) +
                           ", entry_exit = " + lua_quote(visit.entry_exit->exit_id.text());
-        invocation +=
-            " }; if type(room) ~= 'table' or type(room.compose) ~= 'function' then "
-            "error('Room composition Script must define room.compose(context, presentation)') end; "
-            "room.compose(context, noveltea.room_presentation)";
+        invocation += " }; __handler(context, noveltea.room_presentation)";
         runtime::ScriptInvocationRequest call{.source = std::move(invocation),
                                               .chunk_name = "focused-room-compose-call",
                                               .owner = std::nullopt,
@@ -717,7 +723,6 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         .environments = {},
         .placements = {},
         .exits = {},
-        .has_composition = document.composition.has_value(),
     };
     std::vector<const core::editor::TypedFocusedCondition*> conditions;
     std::vector<const core::editor::TypedFocusedText*> texts{&document.ui.description};
@@ -853,16 +858,13 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
     for (const auto& exit : document.ui.exits)
         exit_labels.push_back(exit.label);
     std::optional<FocusedRoomComposition> composition;
-    std::optional<core::compiled::RoomCompositionHook> composition_hook;
-    if (document.composition) {
+    if (document.composition)
         composition.emplace(*document.composition, document.lua_admission, scripts, environment,
                             provider, generation);
-        composition_hook.emplace(core::compiled::RoomCompositionHook{
-            decoded_id<core::ScriptId>(document.composition->script_id)});
-    }
     core::RoomPresentationResolverCore resolver;
     auto resolved = resolver.resolve(
-        definition, state, {definition.room, std::nullopt, std::nullopt, 1},
+        definition, state,
+        {definition.room, std::nullopt, std::nullopt, core::RoomEntryCause::Entrypoint, 1, 1},
         [&](core::RoomPresentationConditionToken token) {
             if (token >= conditions.size())
                 return core::Result<bool, core::Diagnostics>::failure(
@@ -912,7 +914,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
             return core::Result<std::string, core::Diagnostics>::failure({error(
                 "editor_preview.room_text_token_invalid", "Focused Room text token is invalid.")});
         },
-        composition ? &*composition : nullptr, composition_hook ? &*composition_hook : nullptr);
+        composition ? &*composition : nullptr);
     if (!resolved)
         return core::Result<std::pair<core::RoomPresentationResolution,
                                       std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,

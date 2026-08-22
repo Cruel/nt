@@ -75,7 +75,9 @@ RuntimeExecutor::RuntimeExecutor(const core::CompiledProject& project,
       m_gameplay_capabilities(
           issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::GameplayScript)),
       m_expression_capabilities(
-          issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::SynchronousExpression))
+          issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::SynchronousExpression)),
+      m_room_lifecycle_capabilities(
+          issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::GameplayLayoutEvent))
 {
 }
 

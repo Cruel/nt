@@ -301,6 +301,7 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     }
     state->m_character_world = save.characters;
     state->m_interactables = save.interactables;
+    state->m_room_entry_sequence = save.room_entry_sequence;
     state->m_room_visit = save.active_room_visit;
     if (save.active_room_visit) {
         auto visit_instance = SessionState::allocate_room_visit_instance_id();
@@ -394,6 +395,9 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
                                                frame.source_room,
                                                frame.target_room,
                                                frame.selected_exit,
+                                               frame.kind,
+                                               frame.entry_cause,
+                                               frame.source_context,
                                                frame.position,
                                                frame.destination};
             },

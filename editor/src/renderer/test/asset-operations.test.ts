@@ -107,10 +107,6 @@ describe('asset operations', () => {
         lifecycle: {
           canEnter: { kind: 'always' },
           canLeave: { kind: 'always' },
-          beforeEnter: [],
-          afterEnter: [],
-          beforeLeave: [],
-          afterLeave: [],
         },
         exits: [],
         placements: [],
@@ -119,7 +115,6 @@ describe('asset operations', () => {
         props: [],
         interactables: [],
         environments: [],
-        compose: null,
         scriptHooks: [],
         features: [],
         hotspots: [],

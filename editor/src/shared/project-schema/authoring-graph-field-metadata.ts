@@ -296,6 +296,28 @@ const legacySchemaLeafPaths = [
   // retain the retired source leaf only so the preserved pre-replacement reviewed sequence does not
   // shift unrelated field effects.
   '/startupHook/source' as JsonPointer,
+  // #79 removes the provisional Room lifecycle effect arrays and standalone composition Script
+  // surface. Lifecycle handlers and Compose are now resolved exclusively through the #74 Hook
+  // Registry mappings. Retain the removed same-version leaves so unrelated reviewed graph effects
+  // remain aligned with the pre-#79 schema contract.
+  ...['afterEnter', 'afterLeave', 'beforeEnter', 'beforeLeave'].flatMap((hook) => [
+    `/rooms/*/data/lifecycle/${hook}/*/kind` as JsonPointer,
+    `/rooms/*/data/lifecycle/${hook}/*/source` as JsonPointer,
+    `/rooms/*/data/lifecycle/${hook}/*/value` as JsonPointer,
+    `/rooms/*/data/lifecycle/${hook}/*/variable/$ref/collection` as JsonPointer,
+    `/rooms/*/data/lifecycle/${hook}/*/variable/$ref/id` as JsonPointer,
+  ]),
+  '/rooms/*/data/compose/additionalDependencies/targets/*/collection' as JsonPointer,
+  '/rooms/*/data/compose/additionalDependencies/targets/*/exitId' as JsonPointer,
+  '/rooms/*/data/compose/additionalDependencies/targets/*/id' as JsonPointer,
+  '/rooms/*/data/compose/additionalDependencies/targets/*/kind' as JsonPointer,
+  '/rooms/*/data/compose/additionalDependencies/targets/*/owner/id' as JsonPointer,
+  '/rooms/*/data/compose/additionalDependencies/targets/*/owner/kind' as JsonPointer,
+  '/rooms/*/data/compose/additionalDependencies/targets/*/placementId' as JsonPointer,
+  '/rooms/*/data/compose/additionalDependencies/targets/*/propertyId' as JsonPointer,
+  '/rooms/*/data/compose/additionalDependencies/targets/*/roomId' as JsonPointer,
+  '/rooms/*/data/compose/script/$ref/collection' as JsonPointer,
+  '/rooms/*/data/compose/script/$ref/id' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
 if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
@@ -392,7 +414,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: '582b616a',
+    rooms: 'b303f7f6',
     scenes: '911d4458',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',

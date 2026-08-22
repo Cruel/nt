@@ -30,12 +30,13 @@ records resolve their optional same-kind Archetype chain plus explicit instance 
 then converts the resulting effective declared-instance configuration, identity, runtime settings,
 localization, Property and Trait declarations, resources, Trait attachments, authored property assignments, and every non-program definition into `CompiledProjectSharedDraft`. Archetype records themselves are never emitted into compiled V4.
 
-Scene and Room lowering extends that deterministic, non-publishable draft with every Scene instruction
-and terminal continuation plus the four ordered Room lifecycle hook programs. Scene comments and disabled steps
-are omitted; branches and choices may target only retained executable instructions. Instruction-local
-Character pose/expression and Dialogue start-block references are checked against their owning
-records. Room hooks preserve before-enter, after-enter, before-leave, and after-leave ownership and
-authored effect order, including empty programs.
+Scene lowering extends that deterministic, non-publishable draft with every Scene instruction and
+terminal continuation. Room lowering keeps declarative `canEnter`/`canLeave` guards and emits the
+canonical `scriptHooks` mappings used to seed the frozen Hook Registry; Room lifecycle handlers and
+Compose are named Script Module exports rather than embedded effect programs or a standalone Compose
+Script field. Scene comments and disabled steps are omitted; branches and choices may target only
+retained executable instructions. Instruction-local Character pose/expression and Dialogue
+start-block references are checked against their owning records.
 
 The Scene lowering is one-to-one:
 

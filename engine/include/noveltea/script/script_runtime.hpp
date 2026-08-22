@@ -135,12 +135,18 @@ public:
     invoke_in_environment(ScriptEnvironmentHandle environment,
                           const runtime::ScriptInvocationRequest& request,
                           const runtime::RuntimeCapabilitySet& capabilities);
+    [[nodiscard]] core::Result<std::string, runtime::ScriptSourceError>
+    read_script_source(std::string_view logical_path) const;
 
     void collect_garbage();
 
     [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
     invoke(const runtime::ScriptInvocationRequest& request,
            const runtime::RuntimeCapabilitySet& capabilities) override;
+    [[nodiscard]] core::Result<runtime::ProjectHookInvocationResult,
+                                      runtime::ScriptInvocationError>
+    invoke_project_hook(const runtime::ProjectHookInvocationRequest& request,
+                        const runtime::RuntimeCapabilitySet& capabilities) override;
     [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
     resume(const core::ScriptInvocationHandle& invocation,
            const runtime::RuntimeCapabilitySet& capabilities) override;

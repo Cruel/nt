@@ -103,6 +103,7 @@ protected:
     std::uint64_t m_next_item_stack_id = 1;
     std::optional<RoomVisitContext> m_room_visit;
     std::optional<RoomVisitInstanceId> m_room_visit_instance;
+    std::uint64_t m_room_entry_sequence = 0;
     bool m_gameplay_paused = false;
 };
 
@@ -327,6 +328,10 @@ public:
     [[nodiscard]] const std::optional<RoomVisitContext>& room_visit() const noexcept
     {
         return m_room_visit;
+    }
+    [[nodiscard]] std::uint64_t room_entry_sequence() const noexcept
+    {
+        return m_room_entry_sequence;
     }
     [[nodiscard]] Result<void, Diagnostics>
     move_interactable(const CompiledProject& project, const InteractableId& id,

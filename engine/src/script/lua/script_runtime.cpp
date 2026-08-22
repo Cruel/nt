@@ -186,6 +186,106 @@ int selector_specificity(const runtime::ProjectHookSelector& selector) noexcept
     return 0;
 }
 
+std::string_view room_entry_cause_name(core::RoomEntryCause cause) noexcept
+{
+    switch (cause) {
+    case core::RoomEntryCause::Entrypoint:
+        return "entrypoint";
+    case core::RoomEntryCause::NavigationAttempt:
+        return "navigation-attempt";
+    case core::RoomEntryCause::DirectedRoomChange:
+        return "directed-room-change";
+    }
+    return "directed-room-change";
+}
+
+std::string_view room_rejection_stage_name(core::RoomRejectionStage stage) noexcept
+{
+    switch (stage) {
+    case core::RoomRejectionStage::SourceCanLeave:
+        return "source-can-leave";
+    case core::RoomRejectionStage::ExitEligibility:
+        return "exit-eligibility";
+    case core::RoomRejectionStage::TargetCanEnter:
+        return "target-can-enter";
+    }
+    return "source-can-leave";
+}
+
+void set_lua_string_field(lua_State* state, const char* field, std::string_view value)
+{
+    lua_pushlstring(state, value.data(), value.size());
+    lua_setfield(state, -2, field);
+}
+
+void push_room_exit_ref(lua_State* state, const core::compiled::RoomExitRef& exit)
+{
+    lua_createtable(state, 0, 2);
+    set_lua_string_field(state, "room", exit.room.text());
+    set_lua_string_field(state, "exit", exit.exit_id.text());
+}
+
+void push_room_visit_context(lua_State* state, const core::RoomVisitContext& context)
+{
+    lua_createtable(state, 0, 7);
+    set_lua_string_field(state, "room", context.room.text());
+    if (context.source_room)
+        set_lua_string_field(state, "source_room", context.source_room->text());
+    if (context.entry_exit) {
+        push_room_exit_ref(state, *context.entry_exit);
+        lua_setfield(state, -2, "entry_exit");
+    }
+    set_lua_string_field(state, "entry_cause", room_entry_cause_name(context.entry_cause));
+    lua_pushinteger(state, static_cast<lua_Integer>(context.entry_sequence));
+    lua_setfield(state, -2, "entry_sequence");
+    lua_pushinteger(state, static_cast<lua_Integer>(context.visit_index));
+    lua_setfield(state, -2, "visit_index");
+}
+
+void push_project_hook_context(lua_State* state,
+                               const runtime::ProjectHookInvocationRequest& request)
+{
+    lua_createtable(state, 0, 8);
+    set_lua_string_field(state, "target", request.target);
+    if (request.room_transition) {
+        const auto& transition = *request.room_transition;
+        if (transition.origin)
+            set_lua_string_field(state, "origin", transition.origin->text());
+        set_lua_string_field(state, "target", transition.target.text());
+        set_lua_string_field(state, "entry_cause", room_entry_cause_name(transition.entry_cause));
+        if (transition.selected_exit) {
+            push_room_exit_ref(state, *transition.selected_exit);
+            lua_setfield(state, -2, "selected_exit");
+        }
+        if (transition.source_context) {
+            push_room_visit_context(state, *transition.source_context);
+            lua_setfield(state, -2, "source_context");
+        }
+    }
+    if (request.active_room_context) {
+        const auto& active = *request.active_room_context;
+        if (request.hook == runtime::ProjectHookKind::RoomCompose) {
+            set_lua_string_field(state, "room", active.room.text());
+            if (active.source_room)
+                set_lua_string_field(state, "source_room", active.source_room->text());
+            if (active.entry_exit) {
+                push_room_exit_ref(state, *active.entry_exit);
+                lua_setfield(state, -2, "entry_exit");
+            }
+            set_lua_string_field(state, "entry_cause", room_entry_cause_name(active.entry_cause));
+            lua_pushinteger(state, static_cast<lua_Integer>(active.entry_sequence));
+            lua_setfield(state, -2, "entry_sequence");
+            lua_pushinteger(state, static_cast<lua_Integer>(active.visit_index));
+            lua_setfield(state, -2, "visit_index");
+        }
+        push_room_visit_context(state, active);
+        lua_setfield(state, -2, "active_room_context");
+    }
+    if (request.rejection_stage)
+        set_lua_string_field(state, "rejection_stage",
+                             room_rejection_stage_name(*request.rejection_stage));
+}
+
 int focused_load(lua_State* state)
 {
     std::size_t size = 0;
@@ -931,6 +1031,100 @@ ScriptRuntime::explain_project_hook(runtime::ProjectHookSemanticKind semantic_ki
     return Result::success(std::move(explanation));
 }
 
+core::Result<runtime::ProjectHookInvocationResult, runtime::ScriptInvocationError>
+ScriptRuntime::invoke_project_hook(const runtime::ProjectHookInvocationRequest& request,
+                                   const runtime::RuntimeCapabilitySet& capabilities)
+{
+    using Result = core::Result<runtime::ProjectHookInvocationResult,
+                                runtime::ScriptInvocationError>;
+    auto explained = explain_project_hook(request.semantic_kind, request.hook, request.target);
+    if (!explained)
+        return Result::failure(std::move(explained).error());
+    const auto* winner = explained.value_if()->winner ? &*explained.value_if()->winner : nullptr;
+    if (winner == nullptr)
+        return Result::success(runtime::ProjectHookInvocationResult{});
+    if (capabilities.profile() != winner->capability_profile)
+        return Result::failure(make_error(
+            ScriptErrorCode::InvalidResult,
+            "Hook invocation capability profile does not match the frozen registry contract",
+            winner->source_path));
+
+    m_impl->runtime_api->replace_capabilities(capabilities);
+    struct CapabilityScope final {
+        RuntimeScriptApi& api;
+        ~CapabilityScope() { api.clear_capabilities(); }
+    } capability_scope{*m_impl->runtime_api};
+
+    lua_State* state = m_impl->lua.lua_state();
+    const int stack_base = lua_gettop(state);
+    auto error = push_project_import(state, winner->handler.module_id,
+                                     winner->handler.export_name);
+    if (error) {
+        lua_settop(state, stack_base);
+        error->chunk = winner->source_path;
+        return Result::failure(std::move(*error));
+    }
+    if (!lua_isfunction(state, -1)) {
+        lua_settop(state, stack_base);
+        return Result::failure(make_error(
+            ScriptErrorCode::InvalidResult,
+            "Frozen Hook Registry handler is no longer callable", winner->source_path));
+    }
+
+    push_project_hook_context(state, request);
+    int argument_count = 1;
+    if (request.hook == runtime::ProjectHookKind::RoomCompose) {
+        lua_getglobal(state, "noveltea");
+        if (!lua_istable(state, -1)) {
+            lua_settop(state, stack_base);
+            return Result::failure(make_error(ScriptErrorCode::RuntimeFailed,
+                                              "Room composition API is unavailable",
+                                              winner->source_path));
+        }
+        lua_getfield(state, -1, "room_presentation");
+        lua_remove(state, -2);
+        ++argument_count;
+    }
+
+    const int result_count = request.result_kind == runtime::ScriptInvocationResultKind::None ? 0 : 1;
+    const int status = lua_pcall(state, argument_count, result_count, 0);
+    if (status != LUA_OK) {
+        const std::string raw = lua_value_message(state, -1);
+        luaL_traceback(state, state, raw.c_str(), 1);
+        const std::string traceback = lua_value_message(state, -1);
+        lua_settop(state, stack_base);
+        const auto code = status == LUA_YIELD || raw.find("yield") != std::string::npos
+                              ? ScriptErrorCode::YieldForbidden
+                              : ScriptErrorCode::RuntimeFailed;
+        return Result::failure(make_error(code, raw, winner->source_path, traceback));
+    }
+
+    runtime::ScriptInvocationValue value = std::monostate{};
+    if (request.result_kind == runtime::ScriptInvocationResultKind::Boolean) {
+        if (!lua_isboolean(state, -1)) {
+            const std::string type = lua_type_name(state, -1);
+            lua_settop(state, stack_base);
+            return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                              "Hook handler must return boolean, not " + type,
+                                              winner->source_path));
+        }
+        value = lua_toboolean(state, -1) != 0;
+    } else if (request.result_kind == runtime::ScriptInvocationResultKind::String) {
+        if (!lua_isstring(state, -1)) {
+            const std::string type = lua_type_name(state, -1);
+            lua_settop(state, stack_base);
+            return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                              "Hook handler must return string, not " + type,
+                                              winner->source_path));
+        }
+        std::size_t size = 0;
+        const char* text = lua_tolstring(state, -1, &size);
+        value = std::string(text, size);
+    }
+    lua_settop(state, stack_base);
+    return Result::success(runtime::ProjectHookInvocationResult{true, std::move(value)});
+}
+
 core::Result<void, runtime::ScriptInvocationError>
 ScriptRuntime::run_project_on_game_ready(const runtime::RuntimeCapabilitySet& capabilities)
 {
@@ -1319,6 +1513,15 @@ core::Result<std::string, ScriptError> ScriptRuntime::evaluate_string_in_environ
     return Result::failure(make_error(ScriptErrorCode::InvalidResult,
                                       "expression did not evaluate to string",
                                       std::string(chunk_name)));
+}
+
+core::Result<std::string, runtime::ScriptSourceError>
+ScriptRuntime::read_script_source(std::string_view logical_path) const
+{
+    if (!m_impl || !m_impl->sources)
+        return core::Result<std::string, runtime::ScriptSourceError>::failure(
+            runtime::ScriptSourceError{"Script source provider is unavailable"});
+    return m_impl->sources->read_script_source(logical_path);
 }
 
 core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>

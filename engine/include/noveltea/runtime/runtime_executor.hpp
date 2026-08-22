@@ -8,6 +8,7 @@
 #include "noveltea/runtime/runtime_ports.hpp"
 #include "noveltea/runtime/runtime_world.hpp"
 
+#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -169,7 +170,11 @@ public:
     void invalidate_room_presentation() noexcept { m_room_presentation_dirty = true; }
     [[nodiscard]] core::Diagnostics take_room_presentation_diagnostics() noexcept
     {
-        auto diagnostics = std::move(m_room_presentation_diagnostics);
+        auto diagnostics = std::move(m_room_lifecycle_diagnostics);
+        diagnostics.insert(diagnostics.end(),
+                           std::make_move_iterator(m_room_presentation_diagnostics.begin()),
+                           std::make_move_iterator(m_room_presentation_diagnostics.end()));
+        m_room_lifecycle_diagnostics.clear();
         m_room_presentation_diagnostics.clear();
         return diagnostics;
     }
@@ -236,7 +241,9 @@ private:
     PresentationModelPort& m_presentation_model;
     RuntimeCapabilitySet m_gameplay_capabilities;
     RuntimeCapabilitySet m_expression_capabilities;
+    RuntimeCapabilitySet m_room_lifecycle_capabilities;
     std::optional<core::RoomPresentationResolution> m_room_presentation;
+    core::Diagnostics m_room_lifecycle_diagnostics;
     core::Diagnostics m_room_presentation_diagnostics;
     std::string m_room_presentation_locale;
     bool m_room_presentation_dirty = true;

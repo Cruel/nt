@@ -545,9 +545,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
             })),
           }
         : {}),
-      compose: data.compose
-        ? { script: { kind: 'script', id: data.compose.script.$ref.id } }
-        : null,
       scriptHooks: data.scriptHooks.map((mapping) => ({
         hook: mapping.hook,
         handler: {
@@ -813,9 +810,6 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           opacity: entry.opacity,
           visible: entry.visible,
         })),
-        compose: data.compose
-          ? { script: { kind: 'script' as const, id: data.compose.script.$ref.id } }
-          : null,
         scriptHooks: data.scriptHooks.map((mapping) => ({
           hook: mapping.hook,
           handler: {

@@ -43,6 +43,19 @@ decode_character_location(Decoder& d, const nlohmann::json& value, std::string_v
     return std::nullopt;
 }
 
+std::string_view room_entry_cause_name(RoomEntryCause cause) noexcept
+{
+    switch (cause) {
+    case RoomEntryCause::Entrypoint:
+        return "entrypoint";
+    case RoomEntryCause::NavigationAttempt:
+        return "navigation-attempt";
+    case RoomEntryCause::DirectedRoomChange:
+        return "directed-room-change";
+    }
+    return "directed-room-change";
+}
+
 nlohmann::json encode_room_visit(const std::optional<RoomVisitContext>& visit)
 {
     if (!visit)
@@ -55,6 +68,8 @@ nlohmann::json encode_room_visit(const std::optional<RoomVisitContext>& visit)
             {"sourceRoom", visit->source_room ? nlohmann::json(visit->source_room->text())
                                               : nlohmann::json(nullptr)},
             {"entryExit", std::move(entry_exit)},
+            {"entryCause", room_entry_cause_name(visit->entry_cause)},
+            {"entrySequence", visit->entry_sequence},
             {"visitIndex", visit->visit_index}};
 }
 
@@ -249,16 +264,36 @@ std::optional<RuntimeInstanceProvenance> decode_provenance(Decoder& d, const nlo
                                      std::move(saved_source)};
 }
 
+std::optional<RoomEntryCause> decode_room_entry_cause(Decoder& d, const nlohmann::json& value,
+                                                       std::string_view pointer)
+{
+    auto name = d.string(value, pointer);
+    if (!name)
+        return std::nullopt;
+    if (*name == "entrypoint")
+        return RoomEntryCause::Entrypoint;
+    if (*name == "navigation-attempt")
+        return RoomEntryCause::NavigationAttempt;
+    if (*name == "directed-room-change")
+        return RoomEntryCause::DirectedRoomChange;
+    d.error(k_variant, "Unknown Room entry cause '" + *name + "'.", std::string(pointer));
+    return std::nullopt;
+}
+
 std::optional<std::optional<RoomVisitContext>>
 decode_room_visit(Decoder& d, const nlohmann::json& value, std::string_view pointer)
 {
     if (value.is_null())
         return std::optional<RoomVisitContext>{};
-    if (!d.object(value, pointer, {"room", "sourceRoom", "entryExit", "visitIndex"}))
+    if (!d.object(value, pointer,
+                  {"room", "sourceRoom", "entryExit", "entryCause", "entrySequence",
+                   "visitIndex"}))
         return std::nullopt;
     const auto* room = d.member(value, "room", pointer);
     const auto* source = d.member(value, "sourceRoom", pointer);
     const auto* entry = d.member(value, "entryExit", pointer);
+    const auto* cause_value = d.member(value, "entryCause", pointer);
+    const auto* sequence_value = d.member(value, "entrySequence", pointer);
     const auto* index_value = d.member(value, "visitIndex", pointer);
     auto room_id = room ? d.id<RoomId>(*room, child(pointer, "room")) : std::nullopt;
     std::optional<RoomId> source_room;
@@ -283,14 +318,22 @@ decode_room_visit(Decoder& d, const nlohmann::json& value, std::string_view poin
         if (entry_ok)
             entry_exit = compiled::RoomExitRef{std::move(*exit_room_id), std::move(*exit_id)};
     }
+    auto cause = cause_value
+                     ? decode_room_entry_cause(d, *cause_value, child(pointer, "entryCause"))
+                     : std::nullopt;
+    auto entry_sequence = sequence_value
+                              ? d.unsigned_integer<std::uint64_t>(
+                                    *sequence_value, child(pointer, "entrySequence"), true)
+                              : std::nullopt;
     auto visit_index =
         index_value
             ? d.unsigned_integer<std::uint64_t>(*index_value, child(pointer, "visitIndex"), true)
             : std::nullopt;
-    if (!room_id || !source_ok || !entry_ok || !visit_index)
+    if (!room_id || !source_ok || !entry_ok || !cause || !entry_sequence || !visit_index)
         return std::nullopt;
     return std::optional<RoomVisitContext>{RoomVisitContext{
-        std::move(*room_id), std::move(source_room), std::move(entry_exit), *visit_index}};
+        std::move(*room_id), std::move(source_room), std::move(entry_exit), *cause,
+        *entry_sequence, *visit_index}};
 }
 
 } // namespace
@@ -400,6 +443,7 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
              {"provenance", encode_provenance(value.provenance)}});
     nlohmann::json runtime_world = {{"nextInstanceId", save.next_runtime_instance_id},
                                     {"nextItemStackId", save.next_item_stack_id},
+                                    {"roomEntrySequence", save.room_entry_sequence},
                                     {"rooms", std::move(runtime_rooms)},
                                     {"characters", std::move(runtime_characters)},
                                     {"interactables", std::move(runtime_interactables)}};
@@ -538,12 +582,14 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
 
     std::optional<std::uint64_t> saved_next_runtime_instance_id;
     std::optional<std::uint64_t> saved_next_item_stack_id;
+    std::optional<std::uint64_t> saved_room_entry_sequence;
     std::optional<std::vector<SavedRuntimeRoomConfiguration>> saved_runtime_rooms;
     std::optional<std::vector<SavedRuntimeCharacterConfiguration>> saved_runtime_characters;
     std::optional<std::vector<SavedRuntimeInteractableConfiguration>> saved_runtime_interactables;
     if (runtime_world &&
         d.object(*runtime_world, "/runtimeWorld",
-                 {"nextInstanceId", "nextItemStackId", "rooms", "characters", "interactables"})) {
+                 {"nextInstanceId", "nextItemStackId", "roomEntrySequence", "rooms",
+                  "characters", "interactables"})) {
         const auto* next_id = d.member(*runtime_world, "nextInstanceId", "/runtimeWorld");
         const auto* rooms = d.member(*runtime_world, "rooms", "/runtimeWorld");
         const auto* characters_value = d.member(*runtime_world, "characters", "/runtimeWorld");
@@ -551,6 +597,8 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
             d.member(*runtime_world, "interactables", "/runtimeWorld");
         const auto* next_item_stack_id =
             d.member(*runtime_world, "nextItemStackId", "/runtimeWorld");
+        const auto* room_entry_sequence =
+            d.member(*runtime_world, "roomEntrySequence", "/runtimeWorld");
         saved_next_runtime_instance_id =
             next_id
                 ? d.unsigned_integer<std::uint64_t>(*next_id, "/runtimeWorld/nextInstanceId", true)
@@ -559,6 +607,11 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
             next_item_stack_id ? d.unsigned_integer<std::uint64_t>(
                                      *next_item_stack_id, "/runtimeWorld/nextItemStackId", true)
                                : std::nullopt;
+        saved_room_entry_sequence =
+            room_entry_sequence
+                ? d.unsigned_integer<std::uint64_t>(*room_entry_sequence,
+                                                    "/runtimeWorld/roomEntrySequence")
+                : std::nullopt;
         saved_runtime_rooms = decode_array<SavedRuntimeRoomConfiguration>(
             d, rooms, "/runtimeWorld/rooms",
             [&d](const nlohmann::json& value,
@@ -927,7 +980,8 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
         });
     auto saved_blocker = blocker ? decode_blocker(d, *blocker, "/blocker") : std::nullopt;
     if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state ||
-        !saved_next_runtime_instance_id || !saved_next_item_stack_id || !saved_runtime_rooms ||
+        !saved_next_runtime_instance_id || !saved_next_item_stack_id || !saved_room_entry_sequence ||
+        !saved_runtime_rooms ||
         !saved_runtime_characters || !saved_runtime_interactables || !saved_overrides ||
         !saved_characters || !saved_interactables || !saved_item_stacks ||
         !saved_active_room_visit || !saved_room_visits || !saved_line_history ||
@@ -940,6 +994,7 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                   *saved_random_state,
                   *saved_next_runtime_instance_id,
                   *saved_next_item_stack_id,
+                  *saved_room_entry_sequence,
                   std::move(*saved_runtime_rooms),
                   std::move(*saved_runtime_characters),
                   std::move(*saved_runtime_interactables),

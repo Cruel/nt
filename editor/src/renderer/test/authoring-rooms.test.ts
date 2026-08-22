@@ -20,10 +20,6 @@ describe('authoring rooms schema', () => {
       lifecycle: {
         canEnter: { kind: 'always' },
         canLeave: { kind: 'always' },
-        beforeEnter: [],
-        afterEnter: [],
-        beforeLeave: [],
-        afterLeave: [],
       },
       exits: [],
       placements: [],
@@ -122,7 +118,7 @@ describe('authoring rooms schema', () => {
     );
   });
 
-  it('validates Room cast pose/expression and composition resources', () => {
+  it('validates Room cast pose/expression and Hook Registry resources', () => {
     const project = createAuthoringProject();
     project.characters.guard = { id: 'guard', label: 'Guard', data: defaultCharacterData('Guard') };
     const data = defaultRoomData('Foyer');
@@ -146,7 +142,15 @@ describe('authoring rooms schema', () => {
         order: 0,
       },
     ];
-    data.compose = { script: { $ref: { collection: 'scripts', id: 'missing-compose' } } };
+    data.scriptHooks = [
+      {
+        hook: 'compose',
+        handler: {
+          module: { $ref: { collection: 'scripts', id: 'missing-compose' } },
+          export: 'compose',
+        },
+      },
+    ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
 
     expect(validateRoomData(project, 'foyer', project.rooms.foyer)).toEqual(
@@ -157,7 +161,7 @@ describe('authoring rooms schema', () => {
           severity: 'error',
         }),
         expect.objectContaining({
-          path: '/rooms/foyer/data/compose/script/$ref',
+          path: '/rooms/foyer/data/scriptHooks/0/handler/module/$ref',
           severity: 'error',
         }),
       ]),

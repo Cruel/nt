@@ -9,6 +9,7 @@
 
 #include <fstream>
 #include <algorithm>
+#include <functional>
 #include <chrono>
 #include <iterator>
 #include <memory>
@@ -44,9 +45,14 @@ core::CompiledProject decode_document(nlohmann::json document, std::string sourc
     return std::move(decoded).value();
 }
 
-core::CompiledProject load_project(std::string_view filename)
+core::CompiledProject load_project(
+    std::string_view filename,
+    const std::function<void(nlohmann::json&)>& amend = {})
 {
-    return decode_document(load_document(filename), std::string(filename));
+    auto document = load_document(filename);
+    if (amend)
+        amend(document);
+    return decode_document(std::move(document), std::string(filename));
 }
 
 core::compiled::InventoryLocation player_inventory_location()
@@ -123,16 +129,28 @@ core::CompiledProject make_animated_room_project(std::string source_name)
         {"color", "#000000"},
         {"skippable", true},
     };
+    document["resources"]["scripts"].push_back(
+        {{"id", "animated-room-hooks"},
+         {"source",
+          {{"kind", "inline-lua"},
+           {"source", "return { after_enter_start = function() "
+                      "local ok, err = Game.set_prop('count', 7); assert(ok, err) end, "
+                      "after_enter_hall = function() "
+                      "local ok, err = Game.set_prop('count', 8); assert(ok, err) end }"}}}});
     for (auto& room : document["definitions"]["rooms"]) {
         const auto room_id = room["id"].get<std::string>();
-        for (auto& hook : room["lifecycle"]["hooks"]) {
-            if (hook["hook"] != "after-enter")
-                continue;
-            hook["effects"] =
-                nlohmann::json::array({{{"kind", "set-global-property"},
-                                        {"property", {{"kind", "property"}, {"id", "count"}}},
-                                        {"value", room_id == "start" ? 7 : 8}}});
-        }
+        if (room_id != "start" && room_id != "hall")
+            continue;
+        auto& hooks = room["scriptHooks"];
+        hooks.erase(std::remove_if(hooks.begin(), hooks.end(), [](const nlohmann::json& hook) {
+                        return hook["hook"] == "after-enter";
+                    }),
+                    hooks.end());
+        hooks.push_back(
+            {{"hook", "after-enter"},
+             {"handler",
+              {{"module", {{"kind", "script"}, {"id", "animated-room-hooks"}}},
+               {"export", room_id == "start" ? "after_enter_start" : "after_enter_hall"}}}});
     }
     return decode_document(std::move(document), std::move(source_name));
 }
@@ -319,6 +337,14 @@ public:
         return m_delegate.resume(invocation, capabilities);
     }
 
+    [[nodiscard]] core::Result<runtime::ProjectHookInvocationResult,
+                               runtime::ScriptInvocationError>
+    invoke_project_hook(const runtime::ProjectHookInvocationRequest& request,
+                        const runtime::RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate.invoke_project_hook(request, capabilities);
+    }
+
     [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
     run_project_on_game_ready(const runtime::RuntimeCapabilitySet& capabilities) override
     {
@@ -364,9 +390,11 @@ struct Fixture {
     std::unique_ptr<TypedRuntimeSession> session;
     runtime::RuntimeBudgetConfiguration runtime_budget;
 
-    explicit Fixture(std::string_view filename = "comprehensive.json",
-                     runtime::RuntimeBudgetConfiguration budget = {})
-        : project(load_project(filename)), runtime_budget(budget)
+    explicit Fixture(
+        std::string_view filename = "comprehensive.json",
+        runtime::RuntimeBudgetConfiguration budget = {},
+        const std::function<void(nlohmann::json&)>& amend = {})
+        : project(load_project(filename, amend)), runtime_budget(budget)
     {
         REQUIRE(runtime.initialize({&sources}));
         REQUIRE(runtime.execute("function initialize_fixture() end\n"
@@ -924,19 +952,36 @@ TEST_CASE("deferred runtime commands execute inside one outer transaction")
 
 TEST_CASE("deferred command self-enqueue is bounded by the transaction command budget")
 {
-    Fixture fixture("comprehensive.json", runtime::RuntimeBudgetConfiguration{
-                                              .instruction_limit = 100'000, .command_limit = 1});
+    Fixture fixture(
+        "comprehensive.json",
+        runtime::RuntimeBudgetConfiguration{.instruction_limit = 100'000, .command_limit = 1},
+        [](nlohmann::json& document) {
+            document["resources"]["scripts"].push_back(
+                {{"id", "self-enqueue-hooks"},
+                 {"source",
+                  {{"kind", "inline-lua"},
+                   {"source",
+                    "return { before_leave = function()\n"
+                    "  local ok, err = noveltea.interactables.set_location('key', {\n"
+                    "    kind = 'inventory',\n"
+                    "    inventory = { owner = { kind = 'project' }, id = 'player' }\n"
+                    "  })\n"
+                    "  assert(ok and err == nil)\n"
+                    "end }"}}}});
+            for (auto& room : document["definitions"]["rooms"]) {
+                if (room["id"] != "start")
+                    continue;
+                for (auto& hook : room["scriptHooks"]) {
+                    if (hook["hook"] != "before-leave")
+                        continue;
+                    hook["handler"] = {
+                        {"module", {{"kind", "script"}, {"id", "self-enqueue-hooks"}}},
+                        {"export", "before_leave"}};
+                }
+            }
+        });
     REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    REQUIRE(execute_session_lua(fixture,
-                                "function before_leave_start()\n"
-                                "  local ok, err = noveltea.interactables.set_location('key', {\n"
-                                "    kind = 'inventory',\n"
-                                "    inventory = { owner = { kind = 'project' }, id = 'player' }\n"
-                                "  })\n"
-                                "  assert(ok and err == nil)\n"
-                                "end",
-                                "deferred-command-budget"));
 
     const auto key = make_id<core::InteractableIdTag>("key");
     REQUIRE(fixture.session->gateway().request_navigation(core::compiled::RoomExitRef{
@@ -1496,7 +1541,8 @@ TEST_CASE("runtime script API lowers indexed navigation to the current stable ex
     REQUIRE(execute_session_lua(fixture,
                                 "local ok, err = Game.navigate(0); assert(ok and err == nil)",
                                 "script-api-navigation"));
-    auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto drained =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(drained.diagnostics.empty());
     const auto& drained_view = published_view(drained);
     REQUIRE(drained_view.room);
@@ -1506,16 +1552,28 @@ TEST_CASE("runtime script API lowers indexed navigation to the current stable ex
 TEST_CASE(
     "runtime script API drains commands queued by Lua reached during the same outer operation")
 {
-    Fixture fixture;
+    Fixture fixture("comprehensive.json", {}, [](nlohmann::json& document) {
+        document["resources"]["scripts"].push_back(
+            {{"id", "save-on-leave-hooks"},
+             {"source",
+              {{"kind", "inline-lua"},
+               {"source", "return { before_leave = function() "
+                          "local ok, err = Game.save(8); assert(ok and err == nil) end }"}}}});
+        for (auto& room : document["definitions"]["rooms"]) {
+            if (room["id"] != "start")
+                continue;
+            for (auto& hook : room["scriptHooks"]) {
+                if (hook["hook"] != "before-leave")
+                    continue;
+                hook["handler"] = {
+                    {"module", {{"kind", "script"}, {"id", "save-on-leave-hooks"}}},
+                    {"export", "before_leave"}};
+            }
+        }
+    });
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
                 .diagnostics.empty());
     const auto slot = core::TypedSaveSlotId::manual(8);
-    REQUIRE(execute_session_lua(fixture,
-                                "function before_leave_start()\n"
-                                "  local ok, err = Game.save(8)\n"
-                                "  assert(ok and err == nil)\n"
-                                "end",
-                                "script-api-nested-command-fixture"));
 
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());

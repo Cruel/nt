@@ -133,8 +133,6 @@ private:
     character_definition(const CharacterId& character) const noexcept;
     [[nodiscard]] const compiled::InteractableDefinition*
     interactable_definition(const InteractableId& interactable) const noexcept;
-    [[nodiscard]] std::size_t room_hook_effect_count(const RoomTransitionFrame& transition,
-                                                     RoomTransitionStage stage) const noexcept;
     void clear_blocker_for(const FlowFrameId& owner) noexcept;
     [[nodiscard]] bool& running_flag() noexcept;
 

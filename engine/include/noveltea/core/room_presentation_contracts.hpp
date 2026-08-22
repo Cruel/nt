@@ -106,7 +106,6 @@ struct RoomPresentationDefinitionView {
     std::vector<Environment> environments;
     std::vector<Placement> placements;
     std::vector<Exit> exits;
-    bool has_composition = false;
 };
 
 struct RoomPresentationStateView {
@@ -229,7 +228,10 @@ struct RoomNavigationPreparationInput {
     std::optional<RoomId> source_room;
     RoomId target_room;
     std::optional<compiled::RoomExitRef> selected_exit;
+    RoomEntryCause entry_cause = RoomEntryCause::DirectedRoomChange;
+    std::optional<RoomVisitContext> source_context;
     std::optional<compiled::RoomNavigationTransition> explicit_transition;
+    std::uint64_t target_entry_sequence = 0;
     std::uint64_t target_visit_index = 0;
 };
 
@@ -249,8 +251,7 @@ class RoomCompositionCallback {
 public:
     virtual ~RoomCompositionCallback() = default;
     [[nodiscard]] virtual Result<void, Diagnostics>
-    compose(const compiled::RoomCompositionHook& hook, const RoomVisitContext& visit,
-            RoomPresentationDraft& draft) = 0;
+    compose(const RoomVisitContext& visit, RoomPresentationDraft& draft) = 0;
 };
 
 } // namespace noveltea::core

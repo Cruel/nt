@@ -36,9 +36,15 @@ SavedFlowFrame save_frame(const FlowFrame& frame, std::size_t index)
                 return SavedInteractionFrame{snapshot_id, value.invocation, value.program,
                                              value.position, value.destination};
             else
-                return SavedRoomTransitionFrame{snapshot_id,       value.source_room,
-                                                value.target_room, value.selected_exit,
-                                                value.position,    value.destination};
+                return SavedRoomTransitionFrame{snapshot_id,
+                                                value.source_room,
+                                                value.target_room,
+                                                value.selected_exit,
+                                                value.kind,
+                                                value.entry_cause,
+                                                value.source_context,
+                                                value.position,
+                                                value.destination};
         },
         frame);
 }
@@ -162,6 +168,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .random_state = session.m_random_state,
         .next_runtime_instance_id = session.m_next_runtime_instance_id,
         .next_item_stack_id = session.m_next_item_stack_id,
+        .room_entry_sequence = session.m_room_entry_sequence,
         .runtime_rooms = {},
         .runtime_characters = {},
         .runtime_interactables = {},

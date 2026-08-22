@@ -322,10 +322,15 @@ describe('typed source registry and graph evidence', () => {
       source: `room_text()`,
       additionalDependencies: { targets: [] },
     };
-    room.compose = {
-      script: { $ref: { collection: 'scripts', id: 'main' } },
-      additionalDependencies: { targets: [] },
-    };
+    room.scriptHooks = [
+      {
+        hook: 'compose',
+        handler: {
+          module: { $ref: { collection: 'scripts', id: 'main' } },
+          export: 'compose',
+        },
+      },
+    ];
     const scene = defaultSceneData('Scene');
     scene.steps = [defaultSceneStep('run-lua', 'scene-step')];
     const dialogue = defaultDialogueData('Dialogue');
@@ -410,17 +415,9 @@ describe('typed source registry and graph evidence', () => {
           source.sourcePath.endsWith('/initScript'),
       ),
     ).toBe(true);
-    expect(
-      sources.some(
-        (source) =>
-          source.contributionKey === `record:${JSON.stringify(['record', 'rooms', 'room'])}` &&
-          source.sourceAssetId === 'script-file',
-      ),
-    ).toBe(true);
     expect(new Set(sources.map((source) => source.executionSurface))).toEqual(
       new Set([
         'script-record',
-        'room-composition-script',
         'shared-lua-predicate',
         'shared-lua-expression',
         'shared-run-lua-effect',
@@ -1537,7 +1534,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('counts one shared physical source once across semantic owners', async () => {
+  it('counts a Hook Registry module source once under its Script Module owner', async () => {
     const project = createAuthoringProject();
     project.assets.shared = {
       id: 'shared',
@@ -1563,10 +1560,15 @@ describe('typed source registry and graph evidence', () => {
       traits: [],
     } as never;
     const room = defaultRoomData('Room');
-    room.compose = {
-      script: { $ref: { collection: 'scripts', id: 'main' } },
-      additionalDependencies: { targets: [] },
-    };
+    room.scriptHooks = [
+      {
+        hook: 'compose',
+        handler: {
+          module: { $ref: { collection: 'scripts', id: 'main' } },
+          export: 'compose',
+        },
+      },
+    ];
     project.rooms.room = {
       id: 'room',
       label: 'Room',
@@ -1605,7 +1607,7 @@ describe('typed source registry and graph evidence', () => {
       [...analyses.values()].filter(
         (items) => items.flatMap((analysis) => analysis.literalOccurrences).length === 1,
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(
       [...analyses.values()]
         .flat()

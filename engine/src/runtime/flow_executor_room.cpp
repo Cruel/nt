@@ -12,12 +12,6 @@ Diagnostics execution_error(std::string code, std::string message)
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
-bool is_effect_stage(RoomTransitionStage stage) noexcept
-{
-    return stage == RoomTransitionStage::BeforeLeave || stage == RoomTransitionStage::BeforeEnter ||
-           stage == RoomTransitionStage::AfterLeave || stage == RoomTransitionStage::AfterEnter;
-}
-
 RoomTransitionStage next_stage(const RoomTransitionFrame& transition) noexcept
 {
     switch (transition.position.stage) {
@@ -47,39 +41,6 @@ RoomTransitionStage next_stage(const RoomTransitionFrame& transition) noexcept
 
 } // namespace
 
-std::size_t FlowExecutor::room_hook_effect_count(const RoomTransitionFrame& transition,
-                                                 RoomTransitionStage stage) const noexcept
-{
-    const compiled::RoomDefinition* room = nullptr;
-    std::optional<compiled::RoomHookKind> hook;
-    switch (stage) {
-    case RoomTransitionStage::BeforeLeave:
-        room = transition.source_room ? room_definition(*transition.source_room) : nullptr;
-        hook = compiled::RoomHookKind::BeforeLeave;
-        break;
-    case RoomTransitionStage::BeforeEnter:
-        room = room_definition(transition.target_room);
-        hook = compiled::RoomHookKind::BeforeEnter;
-        break;
-    case RoomTransitionStage::AfterLeave:
-        room = transition.source_room ? room_definition(*transition.source_room) : nullptr;
-        hook = compiled::RoomHookKind::AfterLeave;
-        break;
-    case RoomTransitionStage::AfterEnter:
-        room = room_definition(transition.target_room);
-        hook = compiled::RoomHookKind::AfterEnter;
-        break;
-    default:
-        return 0;
-    }
-    if (room == nullptr || !hook)
-        return 0;
-    const auto found = std::find_if(
-        room->lifecycle.hooks.begin(), room->lifecycle.hooks.end(),
-        [&hook](const compiled::RoomHookProgram& program) { return program.hook == *hook; });
-    return found == room->lifecycle.hooks.end() ? 0 : found->effects.size();
-}
-
 Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
                                                          const compiled::RoomExitRef& selected_exit)
 {
@@ -88,7 +49,9 @@ Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
     const auto* source_mode = std::get_if<RoomMode>(&m_state.m_mode);
     const auto* source = source_mode == nullptr ? nullptr : room_definition(source_mode->room);
     const auto* target_room = room_definition(target);
-    if (source == nullptr || target_room == nullptr || !m_state.m_flow_stack.empty() ||
+    const auto* source_context = m_state.m_room_visit ? &*m_state.m_room_visit : nullptr;
+    if (source == nullptr || target_room == nullptr || source_context == nullptr ||
+        source_context->room != source_mode->room || !m_state.m_flow_stack.empty() ||
         selected_exit.room != source_mode->room)
         return Result<void, Diagnostics>::failure(
             execution_error("execution.invalid_navigation",
@@ -105,12 +68,16 @@ Result<void, Diagnostics> FlowExecutor::start_navigation(const RoomId& target,
         return fail(
             execution_error("execution.frame_id_exhausted", "Flow frame IDs are exhausted"));
     const FlowFrameId id{m_state.m_next_frame_id++};
-    m_state.m_flow_stack.emplace_back(RoomTransitionFrame{id,
-                                                          source_mode->room,
-                                                          target,
-                                                          selected_exit,
-                                                          {RoomTransitionStage::SourceCanLeave, 0},
-                                                          NoReturnDestination{}});
+    m_state.m_flow_stack.emplace_back(RoomTransitionFrame{
+        id,
+        source_mode->room,
+        target,
+        selected_exit,
+        RoomTransitionKind::NavigationAttempt,
+        RoomEntryCause::NavigationAttempt,
+        *source_context,
+        {RoomTransitionStage::SourceCanLeave, 0},
+        NoReturnDestination{}});
     m_state.m_mode = FlowMode{};
     return Result<void, Diagnostics>::success();
 }
@@ -138,30 +105,15 @@ FlowExecutor::advance_room_transition(const RoomTransitionPosition& expected_pos
         return fail(ready.error());
     auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back());
     if (transition == nullptr || transition->position != expected_position ||
-        next_position.stage > RoomTransitionStage::Complete)
+        next_position.stage > RoomTransitionStage::Complete || next_position.next_effect != 0 ||
+        next_position.awaiting_completion || next_position.stage != next_stage(*transition))
         return fail(
             execution_error("execution.stale_room_transition_position",
-                            "Room transition advancement does not match the active position"));
+                            "Room transition advancement does not match canonical lifecycle order"));
 
     auto valid = validate_position(*transition, FlowFramePosition{next_position});
     if (!valid)
         return fail(valid.error());
-
-    const bool effect_stage = is_effect_stage(expected_position.stage);
-    const auto effect_count = room_hook_effect_count(*transition, expected_position.stage);
-    const bool advances_effect = effect_stage && next_position.stage == expected_position.stage &&
-                                 next_position.next_effect == expected_position.next_effect + 1 &&
-                                 !next_position.awaiting_completion &&
-                                 next_position.next_effect <= effect_count;
-    const bool stage_complete = !effect_stage || (!expected_position.awaiting_completion &&
-                                                  expected_position.next_effect == effect_count);
-    const bool advances_stage = stage_complete && next_position.stage == next_stage(*transition) &&
-                                next_position.next_effect == 0 &&
-                                !next_position.awaiting_completion;
-    if (!advances_effect && !advances_stage)
-        return fail(execution_error("execution.invalid_room_transition_position",
-                                    "Room transition stages must advance in lifecycle order"));
-
     transition->position = std::move(next_position);
     return Result<void, Diagnostics>::success();
 }
@@ -175,17 +127,14 @@ FlowExecutor::mark_room_transition_wait(const RoomTransitionPosition& expected_p
     auto* transition = !m_state.m_flow_stack.empty()
                            ? std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back())
                            : nullptr;
-    const bool waitable_stage =
-        transition != nullptr && (is_effect_stage(expected_position.stage) ||
-                                  expected_position.stage == RoomTransitionStage::CommitRoomSwitch);
     if (transition == nullptr || transition->position != expected_position || !m_state.m_blocker ||
-        flow_blocker_owner(*m_state.m_blocker) != transition->frame_id || !waitable_stage ||
+        flow_blocker_owner(*m_state.m_blocker) != transition->frame_id ||
+        expected_position.stage != RoomTransitionStage::CommitRoomSwitch ||
         expected_position.awaiting_completion || next_position.stage != expected_position.stage ||
-        next_position.next_effect != expected_position.next_effect ||
-        !next_position.awaiting_completion)
+        next_position.next_effect != 0 || !next_position.awaiting_completion)
         return fail(
             execution_error("execution.invalid_room_transition_wait",
-                            "Room transition wait does not match the active lifecycle step"));
+                            "Only the committed Room presentation transition may block"));
     auto valid = validate_position(*transition, FlowFramePosition{next_position});
     if (!valid)
         return fail(valid.error());
@@ -199,12 +148,12 @@ Result<void, Diagnostics> FlowExecutor::reject_room_transition()
     if (!ready)
         return fail(ready.error());
     const auto* transition = std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back());
-    if (transition == nullptr || transition->position.stage > RoomTransitionStage::TargetCanEnter)
+    if (transition == nullptr || transition->kind != RoomTransitionKind::NavigationAttempt ||
+        transition->position.stage > RoomTransitionStage::TargetCanEnter ||
+        !transition->source_context || !transition->source_room ||
+        transition->source_context->room != *transition->source_room)
         return fail(execution_error("execution.invalid_room_rejection",
-                                    "Room transition can be rejected only before hooks or commit"));
-    if (!transition->source_room)
-        return fail(execution_error("execution.room_rejection_without_source",
-                                    "Rejected Room transition has no Room to resume"));
+                                    "Only a pre-commit Navigation Attempt may be rejected"));
     const RoomId source = *transition->source_room;
     m_state.m_flow_stack.clear();
     m_state.m_blocker.reset();

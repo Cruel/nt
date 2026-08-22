@@ -282,14 +282,24 @@ std::string lua_counter_compiled_project_fixture()
 {
     auto project = nlohmann::json::parse(minimal_compiled_project_fixture(), nullptr, false);
     REQUIRE_FALSE(project.is_discarded());
-    auto& hooks = project["definitions"]["rooms"][0]["lifecycle"]["hooks"];
-    REQUIRE(hooks.is_array());
-    const auto before_enter = std::find_if(hooks.begin(), hooks.end(), [](const auto& hook) {
-        return hook.value("hook", "") == "before-enter";
-    });
-    REQUIRE(before_enter != hooks.end());
-    (*before_enter)["effects"].push_back(
-        {{"kind", "run-lua-effect"}, {"source", "counter = (counter or 0) + 1"}});
+    project["properties"].push_back({{"id", "hook-count"},
+                                      {"label", "Hook Count"},
+                                      {"description", ""},
+                                      {"type", "integer"},
+                                      {"nullable", false},
+                                      {"defaultValue", 0},
+                                      {"enumValues", nlohmann::json::array()},
+                                      {"scope", "global"}});
+    project["resources"]["scripts"].push_back(
+        {{"id", "counter-hooks"},
+         {"source",
+          {{"kind", "inline-lua"},
+           {"source", "return { before_enter = function() local count, err = Game.prop('hook-count'); assert(err == nil); local ok, set_err = Game.set_prop('hook-count', count + 1); assert(ok, set_err) end }"}}}});
+    project["definitions"]["rooms"][0]["scriptHooks"].push_back(
+        {{"hook", "before-enter"},
+         {"handler",
+          {{"module", {{"kind", "script"}, {"id", "counter-hooks"}}},
+           {"export", "before_enter"}}}});
     return project.dump();
 }
 
@@ -603,17 +613,16 @@ TEST_CASE("GameHost constructs stopped loads in a dedicated Project Lua VM")
     CHECK(*untouched.value_if());
     auto* project_scripts = host.project_script_runtime();
     REQUIRE(project_scripts);
-    auto executed_once =
-        project_scripts->evaluate_bool("counter == 1", "stopped-load-candidate-start");
-    REQUIRE(executed_once);
-    CHECK(*executed_once.value_if());
+    const auto hook_count = core::PropertyId::create("hook-count").value();
+    REQUIRE(host.running_game()->session().gateway().global_property(hook_count));
+    CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
+          core::RuntimeValue{std::int64_t{1}});
 
     auto started = host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.accepted());
     CHECK(host.project_script_runtime() == project_scripts);
-    executed_once = project_scripts->evaluate_bool("counter == 1", "stopped-load-live-start");
-    REQUIRE(executed_once);
-    CHECK(*executed_once.value_if());
+    CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
+          core::RuntimeValue{std::int64_t{1}});
 
     const auto slot = core::TypedSaveSlotId::manual(7);
     auto saved = host.submit_runtime_input(core::RuntimeInputMessage{core::SaveRuntimeInput{slot}});
@@ -644,10 +653,11 @@ TEST_CASE("GameHost constructs stopped loads in a dedicated Project Lua VM")
     auto* restored_scripts = host.project_script_runtime();
     REQUIRE(restored_scripts);
     CHECK(restored_scripts != project_scripts);
-    auto fresh_vm = restored_scripts->evaluate_bool("sentinel == nil and counter == nil",
-                                                    "host-lua-load-fresh-vm");
+    auto fresh_vm = restored_scripts->evaluate_bool("sentinel == nil", "host-lua-load-fresh-vm");
     REQUIRE(fresh_vm);
     CHECK(*fresh_vm.value_if());
+    CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
+          core::RuntimeValue{std::int64_t{1}});
 }
 
 TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
@@ -1418,12 +1428,15 @@ TEST_CASE("Rejected runtime package validation does not advance the live asset g
          {"source",
           {{"kind", "asset"},
            {"asset", {{"id", "candidate-compose-source"}, {"kind", "asset"}}}}}});
-    candidate_project["definitions"]["rooms"][0]["compose"] = {
-        {"script", {{"id", "candidate-compose"}, {"kind", "script"}}}};
+    candidate_project["definitions"]["rooms"][0]["scriptHooks"].push_back(
+        {{"hook", "compose"},
+         {"handler",
+          {{"module", {{"id", "candidate-compose"}, {"kind", "script"}}},
+           {"export", "compose"}}}});
     const auto candidate_fixture = candidate_project.dump();
     const std::array candidate_files = {std::pair<std::string, std::string>{
         "scripts/candidate-compose.lua",
-        "room = { compose = function(context, presentation) end }"}};
+        "return { compose = function(context, presentation) end }"}};
 
     std::size_t detach_calls = 0;
     std::size_t commit_calls = 0;
@@ -1794,9 +1807,10 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
     auto* initial_project_scripts = host.project_script_runtime();
     REQUIRE(initial_project_scripts);
-    auto initial_counter = initial_project_scripts->evaluate_bool("counter == 1", "initial-game");
-    REQUIRE(initial_counter);
-    CHECK(*initial_counter.value_if());
+    const auto hook_count = core::PropertyId::create("hook-count").value();
+    REQUIRE(host.running_game()->session().gateway().global_property(hook_count));
+    CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
+          core::RuntimeValue{std::int64_t{1}});
 
     const auto loaded_generation = host.session_generation();
     auto duplicate_stop =
@@ -1824,9 +1838,9 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     auto* reset_project_scripts = host.project_script_runtime();
     REQUIRE(reset_project_scripts);
     CHECK(reset_project_scripts != initial_project_scripts);
-    auto reset_counter = reset_project_scripts->evaluate_bool("counter == 1", "reset-game");
-    REQUIRE(reset_counter);
-    CHECK(*reset_counter.value_if());
+    REQUIRE(host.running_game()->session().gateway().global_property(hook_count));
+    CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
+          core::RuntimeValue{std::int64_t{1}});
 
     auto stale = host.submit_runtime_input(pre_reset_session,
                                            core::RuntimeInputMessage{core::ContinueInput{}});
@@ -1862,10 +1876,9 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     auto* restored_project_scripts = host.project_script_runtime();
     REQUIRE(restored_project_scripts);
     CHECK(restored_project_scripts != reset_project_scripts);
-    auto restored_counter =
-        restored_project_scripts->evaluate_bool("counter == nil", "restored-game");
-    REQUIRE(restored_counter);
-    CHECK(*restored_counter.value_if());
+    REQUIRE(host.running_game()->session().gateway().global_property(hook_count));
+    CHECK(host.running_game()->session().gateway().global_property(hook_count).value() ==
+          core::RuntimeValue{std::int64_t{1}});
 
     auto stopped = host.submit_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(stopped.accepted());

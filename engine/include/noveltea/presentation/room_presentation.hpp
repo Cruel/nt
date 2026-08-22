@@ -17,8 +17,7 @@ public:
             const RoomPresentationStateView& state, const RoomVisitContext& visit,
             RoomPresentationConditionTokenEvaluator evaluate,
             RoomPresentationTextTokenResolver resolve_text,
-            RoomCompositionCallback* composition = nullptr,
-            const compiled::RoomCompositionHook* composition_hook = nullptr) const;
+            RoomCompositionCallback* composition = nullptr) const;
 };
 
 class RoomPresentationResolver final {

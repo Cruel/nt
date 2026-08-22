@@ -170,7 +170,8 @@ TEST_CASE("typed Interaction selects exact operands before wildcard and mutates 
     CHECK(runtime_ui.value().interaction->operands == active.value().operands);
     CHECK_FALSE(runtime_ui.value().scene);
     CHECK_FALSE(runtime_ui.value().dialogue);
-    CHECK_FALSE(runtime_ui.value().room);
+    REQUIRE(runtime_ui.value().room);
+    CHECK(runtime_ui.value().room->room == id<core::RoomId>("start"));
     drive_interaction(*kernel);
 
     const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));

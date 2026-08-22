@@ -70,11 +70,12 @@ Room visits, variables, or properties.
 authoritative runtime inputs. It is not an independently mutable state store and is not serialized as
 a second source of truth.
 
-### Room lifecycle effects and Room composition are different
+### Room lifecycle hooks and Room composition are different
 
-Room lifecycle effects may mutate gameplay state. Room composition may only read gameplay state and
-construct a temporary presentation draft. The engine must not expose the normal mutable script API to
-the composition hook.
+Room lifecycle hooks are frozen Hook Registry handlers and may perform admitted synchronous gameplay
+commands. Room composition is the `compose` Hook Registry handler: it may only read gameplay state and
+construct a temporary presentation draft. Neither lifecycle nor composition handlers may yield; the
+engine exposes the restricted Room-composition capability profile only to `compose`.
 
 ### World identity and presentation identity are different
 
@@ -106,8 +107,9 @@ identity.
 
 ### `RoomDefinition`
 
-Immutable compiled Room content. It owns Room-local declarations, geometry, lifecycle programs,
-exits, and optional composition-hook configuration. It does not own mutable occupancy.
+Immutable compiled Room content. It owns Room-local declarations, geometry, declarative guards,
+exits, and direct Hook Registry mappings. It does not own mutable occupancy or embedded lifecycle
+programs.
 
 ### `RoomPlacementDefinition`
 
@@ -115,11 +117,12 @@ A named Room-local spatial anchor and interaction/presentation region. It is not
 one Character or Interactable. Room cast and Interactable occurrence entries may reference the same
 placement vocabulary for presentation, independently of canonical gameplay Location.
 
-### `RoomVisitContext`
+### Active Room Context (`RoomVisitContext` internally)
 
-Saved authoritative context for the active Room visit, including how that visit was entered. It
-allows deterministic Room recomposition after save/load without rerunning `beforeEnter` or guessing
-from the current previous-Room field.
+Saved authoritative context for one continuous committed Room stay. It records Room, origin/source
+Room when present, selected entry Exit when applicable, Entry Cause, monotonic session Entry Sequence,
+and per-Room visit index. Recomposition and restore reuse this exact context without rerunning
+lifecycle handlers.
 
 ### `CharacterWorldState`
 
@@ -312,12 +315,15 @@ struct RoomVisitContext {
     RoomId room;
     std::optional<RoomId> source_room;
     std::optional<RoomExitRef> entry_exit;
+    RoomEntryCause entry_cause;
+    std::uint64_t entry_sequence;
     std::uint64_t visit_index;
 };
 ```
 
-`entry_exit` refers to the source Room's selected exit. It is absent for direct entry, project
-startup, editor teleport, or other navigation that did not use an exit.
+`entry_exit` refers to the source Room's selected exit and is present only for Navigation Attempt
+entry. `entry_cause` distinguishes Entrypoint, Navigation Attempt, and Directed Room Change;
+`entry_sequence` is monotonic across committed Room entries for the session.
 
 The visit context is authoritative and saveable. It allows Room composition to depend on:
 
@@ -328,7 +334,7 @@ The visit context is authoritative and saveable. It allows Room composition to d
 
 This solves reconstructibility for directional entry presentation. For example, a foyer may select a
 left-facing curtain loop when entered through the west door. Save/load reruns composition with the
-same saved visit context instead of rerunning `beforeEnter` or relying on transient callback state.
+same saved visit context instead of rerunning `before-enter` or relying on transient callback state.
 
 The existing active/previous Room and visit-count APIs may be retained as derived conveniences, but
 they must not compete with `RoomVisitContext` as another entry-context source of truth.
@@ -566,23 +572,29 @@ invalid references fail compilation. Runtime condition evaluation failure fails 
 
 ### No structural Trait merge
 
-Room Traits contribute only ordinary Properties. Placements, cast entries, props, overlays, composition hooks, exits, backgrounds, and lifecycle programs remain definition-local and never merge through Trait attachment.
+Room Traits contribute only ordinary Properties. Placements, cast entries, props, overlays, Hook
+Registry mappings, exits, backgrounds, and declarative lifecycle guards remain definition-local and
+never merge through Trait attachment.
 
 ## Room composition hook
 
 ### Developer-facing contract
 
-The preferred author-facing name is `compose`, with a callback shaped conceptually as:
+Composition is the Room `compose` Hook Registry mapping to a named Script Module export:
 
 ```lua
-function room.compose(context, presentation)
-    -- Read state through context.
-    -- Modify only this temporary presentation draft.
-end
+return {
+    compose = function(context, presentation)
+        -- Read state through context.
+        -- Modify only this temporary presentation draft.
+    end,
+}
 ```
 
-The callback parameter is named `presentation` for author usability. The C++ implementation type may
-be `RoomPresentationDraft`.
+`context` is the Active Room Context, including `room`, `source_room`, `entry_exit`, `entry_cause`,
+`entry_sequence`, and `visit_index`; the same value is also available as
+`context.active_room_context`. The callback parameter is named `presentation` for author usability.
+The C++ implementation type may be `RoomPresentationDraft`.
 
 ### Why this is not `onLoad`
 
@@ -601,7 +613,7 @@ Resolution proceeds in this order:
 3. add eligible persistent Characters located in the Room;
 4. add eligible Interactables located in the Room;
 5. evaluate declarative Room-local cast, props, Layouts, and environment conditions;
-6. invoke the optional restricted `compose` callback against the Room baseline draft;
+6. invoke the optional restricted `compose` Hook Registry export against the Room baseline draft;
 7. apply applicable saved current-Room, named-Room, and session desired-presentation contributions;
 8. validate the completed draft and resolve all resources/placements;
 9. freeze the immutable `ResolvedRoomPresentation` and associated Room view/interaction data.
@@ -794,7 +806,7 @@ The active Room is resolved:
 - for backend recovery when the current immutable publication must be rebuilt from logical state.
 
 Backend recovery may reuse the last immutable resolved publication when it remains valid; it must not
-rerun ordinary lifecycle effects.
+rerun ordinary lifecycle hooks.
 
 ### Dirty tracking
 
@@ -818,9 +830,9 @@ resolve every rendered frame.
 
 Active-Room recomposition does not:
 
-- increment visit count;
-- replace `RoomVisitContext`;
-- run `canEnter`, `canLeave`, `beforeEnter`, `afterEnter`, `beforeLeave`, or `afterLeave`;
+- increment visit count or Entry Sequence;
+- replace the Active Room Context;
+- run `can-enter`, `can-leave`, `before-enter`, `after-enter`, `before-leave`, or `after-leave`;
 - clear current-Room scoped state;
 - reset Flow;
 - create a Room-navigation transition unless a higher-level command explicitly requests a visual
@@ -842,48 +854,43 @@ the desired target changes with normal reconciliation.
 Room navigation follows this normative order:
 
 ```text
-1. validate navigation source, requested target, and selected exit
-2. evaluate source canLeave
-3. evaluate selected exit condition when applicable
-4. evaluate target canEnter
-5. run source beforeLeave effects
-6. run target beforeEnter effects
-7. construct the pending target RoomVisitContext
-8. resolve the complete target Room presentation
-9. atomically commit:
-     - active Room/Room mode target
-     - previous/source Room history
-     - target visit count and active RoomVisitContext
-     - cleanup of source current-Room scoped desired state
-     - target resolved publication
-10. realize the configured source-to-target Room navigation transition
-11. run source afterLeave effects
-12. run target afterEnter effects
-13. complete the navigation frame and admit normal target Room input
+1. capture immutable source Active Room Context and validate source/target/selected Exit
+2. evaluate source can-leave guard
+3. evaluate selected Exit condition
+4. evaluate target can-enter guard
+5. on guard rejection, invoke the matching optional rejection hook and resume the source Room
+6. invoke source before-leave Hook Registry handler synchronously
+7. invoke target before-enter Hook Registry handler synchronously
+8. construct the pending target Active Room Context with Navigation Attempt Entry Cause and next Entry Sequence
+9. resolve the complete target Room presentation, including optional compose Hook Registry export
+10. atomically commit target visit/history/context and target resolved publication
+11. realize the configured source-to-target Room navigation transition
+12. invoke source after-leave Hook Registry handler synchronously
+13. invoke target after-enter Hook Registry handler synchronously
+14. complete the navigation frame and admit normal target Room input
 ```
 
-Steps 5 and 6 retain existing yielding lifecycle-effect behavior. Step 8 itself is synchronous and
-non-yielding.
+Lifecycle Hook Registry handlers are serialized, synchronous, and non-yielding. Only the finite
+presentation transition may block the Room transition frame.
 
 The implementation may represent the visual transition as an explicit stage and blocker in the Room
 navigation frame. It must preserve the above semantic order.
 
 The live navigation-transition path follows this sequence. It prepares the complete destination resolution,
-commits that exact `RoomVisitContext` and resolved target atomically, reconciles/publishes the target,
+commits that exact Active Room Context and resolved target atomically, reconciles/publishes the target,
 and accepts a distinct `RoomNavigationTransitionOperation` through the shared presentation
 coordinator. The baseline `commit_room_entry()` helper is no longer the live navigation commit path.
 The navigation frame remains at its commit stage while the exact presentation blocker is active, so
-`afterLeave`, `afterEnter`, and normal destination interaction cannot run early.
+`after-leave`, `after-enter`, and normal destination interaction cannot run early.
 
-### Why composition follows `beforeEnter`
+### Why composition follows `before-enter`
 
-`beforeEnter` may mutate authoritative state that determines the target presentation. For example,
-it may set `sarah_visited`, move Sarah to the foyer, or change a Room property. The resolver must see
-those completed mutations so Sarah and other content are already present in the transition target.
+`before-enter` may perform admitted synchronous gameplay commands that determine the target
+presentation. The resolver sees those completed mutations before it freezes the transition target.
 
-### Why `afterEnter` follows the visual transition
+### Why `after-enter` follows the visual transition
 
-`afterEnter` is for work that should occur once the destination has visually taken over, such as
+`after-enter` is for work that should occur once the destination has visually taken over, such as
 starting Dialogue, showing a notification, or issuing post-entry gameplay behavior. Presentation
 that must be visible in the transition target belongs in Room declarations, authoritative world
 state, scoped desired state established before resolution, or the `compose` callback.
@@ -900,7 +907,7 @@ This specification fixes these world semantics:
   unless an explicit target-visit API says otherwise;
 - target presentation preparation should normally use authoritative world mutations, target
   Room-owned state, declarative Room content, or the pure composition hook rather than ambiguous
-  current-Room commands during `beforeEnter`.
+  current-Room commands during `before-enter`.
 
 ### Transition policy
 
@@ -934,12 +941,18 @@ After the atomic commit:
 
 These rules preserve the existing pre-commit/source and post-commit/target fault distinction.
 
-### Direct entry and teleport
+### Entrypoint and Directed Room Change
 
-Project startup, debug teleport, tests, and explicit direct Room targets use the same resolver and
-commit contract. They may omit selected-exit validation and use an absent `entry_exit` in
-`RoomVisitContext`. They must not bypass `canEnter`, lifecycle hooks, composition, visit counting, or
-publication unless a narrowly named debug-only operation explicitly documents the bypass.
+Entrypoint and explicit Directed Room Changes use the same serialized lifecycle, resolver, commit,
+and presentation contract without selected-Exit validation. Entrypoint uses Entry Cause `Entrypoint`;
+an explicit direct change uses `DirectedRoomChange`. A false navigation guard during a Directed Room
+Change is recorded as a diagnostic but does not veto the authoritative change. Entrypoint rejection
+faults because there is no source Room to resume.
+
+Assigning the already-current Room through a Directed Room Change is idempotent: it does not rerun
+lifecycle, increment visit count, or allocate a new Entry Sequence. By contrast, player navigation
+through an Exit whose target is the same Room is a real self-loop entry and creates a new Active Room
+Context and Entry Sequence.
 
 ## Scripts, Scenes, and world mutation
 
@@ -984,8 +997,9 @@ also does so.
 
 ### Scene presentation over a Room
 
-A Scene may execute while a Room remains the underlying gameplay location. The effective world target
-may include:
+Current Room is an optional world context independent from Flow mode; it does not itself imply that
+Exploration input is admitted. A Scene, Dialogue, or Interaction may execute while the same Active
+Room Context remains authoritative. The effective world target may include:
 
 - the resolved active Room presentation;
 - applicable scoped desired-presentation records;
@@ -1277,7 +1291,7 @@ The following invariants are mandatory.
 
 - Active Room visit context, Character world state, and Interactable state are serialized once.
 - Derived Room presentation is never a second persisted authority.
-- Restore does not rerun Room lifecycle effects.
+- Restore does not rerun Room lifecycle hooks.
 - Current-Room scoped state survives restore and is removed on the next successful departure.
 
 ## Diagnostics
@@ -1287,7 +1301,7 @@ World and Room diagnostics should use stable namespaces such as:
 ```text
 room.definition.*
 room.placement.*
-room.compose.*
+room.hooks.compose.*
 room.resolve.*
 room.navigation.*
 character.world.*

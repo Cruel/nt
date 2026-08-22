@@ -957,10 +957,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     composition_room["luaAdmission"]["compositionDraftInteractableIds"] =
         nlohmann::json::array({"key"});
     composition_room["composition"] = {
-        {"scriptId", "compose-room"},
+        {"moduleId", "compose-room"},
+        {"exportName", "compose"},
         {"source",
          {{"kind", "inline"},
-          {"text", "room = { compose = function(context, presentation) "
+          {"text", "return { compose = function(context, presentation) "
                    "presentation.set_interactable_visible('key', false) end }"}}}};
     REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
                                          "room-composition", composition_room, 9)));

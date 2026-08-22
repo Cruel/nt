@@ -111,6 +111,43 @@ struct InteractionFramePosition {
     auto operator<=>(const InteractionFramePosition&) const = default;
 };
 
+enum class RoomEntryCause : std::uint8_t {
+    Entrypoint,
+    NavigationAttempt,
+    DirectedRoomChange
+};
+
+enum class RoomTransitionKind : std::uint8_t {
+    NavigationAttempt,
+    DirectedRoomChange
+};
+
+enum class RoomRejectionStage : std::uint8_t {
+    SourceCanLeave,
+    ExitEligibility,
+    TargetCanEnter
+};
+
+// The active Room context identifies one continuous committed stay.
+struct RoomVisitContext {
+    RoomId room;
+    std::optional<RoomId> source_room;
+    std::optional<compiled::RoomExitRef> entry_exit;
+    RoomEntryCause entry_cause = RoomEntryCause::DirectedRoomChange;
+    std::uint64_t entry_sequence = 0;
+    std::uint64_t visit_index = 0;
+    bool operator==(const RoomVisitContext&) const = default;
+};
+
+struct RoomTransitionContext {
+    std::optional<RoomId> origin;
+    RoomId target;
+    std::optional<compiled::RoomExitRef> selected_exit;
+    RoomEntryCause entry_cause = RoomEntryCause::DirectedRoomChange;
+    std::optional<RoomVisitContext> source_context;
+    bool operator==(const RoomTransitionContext&) const = default;
+};
+
 enum class RoomTransitionStage : std::uint8_t {
     SourceCanLeave,
     ExitCondition,
@@ -157,6 +194,9 @@ struct RoomTransitionFrame {
     std::optional<RoomId> source_room;
     RoomId target_room;
     std::optional<compiled::RoomExitRef> selected_exit;
+    RoomTransitionKind kind = RoomTransitionKind::DirectedRoomChange;
+    RoomEntryCause entry_cause = RoomEntryCause::DirectedRoomChange;
+    std::optional<RoomVisitContext> source_context;
     RoomTransitionPosition position;
     ReturnDestination destination = NoReturnDestination{};
 };

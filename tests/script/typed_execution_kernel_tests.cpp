@@ -131,10 +131,8 @@ TEST_CASE("typed execution kernel initializes each frame category from compiled 
     REQUIRE(interaction);
     auto& kernel = *interaction.value();
     REQUIRE(kernel.flow().advance_room_transition(core::RoomTransitionStage::BeforeEnter));
-    REQUIRE(kernel.flow().advance_room_transition(core::RoomTransitionStage::BeforeEnter, 1));
     REQUIRE(kernel.flow().advance_room_transition(core::RoomTransitionStage::CommitRoomSwitch));
     REQUIRE(kernel.flow().advance_room_transition(core::RoomTransitionStage::AfterEnter));
-    REQUIRE(kernel.flow().advance_room_transition(core::RoomTransitionStage::AfterEnter, 1));
     REQUIRE(kernel.flow().advance_room_transition(core::RoomTransitionStage::Complete));
     REQUIRE(kernel.flow().complete_room_transition());
 

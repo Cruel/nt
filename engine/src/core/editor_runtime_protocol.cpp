@@ -3121,9 +3121,11 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         if (composition->is_null()) {
             result.composition.reset();
         } else if (composition->is_object()) {
-            exact_fields(*composition, {"scriptId", "source"}, diagnostics, "/composition");
+            exact_fields(*composition, {"moduleId", "exportName", "source"}, diagnostics,
+                         "/composition");
             TypedFocusedRoomCompositionDefinition typed;
-            typed.script_id = required_string(*composition, "scriptId", "/composition");
+            typed.module_id = required_string(*composition, "moduleId", "/composition");
+            typed.export_name = required_string(*composition, "exportName", "/composition");
             if (const auto source = composition->find("source");
                 source != composition->end() && source->is_object()) {
                 const auto source_kind =

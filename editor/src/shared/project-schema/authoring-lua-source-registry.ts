@@ -4,7 +4,6 @@ export const AUTHORING_LUA_EXECUTION_SURFACES = Object.freeze([
   'script-record',
   'layout-rml',
   'layout-dedicated-lua',
-  'room-composition-script',
   'shared-lua-predicate',
   'shared-lua-expression',
   'shared-run-lua-effect',
@@ -36,7 +35,6 @@ const ARRAY_INDEX: SourcePathPatternSegment = Object.freeze({ kind: 'array-index
 
 const LUA_EXPLICIT_FALLBACK_OWNER_PATTERNS = Object.freeze([
   Object.freeze({ collection: 'layouts', relativePath: Object.freeze(['script']) }),
-  Object.freeze({ collection: 'rooms', relativePath: Object.freeze(['compose']) }),
   Object.freeze({
     collection: 'rooms',
     relativePath: Object.freeze(['description', 'source']),
@@ -209,25 +207,6 @@ function collectRoomSources(data: JsonObject): RegisteredAuthoringLuaSource[] {
       ...focusedRoomOptions([...labelPath, 'source']),
     });
   });
-  if (
-    isObject(data.compose) &&
-    isObject(data.compose.script) &&
-    isObject(data.compose.script.$ref)
-  ) {
-    const id = data.compose.script.$ref.id;
-    if (typeof id === 'string')
-      output.push({
-        surface: 'room-composition-script',
-        sourcePath: ['compose', 'script', '$ref'],
-        scriptRecordId: id,
-        explicitDependenciesPath: ['compose', 'additionalDependencies'],
-        explicitDependencies: explicitTargets(data.compose),
-        fallbackOwnerPath: ['compose'],
-        supportsExplicitFallback: supportsExplicitFallbackPath('rooms', ['compose']),
-        focusedAdmission: true,
-        focusedFacet: 'preview-visual',
-      });
-  }
   if (isObject(data.lifecycle)) {
     addCondition(output, data.lifecycle.canEnter, ['lifecycle', 'canEnter'], {
       supportsExplicitFallback: false,
@@ -235,10 +214,6 @@ function collectRoomSources(data: JsonObject): RegisteredAuthoringLuaSource[] {
     addCondition(output, data.lifecycle.canLeave, ['lifecycle', 'canLeave'], {
       supportsExplicitFallback: false,
     });
-    for (const family of ['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const)
-      asArray(data.lifecycle[family]).forEach((effect, index) =>
-        addEffect(output, effect, ['lifecycle', family, String(index)]),
-      );
   }
   return output;
 }

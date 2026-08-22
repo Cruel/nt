@@ -66,7 +66,15 @@ export function createPlatformExportAcceptanceFixture() {
   foyer.description.source = { kind: 'inline', text: 'A fixture with [b]rich text[/b].' };
   foyer.background.asset = roomAssetRef('backdrop');
   foyer.background.material = roomMaterialRef('fixture-material');
-  foyer.lifecycle.afterEnter = [{ kind: 'run-lua-effect', source: 'fixture_visited = true' }];
+  foyer.scriptHooks = [
+    {
+      hook: 'after-enter',
+      handler: {
+        module: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+        export: 'fixture_after_enter',
+      },
+    },
+  ];
   foyer.exits = [
     {
       id: 'continue',
@@ -98,7 +106,11 @@ export function createPlatformExportAcceptanceFixture() {
   project.entrypoint = { kind: 'room', id: 'foyer' };
   project.scripts.bootstrap!.data = {
     kind: 'script-module',
-    source: { kind: 'inline-lua', source: 'fixture_started = true\nreturn {}\n' },
+    source: {
+      kind: 'inline-lua',
+      source:
+        'fixture_started = true\nreturn { fixture_after_enter = function() fixture_visited = true end }\n',
+    },
   };
   project.editor.recordMetadata.assets = Object.fromEntries(
     assets.map(([id]) => [id, { tags: ['export-fixture'] }]),
