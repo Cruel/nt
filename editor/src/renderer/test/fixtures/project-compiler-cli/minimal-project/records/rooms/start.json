@@ -23,6 +23,7 @@
     "interactables": [],
     "environments": [],
     "compose": null,
+    "scriptHooks": [],
     "lifecycle": {
       "canEnter": {
         "kind": "always"
