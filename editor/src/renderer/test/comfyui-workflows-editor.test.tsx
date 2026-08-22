@@ -30,6 +30,8 @@ function entry(overrides: Partial<ComfyUiWorkflowLibraryEntry>): ComfyUiWorkflow
     manifestPath: overrides.manifestPath ?? `/mock/${source}/${id}.manifest.json`,
     workflowPath: overrides.workflowPath ?? `/mock/${source}/${id}.workflow.json`,
     packageHash: 'sha256:mock',
+    definition: overrides.definition,
+    workflowJsonText: overrides.workflowJsonText,
     active: overrides.active ?? true,
     overridden: overrides.overridden ?? false,
     overriddenBy: overrides.overriddenBy,
@@ -259,6 +261,62 @@ describe('ComfyUiWorkflowsEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Repair manifest' }));
     expect(await screen.findByText('Repair ComfyUI Workflow')).toBeInTheDocument();
+  });
+
+  it('opens future classifications in strict generic manifest repair mode', async () => {
+    const genericDefinition = {
+      schemaVersion: 2 as const,
+      id: 'audio-bed',
+      label: 'Audio Bed',
+      provider: 'comfyui' as const,
+      classification: 'audio.generate',
+      workflowFile: 'audio-bed.workflow.json',
+      contract: {
+        inputs: { prompt: { type: 'string' as const, required: true } },
+        outputs: { audio: { mediaType: 'audio', required: true, cardinality: 'one' as const } },
+      },
+      requiredNodeClasses: ['SaveAudio'],
+      bindings: {
+        prompt: [{ nodeId: 'prompt', classType: 'TextNode', inputName: 'text' }],
+      },
+      outputBindings: {
+        audio: [{ nodeId: 'out', classType: 'SaveAudio' }],
+      },
+    };
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
+      response([
+        entry({
+          source: 'user',
+          id: 'audio-bed',
+          label: 'Audio Bed',
+          classification: 'audio.generate',
+          repairable: true,
+          definition: genericDefinition,
+          workflowJsonText: JSON.stringify({
+            prompt: { class_type: 'TextNode', inputs: { text: '' } },
+            out: { class_type: 'SaveAudio', inputs: {} },
+          }),
+          capabilities: {
+            canCopyToUser: false,
+            canCopyToProject: true,
+            canDelete: true,
+            canRepair: true,
+            canReveal: true,
+          },
+        }),
+      ]),
+    );
+
+    render(<ComfyUiWorkflowsEditor tab={tab} />);
+
+    expect(await screen.findByText('Audio Bed')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Audio Bed' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Repair manifest' }));
+    expect(await screen.findByText('Strict V2 manifest JSON')).toBeInTheDocument();
+    expect(
+      (screen.getByLabelText('Strict V2 manifest JSON') as HTMLTextAreaElement).value,
+    ).toContain('audio.generate');
+    expect(screen.getByText(/manual JSON supports arbitrary public IDs/i)).toBeInTheDocument();
   });
 
   it('edits a mutable workflow name inline', async () => {

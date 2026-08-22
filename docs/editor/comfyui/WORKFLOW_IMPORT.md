@@ -26,8 +26,10 @@ Project workflows are contextual. The editor includes them when an active saved 
 them when `--project` selects a valid Project or upward `project.json` discovery succeeds; absence of a Project does not
 prevent built-in or shared-user listing and inspection. Renderer code may retain the Project file path as UI context, but
 it does not send that path across the privileged IPC boundary: main derives the canonical Project root and `project.json`
-from the current `projectSessionId`. Current editor image generation still requires an active saved Project session before
-it can write generated output assets.
+from the current `projectSessionId`. The editor's Generate Image and Edit Image conveniences require an active saved
+Project session because they publish revision files beneath that Project, but their verification, public-input binding,
+HTTP/history execution, cancellation, media validation, and publication are the same shared headless runner used by the
+CLI.
 
 Workflow identity uses the logical manifest `id`, while execution and manager actions use a source-specific
 `workflowKey` such as `built-in:flux2-klein-text-to-image.manifest.json`, `user:custom.manifest.json`, or
@@ -118,7 +120,9 @@ use distinct client and prompt identities. `--json` still emits exactly one comp
    `noveltea.steps`, `noveltea.cfg`, `noveltea.filenamePrefix`, and `noveltea.output`.
 3. Export with `File -> Export Workflow (API)`.
 4. In NovelTea, open the `ComfyUI Workflows` tab from the command palette, global Settings, or Project Settings summary.
-5. Choose the current editor classification, review detected bindings, select the image output node or nodes, set defaults, and save.
+5. For the current image classifications, review inferred bindings, select image output nodes, set defaults, and save.
+   For arbitrary generic contracts, switch the Review step to `Edit generic manifest JSON` and author the strict V2
+   public input/output IDs, classification, types, cardinalities, and binding arrays directly.
 
 The importer does not convert ordinary ComfyUI save-format files. If a file is rejected as a save-format workflow,
 export it again through ComfyUI's API workflow export command.
@@ -138,7 +142,8 @@ ids to be rebased after ComfyUI rewrites graph ids.
 The current import wizard uses the known image classifications to infer familiar fields such as prompt, source image,
 seed, steps, width, and height. Exact `noveltea.*` titles are the strongest inference signal. Those semantic names are
 editor authoring hints only: the manifest parser, library, verification path, and binding executor operate on whatever
-public IDs the manifest declares.
+public IDs the manifest declares. The Review step also exposes a strict generic-manifest JSON editor; this is the manual
+authoring path for arbitrary current or future classifications and named contracts when image inference is not relevant.
 
 ## Outputs
 
@@ -159,11 +164,12 @@ upgrade, or dual-read the replaced V2 shape.
 
 ## Repair
 
-Use `Repair` in the `ComfyUI Workflows` manager when a mutable workflow manifest with a known image classification
-reports stale or unresolved bindings. Repair reuses the image-classification inference UI, preserves the installed
-workflow JSON, and writes the canonical generic manifest shape. Built-in workflows cannot be repaired in place; copy
-them to the user or project source first if a local replacement is needed. Generic packages with unknown or omitted
-classifications remain inspectable, but automatic inference repair is not offered for them.
+Use `Repair` in the `ComfyUI Workflows` manager when a mutable workflow manifest reports stale or unresolved bindings.
+Known image classifications can reuse the image-classification inference UI. Generic packages with unknown or omitted
+classifications open directly in strict V2 manifest JSON mode so arbitrary named inputs, outputs, and binding arrays can
+be repaired manually without pretending to use an image semantic role. Repair preserves the installed workflow JSON and
+writes the canonical generic manifest shape. Built-in workflows cannot be repaired in place; copy them to the user or
+project source first if a local replacement is needed.
 
 If the ComfyUI workflow graph itself changed substantially, export the new API workflow JSON and import it as a new
 workflow until replacement-workflow repair is added.
@@ -227,21 +233,19 @@ assets into the newly active Project.
 
 Image-edit requests identify their source only by current `projectSessionId` and admitted image Asset id. Main resolves
 and revalidates the Asset through the active Project authority, including canonical containment, contained-only symlinks,
-regular-file identity, admitted byte size, and SHA-256 revision. The source upload ceiling is 32 MiB; main allocates at
-most the admitted source size, reads exactly that many bytes with a one-byte growth probe, and rechecks the revision
-before network upload.
+regular-file identity, admitted byte size, and SHA-256 revision. The source ceiling is 32 MiB; main allocates at most the
+admitted source size, reads exactly that many bytes with a one-byte growth probe, and rechecks the revision. The editor
+adapter then materializes those authorized bytes to a private temporary file and passes that filename through the shared
+headless image-input handler, so decode validation, generated remote naming, upload ordering, and cleanup do not fork.
 
-Source-image upload is intentionally narrower than ordinary ComfyUI communication: it accepts loopback HTTP only.
-Literal `127.0.0.0/8`, `::1`, IPv4-mapped loopback, and `localhost` are accepted; credentials, HTTPS, arbitrary hostnames,
-and non-loopback addresses are rejected. URL/scheme/host validation occurs before source access; `localhost` DNS lookup
-is deferred until after the active source Asset has been admitted, and every returned address must be loopback. The
-upload socket then connects directly to the verified address and rechecks its remote address, so DNS rebinding cannot
-redirect source bytes off-machine. Redirect responses are rejected rather than followed. Multipart framing is written
-around the single bounded source buffer rather than constructing a second full-size upload body. Renderer
+Local source-image disclosure therefore follows exactly the headless rule: credential-free plain HTTP to a literal
+loopback IP only (`127.0.0.0/8`, `::1`, or admitted IPv4-mapped loopback). `localhost`, HTTPS, credentials, arbitrary
+hostnames, and non-loopback addresses are rejected before upload. If an editor configuration currently uses
+`http://localhost:<port>`, change it to a literal address such as `http://127.0.0.1:<port>` (or `[::1]`). Renderer
 contracts contain neither Project/source paths nor an upload destination override. Trust-boundary failures expose stable
 machine categories such as `stale-project-session`, `unauthorized-asset`, `unsafe-path`, `symlink-escape`,
-`not-regular-file`, `source-revision-mismatch`, `source-too-large`, and `remote-upload-denied` alongside more specific
-service diagnostics where useful.
+`not-regular-file`, `source-revision-mismatch`, and `source-too-large`; shared media/upload failures provide the same
+bounded diagnostics as the CLI.
 
 ## Classification, Defaults, and Image Generation
 
@@ -251,14 +255,10 @@ classification are accepted by the generic manifest/library contract; classifica
 outputs, or graph bindings.
 
 Input defaults live on `contract.inputs.<inputId>.defaultValue`; there is no top-level manifest `defaults` object.
-Global Settings separately stores the preferred workflow IDs for the two current image classifications:
-
-```ts
-defaultWorkflows['image.generate']
-defaultWorkflows['image.edit']
-```
-
-The Settings selectors show active, runnable library workflows for each image classification. Image generation resolves
-those logical IDs to the active source-specific `workflowKey`, so a project or editor override with the same logical ID
-automatically becomes the effective workflow. This image-specific UI is an adapter over the generic manifest contract,
-not a second manifest parser or schema.
+Global Settings stores preferred logical workflow IDs in the extensible `defaultWorkflows[classification]` map. The
+current Generate Image and Edit Image conveniences consume the `image.generate` and `image.edit` entries respectively,
+while Settings may expose additional discovered classifications. The adapter resolves those logical IDs through normal
+`project > user > built-in` precedence and then invokes the captured workflow package through the shared runner.
+Unsupported future media workflows remain visible and inspectable in the manager but are not offered as runnable image
+operations. The image-specific UI is therefore an adapter over the generic manifest/execution contract, not a second
+parser, verifier, transport, cancellation mechanism, or publication implementation.

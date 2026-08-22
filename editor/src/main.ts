@@ -1521,7 +1521,7 @@ void app.whenReady().then(async () => {
     (arguments_) => comfyUiCancelJobArgumentsSchema.parse(arguments_),
     (projectSessionId, config) => {
       activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-      return cancelComfyUiJob(config);
+      return cancelComfyUiJob(config, projectSessionId);
     },
   );
 

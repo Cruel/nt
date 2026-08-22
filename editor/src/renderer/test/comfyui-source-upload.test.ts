@@ -1,34 +1,17 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
-import {
-  isLoopbackAddress,
-  readBoundedComfyUiSourceImage,
-  resolveLoopbackUploadTarget,
-  uploadComfyUiSourceImage,
-} from '../../main/services/comfyui-service';
-import { COMFYUI_IPC_LIMITS, type ComfyUiConfig } from '../../shared/comfyui';
+import { readBoundedComfyUiSourceImage } from '../../main/services/comfyui-service';
+import { COMFYUI_IPC_LIMITS } from '../../shared/comfyui';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const roots: string[] = [];
-const servers: http.Server[] = [];
 
 function digest(bytes: Buffer) {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-}
-
-function config(serverUrl: string): ComfyUiConfig {
-  return {
-    enabled: true,
-    serverUrl,
-    requestTimeoutMs: 2_000,
-    connectionCheckIntervalMs: 1_000,
-    defaultWorkflows: {},
-  };
 }
 
 function tempProject() {
@@ -69,64 +52,12 @@ async function activate(projectFilePath: string, project: unknown) {
   return { sessions, sessionId };
 }
 
-async function listen(handler: http.RequestListener) {
-  const server = http.createServer(handler);
-  servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('test server did not bind');
-  return `http://127.0.0.1:${address.port}`;
-}
-
-afterEach(async () => {
-  await Promise.all(
-    servers
-      .splice(0)
-      .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
-  );
+afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-describe('secure ComfyUI source-image upload', () => {
-  it('recognizes IPv4, IPv6, and IPv4-mapped loopback only', () => {
-    expect(isLoopbackAddress('127.0.0.1')).toBe(true);
-    expect(isLoopbackAddress('127.255.1.2')).toBe(true);
-    expect(isLoopbackAddress('::1')).toBe(true);
-    expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true);
-    expect(isLoopbackAddress('192.168.1.10')).toBe(false);
-    expect(isLoopbackAddress('8.8.8.8')).toBe(false);
-    expect(isLoopbackAddress('::2')).toBe(false);
-  });
-
-  it('accepts localhost/literal loopback HTTP and rejects credentials, remote, ambiguous, and HTTPS targets', async () => {
-    await expect(
-      resolveLoopbackUploadTarget(config('http://127.0.0.1:8188')),
-    ).resolves.toMatchObject({
-      address: '127.0.0.1',
-      family: 4,
-    });
-    await expect(resolveLoopbackUploadTarget(config('http://[::1]:8188'))).resolves.toMatchObject({
-      address: '::1',
-      family: 6,
-    });
-    await expect(resolveLoopbackUploadTarget(config('http://localhost:8188'))).resolves.toEqual(
-      expect.objectContaining({ url: expect.any(URL) }),
-    );
-    await expect(
-      resolveLoopbackUploadTarget(config('http://user:pass@127.0.0.1:8188')),
-    ).rejects.toThrow(/credentials/);
-    await expect(resolveLoopbackUploadTarget(config('https://127.0.0.1:8188'))).rejects.toThrow(
-      /loopback HTTP/,
-    );
-    await expect(
-      resolveLoopbackUploadTarget(config('http://192.168.1.10:8188')),
-    ).rejects.toMatchObject({ code: 'remote-upload-denied' });
-    await expect(resolveLoopbackUploadTarget(config('http://example.com:8188'))).rejects.toThrow(
-      /localhost or a loopback IP literal/,
-    );
-  });
-
-  it('requires a current admitted image and rejects unsafe/non-image/revision/size sources before upload', async () => {
+describe('ComfyUI editor source-image authority adapter', () => {
+  it('requires a current admitted image and rejects unsafe/non-image/revision/size sources before shared upload', async () => {
     const { root, projectFilePath } = tempProject();
     const bytes = Buffer.from('source-image');
     const sourcePath = 'assets/images/source.png';
@@ -189,9 +120,7 @@ describe('secure ComfyUI source-image upload', () => {
     );
     await expect(
       readBoundedComfyUiSourceImage(active.sessions, active.sessionId, 'source'),
-    ).resolves.toMatchObject({
-      bytes,
-    });
+    ).resolves.toMatchObject({ bytes });
 
     active = await activate(
       projectFilePath,
@@ -202,7 +131,7 @@ describe('secure ComfyUI source-image upload', () => {
     ).rejects.toThrow(/symlink-escape/);
   });
 
-  it('admits exactly 32 MiB and rejects metadata over the source-upload ceiling before buffering', async () => {
+  it('admits exactly 32 MiB and rejects metadata over the source ceiling before buffering', async () => {
     const { root, projectFilePath } = tempProject();
     const exact = Buffer.alloc(COMFYUI_IPC_LIMITS.sourceUploadBytes);
     const sourcePath = 'assets/images/limit.png';
@@ -223,38 +152,5 @@ describe('secure ComfyUI source-image upload', () => {
     await expect(
       readBoundedComfyUiSourceImage(active.sessions, active.sessionId, 'source'),
     ).rejects.toThrow(/too-large/);
-  });
-
-  it('uploads to a pinned loopback fake server and never follows redirects', async () => {
-    let uploadBody = Buffer.alloc(0);
-    const serverUrl = await listen((request, response) => {
-      const chunks: Buffer[] = [];
-      request.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
-      request.on('end', () => {
-        uploadBody = Buffer.concat(chunks);
-        response.setHeader('content-type', 'application/json');
-        response.end(JSON.stringify({ name: 'source.png', subfolder: 'noveltea' }));
-      });
-    });
-    const { root, projectFilePath } = tempProject();
-    const bytes = Buffer.from('source-image');
-    const sourcePath = 'assets/images/source.png';
-    fs.writeFileSync(path.join(root, sourcePath), bytes);
-    const active = await activate(projectFilePath, imageProject('source', sourcePath, bytes));
-
-    await expect(
-      uploadComfyUiSourceImage(active.sessions, active.sessionId, config(serverUrl), 'source'),
-    ).resolves.toBe('noveltea/source.png');
-    expect(uploadBody.includes(bytes)).toBe(true);
-    expect(uploadBody.toString('utf8')).toContain('name="overwrite"');
-
-    const redirectUrl = await listen((_request, response) => {
-      response.statusCode = 302;
-      response.setHeader('location', 'http://127.0.0.1:1/remote');
-      response.end();
-    });
-    await expect(
-      uploadComfyUiSourceImage(active.sessions, active.sessionId, config(redirectUrl), 'source'),
-    ).rejects.toThrow(/redirects are not allowed/);
   });
 });
