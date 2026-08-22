@@ -81,21 +81,30 @@ ComfyUI commands retain ordinary HTTP/HTTPS server support. Remote upload names 
 the validated media extension and never reuse the local basename. Online workflow verification completes before upload,
 and a failed upload aborts before `/prompt` without claiming remote rollback.
 
-The current runner still requires exactly one required cardinality-`one` image output. It submits one uniquely identified
-prompt, polls `/history/<prompt-id>` over HTTP with no fixed whole-job timeout, resolves the named output binding,
-downloads one bounded image, and validates its media format before publication. When a Project is available, omitting
-`--output` publishes the result as a normal Asset in `assets/generated/`. Generated names are workflow-oriented and
-collision-safe. NovelTea does not hold the workspace writer lock during verification, upload, queueing, polling, or
-download; immediately before publication it reopens the latest Project and performs one short normal workspace
-transaction containing the generated file and Asset record. This preserves unrelated Project edits and makes existing
-workspace collision/recovery behavior authoritative. The generated Asset stores normal content hash and image metadata;
-lightweight `originalPath` provenance identifies ComfyUI, the logical workflow, and prompt without storing prompt text or
-local source filenames.
+The generic runner enforces every declared named output after terminal history completion. Required cardinality `one`
+means exactly one valid image, required `many` means one or more, optional `one` means zero or one, and optional `many`
+means zero or more. Every result is downloaded under the bounded image limit and media-validated before any local
+publication begins; a missing, malformed, over-cardinality, or format-incompatible result therefore cannot intentionally
+leave earlier outputs published.
 
-An explicit `--output` routes the result only to the filesystem, including when a Project exists. Missing parent
-directories are created only for final filesystem publication. `.png`, `.jpg`/`.jpeg`, `.webp`, and `.gif` destinations
-are admitted, and the extension must agree with the returned image format; NovelTea does not transcode. Without a
-Project, `--output` is required. Cardinality-many routing and named multi-output routing remain later slices.
+Each logical output receives exactly one destination. With a Project available, an output without an explicit route is
+published as normal Asset data in `assets/generated/`; every image from a `many` output becomes its own Asset. Repeated
+`--output name=<path>` options route only those named outputs to the filesystem. Bare `--output <path>` remains shorthand
+only for workflows declaring exactly one output. Without a Project, every declared output must be explicitly routed before
+upload or prompt submission, including optional outputs whose eventual cardinality may be zero.
+
+For a cardinality-`one` output, the filesystem path names the final file. For `many`, the path names a directory and
+NovelTea generates validated workflow-output-oriented filenames beneath it. Missing parent directories are created at
+publication time. Existing explicit filesystem files require `--force`; Project Asset publication always remains
+collision-safe instead of overwrite-oriented. Returned media must match each explicit file extension because NovelTea does
+not transcode.
+
+NovelTea does not hold the workspace writer lock during verification, upload, queueing, polling, or download. After all
+remote results validate, it reopens the latest Project, stages all filesystem outputs with atomic rename/backup primitives,
+and writes all generated Asset records and bytes in one short normal workspace transaction. Mixed publication failures
+roll back staged filesystem results as far as those primitives allow and do not intentionally commit a partial Asset set.
+Generated Assets retain normal hashing and image metadata; lightweight `originalPath` provenance identifies ComfyUI, the
+logical workflow, and prompt without storing prompt text or local source filenames.
 
 Ctrl-C attempts prompt-specific cancellation by deleting only this invocation's prompt from the ComfyUI queue; it never
 uses the global `/interrupt` endpoint. Interrupted runs use exit status 130. Independent CLI runs are not serialized and

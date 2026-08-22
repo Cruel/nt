@@ -3,13 +3,13 @@ import { checkHeadlessComfyUiConnection } from '../main/services/comfyui-connect
 import { loadComfyUiUserConfig } from '../main/services/comfyui-user-config-service';
 import {
   preflightComfyUiAssetPublication,
-  publishComfyUiGeneratedAsset,
+  publishComfyUiOutputs,
 } from '../main/services/comfyui-asset-publication-service';
 import {
   ComfyUiRunError,
   prepareComfyUiWorkflow,
-  preflightComfyUiScalarRun,
-  runComfyUiScalarWorkflow,
+  preflightComfyUiRun,
+  runComfyUiWorkflow,
   type ComfyUiRunnableWorkflowEntry,
 } from '../main/services/comfyui-run-service';
 import {
@@ -26,6 +26,7 @@ import {
 } from '../shared/comfyui';
 import {
   isComfyUiWorkflowClassification,
+  isComfyUiWorkflowPublicId,
   type ComfyUiWorkflowActiveEntry,
   type ComfyUiWorkflowDiagnostic,
   type ComfyUiWorkflowLibraryEntry,
@@ -115,7 +116,7 @@ function parseRunCommand(command: readonly string[]) {
   if (command[0] !== 'comfyui' || command[1] !== 'run') return null;
   let workflowId: string | null = null;
   let classification: string | null = null;
-  let outputPath: string | null = null;
+  const outputRoutes: string[] = [];
   let server: string | null = null;
   let force = false;
   const inputs = new Map<string, string>();
@@ -149,14 +150,10 @@ function parseRunCommand(command: readonly string[]) {
       continue;
     }
     if (argument === '--output') {
-      if (outputPath)
-        throw new CliCommandUsageError(
-          "Option '--output' may be supplied only once in this execution slice.",
-        );
       const value = command[index + 1];
       if (!value || value.startsWith('--'))
-        throw new CliCommandUsageError("Option '--output' requires a path.");
-      outputPath = value;
+        throw new CliCommandUsageError("Option '--output' requires <path> or <name=path>.");
+      outputRoutes.push(value);
       index += 1;
       continue;
     }
@@ -178,7 +175,7 @@ function parseRunCommand(command: readonly string[]) {
       throw new CliCommandUsageError(`Unknown command option '${argument}'.`);
     if (workflowId)
       throw new CliCommandUsageError(
-        'Usage: noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... --output <path> [--server <url>] [--force].',
+        'Usage: noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force].',
       );
     workflowId = argument;
   }
@@ -190,11 +187,43 @@ function parseRunCommand(command: readonly string[]) {
     throw new CliCommandUsageError(
       "'comfyui run' requires an explicit workflow id or '--type <classification>'.",
     );
-  if (force && !outputPath)
+  if (force && outputRoutes.length === 0)
     throw new CliCommandUsageError(
       "Option '--force' is valid only with an explicit filesystem '--output'.",
     );
-  return { workflowId, classification, outputPath, server, force, inputs };
+  return { workflowId, classification, outputRoutes, server, force, inputs };
+}
+
+function resolveRunFilesystemRoutes(
+  outputArguments: readonly string[],
+  entry: ComfyUiRunnableWorkflowEntry,
+): Map<string, string> {
+  const declaredIds = Object.keys(entry.definition.contract.outputs);
+  const routes = new Map<string, string>();
+  for (const argument of outputArguments) {
+    const equals = argument.indexOf('=');
+    let outputId: string;
+    let routePath: string;
+    if (equals > 0 && isComfyUiWorkflowPublicId(argument.slice(0, equals))) {
+      outputId = argument.slice(0, equals);
+      routePath = argument.slice(equals + 1);
+      if (!routePath)
+        throw new CliCommandUsageError(`Output route '${outputId}' requires a filesystem path.`);
+    } else {
+      if (declaredIds.length !== 1)
+        throw new CliCommandUsageError(
+          'Bare --output <path> is valid only when the workflow declares exactly one named output.',
+        );
+      outputId = declaredIds[0]!;
+      routePath = argument;
+    }
+    if (!declaredIds.includes(outputId))
+      throw new CliCommandUsageError(`Workflow does not declare output '${outputId}'.`);
+    if (routes.has(outputId))
+      throw new CliCommandUsageError(`Output '${outputId}' was routed more than once.`);
+    routes.set(outputId, routePath);
+  }
+  return routes;
 }
 
 function parseVerifyCommand(command: readonly string[]) {
@@ -524,28 +553,31 @@ export async function runComfyUiCatalogCommand(
     }
     const entry = selectedEntry as ComfyUiRunnableWorkflowEntry;
 
-    const absoluteOutputPath = runCommand.outputPath
-      ? path.resolve(options.cwd, runCommand.outputPath)
-      : null;
     let prepared;
+    let runPlan;
     try {
-      if (!absoluteOutputPath && !project.projectRoot)
-        throw new ComfyUiRunError(
-          'COMFYUI_OUTPUT_ROUTE_REQUIRED',
-          '/outputs',
-          'ComfyUI execution without a Project requires an explicit filesystem --output path.',
-        );
-      if (!absoluteOutputPath && project.projectRoot)
-        await preflightComfyUiAssetPublication(project.projectRoot, options.workspace);
+      const filesystemRoutes = resolveRunFilesystemRoutes(runCommand.outputRoutes, entry);
       prepared = await prepareComfyUiWorkflow(entry, runCommand.inputs, options.cwd);
-      await preflightComfyUiScalarRun({
+      runPlan = await preflightComfyUiRun({
         entry,
-        ...(absoluteOutputPath ? { outputPath: absoluteOutputPath } : {}),
+        filesystemRoutes: new Map(
+          [...filesystemRoutes.entries()].map(([outputId, routePath]) => [
+            outputId,
+            path.resolve(options.cwd, routePath),
+          ]),
+        ),
+        projectAvailable: Boolean(project.projectRoot),
         force: runCommand.force,
         config,
         imageInputs: prepared.imageInputs,
       });
+      if (
+        project.projectRoot &&
+        Object.values(runPlan.routes).some((route) => route.target === 'asset')
+      )
+        await preflightComfyUiAssetPublication(project.projectRoot, options.workspace);
     } catch (error) {
+      if (error instanceof CliCommandUsageError) throw error;
       const failure =
         error instanceof ComfyUiRunError
           ? error
@@ -625,33 +657,57 @@ export async function runComfyUiCatalogCommand(
     const onSigint = () => controller?.abort();
     if (controller) process.once('SIGINT', onSigint);
     try {
-      const result = await runComfyUiScalarWorkflow({
+      const result = await runComfyUiWorkflow({
         entry,
         workflow: prepared.workflow,
         imageInputs: prepared.imageInputs,
         config,
-        ...(absoluteOutputPath ? { outputPath: absoluteOutputPath } : {}),
-        force: runCommand.force,
         signal,
         onProgress: options.json ? undefined : options.onRunProgress,
       });
-      const publishedOutput =
-        result.output.target === 'pending'
-          ? await publishComfyUiGeneratedAsset({
-              projectRoot: project.projectRoot!,
-              workspace: options.workspace,
-              fileSystem: options.fileSystem,
-              workflow: entry,
-              promptId: result.promptId,
-              output: result.output,
-            })
-          : result.output;
-      if (publishedOutput.target === 'asset')
-        options.onRunProgress?.('completed', `Published Project Asset ${publishedOutput.assetId}.`);
-      const outputDescription =
-        publishedOutput.target === 'asset'
-          ? `asset:${publishedOutput.assetId}`
-          : publishedOutput.path;
+      let published;
+      try {
+        published = await publishComfyUiOutputs({
+          projectRoot: project.projectRoot,
+          workspace: options.workspace,
+          fileSystem: options.fileSystem,
+          workflow: entry,
+          promptId: result.promptId,
+          plan: runPlan,
+          outputs: result.outputs,
+          force: runCommand.force,
+        });
+      } catch (error) {
+        if (error instanceof ComfyUiRunError)
+          throw new ComfyUiRunError(
+            error.code,
+            error.path,
+            error.message.startsWith('ComfyUI generation succeeded')
+              ? error.message
+              : `ComfyUI generation succeeded, but local publication failed: ${error.message}`,
+            error.interrupted,
+          );
+        throw new ComfyUiRunError(
+          'COMFYUI_PUBLICATION_FAILED',
+          '/outputs',
+          `ComfyUI generation succeeded, but local publication failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      const structuredOutputs = Object.fromEntries(
+        Object.entries(published).map(([outputId, values]) => [
+          outputId,
+          entry.definition.contract.outputs[outputId]!.cardinality === 'one'
+            ? (values[0] ?? null)
+            : values,
+        ]),
+      );
+      const descriptions = Object.entries(published).flatMap(([outputId, values]) =>
+        values.map((value) =>
+          value.target === 'asset'
+            ? `${outputId}: asset:${value.assetId}`
+            : `${outputId}: ${value.path}`,
+        ),
+      );
       return formatCliResult(
         {
           success: true,
@@ -667,11 +723,11 @@ export async function runComfyUiCatalogCommand(
           serverUrl: result.serverUrl,
           clientId: result.clientId,
           promptId: result.promptId,
-          outputs: { [publishedOutput.outputId]: publishedOutput },
+          outputs: structuredOutputs,
         },
         options.json,
         {
-          success: `ComfyUI workflow '${entry.id}' completed.\n${publishedOutput.outputId}: ${outputDescription}`,
+          success: `ComfyUI workflow '${entry.id}' completed.${descriptions.length ? `\n${descriptions.join('\n')}` : ''}`,
         },
       );
     } catch (error) {

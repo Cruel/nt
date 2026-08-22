@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import {
   configureImageInspectionService,
@@ -10,7 +10,10 @@ import {
 } from '../../main/services/image-inspection-service';
 import type { WorkflowLibraryServiceOptions } from '../../main/services/comfyui-workflow-library-service';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectWorkspaceFiles } from '../../shared/project-workspace';
+import {
+  createNodeProjectWorkspaceService,
+  projectWorkspaceFiles,
+} from '../../shared/project-workspace';
 
 const tempRoots: string[] = [];
 const servers: http.Server[] = [];
@@ -100,6 +103,38 @@ function imageWorkflow() {
   };
 }
 
+function multiManifest(id = 'multi-run') {
+  return {
+    ...manifest(id),
+    label: 'Multi Run',
+    contract: {
+      inputs: manifest(id).contract.inputs,
+      outputs: {
+        preview: { mediaType: 'image', required: true, cardinality: 'one' },
+        variants: { mediaType: 'image', required: true, cardinality: 'many' },
+        optional: { mediaType: 'image', required: false, cardinality: 'one' },
+        extras: { mediaType: 'image', required: false, cardinality: 'many' },
+      },
+    },
+    outputBindings: {
+      preview: [{ nodeId: 'preview', classType: 'SaveImage' }],
+      variants: [{ nodeId: 'variants', classType: 'SaveImage' }],
+      optional: [{ nodeId: 'optional', classType: 'SaveImage' }],
+      extras: [{ nodeId: 'extras', classType: 'SaveImage' }],
+    },
+  };
+}
+
+function multiWorkflow() {
+  return {
+    ...workflow(),
+    preview: { class_type: 'SaveImage', inputs: { images: ['a', 0] } },
+    variants: { class_type: 'SaveImage', inputs: { images: ['a', 0] } },
+    optional: { class_type: 'SaveImage', inputs: { images: ['a', 0] } },
+    extras: { class_type: 'SaveImage', inputs: { images: ['a', 0] } },
+  };
+}
+
 function writePackage(root: string, id = 'scalar-run', classification?: string) {
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(
@@ -109,6 +144,18 @@ function writePackage(root: string, id = 'scalar-run', classification?: string) 
   fs.writeFileSync(
     path.join(root, `${id}.workflow.json`),
     `${JSON.stringify(workflow(), null, 2)}\n`,
+  );
+}
+
+function writeMultiPackage(root: string, id = 'multi-run') {
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(
+    path.join(root, `${id}.manifest.json`),
+    `${JSON.stringify(multiManifest(id), null, 2)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(root, `${id}.workflow.json`),
+    `${JSON.stringify(multiWorkflow(), null, 2)}\n`,
   );
 }
 
@@ -180,6 +227,11 @@ interface FakeServerOptions {
   completeAfterHistoryCalls?: number;
   imageBytes?: Buffer;
   imageContentLength?: number;
+  historyOutputs?: Record<
+    string,
+    { images?: Array<{ filename: string; subfolder?: string; type?: string }> }
+  >;
+  viewBytesByFilename?: Record<string, Buffer>;
   neverComplete?: boolean;
   uploadStatus?: number;
   host?: string;
@@ -257,7 +309,7 @@ async function fakeComfyUi(options: FakeServerOptions = {}) {
           JSON.stringify({
             [promptId]: {
               status: { completed: true, status_str: 'success' },
-              outputs: {
+              outputs: options.historyOutputs ?? {
                 out: { images: [{ filename: 'result.png', subfolder: '', type: 'output' }] },
               },
             },
@@ -266,7 +318,9 @@ async function fakeComfyUi(options: FakeServerOptions = {}) {
         return;
       }
       if (requestPath.startsWith('/view?')) {
-        const bytes = options.imageBytes ?? png();
+        const filename =
+          new URL(requestPath, 'http://127.0.0.1').searchParams.get('filename') ?? '';
+        const bytes = options.viewBytesByFilename?.[filename] ?? options.imageBytes ?? png();
         response.setHeader('Content-Type', 'image/png');
         response.setHeader(
           'Content-Length',
@@ -335,6 +389,24 @@ function runArguments(server: string, output: string) {
     'enabled=true',
     '--output',
     output,
+    '--server',
+    server,
+  ];
+}
+
+function multiRunArguments(server: string, routes: string[] = []) {
+  return [
+    '--json',
+    'comfyui',
+    'run',
+    'multi-run',
+    '--input',
+    'text=multi',
+    '--input',
+    'strength=1.25',
+    '--input',
+    'enabled=true',
+    ...routes.flatMap((route) => ['--output', route]),
     '--server',
     server,
   ];
@@ -1145,6 +1217,382 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
     expect(leftId).not.toBe(rightId);
     expect(fs.existsSync(path.join(root, 'records', 'assets', `${leftId}.json`))).toBe(true);
     expect(fs.existsSync(path.join(root, 'records', 'assets', `${rightId}.json`))).toBe(true);
+  });
+
+  it('supports named mixed routing with one/many and optional output semantics', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'preview.png' }] },
+        variants: {
+          images: [{ filename: 'variant-a.png' }, { filename: 'variant-b.png' }],
+        },
+      },
+    });
+    const previewPath = path.join(root, 'scratch', 'preview.png');
+    const result = await runNovelTeaCli(multiRunArguments(server.url, [`preview=${previewPath}`]), {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(0);
+    const outputs = envelope(result).outputs as Record<string, unknown>;
+    expect(outputs.preview).toMatchObject({ target: 'filesystem', path: previewPath });
+    expect(outputs.variants).toEqual([
+      expect.objectContaining({ target: 'asset', assetId: expect.any(String) }),
+      expect.objectContaining({ target: 'asset', assetId: expect.any(String) }),
+    ]);
+    expect(outputs.optional).toBeNull();
+    expect(outputs.extras).toEqual([]);
+    expect(fs.readFileSync(previewPath)).toEqual(png());
+  });
+
+  it('requires named routing for multi-output workflows and complete filesystem routing without a Project', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+    const bare = await runNovelTeaCli(
+      multiRunArguments(server.url, [path.join(root, 'bare.png')]),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(bare.exitCode).toBe(2);
+    const incomplete = await runNovelTeaCli(
+      multiRunArguments(server.url, [
+        `preview=${path.join(root, 'preview.png')}`,
+        `variants=${path.join(root, 'variants')}`,
+      ]),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(incomplete.exitCode).toBe(4);
+    expect(envelope(incomplete).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_OUTPUT_ROUTE_REQUIRED' }),
+    ]);
+    expect(server.requests).toEqual([]);
+  });
+
+  it('runs multi-output workflows without a Project when every named output has a filesystem route', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'preview.png' }] },
+        variants: { images: [{ filename: 'variant.png' }] },
+      },
+    });
+    const previewPath = path.join(root, 'preview.png');
+    const variantsDir = path.join(root, 'variants');
+    const optionalPath = path.join(root, 'optional.png');
+    const extrasDir = path.join(root, 'extras');
+    const result = await runNovelTeaCli(
+      multiRunArguments(server.url, [
+        `preview=${previewPath}`,
+        `variants=${variantsDir}`,
+        `optional=${optionalPath}`,
+        `extras=${extrasDir}`,
+      ]),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    const outputs = envelope(result).outputs as Record<string, unknown>;
+    expect(outputs.preview).toMatchObject({ target: 'filesystem', path: previewPath });
+    expect(outputs.variants).toEqual([
+      expect.objectContaining({ target: 'filesystem', path: expect.stringContaining(variantsDir) }),
+    ]);
+    expect(outputs.optional).toBeNull();
+    expect(outputs.extras).toEqual([]);
+    expect(fs.existsSync(optionalPath)).toBe(false);
+  });
+
+  it('enforces required one/many cardinality before publishing anything', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'a.png' }, { filename: 'b.png' }] },
+        variants: { images: [] },
+      },
+    });
+    const explicit = path.join(root, 'preview.png');
+    const result = await runNovelTeaCli(multiRunArguments(server.url, [`preview=${explicit}`]), {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(4);
+    expect(envelope(result).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_OUTPUT_CARDINALITY' }),
+    ]);
+    expect(fs.existsSync(explicit)).toBe(false);
+    expect(fs.existsSync(path.join(root, 'records', 'assets'))).toBe(false);
+  });
+
+  it('writes cardinality-many filesystem outputs into a directory with generated filenames', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'preview.png' }] },
+        variants: { images: [{ filename: 'remote-one.png' }, { filename: 'remote-two.png' }] },
+      },
+    });
+    const directory = path.join(root, 'variants-out');
+    const result = await runNovelTeaCli(multiRunArguments(server.url, [`variants=${directory}`]), {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(0);
+    const variants = (envelope(result).outputs as Record<string, unknown>).variants as Array<{
+      path: string;
+    }>;
+    expect(variants).toHaveLength(2);
+    expect(variants.every((value) => path.dirname(value.path) === directory)).toBe(true);
+    expect(variants.every((value) => path.basename(value.path).startsWith('variants-'))).toBe(true);
+  });
+
+  it('rejects duplicate named routes and conflicting one-valued filesystem destinations before submission', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+    const destination = path.join(root, 'same.png');
+
+    const duplicate = await runNovelTeaCli(
+      multiRunArguments(server.url, [`preview=${destination}`, `preview=${destination}.other`]),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(duplicate.exitCode).toBe(2);
+
+    const conflicting = await runNovelTeaCli(
+      multiRunArguments(server.url, [`preview=${destination}`, `optional=${destination}`]),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(conflicting.exitCode).toBe(4);
+    expect(envelope(conflicting).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_OUTPUT_DESTINATION_CONFLICT' }),
+    ]);
+    expect(server.requests).toEqual([]);
+  });
+
+  it('rejects a missing required-many result and too many optional-one results', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+
+    const missingMany = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'preview.png' }] },
+        variants: { images: [] },
+      },
+    });
+    const missing = await runNovelTeaCli(multiRunArguments(missingMany.url), {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(missing.exitCode).toBe(4);
+    expect(envelope(missing).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_OUTPUT_MISSING' }),
+    ]);
+
+    const tooManyOptional = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'preview.png' }] },
+        variants: { images: [{ filename: 'variant.png' }] },
+        optional: { images: [{ filename: 'one.png' }, { filename: 'two.png' }] },
+      },
+    });
+    const optional = await runNovelTeaCli(multiRunArguments(tooManyOptional.url), {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(optional.exitCode).toBe(4);
+    expect(envelope(optional).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_OUTPUT_CARDINALITY' }),
+    ]);
+  });
+
+  it('applies collision and --force semantics to generated files for many-valued filesystem routes', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+    const historyOutputs = {
+      preview: { images: [{ filename: 'preview.png' }] },
+      variants: { images: [{ filename: 'variant-a.png' }, { filename: 'variant-b.png' }] },
+    };
+    const directory = path.join(root, 'many-force');
+
+    const firstServer = await fakeComfyUi({ completeAfterHistoryCalls: 1, historyOutputs });
+    const first = await runNovelTeaCli(
+      multiRunArguments(firstServer.url, [`variants=${directory}`]),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(first.exitCode).toBe(0);
+    const firstPaths = (
+      (envelope(first).outputs as Record<string, unknown>).variants as Array<{ path: string }>
+    ).map((value) => value.path);
+
+    const collisionServer = await fakeComfyUi({ completeAfterHistoryCalls: 1, historyOutputs });
+    const collision = await runNovelTeaCli(
+      multiRunArguments(collisionServer.url, [`variants=${directory}`]),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(collision.exitCode).toBe(4);
+    expect(envelope(collision).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_OUTPUT_EXISTS' }),
+    ]);
+
+    const forceServer = await fakeComfyUi({ completeAfterHistoryCalls: 1, historyOutputs });
+    const forced = await runNovelTeaCli(
+      [...multiRunArguments(forceServer.url, [`variants=${directory}`]), '--force'],
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(forced.exitCode).toBe(0);
+    expect(firstPaths.every((value) => fs.existsSync(value))).toBe(true);
+  });
+
+  it('does not publish any mixed result when a filesystem extension mismatches after remote success', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'preview.png' }] },
+        variants: { images: [{ filename: 'variant.png' }] },
+      },
+    });
+    const mismatchedPath = path.join(root, 'preview.jpg');
+    const result = await runNovelTeaCli(
+      multiRunArguments(server.url, [`preview=${mismatchedPath}`]),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(result.exitCode).toBe(4);
+    expect(envelope(result).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_OUTPUT_EXTENSION' }),
+    ]);
+    expect(fs.existsSync(mismatchedPath)).toBe(false);
+    expect(fs.existsSync(path.join(root, 'records', 'assets'))).toBe(false);
+  });
+
+  it('rolls back staged filesystem publication when mixed Project Asset publication fails', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'preview.png' }] },
+        variants: { images: [{ filename: 'variant.png' }] },
+      },
+    });
+    const workspace = createNodeProjectWorkspaceService();
+    vi.spyOn(workspace, 'write').mockRejectedValueOnce(new Error('forced publication failure'));
+    const previewPath = path.join(root, 'mixed', 'preview.png');
+    const result = await runNovelTeaCli(multiRunArguments(server.url, [`preview=${previewPath}`]), {
+      cwd: root,
+      workspace,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(4);
+    expect(envelope(result).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_ASSET_PUBLICATION_FAILED' }),
+    ]);
+    expect(fs.existsSync(previewPath)).toBe(false);
+    expect(
+      fs.existsSync(path.dirname(previewPath))
+        ? fs.readdirSync(path.dirname(previewPath)).filter((name) => name.includes('noveltea-'))
+        : [],
+    ).toEqual([]);
+  });
+
+  it('keeps mixed publication committed when workspace bookkeeping throws after the authoritative Asset transaction', async () => {
+    const root = tempRoot();
+    writeProjectWorkspace(root);
+    const builtInRoot = path.join(root, '.catalog', 'built-in');
+    const userRoot = path.join(root, '.catalog', 'user');
+    writeMultiPackage(userRoot);
+    const server = await fakeComfyUi({
+      completeAfterHistoryCalls: 1,
+      historyOutputs: {
+        preview: { images: [{ filename: 'preview.png' }] },
+        variants: { images: [{ filename: 'variant.png' }] },
+      },
+    });
+    const workspace = createNodeProjectWorkspaceService();
+    const actualWrite = workspace.write.bind(workspace);
+    vi.spyOn(workspace, 'write').mockImplementationOnce(async (...arguments_) => {
+      await actualWrite(...arguments_);
+      throw new Error('post-commit editor-local bookkeeping failure');
+    });
+    const previewPath = path.join(root, 'post-commit', 'preview.png');
+    const result = await runNovelTeaCli(multiRunArguments(server.url, [`preview=${previewPath}`]), {
+      cwd: root,
+      workspace,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(fs.readFileSync(previewPath)).toEqual(png());
+    const variants = (envelope(result).outputs as Record<string, unknown>).variants as Array<{
+      assetId: string;
+    }>;
+    expect(variants).toHaveLength(1);
+    expect(
+      fs.existsSync(path.join(root, 'records', 'assets', `${variants[0]!.assetId}.json`)),
+    ).toBe(true);
   });
 
   it('returns 130 on interruption and attempts prompt-specific queue cancellation without /interrupt', async () => {

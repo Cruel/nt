@@ -56,16 +56,16 @@ export interface ComfyUiGeneratedImage {
   bytes: Uint8Array;
 }
 
-export interface ComfyUiScalarRunOutput extends Omit<ComfyUiGeneratedImage, 'bytes'> {
+interface ComfyUiScalarRunOutput extends Omit<ComfyUiGeneratedImage, 'bytes'> {
   target: 'filesystem';
   path: string;
 }
 
-export interface ComfyUiPendingRunOutput extends ComfyUiGeneratedImage {
+interface ComfyUiPendingRunOutput extends ComfyUiGeneratedImage {
   target: 'pending';
 }
 
-export interface ComfyUiScalarRunResult {
+interface ComfyUiScalarRunResult {
   workflowId: string;
   workflowKey: string;
   workflowSource: string;
@@ -74,6 +74,28 @@ export interface ComfyUiScalarRunResult {
   clientId: string;
   promptId: string;
   output: ComfyUiScalarRunOutput | ComfyUiPendingRunOutput;
+}
+
+export interface ComfyUiOutputRoutePlan {
+  outputId: string;
+  target: 'asset' | 'filesystem';
+  path?: string;
+  cardinality: 'one' | 'many';
+}
+
+export interface ComfyUiRunPlan {
+  routes: Record<string, ComfyUiOutputRoutePlan>;
+}
+
+export interface ComfyUiRunResult {
+  workflowId: string;
+  workflowKey: string;
+  workflowSource: string;
+  packageHash: string;
+  serverUrl: string;
+  clientId: string;
+  promptId: string;
+  outputs: Record<string, ComfyUiGeneratedImage[]>;
 }
 
 export { ComfyUiRunError } from './comfyui-run-errors';
@@ -272,7 +294,7 @@ export async function prepareComfyUiWorkflow(
 }
 
 function imageFormat(bytes: Uint8Array): {
-  format: ComfyUiScalarRunOutput['format'];
+  format: ComfyUiGeneratedImage['format'];
   mimeType: string;
   width: number;
   height: number;
@@ -407,7 +429,7 @@ function imageFormat(bytes: Uint8Array): {
   );
 }
 
-function extensionMatches(outputPath: string, format: ComfyUiScalarRunOutput['format']) {
+function extensionMatches(outputPath: string, format: ComfyUiGeneratedImage['format']) {
   const extension = path.extname(outputPath).toLowerCase();
   if (format === 'jpeg') return extension === '.jpg' || extension === '.jpeg';
   return extension === `.${format}`;
@@ -719,6 +741,270 @@ export async function runComfyUiScalarWorkflow(options: {
       clientId,
       promptId,
       output,
+    };
+  } finally {
+    options.signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+async function preflightFilesystemRoute(
+  outputId: string,
+  cardinality: 'one' | 'many',
+  routePath: string,
+  force: boolean,
+): Promise<string> {
+  const absolutePath = path.resolve(routePath);
+  if (cardinality === 'one') {
+    const extension = path.extname(absolutePath).toLowerCase();
+    if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(extension))
+      throw new ComfyUiRunError(
+        'COMFYUI_OUTPUT_EXTENSION',
+        `/outputs/${outputId}`,
+        `Filesystem route for output '${outputId}' must use .png, .jpg, .jpeg, .webp, or .gif.`,
+      );
+    await validateFilesystemOutputParent(absolutePath, outputId);
+    try {
+      const stats = await fs.lstat(absolutePath);
+      if (stats.isDirectory())
+        throw new ComfyUiRunError(
+          'COMFYUI_OUTPUT_DESTINATION_INVALID',
+          `/outputs/${outputId}`,
+          `Cardinality-one output '${outputId}' requires a file destination, not a directory.`,
+        );
+      if (!force)
+        throw new ComfyUiRunError(
+          'COMFYUI_OUTPUT_EXISTS',
+          `/outputs/${outputId}`,
+          `Output destination already exists: ${absolutePath}`,
+        );
+    } catch (error) {
+      if (error instanceof ComfyUiRunError) throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    return absolutePath;
+  }
+
+  await validateFilesystemOutputParent(path.join(absolutePath, 'result.png'), outputId);
+  try {
+    const stats = await fs.lstat(absolutePath);
+    if (!stats.isDirectory())
+      throw new ComfyUiRunError(
+        'COMFYUI_OUTPUT_DESTINATION_INVALID',
+        `/outputs/${outputId}`,
+        `Cardinality-many output '${outputId}' requires a directory destination.`,
+      );
+  } catch (error) {
+    if (error instanceof ComfyUiRunError) throw error;
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  return absolutePath;
+}
+
+export async function preflightComfyUiRun(options: {
+  entry: ComfyUiRunnableWorkflowEntry;
+  filesystemRoutes: ReadonlyMap<string, string>;
+  projectAvailable: boolean;
+  force: boolean;
+  config?: ComfyUiConfig;
+  imageInputs?: PreparedComfyUiImageInput[];
+}): Promise<ComfyUiRunPlan> {
+  if (options.imageInputs?.length) {
+    if (!options.config)
+      throw new ComfyUiRunError(
+        'COMFYUI_UPLOAD_TARGET_DENIED',
+        '/server',
+        'ComfyUI server configuration is required for local image inputs.',
+      );
+    validateComfyUiImageUploadTarget(options.config);
+  }
+
+  const outputs = options.entry.definition.contract.outputs;
+  for (const outputId of options.filesystemRoutes.keys())
+    if (!(outputId in outputs))
+      throw new ComfyUiRunError(
+        'COMFYUI_OUTPUT_UNKNOWN',
+        `/outputs/${outputId}`,
+        `Workflow does not declare output '${outputId}'.`,
+      );
+
+  const routes: Record<string, ComfyUiOutputRoutePlan> = {};
+  for (const [outputId, contract] of Object.entries(outputs)) {
+    if (contract.mediaType !== 'image')
+      throw new ComfyUiRunError(
+        'COMFYUI_OUTPUT_UNSUPPORTED',
+        `/outputs/${outputId}`,
+        `Output '${outputId}' uses unsupported media type '${contract.mediaType}'.`,
+      );
+    const explicitPath = options.filesystemRoutes.get(outputId);
+    if (explicitPath !== undefined) {
+      routes[outputId] = {
+        outputId,
+        target: 'filesystem',
+        path: await preflightFilesystemRoute(
+          outputId,
+          contract.cardinality,
+          explicitPath,
+          options.force,
+        ),
+        cardinality: contract.cardinality,
+      };
+      continue;
+    }
+    if (!options.projectAvailable)
+      throw new ComfyUiRunError(
+        'COMFYUI_OUTPUT_ROUTE_REQUIRED',
+        `/outputs/${outputId}`,
+        `Output '${outputId}' requires an explicit filesystem route when no Project is available.`,
+      );
+    routes[outputId] = {
+      outputId,
+      target: 'asset',
+      cardinality: contract.cardinality,
+    };
+  }
+  const filesystemRoutes = Object.values(routes).filter(
+    (route): route is ComfyUiOutputRoutePlan & { target: 'filesystem'; path: string } =>
+      route.target === 'filesystem' && typeof route.path === 'string',
+  );
+  for (let left = 0; left < filesystemRoutes.length; left += 1)
+    for (let right = left + 1; right < filesystemRoutes.length; right += 1) {
+      const a = filesystemRoutes[left]!;
+      const b = filesystemRoutes[right]!;
+      if (a.path === b.path && (a.cardinality === 'one' || b.cardinality === 'one'))
+        throw new ComfyUiRunError(
+          'COMFYUI_OUTPUT_DESTINATION_CONFLICT',
+          '/outputs',
+          `Outputs '${a.outputId}' and '${b.outputId}' resolve to the same filesystem destination.`,
+        );
+    }
+  return { routes };
+}
+
+function validateOutputCardinality(
+  outputId: string,
+  count: number,
+  required: boolean,
+  cardinality: 'one' | 'many',
+) {
+  const valid =
+    cardinality === 'one' ? (required ? count === 1 : count <= 1) : required ? count >= 1 : true;
+  if (valid) return;
+  const expectation =
+    cardinality === 'one'
+      ? required
+        ? 'exactly one result'
+        : 'zero or one result'
+      : 'at least one result';
+  throw new ComfyUiRunError(
+    count === 0 && required ? 'COMFYUI_OUTPUT_MISSING' : 'COMFYUI_OUTPUT_CARDINALITY',
+    `/outputs/${outputId}`,
+    `Output '${outputId}' produced ${count} results; expected ${expectation}.`,
+  );
+}
+
+export async function runComfyUiWorkflow(options: {
+  entry: ComfyUiRunnableWorkflowEntry;
+  workflow: WorkflowGraph;
+  imageInputs?: PreparedComfyUiImageInput[];
+  config: ComfyUiConfig;
+  signal?: AbortSignal;
+  onProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
+}): Promise<ComfyUiRunResult> {
+  const { entry, config } = options;
+  const clientId = randomUUID();
+  const requestedPromptId = randomUUID();
+  if (options.signal?.aborted) throw abortError(requestedPromptId);
+  await bindPreparedImageInputs(config, options.workflow, entry, options.imageInputs ?? []);
+  if (options.signal?.aborted) throw abortError(requestedPromptId);
+  const submission = await requestJson(config, '/prompt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: options.workflow,
+      prompt_id: requestedPromptId,
+      client_id: clientId,
+    }),
+  });
+  if (
+    !submission ||
+    typeof submission !== 'object' ||
+    typeof (submission as { prompt_id?: unknown }).prompt_id !== 'string'
+  )
+    throw new ComfyUiRunError(
+      'COMFYUI_PROMPT_REJECTED',
+      '/prompt',
+      boundedMessage(submission, 'ComfyUI did not return a prompt id.'),
+    );
+  const promptId = (submission as { prompt_id: string }).prompt_id;
+  const onAbort = () => void cancelPrompt(config, promptId);
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+  if (options.signal?.aborted) onAbort();
+  options.onProgress?.('queued', `Queued ComfyUI prompt ${promptId}.`);
+  try {
+    let history: unknown;
+    for (;;) {
+      if (options.signal?.aborted) throw abortError(promptId);
+      history = await requestJson(config, `/history/${encodeURIComponent(promptId)}`);
+      const failure = historyFailure(history, promptId);
+      if (failure) throw failure;
+      if (historyCompleted(history, promptId)) break;
+      options.onProgress?.('running', `Waiting for ComfyUI prompt ${promptId}.`);
+      await new Promise<void>((resolve) => setTimeout(resolve, HISTORY_POLL_INTERVAL_MS));
+    }
+
+    const descriptorGroups: Record<string, ImageDescriptor[]> = {};
+    for (const [outputId, contract] of Object.entries(entry.definition.contract.outputs)) {
+      const nodeIds = resolvedComfyUiWorkflowOutputNodeIdList(
+        options.workflow,
+        entry.definition,
+        outputId,
+      );
+      const descriptors = descriptorsForOutput(history, promptId, nodeIds);
+      validateOutputCardinality(
+        outputId,
+        descriptors.length,
+        contract.required,
+        contract.cardinality,
+      );
+      descriptorGroups[outputId] = descriptors;
+    }
+
+    const outputs: Record<string, ComfyUiGeneratedImage[]> = {};
+    for (const [outputId, descriptors] of Object.entries(descriptorGroups)) {
+      const generated: ComfyUiGeneratedImage[] = [];
+      for (const descriptor of descriptors) {
+        const params = new URLSearchParams({
+          filename: descriptor.filename,
+          subfolder: descriptor.subfolder ?? '',
+          type: descriptor.type ?? 'output',
+        });
+        const bytes = await requestBytes(
+          config,
+          `/view?${params.toString()}`,
+          undefined,
+          MAX_IMAGE_OUTPUT_BYTES,
+        );
+        const metadata = imageFormat(bytes);
+        generated.push({
+          outputId,
+          ...metadata,
+          byteSize: bytes.byteLength,
+          contentHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+          bytes,
+        });
+      }
+      outputs[outputId] = generated;
+    }
+    options.onProgress?.('completed', `Downloaded and validated ComfyUI prompt ${promptId}.`);
+    return {
+      workflowId: entry.id,
+      workflowKey: entry.workflowKey,
+      workflowSource: entry.source,
+      packageHash: entry.packageHash ?? '',
+      serverUrl: normalizeComfyUiServerUrl(config.serverUrl),
+      clientId,
+      promptId,
+      outputs,
     };
   } finally {
     options.signal?.removeEventListener('abort', onAbort);

@@ -31,7 +31,7 @@ noveltea comfyui status [--server <url>]
 noveltea comfyui workflows [--all]
 noveltea comfyui workflows <id>
 noveltea comfyui verify [<id>] [--server <url>]
-noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <path>] [--server <url>] [--force]
+noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
 ```
 
 These commands use the same catalog, machine configuration, and verification cache as the editor workflow manager.
@@ -54,10 +54,10 @@ workflow ID from the shared user configuration and then applies normal `project 
 The two selection forms are mutually exclusive, and omitting both is invalid; NovelTea never guesses a classification or
 silently falls back to the first workflow. A configured default that is unavailable remains configured and fails with a
 targeted diagnostic. Classifications use the same extensible dotted namespace as workflow manifests, so future values do
-not require a runner enum change. The current execution slice still requires exactly one required cardinality-`one` image
-output. Repeated `--input name=value` arguments bind through the manifest's public contract; values split on the first `=`,
-duplicate/unknown names are rejected, required/default/type semantics are checked before network work, and one public
-input may drive every graph binding declared for it. Scalar inputs support string, integer, number, and boolean values.
+not require a runner enum change. Repeated `--input name=value` arguments bind through the manifest's public contract;
+values split on the first `=`, duplicate/unknown names are rejected, required/default/type semantics are checked before
+network work, and one public input may drive every graph binding declared for it. Scalar inputs support string, integer,
+number, and boolean values.
 An `image` input accepts an explicitly named local file; relative paths resolve from the invocation working directory.
 The image media handler enforces the 32 MiB source ceiling and decodes the file through NovelTea's shared/native image
 inspection capability before upload.
@@ -69,19 +69,28 @@ ordinary configured HTTP/HTTPS servers. Upload names are generated uniquely, pre
 and do not expose the local basename. Online verification completes before upload; an upload failure aborts before
 `/prompt` and NovelTea does not claim to roll back already accepted remote uploads.
 
-Execution then submits one uniquely identified prompt, polls HTTP history without a fixed whole-job timeout, downloads a
-bounded image result, and validates its media format before local publication. With a Project available, omitting
-`--output` publishes the image as a normal NovelTea Asset in `assets/generated/`. Generated IDs and filenames are derived
-from the logical workflow identity plus collision-safe timestamp/random suffixes rather than separate generate/edit name
-categories. Publication reopens the latest Project state after remote success and uses one short standard workspace
-transaction for both the Asset record and generated file, so no Project writer lock is held while ComfyUI is queued or
-running and unrelated Project edits are preserved. If the Project disappears, becomes invalid, or conflicts at
-publication time, the command reports a distinct local-publication failure after remote success.
+Execution submits one uniquely identified prompt, polls HTTP history without a fixed whole-job timeout, waits for terminal
+completion, and validates every declared named output before local publication. Output cardinality is exact: required
+`one` produces exactly one image, required `many` one or more, optional `one` zero or one, and optional `many` zero or
+more. Every downloaded image is bounded and media-validated before any local result becomes visible.
 
-An explicit `--output` remains a filesystem-only route even when a Project exists. Missing parent directories are
-created for final filesystem publication, existing destinations require `--force`, and the destination extension must
-match the returned image format because this path does not transcode. Without a Project, an explicit filesystem
-`--output` is required. Cardinality-many filesystem routing and named multi-output routing remain later slices.
+Each output has exactly one publication target. With a Project available, an output without an explicit route becomes a
+normal NovelTea Asset in `assets/generated/`; every image from a `many` output becomes a separate Asset. Use repeated
+`--output name=<path>` options to route selected outputs to the filesystem while leaving the others as Assets. Bare
+`--output <path>` is shorthand only when the workflow declares exactly one named output. Without a Project, every
+declared output must have an explicit named filesystem route before upload or prompt submission.
+
+A cardinality-`one` filesystem route names a file. A cardinality-`many` route names a directory, and NovelTea creates
+validated generated filenames beneath it. Missing parent directories are created during publication. Existing files fail
+unless `--force` is supplied; `--force` applies only to explicit filesystem files and never changes collision-safe Asset
+naming. File extensions must match returned image formats because NovelTea does not transcode.
+
+Local publication is prepared as one result set only after all remote outputs are present and valid. Filesystem results
+are staged with atomic rename/backup primitives, while all generated Asset records and bytes are committed in one normal
+Project transaction based on a freshly reopened Project. If mixed publication fails, staged filesystem outputs are rolled
+back as far as those primitives allow and no partial Asset transaction is intentionally committed. Publication failures
+are reported explicitly as occurring after successful remote generation. Structured results remain keyed by logical
+output ID: cardinality-`one` outputs return one metadata object or `null`, while cardinality-`many` outputs return arrays.
 
 Ctrl-C installs an invocation-scoped cancellation handler. Once a prompt exists, NovelTea attempts to delete only that
 prompt from the ComfyUI queue and returns conventional exit status 130; it does not call the global `/interrupt` endpoint
