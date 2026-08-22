@@ -65,9 +65,6 @@ struct ProjectIdentity {
     std::string description;
 };
 using Entrypoint = std::variant<RoomId, SceneId, DialogueId>;
-struct StartupHook {
-    std::string source;
-};
 
 struct LocalizationEntry {
     std::string key;
@@ -1000,7 +997,7 @@ struct CompiledProjectInput {
     ProjectIdentity identity;
     RuntimeSettings settings;
     Entrypoint entrypoint;
-    std::optional<StartupHook> startup_hook;
+    ScriptId bootstrap_module;
     Localization localization;
     std::vector<PropertyDefinition> properties;
     std::vector<TraitDefinition> traits;
@@ -1032,10 +1029,7 @@ public:
     [[nodiscard]] const compiled::ProjectIdentity& identity() const noexcept { return m_identity; }
     [[nodiscard]] const compiled::RuntimeSettings& settings() const noexcept { return m_settings; }
     [[nodiscard]] const compiled::Entrypoint& entrypoint() const noexcept { return m_entrypoint; }
-    [[nodiscard]] const std::optional<compiled::StartupHook>& startup_hook() const noexcept
-    {
-        return m_startup_hook;
-    }
+    [[nodiscard]] const ScriptId& bootstrap_module() const noexcept { return m_bootstrap_module; }
     [[nodiscard]] const compiled::Localization& localization() const noexcept
     {
         return m_localization;
@@ -1131,7 +1125,7 @@ private:
     compiled::ProjectIdentity m_identity;
     compiled::RuntimeSettings m_settings;
     compiled::Entrypoint m_entrypoint;
-    std::optional<compiled::StartupHook> m_startup_hook;
+    ScriptId m_bootstrap_module;
     compiled::Localization m_localization;
     std::vector<PropertyDefinition> m_properties;
     std::vector<compiled::TraitDefinition> m_traits;

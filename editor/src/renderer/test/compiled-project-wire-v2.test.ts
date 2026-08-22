@@ -38,7 +38,7 @@ function representativeWireFixture() {
       systemLayouts: [{ role: 'game-hud', layout: { kind: 'layout', id: 'hud' } }],
       roomNavigationTransition: { kind: 'cut', durationMs: 0, color: null, skippable: true },
     },
-    startupHook: { source: 'bootstrap()' },
+    bootstrapModule: { kind: 'script', id: 'bootstrap' },
     entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
     properties: [
       {
@@ -96,7 +96,7 @@ function representativeWireFixture() {
           dependencies: { images: [], fonts: [], stylesheets: [], materials: [], scripts: [] },
         },
       ],
-      scripts: [{ id: 'bootstrap', source: { kind: 'inline-lua', source: 'return true' } }],
+      scripts: [{ id: 'bootstrap', source: { kind: 'inline-lua', source: 'return {}' } }],
     },
     definitions: {
       characters: [

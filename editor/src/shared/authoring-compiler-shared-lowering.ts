@@ -71,7 +71,7 @@ export interface CompiledProjectSharedDraft {
   schemaVersion: typeof COMPILED_PROJECT_SCHEMA_VERSION;
   project: CompiledProjectWireV4['project'];
   settings: CompiledProjectWireV4['settings'];
-  startupHook: CompiledProjectWireV4['startupHook'];
+  bootstrapModule: CompiledProjectWireV4['bootstrapModule'];
   entrypoint: CompiledProjectWireV4['entrypoint'];
   properties: CompiledProjectWireV4['properties'];
   traits: CompiledProjectWireV4['traits'];
@@ -749,7 +749,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         layout: layoutRef(settings.ui.systemLayouts[role]),
       })),
     },
-    startupHook: project.startupHook ? { source: project.startupHook.source } : null,
+    bootstrapModule: { kind: 'script', id: project.bootstrapModule.$ref.id },
     entrypoint: compileEntrypoint(project.entrypoint),
     properties,
     traits,

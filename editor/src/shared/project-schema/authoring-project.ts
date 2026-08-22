@@ -26,6 +26,7 @@ import { editorProjectStateSchema, emptyEditorProjectState } from './editor-proj
 import { defaultExportProfile, exportProfileSchema } from './authoring-export';
 import { platformExportProfileSchema } from './platform-export-contracts';
 import { inventoryDefinitionSchema } from './authoring-inventories';
+import { scriptRefSchema } from './authoring-flow';
 
 export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
 export type { EntityId } from './authoring-common';
@@ -44,12 +45,6 @@ export const projectEntrypointSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('scene'), id: entityIdSchema }).strict(),
   z.object({ kind: z.literal('dialogue'), id: entityIdSchema }).strict(),
 ]);
-
-export const projectStartupHookSchema = z
-  .object({
-    source: z.string(),
-  })
-  .strict();
 
 const projectIdentitySchema = z
   .object({
@@ -75,7 +70,7 @@ export const authoringProjectSchema = z
     project: projectIdentitySchema,
     settings: typedProjectSettingsSchema,
     export: projectExportSettingsSchema,
-    startupHook: projectStartupHookSchema.nullable().default(null),
+    bootstrapModule: scriptRefSchema,
     entrypoint: projectEntrypointSchema.nullable().default(null),
     properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
@@ -88,7 +83,6 @@ export const authoringProjectSchema = z
 
 export type ReferenceTarget = z.infer<typeof referenceTargetSchema>;
 export type ProjectEntrypoint = z.infer<typeof projectEntrypointSchema>;
-export type ProjectStartupHook = z.infer<typeof projectStartupHookSchema>;
 export type AuthoringProject = z.infer<typeof authoringProjectSchema>;
 
 // Common read-only view used by collection-agnostic editor infrastructure. The
@@ -162,7 +156,7 @@ export function createAuthoringProject(
       }),
       profiles: [],
     },
-    startupHook: null,
+    bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
     entrypoint: null,
     properties: {},
     traits: {},
@@ -170,5 +164,16 @@ export function createAuthoringProject(
     localization: defaultAuthoringLocalization(),
     editor: emptyEditorProjectState(),
     ...collections,
+    scripts: {
+      bootstrap: {
+        id: 'bootstrap',
+        label: 'Bootstrap',
+        description: 'Project bootstrap module.',
+        data: {
+          kind: 'script-module',
+          source: { kind: 'inline-lua', source: 'return {}\n' },
+        },
+      },
+    },
   });
 }

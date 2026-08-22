@@ -1,7 +1,6 @@
 import type { AuthoringCollectionKey } from './authoring-collections';
 
 export const AUTHORING_LUA_EXECUTION_SURFACES = Object.freeze([
-  'project-startup-hook',
   'script-record',
   'layout-rml',
   'layout-dedicated-lua',

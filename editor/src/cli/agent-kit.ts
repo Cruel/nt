@@ -80,7 +80,7 @@ const workspaceManifestSchema = z
     schemaVersion: z.literal(PROJECT_WORKSPACE_SCHEMA_VERSION),
     project: authoringProjectSchema.shape.project,
     settings: authoringProjectSchema.shape.settings,
-    startupHook: authoringProjectSchema.shape.startupHook,
+    bootstrapModule: authoringProjectSchema.shape.bootstrapModule,
     entrypoint: authoringProjectSchema.shape.entrypoint,
   })
   .strict();

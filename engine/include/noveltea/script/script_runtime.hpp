@@ -1,5 +1,6 @@
 #pragma once
 
+#include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/runtime/runtime_ports.hpp"
 #include "noveltea/script/script_result.hpp"
@@ -9,6 +10,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+
+struct lua_State;
 
 namespace noveltea::script {
 
@@ -97,6 +100,10 @@ public:
     certify_source(std::string_view source, std::string_view chunk_name) override;
     [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
     certify_asset_source(std::string_view logical_path) override;
+    [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
+    prepare_project_modules(const core::CompiledProject& project) override;
+    [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
+    run_project_bootstrap() override;
     [[nodiscard]] core::Result<void, ScriptError>
     execute_asset(std::string_view logical_asset_path);
     [[nodiscard]] core::Result<ScriptValue, ScriptError>
@@ -152,6 +159,11 @@ private:
     void cancel_invocation(const core::ScriptInvocationHandle& invocation) noexcept;
     void restore_sources(const runtime::ScriptSourcePort* sources) noexcept;
     void restore_environment(int previous_reference) noexcept;
+    [[nodiscard]] std::optional<ScriptError>
+    push_project_import(lua_State* state, std::string_view module_id,
+                        std::optional<std::string_view> export_name);
+    static int project_import_callback(lua_State* state);
+    void clear_project_modules() noexcept;
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

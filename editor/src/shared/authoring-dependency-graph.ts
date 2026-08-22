@@ -1894,7 +1894,7 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
       value: project.localization.fallbackLocale,
       label: 'Fallback locale',
     },
-    { path: '/startupHook', value: project.startupHook, label: 'Startup hook' },
+    { path: '/bootstrapModule', value: project.bootstrapModule, label: 'Bootstrap Module' },
     { path: '/entrypoint', value: project.entrypoint, label: 'Entrypoint' },
     { path: '/settings/display', value: project.settings.display, label: 'Display settings' },
     {
@@ -2036,7 +2036,9 @@ function deriveStructuralContributionByKey(
     if (!field) return null;
     const key = projectFieldNodeKey(field.path);
     const edges: AuthoringDependencyEdge[] = [];
-    if (field.path === '/entrypoint' && project.entrypoint) {
+    if (field.path === '/bootstrapModule') {
+      scanStructuralReferences(field.value, field.path, key, edges, project);
+    } else if (field.path === '/entrypoint' && project.entrypoint) {
       const targetCollection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
       edges.push(
         structuralEdge(

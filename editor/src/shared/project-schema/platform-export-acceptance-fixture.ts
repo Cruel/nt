@@ -96,7 +96,10 @@ export function createPlatformExportAcceptanceFixture() {
     data: gallery,
   };
   project.entrypoint = { kind: 'room', id: 'foyer' };
-  project.startupHook = { source: 'fixture_started = true' };
+  project.scripts.bootstrap!.data = {
+    kind: 'script-module',
+    source: { kind: 'inline-lua', source: 'fixture_started = true\nreturn {}\n' },
+  };
   project.editor.recordMetadata.assets = Object.fromEntries(
     assets.map(([id]) => [id, { tags: ['export-fixture'] }]),
   );

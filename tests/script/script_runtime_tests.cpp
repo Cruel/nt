@@ -50,6 +50,27 @@ core::CompiledProject load_compiled_fixture(std::string_view filename)
 
 core::CompiledProject load_script_project() { return load_compiled_fixture("scene-program.json"); }
 
+core::CompiledProject
+load_script_project_with_modules(std::initializer_list<std::pair<std::string, std::string>> modules,
+                                 std::string bootstrap_module = "bootstrap")
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/scene-program.json");
+    REQUIRE(input.good());
+    auto document = nlohmann::json::parse(input, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    document["resources"]["scripts"] = nlohmann::json::array();
+    for (const auto& [id, source] : modules) {
+        document["resources"]["scripts"].push_back(
+            {{"id", id}, {"source", {{"kind", "inline-lua"}, {"source", source}}}});
+    }
+    document["bootstrapModule"] = {{"kind", "script"}, {"id", std::move(bootstrap_module)}};
+    auto decoded = core::decode_compiled_project(document, "script-module-test");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
 struct RuntimeFixture {
     test_support::MemoryScriptSource sources;
     script::ScriptRuntime runtime;
@@ -141,15 +162,6 @@ public:
     [[nodiscard]] const runtime::RuntimeCapabilitySet& expression_capabilities() const noexcept
     {
         return m_expression;
-    }
-
-    [[nodiscard]] core::Result<void, script::ScriptError>
-    run_startup(const core::compiled::StartupHook& hook)
-    {
-        auto invoked = invoke_immediate(hook.source, "startup-hook",
-                                        runtime::ScriptInvocationResultKind::None, m_gameplay);
-        return invoked ? core::Result<void, script::ScriptError>::success()
-                       : core::Result<void, script::ScriptError>::failure(invoked.error());
     }
 
     [[nodiscard]] core::Result<bool, script::ScriptError>
@@ -604,7 +616,7 @@ TEST_CASE("ScriptRuntime handles coroutine yield and resume through Lua status c
     REQUIRE(result);
 }
 
-TEST_CASE("ScriptRuntime rejects yields from every immediate invocation form")
+TEST_CASE("ScriptRuntime rejects yields from immediate expression invocation forms")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.sources}));
@@ -615,20 +627,12 @@ TEST_CASE("ScriptRuntime rejects yields from every immediate invocation form")
     core::FlowExecutor executor(project, state);
     ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
 
-    REQUIRE(invoker.run_startup(core::compiled::StartupHook{"startup_ran = true"}));
-    auto startup_value = fixture.runtime.evaluate_bool("startup_ran", "startup-value");
-    REQUIRE(startup_value);
-    CHECK(startup_value.value());
     auto immediate_condition = invoker.evaluate(core::LuaPredicate{"2 + 2 == 4"});
     REQUIRE(immediate_condition);
     CHECK(immediate_condition.value());
     auto immediate_text = invoker.resolve(core::LuaTextExpression{"'typed text'"});
     REQUIRE(immediate_text);
     CHECK(immediate_text.value() == "typed text");
-
-    auto startup = invoker.run_startup(core::compiled::StartupHook{"coroutine.yield()"});
-    REQUIRE_FALSE(startup);
-    CHECK(startup.error().code == script::ScriptErrorCode::YieldForbidden);
 
     auto condition = invoker.evaluate(core::LuaPredicate{"coroutine.yield()"});
     REQUIRE_FALSE(condition);
@@ -637,6 +641,112 @@ TEST_CASE("ScriptRuntime rejects yields from every immediate invocation form")
     auto text = invoker.resolve(core::LuaTextExpression{"coroutine.yield()"});
     REQUIRE_FALSE(text);
     CHECK(text.error().code == script::ScriptErrorCode::YieldForbidden);
+}
+
+TEST_CASE("Project Script Modules cache exports and Bootstrap uses controlled imports")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto project = load_script_project_with_modules({
+        {"shared", "return { value = 41 }"},
+        {"bootstrap",
+         "local first = import('shared')\nlocal second = import('shared')\n"
+         "assert(first == second)\nassert(import('shared', 'value') == 41)\nreturn {}"},
+    });
+
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+    REQUIRE(fixture.runtime.run_project_bootstrap());
+}
+
+TEST_CASE("Project Script Module imports reject cycles missing modules exports and failed retries")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+
+    SECTION("cycle")
+    {
+        auto project = load_script_project_with_modules(
+            {
+                {"a", "import('b')\nreturn {}"},
+                {"b", "import('a')\nreturn {}"},
+            },
+            "a");
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        auto result = fixture.runtime.run_project_bootstrap();
+        REQUIRE_FALSE(result);
+        CHECK(result.error().message.find("cycle") != std::string::npos);
+    }
+
+    SECTION("missing module")
+    {
+        auto project =
+            load_script_project_with_modules({{"bootstrap", "import('missing')\nreturn {}"}});
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        auto result = fixture.runtime.run_project_bootstrap();
+        REQUIRE_FALSE(result);
+        CHECK(result.error().message.find("does not exist") != std::string::npos);
+    }
+
+    SECTION("missing export")
+    {
+        auto project = load_script_project_with_modules({
+            {"shared", "return { present = true }"},
+            {"bootstrap", "import('shared', 'missing')\nreturn {}"},
+        });
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        auto result = fixture.runtime.run_project_bootstrap();
+        REQUIRE_FALSE(result);
+        CHECK(result.error().message.find("has no export") != std::string::npos);
+    }
+
+    SECTION("failed module is not retried")
+    {
+        auto project = load_script_project_with_modules({
+            {"broken", "error('initialization failed')"},
+            {"bootstrap",
+             "local ok = pcall(import, 'broken')\nassert(not ok)\nimport('broken')\nreturn {}"},
+        });
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        auto result = fixture.runtime.run_project_bootstrap();
+        REQUIRE_FALSE(result);
+        CHECK(result.error().message.find("previously failed initialization") != std::string::npos);
+    }
+}
+
+TEST_CASE("Project Bootstrap and module initialization cannot yield or use gameplay capabilities")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+
+    SECTION("yield")
+    {
+        auto project =
+            load_script_project_with_modules({{"bootstrap", "coroutine.yield()\nreturn {}"}});
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        auto result = fixture.runtime.run_project_bootstrap();
+        REQUIRE_FALSE(result);
+        CHECK((result.error().code == script::ScriptErrorCode::YieldForbidden ||
+               result.error().message.find("yield") != std::string::npos));
+    }
+
+    SECTION("gameplay state")
+    {
+        auto project = load_script_project_with_modules(
+            {{"bootstrap",
+              "local value, err = Game.prop('count')\nassert(value == nil and err)\nreturn {}"}});
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        REQUIRE(fixture.runtime.run_project_bootstrap());
+    }
+
+    SECTION("unrestricted loaders remain unavailable")
+    {
+        auto project = load_script_project_with_modules({
+            {"bootstrap",
+             "assert(package == nil and require == nil and io == nil and os == nil)\nreturn {}"},
+        });
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        REQUIRE(fixture.runtime.run_project_bootstrap());
+    }
 }
 
 TEST_CASE("script invocation port suspends and resumes only its exact flow frame and invocation")

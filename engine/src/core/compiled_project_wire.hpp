@@ -142,7 +142,7 @@ struct SharedProject {
     ProjectIdentity identity;
     RuntimeSettings settings;
     Entrypoint entrypoint;
-    std::optional<StartupHook> startup_hook;
+    ScriptId bootstrap_module;
     Localization localization;
     std::vector<PropertyDeclaration> properties;
     std::vector<TraitDeclaration> traits;

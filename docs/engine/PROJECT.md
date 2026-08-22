@@ -2,7 +2,7 @@
 
 ## Contract
 
-The project root owns identity, runtime settings, feature flags, localization, startup hook,
+The project root owns identity, runtime settings, feature flags, localization, the stable Bootstrap Module reference,
 entrypoint, collection indexes, and editor metadata. It is not an entity, property owner, or generic
 mutation target.
 
@@ -30,8 +30,7 @@ workbench state remain editor-only.
 
 ## Startup and Settings
 
-Entrypoint is a strict Room, Scene, or Dialogue reference. Startup Lua is a separate synchronous
-non-yielding hook and must succeed before the entrypoint starts. Typed settings include display/text,
+Entrypoint is a strict Room, Scene, or Dialogue reference. The Project also names one Bootstrap Module by stable Script Module ID. Each fresh Project VM imports that module synchronously without gameplay-state authority; its initialization and any modules it explicitly imports must complete without yielding before the entrypoint starts. Typed settings include display/text,
 system Layout roles, title behavior, default font, application icon, localization, and runtime
 defaults. Presentation settings include the validated project-default Room navigation transition;
 an explicit navigation request and then the selected exit override take precedence over it.

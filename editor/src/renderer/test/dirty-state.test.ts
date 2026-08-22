@@ -99,7 +99,7 @@ describe('workbench dirty state', () => {
     const saved = {
       project: { name: 'Story' },
       settings: { display: {} },
-      startupHook: null,
+      bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
       entrypoint: null,
       rooms: {},
     };
@@ -107,13 +107,17 @@ describe('workbench dirty state', () => {
     expect(getTabDirtyState(settingsTab, current, saved, {})).toMatchObject({
       dirty: true,
       saveUnitId: 'project:settings',
-      resourcePaths: ['/entrypoint', '/project', '/settings', '/startupHook'],
+      resourcePaths: ['/bootstrapModule', '/entrypoint', '/project', '/settings'],
     });
     expect(restoreSaveUnitPatchesFromSaved(settingsTab, current, saved)).toEqual([
+      {
+        op: 'replace',
+        path: '/bootstrapModule',
+        value: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+      },
       { op: 'replace', path: '/entrypoint', value: null },
       { op: 'replace', path: '/project', value: { name: 'Story' } },
       { op: 'replace', path: '/settings', value: { display: {} } },
-      { op: 'replace', path: '/startupHook', value: null },
     ]);
   });
 
@@ -134,7 +138,7 @@ describe('workbench dirty state', () => {
       project: { name: 'Story' },
       settings: { display: {} },
       export: { runtime: { id: 'runtime-default' }, profiles: [] },
-      startupHook: null,
+      bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
       entrypoint: null,
     };
     const current = {
@@ -166,7 +170,7 @@ describe('workbench dirty state', () => {
     const document = {
       project: { name: 'Story' },
       settings: { display: {} },
-      startupHook: null,
+      bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
       entrypoint: null,
     };
     const pendingSaveUnitIds = new Set(['project:settings']);

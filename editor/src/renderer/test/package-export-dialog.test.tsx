@@ -302,7 +302,7 @@ describe('PackageExportDialog', () => {
     expect(window.noveltea.resolvePlayerTemplate).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: /Windows/ }));
-    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Download' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Linux/ }));
     expect(screen.getByText('linux-x64@build-1')).toBeInTheDocument();
     expect(window.noveltea.listPlayerTemplates).not.toHaveBeenCalled();

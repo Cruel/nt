@@ -275,7 +275,7 @@ TEST_CASE("running-game creation failure leaves presentation integration untouch
 {
     RuntimeFixture runtime;
     auto invalid = fixture("minimal");
-    invalid["startupHook"] = {{"source", "local ="}};
+    invalid["resources"]["scripts"][0]["source"]["source"] = "local =";
 
     auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
                                                runtime.presentation, runtime.saves);
@@ -289,23 +289,32 @@ TEST_CASE("running-game creation failure leaves presentation integration untouch
     CHECK(runtime.scripts.is_initialized());
 }
 
-TEST_CASE("compiled runtime certifies Lua without executing it")
+TEST_CASE("compiled runtime certifies modules then executes Bootstrap in module-local state")
 {
     RuntimeFixture runtime;
 
     auto invalid = fixture("minimal");
-    invalid["startupHook"] = {{"source", "local ="}};
+    invalid["resources"]["scripts"][0]["source"]["source"] = "local =";
     auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
                                                runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
 
+    auto failed = fixture("minimal");
+    failed["resources"]["scripts"][0]["source"]["source"] =
+        "error('bootstrap executed')\nreturn {}";
+    auto execution_rejected = runtime::load_running_game(
+        load_input(std::move(failed)), runtime.scripts, runtime.presentation, runtime.saves);
+    REQUIRE_FALSE(execution_rejected.has_value());
+    CHECK(has_code(execution_rejected.error(), "runtime.project_bootstrap_failed"));
+
     auto valid = fixture("minimal");
-    valid["startupHook"] = {{"source", "certification_only = true"}};
+    valid["resources"]["scripts"][0]["source"]["source"] =
+        "local certification_only = true\nreturn { ready = certification_only }";
     auto loaded = runtime::load_running_game(load_input(std::move(valid)), runtime.scripts,
                                              runtime.presentation, runtime.saves);
     REQUIRE(loaded.has_value());
-    auto value = runtime.scripts.evaluate_bool("certification_only == nil", "certification-result");
+    auto value = runtime.scripts.evaluate_bool("certification_only == nil", "bootstrap-isolation");
     REQUIRE(value.has_value());
     CHECK(value.value());
 }

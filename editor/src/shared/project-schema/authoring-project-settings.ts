@@ -670,6 +670,16 @@ export function validateProjectSettingsAuthoringState(
   project: AuthoringProject,
 ): ProjectSettingsDiagnostic[] {
   const diagnostics = [...validateTypedProjectSettings(project)];
+  const bootstrapId = project.bootstrapModule.$ref.id;
+  if (!project.scripts[bootstrapId]) {
+    diagnostics.push(
+      diagnostic(
+        'authoring.bootstrap-module.target-missing',
+        '/bootstrapModule',
+        `Missing Script Module '${bootstrapId}'.`,
+      ),
+    );
+  }
   const entrypoint = project.entrypoint;
   if (entrypoint) {
     const collection = `${entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';

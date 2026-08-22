@@ -39,9 +39,9 @@ The `coroutine` library being present does **not** mean every authored invocatio
 
 ## Source ownership and execution
 
-A `.lua` file does not execute merely because it exists in the project. Lua source participates only through an explicitly owned Script Module, Layout Lua source, startup hook, expression/effect/instruction reference, or another documented invocation site.
+A `.lua` file does not execute merely because it exists in the project. Lua source participates only through an explicitly owned Script Module, Layout Lua source, expression/effect/instruction reference, or another documented invocation site. The Project names one Bootstrap Module by stable Script Module ID.
 
-Script Modules do not autorun. The project startup hook is synchronous and must finish without yielding before the initial Room/Scene/Dialogue flow begins. Conditions and text expressions are synchronous. Effect/explicit script instructions can yield only when their authored invocation is declared yield-capable and the engine admits the corresponding capability profile.
+Script Modules do not autorun. A fresh Project VM synchronously imports only the configured Bootstrap Module; that module may explicitly import other modules by stable ID, and module initialization must finish without yielding before the initial Room/Scene/Dialogue flow begins. Imports are cached once per VM and missing modules/exports, cycles, or failed initialization are hard errors. Conditions and text expressions are synchronous. Effect/explicit script instructions can yield only when their authored invocation is declared yield-capable and the engine admits the corresponding capability profile.
 
 Lua VM/coroutine state is not save-game state. Do not use globals as durable game variables. Persist game state through NovelTea Variables, Properties, desired presentation/audio state, and the other typed runtime APIs below.
 

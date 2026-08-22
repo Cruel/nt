@@ -96,9 +96,6 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
                                                ScriptCertificationPort& scripts)
 {
     core::Diagnostics diagnostics;
-    if (project.startup_hook())
-        certify_chunk(diagnostics, scripts, project.startup_hook()->source, "/startupHook/source");
-
     for (std::size_t index = 0; index < project.scripts().size(); ++index) {
         const auto& script = project.scripts()[index];
         if (const auto* inline_source =
@@ -309,6 +306,21 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
     if (!lua_diagnostics.empty())
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(lua_diagnostics));
+
+    auto prepared_scripts = script_certifier.prepare_project_modules(package.project());
+    if (!prepared_scripts) {
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
+            core::Diagnostics{core::Diagnostic{.code = "runtime.project_script_module_failed",
+                                               .message = prepared_scripts.error().message,
+                                               .source_path = prepared_scripts.error().chunk}});
+    }
+    auto bootstrapped = script_certifier.run_project_bootstrap();
+    if (!bootstrapped) {
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
+            core::Diagnostics{core::Diagnostic{.code = "runtime.project_bootstrap_failed",
+                                               .message = bootstrapped.error().message,
+                                               .source_path = bootstrapped.error().chunk}});
+    }
 
     auto runtime = std::unique_ptr<RunningGame>(new RunningGame(std::move(package)));
     runtime->m_scripts = &scripts;

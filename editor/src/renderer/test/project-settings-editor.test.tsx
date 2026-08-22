@@ -242,19 +242,21 @@ describe('ProjectSettingsEditor', () => {
     fireEvent.click(screen.getByText('No entrypoint'));
     expect(await screen.findByText('Choose a project entrypoint')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Foyer'));
-    fireEvent.change(screen.getByLabelText('source-editor'), { target: { value: 'game.start()' } });
+    fireEvent.click(screen.getByText('Bootstrap'));
+    expect(await screen.findByText('Choose Bootstrap Module')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Boot Script'));
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
         project: { name: 'New Title' },
         entrypoint: { kind: 'room', id: 'foyer' },
-        startupHook: { source: 'game.start()' },
+        bootstrapModule: { $ref: { collection: 'scripts', id: 'boot' } },
       }),
     );
     expect(useDraftDirtyStore.getState().entriesByKey).toEqual({});
     expect(useCommandStore.getState().history.entries.map((entry) => entry.type)).toEqual([
       'project.updateMetadata',
       'project.setEntrypoint',
-      'project.setStartup',
+      'project.setBootstrapModule',
     ]);
     expect(useCommandStore.getState().history.entries).toEqual(
       expect.arrayContaining([

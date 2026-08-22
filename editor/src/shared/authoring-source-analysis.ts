@@ -142,20 +142,6 @@ export function collectAuthoringLuaSources(
   const output: AuthoringLuaSourceDescriptor[] = [];
   const includesContribution = (key: string) =>
     contributionKeys === undefined || contributionKeys.has(key);
-  const startupContributionKey = `project-field:${JSON.stringify('/startupHook')}`;
-  if (project.startupHook && includesContribution(startupContributionKey)) {
-    output.push({
-      executionSurface: 'project-startup-hook',
-      contributionKey: startupContributionKey,
-      semanticOwner: { kind: 'project-field', path: '/startupHook' },
-      sourcePath: '/startupHook/source',
-      sourceKind: 'lua',
-      sourceUrl: 'authoring:inline-lua',
-      inlineText: project.startupHook.source,
-      focusedAdmission: false,
-      supportsExplicitFallback: false,
-    });
-  }
   for (const [id, record] of Object.entries(project.scripts).sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
@@ -1393,7 +1379,6 @@ export async function analyzeAuthoringSources(
 
 export function semanticOwnerFromSourcePath(path: string): AuthoringDependencyNodeKey | null {
   const segments = parseJsonPointer(path);
-  if (segments[0] === 'startupHook') return { kind: 'project-field', path: '/startupHook' };
   const collection = segments[0];
   const id = segments[1];
   return authoringCollectionKeys.includes(collection as AuthoringCollectionKey) && id

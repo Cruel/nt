@@ -41,8 +41,8 @@ export interface SetProjectEntrypointPayload {
   target: ProjectEntrypoint | null;
 }
 
-export interface SetProjectStartupPayload {
-  initScript: string;
+export interface SetProjectBootstrapModulePayload {
+  scriptId: string;
 }
 
 export interface SetProjectDisplayPayload {
@@ -169,16 +169,16 @@ export function setProjectEntrypointPatches(
   };
 }
 
-export function setProjectStartupPatches(
+export function setProjectBootstrapModulePatches(
   document: unknown,
-  payload: SetProjectStartupPayload,
+  payload: SetProjectBootstrapModulePayload,
 ): EntityOperationResult {
   if (!projectForCommand(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const documentValue = toJsonValue(document);
-  const startupHook = payload.initScript ? { source: payload.initScript } : null;
-  const patch = patchValue(documentValue, '/startupHook', startupHook);
-  return { patches: [patch], affectedPaths: ['/startupHook'] };
+  const bootstrapModule = { $ref: { collection: 'scripts', id: payload.scriptId } };
+  const patch = patchValue(documentValue, '/bootstrapModule', bootstrapModule);
+  return { patches: [patch], affectedPaths: ['/bootstrapModule'] };
 }
 
 export function setProjectDisplayPatches(

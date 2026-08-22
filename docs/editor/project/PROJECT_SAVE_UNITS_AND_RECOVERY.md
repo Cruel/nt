@@ -16,7 +16,7 @@ executable structural classification and safety policies.
 | Record | `record:<collection>:<entityId>` | `/<collection>/<entityId>` plus `/editor/recordMetadata/<collection>/<entityId>` | `manual-save` |
 | Collection editor | `collection:<collection>` | The concrete collection root plus `/editor/recordMetadata/<collection>` | `manual-save` |
 | Explorer structural operation | `structure:<collection>` | Canonical command-derived paths for create, rename, duplicate, or delete | `auto-commit` attribution only |
-| Project Settings | `project:settings` | `/project`, `/settings`, `/startupHook`, `/entrypoint` | `manual-save` |
+| Project Settings | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint` | `manual-save` |
 | Project-scoped editor/tool | Named `project:*` unit | The exact paths listed below | Listed per surface |
 | Workflow/panel mutation | Named `workflow:*` unit | Canonical command-derived paths listed below | Listed per surface |
 | Read-only/non-content tool | `tool:<editorType>` | None | No content mutation |
@@ -26,7 +26,7 @@ The Project Settings owned-path set is exactly:
 ```text
 /project
 /settings
-/startupHook
+/bootstrapModule
 /entrypoint
 ```
 
@@ -103,7 +103,7 @@ Every editor registered in `default-editors.tsx` has one explicit registry outco
 | `variables` | Savable collection | `collection:variables` | `/variables` plus `/editor/recordMetadata/variables` |
 | `components` | Non-content | `tool:components` | Documentation/reference surface only |
 | `settings` | Non-content | `tool:settings` | Editor preferences, not project content |
-| `project-settings` | Savable project unit | `project:settings` | `/project`, `/settings`, `/startupHook`, `/entrypoint` |
+| `project-settings` | Savable project unit | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint` |
 | `platform-export` | Savable project tool | `project:platform-export-profiles` | Export configuration owns top-level `/export`; output/template/signing selection and export execution remain user-local/non-content |
 | `project-chapters` | Savable project tool | `project:chapters` | `/editor/chapters` |
 | `project-tags` | Savable project tool | `project:tags` | `/editor/tags` |

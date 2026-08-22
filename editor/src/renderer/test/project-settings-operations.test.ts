@@ -9,6 +9,11 @@ import { validateProjectSettingsAuthoringState } from '../../shared/project-sche
 function projectWithSettingsTargets() {
   const project = createAuthoringProject();
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+  project.scripts['boot-alt'] = {
+    id: 'boot-alt',
+    label: 'Alternate Bootstrap',
+    data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return {}' } },
+  };
   project.layouts.main = {
     id: 'main',
     label: 'Main Layout',
@@ -40,7 +45,7 @@ function projectWithSettingsTargets() {
 }
 
 describe('project settings operations', () => {
-  it('updates metadata, entrypoint, startup, system layout, and default font through undoable commands', () => {
+  it('updates metadata, entrypoint, Bootstrap Module, system layout, and default font through undoable commands', () => {
     let state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     state = executeCommand(state, {
       type: 'project.updateMetadata',
@@ -51,8 +56,8 @@ describe('project settings operations', () => {
       payload: { target: { kind: 'room', id: 'foyer' } },
     }).state;
     state = executeCommand(state, {
-      type: 'project.setStartup',
-      payload: { initScript: 'game.start()' },
+      type: 'project.setBootstrapModule',
+      payload: { scriptId: 'boot-alt' },
     }).state;
     state = executeCommand(state, {
       type: 'project.setSystemLayout',
@@ -66,7 +71,7 @@ describe('project settings operations', () => {
     expect(font.state.document).toMatchObject({
       project: { name: 'Demo', version: '1.2.3', author: 'Author' },
       entrypoint: { kind: 'room', id: 'foyer' },
-      startupHook: { source: 'game.start()' },
+      bootstrapModule: { $ref: { collection: 'scripts', id: 'boot-alt' } },
       settings: {
         ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } },
         text: { defaultFont: { $ref: { collection: 'assets', id: 'main-font' } } },

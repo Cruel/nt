@@ -7,7 +7,7 @@ paths accept no legacy monolithic project file or alternate manifest name.
 ## Tracked source
 
 `project.json` has schema `noveltea.project.workspace` at version `1` and owns project identity,
-project settings, top-level export configuration, startup hook, and entrypoint. `/settings` is the
+project settings, top-level export configuration, the stable Bootstrap Module reference, and entrypoint. `/settings` is the
 Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
 built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
 choices remain editor-local. `properties.json`, `localization.json`, and `editor.json`
@@ -23,7 +23,7 @@ File-backed Layout channels are `layout.rml`, `layout.rcss`, and `layout.lua` be
 The JSON selectors use `file`, `asset`, or (only for Lua) `none`; source text is not duplicated in
 the Layout record. Script Module file sources use `{ "kind": "file", "path": "scripts/...lua" }`.
 Their paths are safe project-relative `scripts/` paths. Assembly presents both as the existing
-internal inline Lua/Layout model, so file presence never grants autorun or hook behavior.
+internal inline Lua/Layout model, so file presence never grants autorun behavior. `bootstrapModule` names the one Script Module imported synchronously in each fresh Project VM.
 
 Assets remain complete Asset records in `records/assets/`; their project source bytes remain at the
 explicit Asset source path, normally under `assets/`. Project-local `workflows/` is owned by the

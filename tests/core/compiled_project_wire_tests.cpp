@@ -88,7 +88,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.properties.size() == 10);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
-    CHECK(project.scripts.size() == 2);
+    CHECK(project.scripts.size() == 3);
     CHECK(project.characters.size() == 1);
     CHECK(project.rooms.size() == 3);
     CHECK(project.interactables.size() == 3);
@@ -653,7 +653,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     CHECK(complete.properties().size() == 10);
     CHECK(complete.assets().size() == 9);
     CHECK(complete.layouts().size() == 2);
-    CHECK(complete.scripts().size() == 2);
+    CHECK(complete.scripts().size() == 3);
     CHECK(complete.characters().size() == 1);
     CHECK(complete.rooms().size() == 3);
     CHECK(complete.interactables().size() == 3);

@@ -81,9 +81,15 @@
     },
     "profiles": []
   },
-  "startupHook": null,
+  "bootstrapModule": {
+    "$ref": {
+      "collection": "scripts",
+      "id": "bootstrap"
+    }
+  },
   "entrypoint": {
     "kind": "room",
     "id": "start"
-  }
+  },
+  "inventories": []
 }

@@ -690,14 +690,14 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.inspect(`${root}/.noveltea/editor/state.json`)).toBe('missing');
 
     const script = await runNovelTeaCli(
-      ['--json', 'entity', 'create', 'scripts', 'bootstrap', '--dry-run'],
+      ['--json', 'entity', 'create', 'scripts', 'helper-module', '--dry-run'],
       options(value),
     );
     expect(script.exitCode).toBe(0);
     expect(JSON.parse(script.stdout).plan.writes).toEqual(
-      expect.arrayContaining(['records/scripts/bootstrap.json', 'scripts/bootstrap.lua']),
+      expect.arrayContaining(['records/scripts/helper-module.json', 'scripts/helper-module.lua']),
     );
-    expect(await value.fileSystem.inspect(`${root}/scripts/bootstrap.lua`)).toBe('missing');
+    expect(await value.fileSystem.inspect(`${root}/scripts/helper-module.lua`)).toBe('missing');
   });
 
   it('executes create through the shared workspace transaction writer', async () => {

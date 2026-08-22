@@ -8,18 +8,17 @@ import { validateAuthoringProject } from '../../shared/project-schema/authoring-
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 
 describe('authoring V2 infrastructure', () => {
-  it('accepts only Room, Scene, or Dialogue entrypoints and a separate strict startup hook', () => {
+  it('accepts only gameplay entrypoints and requires a strict Bootstrap Module reference', () => {
     const project = createAuthoringProject();
     project.rooms.start = { id: 'start', label: 'Start', data: defaultRoomData('Start') };
     project.entrypoint = { kind: 'room', id: 'start' };
-    project.startupHook = { source: 'Game.initialize()' };
     expect(isAuthoringProject(project)).toBe(true);
     expect(isAuthoringProject({ ...project, entrypoint: { kind: 'script', id: 'boot' } })).toBe(
       false,
     );
-    expect(isAuthoringProject({ ...project, startupHook: { source: '', yields: false } })).toBe(
-      false,
-    );
+    const { bootstrapModule: _bootstrapModule, ...withoutBootstrap } = project;
+    expect(isAuthoringProject(withoutBootstrap)).toBe(false);
+    expect(isAuthoringProject({ ...project, startupHook: { source: '' } })).toBe(false);
   });
 
   it('rejects unknown record and content fields instead of stripping them', () => {

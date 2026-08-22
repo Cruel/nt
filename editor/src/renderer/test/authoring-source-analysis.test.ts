@@ -152,7 +152,7 @@ describe('RML Lua extraction', () => {
 
   it('recognizes direct listener/load strings with parent provenance', async () => {
     const artifact = await analyzeAuthoringSourceContent({
-      sourceUrl: 'authoring:/startupHook/source',
+      sourceUrl: 'authoring:/scripts/bootstrap/data/source/source',
       kind: 'lua',
       text: `element:AddEventListener('click', "open('room-main')")\nload("return 'asset-main'")`,
     });
@@ -254,7 +254,10 @@ describe('RML Lua extraction', () => {
 describe('typed source registry and graph evidence', () => {
   function fixture() {
     const project = createAuthoringProject();
-    project.startupHook = { source: `local target = 'shared'` };
+    project.scripts.bootstrap!.data = {
+      kind: 'script-module',
+      source: { kind: 'inline-lua', source: `local target = 'shared'\nreturn {}` },
+    };
     project.rooms.shared = {
       id: 'shared',
       label: 'Shared room',
@@ -306,7 +309,7 @@ describe('typed source registry and graph evidence', () => {
       false,
     );
     expect(sources.map((source) => source.contributionKey)).toContain(
-      `project-field:${JSON.stringify('/startupHook')}`,
+      `record:${JSON.stringify(['record', 'scripts', 'bootstrap'])}`,
     );
     expect(collectAuthoringSourceRequirements(project)).toEqual(['script-file']);
   });
@@ -416,7 +419,6 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
     expect(new Set(sources.map((source) => source.executionSurface))).toEqual(
       new Set([
-        'project-startup-hook',
         'script-record',
         'room-composition-script',
         'shared-lua-predicate',
@@ -515,7 +517,6 @@ describe('typed source registry and graph evidence', () => {
 
   it('allows a future recognizer to promote one occurrence without changing graph algorithms', async () => {
     const project = fixture();
-    project.startupHook = { source: `local target = 'shared'` };
     const sources: LuaSourceSnapshot = {
       entriesByAssetId: new Map([
         [
@@ -1573,6 +1574,10 @@ describe('typed source registry and graph evidence', () => {
       properties: {},
       traits: [],
     } as never;
+    project.scripts.bootstrap!.data = {
+      kind: 'script-module',
+      source: { kind: 'inline-lua', source: '' },
+    };
     const text = `'shared'`;
     const analyses = await analyzeAuthoringSources(
       project,
