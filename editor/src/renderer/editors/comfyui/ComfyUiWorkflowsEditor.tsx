@@ -43,7 +43,7 @@ import type {
 
 function sourceLabel(source: string) {
   if (source === 'built-in') return 'Built-in';
-  if (source === 'editor') return 'Editor';
+  if (source === 'user') return 'User';
   if (source === 'project') return 'Project';
   return source;
 }
@@ -213,7 +213,7 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
 
   async function copyWorkflow(
     entry: ComfyUiWorkflowLibraryEntry,
-    targetSource: 'editor' | 'project',
+    targetSource: 'user' | 'project',
   ) {
     const actionKey = `copy:${targetSource}:${entry.workflowKey}`;
     setBusyAction(actionKey);
@@ -494,11 +494,11 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48 min-w-48">
                           <DropdownMenuItem
-                            disabled={!entry.capabilities.canCopyToEditor}
-                            onClick={() => void copyWorkflow(entry, 'editor')}
+                            disabled={!entry.capabilities.canCopyToUser}
+                            onClick={() => void copyWorkflow(entry, 'user')}
                           >
                             <Copy />
-                            Copy to Editor
+                            Copy to User
                           </DropdownMenuItem>
                           {projectFilePath ? (
                             <DropdownMenuItem

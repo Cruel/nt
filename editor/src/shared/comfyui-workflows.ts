@@ -149,7 +149,7 @@ export interface ComfyUiWorkflowDiagnostic {
   message: string;
 }
 
-export type ComfyUiWorkflowSource = 'built-in' | 'editor' | 'project';
+export type ComfyUiWorkflowSource = 'built-in' | 'user' | 'project';
 export type ComfyUiMutableWorkflowSource = Exclude<ComfyUiWorkflowSource, 'built-in'>;
 export type ComfyUiWorkflowKey = `${ComfyUiWorkflowSource}:${string}`;
 export type ComfyUiPackageHash = `sha256:${string}`;
@@ -208,7 +208,7 @@ export interface ComfyUiWorkflowPackageFiles {
 }
 
 export interface ComfyUiWorkflowCapabilities {
-  canCopyToEditor: boolean;
+  canCopyToUser: boolean;
   canCopyToProject: boolean;
   canDelete: boolean;
   canRepair: boolean;

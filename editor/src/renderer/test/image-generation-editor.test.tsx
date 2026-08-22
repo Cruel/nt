@@ -256,7 +256,7 @@ describe('ImageGenerationEditor', () => {
         workflow({ id: 'flux2-klein-text-to-image', label: 'Project Override Generate' }),
         workflow({
           id: 'flux2-klein-image-edit',
-          label: 'Editor Override Edit',
+          label: 'User Override Edit',
           classification: 'image.edit',
           contract: {
             inputs: {
@@ -273,7 +273,7 @@ describe('ImageGenerationEditor', () => {
       ],
       {
         'flux2-klein-text-to-image': 'project',
-        'flux2-klein-image-edit': 'editor',
+        'flux2-klein-image-edit': 'user',
         'other-generate': 'built-in',
       },
     );
@@ -286,7 +286,7 @@ describe('ImageGenerationEditor', () => {
       ),
     );
     expect(screen.getByLabelText('Edit workflow')).toHaveValue(
-      'editor:flux2-klein-image-edit.manifest.json',
+      'user:flux2-klein-image-edit.manifest.json',
     );
 
     fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'a default override' } });

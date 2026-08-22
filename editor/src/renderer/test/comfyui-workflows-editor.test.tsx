@@ -40,7 +40,7 @@ function entry(overrides: Partial<ComfyUiWorkflowLibraryEntry>): ComfyUiWorkflow
     diagnostics: overrides.diagnostics ?? [],
     verificationDiagnostics: overrides.verificationDiagnostics ?? [],
     capabilities: overrides.capabilities ?? {
-      canCopyToEditor: true,
+      canCopyToUser: true,
       canCopyToProject: true,
       canDelete: source !== 'built-in',
       canRepair: source !== 'built-in',
@@ -181,7 +181,7 @@ describe('ComfyUiWorkflowsEditor', () => {
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
-      response([entry({ source: 'editor', id: 'custom', label: 'Custom Workflow' })]),
+      response([entry({ source: 'user', id: 'custom', label: 'Custom Workflow' })]),
     );
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
@@ -193,7 +193,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(window.noveltea.copyComfyUiWorkflow).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
       {
-        workflowKey: 'editor:custom.manifest.json',
+        workflowKey: 'user:custom.manifest.json',
         targetSource: 'project',
       },
     );
@@ -203,7 +203,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     await screen.findByText('Opened workflow in folder.');
     expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
-      'editor:custom.manifest.json',
+      'user:custom.manifest.json',
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
@@ -212,7 +212,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(window.confirm).toHaveBeenCalledWith("Delete workflow 'Custom Workflow'?");
     expect(window.noveltea.deleteComfyUiWorkflow).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
-      { workflowKey: 'editor:custom.manifest.json' },
+      { workflowKey: 'user:custom.manifest.json' },
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
@@ -227,12 +227,12 @@ describe('ComfyUiWorkflowsEditor', () => {
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
       response([
         entry({
-          source: 'editor',
+          source: 'user',
           id: 'custom',
           label: 'Custom Workflow',
           repairable: true,
           capabilities: {
-            canCopyToEditor: false,
+            canCopyToUser: false,
             canCopyToProject: true,
             canDelete: true,
             canRepair: true,
@@ -256,7 +256,7 @@ describe('ComfyUiWorkflowsEditor', () => {
 
   it('edits a mutable workflow name inline', async () => {
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
-      response([entry({ source: 'editor', id: 'custom', label: 'Original Name' })]),
+      response([entry({ source: 'user', id: 'custom', label: 'Original Name' })]),
     );
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
@@ -269,7 +269,7 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     await screen.findByText('Workflow renamed.');
     expect(window.noveltea.renameComfyUiWorkflow).toHaveBeenCalledWith(null, {
-      workflowKey: 'editor:custom.manifest.json',
+      workflowKey: 'user:custom.manifest.json',
       label: 'Renamed Workflow',
     });
   });

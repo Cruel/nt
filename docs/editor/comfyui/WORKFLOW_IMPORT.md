@@ -6,30 +6,48 @@ not from Project Settings.
 
 ## Workflow Sources
 
-The workflow library discovers packages from three sources:
+The workflow catalog discovers packages from three sources:
 
-- built-in workflows shipped with the editor;
-- editor-wide workflows under the editor user-data `workflows/` directory;
+- built-in workflows shipped with NovelTea;
+- shared user workflows under `<NovelTea user config>/comfyui/workflows/`;
 - project-local workflows under the saved project's `workflows/` directory.
 
-Project workflows are only discovered when an active saved Project session exists. Renderer code may retain the Project
-file path as UI context, but it does not send that path across the privileged IPC boundary: main derives the canonical
-Project root and `project.json` from the current `projectSessionId`. Built-in and editor-wide workflows remain available
-without a project open, although image generation still requires an active saved Project session before it can write
-generated output assets.
+The NovelTea user configuration root is `~/.noveltea` by default and honors `NOVELTEA_USER_CONFIG_ROOT`, including in
+headless CLI and CI usage. The editor and CLI therefore consume the same shared user workflow directory rather than an
+Electron application-data workflow directory.
+
+Project workflows are contextual. The editor includes them when an active saved Project session exists. The CLI includes
+them when `--project` selects a valid Project or upward `project.json` discovery succeeds; absence of a Project does not
+prevent built-in or shared-user listing and inspection. Renderer code may retain the Project file path as UI context, but
+it does not send that path across the privileged IPC boundary: main derives the canonical Project root and `project.json`
+from the current `projectSessionId`. Current editor image generation still requires an active saved Project session before
+it can write generated output assets.
 
 Workflow identity uses the logical manifest `id`, while execution and manager actions use a source-specific
-`workflowKey` such as `built-in:flux2-klein-text-to-image.manifest.json`,
-`editor:custom.manifest.json`, or `project:custom.manifest.json`.
+`workflowKey` such as `built-in:flux2-klein-text-to-image.manifest.json`, `user:custom.manifest.json`, or
+`project:custom.manifest.json`.
 
 When multiple sources contain the same logical workflow `id`, the active workflow is selected by precedence:
 
 ```text
-project > editor > built-in
+project > user > built-in
 ```
 
 The manager can show overridden rows for inspection. Overridden rows are muted and are not used by default selectors or
 image generation.
+
+## Headless Catalog Commands
+
+`noveltea comfyui workflows` lists the effective catalog in deterministic logical-ID order. It works outside a Project
+and adds project-local workflows when a Project is explicitly selected or discovered from the current directory.
+`noveltea comfyui workflows <id>` inspects the effective workflow selected by normal source precedence and reports its
+source, classification, description, public input/output contract, authoring metadata, offline validation state,
+runnability, package hash, and available cached verification state. Human output is concise; `--json` preserves the
+normal NovelTea machine contract of one compact JSON object on stdout and empty stderr.
+
+`noveltea comfyui workflows --all` is diagnostic: it includes overridden and invalid package copies with source,
+manifest identity, validation status, override state, and diagnostics. It does not change which package is effective.
+Invalid packages are surfaced as data rather than normalized, upgraded, or interpreted as an older shape.
 
 ## Author Workflow
 
@@ -83,7 +101,7 @@ upgrade, or dual-read the replaced V2 shape.
 Use `Repair` in the `ComfyUI Workflows` manager when a mutable workflow manifest with a known image classification
 reports stale or unresolved bindings. Repair reuses the image-classification inference UI, preserves the installed
 workflow JSON, and writes the canonical generic manifest shape. Built-in workflows cannot be repaired in place; copy
-them to the editor or project source first if a local replacement is needed. Generic packages with unknown or omitted
+them to the user or project source first if a local replacement is needed. Generic packages with unknown or omitted
 classifications remain inspectable, but automatic inference repair is not offered for them.
 
 If the ComfyUI workflow graph itself changed substantially, export the new API workflow JSON and import it as a new
@@ -99,9 +117,9 @@ are grouped under the trailing `...` menu.
 
 Supported source-aware actions include:
 
-- copy a built-in or editor workflow to the editor source;
-- copy a built-in or editor workflow to the current project source when a project is open;
-- delete editor or project workflows;
+- copy a built-in or project workflow to the shared user source;
+- copy a built-in or user workflow to the current project source when a project is open;
+- delete user or project workflows;
 - reveal a workflow package in the file manager;
 - repair mutable workflow manifests;
 - refresh the library and verify workflows that are failing or do not have a cached success against the configured
@@ -118,8 +136,8 @@ the configured ComfyUI `/object_info` endpoint and records whether workflow node
 Refresh verifies workflows that are failing or do not have a cached success. Cached successes are skipped, while changed
 package hashes naturally become unverified and are checked again. A label-only rename updates the package hash but
 rekeys its cached verification because the name does not affect ComfyUI compatibility. The cache is
-itself the strict `noveltea.comfyui-workflow-verification-cache` version 1 document; incompatible or
-malformed cache files are discarded and rebuilt. If offline checks pass but no server is
+itself the strict `noveltea.comfyui-workflow-verification-cache` version 1 document stored under the shared
+`<NovelTea user config>/comfyui/` area; incompatible or malformed cache files are discarded and rebuilt. If offline checks pass but no server is
 available, the verification light is yellow and its tooltip says `Need ComfyUI server to verify`.
 
 ## IPC Authority and Bounds
@@ -137,7 +155,8 @@ Generation requests also bound workflow identity, prompts, dimensions, seed, ste
 sizes. IPC limits are byte-oriented where identity/text disclosure matters: server URLs are limited to 2 KiB UTF-8,
 workflow and job ids to 256 UTF-8 bytes, workflow labels to 1 KiB UTF-8, and prompts/negative prompts to 64 KiB UTF-8.
 Imported/repaired workflow manifests are structurally parsed at the IPC boundary and capped at 1 MiB before workflow
-services run. Progress events are emitted only while the initiating Project session remains current. If the Project closes or
+services run. Catalog discovery independently bounds package reads: each source considers at most 256 manifest packages,
+manifest JSON is capped at 1 MiB, and workflow JSON is capped at 32 MiB before parsing. Progress events are emitted only while the initiating Project session remains current. If the Project closes or
 switches while a job is running, stale work cannot publish completion/error progress or continue writing generated
 assets into the newly active Project.
 

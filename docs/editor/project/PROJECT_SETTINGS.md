@@ -28,7 +28,7 @@ Project Settings edits the authoring project document through undoable command-b
 does not write editor preferences, runtime user settings, or game progress. Editor preferences remain
 in the Electron `noveltea-preferences` store; runtime user settings and typed saves use their separate
 C++ versioned contracts.
-ComfyUI connection settings and workflow-library management are editor-wide surfaces. Project Settings only shows a compact workflow summary and a Manage button; it must not write server URLs, enablement, default workflow preferences, or workflow-library state into the authoring project document.
+ComfyUI connection settings and workflow-library management are machine/user-level surfaces shared with the headless CLI. Shared user workflow packages live beneath the NovelTea user configuration root, while project-local packages remain contextual to the saved Project. Project Settings only shows a compact workflow summary and a Manage button; it must not write server URLs, enablement, default workflow preferences, or workflow-library state into the authoring project document.
 
 ## Editing and Save Behavior
 

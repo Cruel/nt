@@ -1443,6 +1443,7 @@ void app.whenReady().then(async () => {
         workflowKey.startsWith('project:')
           ? requireComfyUiProjectFilePath(projectSessionId)
           : comfyUiProjectFilePath(projectSessionId),
+        { showItemInFolder: (itemPath) => shell.showItemInFolder(itemPath) },
       ),
   );
 

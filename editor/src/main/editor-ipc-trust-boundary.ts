@@ -736,7 +736,7 @@ const comfyUiWorkflowKeySchema = z.custom<ComfyUiWorkflowKey>(
     typeof value === 'string' &&
     value.length > 0 &&
     utf8ByteLength(value) <= COMFYUI_IPC_LIMITS.workflowIdBytes &&
-    /^(?:built-in|editor|project):[^\\/]+$/u.test(value),
+    /^(?:built-in|user|project):[^\\/]+$/u.test(value),
 );
 const comfyUiGenerationControlsSchema = {
   clientJobId: comfyUiWorkflowIdSchema.optional(),
@@ -783,7 +783,7 @@ export const comfyUiCopyWorkflowArgumentsSchema = z.tuple([
   z
     .object({
       workflowKey: comfyUiWorkflowKeySchema,
-      targetSource: z.enum(['editor', 'project']),
+      targetSource: z.enum(['user', 'project']),
       replace: z.boolean().optional(),
     })
     .strict(),

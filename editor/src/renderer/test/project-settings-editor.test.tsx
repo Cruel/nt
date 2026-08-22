@@ -559,7 +559,7 @@ describe('ProjectSettingsEditor', () => {
           diagnostics: [],
           verificationDiagnostics: [],
           capabilities: {
-            canCopyToEditor: true,
+            canCopyToUser: true,
             canCopyToProject: false,
             canDelete: true,
             canRepair: true,
