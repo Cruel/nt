@@ -369,7 +369,7 @@ describe('SettingsPage code editor theme selector', () => {
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 
-  it('stores ComfyUI connection settings as editor preferences', async () => {
+  it('keeps ComfyUI enablement editor-local while saving shared connection and default state', async () => {
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue({
       ok: true,
       success: true,
@@ -426,6 +426,26 @@ describe('SettingsPage code editor theme selector', () => {
         'image.edit': 'custom-edit-workflow',
       },
     });
+    await waitFor(() =>
+      expect(window.noveltea.saveComfyUiUserConfig).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          format: 'noveltea.comfyui-user-config',
+          formatVersion: 1,
+          serverUrl: 'http://127.0.0.1:8000',
+          defaultWorkflowId: 'custom-workflow',
+          defaultWorkflows: {
+            'image.generate': 'custom-workflow',
+            'image.edit': 'custom-edit-workflow',
+          },
+        }),
+      ),
+    );
+    expect(vi.mocked(window.noveltea.saveComfyUiUserConfig).mock.lastCall?.[0]).not.toHaveProperty(
+      'enabled',
+    );
+    expect(vi.mocked(window.noveltea.saveComfyUiUserConfig).mock.lastCall?.[0]).not.toHaveProperty(
+      'connectionCheckIntervalMs',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Manage ComfyUI Workflows' }));
     expect(useWorkbenchStore.getState().tabsById['tab:comfyui-workflows']).toBeTruthy();

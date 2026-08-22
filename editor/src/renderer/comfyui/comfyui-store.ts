@@ -18,6 +18,7 @@ interface ComfyUiStore {
   status: ComfyUiStatus;
   progress: ComfyUiQueueProgress;
   hydrateFromPreferences: () => void;
+  hydrateFromSharedUserConfig: () => Promise<void>;
   checkConnection: (
     config?: ComfyUiConfig,
     options?: CheckConnectionOptions,
@@ -109,6 +110,16 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
       progress: idleProgress(),
     });
   },
+  hydrateFromSharedUserConfig: async () => {
+    const shared = await window.noveltea.loadComfyUiUserConfig();
+    usePreferencesStore.getState().setComfyUiConfig({
+      serverUrl: shared.serverUrl,
+      requestTimeoutMs: shared.requestTimeoutMs,
+      defaultWorkflowId: shared.defaultWorkflowId,
+      defaultWorkflows: shared.defaultWorkflows,
+    });
+    get().hydrateFromPreferences();
+  },
   checkConnection: async (overrideConfig, options = {}) => {
     const config = overrideConfig ?? get().config;
     if (!config.enabled) {
@@ -157,6 +168,10 @@ export const useComfyUiStore = create<ComfyUiStore>()((set, get) => ({
 }));
 
 useComfyUiStore.getState().hydrateFromPreferences();
+void useComfyUiStore
+  .getState()
+  .hydrateFromSharedUserConfig()
+  .catch(() => undefined);
 
 usePreferencesStore.subscribe((state, previousState) => {
   if (state.comfyUiConfig !== previousState.comfyUiConfig) {
@@ -168,4 +183,8 @@ usePreferencesStore.persist.onFinishHydration((state) => {
   if (configChanged(useComfyUiStore.getState().config, state.comfyUiConfig)) {
     useComfyUiStore.getState().hydrateFromPreferences();
   }
+  void useComfyUiStore
+    .getState()
+    .hydrateFromSharedUserConfig()
+    .catch(() => undefined);
 });

@@ -63,6 +63,8 @@ export const IPC_CHANNELS = {
   CLEAR_EDITOR_CACHE: 'noveltea:clear-editor-cache',
   EDITOR_CACHE_EPOCH_EVENT: 'noveltea:editor-cache-epoch-event',
   READ_PROJECT_TEXT_SOURCES: 'noveltea:read-project-text-sources',
+  COMFYUI_LOAD_USER_CONFIG: 'noveltea:comfyui-load-user-config',
+  COMFYUI_SAVE_USER_CONFIG: 'noveltea:comfyui-save-user-config',
   COMFYUI_CHECK_CONNECTION: 'noveltea:comfyui-check-connection',
   COMFYUI_GET_QUEUE: 'noveltea:comfyui-get-queue',
   COMFYUI_LIST_WORKFLOW_LIBRARY: 'noveltea:comfyui-list-workflow-library',

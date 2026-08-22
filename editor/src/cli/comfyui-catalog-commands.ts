@@ -1,8 +1,18 @@
 import path from 'node:path';
+import { checkComfyUiConnection } from '../main/services/comfyui-service';
+import { loadComfyUiUserConfig } from '../main/services/comfyui-user-config-service';
 import {
   listComfyUiWorkflowLibrary,
+  verifyComfyUiWorkflowLibrary,
   type WorkflowLibraryServiceOptions,
 } from '../main/services/comfyui-workflow-library-service';
+import {
+  comfyUiServerIdentity,
+  defaultComfyUiConfig,
+  normalizeComfyUiSharedUserConfig,
+  type ComfyUiConfig,
+  type ComfyUiSharedUserConfig,
+} from '../shared/comfyui';
 import type {
   ComfyUiWorkflowActiveEntry,
   ComfyUiWorkflowDiagnostic,
@@ -50,6 +60,76 @@ function parseWorkflowCommand(command: readonly string[]) {
   if (id && includeAll)
     throw new CliCommandUsageError("Option '--all' is only valid when listing workflows.");
   return { id, includeAll };
+}
+
+function parseServerOption(arguments_: readonly string[], usage: string) {
+  let server: string | null = null;
+  const positional: string[] = [];
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index]!;
+    if (argument === '--server') {
+      if (server) throw new CliCommandUsageError("Option '--server' may be supplied only once.");
+      const value = arguments_[index + 1];
+      if (!value || value.startsWith('--'))
+        throw new CliCommandUsageError("Option '--server' requires an HTTP(S) URL.");
+      server = value;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('--'))
+      throw new CliCommandUsageError(`Unknown command option '${argument}'.`);
+    positional.push(argument);
+  }
+  if (positional.length > 1) throw new CliCommandUsageError(usage);
+  return { server, positional };
+}
+
+function parseStatusCommand(command: readonly string[]) {
+  if (command[0] !== 'comfyui' || command[1] !== 'status') return null;
+  const parsed = parseServerOption(
+    command.slice(2),
+    'Usage: noveltea comfyui status [--server <url>].',
+  );
+  if (parsed.positional.length > 0)
+    throw new CliCommandUsageError('Usage: noveltea comfyui status [--server <url>].');
+  return { server: parsed.server };
+}
+
+function parseVerifyCommand(command: readonly string[]) {
+  if (command[0] !== 'comfyui' || command[1] !== 'verify') return null;
+  const parsed = parseServerOption(
+    command.slice(2),
+    'Usage: noveltea comfyui verify [<id>] [--server <url>].',
+  );
+  return { id: parsed.positional[0] ?? null, server: parsed.server };
+}
+
+function resolvedComfyUiConfig(
+  shared: ComfyUiSharedUserConfig,
+  serverOverride: string | null,
+): ComfyUiConfig {
+  let resolved: ComfyUiSharedUserConfig;
+  try {
+    resolved = normalizeComfyUiSharedUserConfig({
+      ...shared,
+      ...(serverOverride ? { serverUrl: serverOverride } : {}),
+    });
+  } catch {
+    throw new CliCommandUsageError('ComfyUI server must be a valid HTTP(S) URL.');
+  }
+  return {
+    ...defaultComfyUiConfig(),
+    enabled: true,
+    serverUrl: resolved.serverUrl,
+    requestTimeoutMs: resolved.requestTimeoutMs,
+    defaultWorkflowId: resolved.defaultWorkflowId,
+    defaultWorkflows: resolved.defaultWorkflows,
+  };
+}
+
+function boundedConnectionFailure(message: string | null) {
+  if (message?.toLowerCase().includes('timed out')) return 'ComfyUI connection timed out.';
+  return 'ComfyUI connection check failed.';
 }
 
 function discoveryDiagnostic(discovery: Exclude<ProjectWorkspaceDiscoveryResult, { ok: true }>) {
@@ -166,6 +246,29 @@ function listAllHuman(entries: ReturnType<typeof diagnosticSummary>[]) {
     .join('\n');
 }
 
+function statusHuman(status: {
+  serverUrl: string;
+  comfyUiVersion: string | null;
+  queueRemaining: number | null;
+}) {
+  return [
+    `ComfyUI ready at ${status.serverUrl}`,
+    `Version: ${status.comfyUiVersion ?? 'unknown'}`,
+    `Queue: ${status.queueRemaining ?? 'unknown'}`,
+  ].join('\n');
+}
+
+function verifyHuman(
+  serverUrl: string,
+  verified: readonly { id: string }[],
+  skipped: readonly string[],
+) {
+  const lines = [`ComfyUI verification succeeded at ${serverUrl}.`];
+  if (verified.length > 0) lines.push(`Verified: ${verified.map((entry) => entry.id).join(', ')}`);
+  if (skipped.length > 0) lines.push(`Skipped: ${skipped.join(', ')}`);
+  return lines.join('\n');
+}
+
 function inspectHuman(entry: ReturnType<typeof inspectedWorkflow>) {
   const lines = [
     `${entry.id} — ${entry.label}`,
@@ -196,6 +299,120 @@ function inspectHuman(entry: ReturnType<typeof inspectedWorkflow>) {
 export async function runComfyUiCatalogCommand(
   options: RunComfyUiCatalogCommandOptions,
 ): Promise<NovelTeaCliCommandResult | null> {
+  const statusCommand = parseStatusCommand(options.command);
+  if (statusCommand) {
+    if (options.projectOption)
+      throw new CliCommandUsageError(
+        "Global option '--project' is not supported by project-independent 'comfyui status'.",
+      );
+    const shared = await loadComfyUiUserConfig();
+    const config = resolvedComfyUiConfig(shared, statusCommand.server);
+    const status = await checkComfyUiConnection(config);
+    if (status.state !== 'ready') {
+      const diagnostic = cliDiagnostic(
+        'COMFYUI_SERVER_UNAVAILABLE',
+        '/server',
+        boundedConnectionFailure(status.message),
+      );
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics: [diagnostic],
+          serverUrl: config.serverUrl,
+          checkedAt: status.checkedAt,
+        },
+        options.json,
+        { failure: `${diagnostic.message} Server: ${config.serverUrl}` },
+      );
+    }
+    const result = {
+      serverUrl: config.serverUrl,
+      checkedAt: status.checkedAt,
+      comfyUiVersion: status.comfyUiVersion ?? null,
+      queueRemaining: status.queueRemaining,
+    };
+    return formatCliResult(
+      {
+        success: true,
+        exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+        diagnostics: [],
+        ...result,
+      },
+      options.json,
+      { success: statusHuman(result) },
+    );
+  }
+
+  const verifyCommand = parseVerifyCommand(options.command);
+  if (verifyCommand) {
+    const project = await optionalProjectRoot(
+      options.projectOption,
+      options.cwd,
+      options.fileSystem,
+    );
+    if (project.error)
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.workspace,
+          diagnostics: [project.error],
+        },
+        options.json,
+        { failure: project.error.message },
+      );
+    const shared = await loadComfyUiUserConfig();
+    const config = resolvedComfyUiConfig(shared, verifyCommand.server);
+    const projectFilePath = project.projectRoot
+      ? path.join(project.projectRoot, 'project.json')
+      : null;
+    const verification = await verifyComfyUiWorkflowLibrary(
+      {
+        projectFilePath,
+        config,
+        workflowId: verifyCommand.id ?? undefined,
+        force: true,
+      },
+      options.libraryOptions,
+    );
+    const diagnostics = verification.diagnostics.map((value) =>
+      cliDiagnostic('COMFYUI_VERIFICATION_FAILED', value.path, value.message, value.severity),
+    );
+    if (!verification.success)
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics,
+          ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
+          serverUrl: config.serverUrl,
+          checkedAt: verification.checkedAt,
+          workflowId: verifyCommand.id,
+          verified: verification.verified,
+          failed: verification.failed,
+          skipped: verification.skipped,
+        },
+        options.json,
+        { failure: diagnostics[0]?.message ?? 'ComfyUI workflow verification failed.' },
+      );
+    return formatCliResult(
+      {
+        success: true,
+        exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+        diagnostics,
+        ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
+        serverUrl: config.serverUrl,
+        checkedAt: verification.checkedAt,
+        workflowId: verifyCommand.id,
+        verified: verification.verified,
+        failed: verification.failed,
+        skipped: verification.skipped,
+      },
+      options.json,
+      { success: verifyHuman(config.serverUrl, verification.verified, verification.skipped) },
+    );
+  }
+
   const parsed = parseWorkflowCommand(options.command);
   if (!parsed) return null;
 
@@ -214,10 +431,12 @@ export async function runComfyUiCatalogCommand(
   const projectFilePath = project.projectRoot
     ? path.join(project.projectRoot, 'project.json')
     : null;
+  const shared = await loadComfyUiUserConfig();
   const library = await listComfyUiWorkflowLibrary(
     {
       projectFilePath,
       includeOverridden: parsed.includeAll,
+      serverIdentity: comfyUiServerIdentity(shared.serverUrl),
       comfyUiVersion: 'unknown',
     },
     options.libraryOptions,

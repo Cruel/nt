@@ -146,7 +146,8 @@ export function bootstrapNovelTeaCli(argv: readonly string[]): NovelTeaCliBootst
     command[0] === 'shaderc' ||
     (command[0] === 'project' && command[1] === 'create') ||
     (command[0] === 'agent' && command[1] === 'sync') ||
-    (command[0] === 'comfyui' && command[1] === 'workflows') ||
+    (command[0] === 'comfyui' &&
+      (command[1] === 'workflows' || command[1] === 'status' || command[1] === 'verify')) ||
     command[0] === 'validate' ||
     command[0] === 'usages' ||
     (command[0] === 'entity' &&

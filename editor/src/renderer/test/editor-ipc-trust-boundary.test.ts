@@ -7,6 +7,7 @@ import {
   comfyUiGenerateImageArgumentsSchema,
   comfyUiImportWorkflowArgumentsSchema,
   comfyUiListWorkflowLibraryArgumentsSchema,
+  comfyUiUserConfigArgumentsSchema,
   comfyUiRepairWorkflowArgumentsSchema,
   compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
@@ -556,6 +557,25 @@ describe('guarded editor IPC registrar', () => {
         null,
         { workflowKey: 'editor:custom.manifest.json', targetSource: 'project' },
       ]).success,
+    ).toBe(false);
+  });
+
+  it('admits only shared ComfyUI machine settings through the user-config IPC contract', () => {
+    const shared = {
+      format: 'noveltea.comfyui-user-config',
+      formatVersion: 1,
+      serverUrl: 'http://127.0.0.1:8188',
+      requestTimeoutMs: 15_000,
+      defaultWorkflowId: 'image-generate',
+      defaultWorkflows: { 'image.generate': 'image-generate' },
+    };
+    expect(comfyUiUserConfigArgumentsSchema.safeParse([shared]).success).toBe(true);
+    expect(comfyUiUserConfigArgumentsSchema.safeParse([{ ...shared, enabled: true }]).success).toBe(
+      false,
+    );
+    expect(
+      comfyUiUserConfigArgumentsSchema.safeParse([{ ...shared, connectionCheckIntervalMs: 10_000 }])
+        .success,
     ).toBe(false);
   });
 

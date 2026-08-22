@@ -15,6 +15,18 @@ function deferred<T>() {
 }
 
 beforeEach(() => {
+  vi.mocked(window.noveltea.loadComfyUiUserConfig).mockReset();
+  vi.mocked(window.noveltea.loadComfyUiUserConfig).mockResolvedValue({
+    format: 'noveltea.comfyui-user-config',
+    formatVersion: 1,
+    serverUrl: 'http://127.0.0.1:8000',
+    requestTimeoutMs: 15000,
+    defaultWorkflowId: 'flux2-klein-text-to-image',
+    defaultWorkflows: {
+      'image.generate': 'flux2-klein-text-to-image',
+      'image.edit': 'flux2-klein-image-edit',
+    },
+  });
   vi.mocked(window.noveltea.checkComfyUiConnection).mockReset();
   vi.mocked(window.noveltea.getComfyUiQueue).mockReset();
   vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockReset();
@@ -65,6 +77,31 @@ beforeEach(() => {
 });
 
 describe('useComfyUiStore', () => {
+  it('hydrates shared server state without replacing editor-local enablement and cadence', async () => {
+    usePreferencesStore.getState().setComfyUiConfig({
+      enabled: true,
+      connectionCheckIntervalMs: 4321,
+    });
+    vi.mocked(window.noveltea.loadComfyUiUserConfig).mockResolvedValueOnce({
+      format: 'noveltea.comfyui-user-config',
+      formatVersion: 1,
+      serverUrl: 'https://comfy.example.test',
+      requestTimeoutMs: 2222,
+      defaultWorkflowId: 'shared-generate',
+      defaultWorkflows: { 'image.generate': 'shared-generate' },
+    });
+
+    await useComfyUiStore.getState().hydrateFromSharedUserConfig();
+
+    expect(useComfyUiStore.getState().config).toMatchObject({
+      enabled: true,
+      connectionCheckIntervalMs: 4321,
+      serverUrl: 'https://comfy.example.test',
+      requestTimeoutMs: 2222,
+      defaultWorkflowId: 'shared-generate',
+    });
+  });
+
   it('syncs enabled preference changes into the runtime status store', () => {
     expect(useComfyUiStore.getState().status).toMatchObject({
       state: 'disabled',

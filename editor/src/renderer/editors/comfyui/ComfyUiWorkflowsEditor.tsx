@@ -36,6 +36,7 @@ import {
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { comfyUiServerIdentity } from '../../../shared/comfyui';
 import type {
   ComfyUiWorkflowLibraryEntry,
   ComfyUiWorkflowLibraryListResponse,
@@ -109,6 +110,7 @@ const COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA = 'noveltea.editor.comfyui-workflows-ta
 export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
+  const comfyUiConfig = useComfyUiStore((state) => state.config);
   const [showOverridden, setShowOverridden] = useState(false);
   const [response, setResponse] = useState<ComfyUiWorkflowLibraryListResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -152,6 +154,7 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
     void listComfyUiWorkflowLibrary({
       projectFilePath,
       includeOverridden: true,
+      serverIdentity: comfyUiServerIdentity(comfyUiConfig.serverUrl),
       comfyUiVersion: comfyUiStatus.comfyUiVersion,
     })
       .then((next) => {
@@ -178,7 +181,13 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
     return () => {
       canceled = true;
     };
-  }, [comfyUiStatus.comfyUiVersion, comfyUiStatus.state, projectFilePath, refreshToken]);
+  }, [
+    comfyUiConfig.serverUrl,
+    comfyUiStatus.comfyUiVersion,
+    comfyUiStatus.state,
+    projectFilePath,
+    refreshToken,
+  ]);
 
   const entries = visibleEntries(response, showOverridden);
 
