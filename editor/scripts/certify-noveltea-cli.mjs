@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import {
   cp,
@@ -33,6 +33,11 @@ const nativeCli = path.resolve(
     path.join(repositoryRoot, 'build', 'cli', releasePlatform, executableName),
 );
 const nodeCli = path.join(editorRoot, 'dist-electron', 'tools', 'noveltea.mjs');
+const comfyUiCertificationServer = path.join(
+  editorRoot,
+  'scripts',
+  'comfyui-certification-server.mjs',
+);
 const fixtureTool = path.join(
   editorRoot,
   'dist-electron',
@@ -176,6 +181,106 @@ function runNode(args, options = {}) {
 
 function runNative(args, options = {}) {
   return run(nativeCli, args, options);
+}
+
+async function startComfyUiCertificationServer(tempRoot, mode = 'success') {
+  const logPath = path.join(
+    tempRoot,
+    `comfyui-${mode}-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
+  );
+  const child = spawn(process.execPath, [comfyUiCertificationServer], {
+    cwd: tempRoot,
+    env: {
+      ...process.env,
+      NOVELTEA_COMFYUI_CERT_LOG: logPath,
+      NOVELTEA_COMFYUI_CERT_MODE: mode,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const port = await new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(
+      () => reject(new Error(`Timed out starting fake ComfyUI server. ${stderr}`)),
+      5000,
+    );
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.once('exit', (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`Fake ComfyUI server exited ${code}. ${stderr}`));
+    });
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+      const line = stdout.split(/\r?\n/u)[0];
+      const value = Number(line);
+      if (Number.isInteger(value) && value > 0) {
+        clearTimeout(timeout);
+        resolve(value);
+      }
+    });
+  });
+  return {
+    url: `http://127.0.0.1:${port}`,
+    logPath,
+    async stop() {
+      if (child.exitCode !== null) return;
+      child.kill('SIGTERM');
+      await new Promise((resolve) => child.once('exit', resolve));
+    },
+  };
+}
+
+async function runAsync(command, args, options = {}) {
+  const child = spawn(command, args, {
+    cwd: options.cwd ?? repositoryRoot,
+    env: options.env ?? process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    stderr += chunk;
+  });
+  return {
+    child,
+    async result() {
+      const status = await new Promise((resolve, reject) => {
+        child.once('error', reject);
+        child.once('exit', (code, signal) => resolve(code ?? (signal === 'SIGINT' ? 130 : 1)));
+      });
+      return { status, stdout, stderr };
+    },
+  };
+}
+
+async function waitForComfyUiRequest(logPath, expectedPath, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const requests = await readComfyUiRequests(logPath);
+    if (requests.some((request) => request.path === expectedPath)) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  fail(`Timed out waiting for fake ComfyUI request '${expectedPath}'.`);
+}
+
+async function readComfyUiRequests(logPath) {
+  try {
+    return (await readFile(logPath, 'utf8'))
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+  } catch {
+    return [];
+  }
 }
 
 function runNativeWithStdinFile(args, stdinPath, options = {}) {
@@ -678,6 +783,501 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
       fail(`Standalone platform export is missing '${required}'.`);
 }
 
+function canonicalComfyUiResult(result) {
+  let value;
+  try {
+    value = JSON.parse(result.stdout);
+  } catch {
+    return result.stdout;
+  }
+  const normalize = (item) => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (!item || typeof item !== 'object') return item;
+    const normalized = {};
+    for (const [key, next] of Object.entries(item)) {
+      if (
+        ['clientId', 'promptId', 'assetId', 'importedAt', 'createdAt', 'checkedAt'].includes(key)
+      ) {
+        normalized[key] = `<${key}>`;
+        continue;
+      }
+      if (
+        key === 'projectRelativePath' &&
+        typeof next === 'string' &&
+        next.startsWith('assets/generated/')
+      ) {
+        normalized[key] = '<generated-asset-path>';
+        continue;
+      }
+      normalized[key] = normalize(next);
+    }
+    return normalized;
+  };
+  return JSON.stringify(normalize(value));
+}
+
+function canonicalComfyUiRequests(requests) {
+  const normalized = requests.map((request) => ({
+    method: request.method,
+    path: request.path.startsWith('/history/') ? '/history/<prompt>' : request.path,
+    search: request.path === '/view' ? '<view-query>' : request.search,
+    bodyBytes: request.bodyBytes,
+  }));
+  if (
+    normalized.length >= 2 &&
+    new Set(normalized.slice(0, 2).map((request) => request.path)).size === 2 &&
+    normalized
+      .slice(0, 2)
+      .every((request) => ['/object_info', '/system_stats'].includes(request.path))
+  )
+    normalized.splice(
+      0,
+      2,
+      ...normalized.slice(0, 2).sort((left, right) => left.path.localeCompare(right.path, 'en')),
+    );
+  return JSON.stringify(normalized);
+}
+
+async function comfyUiStateSnapshot(root) {
+  const generated = [];
+  async function collectGenerated(directory) {
+    try {
+      for (const name of (await readdir(directory)).sort((left, right) =>
+        left.localeCompare(right, 'en'),
+      )) {
+        const absolute = path.join(directory, name);
+        const info = await stat(absolute);
+        if (info.isFile()) generated.push(sha256(await readFile(absolute)));
+        else if (info.isDirectory()) await collectGenerated(absolute);
+      }
+    } catch {
+      // Missing publication directories are valid for non-execution cases.
+    }
+  }
+  await collectGenerated(path.join(root, 'assets', 'generated'));
+
+  const filesystem = [];
+  async function collectFilesystem(relative) {
+    const absolute = path.join(root, relative);
+    try {
+      const info = await stat(absolute);
+      if (info.isFile()) {
+        filesystem.push([relative.split(path.sep).join('/'), sha256(await readFile(absolute))]);
+        return;
+      }
+      if (!info.isDirectory()) return;
+      for (const name of (await readdir(absolute)).sort((left, right) =>
+        left.localeCompare(right, 'en'),
+      ))
+        await collectFilesystem(path.join(relative, name));
+    } catch {
+      // Missing explicit publication targets are valid for non-execution cases.
+    }
+  }
+  for (const relative of ['out', 'edit-out', 'default-out', 'mixed.png'])
+    await collectFilesystem(relative);
+
+  let assetCount = 0;
+  try {
+    assetCount = (await readdir(path.join(root, 'records', 'assets'))).filter((name) =>
+      name.endsWith('.json'),
+    ).length;
+  } catch {
+    // Project-less cases have no Asset records.
+  }
+  return JSON.stringify({
+    generated: generated.sort((left, right) => left.localeCompare(right, 'en')),
+    filesystem,
+    assetCount,
+  });
+}
+
+async function installCertificationMultiOutputWorkflow(projectRoot) {
+  const sourceRoot = path.join(editorRoot, 'assets', 'comfyui', 'workflows');
+  const workflowText = await readFile(
+    path.join(sourceRoot, 'flux2-klein-text-to-image.workflow.json'),
+    'utf8',
+  );
+  const manifest = JSON.parse(
+    await readFile(path.join(sourceRoot, 'flux2-klein-text-to-image.manifest.json'), 'utf8'),
+  );
+  manifest.id = 'certification-multi';
+  manifest.label = 'Certification Multi Output';
+  manifest.workflowFile = 'certification-multi.workflow.json';
+  manifest.contract.outputs = {
+    primary: { mediaType: 'image', required: true, cardinality: 'one' },
+    secondary: { mediaType: 'image', required: true, cardinality: 'one' },
+  };
+  manifest.outputBindings = {
+    primary: manifest.outputBindings.images,
+    secondary: manifest.outputBindings.images,
+  };
+  const workflowRoot = path.join(projectRoot, 'workflows');
+  await mkdir(workflowRoot, { recursive: true });
+  await writeFile(path.join(workflowRoot, manifest.workflowFile), workflowText);
+  await writeJson(path.join(workflowRoot, 'certification-multi.manifest.json'), manifest);
+}
+
+async function certifyComfyUiStandalone(tempRoot, pristine) {
+  const server = await startComfyUiCertificationServer(tempRoot);
+  const sourceImage = path.join(tempRoot, 'comfyui-source.png');
+  await writeFile(
+    sourceImage,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+      'base64',
+    ),
+  );
+  const cases = [
+    {
+      name: 'status',
+      args: () => ['--json', 'comfyui', 'status', '--server', server.url],
+      project: false,
+    },
+    { name: 'workflow-list', args: () => ['--json', 'comfyui', 'workflows'], project: false },
+    {
+      name: 'workflow-inspect',
+      args: () => ['--json', 'comfyui', 'workflows', 'flux2-klein-text-to-image'],
+      project: false,
+    },
+    {
+      name: 'verify',
+      args: () => [
+        '--json',
+        'comfyui',
+        'verify',
+        'flux2-klein-text-to-image',
+        '--server',
+        server.url,
+      ],
+      project: false,
+    },
+    {
+      name: 'scalar-filesystem',
+      args: (root) => [
+        '--json',
+        'comfyui',
+        'run',
+        'flux2-klein-text-to-image',
+        '--server',
+        server.url,
+        '--input',
+        'prompt=certification',
+        '--output',
+        `images=${path.join(root, 'out')}`,
+      ],
+      project: false,
+    },
+    {
+      name: 'local-image-edit',
+      args: (root) => [
+        '--json',
+        'comfyui',
+        'run',
+        'flux2-klein-image-edit',
+        '--server',
+        server.url,
+        '--input',
+        `sourceImage=${sourceImage}`,
+        '--input',
+        'prompt=certification edit',
+        '--output',
+        `images=${path.join(root, 'edit-out')}`,
+      ],
+      project: false,
+    },
+    {
+      name: 'default-resolution',
+      args: (root) => [
+        '--json',
+        'comfyui',
+        'run',
+        '--type',
+        'image.generate',
+        '--server',
+        server.url,
+        '--input',
+        'prompt=default certification',
+        '--output',
+        `images=${path.join(root, 'default-out')}`,
+      ],
+      project: false,
+      defaults: true,
+    },
+    {
+      name: 'project-asset-publication',
+      args: (root) => [
+        '--project',
+        root,
+        '--json',
+        'comfyui',
+        'run',
+        'flux2-klein-text-to-image',
+        '--server',
+        server.url,
+        '--input',
+        'prompt=asset certification',
+      ],
+      project: true,
+    },
+    {
+      name: 'named-mixed-publication',
+      args: (root) => [
+        '--project',
+        root,
+        '--json',
+        'comfyui',
+        'run',
+        'certification-multi',
+        '--server',
+        server.url,
+        '--input',
+        'prompt=mixed certification',
+        '--output',
+        `primary=${path.join(root, 'mixed.png')}`,
+      ],
+      project: true,
+      multi: true,
+    },
+    {
+      name: 'unknown-workflow-failure',
+      args: () => [
+        '--json',
+        'comfyui',
+        'run',
+        'missing-workflow',
+        '--server',
+        server.url,
+        '--output',
+        'out.png',
+      ],
+      project: false,
+    },
+  ];
+  try {
+    for (const test of cases) {
+      const root = path.join(tempRoot, `comfyui-${test.name}`);
+      const runOne = async (runner, configSuffix) => {
+        if (test.project) await resetCase(pristine, root);
+        else {
+          await rm(root, { recursive: true, force: true });
+          await mkdir(root, { recursive: true });
+        }
+        if (test.multi) await installCertificationMultiOutputWorkflow(root);
+        const configRoot = path.join(tempRoot, `comfyui-config-${test.name}-${configSuffix}`);
+        await rm(configRoot, { recursive: true, force: true });
+        if (test.defaults)
+          await writeJson(path.join(configRoot, 'comfyui', 'config-v1.json'), {
+            format: 'noveltea.comfyui-user-config',
+            formatVersion: 1,
+            serverUrl: server.url,
+            requestTimeoutMs: 2000,
+            defaultWorkflows: { 'image.generate': 'flux2-klein-text-to-image' },
+          });
+        await writeFile(server.logPath, '');
+        const result = runner(test.args(root), {
+          cwd: root,
+          env: { ...process.env, NOVELTEA_USER_CONFIG_ROOT: configRoot },
+        });
+        const requests = await readComfyUiRequests(server.logPath);
+        const state = await comfyUiStateSnapshot(root);
+        return { result, requests, state };
+      };
+      const node = await runOne(runNode, 'node');
+      const native = await runOne(runNative, 'native');
+      if (
+        node.result.status !== native.result.status ||
+        node.result.stderr !== native.result.stderr
+      )
+        fail(`ComfyUI differential '${test.name}' exit/stderr differs.`);
+      if (canonicalComfyUiResult(node.result) !== canonicalComfyUiResult(native.result))
+        fail(
+          `ComfyUI differential '${test.name}' stdout differs.\nNode: ${node.result.stdout}\nScriptC: ${native.result.stdout}`,
+        );
+      if (node.state !== native.state)
+        fail(`ComfyUI differential '${test.name}' filesystem/Project state differs.`);
+      if (canonicalComfyUiRequests(node.requests) !== canonicalComfyUiRequests(native.requests))
+        fail(
+          `ComfyUI differential '${test.name}' fake-server request trace differs.\nNode: ${JSON.stringify(node.requests)}\nScriptC: ${JSON.stringify(native.requests)}`,
+        );
+      if (node.result.stdout && !node.result.stdout.endsWith('\n'))
+        fail(`ComfyUI '${test.name}' stdout is not one JSON line.`);
+      if (node.result.stderr !== '') fail(`ComfyUI '${test.name}' emitted stderr in --json mode.`);
+      process.stdout.write(`[comfyui differential] ${test.name}: PASS\n`);
+    }
+  } finally {
+    await server.stop();
+  }
+
+  const failureCases = [
+    {
+      mode: 'upload-failure',
+      args: (url, root) => [
+        '--json',
+        'comfyui',
+        'run',
+        'flux2-klein-image-edit',
+        '--server',
+        url,
+        '--input',
+        `sourceImage=${sourceImage}`,
+        '--input',
+        'prompt=upload failure',
+        '--output',
+        `images=${path.join(root, 'out')}`,
+      ],
+    },
+    {
+      mode: 'history-failure',
+      args: (url, root) => [
+        '--json',
+        'comfyui',
+        'run',
+        'flux2-klein-text-to-image',
+        '--server',
+        url,
+        '--input',
+        'prompt=history failure',
+        '--output',
+        `images=${path.join(root, 'out')}`,
+      ],
+    },
+    {
+      mode: 'oversized-output',
+      args: (url, root) => [
+        '--json',
+        'comfyui',
+        'run',
+        'flux2-klein-text-to-image',
+        '--server',
+        url,
+        '--input',
+        'prompt=oversized output',
+        '--output',
+        `images=${path.join(root, 'out')}`,
+      ],
+    },
+  ];
+  for (const failureCase of failureCases) {
+    const failureServer = await startComfyUiCertificationServer(tempRoot, failureCase.mode);
+    try {
+      const root = path.join(tempRoot, `comfyui-${failureCase.mode}`);
+      const runFailure = async (runner, suffix) => {
+        await rm(root, { recursive: true, force: true });
+        await mkdir(root, { recursive: true });
+        const configRoot = path.join(tempRoot, `comfyui-config-${failureCase.mode}-${suffix}`);
+        await rm(configRoot, { recursive: true, force: true });
+        await writeFile(failureServer.logPath, '');
+        const result = runner(failureCase.args(failureServer.url, root), {
+          cwd: root,
+          env: { ...process.env, NOVELTEA_USER_CONFIG_ROOT: configRoot },
+        });
+        return { result, requests: await readComfyUiRequests(failureServer.logPath) };
+      };
+      const node = await runFailure(runNode, 'node');
+      const native = await runFailure(runNative, 'native');
+      if (node.result.status === 0 || native.result.status === 0)
+        fail(`ComfyUI failure certification '${failureCase.mode}' unexpectedly succeeded.`);
+      if (
+        node.result.status !== native.result.status ||
+        node.result.stderr !== native.result.stderr ||
+        canonicalComfyUiResult(node.result) !== canonicalComfyUiResult(native.result)
+      )
+        fail(`ComfyUI failure differential '${failureCase.mode}' differs.`);
+      if (canonicalComfyUiRequests(node.requests) !== canonicalComfyUiRequests(native.requests))
+        fail(`ComfyUI failure differential '${failureCase.mode}' request trace differs.`);
+      process.stdout.write(`[comfyui differential] ${failureCase.mode}: PASS\n`);
+    } finally {
+      await failureServer.stop();
+    }
+  }
+
+  const timeoutServer = await startComfyUiCertificationServer(tempRoot, 'request-timeout');
+  try {
+    const runTimeout = async (runner, suffix) => {
+      const configRoot = path.join(tempRoot, `comfyui-config-timeout-${suffix}`);
+      await writeJson(path.join(configRoot, 'comfyui', 'config-v1.json'), {
+        format: 'noveltea.comfyui-user-config',
+        formatVersion: 1,
+        serverUrl: timeoutServer.url,
+        requestTimeoutMs: 100,
+        defaultWorkflows: {},
+      });
+      return runner(['--json', 'comfyui', 'status'], {
+        cwd: tempRoot,
+        env: { ...process.env, NOVELTEA_USER_CONFIG_ROOT: configRoot },
+      });
+    };
+    const node = await runTimeout(runNode, 'node');
+    const native = await runTimeout(runNative, 'native');
+    if (
+      node.status !== native.status ||
+      canonicalComfyUiResult(node) !== canonicalComfyUiResult(native)
+    )
+      fail('ComfyUI request-timeout differential differs.');
+    process.stdout.write('[comfyui differential] request-timeout: PASS\n');
+  } finally {
+    await timeoutServer.stop();
+  }
+
+  const cancellationServer = await startComfyUiCertificationServer(tempRoot, 'never-complete');
+  try {
+    const cancelArgs = [
+      '--json',
+      'comfyui',
+      'run',
+      'flux2-klein-text-to-image',
+      '--server',
+      cancellationServer.url,
+      '--input',
+      'prompt=cancel certification',
+      '--output',
+      `images=${path.join(tempRoot, 'cancel-out')}`,
+    ];
+    await writeFile(cancellationServer.logPath, '');
+    const nodeConfigRoot = path.join(tempRoot, 'comfyui-config-cancel-node');
+    const nodeInvocation = await runAsync(process.execPath, [nodeCli, ...cancelArgs], {
+      cwd: tempRoot,
+      env: { ...process.env, NOVELTEA_USER_CONFIG_ROOT: nodeConfigRoot },
+    });
+    const nodeResultPromise = nodeInvocation.result();
+    await waitForComfyUiRequest(cancellationServer.logPath, '/prompt');
+    nodeInvocation.child.kill('SIGINT');
+    const nodeResult = await nodeResultPromise;
+    if (nodeResult.status !== 130)
+      fail(`Node ComfyUI cancellation exited ${nodeResult.status}, expected 130.`);
+    let requests = await readComfyUiRequests(cancellationServer.logPath);
+    if (!requests.some((request) => request.method === 'POST' && request.path === '/queue'))
+      fail('Node ComfyUI cancellation did not issue prompt-specific queue deletion.');
+    if (requests.some((request) => request.path === '/interrupt'))
+      fail('Node ComfyUI cancellation used the forbidden global /interrupt endpoint.');
+    process.stdout.write('[comfyui cancellation] Node SIGINT: PASS\n');
+
+    await writeFile(cancellationServer.logPath, '');
+    const scriptcConfigRoot = path.join(tempRoot, 'comfyui-config-cancel-scriptc');
+    const scriptcResult = runNative(['__comfyui-cancel-certification', ...cancelArgs], {
+      cwd: tempRoot,
+      env: {
+        ...process.env,
+        NOVELTEA_USER_CONFIG_ROOT: scriptcConfigRoot,
+        NOVELTEA_CLI_CERTIFICATION: '1',
+      },
+    });
+    if (scriptcResult.status !== 130)
+      fail(`ScriptC ComfyUI abort seam exited ${scriptcResult.status}, expected 130.`);
+    requests = await readComfyUiRequests(cancellationServer.logPath);
+    if (!requests.some((request) => request.method === 'POST' && request.path === '/queue'))
+      fail('ScriptC ComfyUI abort seam did not issue prompt-specific queue deletion.');
+    if (requests.some((request) => request.path === '/interrupt'))
+      fail('ScriptC ComfyUI abort seam used the forbidden global /interrupt endpoint.');
+    process.stdout.write('[comfyui cancellation] ScriptC abort seam: PASS\n');
+  } finally {
+    await cancellationServer.stop();
+  }
+
+  return cases.length + failureCases.length + 2;
+}
+
 async function certifyRelocation(tempRoot) {
   const relocated = path.join(tempRoot, 'relocated', 'bin', executableName);
   await mkdir(path.dirname(relocated), { recursive: true });
@@ -697,6 +1297,55 @@ async function certifyRelocation(tempRoot) {
   const payload = JSON.parse(result.stdout);
   if (payload.version !== productVersion)
     fail(`Relocated CLI returned unexpected version '${payload.version}'.`);
+  const workflowList = requireSuccess(
+    'relocated built-in ComfyUI workflow catalog',
+    run(relocated, ['--json', 'comfyui', 'workflows'], {
+      cwd: path.dirname(relocated),
+      env: { ...env, NOVELTEA_USER_CONFIG_ROOT: path.join(tempRoot, 'relocated-config') },
+    }),
+  );
+  const workflowPayload = JSON.parse(workflowList.stdout);
+  const workflowIds = Array.isArray(workflowPayload.workflows)
+    ? workflowPayload.workflows.map((entry) => entry.id)
+    : [];
+  for (const required of ['flux2-klein-text-to-image', 'flux2-klein-image-edit'])
+    if (!workflowIds.includes(required))
+      fail(`Relocated CLI is missing embedded ComfyUI workflow '${required}'.`);
+
+  const comfyUiServer = await startComfyUiCertificationServer(tempRoot);
+  try {
+    const outputRoot = path.join(tempRoot, 'relocated-comfyui-output');
+    const executed = requireSuccess(
+      'relocated embedded ComfyUI execution',
+      run(
+        relocated,
+        [
+          '--json',
+          'comfyui',
+          'run',
+          'flux2-klein-text-to-image',
+          '--server',
+          comfyUiServer.url,
+          '--input',
+          'prompt=relocated certification',
+          '--output',
+          `images=${outputRoot}`,
+        ],
+        {
+          cwd: path.dirname(relocated),
+          env: { ...env, NOVELTEA_USER_CONFIG_ROOT: path.join(tempRoot, 'relocated-config') },
+        },
+      ),
+    );
+    const executionPayload = JSON.parse(executed.stdout);
+    if (executionPayload.success !== true)
+      fail('Relocated embedded ComfyUI execution did not report success.');
+    const outputFiles = await readdir(outputRoot);
+    if (outputFiles.length !== 1 || !(await stat(path.join(outputRoot, outputFiles[0]))).isFile())
+      fail('Relocated embedded ComfyUI execution did not publish exactly one image.');
+  } finally {
+    await comfyUiServer.stop();
+  }
 
   const closure = isWindows
     ? requireSuccess('CLI PE dependency audit', run('dumpbin', ['/dependents', relocated], { env }))
@@ -748,12 +1397,14 @@ async function main() {
     await certifyRawShaderc(tempRoot);
     await certifyNativeOperations(tempRoot, pristine);
     await certifyPlatformHost(tempRoot, pristine);
+    const comfyUiDifferentialCases = await certifyComfyUiStandalone(tempRoot, pristine);
     const closure = await certifyRelocation(tempRoot);
     const binarySize = (await stat(nativeCli)).size;
     process.stdout.write(
       `${JSON.stringify({
         success: true,
         differentialCases: differentialCases.length,
+        comfyUiDifferentialCases,
         typedShaderVariants: Object.keys(typedFragmentGoldens),
         rawShaderVariants: Object.keys(rawShaderGoldens),
         nativeOperations: [

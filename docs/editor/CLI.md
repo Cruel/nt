@@ -97,6 +97,11 @@ prompt from the ComfyUI queue and returns conventional exit status 130; it does 
 or clear unrelated jobs. Independent `comfyui run` invocations remain concurrent and use distinct client/prompt IDs.
 With `--json`, execution still produces exactly one final compact envelope on stdout and no stderr output.
 
+Built-in ComfyUI packages are embedded directly into the self-contained standalone executable. A relocated `noveltea`
+therefore retains the built-in workflow catalog and execution contracts without Electron resources, sibling workflow
+files, project-local JavaScript, Node, or Sharp. User and Project packages remain external mutable sources layered over
+those embedded built-ins by normal `project > user > built-in` precedence.
+
 Shared user packages live under `<NovelTea user config>/comfyui/workflows/`. The strict
 `noveltea.comfyui-user-config` version 1 document at `<NovelTea user config>/comfyui/config-v1.json` owns the server URL,
 per-request timeout, and logical default-workflow mappings keyed by arbitrary valid dotted classifications. The canonical
@@ -173,7 +178,7 @@ The Node reference/editor-hosted command and Linux x64 and Windows x64 self-cont
 commands are implemented. Every standalone host binary remains subject to the cross-host
 certification gate in `SCRIPTC_COMPATIBILITY.md`.
 
-The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations cross the existing NovelTea C ABI. `agent sync` embeds the checked-in agent-kit source texts as build-time package data and generates the schema portion only when that command runs.
+The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations and image inspection cross the existing NovelTea native boundary. `agent sync` embeds the checked-in agent-kit source texts as build-time package data, and built-in ComfyUI manifests/API workflows are likewise embedded as immutable build-time package data. The release certification runs Node-reference-versus-ScriptC ComfyUI operations against a deterministic local fake server and separately proves relocated built-in discovery. See `SCRIPTC_COMPATIBILITY.md` for admitted host assumptions, including current OS-signal limitations.
 
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
 

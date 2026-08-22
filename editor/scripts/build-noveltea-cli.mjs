@@ -31,6 +31,12 @@ const agentKitSourcePackageRoot = path.join(
   'node_modules',
   'noveltea-scriptc-agent-kit-source',
 );
+const comfyUiWorkflowPackageRoot = path.join(
+  stageRoot,
+  'node_modules',
+  'noveltea-scriptc-comfyui-workflows',
+);
+const comfyUiWorkflowSourceRoot = path.join(editorRoot, 'assets', 'comfyui', 'workflows');
 const agentKitProvenancePath = path.join(editorRoot, 'agent-kit-provenance.json');
 const agentKitSystemLayoutSourceRoot = path.join(repositoryRoot, 'engine', 'assets', 'system');
 const agentKitSourcePaths = [
@@ -332,6 +338,7 @@ await mkdir(outputDirectory, { recursive: true });
 await rm(stageRoot, { recursive: true, force: true });
 await mkdir(islandPackageRoot, { recursive: true });
 await mkdir(agentKitSourcePackageRoot, { recursive: true });
+await mkdir(comfyUiWorkflowPackageRoot, { recursive: true });
 
 try {
   await cp(islandBundle, path.join(islandPackageRoot, 'index.mjs'));
@@ -350,6 +357,33 @@ try {
     )}\n`,
   );
   await cp(islandDeclaration, path.join(islandPackageRoot, 'index.d.ts'));
+
+  const comfyUiWorkflowFiles = await collectUtf8Files(
+    comfyUiWorkflowSourceRoot,
+    comfyUiWorkflowSourceRoot,
+  );
+  await writeFile(
+    path.join(comfyUiWorkflowPackageRoot, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: 'noveltea-scriptc-comfyui-workflows',
+        version: productVersion,
+        private: true,
+        main: 'index.mjs',
+        types: 'index.d.ts',
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  await writeFile(
+    path.join(comfyUiWorkflowPackageRoot, 'index.mjs'),
+    `export const scriptcComfyUiWorkflowFiles = Object.freeze(${JSON.stringify(comfyUiWorkflowFiles)});\n`,
+  );
+  await writeFile(
+    path.join(comfyUiWorkflowPackageRoot, 'index.d.ts'),
+    'export declare const scriptcComfyUiWorkflowFiles: Readonly<Record<string, string>>;\n',
+  );
 
   const agentKitSourceFiles = Object.fromEntries(
     await Promise.all(

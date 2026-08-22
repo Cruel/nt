@@ -21,9 +21,11 @@ The static host owns:
 
 The native tooling archive continues to own shader compilation, raw bgfx shaderc forwarding, runtime/UI playback, and package writing. `noveltea_tooling_scriptc_invoke_to_file` is an adapter for scriptc format-1 FFI: request JSON crosses as borrowed strings, the existing `noveltea_tooling_*_json` API produces the response, and the adapter materializes that response into a private temporary file for the static host to read. Native business logic is not duplicated in the adapter.
 
-## Agent-kit source embedding
+## Build-time source embedding
 
 The hand-authored agent-kit source remains canonical under `editor/agent-kit/`, while curator-only source/ref metadata lives beside it in `editor/agent-kit-provenance.json`. Release builds generate a private staged package containing the exact source texts plus that provenance object. The QuickJS island embeds the package, combines the texts with JSON Schemas generated from the shared Zod schemas when `agent sync` is invoked, and places provenance only in the generated manifest. No generated agent-kit source copy is checked in, and curator metadata is never emitted as an agent-facing file.
+
+Built-in ComfyUI packages are handled the same way. The checked-in manifests and API workflows under `editor/assets/comfyui/workflows/` remain canonical; the release build collects their exact UTF-8 texts into a private staged `noveltea-scriptc-comfyui-workflows` package. The island supplies that immutable map through the workflow-library dependency-injection seam, so built-in discovery, inspection, verification, execution, and copy-to-user/project do not depend on Electron resources or sibling workflow files. Relocation certification runs `comfyui workflows` after moving the executable away from the editor tree and requires both bundled image workflows to remain available.
 
 ## Build pin and admitted host
 
@@ -35,7 +37,7 @@ The hand-authored agent-kit source remains canonical under `editor/agent-kit/`, 
 
 `editor/scripts/build-noveltea-cli.mjs` verifies the installed scriptc version, builds the native
 tooling archive closure for the current admitted host, produces the minified/no-sourcemap QuickJS
-package, stages the two private packages under `build/host-tools/scriptc/`, invokes scriptc with
+package, stages the private island, agent-kit-source, and ComfyUI-workflow packages under `build/host-tools/scriptc/`, invokes scriptc with
 `--dynamic` and the platform-specific FFI manifest, strips the resulting ELF or PE executable, and
 removes the staging directory. Windows deliberately uses the dedicated `windows-cli-gnu` CMake
 preset and `x64-mingw-static-noveltea` target triplet so every FFI archive shares ScriptC's supported
@@ -54,6 +56,10 @@ the QuickJS island neither starts subprocesses nor loads Node native addons. Tem
 commands therefore remain Node-free at runtime while using installed host archive utilities through
 structured executable and argument requests.
 
+ComfyUI transport stays in the shared TypeScript island and uses HTTP(S) `fetch` plus bounded response readers. Execution polls `/history/<prompt-id>`; there is no WebSocket dependency in the standalone path. Source-image inspection crosses the existing native `image-inspect` boundary before bytes can be uploaded, and no Sharp/native-addon dependency enters the island. Local-file disclosure follows the shared narrow rule: credential-free plain HTTP to a literal loopback IP only; DNS hostnames including `localhost`, HTTPS, and non-loopback addresses are rejected. URL objects in the island are treated as read-only values because ScriptC's current URL compatibility layer does not admit Node-style component mutation.
+
+OS signal delivery is a known host boundary. The current ScriptC QuickJS island does not receive host SIGINT in a form that permits asynchronous prompt cleanup before process termination. Node-reference certification therefore exercises the public Ctrl-C path directly. Standalone certification exercises the same shared abort signal and prompt-specific `/queue` deletion through a certification-only island injection, proving cancellation semantics at the highest practical ScriptC seam without claiming that current ScriptC forwards Ctrl-C cleanup. The shared runner never uses ComfyUI's global `/interrupt` endpoint.
+
 The admitted standalone release hosts are Linux x64 and Windows x64. macOS standalone artifacts
 must not be advertised until scriptc/native-link certification is added there. A certified CLI may
 assemble any compatible installed target template regardless of its host platform.
@@ -61,6 +67,8 @@ assemble any compatible installed target template regardless of its host platfor
 ## Certification gate
 
 `editor/scripts/certify-noveltea-cli.mjs` treats the Node bundle as the semantic reference and requires the standalone scriptc executable to match it on exit code, stdout, stderr, and project-tree state across discovery, validation, agent sync, usages, structural mutations, transaction/recovery cases, and failure paths. It separately certifies typed shader output, raw shaderc goldens, runtime/UI playback, package export, template registry/configuration, a real Web platform export, and relocation.
+
+ComfyUI certification uses `editor/scripts/comfyui-certification-server.mjs`, a deterministic local HTTP server requiring neither a GPU nor a ComfyUI installation. Node and ScriptC are compared for status, built-in listing/inspection, verification, scalar filesystem generation, secure local-image editing, classification-default selection, Project Asset publication, named mixed publication, upload/execution/output failures, and request timeout behavior. Certification compares normalized machine output, stderr/exit status, publication state, and externally observable request sequences; successful history deliberately completes on a later poll. The cancellation checks require prompt-specific queue deletion and reject `/interrupt`.
 
 A release is not admitted merely because scriptc can build it. The differential and native certification must pass.
 

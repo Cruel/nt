@@ -12,6 +12,8 @@ The workflow catalog discovers packages from three sources:
 - shared user workflows under `<NovelTea user config>/comfyui/workflows/`;
 - project-local workflows under the saved project's `workflows/` directory.
 
+The editor/Node reference reads the checked-in built-in package assets. Release builds embed those exact manifest and API-workflow texts into the self-contained ScriptC executable, so a relocated CLI retains built-in discovery, inspection, verification, execution, and copy-out behavior without Electron resources or sibling workflow files.
+
 The NovelTea user configuration root is `~/.noveltea` by default and honors `NOVELTEA_USER_CONFIG_ROOT`, including in
 headless CLI and CI usage. The editor and CLI therefore consume the same shared user workflow directory rather than an
 Electron application-data workflow directory. `<NovelTea user config>/comfyui/config-v1.json` is the strict

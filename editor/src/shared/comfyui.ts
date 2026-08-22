@@ -199,10 +199,6 @@ export function normalizeComfyUiServerUrl(serverUrl: string): string {
 
 export function comfyUiServerIdentity(serverUrl: string): string {
   const url = new URL(normalizeComfyUiServerUrl(serverUrl));
-  url.username = '';
-  url.password = '';
-  url.search = '';
-  url.hash = '';
   const pathname = url.pathname.replace(/\/+$/, '');
   return `${url.protocol}//${url.host.toLowerCase()}${pathname}`;
 }

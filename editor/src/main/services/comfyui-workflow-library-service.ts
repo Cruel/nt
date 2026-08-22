@@ -47,6 +47,7 @@ interface WorkflowLibraryRoots {
 
 export interface WorkflowLibraryServiceOptions {
   roots?: Partial<WorkflowLibraryRoots>;
+  embeddedBuiltInFiles?: Readonly<Record<string, string>>;
   showItemInFolder?: (itemPath: string) => Promise<void> | void;
 }
 
@@ -146,7 +147,7 @@ function sourceRoots(
       source: 'built-in',
       root: roots.builtInRoot ?? '',
       writable: false,
-      available: Boolean(roots.builtInRoot),
+      available: Boolean(roots.builtInRoot || options.embeddedBuiltInFiles),
     },
     { source: 'user', root: roots.userRoot, writable: true, available: true },
     {
@@ -259,6 +260,86 @@ function capabilities(
     canReveal: mutable,
     canRename: mutable,
   };
+}
+
+async function discoverEmbeddedBuiltIns(
+  files: Readonly<Record<string, string>>,
+  hasProject: boolean,
+): Promise<ComfyUiWorkflowLibraryEntry[]> {
+  const entries: ComfyUiWorkflowLibraryEntry[] = [];
+  const manifestFiles = Object.keys(files)
+    .filter((name) => name.endsWith('.manifest.json'))
+    .sort()
+    .slice(0, MAX_COMFYUI_WORKFLOW_PACKAGES_PER_SOURCE);
+  for (const manifestFile of manifestFiles) {
+    const manifestJsonText = files[manifestFile];
+    let workflowJsonText: string | undefined;
+    try {
+      if (new TextEncoder().encode(manifestJsonText).byteLength > MAX_COMFYUI_MANIFEST_BYTES)
+        throw new Error('Workflow manifest exceeds the catalog parsing limit.');
+      const manifest = JSON.parse(manifestJsonText);
+      const definition = parseComfyUiWorkflowDefinition(manifest, manifestFile);
+      workflowJsonText = files[definition.workflowFile];
+      if (workflowJsonText === undefined)
+        throw new Error(`ComfyUI workflow JSON '${definition.workflowFile}' is missing.`);
+      if (new TextEncoder().encode(workflowJsonText).byteLength > MAX_COMFYUI_WORKFLOW_JSON_BYTES)
+        throw new Error('ComfyUI workflow JSON exceeds the catalog parsing limit.');
+      const workflow = JSON.parse(workflowJsonText);
+      const diagnostics = validateWorkflowBindings(workflow as ComfyUiWorkflowGraphLike, {
+        definition,
+        manifestFile,
+      });
+      const offlineStatus = entryStatus(diagnostics);
+      entries.push({
+        source: 'built-in',
+        workflowKey: workflowKey('built-in', manifestFile),
+        id: definition.id,
+        label: definition.label,
+        classification: definition.classification,
+        definition,
+        manifestFile,
+        workflowFile: definition.workflowFile,
+        manifestPath: `embedded:comfyui/${manifestFile}`,
+        workflowPath: `embedded:comfyui/${definition.workflowFile}`,
+        packageHash: computeComfyUiWorkflowPackageHash(manifest, workflow),
+        active: false,
+        overridden: false,
+        offlineStatus,
+        onlineStatus: 'unverified',
+        runnable: getComfyUiWorkflowExecutionSupport(definition).runnable,
+        repairable: false,
+        diagnostics,
+        verificationDiagnostics: [],
+        manifestJsonText,
+        workflowJsonText,
+        capabilities: capabilities('built-in', offlineStatus, true, hasProject),
+      });
+    } catch (error) {
+      const diagnostics = [
+        diagnostic(
+          `/workflows/${manifestFile}`,
+          error instanceof Error ? error.message : 'Workflow package is invalid.',
+        ),
+      ];
+      entries.push({
+        source: 'built-in',
+        workflowKey: workflowKey('built-in', manifestFile),
+        manifestFile,
+        manifestPath: `embedded:comfyui/${manifestFile}`,
+        active: false,
+        overridden: false,
+        offlineStatus: 'invalid',
+        onlineStatus: 'unverified',
+        repairable: false,
+        diagnostics,
+        verificationDiagnostics: [],
+        manifestJsonText,
+        workflowJsonText,
+        capabilities: capabilities('built-in', 'invalid', Boolean(workflowJsonText), hasProject),
+      });
+    }
+  }
+  return entries;
 }
 
 async function discoverSource(
@@ -554,7 +635,15 @@ export async function listComfyUiWorkflowLibrary(
 ): Promise<ComfyUiWorkflowLibraryListResponse> {
   const roots = sourceRoots(request.projectFilePath, options);
   const hasProject = roots.some((root) => root.source === 'project' && root.available);
-  const entries = (await Promise.all(roots.map((root) => discoverSource(root, hasProject)))).flat();
+  const entries = (
+    await Promise.all(
+      roots.map((root) =>
+        root.source === 'built-in' && options.embeddedBuiltInFiles
+          ? discoverEmbeddedBuiltIns(options.embeddedBuiltInFiles, hasProject)
+          : discoverSource(root, hasProject),
+      ),
+    )
+  ).flat();
   applyOverrides(entries);
   applyVerificationCache(
     entries,
@@ -620,11 +709,6 @@ function rootForSource(source: ComfyUiWorkflowSource, roots: WorkflowLibraryRoot
   if (source === 'built-in') return roots.builtInRoot;
   if (source === 'user') return roots.userRoot;
   return roots.projectRoot;
-}
-
-async function copyFileReplace(source: string, destination: string) {
-  await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.copyFile(source, destination);
 }
 
 function safeLibraryFileName(
@@ -704,7 +788,12 @@ export async function copyComfyUiWorkflow(
     options,
   );
   const sourceEntry = library.entries.find((entry) => entry.workflowKey === request.workflowKey);
-  if (!sourceEntry?.definition || !sourceEntry.workflowPath || !sourceEntry.packageHash)
+  if (
+    !sourceEntry?.definition ||
+    !sourceEntry.workflowJsonText ||
+    !sourceEntry.manifestJsonText ||
+    !sourceEntry.packageHash
+  )
     return {
       ok: false,
       success: false,
@@ -753,10 +842,10 @@ export async function copyComfyUiWorkflow(
       error: 'Replace confirmation is required.',
     };
   const targetManifestFile = targetExisting?.manifestFile ?? sourceEntry.manifestFile;
-  await copyFileReplace(sourceEntry.manifestPath, path.join(targetRoot, targetManifestFile));
-  await copyFileReplace(
-    sourceEntry.workflowPath,
+  await writeFileAtomic(path.join(targetRoot, targetManifestFile), sourceEntry.manifestJsonText);
+  await writeFileAtomic(
     path.join(targetRoot, sourceEntry.definition.workflowFile),
+    sourceEntry.workflowJsonText,
   );
   if (
     targetExisting?.workflowFile &&

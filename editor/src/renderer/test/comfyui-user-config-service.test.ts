@@ -7,7 +7,7 @@ import {
   loadComfyUiUserConfig,
   saveComfyUiUserConfig,
 } from '../../main/services/comfyui-user-config-service';
-import { defaultComfyUiSharedUserConfig } from '../../shared/comfyui';
+import { comfyUiServerIdentity, defaultComfyUiSharedUserConfig } from '../../shared/comfyui';
 
 const roots: string[] = [];
 const previousUserConfigRoot = process.env.NOVELTEA_USER_CONFIG_ROOT;
@@ -26,6 +26,12 @@ afterEach(() => {
 });
 
 describe('ComfyUI shared user config service', () => {
+  it('constructs server identities without mutating URL components', () => {
+    expect(
+      comfyUiServerIdentity('HTTP://user:pass@Example.COM:8188/base/path/?token=secret#fragment'),
+    ).toBe('http://example.com:8188/base/path');
+  });
+
   it('uses defaults when config is absent and stores shared state under NOVELTEA_USER_CONFIG_ROOT', async () => {
     const configRoot = root();
     await expect(loadComfyUiUserConfig()).resolves.toEqual(defaultComfyUiSharedUserConfig());
