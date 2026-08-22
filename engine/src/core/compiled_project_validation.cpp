@@ -24,6 +24,8 @@ public:
         INDEX(characters, input.characters[index].identity.id);
         INDEX(rooms, input.rooms[index].identity.id);
         INDEX(interactables, input.interactables[index].identity.id);
+        INDEX(item_definitions, input.item_definitions[index].identity.id);
+        INDEX(item_stacks, input.item_stacks[index].id);
         INDEX(verbs, input.verbs[index].identity.id);
         INDEX(interactions, input.interactions[index].identity.id);
         INDEX(scenes, input.scenes[index].identity.id);
@@ -386,6 +388,8 @@ private:
                 else if constexpr (std::is_same_v<T, InteractableInteractionSubject>)
                     require(m_interactables, value.interactable, "interactable",
                             path + "/interactable");
+                else if constexpr (std::is_same_v<T, ItemStackInteractionSubject>)
+                    require(m_item_stacks, value.item_stack, "item stack", path + "/itemStack");
                 else
                     std::visit(
                         [&](const auto& reference) {
@@ -580,7 +584,7 @@ private:
                       "Trait must admit at least one owner kind.", base + "/ownerKinds");
             std::unordered_set<PropertyOwnerKind> owners;
             for (const auto owner : definition.allowed_owners) {
-                if (owner > PropertyOwnerKind::Feature)
+                if (owner > PropertyOwnerKind::ItemStack)
                     error("compiled_project.invalid_trait_definition",
                           "Trait owner kind is invalid.", base + "/ownerKinds");
                 if (!owners.insert(owner).second)
@@ -704,6 +708,7 @@ private:
         validate_characters();
         validate_rooms();
         validate_interactables();
+        validate_items();
         validate_inventory_cycles();
         validate_verbs_and_interactions();
         validate_scenes();
@@ -1033,6 +1038,41 @@ private:
                     }
                 },
                 value.presentation.hotspots);
+        }
+    }
+
+    void validate_items()
+    {
+        for (std::size_t index = 0; index < m_input.item_definitions.size(); ++index) {
+            const auto& value = m_input.item_definitions[index];
+            const auto path = item("/definitions/itemDefinitions", index);
+            validate_assignments(value, PropertyOwnerKind::ItemStack, path);
+            if (value.presentation.sprite)
+                require(m_assets, *value.presentation.sprite, "asset",
+                        path + "/presentation/sprite");
+            if (value.stack_limit &&
+                (*value.stack_limit == 0 || *value.stack_limit > max_item_stack_quantity))
+                error("compiled_project.invalid_item_stack_limit",
+                      "Item Definition Stack limit must be in the portable positive range.",
+                      path + "/stackLimit");
+        }
+        for (std::size_t index = 0; index < m_input.item_stacks.size(); ++index) {
+            const auto& value = m_input.item_stacks[index];
+            const auto path = item("/itemStacks", index);
+            require(m_item_definitions, value.definition, "item definition", path + "/definition");
+            validate_location(value.location, path + "/location");
+            if (value.quantity == 0 || value.quantity > max_item_stack_quantity)
+                error("compiled_project.invalid_item_stack_quantity",
+                      "Item Stack quantity must be in the portable positive range.",
+                      path + "/quantity");
+            const auto definition = m_item_definitions.find(value.definition);
+            if (definition != m_item_definitions.end()) {
+                const auto& item_definition = m_input.item_definitions[definition->second];
+                if (item_definition.stack_limit && value.quantity > *item_definition.stack_limit)
+                    error("compiled_project.item_stack_limit_exceeded",
+                          "Declared Item Stack quantity exceeds its Item Definition limit.",
+                          path + "/quantity");
+            }
         }
     }
 
@@ -1568,6 +1608,8 @@ private:
     MAP(characters, CharacterId);
     MAP(rooms, RoomId);
     MAP(interactables, InteractableId);
+    MAP(item_definitions, ItemDefinitionId);
+    MAP(item_stacks, ItemStackId);
     MAP(verbs, VerbId);
     MAP(interactions, InteractionId);
     MAP(scenes, SceneId);

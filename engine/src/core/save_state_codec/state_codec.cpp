@@ -337,6 +337,18 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
                               {"location", encode_character_location(value.location)},
                               {"enabled", value.enabled},
                               {"visible", value.visible}});
+    nlohmann::json item_stacks = nlohmann::json::array();
+    for (const auto& value : save.item_stacks) {
+        nlohmann::json traits = nlohmann::json::array();
+        for (const auto& trait : value.traits)
+            traits.push_back(trait.text());
+        item_stacks.push_back({{"id", value.id.text()},
+                               {"definition", value.definition.text()},
+                               {"quantity", value.quantity},
+                               {"location", encode_location(value.location)},
+                               {"traits", std::move(traits)},
+                               {"declared", value.declared}});
+    }
 
     nlohmann::json runtime_rooms = nlohmann::json::array();
     for (const auto& value : save.runtime_rooms) {
@@ -387,6 +399,7 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
                   : nlohmann::json(nullptr)},
              {"provenance", encode_provenance(value.provenance)}});
     nlohmann::json runtime_world = {{"nextInstanceId", save.next_runtime_instance_id},
+                                    {"nextItemStackId", save.next_item_stack_id},
                                     {"rooms", std::move(runtime_rooms)},
                                     {"characters", std::move(runtime_characters)},
                                     {"interactables", std::move(runtime_interactables)}};
@@ -433,6 +446,7 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
          {"propertyOverrides", std::move(overrides)},
          {"characters", std::move(characters)},
          {"interactables", std::move(interactables)},
+         {"itemStacks", std::move(item_stacks)},
          {"activeRoomVisit", encode_room_visit(save.active_room_visit)},
          {"roomVisits", std::move(room_visits)},
          {"dialogueLineHistory", std::move(line_history)},
@@ -460,6 +474,7 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
               "propertyOverrides",
               "characters",
               "interactables",
+              "itemStacks",
               "activeRoomVisit",
               "roomVisits",
               "dialogueLineHistory",
@@ -480,6 +495,7 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     const auto* overrides = d.member(document, "propertyOverrides", "");
     const auto* characters = d.member(document, "characters", "");
     const auto* interactables = d.member(document, "interactables", "");
+    const auto* item_stacks = d.member(document, "itemStacks", "");
     const auto* active_room_visit = d.member(document, "activeRoomVisit", "");
     const auto* room_visits = d.member(document, "roomVisits", "");
     const auto* line_history = d.member(document, "dialogueLineHistory", "");
@@ -521,20 +537,28 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                                   : std::nullopt;
 
     std::optional<std::uint64_t> saved_next_runtime_instance_id;
+    std::optional<std::uint64_t> saved_next_item_stack_id;
     std::optional<std::vector<SavedRuntimeRoomConfiguration>> saved_runtime_rooms;
     std::optional<std::vector<SavedRuntimeCharacterConfiguration>> saved_runtime_characters;
     std::optional<std::vector<SavedRuntimeInteractableConfiguration>> saved_runtime_interactables;
-    if (runtime_world && d.object(*runtime_world, "/runtimeWorld",
-                                  {"nextInstanceId", "rooms", "characters", "interactables"})) {
+    if (runtime_world &&
+        d.object(*runtime_world, "/runtimeWorld",
+                 {"nextInstanceId", "nextItemStackId", "rooms", "characters", "interactables"})) {
         const auto* next_id = d.member(*runtime_world, "nextInstanceId", "/runtimeWorld");
         const auto* rooms = d.member(*runtime_world, "rooms", "/runtimeWorld");
         const auto* characters_value = d.member(*runtime_world, "characters", "/runtimeWorld");
         const auto* interactables_value =
             d.member(*runtime_world, "interactables", "/runtimeWorld");
+        const auto* next_item_stack_id =
+            d.member(*runtime_world, "nextItemStackId", "/runtimeWorld");
         saved_next_runtime_instance_id =
             next_id
                 ? d.unsigned_integer<std::uint64_t>(*next_id, "/runtimeWorld/nextInstanceId", true)
                 : std::nullopt;
+        saved_next_item_stack_id =
+            next_item_stack_id ? d.unsigned_integer<std::uint64_t>(
+                                     *next_item_stack_id, "/runtimeWorld/nextItemStackId", true)
+                               : std::nullopt;
         saved_runtime_rooms = decode_array<SavedRuntimeRoomConfiguration>(
             d, rooms, "/runtimeWorld/rooms",
             [&d](const nlohmann::json& value,
@@ -742,6 +766,43 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                                                  *saved_enabled, *saved_visible})
                        : std::nullopt;
         });
+    auto saved_item_stacks = decode_array<ItemStackState>(
+        d, item_stacks, "/itemStacks",
+        [&d](const nlohmann::json& value,
+             const std::string& pointer) -> std::optional<ItemStackState> {
+            if (!d.object(value, pointer,
+                          {"id", "definition", "quantity", "location", "traits", "declared"}))
+                return std::nullopt;
+            const auto* id_value = d.member(value, "id", pointer);
+            const auto* definition_value = d.member(value, "definition", pointer);
+            const auto* quantity_value = d.member(value, "quantity", pointer);
+            const auto* location_value = d.member(value, "location", pointer);
+            const auto* traits_value = d.member(value, "traits", pointer);
+            const auto* declared_value = d.member(value, "declared", pointer);
+            auto id = id_value ? d.id<ItemStackId>(*id_value, child(pointer, "id")) : std::nullopt;
+            auto definition =
+                definition_value
+                    ? d.id<ItemDefinitionId>(*definition_value, child(pointer, "definition"))
+                    : std::nullopt;
+            auto quantity = quantity_value ? d.unsigned_integer<std::uint64_t>(
+                                                 *quantity_value, child(pointer, "quantity"), true)
+                                           : std::nullopt;
+            auto location = location_value
+                                ? decode_location(d, *location_value, child(pointer, "location"))
+                                : std::nullopt;
+            auto traits = decode_array<TraitId>(
+                d, traits_value, child(pointer, "traits"),
+                [&d](const nlohmann::json& trait, const std::string& trait_pointer) {
+                    return d.id<TraitId>(trait, trait_pointer);
+                });
+            auto declared = declared_value ? d.boolean(*declared_value, child(pointer, "declared"))
+                                           : std::nullopt;
+            return id && definition && quantity && location && traits && declared
+                       ? std::optional<ItemStackState>(
+                             ItemStackState{std::move(*id), std::move(*definition), *quantity,
+                                            std::move(*location), std::move(*traits), *declared})
+                       : std::nullopt;
+        });
     auto saved_active_room_visit =
         active_room_visit ? decode_room_visit(d, *active_room_visit, "/activeRoomVisit")
                           : std::nullopt;
@@ -866,23 +927,26 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
         });
     auto saved_blocker = blocker ? decode_blocker(d, *blocker, "/blocker") : std::nullopt;
     if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state ||
-        !saved_next_runtime_instance_id || !saved_runtime_rooms || !saved_runtime_characters ||
-        !saved_runtime_interactables || !saved_overrides || !saved_characters ||
-        !saved_interactables || !saved_active_room_visit || !saved_room_visits ||
-        !saved_line_history || !saved_choice_history || !saved_log || !saved_timers ||
-        !saved_completions || !saved_presentation || !saved_mode || !saved_frames || !saved_blocker)
+        !saved_next_runtime_instance_id || !saved_next_item_stack_id || !saved_runtime_rooms ||
+        !saved_runtime_characters || !saved_runtime_interactables || !saved_overrides ||
+        !saved_characters || !saved_interactables || !saved_item_stacks ||
+        !saved_active_room_visit || !saved_room_visits || !saved_line_history ||
+        !saved_choice_history || !saved_log || !saved_timers || !saved_completions ||
+        !saved_presentation || !saved_mode || !saved_frames || !saved_blocker)
         return Result<SaveState, Diagnostics>::failure(d.take());
     return Result<SaveState, Diagnostics>::success(
         SaveState{std::move(*saved_metadata),
                   std::chrono::milliseconds(*milliseconds),
                   *saved_random_state,
                   *saved_next_runtime_instance_id,
+                  *saved_next_item_stack_id,
                   std::move(*saved_runtime_rooms),
                   std::move(*saved_runtime_characters),
                   std::move(*saved_runtime_interactables),
                   std::move(*saved_overrides),
                   std::move(*saved_characters),
                   std::move(*saved_interactables),
+                  std::move(*saved_item_stacks),
                   std::move(*saved_active_room_visit),
                   std::move(*saved_room_visits),
                   std::move(*saved_line_history),

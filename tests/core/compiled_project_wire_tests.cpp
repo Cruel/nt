@@ -85,14 +85,20 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:3cd54920cce03792f6c3e0b0e1fbdb66");
-    CHECK(project.properties.size() == 10);
+    CHECK(project.save_contract == "sc1:4d8821caa18a510c195da67a4f9befd0");
+    CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
     CHECK(project.scripts.size() == 3);
     CHECK(project.characters.size() == 1);
     CHECK(project.rooms.size() == 3);
     CHECK(project.interactables.size() == 3);
+    REQUIRE(project.item_definitions.size() == 1);
+    CHECK(project.item_definitions.front().identity.id.text() == "credits");
+    CHECK(project.item_definitions.front().stack_limit == 100);
+    REQUIRE(project.item_stacks.size() == 1);
+    CHECK(project.item_stacks.front().id.text() == "wallet");
+    CHECK(project.item_stacks.front().quantity == 25);
     CHECK(project.verbs.size() == 1);
     CHECK(project.interactions.size() == 1);
     CHECK(project.scenes.size() == 1);
@@ -106,6 +112,31 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.rooms.front().placements.front().id.text() == "coin-placement");
     CHECK(project.maps.front().connections.front().exit.exit_id.text() == "north-exit");
     CHECK(project.localization.catalogs.size() == 2);
+}
+
+TEST_CASE("compiled project Item Stack boundary is strict within V4")
+{
+    SECTION("required root collection")
+    {
+        auto document = fixture("minimal");
+        document.erase("itemStacks");
+        const auto result = decode_shared_project(document, "missing-item-stacks.json");
+        REQUIRE_FALSE(result);
+    }
+    SECTION("resolved definition and bounded positive quantity")
+    {
+        auto document = fixture("comprehensive");
+        document["itemStacks"][0]["definition"]["id"] = "missing";
+        auto unresolved =
+            noveltea::core::decode_compiled_project(document, "unresolved-item-definition.json");
+        REQUIRE_FALSE(unresolved);
+        document = fixture("comprehensive");
+        document["itemStacks"][0]["quantity"] = 101;
+        auto over_limit =
+            noveltea::core::decode_compiled_project(document, "item-stack-over-limit.json");
+        REQUIRE_FALSE(over_limit);
+        CHECK(has_code(over_limit.error(), "compiled_project.item_stack_limit_exceeded"));
+    }
 }
 
 TEST_CASE("compiled Layout scale policy retains explicit resolved wire values")
@@ -614,7 +645,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         auto document = fixture("comprehensive");
         auto* properties = path_member(document, {"properties"});
         REQUIRE(properties != nullptr);
-        auto* property = json_access::element(*properties, 5);
+        auto* property = json_access::element(*properties, 6);
         REQUIRE(property != nullptr);
         REQUIRE((*property)["id"] == "count");
         REQUIRE((*property)["scope"] == "global");
@@ -623,7 +654,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         REQUIRE_FALSE(result);
         const auto* diagnostic = find_code(result.error(), "compiled_project.missing_field");
         REQUIRE(diagnostic != nullptr);
-        CHECK(diagnostic->json_pointer == "/properties/5/defaultValue");
+        CHECK(diagnostic->json_pointer == "/properties/6/defaultValue");
     }
 
     SECTION("duplicate collection ID")
@@ -669,7 +700,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
         noveltea::core::decode_compiled_project(fixture("comprehensive"), "comprehensive.json");
     REQUIRE(comprehensive);
     const auto& complete = comprehensive.value();
-    CHECK(complete.properties().size() == 10);
+    CHECK(complete.properties().size() == 11);
     CHECK(complete.assets().size() == 9);
     CHECK(complete.layouts().size() == 2);
     CHECK(complete.scripts().size() == 3);
@@ -1093,7 +1124,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
     SECTION("Global Property default enum membership")
     {
         auto document = fixture("trait-properties-localization");
-        auto* property = path_member(document, {"properties", "7"});
+        auto* property = path_member(document, {"properties", "8"});
         REQUIRE(property != nullptr);
         REQUIRE((*property)["id"] == "mood-variable");
         REQUIRE((*property)["scope"] == "global");

@@ -56,11 +56,13 @@ nlohmann::json encode_owner(const PropertyOwnerRef& owner)
                                       {"ownerKind", "room"},
                                       {"ownerId", value.room.text()},
                                       {"featureId", value.feature_id.text()}};
-            else
+            else if constexpr (std::is_same_v<T, InteractableFeatureRef>)
                 return nlohmann::json{{"kind", "feature"},
                                       {"ownerKind", "interactable"},
                                       {"ownerId", value.interactable.text()},
                                       {"featureId", value.feature_id.text()}};
+            else
+                return nlohmann::json{{"kind", "item-stack"}, {"id", value.text()}};
         },
         owner);
 }
@@ -101,6 +103,13 @@ std::optional<PropertyOwnerRef> decode_owner(Decoder& d, const nlohmann::json& v
         if (!id)
             return std::nullopt;
         auto result = d.id<InteractableId>(*id, child(pointer, "id"));
+        return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
+    }
+    if (*name == "item-stack") {
+        if (!d.object(value, pointer, {"kind", "id"}))
+            return std::nullopt;
+        const auto* id = d.member(value, "id", pointer);
+        auto result = id ? d.id<ItemStackId>(*id, child(pointer, "id")) : std::nullopt;
         return result ? std::optional<PropertyOwnerRef>(*result) : std::nullopt;
     }
     if (*name == "feature") {

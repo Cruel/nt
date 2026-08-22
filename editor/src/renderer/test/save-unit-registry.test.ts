@@ -40,6 +40,7 @@ const representativeResources: Record<string, WorkbenchResource> = {
   'placeholder-entity': recordResource('rooms', 'placeholder'),
   'verb-detail': recordResource('verbs', 'examine'),
   'interaction-detail': recordResource('interactions', 'use-key'),
+  'item-detail': recordResource('itemStacks', 'wallet'),
   'map-detail': recordResource('maps', 'world'),
   'script-module-detail': recordResource('scripts', 'startup'),
   variables: { kind: 'project', stableId: 'variables' },

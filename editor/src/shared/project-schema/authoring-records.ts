@@ -4,6 +4,7 @@ import { archetypeDataSchema, archetypeRefSchema } from './authoring-archetypes'
 import { entityIdSchema } from './authoring-common';
 import { characterDataSchema } from './authoring-characters';
 import { interactableDataSchema } from './authoring-interactables';
+import { itemDefinitionDataSchema, itemStackDataSchema } from './authoring-items';
 import { interactionDataSchema } from './authoring-interactions';
 import { dialogueDataSchema } from './authoring-dialogues';
 import { layoutDataSchema } from './authoring-layouts';
@@ -48,6 +49,8 @@ export const archetypeRecordSchema = recordSchema(archetypeDataSchema);
 export const characterRecordSchema = propertyRecordSchema(characterDataSchema.strict());
 export const roomRecordSchema = propertyRecordSchema(roomDataSchema.strict());
 export const interactableRecordSchema = propertyRecordSchema(interactableDataSchema.strict());
+export const itemDefinitionRecordSchema = propertyRecordSchema(itemDefinitionDataSchema.strict());
+export const itemStackRecordSchema = recordSchema(itemStackDataSchema.strict());
 export const verbRecordSchema = recordSchema(verbDataSchema);
 export const interactionRecordSchema = recordSchema(interactionDataSchema);
 export const dialogueRecordSchema = recordSchema(dialogueDataSchema.strict());
@@ -66,6 +69,8 @@ export const authoringRecordSchemas = {
   characters: characterRecordSchema,
   rooms: roomRecordSchema,
   interactables: interactableRecordSchema,
+  itemDefinitions: itemDefinitionRecordSchema,
+  itemStacks: itemStackRecordSchema,
   verbs: verbRecordSchema,
   interactions: interactionRecordSchema,
   dialogues: dialogueRecordSchema,
@@ -85,6 +90,8 @@ export const authoringCollectionSchemas = {
   characters: z.record(entityIdSchema, authoringRecordSchemas.characters),
   rooms: z.record(entityIdSchema, authoringRecordSchemas.rooms),
   interactables: z.record(entityIdSchema, authoringRecordSchemas.interactables),
+  itemDefinitions: z.record(entityIdSchema, authoringRecordSchemas.itemDefinitions),
+  itemStacks: z.record(entityIdSchema, authoringRecordSchemas.itemStacks),
   verbs: z.record(entityIdSchema, authoringRecordSchemas.verbs),
   interactions: z.record(entityIdSchema, authoringRecordSchemas.interactions),
   dialogues: z.record(entityIdSchema, authoringRecordSchemas.dialogues),
@@ -103,6 +110,8 @@ export type ArchetypeAuthoringRecord = z.infer<typeof archetypeRecordSchema>;
 export type CharacterAuthoringRecord = z.infer<typeof characterRecordSchema>;
 export type RoomAuthoringRecord = z.infer<typeof roomRecordSchema>;
 export type InteractableAuthoringRecord = z.infer<typeof interactableRecordSchema>;
+export type ItemDefinitionAuthoringRecord = z.infer<typeof itemDefinitionRecordSchema>;
+export type ItemStackAuthoringRecord = z.infer<typeof itemStackRecordSchema>;
 export type VerbAuthoringRecord = z.infer<typeof verbRecordSchema>;
 export type InteractionAuthoringRecord = z.infer<typeof interactionRecordSchema>;
 export type DialogueAuthoringRecord = z.infer<typeof dialogueRecordSchema>;
@@ -121,6 +130,8 @@ export type AuthoringRecord =
   | CharacterAuthoringRecord
   | RoomAuthoringRecord
   | InteractableAuthoringRecord
+  | ItemDefinitionAuthoringRecord
+  | ItemStackAuthoringRecord
   | VerbAuthoringRecord
   | InteractionAuthoringRecord
   | DialogueAuthoringRecord

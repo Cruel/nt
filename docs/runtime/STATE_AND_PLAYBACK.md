@@ -105,7 +105,8 @@ rejects the save without migration, repair, or partial restoration. The saved Pr
 metadata and need not equal the currently loaded Project version when identity and Save Contract match.
 
 Save format V8 persists the deterministic random-generator position and authoritative desired
-presentation. It stores logical identities and owner-remap data rather than effective snapshot caches,
+presentation. It also persists every exact live Item Stack and the deterministic next-Stack allocator;
+ended Stack identities and authoritative references to them are invalid. It stores logical identities and owner-remap data rather than effective snapshot caches,
 backend handles, or operation progress. Scene owners remap through snapshot-local Flow-frame IDs;
 current-Room owners bind to the restored visit; named-Room and session owners restore semantically;
 shell records are intentionally excluded. Exact authored Room-overlay defaults rebuild from compiled

@@ -7,11 +7,12 @@ Interaction subjects are a closed semantic union:
 
 - Character;
 - Interactable;
+- Item Stack, by exact live `ItemStackId`;
 - Feature, always qualified by its owning Room or Interactable.
 
 A bare Feature ID is never a runtime subject. Exact operands carry one of those typed subjects.
-`AnyCharacter` and `AnyInteractable` remain narrow wildcards, while `AnySubject` matches all admitted
-subject families including Features.
+`AnyCharacter`, `AnyInteractable`, and `AnyItemStack` are narrow wildcards, while `AnySubject`
+matches all admitted subject families including Item Stacks and Features.
 
 Hotspots are not Interaction contexts. They are presentation/input geometry that resolve to one
 semantic subject or Room Exit before runtime dispatch. Interaction matching therefore sees the same
@@ -62,7 +63,7 @@ non-pointer invocation.
 ## Authoring, compiled, and state disposition
 
 - **Authoring version 3:** collection-specific Interaction records with ordered rules,
-  Character/Interactable/Feature exact subjects, explicit wildcards, semantic context, and strict
+  Character/Interactable/Item-Stack/Feature exact subjects, explicit wildcards, semantic context, and strict
   programs. Issue #70 changes the admitted subject/context shape without bumping the already-selected
   authoring version.
 - **Compiled V4:** linked immutable `InteractionRule`/`InteractionProgram` with owner-qualified Feature
@@ -83,13 +84,13 @@ an exact semantic subject and dispatches ordinary subject selection, or resolves
 dispatches ordinary navigation. There is no `ActivateHotspotInput` and no exact-Hotspot invocation
 state to save or restore.
 
-Save state version 7 persists owner-qualified Feature subjects when they appear in yielding
-Interaction frames. It also persists Feature Property overrides through the normal Property-state
-path. No schema version change is introduced by #70.
+Save state V8 persists owner-qualified Feature and exact Item Stack subjects when they appear in
+yielding Interaction frames. Ended Stack identities are rejected rather than redirected. Feature and
+Stack Property overrides use the normal Property-state path.
 
 ## Current editor implementation
 
-The Interaction editor authors exact Character/Interactable/Feature operands, all explicit wildcards,
+The Interaction editor authors exact Character/Interactable/Item-Stack/Feature operands, all explicit wildcards,
 remaining context variants, and closed program instructions. Every instruction has a stable nested ID;
 creation preserves that identity through editing and reordering. Validation checks Verb arity,
 subject/owner existence, Room placements, references, duplicate IDs, and equal-specificity warnings.

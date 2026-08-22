@@ -142,6 +142,11 @@ RuntimeExecutor::interact(core::VerbId verb_id,
                         std::holds_alternative<core::compiled::InteractableInteractionSubject>(
                             operands[index]);
                     ++typed_wildcards;
+                } else if (std::holds_alternative<core::compiled::AnyItemStackOperand>(
+                               rule.operands[index])) {
+                    matches = std::holds_alternative<core::compiled::ItemStackInteractionSubject>(
+                        operands[index]);
+                    ++typed_wildcards;
                 }
             }
             if (!matches)
@@ -468,6 +473,18 @@ RuntimeExecutor::inventory_view(std::string_view runtime_locale)
                               m_world.effective_room(state.interactable), definition->display_name,
                               definition->presentation, state.enabled, state.visible});
     }
+    for (const auto& stack : m_state.item_stacks()) {
+        const auto* location = std::get_if<core::compiled::InventoryLocation>(&stack.location);
+        const auto* definition = m_project.find_item_definition(stack.definition);
+        if (location == nullptr || definition == nullptr ||
+            !m_world.has_inventory(location->inventory))
+            continue;
+        view.item_stacks.push_back({stack.id, stack.definition, stack.quantity, stack.location,
+                                    m_world.effective_room(stack.id), definition->display_name,
+                                    definition->description, definition->presentation,
+                                    stack.traits});
+    }
+    std::ranges::sort(view.item_stacks, {}, [](const auto& stack) { return stack.stack.text(); });
     for (const auto& verb : m_project.verbs()) {
         auto label = resolve(verb.action_text.source, runtime_locale);
         const auto* text = label.value_if();

@@ -4,6 +4,7 @@ import {
   testCharacterSubject,
   testFeatureSubject,
   testInteractableSubject,
+  testItemStackSubject,
   testVerbRef,
   type TestData,
   type TestStepData,
@@ -34,6 +35,7 @@ export interface RecordedRuntimeActionInput {
 export type RecordedInteractionSubject =
   | { kind: 'character'; id: string }
   | { kind: 'interactable'; id: string }
+  | { kind: 'item-stack'; id: string }
   | {
       kind: 'feature';
       ownerKind: 'room' | 'interactable';
@@ -50,6 +52,7 @@ function validRecordedSubject(subject: RecordedInteractionSubject) {
 function testSubject(subject: RecordedInteractionSubject) {
   if (subject.kind === 'character') return testCharacterSubject(subject.id);
   if (subject.kind === 'interactable') return testInteractableSubject(subject.id);
+  if (subject.kind === 'item-stack') return testItemStackSubject(subject.id);
   return testFeatureSubject(
     subject.ownerKind === 'room'
       ? {

@@ -782,6 +782,7 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                      .overlays = room_presentation->overlays,
                      .placements = {},
                      .exits = {},
+                     .item_stacks = {},
                      .controls = {}},
             {}};
         auto baseline = RoomPresentationSnapshotProjector::project(

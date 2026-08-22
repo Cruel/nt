@@ -11,6 +11,8 @@ export const authoringCollectionKeys = [
   'characters',
   'rooms',
   'interactables',
+  'itemDefinitions',
+  'itemStacks',
   'verbs',
   'interactions',
   'dialogues',
@@ -36,6 +38,8 @@ export interface AuthoringCollectionMetadata {
     | 'character'
     | 'room'
     | 'interactable'
+    | 'item-definition'
+    | 'item-stack'
     | 'verb'
     | 'interaction'
     | 'dialogue'
@@ -82,6 +86,18 @@ export const authoringCollectionMetadata: Record<
     label: 'Interactables',
     singularLabel: 'Interactable',
     nodeType: 'interactable',
+  },
+  itemDefinitions: {
+    key: 'itemDefinitions',
+    label: 'Item Definitions',
+    singularLabel: 'Item Definition',
+    nodeType: 'item-definition',
+  },
+  itemStacks: {
+    key: 'itemStacks',
+    label: 'Item Stacks',
+    singularLabel: 'Item Stack',
+    nodeType: 'item-stack',
   },
   verbs: { key: 'verbs', label: 'Verbs', singularLabel: 'Verb', nodeType: 'verb' },
   interactions: {

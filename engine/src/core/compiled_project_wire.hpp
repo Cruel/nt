@@ -103,6 +103,14 @@ struct InteractableDefinition {
     InteractablePresentation presentation;
 };
 
+struct ItemDefinition {
+    PropertyBearingDefinition<ItemDefinitionId> identity;
+    std::string display_name;
+    std::string description;
+    ItemDefinitionPresentation presentation;
+    std::optional<std::uint64_t> stack_limit;
+};
+
 using ArchetypeConfiguration =
     std::variant<RoomDefinition, CharacterDefinition, InteractableDefinition>;
 struct ArchetypeDefinition {
@@ -164,6 +172,8 @@ struct SharedProject {
     std::vector<CharacterDefinition> characters;
     std::vector<RoomDefinition> rooms;
     std::vector<InteractableDefinition> interactables;
+    std::vector<ItemDefinition> item_definitions;
+    std::vector<ItemStackDeclaration> item_stacks;
     std::vector<VerbDefinition> verbs;
     std::vector<InteractionDefinition> interactions;
     std::vector<SceneDefinition> scenes;

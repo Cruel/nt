@@ -3,6 +3,7 @@ import { entityIdSchema } from './authoring-common';
 import { featureRefSchema, type FeatureRefData } from './authoring-features';
 import { parseInteractableData } from './authoring-interactables';
 import { parseRoomData } from './authoring-rooms';
+import { itemStackRefSchema } from './authoring-items';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const testInputTypeValues = [
@@ -46,6 +47,7 @@ export const testRoomRefSchema = testRefSchema('rooms');
 export const testDialogueRefSchema = testRefSchema('dialogues');
 export const testCharacterRefSchema = testRefSchema('characters');
 export const testInteractableRefSchema = testRefSchema('interactables');
+export const testItemStackRefSchema = itemStackRefSchema;
 export const testVerbRefSchema = testRefSchema('verbs');
 export const testVariableRefSchema = testRefSchema('variables');
 export const testMapRefSchema = testRefSchema('maps');
@@ -60,6 +62,7 @@ export const testAnyRefSchema = z.union([
   testDialogueRefSchema,
   testCharacterRefSchema,
   testInteractableRefSchema,
+  testItemStackRefSchema,
   testVerbRefSchema,
   testVariableRefSchema,
   testMapRefSchema,
@@ -68,6 +71,7 @@ export const testAnyRefSchema = z.union([
 export const testInteractionSubjectSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('character'), character: testCharacterRefSchema }).strict(),
   z.object({ kind: z.literal('interactable'), interactable: testInteractableRefSchema }).strict(),
+  z.object({ kind: z.literal('item-stack'), itemStack: testItemStackRefSchema }).strict(),
   z.object({ kind: z.literal('feature'), feature: featureRefSchema }).strict(),
 ]);
 
@@ -170,6 +174,7 @@ export type TestRoomRef = z.infer<typeof testRoomRefSchema>;
 export type TestDialogueRef = z.infer<typeof testDialogueRefSchema>;
 export type TestCharacterRef = z.infer<typeof testCharacterRefSchema>;
 export type TestInteractableRef = z.infer<typeof testInteractableRefSchema>;
+export type TestItemStackRef = z.infer<typeof testItemStackRefSchema>;
 export type TestVerbRef = z.infer<typeof testVerbRefSchema>;
 export type TestVariableRef = z.infer<typeof testVariableRefSchema>;
 export type TestEntrypointRef = z.infer<typeof testEntrypointRefSchema>;
@@ -232,6 +237,9 @@ export function testCharacterSubject(id: string): TestInteractionSubject {
 }
 export function testInteractableSubject(id: string): TestInteractionSubject {
   return { kind: 'interactable', interactable: testInteractableRef(id) };
+}
+export function testItemStackSubject(id: string): TestInteractionSubject {
+  return { kind: 'item-stack', itemStack: { $ref: { collection: 'itemStacks', id } } };
 }
 export function testFeatureSubject(feature: FeatureRefData): TestInteractionSubject {
   return { kind: 'feature', feature };
@@ -341,6 +349,10 @@ function validateInteractionSubject(
   }
   if (subject.kind === 'interactable') {
     validateRef(project, subject.interactable, `${path}/interactable`, diagnostics);
+    return;
+  }
+  if (subject.kind === 'item-stack') {
+    validateRef(project, subject.itemStack, `${path}/itemStack`, diagnostics);
     return;
   }
   if (subject.feature.ownerKind === 'room') {

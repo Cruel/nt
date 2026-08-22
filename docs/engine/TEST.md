@@ -195,6 +195,10 @@ Each test step has this common shape:
 }
 ```
 
+`TestInteractionSubject` admits Character, Interactable, exact authored Item Stack, and
+owner-qualified Feature identities. Recorder lowering and playback preserve Item Stack IDs without
+grouping or definition-only substitution.
+
 All input-specific payload objects exist on every step. This makes UI editing and
 JSON patches simpler: changing a step from one input type to another does not
 destroy old payload fields. Only the payload matching `step.input` is considered

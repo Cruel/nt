@@ -1478,6 +1478,69 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                                   std::move(*state),    std::move(*presentation)};
 }
 
+std::optional<ItemDefinition> decode_item_definition(Decoder& decoder, const nlohmann::json& value,
+                                                     std::string_view pointer)
+{
+    if (!decoder.object(value, pointer,
+                        {"description", "displayName", "id", "presentation", "propertyAssignments",
+                         "stackLimit", "traits"}))
+        return std::nullopt;
+    auto identity = decode_identity<ItemDefinitionId>(decoder, value, pointer);
+    const auto* display_value = decoder.member(value, "displayName", pointer);
+    const auto* description_value = decoder.member(value, "description", pointer);
+    const auto* presentation_value = decoder.member(value, "presentation", pointer);
+    const auto* limit_value = decoder.member(value, "stackLimit", pointer);
+    auto display = display_value
+                       ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
+                       : std::nullopt;
+    auto description = description_value ? decoder.string(*description_value,
+                                                          pointer_child(pointer, "description"))
+                                         : std::nullopt;
+
+    std::optional<ItemDefinitionPresentation> presentation;
+    if (presentation_value &&
+        decoder.object(*presentation_value, pointer_child(pointer, "presentation"),
+                       {"material", "sprite"})) {
+        const auto presentation_pointer = pointer_child(pointer, "presentation");
+        const auto* material_value =
+            decoder.member(*presentation_value, "material", presentation_pointer);
+        const auto* sprite_value =
+            decoder.member(*presentation_value, "sprite", presentation_pointer);
+        std::optional<MaterialId> material;
+        bool material_ok = material_value != nullptr;
+        if (material_value && !material_value->is_null()) {
+            material = decode_reference<MaterialId>(decoder, *material_value,
+                                                    pointer_child(presentation_pointer, "material"),
+                                                    "material");
+            material_ok = material.has_value();
+        }
+        std::optional<AssetId> sprite;
+        bool sprite_ok = sprite_value != nullptr;
+        if (sprite_value && !sprite_value->is_null()) {
+            sprite = decode_reference<AssetId>(
+                decoder, *sprite_value, pointer_child(presentation_pointer, "sprite"), "asset");
+            sprite_ok = sprite.has_value();
+        }
+        if (material_ok && sprite_ok)
+            presentation = ItemDefinitionPresentation{std::move(material), std::move(sprite)};
+    }
+
+    std::optional<std::uint64_t> stack_limit;
+    bool limit_ok = limit_value != nullptr;
+    if (limit_value && !limit_value->is_null()) {
+        stack_limit = decoder.unsigned_integer<std::uint64_t>(
+            *limit_value, pointer_child(pointer, "stackLimit"), true);
+        limit_ok = stack_limit.has_value() && *stack_limit <= max_item_stack_quantity;
+        if (stack_limit && *stack_limit > max_item_stack_quantity)
+            decoder.error(k_code_number, "Item Stack quantity exceeds the portable numeric range.",
+                          pointer_child(pointer, "stackLimit"));
+    }
+    if (!identity || !display || !description || !presentation || !limit_ok)
+        return std::nullopt;
+    return ItemDefinition{std::move(*identity), std::move(*display), std::move(*description),
+                          std::move(*presentation), stack_limit};
+}
+
 std::optional<ArchetypeDefinition> decode_archetype(Decoder& decoder, const nlohmann::json& value,
                                                     std::string_view pointer)
 {

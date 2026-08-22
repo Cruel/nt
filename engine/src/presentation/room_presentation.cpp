@@ -224,6 +224,10 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     for (const auto& feature : room->features)
         append_subject(compiled::FeatureInteractionSubject{
             RoomFeatureRef{room->identity.id, feature.identity.id}});
+    for (const auto& stack : state.item_stacks()) {
+        if (world.effective_room(stack.id) == visit.room)
+            append_subject(compiled::ItemStackInteractionSubject{stack.id});
+    }
     for (const auto& interactable : presentation.interactables) {
         const compiled::InteractionSubject owner =
             compiled::InteractableInteractionSubject{interactable.interactable};
@@ -253,6 +257,13 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                         return Result<std::string, Diagnostics>::success(definition->display_name);
                 } else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>) {
                     const auto* definition = world.resolved_configuration(value.interactable);
+                    if (definition != nullptr)
+                        return Result<std::string, Diagnostics>::success(definition->display_name);
+                } else if constexpr (std::is_same_v<T, compiled::ItemStackInteractionSubject>) {
+                    const auto* stack = world.item_stack(value.item_stack);
+                    const auto* definition = stack != nullptr
+                                                 ? project.find_item_definition(stack->definition)
+                                                 : nullptr;
                     if (definition != nullptr)
                         return Result<std::string, Diagnostics>::success(definition->display_name);
                 } else {
@@ -599,6 +610,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
                   .overlays = draft.overlays,
                   .placements = {},
                   .exits = {},
+                  .item_stacks = {},
                   .controls = {}};
     for (const auto& placement : room.placements) {
         RoomPlacementView item{.placement = placement.id,

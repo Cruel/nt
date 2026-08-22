@@ -21,6 +21,7 @@ export const interactionOperandSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('exact'), subject: interactionSubjectSchema }),
   strict({ kind: z.literal('any-character') }),
   strict({ kind: z.literal('any-interactable') }),
+  strict({ kind: z.literal('any-item-stack') }),
   strict({ kind: z.literal('any-subject') }),
 ]);
 
@@ -265,6 +266,18 @@ export function validateInteractionData(
           diagnostic(
             `${path}/operands/${operandIndex}/subject/interactable/$ref`,
             `Missing interactable '${operand.subject.interactable.$ref.id}'.`,
+          ),
+        );
+      }
+      if (
+        operand.kind === 'exact' &&
+        operand.subject.kind === 'item-stack' &&
+        !project.itemStacks[operand.subject.itemStack.$ref.id]
+      ) {
+        diagnostics.push(
+          diagnostic(
+            `${path}/operands/${operandIndex}/subject/itemStack/$ref`,
+            `Missing Item Stack '${operand.subject.itemStack.$ref.id}'.`,
           ),
         );
       }

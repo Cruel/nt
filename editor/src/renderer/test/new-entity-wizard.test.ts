@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultItemDefinitionData } from '../../shared/project-schema/authoring-items';
 import {
   assertNewEntityWizardCoverage,
   newEntityWizardCollectionKeys,
@@ -132,6 +133,25 @@ describe('new entity wizard registry', () => {
     });
     expect(newEntityWizardDefinition('verbs').supportLevel).toBe('typed');
     expect(newEntityWizardDefinition('interactions').supportLevel).toBe('typed');
+    expect(newEntityWizardDefinition('itemDefinitions').supportLevel).toBe('typed');
+    expect(newEntityWizardDefinition('itemStacks').supportLevel).toBe('typed');
+    project.itemDefinitions.credits = {
+      id: 'credits',
+      label: 'Credits',
+      data: defaultItemDefinitionData('Credits'),
+    };
+    expect(
+      newEntityWizardDefinition('itemStacks').buildPayload({
+        project,
+        draft: draft('itemStacks', { definitionId: 'credits' }),
+      }),
+    ).toMatchObject({
+      data: {
+        kind: 'item-stack',
+        definition: { $ref: { collection: 'itemDefinitions', id: 'credits' } },
+        quantity: 1,
+      },
+    });
     expect(newEntityWizardDefinition('maps').supportLevel).toBe('typed');
     expect(newEntityWizardDefinition('scripts').supportLevel).toBe('typed');
     expect(

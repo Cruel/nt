@@ -29,12 +29,12 @@ engine/src
 ```
 
 This includes platform-conditional implementations such as both enabled and disabled developer-tool
-variants, not merely the translation units selected by one configured build. Every one of the 324
+variants, not merely the translation units selected by one configured build. Every one of the 325
 current production files has exactly one primary target:
 
 | Primary target | Files | Semantic authority |
 | --- | ---: | --- |
-| `noveltea_domain` | 45 | Backend-neutral IDs, definitions, state and Flow values, properties, diagnostics, shared presentation value contracts, geometry, and immutable material/shader definitions |
+| `noveltea_domain` | 46 | Backend-neutral IDs, definitions, state and Flow values, properties, diagnostics, shared presentation value contracts, geometry, and immutable material/shader definitions |
 | `noveltea_content` | 41 | Loaded package/manifest/resource assembly, project/package/save/settings/rich-text/material codecs, compiled wire decoding, editor protocol, export/bootstrap, shader manifest, and shader compilation boundary logic |
 | `noveltea_runtime` | 37 | Flow execution, runtime messages and ports, capabilities, commands, clocks, session restore/storage, checkpointing, `RuntimeSession`, `RuntimeExecutor`, and `RunningGame` |
 | `noveltea_presentation` | 14 | Room resolution, presentation-operation target assembly, desired-presentation projection/publication, presentation coordination, and logical mounted-Layout/system-Layout management |

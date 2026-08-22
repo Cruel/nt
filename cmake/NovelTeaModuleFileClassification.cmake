@@ -34,6 +34,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/rich_text.hpp
     engine/include/noveltea/core/room_presentation_contracts.hpp
     engine/include/noveltea/core/runtime_diagnostic_context.hpp
+    engine/include/noveltea/core/runtime_instance.hpp
     engine/include/noveltea/core/runtime_user_settings.hpp
     engine/include/noveltea/core/runtime_presentation_contracts.hpp
     engine/include/noveltea/core/runtime_value.hpp

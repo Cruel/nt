@@ -464,8 +464,10 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
                         return character_definition(value.character) != nullptr;
                     else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>)
                         return interactable_definition(value.interactable) != nullptr;
-                    else
+                    else if constexpr (std::is_same_v<T, compiled::FeatureInteractionSubject>)
                         return m_project.find_feature(value.feature) != nullptr;
+                    else
+                        return m_state.item_stack(value.item_stack) != nullptr;
                 },
                 subject);
         });

@@ -95,9 +95,10 @@ const RECORD_EDITOR_COLLECTIONS = {
   'placeholder-entity': null,
   'verb-detail': 'verbs',
   'interaction-detail': 'interactions',
+  'item-detail': ['itemDefinitions', 'itemStacks'],
   'map-detail': 'maps',
   'script-module-detail': 'scripts',
-} as const satisfies Record<string, string | null>;
+} as const satisfies Record<string, string | readonly string[] | null>;
 
 const NON_CONTENT_EDITOR_TYPES = new Set([
   'engine-preview',
@@ -189,11 +190,20 @@ export function resolveSaveUnitForResource(
     }
     const expectedCollection =
       RECORD_EDITOR_COLLECTIONS[editorType as keyof typeof RECORD_EDITOR_COLLECTIONS];
-    if (expectedCollection !== null && resource.collection !== expectedCollection) {
+    const expectedCollections: readonly string[] | null =
+      expectedCollection === null
+        ? null
+        : typeof expectedCollection === 'string'
+          ? [expectedCollection]
+          : expectedCollection;
+    const supportsCollection =
+      expectedCollections === null || expectedCollections.includes(resource.collection);
+    if (!supportsCollection) {
+      const expected = expectedCollections?.join("' or '") ?? '';
       return unsupported(
         resource,
         editorType,
-        `Record editor '${editorType}' requires collection '${expectedCollection}', not '${resource.collection}'.`,
+        `Record editor '${editorType}' requires collection '${expected}', not '${resource.collection}'.`,
       );
     }
     return {

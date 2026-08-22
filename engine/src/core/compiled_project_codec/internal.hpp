@@ -361,6 +361,16 @@ decode_interaction_subject(Decoder& decoder, const nlohmann::json& value, std::s
         if (feature)
             return FeatureInteractionSubject{std::move(*feature)};
     }
+    if (*kind == "item-stack" && decoder.object(value, pointer, {"itemStack", "kind"})) {
+        const auto* item_stack_value = decoder.member(value, "itemStack", pointer);
+        auto item_stack =
+            item_stack_value
+                ? decode_reference<ItemStackId>(decoder, *item_stack_value,
+                                                pointer_child(pointer, "itemStack"), "item-stack")
+                : std::nullopt;
+        if (item_stack)
+            return ItemStackInteractionSubject{std::move(*item_stack)};
+    }
     decoder.error(k_code_variant, "Unknown interaction subject kind.",
                   pointer_child(pointer, "kind"));
     return std::nullopt;
@@ -475,6 +485,8 @@ std::optional<CharacterDefinition> decode_character(Decoder&, const nlohmann::js
 std::optional<RoomDefinition> decode_room(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<InteractableDefinition> decode_interactable(Decoder&, const nlohmann::json&,
                                                           std::string_view);
+std::optional<ItemDefinition> decode_item_definition(Decoder&, const nlohmann::json&,
+                                                     std::string_view);
 std::optional<ArchetypeDefinition> decode_archetype(Decoder&, const nlohmann::json&,
                                                     std::string_view);
 std::optional<MapDefinition> decode_map(Decoder&, const nlohmann::json&, std::string_view);

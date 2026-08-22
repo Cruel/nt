@@ -32,6 +32,7 @@ describe('recorded test draft conversion', () => {
               subjects: [
                 { kind: 'character', id: 'guard' },
                 { kind: 'interactable', id: 'lamp' },
+                { kind: 'item-stack', id: 'coins' },
                 {
                   kind: 'feature',
                   ownerKind: 'room',
@@ -84,6 +85,10 @@ describe('recorded test draft conversion', () => {
               {
                 kind: 'interactable',
                 interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
+              },
+              {
+                kind: 'item-stack',
+                itemStack: { $ref: { collection: 'itemStacks', id: 'coins' } },
               },
               {
                 kind: 'feature',

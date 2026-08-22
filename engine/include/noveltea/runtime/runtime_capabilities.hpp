@@ -77,6 +77,7 @@ enum class RuntimeCapabilityGroup : std::uint8_t {
     Room,
     Character,
     Interactable,
+    ItemStack,
     Presentation,
     Audio,
     Map,
@@ -218,14 +219,14 @@ describe(RuntimeCapabilityProfile profile) noexcept
     const auto all_gameplay_queries =
         capability_bit(G::Definitions) | capability_bit(G::Properties) | capability_bit(G::Flow) |
         capability_bit(G::Room) | capability_bit(G::Character) | capability_bit(G::Interactable) |
-        capability_bit(G::Presentation) | capability_bit(G::Audio) | capability_bit(G::Map) |
-        capability_bit(G::Save) | capability_bit(G::Game) | capability_bit(G::Random) |
-        capability_bit(G::TextLog);
+        capability_bit(G::ItemStack) | capability_bit(G::Presentation) | capability_bit(G::Audio) |
+        capability_bit(G::Map) | capability_bit(G::Save) | capability_bit(G::Game) |
+        capability_bit(G::Random) | capability_bit(G::TextLog);
     const auto gameplay_commands = all_gameplay_queries & ~capability_bit(G::Definitions);
     const auto expression_queries = capability_bit(G::Definitions) | capability_bit(G::Properties) |
                                     capability_bit(G::Room) | capability_bit(G::Character) |
                                     capability_bit(G::Interactable) | capability_bit(G::Game) |
-                                    capability_bit(G::TextLog);
+                                    capability_bit(G::ItemStack) | capability_bit(G::TextLog);
 
     switch (profile) {
     case RuntimeCapabilityProfile::GameplayScript:

@@ -322,6 +322,24 @@ export function buildScriptModuleDetailTabForRecord(
   };
 }
 
+export function buildItemDetailTabForRecord(
+  collection: 'itemDefinitions' | 'itemStacks',
+  entityId: string,
+  title = entityId,
+): WorkbenchTab {
+  return {
+    id: `tab:item-detail:${collection}:${entityId}`,
+    title,
+    editorType: 'item-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:${collection}:${entityId}`,
+      collection,
+      entityId,
+    },
+  };
+}
+
 export function buildPlaceholderEntityTabForRecord(
   collection: string,
   entityId: string,
@@ -438,6 +456,8 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
     return buildMapDetailTabForRecord(node.entityId, title);
   if (node.collection === 'scripts' && node.entityId)
     return buildScriptModuleDetailTabForRecord(node.entityId, title);
+  if ((node.collection === 'itemDefinitions' || node.collection === 'itemStacks') && node.entityId)
+    return buildItemDetailTabForRecord(node.collection, node.entityId, title);
   if (node.collection && node.entityId)
     return buildPlaceholderEntityTabForRecord(node.collection, node.entityId, title);
   return null;

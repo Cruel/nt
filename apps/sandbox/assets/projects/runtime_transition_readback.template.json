@@ -53,6 +53,7 @@
   "properties": [],
   "inventories": [],
   "traits": [],
+  "archetypes": [],
   "localization": {
     "defaultLocale": "en",
     "fallbackLocale": null,
@@ -142,6 +143,7 @@
     ]
   },
   "definitions": {
+    "itemDefinitions": [],
     "characters": [],
     "dialogues": [],
     "interactables": [],
@@ -239,5 +241,6 @@
         }
       }
     ]
-  }
+  },
+  "itemStacks": []
 }

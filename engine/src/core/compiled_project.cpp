@@ -414,6 +414,11 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
     BUILD_DEFINITION_INDEX(CharacterId, characters, CharacterDefinition, "character");
     BUILD_DEFINITION_INDEX(RoomId, rooms, RoomDefinition, "room");
     BUILD_DEFINITION_INDEX(InteractableId, interactables, InteractableDefinition, "interactable");
+    BUILD_DEFINITION_INDEX(ItemDefinitionId, item_definitions, ItemDefinition, "item definition");
+    BUILD_INDEX(
+        ItemStackId, item_stacks,
+        [](const compiled::ItemStackDeclaration& value) -> const ItemStackId& { return value.id; },
+        "item stack");
     BUILD_DEFINITION_INDEX(VerbId, verbs, VerbDefinition, "verb");
     BUILD_DEFINITION_INDEX(InteractionId, interactions, InteractionDefinition, "interaction");
     BUILD_DEFINITION_INDEX(SceneId, scenes, SceneDefinition, "scene");
@@ -439,7 +444,9 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
       m_inventories(std::move(input.inventories)), m_assets(std::move(input.assets)),
       m_layouts(std::move(input.layouts)), m_scripts(std::move(input.scripts)),
       m_characters(std::move(input.characters)), m_rooms(std::move(input.rooms)),
-      m_interactables(std::move(input.interactables)), m_verbs(std::move(input.verbs)),
+      m_interactables(std::move(input.interactables)),
+      m_item_definitions(std::move(input.item_definitions)),
+      m_item_stacks(std::move(input.item_stacks)), m_verbs(std::move(input.verbs)),
       m_interactions(std::move(input.interactions)), m_scenes(std::move(input.scenes)),
       m_dialogues(std::move(input.dialogues)), m_maps(std::move(input.maps))
 {
@@ -476,6 +483,12 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     INDEX_DEFINITION(RoomId, room, rooms, RoomDefinition, "room");
     INDEX_DEFINITION(InteractableId, interactable, interactables, InteractableDefinition,
                      "interactable");
+    INDEX_DEFINITION(ItemDefinitionId, item_definition, item_definitions, ItemDefinition,
+                     "item definition");
+    INDEX(
+        ItemStackId, item_stack, item_stacks,
+        [](const compiled::ItemStackDeclaration& value) -> const ItemStackId& { return value.id; },
+        "item stack");
     INDEX_DEFINITION(VerbId, verb, verbs, VerbDefinition, "verb");
     INDEX_DEFINITION(InteractionId, interaction, interactions, InteractionDefinition,
                      "interaction");
@@ -500,6 +513,8 @@ FIND(script, scripts, ScriptId, compiled::ScriptResource)
 FIND(character, characters, CharacterId, compiled::CharacterDefinition)
 FIND(room, rooms, RoomId, compiled::RoomDefinition)
 FIND(interactable, interactables, InteractableId, compiled::InteractableDefinition)
+FIND(item_definition, item_definitions, ItemDefinitionId, compiled::ItemDefinition)
+FIND(item_stack, item_stacks, ItemStackId, compiled::ItemStackDeclaration)
 
 const compiled::FeatureDefinition*
 CompiledProject::find_feature(const RoomFeatureRef& reference) const noexcept

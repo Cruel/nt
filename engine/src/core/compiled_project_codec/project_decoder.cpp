@@ -40,7 +40,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     if (!decoder.object(document, "",
                         {"archetypes", "bootstrapModule", "definitions", "entrypoint",
                          "inventories", "localization", "project", "properties", "resources",
-                         "saveContract", "schema", "schemaVersion", "settings", "traits"}))
+                         "itemStacks", "saveContract", "schema", "schemaVersion", "settings",
+                         "traits"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -52,6 +53,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* save_contract_value = decoder.member(document, "saveContract", "");
     const auto* localization_value = decoder.member(document, "localization", "");
     const auto* inventories_value = decoder.member(document, "inventories", "");
+    const auto* item_stacks_value = decoder.member(document, "itemStacks", "");
     const auto* properties_value = decoder.member(document, "properties", "");
     const auto* traits_value = decoder.member(document, "traits", "");
     const auto* archetypes_value = decoder.member(document, "archetypes", "");
@@ -134,6 +136,48 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                     return decode_property(decoder, item, pointer);
                                 })
                           : std::nullopt;
+    auto item_stacks =
+        item_stacks_value
+            ? decoder.array<ItemStackDeclaration>(
+                  *item_stacks_value, "/itemStacks",
+                  [&](const nlohmann::json& item,
+                      const std::string& pointer) -> std::optional<ItemStackDeclaration> {
+                      if (!decoder.object(item, pointer,
+                                          {"definition", "id", "location", "quantity"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(item, "id", pointer);
+                      const auto* definition_value = decoder.member(item, "definition", pointer);
+                      const auto* quantity_value = decoder.member(item, "quantity", pointer);
+                      const auto* location_value = decoder.member(item, "location", pointer);
+                      auto id = id_value ? decoder.id<ItemStackId>(*id_value,
+                                                                   pointer_child(pointer, "id"))
+                                         : std::nullopt;
+                      auto definition = definition_value ? decode_reference<ItemDefinitionId>(
+                                                               decoder, *definition_value,
+                                                               pointer_child(pointer, "definition"),
+                                                               "item-definition")
+                                                         : std::nullopt;
+                      auto quantity = quantity_value ? decoder.unsigned_integer<std::uint64_t>(
+                                                           *quantity_value,
+                                                           pointer_child(pointer, "quantity"), true)
+                                                     : std::nullopt;
+                      if (quantity && *quantity > max_item_stack_quantity) {
+                          decoder.error(k_code_number,
+                                        "Item Stack quantity exceeds the portable numeric range.",
+                                        pointer_child(pointer, "quantity"));
+                          quantity.reset();
+                      }
+                      auto location = location_value
+                                          ? decode_location(decoder, *location_value,
+                                                            pointer_child(pointer, "location"))
+                                          : std::nullopt;
+                      return id && definition && quantity && location
+                                 ? std::optional<ItemStackDeclaration>(
+                                       ItemStackDeclaration{std::move(*id), std::move(*definition),
+                                                            *quantity, std::move(*location)})
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
     auto traits = traits_value ? decoder.array<TraitDeclaration>(
                                      *traits_value, "/traits",
                                      [&](const nlohmann::json& item, const std::string& pointer) {
@@ -179,14 +223,16 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     std::optional<std::vector<CharacterDefinition>> characters;
     std::optional<std::vector<RoomDefinition>> rooms;
     std::optional<std::vector<InteractableDefinition>> interactables;
+    std::optional<std::vector<ItemDefinition>> item_definitions;
     std::optional<std::vector<VerbDefinition>> verbs;
     std::optional<std::vector<InteractionDefinition>> interactions;
     std::optional<std::vector<SceneDefinition>> scenes;
     std::optional<std::vector<DialogueDefinition>> dialogues;
     std::optional<std::vector<MapDefinition>> maps;
-    if (definitions_value && decoder.object(*definitions_value, "/definitions",
-                                            {"characters", "dialogues", "interactables",
-                                             "interactions", "maps", "rooms", "scenes", "verbs"})) {
+    if (definitions_value &&
+        decoder.object(*definitions_value, "/definitions",
+                       {"characters", "dialogues", "interactables", "interactions",
+                        "itemDefinitions", "maps", "rooms", "scenes", "verbs"})) {
 #define NOVELTEA_DECODE_DEFINITION(member_name, variable_name, type_name, function_name)           \
     if (const auto* collection = decoder.member(*definitions_value, member_name, "/definitions"))  \
     variable_name =                                                                                \
@@ -198,6 +244,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         NOVELTEA_DECODE_DEFINITION("rooms", rooms, RoomDefinition, decode_room);
         NOVELTEA_DECODE_DEFINITION("interactables", interactables, InteractableDefinition,
                                    decode_interactable);
+        NOVELTEA_DECODE_DEFINITION("itemDefinitions", item_definitions, ItemDefinition,
+                                   decode_item_definition);
         NOVELTEA_DECODE_DEFINITION("verbs", verbs, VerbDefinition, decode_verb);
         NOVELTEA_DECODE_DEFINITION("interactions", interactions, InteractionDefinition,
                                    decode_interaction);
@@ -215,6 +263,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         decoder.duplicate_ids(
             *properties, "/properties",
             [](const PropertyDeclaration& value) -> const PropertyId& { return value.id; });
+    if (item_stacks)
+        decoder.duplicate_ids(
+            *item_stacks, "/itemStacks",
+            [](const ItemStackDeclaration& value) -> const ItemStackId& { return value.id; });
     if (traits)
         decoder.duplicate_ids(
             *traits, "/traits",
@@ -242,6 +294,8 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     NOVELTEA_DUPLICATE_DEFINITION(characters, "/definitions/characters", CharacterId);
     NOVELTEA_DUPLICATE_DEFINITION(rooms, "/definitions/rooms", RoomId);
     NOVELTEA_DUPLICATE_DEFINITION(interactables, "/definitions/interactables", InteractableId);
+    NOVELTEA_DUPLICATE_DEFINITION(item_definitions, "/definitions/itemDefinitions",
+                                  ItemDefinitionId);
     NOVELTEA_DUPLICATE_DEFINITION(verbs, "/definitions/verbs", VerbId);
     NOVELTEA_DUPLICATE_DEFINITION(interactions, "/definitions/interactions", InteractionId);
     NOVELTEA_DUPLICATE_DEFINITION(scenes, "/definitions/scenes", SceneId);
@@ -251,19 +305,35 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
                           save_contract && localization && inventories && properties && traits &&
-                          archetypes && assets && layouts && scripts && characters && rooms &&
-                          interactables && verbs && interactions && scenes && dialogues && maps;
+                          archetypes && item_stacks && assets && layouts && scripts && characters &&
+                          rooms && interactables && item_definitions && verbs && interactions &&
+                          scenes && dialogues && maps;
     if (!complete || decoder.failed())
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
-    return Result<SharedProject, Diagnostics>::success(SharedProject{
-        std::move(*identity),      std::move(*settings),      std::move(*entrypoint),
-        std::move(*bootstrap),     std::move(*save_contract), std::move(*localization),
-        std::move(*properties),    std::move(*traits),        std::move(*archetypes),
-        std::move(*inventories),   std::move(*assets),        std::move(*layouts),
-        std::move(*scripts),       std::move(*characters),    std::move(*rooms),
-        std::move(*interactables), std::move(*verbs),         std::move(*interactions),
-        std::move(*scenes),        std::move(*dialogues),     std::move(*maps)});
+    return Result<SharedProject, Diagnostics>::success(SharedProject{std::move(*identity),
+                                                                     std::move(*settings),
+                                                                     std::move(*entrypoint),
+                                                                     std::move(*bootstrap),
+                                                                     std::move(*save_contract),
+                                                                     std::move(*localization),
+                                                                     std::move(*properties),
+                                                                     std::move(*traits),
+                                                                     std::move(*archetypes),
+                                                                     std::move(*inventories),
+                                                                     std::move(*assets),
+                                                                     std::move(*layouts),
+                                                                     std::move(*scripts),
+                                                                     std::move(*characters),
+                                                                     std::move(*rooms),
+                                                                     std::move(*interactables),
+                                                                     std::move(*item_definitions),
+                                                                     std::move(*item_stacks),
+                                                                     std::move(*verbs),
+                                                                     std::move(*interactions),
+                                                                     std::move(*scenes),
+                                                                     std::move(*dialogues),
+                                                                     std::move(*maps)});
 }
 
 } // namespace noveltea::core::compiled::wire

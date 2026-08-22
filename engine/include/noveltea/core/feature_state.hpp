@@ -204,6 +204,16 @@ struct InteractableState {
     bool visible = true;
 };
 
+struct ItemStackState {
+    ItemStackId id;
+    ItemDefinitionId definition;
+    std::uint64_t quantity;
+    compiled::ItemStackLocation location;
+    std::vector<TraitId> traits;
+    bool declared = false;
+    bool operator==(const ItemStackState&) const = default;
+};
+
 using CharacterWorldLocation = compiled::CharacterInitialWorldLocation;
 
 struct CharacterWorldState {

@@ -259,9 +259,20 @@ function isArchetypeContractLeaf(path: JsonPointer): boolean {
   );
 }
 
+function isItemContractLeaf(path: JsonPointer): boolean {
+  return (
+    path.startsWith('/itemDefinitions/') ||
+    path.startsWith('/itemStacks/') ||
+    path.includes('/itemStack/')
+  );
+}
+
 const legacySchemaLeafPaths = [
   ...sortedSchemaLeafPaths
-    .filter((path) => !path.startsWith('/traits/') && !isArchetypeContractLeaf(path))
+    .filter(
+      (path) =>
+        !path.startsWith('/traits/') && !isArchetypeContractLeaf(path) && !isItemContractLeaf(path),
+    )
     .map((path) => {
       const segments = parseJsonPointer(path);
       return segments.length === 4 &&
@@ -300,7 +311,8 @@ const legacyReviewedEffects = new Map(
 const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
   .filter((path) => !explicitFieldEffect(path))
   .map((path) => {
-    if (path.startsWith('/traits/') || isArchetypeContractLeaf(path)) return 'o';
+    if (path.startsWith('/traits/') || isArchetypeContractLeaf(path) || isItemContractLeaf(path))
+      return 'o';
     const segments = parseJsonPointer(path);
     if (
       segments.length === 4 &&
@@ -369,23 +381,25 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     dialogues: 'bfadec81',
     entrypoint: 'a61673d4',
     export: 'b9fd529f',
-    interactables: 'e4428eba',
-    interactions: '835c2862',
+    interactables: '86412986',
+    interactions: '8db00473',
     inventories: 'a8c38dae',
+    itemDefinitions: '255e512e',
+    itemStacks: '3eaf965c',
     layouts: '87e0b859',
     localization: '3f6d0d11',
     maps: '9b969995',
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: 'dc573d61',
+    rooms: '582b616a',
     scenes: '911d4458',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
     settings: 'faa09891',
     shaders: '94d3aa6e',
-    tests: 'bf235591',
+    tests: '389d3153',
     traits: 'e06af863',
     variables: '9ac2af8d',
     verbs: '1057096e',

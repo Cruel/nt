@@ -195,6 +195,7 @@ export interface RuntimeDebugActionSnapshot {
 export type PreviewInteractionSubject =
   | { kind: 'character'; id: string }
   | { kind: 'interactable'; id: string }
+  | { kind: 'item-stack'; id: string }
   | {
       kind: 'feature';
       ownerKind: 'room' | 'interactable';
@@ -745,7 +746,7 @@ function isRuntimeDebugActionSnapshot(value: unknown): value is RuntimeDebugActi
 
 function isPreviewInteractionSubject(value: unknown): value is PreviewInteractionSubject {
   if (!isRecord(value)) return false;
-  if (value.kind === 'character' || value.kind === 'interactable')
+  if (value.kind === 'character' || value.kind === 'interactable' || value.kind === 'item-stack')
     return typeof value.id === 'string' && value.id.length > 0 && Object.keys(value).length === 2;
   return (
     value.kind === 'feature' &&
