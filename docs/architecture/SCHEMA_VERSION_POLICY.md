@@ -19,6 +19,12 @@ replaced shape must be rejected immediately by normal readers. Do not infer this
 pre-release status; the owning issue or implementation instruction must explicitly require preserving the
 selected version.
 
+ComfyUI workflow manifests are one such explicitly selected rewrite: current `schemaVersion: 2` means the
+generic public-ID contract with optional dotted `classification`, typed per-input defaults and binding arrays,
+and media/cardinality outputs. The retired same-version semantic `role`, top-level `defaults`, single binding
+object, binding/output `valueType`, and `image-list`/`primary` representation are noncanonical V2 data and
+must be rejected rather than upgraded or interpreted.
+
 ## Definitions
 
 - **Current version:** the one version emitted and accepted for a particular contract. Different

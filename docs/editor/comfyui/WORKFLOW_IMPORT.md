@@ -1,8 +1,8 @@
 # ComfyUI Workflow Library and Import
 
-NovelTea imports ComfyUI API workflow exports and writes workflow manifests that describe which inputs and outputs the
-editor may control. Workflow packages are managed from the editor-owned `ComfyUI Workflows` workbench tab, not from
-Project Settings.
+NovelTea imports ComfyUI API workflow exports and writes generic workflow manifests whose public input and output IDs
+form the automation contract. Workflow packages are managed from the editor-owned `ComfyUI Workflows` workbench tab,
+not from Project Settings.
 
 ## Workflow Sources
 
@@ -39,42 +39,60 @@ image generation.
    `noveltea.steps`, `noveltea.cfg`, `noveltea.filenamePrefix`, and `noveltea.output`.
 3. Export with `File -> Export Workflow (API)`.
 4. In NovelTea, open the `ComfyUI Workflows` tab from the command palette, global Settings, or Project Settings summary.
-5. Choose the role, review detected bindings, select the image output node or nodes, set defaults, and save.
+5. Choose the current editor classification, review detected bindings, select the image output node or nodes, set defaults, and save.
 
 The importer does not convert ordinary ComfyUI save-format files. If a file is rejected as a save-format workflow,
 export it again through ComfyUI's API workflow export command.
 
-## Bindings
+## Public Contract and Bindings
 
-Bindings connect NovelTea semantic fields such as prompt, source image, seed, steps, width, and height to specific
-ComfyUI node inputs. The wizard ranks likely matches from node titles, class types, input names, and graph links.
-Exact `noveltea.*` titles are the strongest signal and also help repair bindings after ComfyUI assigns new node ids.
+A manifest's `contract.inputs` keys are stable public IDs used by automation and future CLI execution. They are not
+limited to NovelTea's image-oriented semantic names. IDs must be CLI-safe identifiers beginning with a letter and may
+then contain letters, digits, `_`, or `-`.
 
-Required role inputs must be mapped before saving. Optional inputs may be left unmapped; unmapped optional controls are
-hidden in the Image Generation editor for that workflow.
+Each public input declares a type (`string`, `integer`, `number`, `boolean`, or `image`), whether it is required, an
+optional typed `defaultValue`, and optional `authoring` metadata such as a label, description, or preferred editor field.
+`bindings.<inputId>` is a non-empty array, so one public input may write the same value to multiple ComfyUI graph inputs.
+The binding locator may use node id, title, class type, and selector metadata; selector metadata is what allows stale node
+ids to be rebased after ComfyUI rewrites graph ids.
+
+The current import wizard uses the known image classifications to infer familiar fields such as prompt, source image,
+seed, steps, width, and height. Exact `noveltea.*` titles are the strongest inference signal. Those semantic names are
+editor authoring hints only: the manifest parser, library, verification path, and binding executor operate on whatever
+public IDs the manifest declares.
 
 ## Outputs
 
-Every imported workflow should select the output nodes whose images NovelTea should save as project assets. This
-prevents complex workflows from importing preview images or intermediate results from unrelated nodes. Starter and
-newly imported manifests write only the strict V2 `outputBindings.images` locator metadata.
+`contract.outputs` also uses arbitrary stable public IDs. Every output declares a `mediaType`, whether it is required,
+and explicit `one` or `many` cardinality. `outputBindings.<outputId>` selects one or more graph output nodes for that
+public output. The current NovelTea runtime supports `image` output media; packages declaring future media types remain
+discoverable and inspectable, but are marked non-runnable until support for that media type exists.
 
-Workflow manifests require exact `schemaVersion: 2` and one canonical strict shape. A missing version,
-V1 manifest, retired `outputNodeIds`, or unknown field makes the workflow invalid; the library does
-not infer or upgrade it.
+Selecting explicit output nodes prevents complex workflows from importing preview images or intermediate results from
+unrelated nodes. The bundled image workflows currently expose the public output ID `images`, but that name is not a
+schema-level requirement.
+
+Workflow manifests require exact `schemaVersion: 2` and one canonical strict shape. Issue #104 deliberately rewrote the
+same selected V2 contract atomically rather than bumping the version. Therefore a missing or different version, retired
+`role` or top-level `defaults`, single-object input bindings, binding/output `valueType`, `image-list`/`primary` output
+metadata, retired `outputNodeIds`, or any other noncanonical field makes the workflow invalid. The library does not infer,
+upgrade, or dual-read the replaced V2 shape.
 
 ## Repair
 
-Use `Repair` in the `ComfyUI Workflows` manager when a mutable workflow manifest reports stale or unresolved bindings.
-Repair reuses the import mapping UI, preserves the installed workflow JSON, and writes an updated manifest. Built-in
-workflows cannot be repaired in place; copy them to the editor or project source first if a local replacement is needed.
+Use `Repair` in the `ComfyUI Workflows` manager when a mutable workflow manifest with a known image classification
+reports stale or unresolved bindings. Repair reuses the image-classification inference UI, preserves the installed
+workflow JSON, and writes the canonical generic manifest shape. Built-in workflows cannot be repaired in place; copy
+them to the editor or project source first if a local replacement is needed. Generic packages with unknown or omitted
+classifications remain inspectable, but automatic inference repair is not offered for them.
 
 If the ComfyUI workflow graph itself changed substantially, export the new API workflow JSON and import it as a new
 workflow until replacement-workflow repair is added.
 
 ## Manager Actions
 
-The `ComfyUI Workflows` tab is intentionally compact: each row shows only source, name, role, and status. Status uses
+The `ComfyUI Workflows` tab is intentionally compact: each row shows only source, name, classification, and status. An
+unclassified package displays no classification and is still a valid library entry. Status uses
 two hoverable lights for offline validation and ComfyUI verification; failures expose their diagnostics in the tooltip.
 Overridden packages can be shown from the header without replacing the current rows with a loading state. Row actions
 are grouped under the trailing `...` menu.
@@ -141,15 +159,22 @@ machine categories such as `stale-project-session`, `unauthorized-asset`, `unsaf
 `not-regular-file`, `source-revision-mismatch`, `source-too-large`, and `remote-upload-denied` alongside more specific
 service diagnostics where useful.
 
-## Defaults and Generation
+## Classification, Defaults, and Image Generation
 
-Global Settings stores default workflows by logical role ID:
+`classification` is optional extensible dotted metadata, not a closed manifest discriminator. NovelTea currently knows
+`image.generate` and `image.edit` for image-oriented editor UX and inference. Unknown dotted classifications and omitted
+classification are accepted by the generic manifest/library contract; classification does not redefine public inputs,
+outputs, or graph bindings.
+
+Input defaults live on `contract.inputs.<inputId>.defaultValue`; there is no top-level manifest `defaults` object.
+Global Settings separately stores the preferred workflow IDs for the two current image classifications:
 
 ```ts
 defaultWorkflows['image.generate']
 defaultWorkflows['image.edit']
 ```
 
-The Settings selectors show active library workflows for each role. Image generation resolves those logical IDs to the
-active source-specific `workflowKey`, so a project or editor override with the same logical ID automatically becomes the
-effective workflow.
+The Settings selectors show active, runnable library workflows for each image classification. Image generation resolves
+those logical IDs to the active source-specific `workflowKey`, so a project or editor override with the same logical ID
+automatically becomes the effective workflow. This image-specific UI is an adapter over the generic manifest contract,
+not a second manifest parser or schema.

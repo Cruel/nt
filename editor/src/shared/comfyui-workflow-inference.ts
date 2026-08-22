@@ -1,11 +1,17 @@
 import type { ComfyUiAnalyzedWorkflow, ComfyUiApiWorkflowNode } from './comfyui-workflow-graph';
 import {
-  COMFYUI_WORKFLOW_ROLE_CATALOG,
+  COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG,
+  type ComfyUiKnownWorkflowClassification,
   type ComfyUiSemanticInput,
   type ComfyUiSemanticOutput,
-  type ComfyUiWorkflowRole,
-  type ComfyUiWorkflowValueType,
 } from './comfyui-workflows';
+
+type ComfyUiInferenceValueType =
+  | 'string'
+  | 'integer'
+  | 'number'
+  | 'image-upload-reference'
+  | 'image-list';
 
 export type ComfyUiBindingCandidateConfidence = 'high' | 'medium' | 'low';
 
@@ -15,7 +21,7 @@ export interface ComfyUiBindingCandidate {
   classType: string;
   nodeTitle: string | null;
   inputName: string;
-  valueType: ComfyUiWorkflowValueType | 'image-list';
+  valueType: ComfyUiInferenceValueType;
   confidence: ComfyUiBindingCandidateConfidence;
   score: number;
   reasons: string[];
@@ -84,7 +90,7 @@ function compatibleValueType(
   semanticKey: ComfyUiSemanticInput | ComfyUiSemanticOutput,
   inputName: string,
   classType: string,
-): ComfyUiWorkflowValueType | 'image-list' | null {
+): ComfyUiInferenceValueType | null {
   if (semanticKey === 'images') return 'image-list';
   if (semanticKey === 'sourceImage' || semanticKey === 'maskImage') return 'image-upload-reference';
   if (
@@ -109,7 +115,7 @@ function baseCandidate(
   node: ComfyUiApiWorkflowNode,
   semanticKey: ComfyUiSemanticInput | ComfyUiSemanticOutput,
   inputName: string,
-  valueType: ComfyUiWorkflowValueType | 'image-list',
+  valueType: ComfyUiInferenceValueType,
   currentValue: unknown,
 ): ComfyUiBindingCandidate {
   return {
@@ -147,7 +153,7 @@ function finalizeCandidate(candidate: ComfyUiBindingCandidate) {
 
 function inferNodeInputCandidate(
   analysis: ComfyUiAnalyzedWorkflow,
-  role: ComfyUiWorkflowRole,
+  classification: ComfyUiKnownWorkflowClassification,
   node: ComfyUiApiWorkflowNode,
   inputName: string,
   currentValue: unknown,
@@ -156,7 +162,10 @@ function inferNodeInputCandidate(
   const valueType = compatibleValueType(semanticKey, inputName, node.classType);
   if (!valueType || valueType === 'image-list') return null;
   const candidate = baseCandidate(node, semanticKey, inputName, valueType, currentValue);
-  addTitleScore(candidate, COMFYUI_WORKFLOW_ROLE_CATALOG[role].inference.titleMarkers[semanticKey]);
+  addTitleScore(
+    candidate,
+    COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[classification].inference.titleMarkers[semanticKey],
+  );
 
   if (
     (semanticKey === 'prompt' || semanticKey === 'negativePrompt') &&
@@ -183,7 +192,7 @@ function inferNodeInputCandidate(
     }
   }
   if (semanticKey === 'sourceImage' && inputName === 'image' && node.classType === 'LoadImage') {
-    candidate.score += role === 'image.edit' ? 55 : 20;
+    candidate.score += classification === 'image.edit' ? 55 : 20;
     candidate.reasons.push('LoadImage input');
   }
   if (
@@ -235,12 +244,15 @@ function inferNodeInputCandidate(
 }
 
 function inferOutputCandidate(
-  role: ComfyUiWorkflowRole,
+  classification: ComfyUiKnownWorkflowClassification,
   node: ComfyUiApiWorkflowNode,
 ): ComfyUiBindingCandidate | null {
   if (node.classType !== 'SaveImage' && node.classType !== 'PreviewImage') return null;
   const candidate = baseCandidate(node, 'images', 'images', 'image-list', node.inputs.images);
-  addTitleScore(candidate, COMFYUI_WORKFLOW_ROLE_CATALOG[role].inference.titleMarkers.images);
+  addTitleScore(
+    candidate,
+    COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[classification].inference.titleMarkers.images,
+  );
   candidate.score += node.classType === 'SaveImage' ? 70 : 55;
   candidate.reasons.push(node.classType);
   if ('images' in node.inputs) {
@@ -267,18 +279,18 @@ function reduceAmbiguousCandidates(candidates: ComfyUiBindingCandidate[]) {
 
 export function inferComfyUiWorkflowCandidates(
   analysis: ComfyUiAnalyzedWorkflow,
-  role: ComfyUiWorkflowRole,
+  classification: ComfyUiKnownWorkflowClassification,
 ): ComfyUiRoleCandidateMap {
   const result: ComfyUiRoleCandidateMap = {};
-  const roleDefinition = COMFYUI_WORKFLOW_ROLE_CATALOG[role];
+  const classificationDefinition = COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[classification];
   for (const node of analysis.nodes) {
     for (const [inputName, currentValue] of Object.entries(node.inputs)) {
       for (const semanticKey of Object.keys(
-        roleDefinition.contract.inputs,
+        classificationDefinition.contract.inputs,
       ) as ComfyUiSemanticInput[]) {
         const candidate = inferNodeInputCandidate(
           analysis,
-          role,
+          classification,
           node,
           inputName,
           currentValue,
@@ -288,7 +300,7 @@ export function inferComfyUiWorkflowCandidates(
         result[semanticKey] = [...(result[semanticKey] ?? []), candidate];
       }
     }
-    const outputCandidate = inferOutputCandidate(role, node);
+    const outputCandidate = inferOutputCandidate(classification, node);
     if (outputCandidate) result.images = [...(result.images ?? []), outputCandidate];
   }
 

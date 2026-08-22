@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import type { ComfyUiWorkflowId, ComfyUiWorkflowRole } from './comfyui-workflows';
+import type {
+  ComfyUiKnownWorkflowClassification,
+  ComfyUiWorkflowClassification,
+  ComfyUiWorkflowId,
+} from './comfyui-workflows';
 
 export type ComfyUiConnectionState = 'disabled' | 'unchecked' | 'checking' | 'ready' | 'error';
 
@@ -66,7 +70,7 @@ export interface ComfyUiConfig {
   enabled: boolean;
   serverUrl: string;
   defaultWorkflowId: string;
-  defaultWorkflows: Partial<Record<ComfyUiWorkflowRole, ComfyUiWorkflowId>>;
+  defaultWorkflows: Partial<Record<ComfyUiKnownWorkflowClassification, ComfyUiWorkflowId>>;
   requestTimeoutMs: number;
   connectionCheckIntervalMs: number;
 }
@@ -93,7 +97,7 @@ export interface ComfyUiQueueProgress {
   projectSessionId?: string;
   projectFilePath?: string;
   workflowLabel?: string;
-  role?: ComfyUiWorkflowRole;
+  classification?: ComfyUiWorkflowClassification;
   mode?: 'generate' | 'edit';
   promptSummary?: string;
   queueNumber?: number;

@@ -11,6 +11,7 @@ import {
 import {
   COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA,
   COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION,
+  getComfyUiWorkflowExecutionSupport,
   parseComfyUiWorkflowDefinition,
   resolveComfyUiWorkflowBinding,
   resolvedComfyUiWorkflowOutputNodeIdList,
@@ -197,35 +198,40 @@ function validateWorkflowBindings(
   const diagnostics: ComfyUiWorkflowDiagnostic[] = [
     ...validateComfyUiWorkflowDefinitionContract(definition),
   ];
-  for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
-    if (!binding) continue;
-    const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
-    if (!resolution.ok)
+  for (const [publicInputId, bindings] of Object.entries(definition.bindings)) {
+    for (const [index, binding] of bindings.entries()) {
+      const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
+      if (!resolution.ok)
+        diagnostics.push(
+          diagnostic(
+            `/workflows/${entry.manifestFile}/bindings/${publicInputId}/${index}`,
+            resolution.message ?? `Workflow '${definition.label}' has an unresolved binding.`,
+          ),
+        );
+      if (resolution.ok && resolution.rebased && binding.nodeId && resolution.nodeId) {
+        diagnostics.push(
+          diagnostic(
+            `/workflows/${entry.manifestFile}/bindings/${publicInputId}/${index}`,
+            `Rebased stale node id ${binding.nodeId} to node ${resolution.nodeId} using selector metadata.`,
+            'info',
+          ),
+        );
+      }
+    }
+  }
+  for (const outputId of Object.keys(definition.contract.outputs)) {
+    try {
+      resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition, outputId);
+    } catch (error) {
       diagnostics.push(
         diagnostic(
-          `/workflows/${entry.manifestFile}/bindings/${semanticKey}`,
-          resolution.message ?? `Workflow '${definition.label}' has an unresolved binding.`,
-        ),
-      );
-    if (resolution.ok && resolution.rebased && binding.nodeId && resolution.nodeId) {
-      diagnostics.push(
-        diagnostic(
-          `/workflows/${entry.manifestFile}/bindings/${semanticKey}`,
-          `Rebased stale node id ${binding.nodeId} to node ${resolution.nodeId} using selector metadata.`,
-          'info',
+          `/workflows/${entry.manifestFile}/outputBindings/${outputId}`,
+          error instanceof Error
+            ? error.message
+            : 'Workflow output bindings could not be resolved.',
         ),
       );
     }
-  }
-  try {
-    resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
-  } catch (error) {
-    diagnostics.push(
-      diagnostic(
-        `/workflows/${entry.manifestFile}/outputBindings/images`,
-        error instanceof Error ? error.message : 'Workflow output bindings could not be resolved.',
-      ),
-    );
   }
   return diagnostics;
 }
@@ -276,7 +282,7 @@ async function discoverSource(
         workflowKey: workflowKey(root.source, manifestFile),
         id: definition.id,
         label: definition.label,
-        role: definition.role,
+        classification: definition.classification,
         definition,
         manifestFile,
         workflowFile: definition.workflowFile,
@@ -287,6 +293,7 @@ async function discoverSource(
         overridden: false,
         offlineStatus,
         onlineStatus: 'unverified',
+        runnable: getComfyUiWorkflowExecutionSupport(definition).runnable,
         repairable: Boolean(workflowJsonText) && root.writable,
         diagnostics,
         verificationDiagnostics: [],
@@ -544,7 +551,6 @@ export async function listComfyUiWorkflowLibrary(
           entry.definition &&
           entry.id &&
           entry.label &&
-          entry.role &&
           entry.offlineStatus !== 'invalid',
       )
       .map((entry) => ({
@@ -552,11 +558,12 @@ export async function listComfyUiWorkflowLibrary(
         source: entry.source,
         id: entry.id!,
         label: entry.label!,
-        role: entry.role!,
+        classification: entry.classification,
         definition: entry.definition!,
         packageHash: entry.packageHash,
         offlineStatus: entry.offlineStatus as 'valid' | 'warning',
         onlineStatus: entry.onlineStatus,
+        runnable: entry.runnable ?? false,
         diagnostics: entry.diagnostics,
         verificationDiagnostics: entry.verificationDiagnostics,
       })),

@@ -3,125 +3,145 @@
   "id": "flux2-klein-text-to-image",
   "label": "Flux 2 Klein Text to Image",
   "provider": "comfyui",
-  "role": "image.generate",
+  "classification": "image.generate",
   "description": "Prompt-based image generation using the bundled Flux 2 Klein workflow.",
   "workflowFile": "flux2-klein-text-to-image.workflow.json",
   "contract": {
     "inputs": {
       "prompt": {
         "type": "string",
-        "required": true
+        "required": true,
+        "authoring": {
+          "editorField": "textarea"
+        }
       },
       "width": {
         "type": "integer",
-        "required": false
+        "required": false,
+        "defaultValue": 1024,
+        "authoring": {
+          "editorField": "integer"
+        }
       },
       "height": {
         "type": "integer",
-        "required": false
+        "required": false,
+        "defaultValue": 1024,
+        "authoring": {
+          "editorField": "integer"
+        }
       },
       "steps": {
         "type": "integer",
-        "required": false
+        "required": false,
+        "defaultValue": 20,
+        "authoring": {
+          "editorField": "integer"
+        }
       },
       "seed": {
         "type": "integer",
-        "required": false
+        "required": false,
+        "authoring": {
+          "editorField": "integer"
+        }
       },
       "filenamePrefix": {
         "type": "string",
         "required": false,
-        "editorField": "text",
-        "defaultValue": "NovelTea"
+        "defaultValue": "NovelTea",
+        "authoring": {
+          "editorField": "text"
+        }
       }
     },
     "outputs": {
       "images": {
-        "type": "image-list",
+        "mediaType": "image",
         "required": true,
-        "primary": "first"
+        "cardinality": "many"
       }
     }
   },
   "bindings": {
-    "prompt": {
-      "nodeId": "76",
-      "nodeTitle": "noveltea.prompt",
-      "classType": "PrimitiveStringMultiline",
-      "inputName": "value",
-      "valueType": "string",
-      "selector": {
-        "title": "noveltea.prompt",
+    "prompt": [
+      {
+        "nodeId": "76",
+        "nodeTitle": "noveltea.prompt",
         "classType": "PrimitiveStringMultiline",
-        "inputName": "value"
+        "inputName": "value",
+        "selector": {
+          "title": "noveltea.prompt",
+          "classType": "PrimitiveStringMultiline",
+          "inputName": "value"
+        }
       }
-    },
-    "width": {
-      "nodeId": "75:68",
-      "nodeTitle": "noveltea.width",
-      "classType": "PrimitiveInt",
-      "inputName": "value",
-      "valueType": "integer",
-      "selector": {
-        "title": "noveltea.width",
+    ],
+    "width": [
+      {
+        "nodeId": "75:68",
+        "nodeTitle": "noveltea.width",
         "classType": "PrimitiveInt",
-        "inputName": "value"
+        "inputName": "value",
+        "selector": {
+          "title": "noveltea.width",
+          "classType": "PrimitiveInt",
+          "inputName": "value"
+        }
       }
-    },
-    "height": {
-      "nodeId": "75:69",
-      "nodeTitle": "noveltea.height",
-      "classType": "PrimitiveInt",
-      "inputName": "value",
-      "valueType": "integer",
-      "selector": {
-        "title": "noveltea.height",
+    ],
+    "height": [
+      {
+        "nodeId": "75:69",
+        "nodeTitle": "noveltea.height",
         "classType": "PrimitiveInt",
-        "inputName": "value"
+        "inputName": "value",
+        "selector": {
+          "title": "noveltea.height",
+          "classType": "PrimitiveInt",
+          "inputName": "value"
+        }
       }
-    },
-    "seed": {
-      "nodeId": "75:73",
-      "nodeTitle": "noveltea.seed",
-      "classType": "RandomNoise",
-      "inputName": "noise_seed",
-      "valueType": "integer",
-      "selector": {
-        "title": "noveltea.seed",
+    ],
+    "seed": [
+      {
+        "nodeId": "75:73",
+        "nodeTitle": "noveltea.seed",
         "classType": "RandomNoise",
-        "inputName": "noise_seed"
+        "inputName": "noise_seed",
+        "selector": {
+          "title": "noveltea.seed",
+          "classType": "RandomNoise",
+          "inputName": "noise_seed"
+        }
       }
-    },
-    "steps": {
-      "nodeId": "75:62",
-      "nodeTitle": "noveltea.steps",
-      "classType": "Flux2Scheduler",
-      "inputName": "steps",
-      "valueType": "integer",
-      "selector": {
-        "title": "noveltea.steps",
+    ],
+    "steps": [
+      {
+        "nodeId": "75:62",
+        "nodeTitle": "noveltea.steps",
         "classType": "Flux2Scheduler",
-        "inputName": "steps"
+        "inputName": "steps",
+        "selector": {
+          "title": "noveltea.steps",
+          "classType": "Flux2Scheduler",
+          "inputName": "steps"
+        }
       }
-    },
-    "filenamePrefix": {
-      "nodeId": "9",
-      "nodeTitle": "noveltea.output",
-      "classType": "SaveImage",
-      "inputName": "filename_prefix",
-      "valueType": "string",
-      "selector": {
-        "title": "noveltea.output",
+    ],
+    "filenamePrefix": [
+      {
+        "nodeId": "9",
+        "nodeTitle": "noveltea.output",
         "classType": "SaveImage",
-        "inputName": "filename_prefix"
+        "inputName": "filename_prefix",
+        "selector": {
+          "title": "noveltea.output",
+          "classType": "SaveImage",
+          "inputName": "filename_prefix"
+        }
       }
-    }
-  },
-  "defaults": {
-    "width": 1024,
-    "height": 1024,
-    "steps": 20,
-    "filenamePrefix": "NovelTea"
+    ]
   },
   "requiredNodeClasses": [
     "SaveImage",
@@ -144,9 +164,7 @@
       {
         "nodeId": "9",
         "nodeTitle": "noveltea.output",
-        "classType": "SaveImage",
-        "valueType": "image-list",
-        "primary": "first"
+        "classType": "SaveImage"
       }
     ]
   }

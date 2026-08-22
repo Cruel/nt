@@ -114,7 +114,7 @@ function workflowDefinition(
 
 function hasBoundInput(workflow: ComfyUiWorkflowActiveEntry | null, input: ComfyUiSemanticInput) {
   const definition = workflowDefinition(workflow);
-  return Boolean(definition?.contract.inputs[input] && definition.bindings[input]);
+  return Boolean(definition?.contract.inputs[input] && definition.bindings[input]?.length);
 }
 
 function defaultString(
@@ -122,7 +122,7 @@ function defaultString(
   input: ComfyUiSemanticInput,
   fallback = '',
 ) {
-  const value = workflow.definition.defaults[input];
+  const value = workflow.definition.contract.inputs[input]?.defaultValue;
   return value === undefined ? fallback : String(value);
 }
 
@@ -248,11 +248,15 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const generateQueuedFeedbackTimer = useRef<number | null>(null);
   const editQueuedFeedbackTimer = useRef<number | null>(null);
   const generateWorkflows = useMemo(
-    () => workflows.filter((workflow) => workflow.role === 'image.generate'),
+    () =>
+      workflows.filter(
+        (workflow) => workflow.classification === 'image.generate' && workflow.runnable,
+      ),
     [workflows],
   );
   const editWorkflows = useMemo(
-    () => workflows.filter((workflow) => workflow.role === 'image.edit'),
+    () =>
+      workflows.filter((workflow) => workflow.classification === 'image.edit' && workflow.runnable),
     [workflows],
   );
   const selectedGenerateWorkflow = useMemo(
@@ -387,15 +391,25 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
         const editDefault = comfyUiConfig.defaultWorkflows['image.edit'];
         const generateChoice =
           response.activeWorkflows.find(
-            (workflow) => workflow.role === 'image.generate' && workflow.id === generateDefault,
+            (workflow) =>
+              workflow.classification === 'image.generate' &&
+              workflow.runnable &&
+              workflow.id === generateDefault,
           ) ??
-          response.activeWorkflows.find((workflow) => workflow.role === 'image.generate') ??
+          response.activeWorkflows.find(
+            (workflow) => workflow.classification === 'image.generate' && workflow.runnable,
+          ) ??
           null;
         const editChoice =
           response.activeWorkflows.find(
-            (workflow) => workflow.role === 'image.edit' && workflow.id === editDefault,
+            (workflow) =>
+              workflow.classification === 'image.edit' &&
+              workflow.runnable &&
+              workflow.id === editDefault,
           ) ??
-          response.activeWorkflows.find((workflow) => workflow.role === 'image.edit') ??
+          response.activeWorkflows.find(
+            (workflow) => workflow.classification === 'image.edit' && workflow.runnable,
+          ) ??
           null;
         setGenerateWorkflowKey(generateChoice?.workflowKey ?? '');
         setEditWorkflowKey(editChoice?.workflowKey ?? '');
@@ -533,7 +547,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       tabId: tab.id,
       config: comfyUiConfig,
       workflowLabel: selectedGenerateWorkflow.label,
-      role: selectedGenerateWorkflow.role,
+      classification: 'image.generate',
       promptSummary: promptTitle(prompt),
       request: {
         projectFilePath,
@@ -587,7 +601,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       tabId: tab.id,
       config: comfyUiConfig,
       workflowLabel: selectedEditWorkflow.label,
-      role: selectedEditWorkflow.role,
+      classification: 'image.edit',
       promptSummary: promptTitle(editPrompt),
       projectFilePath,
       request: {

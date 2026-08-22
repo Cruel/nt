@@ -16,6 +16,7 @@ import type {
 } from '../../shared/comfyui-generation';
 import {
   BUILTIN_COMFYUI_WORKFLOW_MANIFESTS,
+  getComfyUiWorkflowExecutionSupport,
   parseComfyUiWorkflowDefinition,
   resolveComfyUiWorkflowBinding,
   resolvedComfyUiWorkflowOutputNodeIdList,
@@ -23,6 +24,7 @@ import {
   type ComfyUiInstallStarterWorkflowsResponse,
   type ComfyUiWorkflowBinding,
   type ComfyUiWorkflowDefinition,
+  type ComfyUiWorkflowInputType,
   type ComfyUiWorkflowDiagnostic,
   type ComfyUiWorkflowListEntry,
   type ComfyUiWorkflowListResponse,
@@ -383,37 +385,42 @@ function validateWorkflowBindings(
   const diagnostics: ComfyUiWorkflowDiagnostic[] = [
     ...validateComfyUiWorkflowDefinitionContract(definition),
   ];
-  for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
-    if (!binding) continue;
-    const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
-    if (!resolution.ok) {
-      diagnostics.push(
-        diagnostic(
-          `/workflows/${definition.manifestFile ?? definition.id}/bindings/${semanticKey}`,
-          resolution.message ?? `Workflow '${definition.label}' has an unresolved binding.`,
-        ),
-      );
-      continue;
-    }
-    if (resolution.rebased && binding.nodeId && resolution.nodeId) {
-      diagnostics.push(
-        diagnostic(
-          `/workflows/${definition.manifestFile ?? definition.id}/bindings/${semanticKey}`,
-          `Rebased stale node id ${binding.nodeId} to node ${resolution.nodeId} using selector metadata.`,
-          'info',
-        ),
-      );
+  for (const [publicInputId, bindings] of Object.entries(definition.bindings)) {
+    for (const [index, binding] of bindings.entries()) {
+      const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
+      if (!resolution.ok) {
+        diagnostics.push(
+          diagnostic(
+            `/workflows/${definition.manifestFile ?? definition.id}/bindings/${publicInputId}/${index}`,
+            resolution.message ?? `Workflow '${definition.label}' has an unresolved binding.`,
+          ),
+        );
+        continue;
+      }
+      if (resolution.rebased && binding.nodeId && resolution.nodeId) {
+        diagnostics.push(
+          diagnostic(
+            `/workflows/${definition.manifestFile ?? definition.id}/bindings/${publicInputId}/${index}`,
+            `Rebased stale node id ${binding.nodeId} to node ${resolution.nodeId} using selector metadata.`,
+            'info',
+          ),
+        );
+      }
     }
   }
-  try {
-    resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
-  } catch (error) {
-    diagnostics.push(
-      diagnostic(
-        `/workflows/${definition.manifestFile ?? definition.id}/outputBindings/images`,
-        error instanceof Error ? error.message : 'Workflow output bindings could not be resolved.',
-      ),
-    );
+  for (const outputId of Object.keys(definition.contract.outputs)) {
+    try {
+      resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition, outputId);
+    } catch (error) {
+      diagnostics.push(
+        diagnostic(
+          `/workflows/${definition.manifestFile ?? definition.id}/outputBindings/${outputId}`,
+          error instanceof Error
+            ? error.message
+            : 'Workflow output bindings could not be resolved.',
+        ),
+      );
+    }
   }
   return diagnostics;
 }
@@ -493,7 +500,7 @@ export async function listComfyUiWorkflows(
         definition,
         id: definition.id,
         label: definition.label,
-        role: definition.role,
+        classification: definition.classification,
         status,
         repairable: Boolean(workflowJsonText),
         diagnostics: definitionDiagnostics,
@@ -572,27 +579,29 @@ function cloneWorkflow(workflow: WorkflowGraph): WorkflowGraph {
   return JSON.parse(JSON.stringify(workflow)) as WorkflowGraph;
 }
 
-function coerceBindingValue(binding: ComfyUiWorkflowBinding, value: unknown) {
-  const bindingLabel = `${binding.nodeId ?? binding.nodeTitle ?? 'unresolved'}.${binding.inputName}`;
-  if (binding.valueType === 'integer') {
+function coerceWorkflowInputValue(inputId: string, type: ComfyUiWorkflowInputType, value: unknown) {
+  if (type === 'integer') {
     const number = Number(value);
-    if (!Number.isFinite(number)) throw new Error(`Input '${bindingLabel}' must be a number.`);
+    if (!Number.isFinite(number)) throw new Error(`Input '${inputId}' must be a number.`);
     return Math.trunc(number);
   }
-  if (binding.valueType === 'number') {
+  if (type === 'number') {
     const number = Number(value);
-    if (!Number.isFinite(number)) throw new Error(`Input '${bindingLabel}' must be a number.`);
+    if (!Number.isFinite(number)) throw new Error(`Input '${inputId}' must be a number.`);
     return number;
+  }
+  if (type === 'boolean') {
+    if (typeof value !== 'boolean') throw new Error(`Input '${inputId}' must be a boolean.`);
+    return value;
   }
   return String(value);
 }
 
-function setWorkflowInput(
+function setWorkflowBindingValue(
   workflow: WorkflowGraph,
-  binding: ComfyUiWorkflowBinding | undefined,
+  binding: ComfyUiWorkflowBinding,
   value: unknown,
 ) {
-  if (!binding) return;
   const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
   if (!resolution.ok || !resolution.nodeId)
     throw new Error(
@@ -604,16 +613,37 @@ function setWorkflowInput(
   if (!node || !node.inputs) throw new Error(`Workflow node '${resolution.nodeId}' is missing.`);
   if (!(inputName in node.inputs))
     throw new Error(`Workflow input '${resolution.nodeId}.${inputName}' is missing.`);
-  node.inputs[inputName] = coerceBindingValue(binding, value);
+  node.inputs[inputName] = value;
+}
+
+function setWorkflowInput(
+  workflow: WorkflowGraph,
+  definition: ComfyUiWorkflowDefinition,
+  inputId: string,
+  value: unknown,
+) {
+  const input = definition.contract.inputs[inputId];
+  const bindings = definition.bindings[inputId];
+  if (!input || !bindings?.length) return;
+  const coerced = coerceWorkflowInputValue(inputId, input.type, value);
+  for (const binding of bindings) setWorkflowBindingValue(workflow, binding, coerced);
 }
 
 function setOptionalWorkflowInput(
   workflow: WorkflowGraph,
-  binding: ComfyUiWorkflowBinding | undefined,
+  definition: ComfyUiWorkflowDefinition,
+  inputId: string,
   value: unknown,
 ) {
   if (value === undefined || value === null) return;
-  setWorkflowInput(workflow, binding, value);
+  setWorkflowInput(workflow, definition, inputId, value);
+}
+
+function workflowInputDefault(
+  definition: ComfyUiWorkflowDefinition,
+  inputId: string,
+): string | number | boolean | undefined {
+  return definition.contract.inputs[inputId]?.defaultValue;
 }
 
 function generatedSeed(seed: number | undefined) {
@@ -741,14 +771,15 @@ function workflowRequirementInputErrors(
   objectInfo: Record<string, unknown>,
 ) {
   const errors: string[] = [];
-  for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
-    if (!binding) continue;
-    const classType = binding.selector?.classType ?? binding.classType;
-    const inputName = binding.selector?.inputName ?? binding.inputName;
-    if (!classType || !(classType in objectInfo)) continue;
-    const inputNames = objectInfoInputNames(objectInfo[classType]);
-    if (inputNames && !inputNames.has(inputName))
-      errors.push(`${semanticKey}: ${classType}.${inputName}`);
+  for (const [publicInputId, bindings] of Object.entries(definition.bindings)) {
+    for (const binding of bindings) {
+      const classType = binding.selector?.classType ?? binding.classType;
+      const inputName = binding.selector?.inputName ?? binding.inputName;
+      if (!classType || !(classType in objectInfo)) continue;
+      const inputNames = objectInfoInputNames(objectInfo[classType]);
+      if (inputNames && !inputNames.has(inputName))
+        errors.push(`${publicInputId}: ${classType}.${inputName}`);
+    }
   }
   return errors;
 }
@@ -1330,7 +1361,7 @@ async function runImageJob(
   const progressMetadata = {
     projectSessionId,
     workflowLabel: definition.label,
-    role: definition.role,
+    classification: definition.classification,
     mode: queueMode,
     promptSummary: prompt.trim().slice(0, 120) || '(empty prompt)',
     createdAt,
@@ -1473,7 +1504,7 @@ export async function generateComfyUiImage(
     request.projectFilePath,
     request,
   );
-  if (definition.role !== 'image.generate')
+  if (definition.classification !== 'image.generate')
     return {
       ok: false,
       success: false,
@@ -1481,40 +1512,55 @@ export async function generateComfyUiImage(
       diagnostics: [],
       error: `Workflow '${definition.id}' is not an image.generate workflow.`,
     };
+  const executionSupport = getComfyUiWorkflowExecutionSupport(definition);
+  if (!executionSupport.runnable)
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: `Workflow '${definition.id}' uses unsupported output media: ${executionSupport.unsupportedOutputMediaTypes.join(', ')}.`,
+    };
   const workflow = cloneWorkflow(template);
   assertWorkflowBindingsValid(workflow, definition);
   const seed = generatedSeed(request.seed);
-  setWorkflowInput(workflow, definition.bindings.prompt, request.prompt);
+  setWorkflowInput(workflow, definition, 'prompt', request.prompt);
   setWorkflowInput(
     workflow,
-    definition.bindings.negativePrompt,
-    request.negativePrompt ?? definition.defaults.negativePrompt ?? '',
+    definition,
+    'negativePrompt',
+    request.negativePrompt ?? workflowInputDefault(definition, 'negativePrompt') ?? '',
   );
   setWorkflowInput(
     workflow,
-    definition.bindings.width,
-    request.width ?? definition.defaults.width ?? 1024,
+    definition,
+    'width',
+    request.width ?? workflowInputDefault(definition, 'width') ?? 1024,
   );
   setWorkflowInput(
     workflow,
-    definition.bindings.height,
-    request.height ?? definition.defaults.height ?? 1024,
+    definition,
+    'height',
+    request.height ?? workflowInputDefault(definition, 'height') ?? 1024,
   );
   setWorkflowInput(
     workflow,
-    definition.bindings.steps,
-    request.steps ?? definition.defaults.steps ?? 20,
+    definition,
+    'steps',
+    request.steps ?? workflowInputDefault(definition, 'steps') ?? 20,
   );
   setOptionalWorkflowInput(
     workflow,
-    definition.bindings.cfg,
-    request.cfg ?? definition.defaults.cfg,
+    definition,
+    'cfg',
+    request.cfg ?? workflowInputDefault(definition, 'cfg'),
   );
-  setWorkflowInput(workflow, definition.bindings.seed, seed);
-  setWorkflowInput(
+  setWorkflowInput(workflow, definition, 'seed', seed);
+  setOptionalWorkflowInput(
     workflow,
-    definition.bindings.filenamePrefix,
-    definition.defaults.filenamePrefix,
+    definition,
+    'filenamePrefix',
+    workflowInputDefault(definition, 'filenamePrefix'),
   );
   return runImageJob(
     config,
@@ -1569,13 +1615,22 @@ export async function editComfyUiImage(
     projectFilePath,
     request,
   );
-  if (definition.role !== 'image.edit')
+  if (definition.classification !== 'image.edit')
     return {
       ok: false,
       success: false,
       assets: [],
       diagnostics: [],
       error: `Workflow '${definition.id}' is not an image.edit workflow.`,
+    };
+  const executionSupport = getComfyUiWorkflowExecutionSupport(definition);
+  if (!executionSupport.runnable)
+    return {
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+      error: `Workflow '${definition.id}' uses unsupported output media: ${executionSupport.unsupportedOutputMediaTypes.join(', ')}.`,
     };
   const workflow = cloneWorkflow(template);
   assertWorkflowBindingsValid(workflow, definition);
@@ -1617,28 +1672,32 @@ export async function editComfyUiImage(
       failureCode: PROJECT_TRUST_FAILURE.STALE_PROJECT_SESSION,
     };
   const seed = generatedSeed(request.seed);
-  setWorkflowInput(workflow, definition.bindings.sourceImage, uploadReference);
-  setWorkflowInput(workflow, definition.bindings.prompt, request.prompt);
+  setWorkflowInput(workflow, definition, 'sourceImage', uploadReference);
+  setWorkflowInput(workflow, definition, 'prompt', request.prompt);
   setWorkflowInput(
     workflow,
-    definition.bindings.negativePrompt,
-    request.negativePrompt ?? definition.defaults.negativePrompt ?? '',
+    definition,
+    'negativePrompt',
+    request.negativePrompt ?? workflowInputDefault(definition, 'negativePrompt') ?? '',
   );
   setWorkflowInput(
     workflow,
-    definition.bindings.steps,
-    request.steps ?? definition.defaults.steps ?? 4,
+    definition,
+    'steps',
+    request.steps ?? workflowInputDefault(definition, 'steps') ?? 4,
   );
   setOptionalWorkflowInput(
     workflow,
-    definition.bindings.cfg,
-    request.cfg ?? definition.defaults.cfg,
+    definition,
+    'cfg',
+    request.cfg ?? workflowInputDefault(definition, 'cfg'),
   );
-  setWorkflowInput(workflow, definition.bindings.seed, seed);
-  setWorkflowInput(
+  setWorkflowInput(workflow, definition, 'seed', seed);
+  setOptionalWorkflowInput(
     workflow,
-    definition.bindings.filenamePrefix,
-    definition.defaults.filenamePrefix,
+    definition,
+    'filenamePrefix',
+    workflowInputDefault(definition, 'filenamePrefix'),
   );
   return runImageJob(
     config,
