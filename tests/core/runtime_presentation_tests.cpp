@@ -27,7 +27,22 @@ CompiledProject fixture()
         "/editor/src/renderer/test/fixtures/compiled-project-golden/scene-program.json");
     REQUIRE(input.good());
     const std::string source((std::istreambuf_iterator<char>(input)), {});
-    auto decoded = decode_compiled_project(nlohmann::json::parse(source), "scene-program.json");
+    auto document = nlohmann::json::parse(source);
+    auto& rooms = document["definitions"]["rooms"];
+    auto start = std::find_if(rooms.begin(), rooms.end(),
+                              [](const nlohmann::json& value) { return value["id"] == "start"; });
+    REQUIRE(start != rooms.end());
+    (*start)["cast"] =
+        nlohmann::json::array({{{"id", "hero-cast"},
+                                {"character", {{"kind", "character"}, {"id", "hero"}}},
+                                {"condition", {{"kind", "always"}}},
+                                {"placementId", "key-placement"},
+                                {"poseId", nullptr},
+                                {"expressionId", nullptr},
+                                {"idleId", nullptr},
+                                {"visible", true},
+                                {"order", 0}}});
+    auto decoded = decode_compiled_project(document, "scene-program.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -89,9 +104,8 @@ SessionState representative_state(const CompiledProject& project)
     REQUIRE(created);
     auto state = std::move(created).value();
     REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
-    REQUIRE(state.move_character(
-        project, id<CharacterId>("hero"),
-        compiled::RoomPlacementRef{id<RoomId>("start"), id<RoomPlacementId>("key-placement")}));
+    REQUIRE(state.move_character(project, id<CharacterId>("hero"),
+                                 compiled::RoomLocation{id<RoomId>("start")}));
     const auto& scene_frame = std::get<SceneFrame>(state.flow_stack().back());
     const ScenePresentationOwner scene_owner{scene_frame.frame_id, scene_frame.scene};
     REQUIRE(state.set_background(
@@ -175,7 +189,7 @@ TEST_CASE("presentation projector assembles the complete effective target")
     REQUIRE(snapshot.actors.size() == 2);
     const auto world_actor =
         std::find_if(snapshot.actors.begin(), snapshot.actors.end(), [](const auto& actor) {
-            return std::holds_alternative<CharacterActorKey>(actor.key);
+            return std::holds_alternative<RoomCastActorKey>(actor.key);
         });
     REQUIRE(world_actor != snapshot.actors.end());
     REQUIRE(world_actor->room_placement);

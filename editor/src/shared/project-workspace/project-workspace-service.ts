@@ -107,6 +107,7 @@ const workspaceManifestSchema = z
     export: authoringProjectSchema.shape.export,
     startupHook: authoringProjectSchema.shape.startupHook,
     entrypoint: authoringProjectSchema.shape.entrypoint,
+    inventories: authoringProjectSchema.shape.inventories,
   })
   .strict();
 
@@ -425,7 +426,7 @@ function ownershipFor(
   const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
       files: ['project.json'],
-      paths: ['/project', '/settings', '/startupHook', '/entrypoint'],
+      paths: ['/project', '/settings', '/startupHook', '/entrypoint', '/inventories'],
     },
     'project:properties': { files: ['properties.json'], paths: ['/properties'] },
     'project:traits': { files: ['traits.json'], paths: ['/traits'] },
@@ -580,6 +581,7 @@ export function projectWorkspaceFiles(
       export: project.export,
       startupHook: project.startupHook,
       entrypoint: project.entrypoint,
+      inventories: project.inventories,
     },
     workspaceManifestSchema,
   );
@@ -757,8 +759,15 @@ export class ProjectWorkspaceService {
             manifest.schemaVersion !== PROJECT_WORKSPACE_SCHEMA_VERSION
           )
             return fail('Project must use the current NovelTea workspace schema.', '/schema');
-          const required = ['project', 'settings', 'export', 'startupHook', 'entrypoint'];
-          if (Object.keys(manifest).length !== 7 || !required.every((key) => key in manifest))
+          const required = [
+            'project',
+            'settings',
+            'export',
+            'startupHook',
+            'entrypoint',
+            'inventories',
+          ];
+          if (Object.keys(manifest).length !== 8 || !required.every((key) => key in manifest))
             return fail('project.json has an unsupported workspace-v1 shape.');
           let properties: unknown;
           let traits: unknown;

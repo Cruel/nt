@@ -468,6 +468,7 @@ describe('authoring compiler framework', () => {
 
   it('losslessly lowers Dialogue graphs, Interaction instructions and retained Verb fallback chains', () => {
     const project = validProject();
+    project.inventories = [{ id: 'bag', label: 'Bag' }];
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
     const key = defaultInteractableData('Key');
     key.presentation.hotspots = { kind: 'custom', hotspots: [] };
@@ -590,7 +591,10 @@ describe('authoring compiler framework', () => {
               id: 'move',
               kind: 'move-interactable',
               interactable: { $ref: { collection: 'interactables', id: 'key' } },
-              target: { kind: 'inventory' },
+              target: {
+                kind: 'inventory',
+                inventory: { owner: { kind: 'project' }, inventoryId: 'bag' },
+              },
             },
             {
               id: 'state',

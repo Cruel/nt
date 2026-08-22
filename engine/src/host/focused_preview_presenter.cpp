@@ -420,17 +420,15 @@ public:
                 {error(
                     "editor_preview.focused_location_missing",
                     "Admitted Interactable location is missing from deterministic query state")});
-        using K = core::editor::TypedFocusedRoomQueryState::InteractableLocation::Kind;
-        if (found->kind == K::Inventory)
-            return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::success(
-                core::compiled::InventoryLocation{});
-        if (found->kind == K::Nowhere)
-            return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::success(
-                core::compiled::NowhereLocation{});
         return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::success(
-            core::compiled::RoomPlacementRef{
-                decoded_id<core::RoomId>(*found->room_id),
-                decoded_id<core::RoomPlacementId>(*found->placement_id)});
+            found->location);
+    }
+
+    core::Result<core::CharacterWorldLocation, core::Diagnostics>
+    character_location(const core::CharacterId&) const override
+    {
+        return core::Result<core::CharacterWorldLocation, core::Diagnostics>::failure(
+            unadmitted("Character location query"));
     }
 
 private:
@@ -712,6 +710,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         .character_defaults = {},
         .overlays = {},
         .cast = {},
+        .interactables = {},
         .props = {},
         .environments = {},
         .placements = {},
@@ -770,7 +769,14 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
              cast.visual.idle_id
                  ? std::optional{decoded_id<core::CharacterIdleId>(*cast.visual.idle_id)}
                  : std::nullopt,
-             cast.visible, cast.order});
+             cast.occurrence_visible, cast.order});
+    for (const auto& interactable : document.world.interactables)
+        definition.interactables.push_back(
+            {decoded_id<core::RoomInteractableEntryId>(interactable.occurrence_id),
+             decoded_id<core::InteractableId>(interactable.interactable_id),
+             condition_token(interactable.condition),
+             decoded_id<core::RoomPlacementId>(interactable.placement_id),
+             interactable.occurrence_visible, interactable.order});
     for (const auto& prop : document.world.props)
         definition.props.push_back(
             {decoded_id<core::RoomPropId>(prop.prop_id), condition_token(prop.condition),
@@ -821,15 +827,24 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
     }
 
     core::RoomPresentationStateView state;
+    const auto append_character_state = [&](const core::CharacterId& id, bool enabled,
+                                            bool visible) {
+        if (std::none_of(state.characters.begin(), state.characters.end(),
+                         [&](const auto& current) { return current.character == id; }))
+            state.characters.push_back({id, enabled, visible});
+    };
     for (const auto& character : document.world.persistent_characters)
-        state.characters.push_back({decoded_id<core::CharacterId>(character.character_id),
-                                    decoded_id<core::RoomPlacementId>(character.placement_id),
-                                    character.enabled, character.visible});
-    for (const auto& interactable : document.world.interactables)
-        state.interactables.push_back(
-            {decoded_id<core::InteractableId>(interactable.interactable_id),
-             decoded_id<core::RoomPlacementId>(interactable.placement_id), interactable.enabled,
-             interactable.visible});
+        append_character_state(decoded_id<core::CharacterId>(character.character_id),
+                               character.enabled, character.visible);
+    for (const auto& cast : document.world.cast)
+        append_character_state(decoded_id<core::CharacterId>(cast.character_id), cast.enabled,
+                               cast.visible);
+    for (const auto& interactable : document.world.interactables) {
+        const auto id = decoded_id<core::InteractableId>(interactable.interactable_id);
+        if (std::none_of(state.interactables.begin(), state.interactables.end(),
+                         [&](const auto& current) { return current.interactable == id; }))
+            state.interactables.push_back({id, interactable.enabled, interactable.visible});
+    }
 
     std::vector<std::string> exit_labels;
     exit_labels.reserve(document.ui.exits.size());

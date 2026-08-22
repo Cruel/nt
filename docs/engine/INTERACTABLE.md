@@ -24,7 +24,9 @@ requires a valid image sprite.
 
 ## Location and state
 
-Room geometry belongs to nested `RoomPlacement`, not the definition. A mutable `InteractableState` stores exactly one location—Inventory, Nowhere, or a validated `RoomPlacementRef`—plus enabled and visible state. Moving an interactable updates state; it does not rewrite Room or Interactable definitions.
+Room geometry belongs to nested `RoomPlacement`, not the definition. A mutable `InteractableState` stores exactly one authoritative Location—owner-qualified Inventory, Room, or Unplaced—plus enabled and visible state. Room Location names only the `RoomId`; visual placement is supplied separately by Room Interactable occurrences. Moving an Interactable updates state; it does not rewrite Room or Interactable definitions or presentation occurrences.
+
+An Interactable may declare owner-local Inventories. Inventory membership is derived solely from Interactable Location, and each Inventory reference includes both its owner and owner-local `InventoryId`. Inventory ownership may also belong to the Project/session convention, Characters, or Features. Containment is acyclic, and moving an Inventory owner changes descendants' derived effective Room without rewriting their direct Inventory Locations.
 
 V1 models unique interactables only. Stackable/count-based inventory is explicitly deferred until a separate `ItemDefinition` contract exists; counts must not be simulated with generic properties.
 
@@ -45,16 +47,16 @@ Feature Properties through the owner-qualified Feature helpers; neither API muta
 
 ## Implementation
 
-The editor authoring schema uses the current `interactables` collection with immutable presentation and
-an explicit initial location/enabled/visible declaration. The editor supports creation, nested Feature
-editing, semantic Hotspot target editing, and detail editing, and validates a Room-placement initial
-location against its matching placement. A newly created Interactable may temporarily have no sprite
-while being authored; that incomplete presentation state does not require a fabricated Verb because
-Hotspots no longer own behavior. `CompiledProject` decodes `InteractableDefinition` records,
-`SessionState` initializes one live state per definition, and typed mutations reject missing
-definitions and invalid placement references. Placements have no occupant back-reference or
-Interactable owner. Lua, player, Map, and Interaction operations all use these same typed location
-and semantic-subject APIs.
+The editor authoring schema uses the current `interactables` collection with immutable presentation,
+owner-local Inventory declarations, and an explicit initial Location/enabled/visible declaration. The
+editor supports creation, nested Feature editing, semantic Hotspot target editing, typed Room/Inventory/
+Unplaced Location editing, and detail editing. A newly created Interactable may temporarily have no
+sprite while being authored; that incomplete presentation state does not require a fabricated Verb
+because Hotspots no longer own behavior. `CompiledProject` decodes one canonical
+`InteractableDefinition` per declared Interactable, `SessionState` initializes one live state per
+definition, and typed mutations reject missing Rooms/Inventories and containment cycles atomically.
+Placements have no occupant back-reference or Interactable owner. Lua, player, Map, and Interaction
+operations all use these same typed Location and semantic-subject APIs.
 
 At runtime, multiple placed Interactables that reference one sprite share its source texture and alpha
 occupancy. Custom mode derives a distinct owner-union binary `R8` mask through the ordinary

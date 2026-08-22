@@ -100,14 +100,22 @@ struct InteractionView {
     std::optional<std::string> notification;
 };
 
+struct InventoryContainerView {
+    compiled::InventoryRef inventory;
+    std::string label;
+    std::optional<RoomId> effective_room;
+};
 struct InventoryItemView {
     InteractableId interactable;
+    compiled::InventoryRef inventory;
+    std::optional<RoomId> effective_room;
     std::string display_name;
     compiled::InteractablePresentation presentation;
     bool enabled;
     bool visible;
 };
 struct InventoryView {
+    std::vector<InventoryContainerView> inventories;
     std::vector<InventoryItemView> items;
     std::vector<InteractionControlView> controls;
 };

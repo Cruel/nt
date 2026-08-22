@@ -49,6 +49,14 @@ core::CompiledProject load_project(std::string_view filename)
     return decode_document(load_document(filename), std::string(filename));
 }
 
+core::compiled::InventoryLocation player_inventory_location()
+{
+    auto inventory = core::InventoryId::create("player");
+    REQUIRE(inventory);
+    return core::compiled::InventoryLocation{core::compiled::InventoryRef{
+        core::compiled::ProjectInventoryOwner{}, std::move(inventory).value()}};
+}
+
 core::CompiledProject make_immediate_audio_project(std::string source_name)
 {
     auto document = load_document("scene-program.json");
@@ -474,40 +482,35 @@ TEST_CASE("stop and reset cancel staged runtime commands without mutation")
     const auto key = make_id<core::InteractableIdTag>("key");
     const auto original = fixture.session->gateway().interactable_location(key);
     REQUIRE(original);
-    const auto* original_placement =
-        std::get_if<core::compiled::RoomPlacementRef>(&original.value());
-    REQUIRE(original_placement != nullptr);
+    const auto* original_room = std::get_if<core::compiled::RoomLocation>(original.value_if());
+    REQUIRE(original_room != nullptr);
 
     const auto missing = make_id<core::InteractableIdTag>("missing");
     auto invalid = fixture.session->gateway().request_interactable_location(
-        missing, core::compiled::InventoryLocation{});
+        missing, player_inventory_location());
     REQUIRE_FALSE(invalid);
     CHECK(fixture.session->pending_command_count() == 0);
 
-    REQUIRE(fixture.session->gateway().request_interactable_location(
-        key, core::compiled::InventoryLocation{}));
+    REQUIRE(
+        fixture.session->gateway().request_interactable_location(key, player_inventory_location()));
     REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}})
                 .diagnostics.empty());
     auto after_stop = fixture.session->gateway().interactable_location(key);
     REQUIRE(after_stop);
-    const auto* stopped_placement =
-        std::get_if<core::compiled::RoomPlacementRef>(&after_stop.value());
-    REQUIRE(stopped_placement != nullptr);
-    CHECK(stopped_placement->room == original_placement->room);
-    CHECK(stopped_placement->placement_id == original_placement->placement_id);
+    const auto* stopped_room = std::get_if<core::compiled::RoomLocation>(after_stop.value_if());
+    REQUIRE(stopped_room != nullptr);
+    CHECK(stopped_room->room == original_room->room);
     CHECK(fixture.session->pending_command_count() == 0);
 
-    REQUIRE(fixture.session->gateway().request_interactable_location(
-        key, core::compiled::InventoryLocation{}));
+    REQUIRE(
+        fixture.session->gateway().request_interactable_location(key, player_inventory_location()));
     REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
                 .diagnostics.empty());
     auto after_reset = fixture.session->gateway().interactable_location(key);
     REQUIRE(after_reset);
-    const auto* reset_placement =
-        std::get_if<core::compiled::RoomPlacementRef>(&after_reset.value());
-    REQUIRE(reset_placement != nullptr);
-    CHECK(reset_placement->room == original_placement->room);
-    CHECK(reset_placement->placement_id == original_placement->placement_id);
+    const auto* reset_room = std::get_if<core::compiled::RoomLocation>(after_reset.value_if());
+    REQUIRE(reset_room != nullptr);
+    CHECK(reset_room->room == original_room->room);
     CHECK(fixture.session->pending_command_count() == 0);
 }
 
@@ -522,15 +525,15 @@ TEST_CASE("successful load cancels commands staged against the replaced session 
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::SaveRuntimeInput{slot}})
             .diagnostics.empty());
 
-    REQUIRE(fixture.session->gateway().request_interactable_location(
-        key, core::compiled::InventoryLocation{}));
+    REQUIRE(
+        fixture.session->gateway().request_interactable_location(key, player_inventory_location()));
     auto loaded =
         fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
     REQUIRE(loaded.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
-    CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
+    CHECK(std::holds_alternative<core::compiled::RoomLocation>(location.value()));
 }
 
 TEST_CASE("typed runtime session starts a representative Room session")
@@ -751,13 +754,15 @@ TEST_CASE("deferred command self-enqueue is bounded by the transaction command b
                                               .instruction_limit = 100'000, .command_limit = 1});
     REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    REQUIRE(
-        execute_session_lua(fixture,
-                            "function before_leave_start()\n"
-                            "  local ok, err = noveltea.interactables.move_to_inventory('key')\n"
-                            "  assert(ok and err == nil)\n"
-                            "end",
-                            "deferred-command-budget"));
+    REQUIRE(execute_session_lua(fixture,
+                                "function before_leave_start()\n"
+                                "  local ok, err = noveltea.interactables.set_location('key', {\n"
+                                "    kind = 'inventory',\n"
+                                "    inventory = { owner = { kind = 'project' }, id = 'player' }\n"
+                                "  })\n"
+                                "  assert(ok and err == nil)\n"
+                                "end",
+                                "deferred-command-budget"));
 
     const auto key = make_id<core::InteractableIdTag>("key");
     REQUIRE(fixture.session->gateway().request_navigation(core::compiled::RoomExitRef{
@@ -772,7 +777,7 @@ TEST_CASE("deferred command self-enqueue is bounded by the transaction command b
 
     const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
-    CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
+    CHECK(std::holds_alternative<core::compiled::RoomLocation>(location.value()));
 }
 
 TEST_CASE("runtime dispatch distinguishes instruction budget yield from execution fault")
@@ -811,8 +816,8 @@ TEST_CASE("frame-destructive commands make later commands from the old owner sta
     const auto key = make_id<core::InteractableIdTag>("key");
     REQUIRE(fixture.session->gateway().request_tail_replacement(
         core::FlowTarget{make_id<core::SceneIdTag>("closing")}));
-    REQUIRE(fixture.session->gateway().request_interactable_location(
-        key, core::compiled::InventoryLocation{}));
+    REQUIRE(
+        fixture.session->gateway().request_interactable_location(key, player_inventory_location()));
 
     auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE_FALSE(drained.diagnostics.empty());
@@ -825,7 +830,7 @@ TEST_CASE("frame-destructive commands make later commands from the old owner sta
 
     const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
-    CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
+    CHECK(std::holds_alternative<core::compiled::RoomLocation>(location.value()));
 }
 
 TEST_CASE("successful structural mutations capture once and true no-ops stay clean")

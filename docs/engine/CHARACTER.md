@@ -2,7 +2,7 @@
 
 ## Contract
 
-A `CharacterDefinition` is immutable runtime content describing authored identity, dialogue presentation, poses, expressions, reconstructible idle-loop definitions, default visual selections, and an initial world declaration. The declaration is `Nowhere` or a validated generic `RoomPlacementRef`, plus enabled and visible defaults. It never contains current on-screen state or backend animation phase.
+A `CharacterDefinition` is immutable runtime content describing authored identity, dialogue presentation, poses, expressions, reconstructible idle-loop definitions, default visual selections, owner-local Inventory declarations, and an initial world declaration. The declaration is `Unplaced` or a validated `RoomLocation { RoomId }`, plus enabled and visible defaults. It never contains current on-screen state, Room-local presentation placement, or backend animation phase.
 
 Character is a Property-bearing definition kind and may attach compatible Traits. Trait members remain ordinary Properties; poses, expressions, dialogue style, and other structural fields never merge through Traits. Editor categories and tags are unrelated to Trait attachment.
 
@@ -15,7 +15,7 @@ A declared Character authoring record may attach one same-kind Archetype. Archet
 ## Authoring, compiled, and state disposition
 
 - **Authoring V2:** a collection-specific Character record with label/notes as editor metadata, explicit runtime-visible identity/dialogue fields, poses, expressions, idle definitions, optional default idle selection, Trait attachments, and typed Property assignments.
-- **Compiled:** `CharacterDefinition`, retained Trait attachments, validated pose/expression/idle/resource and initial-placement references, and authored Property assignments. Empty idle collections and absent default idle selections are omitted from canonical wire output.
+- **Compiled:** `CharacterDefinition`, retained Trait attachments, owner-local Inventory declarations, validated pose/expression/idle/resource and initial Room references, and authored Property assignments. Empty idle collections and absent default idle selections are omitted from canonical wire output.
 - **Mutable:** desired actor presentation stores character ID, pose, expression, optional selected idle ID, logical placement, visibility, and completed presentation state. Character property overrides live in `SessionState` by `(PropertyOwnerRef, PropertyId)`.
 - **Tooling only:** preview pose/expression, preview background, graph/selection state, categories, tags, colors, and sort keys.
 
@@ -35,10 +35,12 @@ editor/src/renderer/project/character-operations.ts
 ```
 
 The V2 editor schema keeps immutable Character identity, dialogue presentation, poses, expressions,
-idle definitions, and defaults in the authoring record. Preview selection belongs to editor tab state, not authored
-runtime content. `CompiledProject` provides the immutable `CharacterDefinition`; `SessionState` owns
-`ActorState` and validates every `{ SceneId, ActorSlotId }` against the compiled ActorCue, Character,
-pose, expression, and idle before publication. Scene execution produces the typed Scene view.
+idle definitions, defaults, owner-local Inventories, and the initial Room/Unplaced world Location in
+the authoring record. Preview selection belongs to editor tab state, not authored runtime content.
+`CompiledProject` provides the immutable `CharacterDefinition`; `SessionState` owns persistent
+`CharacterWorldState` plus Scene `ActorState`. Room cast occurrences supply visual placement separately
+from world Location, while Scene actor slots remain presentation-only. Scene execution produces the
+typed Scene view.
 
 ### Pre-3D authoring shape (historical migration reference)
 

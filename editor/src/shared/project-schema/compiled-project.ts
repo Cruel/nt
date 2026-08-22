@@ -110,9 +110,24 @@ const propertyBearingDefinition = {
 
 const propertyOwnerKindSchema = z.enum(['room', 'character', 'interactable', 'feature']);
 
+const inventoryDefinitionSchema = strict({ id, label: z.string().min(1) });
+const inventoryOwnerSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('project') }),
+  strict({ kind: z.literal('character'), character: characterReferenceSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableReferenceSchema }),
+  strict({ kind: z.literal('room-feature'), room: roomReferenceSchema, featureId: id }),
+  strict({
+    kind: z.literal('interactable-feature'),
+    interactable: interactableReferenceSchema,
+    featureId: id,
+  }),
+]);
+const inventoryReferenceSchema = strict({ owner: inventoryOwnerSchema, inventoryId: id });
+
 const featureDefinitionSchema = strict({
   ...propertyBearingDefinition,
   label: z.string().min(1),
+  inventories: z.array(inventoryDefinitionSchema),
 });
 
 const traitPropertySchema = z.discriminatedUnion('kind', [
@@ -253,12 +268,13 @@ const characterDefinitionSchema = strict({
   expressions: z.array(characterExpressionSchema),
   idles: z.array(characterIdleSchema).optional(),
   poses: z.array(characterPoseSchema),
+  inventories: z.array(inventoryDefinitionSchema),
   initialWorldState: strict({
     enabled: z.boolean(),
     visible: z.boolean(),
     location: z.discriminatedUnion('kind', [
-      strict({ kind: z.literal('nowhere') }),
-      strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
+      strict({ kind: z.literal('unplaced') }),
+      strict({ kind: z.literal('room'), room: roomReferenceSchema }),
     ]),
   }),
 });
@@ -349,6 +365,16 @@ const roomDefinitionSchema = strict({
       order: z.number().int(),
     }),
   ),
+  interactables: z.array(
+    strict({
+      id,
+      interactable: interactableReferenceSchema,
+      condition: compiledConditionSchema,
+      placementId: id,
+      visible: z.boolean(),
+      order: z.number().int(),
+    }),
+  ),
   environments: z
     .array(
       strict({
@@ -379,14 +405,15 @@ const roomDefinitionSchema = strict({
 });
 
 const interactableLocationSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('inventory') }),
-  strict({ kind: z.literal('nowhere') }),
-  strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
+  strict({ kind: z.literal('inventory'), inventory: inventoryReferenceSchema }),
+  strict({ kind: z.literal('unplaced') }),
+  strict({ kind: z.literal('room'), room: roomReferenceSchema }),
 ]);
 const interactableDefinitionSchema = strict({
   ...propertyBearingDefinition,
   displayName: z.string(),
   features: z.array(featureDefinitionSchema),
+  inventories: z.array(inventoryDefinitionSchema),
   initialState: strict({
     enabled: z.boolean(),
     location: interactableLocationSchema,
@@ -414,11 +441,7 @@ const interactableDefinitionSchema = strict({
   }),
 });
 
-const interactionMoveTargetSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('inventory') }),
-  strict({ kind: z.literal('nowhere') }),
-  strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
-]);
+const interactionMoveTargetSchema = interactableLocationSchema;
 const interactionInstructionSchema = z.discriminatedUnion('kind', [
   strict({ effect: compiledEffectSchema, id, kind: z.literal('apply-effect') }),
   strict({
@@ -884,6 +907,7 @@ export const compiledProjectWireV4Schema = strict({
   }),
   properties: z.array(propertyDefinitionSchema),
   traits: z.array(traitDefinitionSchema),
+  inventories: z.array(inventoryDefinitionSchema),
   resources: strict({
     assets: z.array(assetResourceSchema),
     layouts: z.array(layoutResourceSchema),

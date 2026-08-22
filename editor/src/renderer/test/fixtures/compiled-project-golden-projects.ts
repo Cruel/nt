@@ -293,6 +293,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     ownerKinds: ['feature'],
     properties: [{ kind: 'required', propertyId: 'enabled' }],
   };
+  project.inventories = [{ id: 'player', label: 'Player Inventory' }];
 
   const hero = defaultCharacterData('Hero');
   hero.poses[0]!.sprite = characterAssetRef('image-main');
@@ -300,6 +301,8 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   hero.expressions[0]!.poseId = 'default';
   hero.expressions[0]!.sprite = characterAssetRef('image-main');
   hero.expressions[0]!.material = characterMaterialRef('sprite-material');
+  hero.inventories = [{ id: 'carried', label: 'Carried' }];
+  hero.initialWorldState.location = { kind: 'room', room: roomReference('start') };
   project.characters.hero = {
     id: 'hero',
     label: 'Hero',
@@ -314,6 +317,8 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     material: interactableMaterialRef('sprite-material'),
     hotspots: key.presentation.hotspots,
   };
+  key.inventories = [{ id: 'hidden', label: 'Hidden Compartment' }];
+  key.initialState.location = { kind: 'room', room: roomReference('start') };
   project.interactables.key = {
     id: 'key',
     label: 'Key',
@@ -322,6 +327,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   };
 
   const coin = defaultInteractableData('Coin');
+  coin.inventories = [{ id: 'pouch', label: 'Coin Pouch' }];
   coin.presentation.hotspots = { kind: 'custom', hotspots: [] };
   coin.presentation = {
     sprite: interactableAssetRef('image-main'),
@@ -367,7 +373,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       interactable: { $ref: { collection: 'interactables', id: 'key' } },
       condition: { kind: 'always' },
       placementId: 'key-placement',
-      enabled: true,
       visible: true,
       order: 0,
     },
@@ -988,6 +993,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       label: 'Door',
       traits: ['feature-enabled'],
       properties: { enabled: true },
+      inventories: [{ id: 'mail-slot', label: 'Mail Slot' }],
     },
   ];
   start.hotspots = [
@@ -1018,6 +1024,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       label: 'Key Surface',
       traits: ['feature-enabled'],
       properties: { enabled: true },
+      inventories: [{ id: 'groove', label: 'Key Groove' }],
     },
   ];
   key.presentation.hotspots = {
@@ -1033,7 +1040,13 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   };
   const coin = project.interactables.coin!.data;
   coin.features = [
-    { id: 'face', label: 'Coin Face', traits: ['feature-enabled'], properties: { enabled: true } },
+    {
+      id: 'face',
+      label: 'Coin Face',
+      traits: ['feature-enabled'],
+      properties: { enabled: true },
+      inventories: [],
+    },
   ];
   coin.presentation.hotspots = {
     kind: 'custom',
@@ -1142,7 +1155,10 @@ export function interactionProgramGoldenProject(): AuthoringProject {
             id: 'inventory',
             kind: 'move-interactable',
             interactable: interactableReference('key'),
-            target: { kind: 'inventory' },
+            target: {
+              kind: 'inventory',
+              inventory: { owner: { kind: 'project' }, inventoryId: 'player' },
+            },
           },
           {
             id: 'state',
@@ -1171,10 +1187,10 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       program: {
         instructions: [
           {
-            id: 'nowhere',
+            id: 'unplaced',
             kind: 'move-interactable',
             interactable: interactableReference('coin'),
-            target: { kind: 'nowhere' },
+            target: { kind: 'unplaced' },
           },
         ],
         completion: { kind: 'scene', id: 'opening' },
@@ -1194,13 +1210,10 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       program: {
         instructions: [
           {
-            id: 'room-placement',
+            id: 'room',
             kind: 'move-interactable',
             interactable: interactableReference('key'),
-            target: {
-              kind: 'room-placement',
-              placement: { room: 'start', placement: 'key-placement' },
-            },
+            target: { kind: 'room', room: roomReference('start') },
           },
         ],
         completion: { kind: 'dialogue', id: 'intro' },

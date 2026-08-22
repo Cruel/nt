@@ -110,7 +110,6 @@ export const roomInteractableDataSchema = strict({
   interactable: roomInteractableRefSchema,
   condition: conditionSchema,
   placementId: entityIdSchema,
-  enabled: z.boolean(),
   visible: z.boolean(),
   order: z.number().int(),
 });

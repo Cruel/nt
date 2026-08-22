@@ -64,7 +64,6 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'character-pose-material',
   'character-expression-sprite',
   'character-expression-material',
-  'character-room-placement',
   'room-background',
   'room-background-material',
   'room-cast-character',
@@ -78,7 +77,6 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'room-exit-target',
   'interactable-sprite',
   'interactable-material',
-  'interactable-room-placement',
   'feature-ref',
   'hotspot-target',
   'hotspot-material',
@@ -92,7 +90,6 @@ export const AUTHORING_DEPENDENCY_ROLES = [
 export type AuthoringDependencyRole = (typeof AUTHORING_DEPENDENCY_ROLES)[number];
 export type AuthoringReferenceRepairPolicy =
   | { kind: 'set-null'; path: JsonPointer }
-  | { kind: 'set-nowhere'; path: JsonPointer }
   | { kind: 'clear-field'; path: JsonPointer }
   | { kind: 'remove-array-item'; itemPath: JsonPointer }
   | { kind: 'remove-map-entry'; entryPath: JsonPointer }

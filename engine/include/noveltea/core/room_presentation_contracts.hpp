@@ -48,6 +48,14 @@ struct RoomPresentationDefinitionView {
         bool visible = true;
         std::int32_t order = 0;
     };
+    struct InteractableOccurrence {
+        RoomInteractableEntryId id;
+        InteractableId interactable;
+        RoomPresentationConditionToken condition = 0;
+        RoomPlacementId placement;
+        bool visible = true;
+        std::int32_t order = 0;
+    };
     struct Prop {
         RoomPropId id;
         RoomPresentationConditionToken condition = 0;
@@ -93,6 +101,7 @@ struct RoomPresentationDefinitionView {
     std::vector<CharacterDefaults> character_defaults;
     std::vector<Overlay> overlays;
     std::vector<CastEntry> cast;
+    std::vector<InteractableOccurrence> interactables;
     std::vector<Prop> props;
     std::vector<Environment> environments;
     std::vector<Placement> placements;
@@ -103,13 +112,11 @@ struct RoomPresentationDefinitionView {
 struct RoomPresentationStateView {
     struct Character {
         CharacterId character;
-        RoomPlacementId placement;
         bool enabled = true;
         bool visible = true;
     };
     struct Interactable {
         InteractableId interactable;
-        RoomPlacementId placement;
         bool enabled = true;
         bool visible = true;
     };
@@ -147,6 +154,7 @@ struct ResolvedRoomActor {
 };
 
 struct ResolvedRoomInteractable {
+    RoomInteractableEntryId occurrence;
     InteractableId interactable;
     RoomPlacementId placement;
     bool enabled = true;

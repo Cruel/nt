@@ -6,6 +6,7 @@ import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigat
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
+import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { useCommandStore } from '@/commands/command-store';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
@@ -27,7 +28,6 @@ import {
   type CharacterPoseData,
 } from '../../../shared/project-schema/authoring-characters';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import {
   buildCharacterPreviewDocumentData,
   characterPreviewRevision,
@@ -152,17 +152,8 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const materials = project
     ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label }))
     : [];
-  const roomPlacements = project
-    ? Object.entries(project.rooms).flatMap(([roomId, room]) => {
-        const roomData = parseRoomData(room.data);
-        return (
-          roomData?.placements.map((placement) => ({
-            roomId,
-            roomLabel: room.label,
-            placementId: placement.id,
-          })) ?? []
-        );
-      })
+  const rooms = project
+    ? Object.entries(project.rooms).map(([roomId, room]) => ({ roomId, roomLabel: room.label }))
     : [];
 
   useWorkbenchEditorTabState<CharacterEditorTabState>(
@@ -520,38 +511,33 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
               <Label>Location</Label>
               <Select
                 value={
-                  data.initialWorldState.location.kind === 'nowhere'
-                    ? '__nowhere__'
-                    : `${data.initialWorldState.location.placement.room}/${data.initialWorldState.location.placement.placement}`
+                  data.initialWorldState.location.kind === 'unplaced'
+                    ? '__unplaced__'
+                    : data.initialWorldState.location.room.$ref.id
                 }
-                onValueChange={(value) => {
-                  const selected = roomPlacements.find(
-                    (item) => `${item.roomId}/${item.placementId}` === value,
-                  );
+                onValueChange={(value) =>
                   commit(
                     {
                       ...data,
                       initialWorldState: {
                         ...data.initialWorldState,
-                        location: selected
-                          ? {
-                              kind: 'room-placement',
-                              placement: { room: selected.roomId, placement: selected.placementId },
-                            }
-                          : { kind: 'nowhere' },
+                        location:
+                          value === '__unplaced__'
+                            ? { kind: 'unplaced' }
+                            : {
+                                kind: 'room',
+                                room: { $ref: { collection: 'rooms', id: String(value) } },
+                              },
                       },
                     },
                     'Update character initial location',
-                  );
-                }}
+                  )
+                }
               >
-                <SelectItem value="__nowhere__">Nowhere</SelectItem>
-                {roomPlacements.map((item) => (
-                  <SelectItem
-                    key={`${item.roomId}/${item.placementId}`}
-                    value={`${item.roomId}/${item.placementId}`}
-                  >
-                    {item.roomLabel} / {item.placementId}
+                <SelectItem value="__unplaced__">Unplaced</SelectItem>
+                {rooms.map((item) => (
+                  <SelectItem key={item.roomId} value={item.roomId}>
+                    {item.roomLabel} ({item.roomId})
                   </SelectItem>
                 ))}
               </Select>
@@ -595,6 +581,12 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
               Visible
             </label>
           </section>
+
+          <InventoryDeclarationsEditor
+            inventories={data.inventories}
+            onChange={(inventories, label) => commit({ ...data, inventories }, label)}
+            title="Character Inventories"
+          />
 
           <section className="space-y-3 rounded border p-3" data-workbench-anchor="character.poses">
             <div className="flex items-center justify-between gap-2">

@@ -168,19 +168,123 @@ std::optional<PropertyTargetRef> decode_property_target(Decoder& d, const nlohma
     return owner ? std::optional<PropertyTargetRef>{property_target(*owner)} : std::nullopt;
 }
 
+nlohmann::json encode_inventory_owner(const compiled::InventoryOwnerRef& owner)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::ProjectInventoryOwner>)
+                return {{"kind", "project"}};
+            else if constexpr (std::is_same_v<T, compiled::CharacterInventoryOwner>)
+                return {{"kind", "character"}, {"character", value.character.text()}};
+            else if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>)
+                return {{"kind", "interactable"}, {"interactable", value.interactable.text()}};
+            else if constexpr (std::is_same_v<T, RoomFeatureRef>)
+                return {{"kind", "room-feature"},
+                        {"room", value.room.text()},
+                        {"feature", value.feature_id.text()}};
+            else
+                return {{"kind", "interactable-feature"},
+                        {"interactable", value.interactable.text()},
+                        {"feature", value.feature_id.text()}};
+        },
+        owner);
+}
+
+std::optional<compiled::InventoryOwnerRef>
+decode_inventory_owner(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        d.error(k_type, "Expected an Inventory owner object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind = d.member(value, "kind", pointer);
+    auto name = kind ? d.string(*kind, child(pointer, "kind")) : std::nullopt;
+    if (!name)
+        return std::nullopt;
+    if (*name == "project") {
+        d.object(value, pointer, {"kind"});
+        return compiled::ProjectInventoryOwner{};
+    }
+    if (*name == "character") {
+        d.object(value, pointer, {"character", "kind"});
+        const auto* id = d.member(value, "character", pointer);
+        auto parsed = id ? d.id<CharacterId>(*id, child(pointer, "character")) : std::nullopt;
+        return parsed ? std::optional<compiled::InventoryOwnerRef>(
+                            compiled::CharacterInventoryOwner{std::move(*parsed)})
+                      : std::nullopt;
+    }
+    if (*name == "interactable") {
+        d.object(value, pointer, {"interactable", "kind"});
+        const auto* id = d.member(value, "interactable", pointer);
+        auto parsed = id ? d.id<InteractableId>(*id, child(pointer, "interactable")) : std::nullopt;
+        return parsed ? std::optional<compiled::InventoryOwnerRef>(
+                            compiled::InteractableInventoryOwner{std::move(*parsed)})
+                      : std::nullopt;
+    }
+    if (*name == "room-feature") {
+        d.object(value, pointer, {"feature", "kind", "room"});
+        const auto* room = d.member(value, "room", pointer);
+        const auto* feature = d.member(value, "feature", pointer);
+        auto room_id = room ? d.id<RoomId>(*room, child(pointer, "room")) : std::nullopt;
+        auto feature_id =
+            feature ? d.id<FeatureId>(*feature, child(pointer, "feature")) : std::nullopt;
+        return room_id && feature_id ? std::optional<compiled::InventoryOwnerRef>(RoomFeatureRef{
+                                           std::move(*room_id), std::move(*feature_id)})
+                                     : std::nullopt;
+    }
+    if (*name == "interactable-feature") {
+        d.object(value, pointer, {"feature", "interactable", "kind"});
+        const auto* interactable = d.member(value, "interactable", pointer);
+        const auto* feature = d.member(value, "feature", pointer);
+        auto interactable_id =
+            interactable ? d.id<InteractableId>(*interactable, child(pointer, "interactable"))
+                         : std::nullopt;
+        auto feature_id =
+            feature ? d.id<FeatureId>(*feature, child(pointer, "feature")) : std::nullopt;
+        return interactable_id && feature_id
+                   ? std::optional<compiled::InventoryOwnerRef>(InteractableFeatureRef{
+                         std::move(*interactable_id), std::move(*feature_id)})
+                   : std::nullopt;
+    }
+    d.error(k_variant, "Unknown Inventory owner kind '" + *name + "'.", child(pointer, "kind"));
+    return std::nullopt;
+}
+
+nlohmann::json encode_inventory_ref(const compiled::InventoryRef& inventory)
+{
+    return {{"owner", encode_inventory_owner(inventory.owner)},
+            {"inventory", inventory.inventory_id.text()}};
+}
+
+std::optional<compiled::InventoryRef> decode_inventory_ref(Decoder& d, const nlohmann::json& value,
+                                                           std::string_view pointer)
+{
+    if (!d.object(value, pointer, {"inventory", "owner"}))
+        return std::nullopt;
+    const auto* owner = d.member(value, "owner", pointer);
+    const auto* inventory = d.member(value, "inventory", pointer);
+    auto decoded_owner =
+        owner ? decode_inventory_owner(d, *owner, child(pointer, "owner")) : std::nullopt;
+    auto decoded_inventory =
+        inventory ? d.id<InventoryId>(*inventory, child(pointer, "inventory")) : std::nullopt;
+    return decoded_owner && decoded_inventory
+               ? std::optional<compiled::InventoryRef>(compiled::InventoryRef{
+                     std::move(*decoded_owner), std::move(*decoded_inventory)})
+               : std::nullopt;
+}
+
 nlohmann::json encode_location(const compiled::InteractableLocation& location)
 {
     return std::visit(
         [](const auto& item) -> nlohmann::json {
             using T = std::decay_t<decltype(item)>;
             if constexpr (std::is_same_v<T, compiled::InventoryLocation>)
-                return {{"kind", "inventory"}};
-            else if constexpr (std::is_same_v<T, compiled::NowhereLocation>)
-                return {{"kind", "nowhere"}};
+                return {{"kind", "inventory"}, {"inventory", encode_inventory_ref(item.inventory)}};
+            else if constexpr (std::is_same_v<T, compiled::UnplacedLocation>)
+                return {{"kind", "unplaced"}};
             else
-                return {{"kind", "room-placement"},
-                        {"room", item.room.text()},
-                        {"placement", item.placement_id.text()}};
+                return {{"kind", "room"}, {"room", item.room.text()}};
         },
         location);
 }
@@ -197,24 +301,25 @@ decode_location(Decoder& d, const nlohmann::json& value, std::string_view pointe
     if (!name)
         return std::nullopt;
     if (*name == "inventory") {
-        d.object(value, pointer, {"kind"});
-        return compiled::InventoryLocation{};
+        d.object(value, pointer, {"inventory", "kind"});
+        const auto* inventory = d.member(value, "inventory", pointer);
+        auto decoded = inventory ? decode_inventory_ref(d, *inventory, child(pointer, "inventory"))
+                                 : std::nullopt;
+        return decoded ? std::optional<compiled::InteractableLocation>(
+                             compiled::InventoryLocation{std::move(*decoded)})
+                       : std::nullopt;
     }
-    if (*name == "nowhere") {
+    if (*name == "unplaced") {
         d.object(value, pointer, {"kind"});
-        return compiled::NowhereLocation{};
+        return compiled::UnplacedLocation{};
     }
-    if (*name == "room-placement") {
-        d.object(value, pointer, {"kind", "room", "placement"});
+    if (*name == "room") {
+        d.object(value, pointer, {"kind", "room"});
         const auto* room = d.member(value, "room", pointer);
-        const auto* placement = d.member(value, "placement", pointer);
         auto room_id = room ? d.id<RoomId>(*room, child(pointer, "room")) : std::nullopt;
-        auto placement_id = placement
-                                ? d.id<RoomPlacementId>(*placement, child(pointer, "placement"))
-                                : std::nullopt;
-        if (room_id && placement_id)
-            return compiled::RoomPlacementRef{std::move(*room_id), std::move(*placement_id)};
-        return std::nullopt;
+        return room_id ? std::optional<compiled::InteractableLocation>(
+                             compiled::RoomLocation{std::move(*room_id)})
+                       : std::nullopt;
     }
     d.error(k_variant, "Unknown location kind '" + *name + "'.", child(pointer, "kind"));
     return std::nullopt;

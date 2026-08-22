@@ -64,7 +64,7 @@ describe('room commands', () => {
     });
   });
 
-  it('repairs Character locations and Room-owned Interactable instances with placement changes', () => {
+  it('repairs Room presentation occurrences without rewriting semantic Locations', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.placements = [
@@ -81,15 +81,18 @@ describe('room commands', () => {
         interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
         condition: { kind: 'always' },
         placementId: 'lamp-placement',
-        enabled: true,
         visible: true,
         order: 0,
       },
     ];
+    lamp.initialState.location = {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    };
     const guard = defaultCharacterData('Guard');
     guard.initialWorldState.location = {
-      kind: 'room-placement',
-      placement: { room: 'foyer', placement: 'lamp-placement' },
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.interactables.lamp = { id: 'lamp', label: 'Lamp', data: lamp };
@@ -118,8 +121,8 @@ describe('room commands', () => {
           data: {
             initialWorldState: {
               location: {
-                kind: 'room-placement',
-                placement: { room: 'foyer', placement: 'lamp-anchor' },
+                kind: 'room',
+                room: { $ref: { collection: 'rooms', id: 'foyer' } },
               },
             },
           },
@@ -139,7 +142,15 @@ describe('room commands', () => {
       rooms: { foyer: { data: { interactables: [] } } },
     });
     expect(removeResult.document).toMatchObject({
-      characters: { guard: { data: { initialWorldState: { location: { kind: 'nowhere' } } } } },
+      characters: {
+        guard: {
+          data: {
+            initialWorldState: {
+              location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+            },
+          },
+        },
+      },
     });
   });
 
@@ -180,7 +191,10 @@ describe('room commands', () => {
         id: 'move',
         kind: 'move-interactable',
         interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
-        target: { kind: 'room-placement', placement: { room: 'foyer', placement: 'anchor' } },
+        target: {
+          kind: 'room',
+          room: { $ref: { collection: 'rooms', id: 'foyer' } },
+        },
       },
     ];
     interaction.rules = [
@@ -216,7 +230,14 @@ describe('room commands', () => {
               {
                 context: { placement: { placement: 'renamed-anchor' } },
                 program: {
-                  instructions: [{ target: { placement: { placement: 'renamed-anchor' } } }],
+                  instructions: [
+                    {
+                      target: {
+                        kind: 'room',
+                        room: { $ref: { collection: 'rooms', id: 'foyer' } },
+                      },
+                    },
+                  ],
                 },
               },
             ],

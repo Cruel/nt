@@ -406,13 +406,14 @@ specification owns that authoritative state. Actor projection is the visual resu
 
 ### Interactable world presentation
 
-Visible Interactables in the active Room are projected from authoritative Interactable location,
-visibility, enabled state, and the referenced Room placement definition.
+Visible Interactables in the active Room are projected from authoritative Interactable Room presence,
+visibility/enabled state, and explicit Room presentation occurrences. Canonical Location does not
+carry visual placement identity.
 
-The snapshot contains the complete world-rendering data required for each visible placement, including:
+The snapshot contains the complete world-rendering data required for each visible occurrence, including:
 
-- `InteractableId`;
-- active `RoomPlacementRef`;
+- canonical `InteractableId` plus stable Room occurrence identity;
+- occurrence `RoomPlacementRef`;
 - normalized or logical bounds;
 - resolved sprite/material presentation;
 - visibility and enabled state where visual policy depends on them;

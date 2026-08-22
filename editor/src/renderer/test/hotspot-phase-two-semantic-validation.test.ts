@@ -54,7 +54,7 @@ describe('hotspot semantic validation', () => {
     project.assets.image = { id: 'image', label: 'Image', data: imageAsset({ hasAlpha: false }) };
     const room = defaultRoomData('Room');
     room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
-    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {} });
+    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {}, inventories: [] });
     room.hotspots.push({
       id: 'door-region',
       label: 'Door geometry',
@@ -77,7 +77,13 @@ describe('hotspot semantic validation', () => {
 
     const item = defaultInteractableData('Item');
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
-    item.features.push({ id: 'handle', label: 'Handle', traits: [], properties: {} });
+    item.features.push({
+      id: 'handle',
+      label: 'Handle',
+      traits: [],
+      properties: {},
+      inventories: [],
+    });
     primaryHotspot(item).target = { kind: 'owner-feature', featureId: 'missing' };
     project.interactables.item = { id: 'item', label: 'Item', data: item };
 
@@ -95,7 +101,13 @@ describe('hotspot semantic validation', () => {
     project.assets.image = { id: 'image', label: 'Image', data: imageAsset({ orientation: 6 }) };
     const item = defaultInteractableData('Coin');
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
-    item.features.push({ id: 'face', label: 'Coin Face', traits: [], properties: {} });
+    item.features.push({
+      id: 'face',
+      label: 'Coin Face',
+      traits: [],
+      properties: {},
+      inventories: [],
+    });
     const primary = primaryHotspot(item);
     item.presentation.hotspots = {
       kind: 'custom',
@@ -123,7 +135,7 @@ describe('hotspot semantic validation', () => {
   it('validates cross-owner Feature subject targets by owner and local Feature identity', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Room');
-    room.features.push({ id: 'desk', label: 'Desk', traits: [], properties: {} });
+    room.features.push({ id: 'desk', label: 'Desk', traits: [], properties: {}, inventories: [] });
     room.hotspots.push({
       id: 'desk-region',
       label: 'Desk geometry',
@@ -147,7 +159,7 @@ describe('hotspot semantic validation', () => {
     expect(codes(project)).toContain('hotspot.authoring.target.feature-owner-missing');
 
     const box = defaultInteractableData('Box');
-    box.features.push({ id: 'lid', label: 'Lid', traits: [], properties: {} });
+    box.features.push({ id: 'lid', label: 'Lid', traits: [], properties: {}, inventories: [] });
     project.interactables.box = { id: 'box', label: 'Box', data: box };
     expect(codes(project)).not.toContain('hotspot.authoring.target.feature-owner-missing');
     expect(codes(project)).not.toContain('hotspot.authoring.target.feature-missing');

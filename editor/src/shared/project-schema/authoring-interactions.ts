@@ -11,6 +11,7 @@ import { parseInteractableData } from './authoring-interactables';
 import { parseRoomData } from './authoring-rooms';
 import { parseVerbData } from './authoring-verbs';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
+import { validateInventoryReference } from './authoring-inventory-validation';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -167,15 +168,25 @@ export function validateInteractionProgram(
         diagnostic(instructionPath, 'SetInteractableState must set enabled and/or visible.'),
       );
     }
-    if (instruction.kind === 'move-interactable' && instruction.target.kind === 'room-placement') {
-      validateRoomPlacement(
-        project,
-        instruction.target.placement.room,
-        instruction.target.placement.placement,
-        `${instructionPath}/target/placement`,
-        diagnostics,
+    if (
+      instruction.kind === 'move-interactable' &&
+      instruction.target.kind === 'room' &&
+      !project.rooms[instruction.target.room.$ref.id]
+    )
+      diagnostics.push(
+        diagnostic(
+          `${instructionPath}/target/room/$ref`,
+          `Missing room '${instruction.target.room.$ref.id}'.`,
+        ),
       );
-    }
+    if (instruction.kind === 'move-interactable' && instruction.target.kind === 'inventory')
+      diagnostics.push(
+        ...validateInventoryReference(
+          project,
+          instruction.target.inventory,
+          `${instructionPath}/target/inventory`,
+        ),
+      );
     if (instruction.kind === 'call-scene' && !project.scenes[instruction.scene.$ref.id])
       diagnostics.push(
         diagnostic(

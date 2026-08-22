@@ -8,12 +8,10 @@ nlohmann::json encode_character_location(const CharacterWorldLocation& location)
     return std::visit(
         [](const auto& item) -> nlohmann::json {
             using T = std::decay_t<decltype(item)>;
-            if constexpr (std::is_same_v<T, compiled::NowhereCharacterLocation>)
-                return {{"kind", "nowhere"}};
+            if constexpr (std::is_same_v<T, compiled::UnplacedLocation>)
+                return {{"kind", "unplaced"}};
             else
-                return {{"kind", "room-placement"},
-                        {"room", item.room.text()},
-                        {"placement", item.placement_id.text()}};
+                return {{"kind", "room"}, {"room", item.room.text()}};
         },
         location);
 }
@@ -29,20 +27,16 @@ decode_character_location(Decoder& d, const nlohmann::json& value, std::string_v
     auto name = kind ? d.string(*kind, child(pointer, "kind")) : std::nullopt;
     if (!name)
         return std::nullopt;
-    if (*name == "nowhere") {
+    if (*name == "unplaced") {
         d.object(value, pointer, {"kind"});
-        return compiled::NowhereCharacterLocation{};
+        return compiled::UnplacedLocation{};
     }
-    if (*name == "room-placement") {
-        d.object(value, pointer, {"kind", "room", "placement"});
+    if (*name == "room") {
+        d.object(value, pointer, {"kind", "room"});
         const auto* room = d.member(value, "room", pointer);
-        const auto* placement = d.member(value, "placement", pointer);
         auto room_id = room ? d.id<RoomId>(*room, child(pointer, "room")) : std::nullopt;
-        auto placement_id = placement
-                                ? d.id<RoomPlacementId>(*placement, child(pointer, "placement"))
-                                : std::nullopt;
-        if (room_id && placement_id)
-            return compiled::RoomPlacementRef{std::move(*room_id), std::move(*placement_id)};
+        if (room_id)
+            return compiled::RoomLocation{std::move(*room_id)};
         return std::nullopt;
     }
     d.error(k_variant, "Unknown Character location kind '" + *name + "'.", child(pointer, "kind"));

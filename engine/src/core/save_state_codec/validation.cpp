@@ -135,31 +135,34 @@ bool has_interaction_instruction(const compiled::InteractionProgram& program,
 bool valid_location(const CompiledProject& project, const InteractableId& interactable,
                     const compiled::InteractableLocation& location)
 {
-    const auto* placement = std::get_if<compiled::RoomPlacementRef>(&location);
-    if (!placement)
-        return true;
-    const auto* room = project.find_room(placement->room);
-    if (!room)
-        return false;
-    const auto found = std::find_if(room->placements.begin(), room->placements.end(),
-                                    [&placement](const compiled::RoomPlacement& item) {
-                                        return item.id == placement->placement_id;
-                                    });
     (void)interactable;
-    return found != room->placements.end();
+    if (const auto* room = std::get_if<compiled::RoomLocation>(&location))
+        return project.find_room(room->room) != nullptr;
+    if (const auto* inventory = std::get_if<compiled::InventoryLocation>(&location))
+        return project.find_inventory(inventory->inventory) != nullptr;
+    return true;
 }
 
 bool valid_character_location(const CompiledProject& project,
                               const CharacterWorldLocation& location)
 {
-    const auto* placement = std::get_if<compiled::RoomPlacementRef>(&location);
-    if (!placement)
-        return true;
-    const auto* room = project.find_room(placement->room);
-    return room != nullptr && std::any_of(room->placements.begin(), room->placements.end(),
-                                          [&placement](const compiled::RoomPlacement& item) {
-                                              return item.id == placement->placement_id;
-                                          });
+    const auto* room = std::get_if<compiled::RoomLocation>(&location);
+    return room == nullptr || project.find_room(room->room) != nullptr;
+}
+
+std::optional<InteractableId> inventory_interactable_owner(const compiled::InventoryRef& inventory)
+{
+    return std::visit(
+        [](const auto& owner) -> std::optional<InteractableId> {
+            using T = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>)
+                return owner.interactable;
+            else if constexpr (std::is_same_v<T, InteractableFeatureRef>)
+                return owner.interactable;
+            else
+                return std::nullopt;
+        },
+        inventory.owner);
 }
 
 const compiled::RoomExit* find_exit(const compiled::RoomDefinition& room, const RoomExitId& exit)
@@ -690,6 +693,29 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     if (save.interactables.size() != project.interactables().size())
         error("save_codec.incomplete_interactables",
               "Save must contain every compiled Interactable.");
+    for (const auto& start : save.interactables) {
+        std::unordered_set<InteractableId> visited;
+        visited.insert(start.interactable);
+        const InteractableState* current = &start;
+        while (const auto* location =
+                   std::get_if<compiled::InventoryLocation>(&current->location)) {
+            const auto owner = inventory_interactable_owner(location->inventory);
+            if (!owner)
+                break;
+            if (!visited.insert(*owner).second) {
+                error("save_codec.inventory_containment_cycle",
+                      "Saved Inventory containment must be acyclic.");
+                break;
+            }
+            const auto found = std::find_if(save.interactables.begin(), save.interactables.end(),
+                                            [&](const InteractableState& candidate) {
+                                                return candidate.interactable == *owner;
+                                            });
+            if (found == save.interactables.end())
+                break;
+            current = &*found;
+        }
+    }
     std::unordered_set<std::string> characters;
     for (const auto& item : save.characters) {
         if (!characters.insert(item.character.text()).second)

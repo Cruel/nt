@@ -319,7 +319,13 @@ describe('authoring structural dependency graph and queries', () => {
     };
     const item = defaultInteractableData('Item');
     item.presentation.sprite = { $ref: { collection: 'assets', id: 'sprite' } };
-    item.features.push({ id: 'handle', label: 'Handle', traits: [], properties: {} });
+    item.features.push({
+      id: 'handle',
+      label: 'Handle',
+      traits: [],
+      properties: {},
+      inventories: [],
+    });
     if (item.presentation.hotspots.kind !== 'sprite-alpha')
       throw new Error('Expected sprite alpha');
     item.presentation.hotspots.hotspot.target = { kind: 'owner-feature', featureId: 'handle' };

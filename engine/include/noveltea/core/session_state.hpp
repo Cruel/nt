@@ -268,6 +268,12 @@ public:
         return m_character_world;
     }
     [[nodiscard]] const CharacterWorldState* character_world(const CharacterId& id) const noexcept;
+    [[nodiscard]] std::optional<RoomId> effective_room(const CompiledProject& project,
+                                                       const CharacterId& id) const noexcept;
+    [[nodiscard]] std::optional<RoomId> effective_room(const CompiledProject& project,
+                                                       const InteractableId& id) const noexcept;
+    [[nodiscard]] std::vector<InteractableId>
+    inventory_members(const compiled::InventoryRef& inventory) const;
     [[nodiscard]] Result<void, Diagnostics> move_character(const CompiledProject& project,
                                                            const CharacterId& id,
                                                            CharacterWorldLocation location);

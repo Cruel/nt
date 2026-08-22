@@ -92,6 +92,12 @@ public:
         return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::failure(
             {{.code = "test.unadmitted", .message = "Interactable is not admitted"}});
     }
+    [[nodiscard]] core::Result<core::CharacterWorldLocation, core::Diagnostics>
+    character_location(const core::CharacterId&) const override
+    {
+        return core::Result<core::CharacterWorldLocation, core::Diagnostics>::failure(
+            {{.code = "test.unadmitted", .message = "Character is not admitted"}});
+    }
 
 private:
     runtime::CapabilityGeneration m_generation;
@@ -872,19 +878,21 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         assert(not present and type(property_error) == "string")
 
         local location, location_error = noveltea.interactables.location("coin")
-        assert(location_error == nil and location.kind == "nowhere")
+        assert(location_error == nil and location.kind == "unplaced")
         location, location_error = noveltea.interactables.location("key")
-        assert(location_error == nil and location.kind == "room-placement")
-        assert(location.room == "start" and location.placement == "key-placement")
-        ok, error_message = noveltea.interactables.move_to_inventory("key")
+        assert(location_error == nil and location.kind == "room" and location.room == "start")
+        ok, error_message = noveltea.interactables.set_location("key", {
+            kind = "inventory",
+            inventory = { owner = { kind = "project" }, id = "player" }
+        })
         assert(ok and error_message == nil)
-        ok, error_message = noveltea.interactables.move_to_nowhere("dust")
+        ok, error_message = noveltea.interactables.set_location("dust", { kind = "unplaced" })
         assert(ok and error_message == nil)
-        ok, error_message = noveltea.interactables.move_to_placement(
-            "key", "start", "key-placement")
+        ok, error_message = noveltea.interactables.set_location(
+            "key", { kind = "room", room = "start" })
         assert(ok and error_message == nil)
-        ok, error_message = noveltea.interactables.move_to_placement(
-            "key", "hall", "coin-placement")
+        ok, error_message = noveltea.interactables.set_location(
+            "key", { kind = "room", room = "hall" })
         assert(ok and error_message == nil)
 
         ok, error_message = noveltea.flow.call_scene("closing")

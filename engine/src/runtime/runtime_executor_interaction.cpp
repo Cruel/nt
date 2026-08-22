@@ -409,15 +409,59 @@ core::Result<core::InventoryView, RuntimeExecutionError>
 RuntimeExecutor::inventory_view(std::string_view runtime_locale)
 {
     core::InventoryView view;
+    const auto owner_room = [&](const core::compiled::InventoryOwnerRef& owner) {
+        return std::visit(
+            [&](const auto& value) -> std::optional<core::RoomId> {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::compiled::CharacterInventoryOwner>)
+                    return m_world.effective_room(value.character);
+                else if constexpr (std::is_same_v<T, core::compiled::InteractableInventoryOwner>)
+                    return m_world.effective_room(value.interactable);
+                else if constexpr (std::is_same_v<T, core::RoomFeatureRef>)
+                    return value.room;
+                else if constexpr (std::is_same_v<T, core::InteractableFeatureRef>)
+                    return m_world.effective_room(value.interactable);
+                else
+                    return std::nullopt;
+            },
+            owner);
+    };
+    const auto append_inventories =
+        [&](const core::compiled::InventoryOwnerRef& owner,
+            const std::vector<core::compiled::InventoryDefinition>& values) {
+            for (const auto& inventory : values) {
+                core::compiled::InventoryRef reference{owner, inventory.id};
+                view.inventories.push_back(
+                    {reference, inventory.label, owner_room(reference.owner)});
+            }
+        };
+    append_inventories(core::compiled::ProjectInventoryOwner{}, m_project.inventories());
+    for (const auto& character : m_project.characters())
+        append_inventories(core::compiled::CharacterInventoryOwner{character.identity.id},
+                           character.inventories);
+    for (const auto& room : m_project.rooms())
+        for (const auto& feature : room.features)
+            append_inventories(core::RoomFeatureRef{room.identity.id, feature.identity.id},
+                               feature.inventories);
+    for (const auto& interactable : m_project.interactables()) {
+        append_inventories(core::compiled::InteractableInventoryOwner{interactable.identity.id},
+                           interactable.inventories);
+        for (const auto& feature : interactable.features)
+            append_inventories(
+                core::InteractableFeatureRef{interactable.identity.id, feature.identity.id},
+                feature.inventories);
+    }
     for (const auto& state : m_state.interactables()) {
-        if (!std::holds_alternative<core::compiled::InventoryLocation>(state.location))
+        const auto* location = std::get_if<core::compiled::InventoryLocation>(&state.location);
+        if (location == nullptr)
             continue;
         const auto* definition = m_world.resolved_configuration(state.interactable);
-        if (definition == nullptr)
+        if (definition == nullptr || !m_world.has_inventory(location->inventory))
             return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
                 interaction_error("execution.invalid_inventory",
-                                  "Inventory definition is missing"));
-        view.items.push_back({state.interactable, definition->display_name,
+                                  "Inventory definition or membership reference is missing"));
+        view.items.push_back({state.interactable, location->inventory,
+                              m_world.effective_room(state.interactable), definition->display_name,
                               definition->presentation, state.enabled, state.visible});
     }
     for (const auto& verb : m_project.verbs()) {

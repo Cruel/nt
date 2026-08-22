@@ -330,6 +330,18 @@ RuntimeCommandGateway::interactable_state(const core::InteractableId& interactab
                                    "Interactable definition or live state is missing"));
 }
 
+core::Result<core::CharacterWorldLocation, core::Diagnostics>
+RuntimeCommandGateway::character_location(const core::CharacterId& character) const
+{
+    const auto* state = m_world.character_state(character);
+    return state != nullptr
+               ? core::Result<core::CharacterWorldLocation, core::Diagnostics>::success(
+                     state->location)
+               : core::Result<core::CharacterWorldLocation, core::Diagnostics>::failure(
+                     gateway_error("runtime.unknown_character",
+                                   "Character definition or live world state is missing"));
+}
+
 core::Result<core::CharacterWorldState, core::Diagnostics>
 RuntimeCommandGateway::character_world_state(const core::CharacterId& character) const
 {
@@ -368,13 +380,14 @@ RuntimeCommandGateway::request_interactable_location(core::InteractableId intera
     if (m_world.resolved_configuration(interactable) == nullptr)
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_interactable", "Interactable definition is missing"));
-    if (const auto* placement = std::get_if<core::compiled::RoomPlacementRef>(&target)) {
-        if (!m_world.has_room_placement(*placement)) {
-            return core::Result<void, core::Diagnostics>::failure(
-                gateway_error("runtime.invalid_interactable_location",
-                              "Room placement does not exist in the named Room"));
-        }
-    }
+    if (const auto* room = std::get_if<core::compiled::RoomLocation>(&target);
+        room && m_world.resolved_configuration(room->room) == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.invalid_interactable_location", "Room Location is unresolved"));
+    if (const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&target);
+        inventory && !m_world.has_inventory(inventory->inventory))
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.invalid_interactable_location", "Inventory Location is unresolved"));
     return enqueue(SetInteractableWorldStateCommand{std::move(interactable), std::move(target),
                                                     std::nullopt, std::nullopt});
 }
@@ -387,12 +400,14 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_interactabl
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_interactable", "Interactable definition is missing"));
     if (location) {
-        if (const auto* placement = std::get_if<core::compiled::RoomPlacementRef>(&*location)) {
-            if (!m_world.has_room_placement(*placement))
-                return core::Result<void, core::Diagnostics>::failure(
-                    gateway_error("runtime.invalid_interactable_location",
-                                  "Room placement does not exist in the named Room"));
-        }
+        if (const auto* room = std::get_if<core::compiled::RoomLocation>(&*location);
+            room && m_world.resolved_configuration(room->room) == nullptr)
+            return core::Result<void, core::Diagnostics>::failure(gateway_error(
+                "runtime.invalid_interactable_location", "Room Location is unresolved"));
+        if (const auto* inventory = std::get_if<core::compiled::InventoryLocation>(&*location);
+            inventory && !m_world.has_inventory(inventory->inventory))
+            return core::Result<void, core::Diagnostics>::failure(gateway_error(
+                "runtime.invalid_interactable_location", "Inventory Location is unresolved"));
     }
     return enqueue(SetInteractableWorldStateCommand{std::move(interactable), std::move(location),
                                                     enabled, visible});
@@ -406,12 +421,10 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_character_w
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_character", "Character definition is missing"));
     if (location) {
-        if (const auto* placement = std::get_if<core::compiled::RoomPlacementRef>(&*location)) {
-            if (!m_world.has_room_placement(*placement))
-                return core::Result<void, core::Diagnostics>::failure(
-                    gateway_error("runtime.invalid_character_location",
-                                  "Room placement does not exist in the named Room"));
-        }
+        if (const auto* room = std::get_if<core::compiled::RoomLocation>(&*location);
+            room && m_world.resolved_configuration(room->room) == nullptr)
+            return core::Result<void, core::Diagnostics>::failure(
+                gateway_error("runtime.invalid_character_location", "Room Location is unresolved"));
     }
     return enqueue(
         SetCharacterWorldStateCommand{std::move(character), std::move(location), enabled, visible});

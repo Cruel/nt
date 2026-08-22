@@ -60,7 +60,6 @@ describe('Room placement commands', () => {
                 interactable: { $ref: { collection: 'interactables', id: 'key' } },
                 condition: { kind: 'always' },
                 placementId: 'key-placement',
-                enabled: true,
                 visible: true,
                 order: 0,
               },
@@ -68,8 +67,20 @@ describe('Room placement commands', () => {
           },
         },
       },
+      interactables: {
+        key: {
+          data: {
+            initialState: {
+              location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+            },
+          },
+        },
+      },
     });
-    expect(placed.historyEntry?.affectedPaths).toEqual(['/rooms/foyer/data']);
+    expect(placed.historyEntry?.affectedPaths).toEqual([
+      '/interactables/key/data',
+      '/rooms/foyer/data',
+    ]);
     expect(undoCommand(placed.state).document).toEqual(state.document);
   });
 
@@ -91,13 +102,16 @@ describe('Room placement commands', () => {
       },
     ];
     const key = defaultInteractableData('Key');
+    key.initialState.location = {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    };
     room.interactables = [
       {
         id: 'key',
         interactable: { $ref: { collection: 'interactables', id: 'key' } },
         condition: { kind: 'always' },
         placementId: 'shared',
-        enabled: true,
         visible: true,
         order: 0,
       },

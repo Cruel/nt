@@ -135,17 +135,6 @@ function roomClosure(
         queue.push(target);
       }
     }
-    for (const edgeId of graph.incomingEdgeIdsByNodeKey.get(current) ?? []) {
-      const edge = graph.edgesById.get(edgeId);
-      if (!edge || !['character-room-placement', 'interactable-room-placement'].includes(edge.role))
-        continue;
-      edgeIds.add(edgeId);
-      const source = nodeText(edge.source);
-      if (!nodeKeys.has(source)) {
-        nodeKeys.add(source);
-        queue.push(source);
-      }
-    }
   }
   const owningPaths = new Set<string>();
   for (const key of nodeKeys) {
@@ -558,11 +547,12 @@ function buildAdmissionAndState(
     }
   }
   for (const instance of room.interactables) {
-    definitions.set(`interactables:${instance.id}`, {
+    const interactableId = instance.interactable.$ref.id;
+    definitions.set(`interactables:${interactableId}`, {
       collection: 'interactables',
-      id: instance.id,
+      id: interactableId,
     });
-    interactableLocationIds.add(instance.id);
+    interactableLocationIds.add(interactableId);
   }
   const compositionDraftCharacterIds = new Set<string>();
   const compositionDraftInteractableIds = new Set<string>();
@@ -615,32 +605,17 @@ function buildAdmissionAndState(
           item.collection === 'dialogues' ||
           item.collection === 'characters' ||
           item.collection === 'interactables'
-            ? item.collection === 'interactables' && !project.interactables[item.id]
-              ? room.interactables.find((instance) => instance.id === item.id)?.interactable.$ref.id
-                ? (parseInteractableData(
-                    project.interactables[
-                      room.interactables.find((instance) => instance.id === item.id)!.interactable
-                        .$ref.id
-                    ]?.data,
-                  )?.displayName ?? null)
-                : null
-              : (((project[item.collection][item.id]?.data as { displayName?: unknown } | undefined)
-                  ?.displayName as string | undefined) ?? null)
+            ? (((project[item.collection][item.id]?.data as { displayName?: unknown } | undefined)
+                ?.displayName as string | undefined) ?? null)
             : null,
       })),
       interactableLocations: sortedLocationIds.flatMap((interactableId) => {
-        const instance = room.interactables.find((item) => item.id === interactableId);
-        if (!instance) return [];
-        return [
-          {
-            interactableId,
-            location: {
-              kind: 'room-placement' as const,
-              roomId,
-              placementId: instance.placementId,
-            },
-          },
-        ];
+        const data = parseInteractableData(
+          recordForOwner(project, 'interactable', interactableId)?.data,
+        );
+        return data
+          ? [{ interactableId, location: structuredClone(data.initialState.location) }]
+          : [];
       }),
     },
   };
@@ -846,46 +821,30 @@ export async function buildFocusedRoomPreview(
         ),
       );
 
-  const persistentCharacters = Object.entries(project.characters)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .flatMap(([characterId]) => {
-      const data = parseCharacterData(recordForOwner(project, 'character', characterId)?.data);
-      const location = data?.initialWorldState.location;
-      if (!data || location?.kind !== 'room-placement' || location.placement.room !== roomId)
-        return [];
-      return [
-        {
-          characterId,
-          placementId: location.placement.placement,
-          enabled: data.initialWorldState.enabled,
-          visible: data.initialWorldState.visible,
-          order: 0 as const,
-          visual: characterVisual(
-            data,
-            null,
-            null,
-            null,
-            `/characters/${characterId}/data`,
-            diagnostics,
-          ),
-        },
-      ];
-    });
+  const persistentCharacters: RoomPreviewDocumentV2['world']['persistentCharacters'] = [];
   const interactables = [...room.interactables]
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
     .flatMap((instance) => {
       const definition = parseInteractableData(
         recordForOwner(project, 'interactable', instance.interactable.$ref.id)?.data,
       );
-      if (!definition) return [];
+      if (
+        !definition ||
+        definition.initialState.location.kind !== 'room' ||
+        definition.initialState.location.room.$ref.id !== roomId
+      )
+        return [];
       return [
         {
-          interactableId: instance.id,
+          occurrenceId: instance.id,
+          interactableId: instance.interactable.$ref.id,
+          condition: focusedCondition(instance.condition),
           placementId: instance.placementId,
           spriteAssetId: definition.presentation.sprite?.$ref.id ?? null,
           materialId: definition.presentation.material?.$ref.id ?? null,
-          enabled: instance.enabled,
-          visible: instance.visible,
+          enabled: definition.initialState.enabled,
+          visible: definition.initialState.visible,
+          occurrenceVisible: instance.visible,
           order: instance.order,
         },
       ];
@@ -955,13 +914,20 @@ export async function buildFocusedRoomPreview(
           );
           return [];
         }
+        if (
+          character.initialWorldState.location.kind !== 'room' ||
+          character.initialWorldState.location.room.$ref.id !== roomId
+        )
+          return [];
         return [
           {
             entryId: entry.id,
             characterId: entry.character.$ref.id,
             condition: focusedCondition(entry.condition),
             placementId: entry.placementId,
-            visible: entry.visible,
+            enabled: character.initialWorldState.enabled,
+            visible: character.initialWorldState.visible,
+            occurrenceVisible: entry.visible,
             order: entry.order,
             visual: characterVisual(
               character,

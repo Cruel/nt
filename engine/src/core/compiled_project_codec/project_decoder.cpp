@@ -38,9 +38,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 {
     Decoder decoder(std::move(source_path));
     if (!decoder.object(document, "",
-                        {"definitions", "entrypoint", "localization", "project", "properties",
-                         "resources", "schema", "schemaVersion", "settings", "startupHook",
-                         "traits"}))
+                        {"definitions", "entrypoint", "inventories", "localization", "project",
+                         "properties", "resources", "schema", "schemaVersion", "settings",
+                         "startupHook", "traits"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -50,6 +50,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* entrypoint_value = decoder.member(document, "entrypoint", "");
     const auto* startup_value = decoder.member(document, "startupHook", "");
     const auto* localization_value = decoder.member(document, "localization", "");
+    const auto* inventories_value = decoder.member(document, "inventories", "");
     const auto* properties_value = decoder.member(document, "properties", "");
     const auto* traits_value = decoder.member(document, "traits", "");
     const auto* resources_value = decoder.member(document, "resources", "");
@@ -100,6 +101,27 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     auto localization = localization_value
                             ? decode_localization(decoder, *localization_value, "/localization")
                             : std::nullopt;
+    auto inventories =
+        inventories_value
+            ? decoder.array<InventoryDefinition>(
+                  *inventories_value, "/inventories",
+                  [&](const nlohmann::json& item,
+                      const std::string& pointer) -> std::optional<InventoryDefinition> {
+                      if (!decoder.object(item, pointer, {"id", "label"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(item, "id", pointer);
+                      const auto* label_value = decoder.member(item, "label", pointer);
+                      auto id = id_value ? decoder.id<InventoryId>(*id_value,
+                                                                   pointer_child(pointer, "id"))
+                                         : std::nullopt;
+                      auto label = label_value ? decoder.string(*label_value,
+                                                                pointer_child(pointer, "label"))
+                                               : std::nullopt;
+                      return id && label ? std::optional<InventoryDefinition>(InventoryDefinition{
+                                               std::move(*id), std::move(*label)})
+                                         : std::nullopt;
+                  })
+            : std::nullopt;
     auto properties = properties_value
                           ? decoder.array<PropertyDeclaration>(
                                 *properties_value, "/properties",
@@ -173,6 +195,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 #undef NOVELTEA_DECODE_DEFINITION
     }
 
+    if (inventories)
+        decoder.duplicate_ids(
+            *inventories, "/inventories",
+            [](const InventoryDefinition& value) -> const InventoryId& { return value.id; });
     if (properties)
         decoder.duplicate_ids(
             *properties, "/properties",
@@ -208,18 +234,18 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 #undef NOVELTEA_DUPLICATE_DEFINITION
 
     const bool complete = schema && version && identity && settings && entrypoint && startup_ok &&
-                          localization && properties && traits && assets && layouts && scripts &&
-                          characters && rooms && interactables && verbs && interactions && scenes &&
-                          dialogues && maps;
+                          localization && inventories && properties && traits && assets &&
+                          layouts && scripts && characters && rooms && interactables && verbs &&
+                          interactions && scenes && dialogues && maps;
     if (!complete || decoder.failed())
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     return Result<SharedProject, Diagnostics>::success(SharedProject{
         std::move(*identity), std::move(*settings), std::move(*entrypoint), std::move(startup),
-        std::move(*localization), std::move(*properties), std::move(*traits), std::move(*assets),
-        std::move(*layouts), std::move(*scripts), std::move(*characters), std::move(*rooms),
-        std::move(*interactables), std::move(*verbs), std::move(*interactions), std::move(*scenes),
-        std::move(*dialogues), std::move(*maps)});
+        std::move(*localization), std::move(*properties), std::move(*traits),
+        std::move(*inventories), std::move(*assets), std::move(*layouts), std::move(*scripts),
+        std::move(*characters), std::move(*rooms), std::move(*interactables), std::move(*verbs),
+        std::move(*interactions), std::move(*scenes), std::move(*dialogues), std::move(*maps)});
 }
 
 } // namespace noveltea::core::compiled::wire

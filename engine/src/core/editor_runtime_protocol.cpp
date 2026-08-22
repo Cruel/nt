@@ -920,21 +920,63 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
     return Result<RuntimeInputMessage, Diagnostics>::failure(std::move(diagnostics));
 }
 
+nlohmann::json encode_inventory_owner(const compiled::InventoryOwnerRef& owner)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::ProjectInventoryOwner>)
+                return {{"kind", "project"}};
+            else if constexpr (std::is_same_v<T, compiled::CharacterInventoryOwner>)
+                return {{"kind", "character"}, {"character", value.character.text()}};
+            else if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>)
+                return {{"kind", "interactable"}, {"interactable", value.interactable.text()}};
+            else if constexpr (std::is_same_v<T, RoomFeatureRef>)
+                return {{"kind", "room-feature"},
+                        {"room", value.room.text()},
+                        {"feature", value.feature_id.text()}};
+            else
+                return {{"kind", "interactable-feature"},
+                        {"interactable", value.interactable.text()},
+                        {"feature", value.feature_id.text()}};
+        },
+        owner);
+}
+
+nlohmann::json encode_inventory_ref(const compiled::InventoryRef& inventory)
+{
+    return {{"owner", encode_inventory_owner(inventory.owner)},
+            {"id", inventory.inventory_id.text()}};
+}
+
 nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
 {
     nlohmann::json out = {{"mode", view.mode},
                           {"gameplayPaused", view.gameplay_paused},
                           {"canContinue", view.can_continue},
                           {"selectedSubjects", nlohmann::json::array()},
+                          {"inventories", nlohmann::json::array()},
                           {"inventory", nlohmann::json::array()},
                           {"textLog", nlohmann::json::array()}};
     for (const auto& id : view.selected_subjects)
         out["selectedSubjects"].push_back(encode_subject(id));
+    for (const auto& inventory : view.inventory.inventories) {
+        out["inventories"].push_back(
+            {{"inventory", encode_inventory_ref(inventory.inventory)},
+             {"label", inventory.label},
+             {"effectiveRoom", inventory.effective_room
+                                   ? nlohmann::json(inventory.effective_room->text())
+                                   : nlohmann::json(nullptr)}});
+    }
     for (const auto& item : view.inventory.items) {
-        out["inventory"].push_back({{"id", item.interactable.text()},
-                                    {"label", item.display_name},
-                                    {"enabled", item.enabled},
-                                    {"visible", item.visible}});
+        out["inventory"].push_back(
+            {{"id", item.interactable.text()},
+             {"inventory", encode_inventory_ref(item.inventory)},
+             {"effectiveRoom", item.effective_room ? nlohmann::json(item.effective_room->text())
+                                                   : nlohmann::json(nullptr)},
+             {"label", item.display_name},
+             {"enabled", item.enabled},
+             {"visible", item.visible}});
     }
     for (const auto& entry : view.text_log.entries)
         out["textLog"].push_back(entry.text);
@@ -1882,6 +1924,140 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         }
         return json_access::get<std::string>(*found);
     };
+    const auto focused_id = [&]<class Id>(std::string text, std::string path) -> std::optional<Id> {
+        auto parsed = Id::create(std::move(text));
+        if (!parsed) {
+            diagnostics.push_back(
+                error("editor_preview.invalid_id", "Invalid stable ID.", std::move(path)));
+            return std::nullopt;
+        }
+        return std::move(*parsed.value_if());
+    };
+    const auto inventory_owner =
+        [&](const nlohmann::json& value,
+            std::string path) -> std::optional<compiled::InventoryOwnerRef> {
+        if (!value.is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Inventory owner must be an object.", std::move(path)));
+            return std::nullopt;
+        }
+        const auto kind = required_string(value, "kind", path);
+        if (kind == "project") {
+            exact_fields(value, {"kind"}, diagnostics, path);
+            return compiled::ProjectInventoryOwner{};
+        }
+        if (kind == "character") {
+            exact_fields(value, {"kind", "character"}, diagnostics, path);
+            auto character = focused_id.template operator()<CharacterId>(
+                required_string(value, "character", path), path + "/character");
+            return character ? std::optional<compiled::InventoryOwnerRef>(
+                                   compiled::CharacterInventoryOwner{std::move(*character)})
+                             : std::nullopt;
+        }
+        if (kind == "interactable") {
+            exact_fields(value, {"kind", "interactable"}, diagnostics, path);
+            auto interactable = focused_id.template operator()<InteractableId>(
+                required_string(value, "interactable", path), path + "/interactable");
+            return interactable
+                       ? std::optional<compiled::InventoryOwnerRef>(
+                             compiled::InteractableInventoryOwner{std::move(*interactable)})
+                       : std::nullopt;
+        }
+        if (kind == "room-feature") {
+            exact_fields(value, {"kind", "room", "featureId"}, diagnostics, path);
+            auto room = focused_id.template operator()<RoomId>(required_string(value, "room", path),
+                                                               path + "/room");
+            auto feature = focused_id.template operator()<FeatureId>(
+                required_string(value, "featureId", path), path + "/featureId");
+            return room && feature ? std::optional<compiled::InventoryOwnerRef>(
+                                         RoomFeatureRef{std::move(*room), std::move(*feature)})
+                                   : std::nullopt;
+        }
+        if (kind == "interactable-feature") {
+            exact_fields(value, {"kind", "interactable", "featureId"}, diagnostics, path);
+            auto interactable = focused_id.template operator()<InteractableId>(
+                required_string(value, "interactable", path), path + "/interactable");
+            auto feature = focused_id.template operator()<FeatureId>(
+                required_string(value, "featureId", path), path + "/featureId");
+            return interactable && feature
+                       ? std::optional<compiled::InventoryOwnerRef>(
+                             InteractableFeatureRef{std::move(*interactable), std::move(*feature)})
+                       : std::nullopt;
+        }
+        diagnostics.push_back(error("editor_preview.invalid_enum",
+                                    "Inventory owner kind is unsupported.", path + "/kind"));
+        return std::nullopt;
+    };
+    const auto inventory_ref = [&](const nlohmann::json& value,
+                                   std::string path) -> std::optional<compiled::InventoryRef> {
+        if (!value.is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Inventory reference must be an object.", std::move(path)));
+            return std::nullopt;
+        }
+        exact_fields(value, {"owner", "inventoryId"}, diagnostics, path);
+        const auto owner_value = value.find("owner");
+        auto owner = owner_value != value.end() ? inventory_owner(*owner_value, path + "/owner")
+                                                : std::nullopt;
+        auto inventory = focused_id.template operator()<InventoryId>(
+            required_string(value, "inventoryId", path), path + "/inventoryId");
+        return owner && inventory ? std::optional<compiled::InventoryRef>(compiled::InventoryRef{
+                                        std::move(*owner), std::move(*inventory)})
+                                  : std::nullopt;
+    };
+    const auto interactable_location = [&](const nlohmann::json& value,
+                                           std::string path) -> compiled::InteractableLocation {
+        if (!value.is_object()) {
+            diagnostics.push_back(
+                error("editor_preview.wrong_type", "location must be an object.", std::move(path)));
+            return compiled::UnplacedLocation{};
+        }
+        const auto kind = required_string(value, "kind", path);
+        if (kind == "unplaced") {
+            exact_fields(value, {"kind"}, diagnostics, path);
+            return compiled::UnplacedLocation{};
+        }
+        if (kind == "room") {
+            exact_fields(value, {"kind", "room"}, diagnostics, path);
+            const auto room_value = value.find("room");
+            if (room_value == value.end() || !room_value->is_object()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "Room Location requires a typed room reference.",
+                                            path + "/room"));
+                return compiled::UnplacedLocation{};
+            }
+            exact_fields(*room_value, {"$ref"}, diagnostics, path + "/room");
+            const auto ref = room_value->find("$ref");
+            if (ref == room_value->end() || !ref->is_object()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "Room Location reference is invalid.",
+                                            path + "/room/$ref"));
+                return compiled::UnplacedLocation{};
+            }
+            exact_fields(*ref, {"collection", "id"}, diagnostics, path + "/room/$ref");
+            if (required_string(*ref, "collection", path + "/room/$ref") != "rooms")
+                diagnostics.push_back(error("editor_preview.invalid_reference",
+                                            "Room Location reference must target rooms.",
+                                            path + "/room/$ref/collection"));
+            auto room = focused_id.template operator()<RoomId>(
+                required_string(*ref, "id", path + "/room/$ref"), path + "/room/$ref/id");
+            return room ? compiled::InteractableLocation{compiled::RoomLocation{std::move(*room)}}
+                        : compiled::InteractableLocation{compiled::UnplacedLocation{}};
+        }
+        if (kind == "inventory") {
+            exact_fields(value, {"kind", "inventory"}, diagnostics, path);
+            const auto inventory_value = value.find("inventory");
+            auto inventory = inventory_value != value.end()
+                                 ? inventory_ref(*inventory_value, path + "/inventory")
+                                 : std::nullopt;
+            return inventory ? compiled::InteractableLocation{compiled::InventoryLocation{
+                                   std::move(*inventory)}}
+                             : compiled::InteractableLocation{compiled::UnplacedLocation{}};
+        }
+        diagnostics.push_back(error("editor_preview.invalid_enum",
+                                    "Interactable location kind is unsupported.", path + "/kind"));
+        return compiled::UnplacedLocation{};
+    };
     const auto scalar = [&](const nlohmann::json& value, std::string_view path) {
         TypedFocusedScalar result_value;
         if (value.is_null())
@@ -2379,35 +2555,13 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                 exact_fields(value, {"interactableId", "location"}, diagnostics, path);
                 TypedFocusedRoomQueryState::InteractableLocation typed{
                     .interactable_id = required_string(value, "interactableId", path),
-                    .kind = TypedFocusedRoomQueryState::InteractableLocation::Kind::Nowhere,
-                    .room_id = std::nullopt,
-                    .placement_id = std::nullopt};
+                    .location = compiled::UnplacedLocation{}};
                 const auto location = value.find("location");
-                if (location == value.end() || !location->is_object()) {
-                    diagnostics.push_back(error("editor_preview.wrong_type",
-                                                "location must be an object.", path + "/location"));
-                } else {
-                    const auto kind = json_access::member_as<std::string>(*location, "kind");
-                    if (kind == "inventory") {
-                        exact_fields(*location, {"kind"}, diagnostics, path + "/location");
-                        typed.kind =
-                            TypedFocusedRoomQueryState::InteractableLocation::Kind::Inventory;
-                    } else if (kind == "nowhere") {
-                        exact_fields(*location, {"kind"}, diagnostics, path + "/location");
-                    } else if (kind == "room-placement") {
-                        exact_fields(*location, {"kind", "roomId", "placementId"}, diagnostics,
-                                     path + "/location");
-                        typed.kind =
-                            TypedFocusedRoomQueryState::InteractableLocation::Kind::RoomPlacement;
-                        typed.room_id = required_string(*location, "roomId", path + "/location");
-                        typed.placement_id =
-                            required_string(*location, "placementId", path + "/location");
-                    } else {
-                        diagnostics.push_back(error("editor_preview.invalid_enum",
-                                                    "Interactable location kind is unsupported.",
-                                                    path + "/location/kind"));
-                    }
-                }
+                if (location == value.end())
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "location is required.", path + "/location"));
+                else
+                    typed.location = interactable_location(*location, path + "/location");
                 result.query_state.interactable_locations.push_back(std::move(typed));
             }
         } else {
@@ -2516,15 +2670,17 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     continue;
                 }
                 exact_fields(value,
-                             {"entryId", "characterId", "condition", "placementId", "visible",
-                              "order", "visual"},
+                             {"entryId", "characterId", "condition", "placementId", "enabled",
+                              "visible", "occurrenceVisible", "order", "visual"},
                              diagnostics, path);
                 result.world.cast.push_back(
                     {.entry_id = required_string(value, "entryId", path),
                      .character_id = required_string(value, "characterId", path),
                      .condition = condition(value["condition"], path + "/condition"),
                      .placement_id = required_string(value, "placementId", path),
+                     .enabled = required_bool(value, "enabled", path),
                      .visible = required_bool(value, "visible", path),
+                     .occurrence_visible = required_bool(value, "occurrenceVisible", path),
                      .order = json_access::member_as<int>(value, "order").value_or(0),
                      .visual = visual(value["visual"], path + "/visual")});
             }
@@ -2538,16 +2694,20 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     continue;
                 }
                 exact_fields(value,
-                             {"interactableId", "placementId", "spriteAssetId", "materialId",
-                              "enabled", "visible", "order"},
+                             {"occurrenceId", "interactableId", "condition", "placementId",
+                              "spriteAssetId", "materialId", "enabled", "visible",
+                              "occurrenceVisible", "order"},
                              diagnostics, path);
                 result.world.interactables.push_back(
-                    {.interactable_id = required_string(value, "interactableId", path),
+                    {.occurrence_id = required_string(value, "occurrenceId", path),
+                     .interactable_id = required_string(value, "interactableId", path),
+                     .condition = condition(value["condition"], path + "/condition"),
                      .placement_id = required_string(value, "placementId", path),
                      .sprite_asset_id = optional_string(value, "spriteAssetId", path),
                      .material_id = optional_string(value, "materialId", path),
                      .enabled = required_bool(value, "enabled", path),
                      .visible = required_bool(value, "visible", path),
+                     .occurrence_visible = required_bool(value, "occurrenceVisible", path),
                      .order = json_access::member_as<int>(value, "order").value_or(0)});
             }
         if (const auto* props = array("props"))

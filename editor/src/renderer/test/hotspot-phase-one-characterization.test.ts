@@ -86,7 +86,7 @@ describe('hotspot Phase 2 current contracts', () => {
 
   it('accepts normalized rectangular hotspots and rejects invalid bounds and labels', () => {
     const room = defaultRoomData('Foyer');
-    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {} });
+    room.features.push({ id: 'door', label: 'Door', traits: [], properties: {}, inventories: [] });
     room.hotspots.push({
       id: 'door',
       label: 'Door',

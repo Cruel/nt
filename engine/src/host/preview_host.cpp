@@ -494,34 +494,6 @@ PreviewMutationResult PreviewHost::reset_variable(const std::string& variable_id
     return mutation_result(accepted, "reset-variable", variable_id);
 }
 
-PreviewMutationResult PreviewHost::give_object(const std::string& object_id)
-{
-    auto id = core::InteractableId::create(object_id);
-    auto* running_game = m_dependencies.game_host.running_game();
-    if (!id || !running_game)
-        return mutation_result(false, "give-object", object_id, "invalid object id");
-    auto result = running_game->session().gateway().request_interactable_location(
-        *id.value_if(), core::compiled::InventoryLocation{});
-    if (result)
-        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
-    return mutation_result(static_cast<bool>(result), "give-object", object_id,
-                           result ? "" : first_diagnostic_message(result.error()));
-}
-
-PreviewMutationResult PreviewHost::remove_inventory_object(const std::string& object_id)
-{
-    auto id = core::InteractableId::create(object_id);
-    auto* running_game = m_dependencies.game_host.running_game();
-    if (!id || !running_game)
-        return mutation_result(false, "remove-object", object_id, "invalid object id");
-    auto result = running_game->session().gateway().request_interactable_location(
-        *id.value_if(), core::compiled::NowhereLocation{});
-    if (result)
-        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
-    return mutation_result(static_cast<bool>(result), "remove-object", object_id,
-                           result ? "" : first_diagnostic_message(result.error()));
-}
-
 PreviewMutationResult PreviewHost::teleport_room(const std::string& room_id)
 {
     auto id = core::RoomId::create(room_id);

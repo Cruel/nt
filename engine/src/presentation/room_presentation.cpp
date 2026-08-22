@@ -18,11 +18,6 @@ Diagnostics error(std::string code, std::string message)
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
-bool located_at(const compiled::RoomPlacementRef& location, const RoomVisitContext& visit) noexcept
-{
-    return location.room == visit.room;
-}
-
 } // namespace
 
 Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target(
@@ -110,6 +105,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
         .character_defaults = {},
         .overlays = {},
         .cast = {},
+        .interactables = {},
         .props = {},
         .environments = {},
         .placements = {},
@@ -143,6 +139,10 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
         definition.cast.push_back({cast.id, cast.character, condition_token(cast.condition),
                                    cast.placement_id, cast.pose_id, cast.expression_id,
                                    cast.idle_id, cast.visible, cast.order});
+    for (const auto& interactable : room->interactables)
+        definition.interactables.push_back(
+            {interactable.id, interactable.interactable, condition_token(interactable.condition),
+             interactable.placement_id, interactable.visible, interactable.order});
     for (const auto& prop : room->props)
         definition.props.push_back({prop.id, condition_token(prop.condition), prop.placement_id,
                                     prop.asset, prop.material, prop.visible, prop.order});
@@ -168,16 +168,16 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
 
     RoomPresentationStateView state_view;
     for (const auto& character : state.character_world()) {
-        const auto* location = std::get_if<compiled::RoomPlacementRef>(&character.location);
-        if (location != nullptr && located_at(*location, visit))
-            state_view.characters.push_back({character.character, location->placement_id,
-                                             character.enabled, character.visible});
+        const auto* location = std::get_if<compiled::RoomLocation>(&character.location);
+        if (location != nullptr && location->room == visit.room)
+            state_view.characters.push_back(
+                {character.character, character.enabled, character.visible});
     }
     for (const auto& interactable : state.interactables()) {
-        const auto* location = std::get_if<compiled::RoomPlacementRef>(&interactable.location);
-        if (location != nullptr && located_at(*location, visit))
-            state_view.interactables.push_back({interactable.interactable, location->placement_id,
-                                                interactable.enabled, interactable.visible});
+        const auto* location = std::get_if<compiled::RoomLocation>(&interactable.location);
+        if (location != nullptr && location->room == visit.room)
+            state_view.interactables.push_back(
+                {interactable.interactable, interactable.enabled, interactable.visible});
     }
     for (const auto& overlay : room->overlays) {
         const MountedLayoutPresentationKey mount_key =
@@ -434,43 +434,18 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
         }
     }
 
-    for (const auto& character : state.characters) {
-        const auto definition = std::find_if(
-            room.character_defaults.begin(), room.character_defaults.end(),
-            [&character](const RoomPresentationDefinitionView::CharacterDefaults& candidate) {
-                return candidate.character == character.character;
-            });
-        if (definition == room.character_defaults.end())
-            continue;
-        if (std::none_of(room.placements.begin(), room.placements.end(),
-                         [&character](const RoomPresentationDefinitionView::Placement& placement) {
-                             return placement.id == character.placement;
-                         }))
-            return Result<RoomPresentationResolution, Diagnostics>::failure(
-                error("room_resolution.invalid_character_placement",
-                      "Character world state references a missing Room placement"));
-        draft.actors.push_back({PersistentCharacterPresentationId{character.character},
-                                character.character, character.placement, definition->pose,
-                                definition->expression, definition->idle, character.enabled,
-                                character.visible, 0});
-    }
-    for (const auto& interactable : state.interactables) {
-        if (std::none_of(
-                room.placements.begin(), room.placements.end(),
-                [&interactable](const RoomPresentationDefinitionView::Placement& placement) {
-                    return placement.id == interactable.placement;
-                }))
-            return Result<RoomPresentationResolution, Diagnostics>::failure(
-                error("room_resolution.invalid_interactable_placement",
-                      "Interactable state references a missing Room placement"));
-        draft.interactables.push_back({interactable.interactable, interactable.placement,
-                                       interactable.enabled, interactable.visible});
-    }
     for (const auto& cast : room.cast) {
         auto enabled = evaluate(cast.condition);
         if (!enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
         if (!*enabled.value_if())
+            continue;
+        const auto character_state =
+            std::find_if(state.characters.begin(), state.characters.end(),
+                         [&cast](const RoomPresentationStateView::Character& candidate) {
+                             return candidate.character == cast.character;
+                         });
+        if (character_state == state.characters.end())
             continue;
         const auto character = std::find_if(
             room.character_defaults.begin(), room.character_defaults.end(),
@@ -484,10 +459,35 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
                          }))
             return Result<RoomPresentationResolution, Diagnostics>::failure(
                 error("room_resolution.invalid_cast", "Room cast entry cannot be resolved"));
-        draft.actors.push_back(
-            {RoomCastPresentationId{room.room, cast.id}, cast.character, cast.placement,
-             cast.pose.value_or(character->pose), cast.expression.value_or(character->expression),
-             cast.idle ? cast.idle : character->idle, true, cast.visible, cast.order});
+        draft.actors.push_back({RoomCastPresentationId{room.room, cast.id}, cast.character,
+                                cast.placement, cast.pose.value_or(character->pose),
+                                cast.expression.value_or(character->expression),
+                                cast.idle ? cast.idle : character->idle, character_state->enabled,
+                                character_state->visible && cast.visible, cast.order});
+    }
+    for (const auto& occurrence : room.interactables) {
+        auto condition = evaluate(occurrence.condition);
+        if (!condition)
+            return Result<RoomPresentationResolution, Diagnostics>::failure(condition.error());
+        if (!*condition.value_if())
+            continue;
+        const auto state_interactable =
+            std::find_if(state.interactables.begin(), state.interactables.end(),
+                         [&occurrence](const RoomPresentationStateView::Interactable& candidate) {
+                             return candidate.interactable == occurrence.interactable;
+                         });
+        if (state_interactable == state.interactables.end())
+            continue;
+        if (std::none_of(room.placements.begin(), room.placements.end(),
+                         [&occurrence](const RoomPresentationDefinitionView::Placement& placement) {
+                             return placement.id == occurrence.placement;
+                         }))
+            return Result<RoomPresentationResolution, Diagnostics>::failure(
+                error("room_resolution.invalid_interactable_occurrence",
+                      "Interactable occurrence references a missing Room placement"));
+        draft.interactables.push_back({occurrence.id, occurrence.interactable, occurrence.placement,
+                                       state_interactable->enabled,
+                                       state_interactable->visible && occurrence.visible});
     }
     for (const auto& prop : room.props) {
         auto enabled = evaluate(prop.condition);

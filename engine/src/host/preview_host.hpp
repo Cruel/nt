@@ -114,8 +114,6 @@ public:
     [[nodiscard]] PreviewMutationResult set_variable(const std::string& variable_id,
                                                      core::RuntimeValue value);
     [[nodiscard]] PreviewMutationResult reset_variable(const std::string& variable_id);
-    [[nodiscard]] PreviewMutationResult give_object(const std::string& object_id);
-    [[nodiscard]] PreviewMutationResult remove_inventory_object(const std::string& object_id);
     [[nodiscard]] PreviewMutationResult teleport_room(const std::string& room_id);
 
     [[nodiscard]] bool begin_recording();

@@ -376,16 +376,6 @@ std::string RuntimePreviewController::reset_variable(const std::string& variable
     return typed_mutation_result(m_preview_host->reset_variable(variable_id));
 }
 
-std::string RuntimePreviewController::give_object(const std::string& object_id)
-{
-    return typed_mutation_result(m_preview_host->give_object(object_id));
-}
-
-std::string RuntimePreviewController::remove_inventory_object(const std::string& object_id)
-{
-    return typed_mutation_result(m_preview_host->remove_inventory_object(object_id));
-}
-
 std::string RuntimePreviewController::teleport_room(const std::string& room_id)
 {
     return typed_mutation_result(m_preview_host->teleport_room(room_id));

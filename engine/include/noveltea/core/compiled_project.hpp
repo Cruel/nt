@@ -83,6 +83,42 @@ struct Localization {
     std::vector<LocalizationCatalog> catalogs;
 };
 
+struct InventoryDefinition {
+    InventoryId id;
+    std::string label;
+    bool operator==(const InventoryDefinition&) const = default;
+};
+struct ProjectInventoryOwner {
+    bool operator==(const ProjectInventoryOwner&) const = default;
+};
+struct CharacterInventoryOwner {
+    CharacterId character;
+    bool operator==(const CharacterInventoryOwner&) const = default;
+};
+struct InteractableInventoryOwner {
+    InteractableId interactable;
+    bool operator==(const InteractableInventoryOwner&) const = default;
+};
+using InventoryOwnerRef =
+    std::variant<ProjectInventoryOwner, CharacterInventoryOwner, InteractableInventoryOwner,
+                 RoomFeatureRef, InteractableFeatureRef>;
+struct InventoryRef {
+    InventoryOwnerRef owner;
+    InventoryId inventory_id;
+    bool operator==(const InventoryRef&) const = default;
+};
+struct UnplacedLocation {
+    bool operator==(const UnplacedLocation&) const = default;
+};
+struct RoomLocation {
+    RoomId room;
+    bool operator==(const RoomLocation&) const = default;
+};
+struct InventoryLocation {
+    InventoryRef inventory;
+    bool operator==(const InventoryLocation&) const = default;
+};
+
 enum class AssetKind : std::uint8_t {
     Image,
     Font,
@@ -291,8 +327,7 @@ struct CharacterDefaults {
     CharacterPoseId pose_id;
     std::optional<CharacterIdleId> idle_id;
 };
-struct NowhereCharacterLocation {};
-using CharacterInitialWorldLocation = std::variant<NowhereCharacterLocation, RoomPlacementRef>;
+using CharacterInitialWorldLocation = std::variant<UnplacedLocation, RoomLocation>;
 struct CharacterInitialWorldState {
     CharacterInitialWorldLocation location;
     bool enabled;
@@ -306,12 +341,14 @@ struct CharacterDefinition {
     std::vector<CharacterPose> poses;
     std::vector<CharacterExpression> expressions;
     std::vector<CharacterIdle> idles;
+    std::vector<InventoryDefinition> inventories;
     CharacterInitialWorldState initial_world_state;
 };
 
 struct FeatureDefinition {
     PropertyBearingDefinition<FeatureId> identity;
     std::string label;
+    std::vector<InventoryDefinition> inventories;
 };
 struct CharacterInteractionSubject {
     CharacterId character;
@@ -478,6 +515,14 @@ struct RoomCastEntry {
     bool visible;
     std::int32_t order = 0;
 };
+struct RoomInteractableEntry {
+    RoomInteractableEntryId id;
+    InteractableId interactable;
+    Condition condition;
+    RoomPlacementId placement_id;
+    bool visible;
+    std::int32_t order = 0;
+};
 struct RoomProp {
     RoomPropId id;
     Condition condition;
@@ -512,6 +557,7 @@ struct RoomDefinition {
     RoomLifecycle lifecycle;
     std::vector<RoomOverlay> overlays;
     std::vector<RoomCastEntry> cast;
+    std::vector<RoomInteractableEntry> interactables;
     std::vector<RoomProp> props;
     std::vector<RoomEnvironment> environments;
     std::optional<RoomCompositionHook> compose;
@@ -521,9 +567,7 @@ struct RoomDefinition {
     std::vector<RoomHotspot> hotspots;
 };
 
-struct InventoryLocation {};
-struct NowhereLocation {};
-using InteractableLocation = std::variant<InventoryLocation, NowhereLocation, RoomPlacementRef>;
+using InteractableLocation = std::variant<InventoryLocation, UnplacedLocation, RoomLocation>;
 struct InteractableInitialState {
     bool enabled;
     InteractableLocation location;
@@ -538,6 +582,7 @@ struct InteractableDefinition {
     PropertyBearingDefinition<InteractableId> identity;
     std::string display_name;
     std::vector<FeatureDefinition> features;
+    std::vector<InventoryDefinition> inventories;
     InteractableInitialState initial_state;
     InteractablePresentation presentation;
 };
@@ -959,6 +1004,7 @@ struct CompiledProjectInput {
     Localization localization;
     std::vector<PropertyDefinition> properties;
     std::vector<TraitDefinition> traits;
+    std::vector<InventoryDefinition> inventories;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;
     std::vector<ScriptResource> scripts;
@@ -1002,6 +1048,10 @@ public:
     [[nodiscard]] const std::vector<compiled::TraitDefinition>& traits() const noexcept
     {
         return m_traits;
+    }
+    [[nodiscard]] const std::vector<compiled::InventoryDefinition>& inventories() const noexcept
+    {
+        return m_inventories;
     }
     [[nodiscard]] const std::vector<compiled::AssetResource>& assets() const noexcept
     {
@@ -1051,6 +1101,8 @@ public:
 
     [[nodiscard]] const PropertyDefinition* find_property(const PropertyId& id) const noexcept;
     [[nodiscard]] const compiled::TraitDefinition* find_trait(const TraitId& id) const noexcept;
+    [[nodiscard]] const compiled::InventoryDefinition*
+    find_inventory(const compiled::InventoryRef& reference) const noexcept;
     [[nodiscard]] const compiled::AssetResource* find_asset(const AssetId& id) const noexcept;
     [[nodiscard]] const compiled::LayoutResource* find_layout(const LayoutId& id) const noexcept;
     [[nodiscard]] const compiled::ScriptResource* find_script(const ScriptId& id) const noexcept;
@@ -1083,6 +1135,7 @@ private:
     compiled::Localization m_localization;
     std::vector<PropertyDefinition> m_properties;
     std::vector<compiled::TraitDefinition> m_traits;
+    std::vector<compiled::InventoryDefinition> m_inventories;
     std::vector<compiled::AssetResource> m_assets;
     std::vector<compiled::LayoutResource> m_layouts;
     std::vector<compiled::ScriptResource> m_scripts;

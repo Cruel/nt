@@ -75,18 +75,52 @@ struct DecodedHotspotCommon {
     HotspotHighlight highlight;
 };
 
+std::optional<std::vector<InventoryDefinition>>
+decode_inventories(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    auto inventories = decoder.array<InventoryDefinition>(
+        value, pointer,
+        [&](const nlohmann::json& inventory,
+            const std::string& item_pointer) -> std::optional<InventoryDefinition> {
+            if (!decoder.object(inventory, item_pointer, {"id", "label"}))
+                return std::nullopt;
+            const auto* id_value = decoder.member(inventory, "id", item_pointer);
+            const auto* label_value = decoder.member(inventory, "label", item_pointer);
+            auto id = id_value
+                          ? decoder.id<InventoryId>(*id_value, pointer_child(item_pointer, "id"))
+                          : std::nullopt;
+            auto label = label_value
+                             ? decoder.string(*label_value, pointer_child(item_pointer, "label"))
+                             : std::nullopt;
+            return id && label ? std::optional<InventoryDefinition>(
+                                     InventoryDefinition{std::move(*id), std::move(*label)})
+                               : std::nullopt;
+        });
+    if (inventories)
+        decoder.duplicate_ids(*inventories, pointer,
+                              [](const InventoryDefinition& inventory) -> const InventoryId& {
+                                  return inventory.id;
+                              });
+    return inventories;
+}
+
 std::optional<FeatureDefinition> decode_feature(Decoder& decoder, const nlohmann::json& value,
                                                 std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"id", "label", "propertyAssignments", "traits"}))
+    if (!decoder.object(value, pointer,
+                        {"id", "inventories", "label", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<FeatureId>(decoder, value, pointer);
     const auto* label_value = decoder.member(value, "label", pointer);
+    const auto* inventories_value = decoder.member(value, "inventories", pointer);
     auto label =
         label_value ? decoder.string(*label_value, pointer_child(pointer, "label")) : std::nullopt;
-    if (!identity || !label)
+    auto inventories = inventories_value ? decode_inventories(decoder, *inventories_value,
+                                                              pointer_child(pointer, "inventories"))
+                                         : std::nullopt;
+    if (!identity || !label || !inventories)
         return std::nullopt;
-    return FeatureDefinition{std::move(*identity), std::move(*label)};
+    return FeatureDefinition{std::move(*identity), std::move(*label), std::move(*inventories)};
 }
 
 std::optional<RoomHotspotTarget>
@@ -260,7 +294,8 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
 {
     if (!decoder.object(value, pointer,
                         {"defaults", "dialogue", "displayName", "expressions", "id", "idles",
-                         "initialWorldState", "poses", "propertyAssignments", "traits"}))
+                         "initialWorldState", "inventories", "poses", "propertyAssignments",
+                         "traits"}))
         return std::nullopt;
     auto identity = decode_identity<CharacterId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -269,6 +304,7 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
     const auto* poses_value = decoder.member(value, "poses", pointer);
     const auto* expressions_value = decoder.member(value, "expressions", pointer);
     const auto* idles_value = json_access::member(value, "idles");
+    const auto* inventories_value = decoder.member(value, "inventories", pointer);
     const auto* initial_world_value = decoder.member(value, "initialWorldState", pointer);
     auto display = display_value
                        ? decoder.string(*display_value, pointer_child(pointer, "displayName"))
@@ -509,6 +545,9 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         decoder.duplicate_ids(
             *idles, pointer_child(pointer, "idles"),
             [](const CharacterIdle& idle) -> const CharacterIdleId& { return idle.id; });
+    auto inventories = inventories_value ? decode_inventories(decoder, *inventories_value,
+                                                              pointer_child(pointer, "inventories"))
+                                         : std::nullopt;
     std::optional<CharacterInitialWorldState> initial_world;
     if (initial_world_value &&
         decoder.object(*initial_world_value, pointer_child(pointer, "initialWorldState"),
@@ -525,47 +564,57 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             visible_value ? decoder.boolean(*visible_value, pointer_child(world_pointer, "visible"))
                           : std::nullopt;
         std::optional<CharacterInitialWorldLocation> location;
-        if (location_value && location_value->is_object()) {
+        if (location_value) {
             const auto location_pointer = pointer_child(world_pointer, "location");
-            const auto* kind_value = decoder.member(*location_value, "kind", location_pointer);
-            auto kind = kind_value
-                            ? decoder.string(*kind_value, pointer_child(location_pointer, "kind"))
-                            : std::nullopt;
-            if (kind && *kind == "nowhere" &&
-                decoder.object(*location_value, location_pointer, {"kind"}))
-                location = NowhereCharacterLocation{};
-            else if (kind && *kind == "room-placement" &&
-                     decoder.object(*location_value, location_pointer, {"kind", "placement"})) {
-                const auto* placement_value =
-                    decoder.member(*location_value, "placement", location_pointer);
-                auto placement =
-                    placement_value
-                        ? decode_placement_ref(decoder, *placement_value,
-                                               pointer_child(location_pointer, "placement"))
-                        : std::nullopt;
-                if (placement)
-                    location = std::move(*placement);
+            if (!location_value->is_object()) {
+                decoder.error(k_code_type, "Expected a character location object.",
+                              location_pointer);
+            } else {
+                const auto* kind_value = decoder.member(*location_value, "kind", location_pointer);
+                auto kind = kind_value ? decoder.string(*kind_value,
+                                                        pointer_child(location_pointer, "kind"))
+                                       : std::nullopt;
+                if (kind && *kind == "unplaced" &&
+                    decoder.object(*location_value, location_pointer, {"kind"})) {
+                    location = UnplacedLocation{};
+                } else if (kind && *kind == "room" &&
+                           decoder.object(*location_value, location_pointer, {"kind", "room"})) {
+                    const auto* room_value =
+                        decoder.member(*location_value, "room", location_pointer);
+                    auto room = room_value ? decode_reference<RoomId>(
+                                                 decoder, *room_value,
+                                                 pointer_child(location_pointer, "room"), "room")
+                                           : std::nullopt;
+                    if (room)
+                        location = RoomLocation{std::move(*room)};
+                } else if (kind) {
+                    decoder.object(*location_value, location_pointer, {"kind"});
+                    decoder.error(k_code_variant,
+                                  "Unknown character location variant '" + *kind + "'.",
+                                  pointer_child(location_pointer, "kind"));
+                }
             }
         }
         if (enabled && visible && location)
             initial_world = CharacterInitialWorldState{std::move(*location), *enabled, *visible};
     }
     if (!identity || !display || !dialogue || !defaults || !poses || !expressions || !idles ||
-        !initial_world)
+        !inventories || !initial_world)
         return std::nullopt;
-    return CharacterDefinition{std::move(*identity), std::move(*display),
-                               std::move(*dialogue), std::move(*defaults),
-                               std::move(*poses),    std::move(*expressions),
-                               std::move(*idles),    std::move(*initial_world)};
+    return CharacterDefinition{
+        std::move(*identity), std::move(*display),     std::move(*dialogue),
+        std::move(*defaults), std::move(*poses),       std::move(*expressions),
+        std::move(*idles),    std::move(*inventories), std::move(*initial_world)};
 }
 
 std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json& value,
                                           std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"background", "description", "displayName", "environments", "exits",
-                         "features", "hotspots", "id", "cast", "compose", "lifecycle", "overlays",
-                         "placements", "props", "propertyAssignments", "traits"}))
+                        {"background", "cast", "compose", "description", "displayName",
+                         "environments", "exits", "features", "hotspots", "id", "interactables",
+                         "lifecycle", "overlays", "placements", "props", "propertyAssignments",
+                         "traits"}))
         return std::nullopt;
     auto identity = decode_identity<RoomId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
@@ -578,6 +627,7 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
     const auto* features_value = decoder.member(value, "features", pointer);
     const auto* hotspots_value = decoder.member(value, "hotspots", pointer);
     const auto* cast_value = decoder.member(value, "cast", pointer);
+    const auto* interactables_value = decoder.member(value, "interactables", pointer);
     const auto* props_value = decoder.member(value, "props", pointer);
     const auto* environments_value = json_access::member(value, "environments");
     const auto* compose_value = decoder.member(value, "compose", pointer);
@@ -923,6 +973,60 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       return std::nullopt;
                   })
             : std::nullopt;
+    auto interactables =
+        interactables_value
+            ? decoder.array<RoomInteractableEntry>(
+                  *interactables_value, pointer_child(pointer, "interactables"),
+                  [&](const nlohmann::json& item,
+                      const std::string& item_pointer) -> std::optional<RoomInteractableEntry> {
+                      if (!decoder.object(item, item_pointer,
+                                          {"condition", "id", "interactable", "order",
+                                           "placementId", "visible"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(item, "id", item_pointer);
+                      const auto* interactable_value =
+                          decoder.member(item, "interactable", item_pointer);
+                      const auto* condition_value = decoder.member(item, "condition", item_pointer);
+                      const auto* placement_value =
+                          decoder.member(item, "placementId", item_pointer);
+                      const auto* visible_value = decoder.member(item, "visible", item_pointer);
+                      const auto* order_value = decoder.member(item, "order", item_pointer);
+                      auto id = id_value ? decoder.id<RoomInteractableEntryId>(
+                                               *id_value, pointer_child(item_pointer, "id"))
+                                         : std::nullopt;
+                      auto interactable =
+                          interactable_value
+                              ? decode_reference<InteractableId>(
+                                    decoder, *interactable_value,
+                                    pointer_child(item_pointer, "interactable"), "interactable")
+                              : std::nullopt;
+                      auto condition =
+                          condition_value
+                              ? decode_condition_impl(decoder, *condition_value,
+                                                      pointer_child(item_pointer, "condition"))
+                              : std::nullopt;
+                      auto placement =
+                          placement_value
+                              ? decoder.id<RoomPlacementId>(
+                                    *placement_value, pointer_child(item_pointer, "placementId"))
+                              : std::nullopt;
+                      auto visible = visible_value
+                                         ? decoder.boolean(*visible_value,
+                                                           pointer_child(item_pointer, "visible"))
+                                         : std::nullopt;
+                      auto order = order_value ? decode_order(decoder, *order_value,
+                                                              pointer_child(item_pointer, "order"))
+                                               : std::nullopt;
+                      if (id && interactable && condition && placement && visible && order)
+                          return RoomInteractableEntry{std::move(*id),
+                                                       std::move(*interactable),
+                                                       std::move(*condition),
+                                                       std::move(*placement),
+                                                       *visible,
+                                                       *order};
+                      return std::nullopt;
+                  })
+            : std::nullopt;
     auto environments =
         environments_value
             ? decoder.array<RoomEnvironment>(
@@ -1121,6 +1225,12 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
         decoder.duplicate_ids(
             *cast, pointer_child(pointer, "cast"),
             [](const RoomCastEntry& entry) -> const RoomCastEntryId& { return entry.id; });
+    if (interactables)
+        decoder.duplicate_ids(
+            *interactables, pointer_child(pointer, "interactables"),
+            [](const RoomInteractableEntry& entry) -> const RoomInteractableEntryId& {
+                return entry.id;
+            });
     if (props)
         decoder.duplicate_ids(*props, pointer_child(pointer, "props"),
                               [](const RoomProp& prop) -> const RoomPropId& { return prop.id; });
@@ -1130,26 +1240,28 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                   return environment.id;
                               });
     if (!identity || !display || !description || !background || !lifecycle || !overlays ||
-        !placements || !exits || !features || !hotspots || !cast || !props || !environments ||
-        !compose_ok)
+        !placements || !exits || !features || !hotspots || !cast || !interactables || !props ||
+        !environments || !compose_ok)
         return std::nullopt;
-    return RoomDefinition{std::move(*identity),   std::move(*display),    std::move(*description),
-                          std::move(*background), std::move(*lifecycle),  std::move(*overlays),
-                          std::move(*cast),       std::move(*props),      std::move(*environments),
-                          std::move(compose),     std::move(*placements), std::move(*exits),
-                          std::move(*features),   std::move(*hotspots)};
+    return RoomDefinition{
+        std::move(*identity),     std::move(*display),       std::move(*description),
+        std::move(*background),   std::move(*lifecycle),     std::move(*overlays),
+        std::move(*cast),         std::move(*interactables), std::move(*props),
+        std::move(*environments), std::move(compose),        std::move(*placements),
+        std::move(*exits),        std::move(*features),      std::move(*hotspots)};
 }
 
 std::optional<InteractableDefinition>
 decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"displayName", "features", "id", "initialState", "presentation",
-                         "propertyAssignments", "traits"}))
+                        {"displayName", "features", "id", "initialState", "inventories",
+                         "presentation", "propertyAssignments", "traits"}))
         return std::nullopt;
     auto identity = decode_identity<InteractableId>(decoder, value, pointer);
     const auto* display_value = decoder.member(value, "displayName", pointer);
     const auto* features_value = decoder.member(value, "features", pointer);
+    const auto* inventories_value = decoder.member(value, "inventories", pointer);
     const auto* state_value = decoder.member(value, "initialState", pointer);
     const auto* presentation_value = decoder.member(value, "presentation", pointer);
     auto display = display_value
@@ -1164,6 +1276,9 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                       return decode_feature(decoder, feature, item_pointer);
                   })
             : std::nullopt;
+    auto inventories = inventories_value ? decode_inventories(decoder, *inventories_value,
+                                                              pointer_child(pointer, "inventories"))
+                                         : std::nullopt;
     std::optional<InteractableInitialState> state;
     if (state_value && decoder.object(*state_value, pointer_child(pointer, "initialState"),
                                       {"enabled", "location", "visible"})) {
@@ -1304,10 +1419,11 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                               [](const FeatureDefinition& feature) -> const FeatureId& {
                                   return feature.identity.id;
                               });
-    if (!identity || !display || !features || !state || !presentation)
+    if (!identity || !display || !features || !inventories || !state || !presentation)
         return std::nullopt;
-    return InteractableDefinition{std::move(*identity), std::move(*display), std::move(*features),
-                                  std::move(*state), std::move(*presentation)};
+    return InteractableDefinition{std::move(*identity), std::move(*display),
+                                  std::move(*features), std::move(*inventories),
+                                  std::move(*state),    std::move(*presentation)};
 }
 
 std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& value,

@@ -257,8 +257,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                           path + "/" + std::to_string(index));
             if (!identity)
                 continue;
-            linked.push_back(
-                compiled::FeatureDefinition{std::move(*identity), std::move(value.label)});
+            linked.push_back(compiled::FeatureDefinition{
+                std::move(*identity), std::move(value.label), std::move(value.inventories)});
         }
         return linked;
     };
@@ -288,10 +288,11 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
     LINK_PROPERTY_DEFINITIONS(
         characters, characters, CharacterDefinition, PropertyOwnerKind::Character,
         "/definitions/characters",
-        (compiled::CharacterDefinition{
-            std::move(*identity), std::move(value.display_name), std::move(value.dialogue),
-            std::move(value.defaults), std::move(value.poses), std::move(value.expressions),
-            std::move(value.idles), std::move(value.initial_world_state)}));
+        (compiled::CharacterDefinition{std::move(*identity), std::move(value.display_name),
+                                       std::move(value.dialogue), std::move(value.defaults),
+                                       std::move(value.poses), std::move(value.expressions),
+                                       std::move(value.idles), std::move(value.inventories),
+                                       std::move(value.initial_world_state)}));
     LINK_PROPERTY_DEFINITIONS(
         rooms, rooms, RoomDefinition, PropertyOwnerKind::Room, "/definitions/rooms",
         (compiled::RoomDefinition{
@@ -300,9 +301,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             compiled::RoomLifecycle{std::move(value.lifecycle.can_enter),
                                     std::move(value.lifecycle.can_leave),
                                     std::move(value.lifecycle.hooks)},
-            std::move(value.overlays), std::move(value.cast), std::move(value.props),
-            std::move(value.environments), std::move(value.compose), std::move(value.placements),
-            std::move(value.exits),
+            std::move(value.overlays), std::move(value.cast), std::move(value.interactables),
+            std::move(value.props), std::move(value.environments), std::move(value.compose),
+            std::move(value.placements), std::move(value.exits),
             link_features(std::move(value.features),
                           "/definitions/rooms/" + std::to_string(index) + "/features"),
             std::move(value.hotspots)}));
@@ -313,7 +314,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             std::move(*identity), std::move(value.display_name),
             link_features(std::move(value.features),
                           "/definitions/interactables/" + std::to_string(index) + "/features"),
-            std::move(value.initial_state), std::move(value.presentation)}));
+            std::move(value.inventories), std::move(value.initial_state),
+            std::move(value.presentation)}));
     LINK_DEFINITIONS(
         verbs, verbs, VerbDefinition, VerbId,
         (compiled::VerbDefinition{std::move(identity), std::move(value.action_text), value.arity,
@@ -350,6 +352,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         .localization = std::move(wire.localization),
         .properties = std::move(properties),
         .traits = std::move(traits),
+        .inventories = std::move(wire.inventories),
         .assets = std::move(wire.assets),
         .layouts = std::move(wire.layouts),
         .scripts = std::move(wire.scripts),

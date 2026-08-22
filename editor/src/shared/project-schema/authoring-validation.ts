@@ -27,6 +27,7 @@ import {
 } from './authoring-properties';
 import { parseRoomData, validateRoomData } from './authoring-rooms';
 import { validateHotspotAuthoringSemantics } from './authoring-hotspot-validation';
+import { validateAuthoringInventories } from './authoring-inventory-validation';
 import { validateTypedProjectSettings } from './authoring-project-settings';
 import { validateSceneData } from './authoring-scenes';
 import { validateScriptModuleData } from './authoring-script-modules';
@@ -650,6 +651,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   validateProperties(effectiveProject, diagnostics);
   validateTraits(effectiveProject, diagnostics);
   validateFeatures(effectiveProject, diagnostics);
+  diagnostics.push(...validateAuthoringInventories(project));
   validateAssets(effectiveProject, diagnostics);
   diagnostics.push(...validateTypedProjectSettings(effectiveProject));
   for (const [id, record] of Object.entries(effectiveProject.layouts))

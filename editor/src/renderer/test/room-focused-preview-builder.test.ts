@@ -41,7 +41,6 @@ function fixture() {
       interactable: { $ref: { collection: 'interactables', id: 'key' } },
       condition: { kind: 'always' },
       placementId: 'door',
-      enabled: true,
       visible: true,
       order: 0,
     },
@@ -51,12 +50,16 @@ function fixture() {
 
   const character = defaultCharacterData('Alice');
   character.initialWorldState.location = {
-    kind: 'room-placement',
-    placement: { room: 'bedroom', placement: 'door' },
+    kind: 'room',
+    room: { $ref: { collection: 'rooms', id: 'bedroom' } },
   };
   project.characters.alice = { id: 'alice', label: 'Alice', data: character };
 
   const interactable = defaultInteractableData('Key');
+  interactable.initialState.location = {
+    kind: 'room',
+    room: { $ref: { collection: 'rooms', id: 'bedroom' } },
+  };
   project.interactables.key = { id: 'key', label: 'Key', data: interactable };
   return project;
 }
@@ -166,16 +169,14 @@ describe('graph-driven Room v2 builder', () => {
     });
   });
 
-  it('includes incoming persistent Character and Interactable placement relationships', async () => {
+  it('separates semantic Room presence from Character placement and Interactable occurrences', async () => {
     const result = await build();
     expect(result.data.room).toMatchObject({
       roomId: 'bedroom',
       recordLabel: 'Bedroom record',
       displayName: 'Bedroom',
     });
-    expect(result.data.world.persistentCharacters.map((item) => item.characterId)).toEqual([
-      'alice',
-    ]);
+    expect(result.data.world.persistentCharacters).toEqual([]);
     expect(result.data.world.interactables.map((item) => item.interactableId)).toEqual(['key']);
     expect(result.data.ui.description).toEqual({
       markup: 'plain',

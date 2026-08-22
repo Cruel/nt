@@ -101,7 +101,7 @@ describe('Archetype authoring semantics', () => {
     });
     const character = defaultCharacterData('Local Hero');
     character.initialWorldState = {
-      location: { kind: 'room-placement', placement: { room: 'foyer', placement: 'hero-slot' } },
+      location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
       enabled: false,
       visible: false,
     };
@@ -115,7 +115,11 @@ describe('Archetype authoring semantics', () => {
       properties: {},
     };
     const interactable = defaultInteractableData('Local Prop');
-    interactable.initialState = { enabled: false, visible: false };
+    interactable.initialState = {
+      ...interactable.initialState,
+      enabled: false,
+      visible: false,
+    };
     project.interactables.prop = {
       id: 'prop',
       label: 'Prop',
@@ -343,7 +347,13 @@ describe('Archetype authoring semantics', () => {
     addArchetype(project, 'room-base', 'room', {
       overrides: {
         '/data/features': [
-          { id: 'desk-surface', label: 'Desk surface', traits: [], properties: {} },
+          {
+            id: 'desk-surface',
+            label: 'Desk surface',
+            traits: [],
+            properties: {},
+            inventories: [],
+          },
         ],
         '/data/hotspots': [
           {

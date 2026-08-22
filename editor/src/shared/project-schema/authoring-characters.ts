@@ -2,8 +2,9 @@ import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
 import { parseMaterialData } from './authoring-materials';
 import { entityIdSchema } from './authoring-common';
+import { roomRefSchema } from './authoring-flow';
+import { inventoryDefinitionSchema } from './authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import { parseRoomData } from './authoring-rooms';
 
 export const characterPreviewBackgroundValues = [
   'transparent',
@@ -77,13 +78,8 @@ export const characterDialogueStyleSchema = z
   .strict();
 
 export const characterInitialWorldLocationSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('nowhere') }).strict(),
-  z
-    .object({
-      kind: z.literal('room-placement'),
-      placement: z.object({ room: entityIdSchema, placement: entityIdSchema }).strict(),
-    })
-    .strict(),
+  z.object({ kind: z.literal('unplaced') }).strict(),
+  z.object({ kind: z.literal('room'), room: roomRefSchema }).strict(),
 ]);
 
 export const characterDataSchema = z
@@ -107,6 +103,7 @@ export const characterDataSchema = z
     poses: z.array(characterPoseDataSchema).default([]),
     expressions: z.array(characterExpressionDataSchema).default([]),
     idles: z.array(characterIdleDataSchema).default([]),
+    inventories: z.array(inventoryDefinitionSchema),
     initialWorldState: z
       .object({
         location: characterInitialWorldLocationSchema,
@@ -114,7 +111,7 @@ export const characterDataSchema = z
         visible: z.boolean(),
       })
       .strict()
-      .default({ location: { kind: 'nowhere' }, enabled: true, visible: true }),
+      .default({ location: { kind: 'unplaced' }, enabled: true, visible: true }),
   })
   .strict();
 
@@ -178,7 +175,8 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
       },
     ],
     idles: [],
-    initialWorldState: { location: { kind: 'nowhere' }, enabled: true, visible: true },
+    inventories: [],
+    initialWorldState: { location: { kind: 'unplaced' }, enabled: true, visible: true },
   });
 }
 
@@ -333,26 +331,13 @@ export function validateCharacterData(
     );
   }
   const location = data.initialWorldState.location;
-  if (location.kind === 'room-placement') {
-    const room = project.rooms[location.placement.room];
-    const roomData = room ? parseRoomData(room.data) : null;
-    if (!room)
-      diagnostics.push(
-        diagnostic(
-          `${base}/initialWorldState/location/placement/room`,
-          `Missing room '${location.placement.room}'.`,
-        ),
-      );
-    else if (
-      !roomData?.placements.some((placement) => placement.id === location.placement.placement)
-    )
-      diagnostics.push(
-        diagnostic(
-          `${base}/initialWorldState/location/placement/placement`,
-          `Missing placement '${location.placement.placement}'.`,
-        ),
-      );
-  }
+  if (location.kind === 'room' && !project.rooms[location.room.$ref.id])
+    diagnostics.push(
+      diagnostic(
+        `${base}/initialWorldState/location/room/$ref`,
+        `Missing room '${location.room.$ref.id}'.`,
+      ),
+    );
 
   return diagnostics;
 }

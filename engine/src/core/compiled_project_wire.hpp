@@ -60,12 +60,14 @@ struct CharacterDefinition {
     std::vector<CharacterPose> poses;
     std::vector<CharacterExpression> expressions;
     std::vector<CharacterIdle> idles;
+    std::vector<InventoryDefinition> inventories;
     CharacterInitialWorldState initial_world_state;
 };
 
 struct FeatureDefinition {
     PropertyBearingDefinition<FeatureId> identity;
     std::string label;
+    std::vector<InventoryDefinition> inventories;
 };
 
 struct RoomLifecycle {
@@ -81,6 +83,7 @@ struct RoomDefinition {
     RoomLifecycle lifecycle;
     std::vector<RoomOverlay> overlays;
     std::vector<RoomCastEntry> cast;
+    std::vector<RoomInteractableEntry> interactables;
     std::vector<RoomProp> props;
     std::vector<RoomEnvironment> environments;
     std::optional<RoomCompositionHook> compose;
@@ -94,6 +97,7 @@ struct InteractableDefinition {
     PropertyBearingDefinition<InteractableId> identity;
     std::string display_name;
     std::vector<FeatureDefinition> features;
+    std::vector<InventoryDefinition> inventories;
     InteractableInitialState initial_state;
     InteractablePresentation presentation;
 };
@@ -142,6 +146,7 @@ struct SharedProject {
     Localization localization;
     std::vector<PropertyDeclaration> properties;
     std::vector<TraitDeclaration> traits;
+    std::vector<InventoryDefinition> inventories;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;
     std::vector<ScriptResource> scripts;

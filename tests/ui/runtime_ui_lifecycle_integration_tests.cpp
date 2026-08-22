@@ -1193,6 +1193,7 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
     const auto placement = noveltea::core::RoomPlacementId::create("placement");
     const auto interactable = noveltea::core::InteractableId::create("key");
     const auto hidden_interactable = noveltea::core::InteractableId::create("hidden-key");
+    const auto player_inventory = noveltea::core::InventoryId::create("player");
     const auto verb = noveltea::core::VerbId::create("inspect");
     const auto disabled_verb = noveltea::core::VerbId::create("use");
     const auto map = noveltea::core::MapId::create("map");
@@ -1210,6 +1211,7 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
     REQUIRE(placement);
     REQUIRE(interactable);
     REQUIRE(hidden_interactable);
+    REQUIRE(player_inventory);
     REQUIRE(verb);
     REQUIRE(disabled_verb);
     REQUIRE(map);
@@ -1256,11 +1258,15 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
                      {disabled_verb.value(), "Use", 1, false, false}}};
     values.view.inventory.items = {
         {.interactable = interactable.value(),
+         .inventory = {noveltea::core::compiled::ProjectInventoryOwner{}, player_inventory.value()},
+         .effective_room = std::nullopt,
          .display_name = "Inventory Key",
          .presentation = {.hotspots = noveltea::core::compiled::CustomInteractableHotspots{}},
          .enabled = true,
          .visible = true},
         {.interactable = hidden_interactable.value(),
+         .inventory = {noveltea::core::compiled::ProjectInventoryOwner{}, player_inventory.value()},
+         .effective_room = std::nullopt,
          .display_name = "Hidden",
          .presentation = {.hotspots = noveltea::core::compiled::CustomInteractableHotspots{}},
          .enabled = true,

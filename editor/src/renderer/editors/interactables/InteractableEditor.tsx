@@ -11,6 +11,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
+import {
+  InteractableLocationEditor,
+  InventoryDeclarationsEditor,
+} from '@/components/inventories/InventoryControls';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -222,6 +226,18 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
             ))}
           </Select>
         </div>
+        <div className="md:col-span-2">
+          <InteractableLocationEditor
+            project={project}
+            location={data.initialState.location}
+            onChange={(location) =>
+              commit(
+                { ...data, initialState: { ...data.initialState, location } },
+                'Update interactable initial location',
+              )
+            }
+          />
+        </div>
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -256,6 +272,11 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
         </label>
       </div>
       <div className="mt-4 max-w-5xl space-y-4">
+        <InventoryDeclarationsEditor
+          inventories={data.inventories}
+          onChange={(inventories, label) => commit({ ...data, inventories }, label)}
+          title="Interactable Inventories"
+        />
         <FeatureAuthoringPanel
           project={project}
           features={data.features}

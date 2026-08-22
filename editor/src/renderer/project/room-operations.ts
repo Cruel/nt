@@ -1,18 +1,15 @@
 import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
 import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
-import { parseCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
   parseInteractionData,
   type InteractionData,
 } from '../../shared/project-schema/authoring-interactions';
-import type { InteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import {
   parseRoomData,
   validateRoomData,
   type RoomData,
 } from '../../shared/project-schema/authoring-rooms';
-import { parseVerbData, type VerbData } from '../../shared/project-schema/authoring-verbs';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
@@ -79,48 +76,6 @@ function repairLocalPlacementReferences(data: RoomData, changes: PlacementChange
   };
 }
 
-function repairProgramPlacements(
-  program: InteractionProgram,
-  roomId: string,
-  changes: PlacementChanges,
-  path: string,
-): { program: InteractionProgram; changed: boolean; failure?: EntityOperationDiagnostic } {
-  let changed = false;
-  const instructions = program.instructions.map((instruction) => {
-    if (
-      instruction.kind !== 'move-interactable' ||
-      instruction.target.kind !== 'room-placement' ||
-      instruction.target.placement.room !== roomId
-    )
-      return instruction;
-    const nextPlacement = repairedPlacementId(instruction.target.placement.placement, changes);
-    if (!nextPlacement) return instruction;
-    if (nextPlacement === instruction.target.placement.placement) return instruction;
-    changed = true;
-    return {
-      ...instruction,
-      target: { ...instruction.target, placement: { room: roomId, placement: nextPlacement } },
-    };
-  });
-  const missing = program.instructions.findIndex(
-    (instruction) =>
-      instruction.kind === 'move-interactable' &&
-      instruction.target.kind === 'room-placement' &&
-      instruction.target.placement.room === roomId &&
-      !repairedPlacementId(instruction.target.placement.placement, changes),
-  );
-  if (missing >= 0)
-    return {
-      program,
-      changed: false,
-      failure: error(
-        'Room placement is referenced by an Interaction program and cannot be removed.',
-        `${path}/instructions/${missing}/target/placement/placement`,
-      ),
-    };
-  return { program: changed ? { ...program, instructions } : program, changed };
-}
-
 function repairInteractionPlacements(
   data: InteractionData,
   roomId: string,
@@ -156,19 +111,7 @@ function repairInteractionPlacements(
         changed = true;
       }
     }
-    const repairedProgram = repairProgramPlacements(
-      rule.program,
-      roomId,
-      changes,
-      buildJsonPointer(['interactions', interactionId, 'data', 'rules', String(index), 'program']),
-    );
-    if (repairedProgram.failure) return { data, changed: false, failure: repairedProgram.failure };
-    changed ||= repairedProgram.changed;
-    rules.push(
-      context === rule.context && !repairedProgram.changed
-        ? rule
-        : { ...rule, context, program: repairedProgram.program },
-    );
+    rules.push(context === rule.context ? rule : { ...rule, context });
   }
   return { data: changed ? { ...data, rules } : data, changed };
 }
@@ -234,54 +177,6 @@ export function replaceRoomDataPatches(
           path: buildJsonPointer(['interactions', interactionId, 'data']),
           value: toJsonValue(repaired.data),
         });
-    }
-    for (const [verbId, verbRecord] of Object.entries(document.verbs)) {
-      const verb = parseVerbData(verbRecord.data);
-      if (!verb) continue;
-      const repaired = repairProgramPlacements(
-        verb.defaultProgram,
-        payload.roomId,
-        changes,
-        buildJsonPointer(['verbs', verbId, 'data', 'defaultProgram']),
-      );
-      if (repaired.failure) return { patches: [], diagnostics: [repaired.failure] };
-      if (repaired.changed) {
-        const next: VerbData = { ...verb, defaultProgram: repaired.program };
-        patches.push({
-          op: 'replace',
-          path: buildJsonPointer(['verbs', verbId, 'data']),
-          value: toJsonValue(next),
-        });
-      }
-    }
-    for (const [characterId, characterRecord] of Object.entries(document.characters)) {
-      const character = parseCharacterData(characterRecord.data);
-      const location = character?.initialWorldState.location;
-      if (
-        !character ||
-        location?.kind !== 'room-placement' ||
-        location.placement.room !== payload.roomId ||
-        changes.nextIds.has(location.placement.placement)
-      )
-        continue;
-      const renamed = changes.renamed.get(location.placement.placement);
-      const next = {
-        ...character,
-        initialWorldState: {
-          ...character.initialWorldState,
-          location: renamed
-            ? {
-                kind: 'room-placement' as const,
-                placement: { room: payload.roomId, placement: renamed },
-              }
-            : { kind: 'nowhere' as const },
-        },
-      };
-      patches.push({
-        op: 'replace',
-        path: buildJsonPointer(['characters', characterId, 'data']),
-        value: toJsonValue(next),
-      });
     }
   }
 

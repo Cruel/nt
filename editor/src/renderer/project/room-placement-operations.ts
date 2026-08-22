@@ -14,6 +14,7 @@ import {
   type RoomNormalizedRect,
   type RoomPlacementData,
 } from '../../shared/project-schema/authoring-rooms';
+import { replaceInteractableDataPatches } from './interactable-operations';
 import { replaceRoomDataPatches } from './room-operations';
 
 const INT32_MAX = 2_147_483_647;
@@ -144,7 +145,7 @@ export function placeInteractablePatches(
       layout: null,
     },
   };
-  return roomResult(document, payload.roomId, {
+  const room = roomResult(document, payload.roomId, {
     ...loaded.room,
     placements: [...loaded.room.placements, placement],
     interactables: [
@@ -156,12 +157,28 @@ export function placeInteractablePatches(
         },
         condition: { kind: 'always' },
         placementId: payload.placementId,
-        enabled: loaded.interactable!.initialState.enabled,
         visible: loaded.interactable!.initialState.visible,
         order: loaded.room.interactables.length,
       },
     ],
   });
+  if (room.diagnostics?.some((item) => item.severity === 'error')) return room;
+  const interactable = replaceInteractableDataPatches(document, {
+    interactableId: payload.interactableId,
+    data: {
+      ...loaded.interactable!,
+      initialState: {
+        ...loaded.interactable!.initialState,
+        location: {
+          kind: 'room',
+          room: { $ref: { collection: 'rooms', id: payload.roomId } },
+        },
+      },
+    },
+  });
+  if (interactable.diagnostics?.some((item) => item.severity === 'error')) return interactable;
+  const patches = [...room.patches, ...interactable.patches];
+  return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }
 
 export function moveInteractableToPlacementPatches(

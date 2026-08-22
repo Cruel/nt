@@ -9,10 +9,11 @@ import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 
 beforeEach(() => {
   const project = createAuthoringProject();
-  project.characters.dfs = { id: 'dfs', label: 'DFS', data: {} as never };
+  project.characters.dfs = { id: 'dfs', label: 'DFS', data: defaultCharacterData('DFS') };
   useProjectStore.getState().clearProject();
   useProjectStore.getState().loadProjectDocument({
     document: project,
