@@ -33,7 +33,6 @@ function config(): ComfyUiConfig {
     serverUrl: 'http://127.0.0.1:8188',
     requestTimeoutMs: 100,
     connectionCheckIntervalMs: 1000,
-    defaultWorkflowId: 'custom',
     defaultWorkflows: {},
   };
 }

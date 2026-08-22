@@ -21,7 +21,6 @@ beforeEach(() => {
     formatVersion: 1,
     serverUrl: 'http://127.0.0.1:8000',
     requestTimeoutMs: 15000,
-    defaultWorkflowId: 'flux2-klein-text-to-image',
     defaultWorkflows: {
       'image.generate': 'flux2-klein-text-to-image',
       'image.edit': 'flux2-klein-image-edit',
@@ -64,7 +63,6 @@ beforeEach(() => {
     comfyUiConfig: {
       enabled: false,
       serverUrl: 'http://127.0.0.1:8000',
-      defaultWorkflowId: 'flux2-klein-text-to-image',
       defaultWorkflows: {
         'image.generate': 'flux2-klein-text-to-image',
         'image.edit': 'flux2-klein-image-edit',
@@ -87,8 +85,10 @@ describe('useComfyUiStore', () => {
       formatVersion: 1,
       serverUrl: 'https://comfy.example.test',
       requestTimeoutMs: 2222,
-      defaultWorkflowId: 'shared-generate',
-      defaultWorkflows: { 'image.generate': 'shared-generate' },
+      defaultWorkflows: {
+        'image.generate': 'shared-generate',
+        'audio.generate': 'shared-audio',
+      },
     });
 
     await useComfyUiStore.getState().hydrateFromSharedUserConfig();
@@ -98,7 +98,10 @@ describe('useComfyUiStore', () => {
       connectionCheckIntervalMs: 4321,
       serverUrl: 'https://comfy.example.test',
       requestTimeoutMs: 2222,
-      defaultWorkflowId: 'shared-generate',
+      defaultWorkflows: {
+        'image.generate': 'shared-generate',
+        'audio.generate': 'shared-audio',
+      },
     });
   });
 

@@ -96,7 +96,6 @@ beforeEach(() => {
     config: {
       enabled: false,
       serverUrl: 'http://127.0.0.1:8000',
-      defaultWorkflowId: 'flux2-klein-text-to-image',
       defaultWorkflows: {
         'image.generate': 'flux2-klein-text-to-image',
         'image.edit': 'flux2-klein-image-edit',

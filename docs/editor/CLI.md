@@ -31,7 +31,7 @@ noveltea comfyui status [--server <url>]
 noveltea comfyui workflows [--all]
 noveltea comfyui workflows <id>
 noveltea comfyui verify [<id>] [--server <url>]
-noveltea comfyui run <workflow-id> [--input <name=value>]... --output <path> [--server <url>] [--force]
+noveltea comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... --output <path> [--server <url>] [--force]
 ```
 
 These commands use the same catalog, machine configuration, and verification cache as the editor workflow manager.
@@ -49,8 +49,13 @@ effective workflow; omitting the ID verifies the active workflow set in the opti
 the manifest-required node classes and every mapped node input against `/object_info`. CLI verification is diagnostic
 only except for updating the disposable shared verification cache; it never repairs or rewrites packages.
 
-`comfyui run` currently requires an explicit workflow ID and exactly one required cardinality-`one` image output.
-Repeated `--input name=value` arguments bind through the manifest's public contract; values split on the first `=`,
+`comfyui run` accepts either an explicit workflow ID or `--type <classification>`. `--type` resolves the logical
+workflow ID from the shared user configuration and then applies normal `project > user > built-in` source precedence.
+The two selection forms are mutually exclusive, and omitting both is invalid; NovelTea never guesses a classification or
+silently falls back to the first workflow. A configured default that is unavailable remains configured and fails with a
+targeted diagnostic. Classifications use the same extensible dotted namespace as workflow manifests, so future values do
+not require a runner enum change. The current execution slice still requires exactly one required cardinality-`one` image
+output. Repeated `--input name=value` arguments bind through the manifest's public contract; values split on the first `=`,
 duplicate/unknown names are rejected, required/default/type semantics are checked before network work, and one public
 input may drive every graph binding declared for it. Scalar inputs support string, integer, number, and boolean values.
 An `image` input accepts an explicitly named local file; relative paths resolve from the invocation working directory.
@@ -77,7 +82,8 @@ With `--json`, execution still produces exactly one final compact envelope on st
 
 Shared user packages live under `<NovelTea user config>/comfyui/workflows/`. The strict
 `noveltea.comfyui-user-config` version 1 document at `<NovelTea user config>/comfyui/config-v1.json` owns the server URL,
-per-request timeout, and logical default-workflow mappings. Editor enablement and periodic connection-check cadence are
+per-request timeout, and logical default-workflow mappings keyed by arbitrary valid dotted classifications. The canonical
+V1 config has no singular default-workflow alias. Editor enablement and periodic connection-check cadence are
 editor-local preferences and are not part of that shared file. `NOVELTEA_USER_CONFIG_ROOT` therefore provides hermetic
 ComfyUI configuration, workflow, and cache storage for CI. An invocation `--server` override is ephemeral and does not
 rewrite the shared configuration.

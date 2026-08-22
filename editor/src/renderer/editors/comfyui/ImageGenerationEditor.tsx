@@ -386,8 +386,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
             ? `${warningCount} workflow diagnostic${warningCount === 1 ? '' : 's'} found. Invalid workflows are hidden from the selectors.`
             : null,
         );
-        const generateDefault =
-          comfyUiConfig.defaultWorkflows['image.generate'] ?? comfyUiConfig.defaultWorkflowId;
+        const generateDefault = comfyUiConfig.defaultWorkflows['image.generate'];
         const editDefault = comfyUiConfig.defaultWorkflows['image.edit'];
         const generateChoice =
           response.activeWorkflows.find(
@@ -423,13 +422,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     return () => {
       canceled = true;
     };
-  }, [
-    comfyUiConfig.defaultWorkflowId,
-    comfyUiConfig.defaultWorkflows,
-    comfyUiConfig.enabled,
-    comfyUiStatus.state,
-    projectFilePath,
-  ]);
+  }, [comfyUiConfig.defaultWorkflows, comfyUiConfig.enabled, comfyUiStatus.state, projectFilePath]);
 
   useEffect(() => {
     if (!selectedGenerateWorkflow) {

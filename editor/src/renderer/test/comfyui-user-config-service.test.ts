@@ -34,14 +34,19 @@ describe('ComfyUI shared user config service', () => {
       ...defaultComfyUiSharedUserConfig(),
       serverUrl: 'https://comfy.example.test:8443/',
       requestTimeoutMs: 2345,
-      defaultWorkflows: { 'image.generate': 'custom-generate' },
-      defaultWorkflowId: 'custom-generate',
+      defaultWorkflows: {
+        'image.generate': 'custom-generate',
+        'audio.generate': 'custom-audio',
+      },
     });
 
     expect(saved).toMatchObject({
       serverUrl: 'https://comfy.example.test:8443',
       requestTimeoutMs: 2345,
-      defaultWorkflowId: 'custom-generate',
+      defaultWorkflows: {
+        'image.generate': 'custom-generate',
+        'audio.generate': 'custom-audio',
+      },
     });
     expect(comfyUiUserConfigPath()).toBe(path.join(configRoot, 'comfyui', 'config-v1.json'));
     await expect(loadComfyUiUserConfig()).resolves.toEqual(saved);
@@ -58,9 +63,8 @@ describe('ComfyUI shared user config service', () => {
         formatVersion: 1,
         serverUrl: 'http://127.0.0.1:9000',
         requestTimeoutMs: 1000,
-        defaultWorkflowId: 'legacy',
-        defaultWorkflows: {},
-        enabled: true,
+        defaultWorkflowId: 'retired-singular-alias',
+        defaultWorkflows: { 'image.generate': 'legacy' },
       })}\n`,
     );
 

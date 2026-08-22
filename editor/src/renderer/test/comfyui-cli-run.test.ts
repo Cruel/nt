@@ -12,6 +12,7 @@ import type { WorkflowLibraryServiceOptions } from '../../main/services/comfyui-
 
 const tempRoots: string[] = [];
 const servers: http.Server[] = [];
+const previousUserConfigRoot = process.env.NOVELTEA_USER_CONFIG_ROOT;
 
 function tempRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-comfyui-run-'));
@@ -97,15 +98,38 @@ function imageWorkflow() {
   };
 }
 
-function writePackage(root: string, id = 'scalar-run') {
+function writePackage(root: string, id = 'scalar-run', classification?: string) {
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(
     path.join(root, `${id}.manifest.json`),
-    `${JSON.stringify(manifest(id), null, 2)}\n`,
+    `${JSON.stringify({ ...manifest(id), ...(classification ? { classification } : {}) }, null, 2)}\n`,
   );
   fs.writeFileSync(
     path.join(root, `${id}.workflow.json`),
     `${JSON.stringify(workflow(), null, 2)}\n`,
+  );
+}
+
+function writeUserConfig(configRoot: string, defaultWorkflows: Record<string, string>) {
+  const directory = path.join(configRoot, 'comfyui');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(
+    path.join(directory, 'config-v1.json'),
+    `${JSON.stringify({
+      format: 'noveltea.comfyui-user-config',
+      formatVersion: 1,
+      serverUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 15000,
+      defaultWorkflows,
+    })}\n`,
+  );
+}
+
+function writeProject(root: string) {
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(
+    path.join(root, 'project.json'),
+    `${JSON.stringify({ schema: 'noveltea.project.workspace', schemaVersion: 1 })}\n`,
   );
 }
 
@@ -301,6 +325,8 @@ function runArguments(server: string, output: string) {
 }
 
 afterEach(async () => {
+  if (previousUserConfigRoot === undefined) delete process.env.NOVELTEA_USER_CONFIG_ROOT;
+  else process.env.NOVELTEA_USER_CONFIG_ROOT = previousUserConfigRoot;
   resetImageInspectionService();
   await Promise.all(
     servers
@@ -363,6 +389,194 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
     const promptIndex = server.requests.findIndex((request) => request.path === '/prompt');
     expect(objectInfoIndex).toBeGreaterThanOrEqual(0);
     expect(promptIndex).toBeGreaterThan(objectInfoIndex);
+  });
+
+  it('runs a configured default by future dotted classification without guessing a workflow', async () => {
+    const root = tempRoot();
+    const configRoot = path.join(root, 'config');
+    process.env.NOVELTEA_USER_CONFIG_ROOT = configRoot;
+    writeUserConfig(configRoot, { 'audio.generate': 'scalar-run' });
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writePackage(userRoot, 'scalar-run', 'audio.generate');
+    const server = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+
+    const result = await runNovelTeaCli(
+      [
+        '--json',
+        'comfyui',
+        'run',
+        '--type',
+        'audio.generate',
+        '--input',
+        'text=hello',
+        '--input',
+        'strength=1',
+        '--input',
+        'enabled=true',
+        '--output',
+        'typed.png',
+        '--server',
+        server.url,
+      ],
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(envelope(result)).toMatchObject({
+      workflow: { id: 'scalar-run', source: 'user' },
+    });
+  });
+
+  it('rejects ambiguous or missing workflow selection before network work', async () => {
+    const root = tempRoot();
+    const server = await fakeComfyUi();
+    const common = [
+      '--json',
+      'comfyui',
+      'run',
+      '--input',
+      'text=hello',
+      '--input',
+      'strength=1',
+      '--input',
+      'enabled=true',
+      '--output',
+      'out.png',
+      '--server',
+      server.url,
+    ];
+
+    const missing = await runNovelTeaCli(common, { cwd: root });
+    const ambiguous = await runNovelTeaCli(
+      [...common.slice(0, 3), 'scalar-run', '--type', 'image.generate', ...common.slice(3)],
+      { cwd: root },
+    );
+    expect(missing.exitCode).toBe(2);
+    expect(ambiguous.exitCode).toBe(2);
+    expect(server.requests).toEqual([]);
+  });
+
+  it('fails targeted default resolution when the classification is unconfigured or its configured workflow is unavailable', async () => {
+    const root = tempRoot();
+    const configRoot = path.join(root, 'config');
+    process.env.NOVELTEA_USER_CONFIG_ROOT = configRoot;
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    const server = await fakeComfyUi();
+    const args = (classification: string) => [
+      '--json',
+      'comfyui',
+      'run',
+      '--type',
+      classification,
+      '--output',
+      'out.png',
+      '--server',
+      server.url,
+    ];
+
+    writeUserConfig(configRoot, {});
+    const unconfigured = await runNovelTeaCli(args('audio.generate'), {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(unconfigured.exitCode).toBe(4);
+    expect(envelope(unconfigured).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_DEFAULT_WORKFLOW_NOT_CONFIGURED' }),
+    ]);
+
+    writeUserConfig(configRoot, { 'audio.generate': 'missing-audio' });
+    const unavailable = await runNovelTeaCli(args('audio.generate'), {
+      cwd: root,
+      comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+    });
+    expect(unavailable.exitCode).toBe(4);
+    expect(envelope(unavailable).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_DEFAULT_WORKFLOW_UNAVAILABLE' }),
+    ]);
+    expect(server.requests).toEqual([]);
+  });
+
+  it('resolves a configured logical default through project over user precedence', async () => {
+    const root = tempRoot();
+    writeProject(root);
+    const configRoot = path.join(root, 'config');
+    process.env.NOVELTEA_USER_CONFIG_ROOT = configRoot;
+    writeUserConfig(configRoot, { 'image.generate': 'scalar-run' });
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writePackage(userRoot, 'scalar-run', 'image.generate');
+    writePackage(path.join(root, 'workflows'), 'scalar-run', 'image.generate');
+    const server = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+
+    const result = await runNovelTeaCli(
+      [
+        '--json',
+        'comfyui',
+        'run',
+        '--type',
+        'image.generate',
+        '--input',
+        'text=hello',
+        '--input',
+        'strength=1',
+        '--input',
+        'enabled=true',
+        '--output',
+        'project-default.png',
+        '--server',
+        server.url,
+      ],
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(envelope(result)).toMatchObject({
+      projectRoot: root,
+      workflow: { id: 'scalar-run', source: 'project' },
+    });
+  });
+
+  it('rejects a configured default whose active workflow has a different classification', async () => {
+    const root = tempRoot();
+    const configRoot = path.join(root, 'config');
+    process.env.NOVELTEA_USER_CONFIG_ROOT = configRoot;
+    writeUserConfig(configRoot, { 'audio.generate': 'scalar-run' });
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writePackage(userRoot, 'scalar-run', 'image.generate');
+    const server = await fakeComfyUi();
+
+    const result = await runNovelTeaCli(
+      [
+        '--json',
+        'comfyui',
+        'run',
+        '--type',
+        'audio.generate',
+        '--output',
+        'mismatch.png',
+        '--server',
+        server.url,
+      ],
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+
+    expect(result.exitCode).toBe(4);
+    expect(envelope(result).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_DEFAULT_WORKFLOW_CLASSIFICATION_MISMATCH' }),
+    ]);
+    expect(server.requests).toEqual([]);
   });
 
   it('rejects duplicate, unknown, missing, and invalid scalar inputs before any network work', async () => {
