@@ -69,8 +69,8 @@ import {
   WandSparkles,
 } from 'lucide-react';
 import type {
+  ComfyUiKnownWorkflowClassification,
   ComfyUiWorkflowActiveEntry,
-  ComfyUiWorkflowRole,
 } from '../../shared/comfyui-workflows';
 import type {
   ExportPlatform,
@@ -153,7 +153,7 @@ const editorPreviewSource = `<div class="noveltea-layout-preview">
   </button>
 </div>`;
 
-type WorkflowDefaultOption = Pick<ComfyUiWorkflowActiveEntry, 'id' | 'label' | 'role'>;
+type WorkflowDefaultOption = Pick<ComfyUiWorkflowActiveEntry, 'id' | 'label' | 'classification'>;
 
 type SigningDraft = {
   originalId?: string;
@@ -233,12 +233,14 @@ function signingDraftFromProfile(profile: UserSigningProfile): SigningDraft {
 
 function workflowDefaultOptions(
   workflows: ComfyUiWorkflowActiveEntry[],
-  role: ComfyUiWorkflowRole,
+  classification: ComfyUiKnownWorkflowClassification,
   selectedId: string,
 ): WorkflowDefaultOption[] {
-  const options = workflows.filter((workflow) => workflow.role === role);
+  const options = workflows.filter(
+    (workflow) => workflow.classification === classification && workflow.runnable,
+  );
   if (selectedId && !options.some((workflow) => workflow.id === selectedId)) {
-    return [{ id: selectedId, label: selectedId, role }, ...options];
+    return [{ id: selectedId, label: selectedId, classification }, ...options];
   }
   return options;
 }
@@ -619,12 +621,16 @@ export function SettingsPage({
     }
   }
 
-  function updateDefaultWorkflow(role: ComfyUiWorkflowRole, workflowId: string) {
+  function updateDefaultWorkflow(
+    classification: ComfyUiKnownWorkflowClassification,
+    workflowId: string,
+  ) {
     updateComfyUiConfig({
-      defaultWorkflowId: role === 'image.generate' ? workflowId : comfyUiConfig.defaultWorkflowId,
+      defaultWorkflowId:
+        classification === 'image.generate' ? workflowId : comfyUiConfig.defaultWorkflowId,
       defaultWorkflows: {
         ...comfyUiConfig.defaultWorkflows,
-        [role]: workflowId,
+        [classification]: workflowId,
       },
     });
   }

@@ -221,7 +221,7 @@ Project Settings no longer manages workflow packages directly. It shows:
 
 The `ComfyUI Workflows` tab manages built-in, editor-wide, and project-local workflow sources. Project-local workflow files still live under the authoring project's `workflows/` directory, but importing, copying, deleting, repairing, revealing, and verifying workflow packages belongs in the manager instead of Project Settings.
 
-Workflow import expects ComfyUI API workflow JSON exported with `File -> Export Workflow (API)`. Ordinary ComfyUI save files include visual editing data and are not the import format for this editor path.
+Workflow import expects ComfyUI API workflow JSON exported with `File -> Export Workflow (API)`. Ordinary ComfyUI save files include visual editing data and are not the import format for this editor path. Installed manifests use the generic V2 public-ID contract documented in `../comfyui/WORKFLOW_IMPORT.md`; optional image classifications guide current editor inference but are not the manifest execution schema.
 
 Renaming important ComfyUI nodes before export is optional but improves automatic binding and later repair. Recommended title markers are:
 

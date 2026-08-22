@@ -327,7 +327,7 @@
     },
     "steps": {
       "sourceFile": "Source File",
-      "role": "Role",
+      "role": "Classification",
       "summary": "Summary",
       "inputs": "Inputs",
       "outputs": "Outputs",
@@ -362,7 +362,7 @@
       "analyzing": "Analyzing workflow..."
     },
     "metadata": {
-      "role": "Role",
+      "role": "Classification",
       "workflowLabel": "Workflow label",
       "workflowId": "Workflow ID",
       "description": "Description",

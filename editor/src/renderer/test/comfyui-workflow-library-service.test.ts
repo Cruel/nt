@@ -82,20 +82,21 @@ function manifest(id: string, label = id, workflowFile = `${id}.workflow.json`) 
     id,
     label,
     provider: 'comfyui',
-    role: 'image.generate',
+    classification: 'image.generate',
     workflowFile,
     contract: {
       inputs: { prompt: { type: 'string', required: true } },
-      outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+      outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
     },
     bindings: {
-      prompt: {
-        nodeId: 'prompt',
-        nodeTitle: 'noveltea.prompt',
-        classType: 'PrimitiveStringMultiline',
-        inputName: 'value',
-        valueType: 'string',
-      },
+      prompt: [
+        {
+          nodeId: 'prompt',
+          nodeTitle: 'noveltea.prompt',
+          classType: 'PrimitiveStringMultiline',
+          inputName: 'value',
+        },
+      ],
     },
     outputBindings: {
       images: [
@@ -103,12 +104,9 @@ function manifest(id: string, label = id, workflowFile = `${id}.workflow.json`) 
           nodeId: 'output',
           nodeTitle: 'noveltea.output',
           classType: 'SaveImage',
-          valueType: 'image-list',
-          primary: 'first',
         },
       ],
     },
-    defaults: { filenamePrefix: 'NovelTea' },
     requiredNodeClasses: ['PrimitiveStringMultiline', 'SaveImage'],
   };
 }
@@ -156,6 +154,42 @@ describe('comfyui workflow library service', () => {
       'editor:editor-workflow',
       'project:project-workflow',
     ]);
+  });
+
+  it('keeps unsupported output media discoverable but marks the workflow non-runnable', async () => {
+    const { editorRoot, options } = testRootsWithoutProject();
+    const futureManifest = manifest('future-media');
+    fs.writeFileSync(
+      path.join(editorRoot, 'future-media.manifest.json'),
+      `${JSON.stringify(
+        {
+          ...futureManifest,
+          contract: {
+            inputs: futureManifest.contract.inputs,
+            outputs: { audio: { mediaType: 'audio', required: true, cardinality: 'one' } },
+          },
+          outputBindings: { audio: futureManifest.outputBindings.images },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    fs.writeFileSync(
+      path.join(editorRoot, 'future-media.workflow.json'),
+      `${JSON.stringify(workflow(), null, 2)}\n`,
+    );
+
+    const response = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
+
+    expect(response.activeWorkflows).toContainEqual(
+      expect.objectContaining({ id: 'future-media', runnable: false, offlineStatus: 'warning' }),
+    );
+    expect(response.entries[0]?.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warning',
+        message: expect.stringContaining("Output media type 'audio'"),
+      }),
+    );
   });
 
   it('discovers source-aware workflow entries and resolves active overrides by workflow id', async () => {

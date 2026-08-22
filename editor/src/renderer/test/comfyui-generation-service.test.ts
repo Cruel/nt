@@ -78,7 +78,7 @@ function manifest(includeOptionalBindings: boolean) {
     id: 'custom',
     label: 'Custom',
     provider: 'comfyui',
-    role: 'image.generate',
+    classification: 'image.generate',
     workflowFile: 'custom.workflow.json',
     contract: {
       inputs: {
@@ -90,32 +90,35 @@ function manifest(includeOptionalBindings: boolean) {
             }
           : {}),
       },
-      outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+      outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
     },
     bindings: {
-      prompt: {
-        nodeId: 'prompt',
-        nodeTitle: 'noveltea.prompt',
-        classType: 'PrimitiveStringMultiline',
-        inputName: 'value',
-        valueType: 'string',
-      },
+      prompt: [
+        {
+          nodeId: 'prompt',
+          nodeTitle: 'noveltea.prompt',
+          classType: 'PrimitiveStringMultiline',
+          inputName: 'value',
+        },
+      ],
       ...(includeOptionalBindings
         ? {
-            negativePrompt: {
-              nodeId: 'negative',
-              nodeTitle: 'noveltea.negativePrompt',
-              classType: 'PrimitiveStringMultiline',
-              inputName: 'value',
-              valueType: 'string',
-            },
-            cfg: {
-              nodeId: 'cfg',
-              nodeTitle: 'noveltea.cfg',
-              classType: 'PrimitiveFloat',
-              inputName: 'value',
-              valueType: 'number',
-            },
+            negativePrompt: [
+              {
+                nodeId: 'negative',
+                nodeTitle: 'noveltea.negativePrompt',
+                classType: 'PrimitiveStringMultiline',
+                inputName: 'value',
+              },
+            ],
+            cfg: [
+              {
+                nodeId: 'cfg',
+                nodeTitle: 'noveltea.cfg',
+                classType: 'PrimitiveFloat',
+                inputName: 'value',
+              },
+            ],
           }
         : {}),
     },
@@ -125,12 +128,10 @@ function manifest(includeOptionalBindings: boolean) {
           nodeId: 'output',
           nodeTitle: 'noveltea.output',
           classType: 'SaveImage',
-          valueType: 'image-list',
-          primary: 'first',
         },
       ],
     },
-    defaults: { filenamePrefix: 'NovelTea' },
+
     requiredNodeClasses: ['PrimitiveStringMultiline', 'PrimitiveFloat', 'SaveImage'],
   };
 }
@@ -224,6 +225,38 @@ describe('comfyui generation service', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('refuses to execute a discovered workflow with unsupported output media', async () => {
+    const project = projectFilePath();
+    const baseManifest = manifest(false);
+    writeWorkflowPair(
+      project,
+      {
+        ...baseManifest,
+        contract: {
+          inputs: baseManifest.contract.inputs,
+          outputs: { audio: { mediaType: 'audio', required: true, cardinality: 'one' } },
+        },
+        outputBindings: { audio: baseManifest.outputBindings.images },
+      },
+      workflow(),
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await generateComfyUiImage(null, config(), {
+      projectFilePath: project,
+      workflowId: 'custom',
+      prompt: 'tea house',
+      clientJobId: 'job-1',
+    });
+
+    expect(response).toMatchObject({
+      success: false,
+      error: "Workflow 'custom' uses unsupported output media: audio.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('does not publish a generated Asset when Project authority is revoked during the write', async () => {
     const project = projectFilePath();
     writeWorkflowPair(project, manifest(false), workflow());
@@ -283,6 +316,55 @@ describe('comfyui generation service', () => {
     expect(submitted.prompt.prompt.inputs.value).toBe('tea house');
     expect(submitted.prompt.negative.inputs.value).toBe('blur');
     expect(submitted.prompt.cfg.inputs.value).toBe(7.5);
+  });
+
+  it('writes one public input value to every mapped graph binding', async () => {
+    const project = projectFilePath();
+    const baseManifest = manifest(false);
+    const baseWorkflow = workflow();
+    writeWorkflowPair(
+      project,
+      {
+        ...baseManifest,
+        bindings: {
+          ...baseManifest.bindings,
+          prompt: [
+            ...baseManifest.bindings.prompt,
+            {
+              nodeId: 'prompt-copy',
+              nodeTitle: 'noveltea.prompt-copy',
+              classType: 'PrimitiveStringMultiline',
+              inputName: 'value',
+            },
+          ],
+        },
+      },
+      {
+        ...baseWorkflow,
+        'prompt-copy': {
+          class_type: 'PrimitiveStringMultiline',
+          _meta: { title: 'noveltea.prompt-copy' },
+          inputs: { value: '' },
+        },
+      },
+    );
+    const capturedPrompts: unknown[] = [];
+    vi.stubGlobal('fetch', mockComfyUiFetch(capturedPrompts));
+    vi.stubGlobal('WebSocket', CompletedWebSocket);
+
+    const response = await generateComfyUiImage(null, config(), {
+      projectFilePath: project,
+      workflowId: 'custom',
+      prompt: 'shared public value',
+      clientJobId: 'job-1',
+    });
+
+    expect(response.success).toBe(true);
+    const submitted = capturedPrompts[0] as {
+      prompt: Record<string, { inputs: Record<string, unknown> }>;
+    };
+    expect(submitted.prompt.prompt.inputs.value).toBe('shared public value');
+    expect(submitted.prompt['prompt-copy'].inputs.value).toBe('shared public value');
   });
 
   it('ignores unbound optional request fields', async () => {

@@ -367,7 +367,7 @@
     },
     "steps": {
       "sourceFile": "Arquivo de origem",
-      "role": "Função",
+      "role": "Classificação",
       "summary": "Resumo",
       "inputs": "Entradas",
       "outputs": "Saídas",
@@ -402,7 +402,7 @@
       "analyzing": "Analisando fluxo..."
     },
     "metadata": {
-      "role": "Função",
+      "role": "Classificação",
       "workflowLabel": "Rótulo do fluxo",
       "workflowId": "ID do fluxo",
       "description": "Descrição",

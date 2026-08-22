@@ -8,11 +8,11 @@ import {
 } from '../../shared/comfyui-workflow-graph';
 import { inferComfyUiWorkflowCandidates } from '../../shared/comfyui-workflow-inference';
 import {
+  KNOWN_COMFYUI_WORKFLOW_CLASSIFICATIONS,
   parseComfyUiWorkflowDefinition,
   resolveComfyUiWorkflowBinding,
-  validateComfyUiWorkflowDefinitionContract,
   resolvedComfyUiWorkflowOutputNodeIdList,
-  SUPPORTED_COMFYUI_WORKFLOW_ROLES,
+  validateComfyUiWorkflowDefinitionContract,
   type ComfyUiAnalyzeWorkflowImportRequest,
   type ComfyUiAnalyzeWorkflowImportResponse,
   type ComfyUiRepairWorkflowManifestRequest,
@@ -109,26 +109,31 @@ function validateManifestBindings(
   const diagnostics: ComfyUiWorkflowDiagnostic[] = [
     ...validateComfyUiWorkflowDefinitionContract(definition),
   ];
-  for (const [semanticKey, binding] of Object.entries(definition.bindings)) {
-    if (!binding) continue;
-    const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
-    if (!resolution.ok)
+  for (const [publicInputId, bindings] of Object.entries(definition.bindings)) {
+    for (const [index, binding] of bindings.entries()) {
+      const resolution = resolveComfyUiWorkflowBinding(workflow, binding);
+      if (!resolution.ok)
+        diagnostics.push(
+          diagnostic(
+            `/bindings/${publicInputId}/${index}`,
+            resolution.message ?? `Could not resolve binding ${publicInputId}.`,
+          ),
+        );
+    }
+  }
+  for (const outputId of Object.keys(definition.contract.outputs)) {
+    try {
+      resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition, outputId);
+    } catch (error) {
       diagnostics.push(
         diagnostic(
-          `/bindings/${semanticKey}`,
-          resolution.message ?? `Could not resolve binding ${semanticKey}.`,
+          `/outputBindings/${outputId}`,
+          error instanceof Error
+            ? error.message
+            : 'Workflow output bindings could not be resolved.',
         ),
       );
-  }
-  try {
-    resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
-  } catch (error) {
-    diagnostics.push(
-      diagnostic(
-        '/outputBindings/images',
-        error instanceof Error ? error.message : 'Workflow output bindings could not be resolved.',
-      ),
-    );
+    }
   }
   return diagnostics;
 }
@@ -156,21 +161,26 @@ export async function analyzeComfyUiWorkflowImport(
 ): Promise<ComfyUiAnalyzeWorkflowImportResponse> {
   const parsed = parseWorkflowJson(request.workflowJsonText);
   if (!parsed.ok)
-    return { ok: false, roleCandidates: {}, diagnostics: parsed.diagnostics, error: parsed.error };
+    return {
+      ok: false,
+      classificationCandidates: {},
+      diagnostics: parsed.diagnostics,
+      error: parsed.error,
+    };
 
   const { analysis, diagnostics, blocking } = workflowHasBlockingShapeError(parsed.value);
-  const roleCandidates = Object.fromEntries(
-    SUPPORTED_COMFYUI_WORKFLOW_ROLES.map((role) => [
-      role,
-      { candidates: inferComfyUiWorkflowCandidates(analysis, role) },
+  const classificationCandidates = Object.fromEntries(
+    KNOWN_COMFYUI_WORKFLOW_CLASSIFICATIONS.map((classification) => [
+      classification,
+      { candidates: inferComfyUiWorkflowCandidates(analysis, classification) },
     ]),
-  ) as ComfyUiAnalyzeWorkflowImportResponse['roleCandidates'];
+  ) as ComfyUiAnalyzeWorkflowImportResponse['classificationCandidates'];
 
   if (blocking) {
     return {
       ok: false,
       analysis,
-      roleCandidates,
+      classificationCandidates,
       diagnostics,
       error:
         diagnostics.find((item) => item.severity === 'error')?.message ??
@@ -191,7 +201,7 @@ export async function analyzeComfyUiWorkflowImport(
     );
   }
 
-  return { ok: true, analysis, roleCandidates, diagnostics };
+  return { ok: true, analysis, classificationCandidates, diagnostics };
 }
 
 export async function saveImportedComfyUiWorkflow(

@@ -9,8 +9,8 @@ import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import type {
+  ComfyUiKnownWorkflowClassification,
   ComfyUiWorkflowActiveEntry,
-  ComfyUiWorkflowRole,
 } from '../../shared/comfyui-workflows';
 import { NOVELTEA_VERSION } from '../../shared/product-version';
 import { defaultUserExportConfig } from '../../shared/project-schema/platform-export-contracts';
@@ -21,34 +21,37 @@ vi.mock('@/components/source/SourceEditor', () => ({
   ),
 }));
 
-function activeWorkflow(id: string, role: ComfyUiWorkflowRole): ComfyUiWorkflowActiveEntry {
+function activeWorkflow(
+  id: string,
+  classification: ComfyUiKnownWorkflowClassification,
+): ComfyUiWorkflowActiveEntry {
   return {
     workflowKey: `editor:${id}.manifest.json`,
     source: 'editor',
     id,
     label: id,
-    role,
+    classification,
     definition: {
       schemaVersion: 2,
       id,
       label: id,
       provider: 'comfyui',
-      role,
+      classification,
       workflowFile: `${id}.workflow.json`,
       contract: {
         inputs: {},
-        outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+        outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
       },
       requiredNodeClasses: [],
       bindings: {},
       outputBindings: {
-        images: [{ nodeId: '9', valueType: 'image-list', primary: 'first' }],
+        images: [{ nodeId: '9' }],
       },
-      defaults: { filenamePrefix: 'NovelTea' },
       manifestFile: `${id}.manifest.json`,
     },
     offlineStatus: 'valid',
     onlineStatus: 'unverified',
+    runnable: true,
     diagnostics: [],
     verificationDiagnostics: [],
   };
