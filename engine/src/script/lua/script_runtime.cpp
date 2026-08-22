@@ -624,6 +624,8 @@ int ScriptRuntime::project_import_callback(lua_State* state)
     if (auto error = runtime->push_project_import(state, std::string_view(module, module_size),
                                                   export_name, requester)) {
         lua_pushlstring(state, error->message.data(), error->message.size());
+        // lua_error performs a non-local exit, so release C++ ownership before crossing it.
+        error.reset();
         return lua_error(state);
     }
     return 1;
@@ -655,6 +657,8 @@ int ScriptRuntime::project_hook_register_callback(lua_State* state)
 
     if (semantic != "room")
         return luaL_error(state, "Hook semantic kind '%s' is unsupported", semantic_text);
+    if (module_id.empty() || export_name.empty())
+        return luaL_error(state, "Hook handler module and export names must be non-empty");
     const auto hook = parse_project_hook_kind(hook_name);
     if (!hook)
         return luaL_error(state, "Room hook kind '%s' is unsupported", hook_text);
@@ -665,8 +669,6 @@ int ScriptRuntime::project_hook_register_callback(lua_State* state)
             "Room Hook Selector '%s' must be exact, a trailing qualified-prefix wildcard like "
             "chapter.*, or '*'",
             selector_text);
-    if (module_id.empty() || export_name.empty())
-        return luaL_error(state, "Hook handler module and export names must be non-empty");
 
     runtime->m_impl->project_hooks.push_back(runtime::ProjectHookRegistration{
         .hook = *hook,
