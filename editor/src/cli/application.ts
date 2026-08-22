@@ -42,6 +42,8 @@ export interface RunNovelTeaCliOptions {
   readonly stdinText?: string;
   readonly readStdinText?: () => string;
   readonly comfyUiWorkflowLibraryOptions?: WorkflowLibraryServiceOptions;
+  readonly comfyUiAbortSignal?: AbortSignal;
+  readonly onComfyUiProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
 }
 
 const unavailableNativeTools: NovelTeaCliNativeToolService = {
@@ -116,6 +118,8 @@ export async function runNovelTeaCli(
       cwd,
       fileSystem,
       libraryOptions: options.comfyUiWorkflowLibraryOptions,
+      abortSignal: options.comfyUiAbortSignal,
+      onRunProgress: options.onComfyUiProgress,
     });
     if (comfyUiCatalog) return comfyUiCatalog;
   } catch (error) {

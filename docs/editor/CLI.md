@@ -31,6 +31,7 @@ noveltea comfyui status [--server <url>]
 noveltea comfyui workflows [--all]
 noveltea comfyui workflows <id>
 noveltea comfyui verify [<id>] [--server <url>]
+noveltea comfyui run <workflow-id> [--input <name=value>]... --output <path> [--server <url>] [--force]
 ```
 
 These commands use the same catalog, machine configuration, and verification cache as the editor workflow manager.
@@ -47,6 +48,21 @@ ComfyUI version, and queue information without exposing arbitrary response bodie
 effective workflow; omitting the ID verifies the active workflow set in the optional-Project context. Verification checks
 the manifest-required node classes and every mapped node input against `/object_info`. CLI verification is diagnostic
 only except for updating the disposable shared verification cache; it never repairs or rewrites packages.
+
+`comfyui run` in the current scalar-filesystem slice requires an explicit workflow ID and exactly one required
+cardinality-`one` image output. Repeated `--input name=value` arguments bind through the manifest's public contract;
+values split on the first `=`, duplicate/unknown names are rejected, scalar required/default/type semantics are checked
+before network work, and one public input may drive every graph binding declared for it. The command performs online
+verification, submits one uniquely identified prompt, polls HTTP history without a fixed whole-job timeout, downloads a
+bounded image result, validates its media format, and atomically publishes it to the explicit filesystem path. Missing
+parent directories are created. Existing destinations require `--force`, and the destination extension must match the
+returned image format because this path does not transcode. This slice does not yet support local-image inputs, Asset
+publication, classification-default selection, cardinality-many filesystem routing, or named multi-output routing.
+
+Ctrl-C installs an invocation-scoped cancellation handler. Once a prompt exists, NovelTea attempts to delete only that
+prompt from the ComfyUI queue and returns conventional exit status 130; it does not call the global `/interrupt` endpoint
+or clear unrelated jobs. Independent `comfyui run` invocations remain concurrent and use distinct client/prompt IDs.
+With `--json`, execution still produces exactly one final compact envelope on stdout and no stderr output.
 
 Shared user packages live under `<NovelTea user config>/comfyui/workflows/`. The strict
 `noveltea.comfyui-user-config` version 1 document at `<NovelTea user config>/comfyui/config-v1.json` owns the server URL,
@@ -133,6 +149,7 @@ Exit categories are:
 5   mutation/concurrency
 6   native shader/tool failure
 70  unexpected internal failure
+130 interrupted by SIGINT during an active CLI operation
 ```
 
 Raw `noveltea shaderc ...` intentionally preserves bgfx shaderc's argument/output/return-code behavior rather than wrapping it in NovelTea's JSON taxonomy.

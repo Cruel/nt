@@ -7,6 +7,7 @@ export const NOVELTEA_CLI_EXIT_CODES = {
   semantic: 4,
   mutation: 5,
   native: 6,
+  interrupted: 130,
   internal: 70,
 } as const;
 

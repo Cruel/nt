@@ -14,6 +14,7 @@ Commands:
   comfyui workflows [--all]
   comfyui workflows <id>
   comfyui verify [<id>] [--server <url>]
+  comfyui run <workflow-id> [--input <name=value>]... --output <path> [--server <url>] [--force]
   validate
   entity create <collection> <id> [--dry-run]
   entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]
