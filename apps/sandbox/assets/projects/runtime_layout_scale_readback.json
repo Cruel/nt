@@ -48,8 +48,9 @@
     "kind": "scene",
     "scene": { "kind": "scene", "id": "probe" }
   },
-  "startupHook": null,
+  "bootstrapModule": { "kind": "script", "id": "bootstrap" },
   "properties": [],
+  "inventories": [],
   "traits": [],
   "localization": {
     "defaultLocale": "en",
@@ -58,7 +59,12 @@
   },
   "resources": {
     "assets": [],
-    "scripts": [],
+    "scripts": [
+      {
+        "id": "bootstrap",
+        "source": { "kind": "inline-lua", "source": "return {}\n" }
+      }
+    ],
     "layouts": [
       {
         "id": "inherited-first",
