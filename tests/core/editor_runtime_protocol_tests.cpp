@@ -667,7 +667,8 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
                   {"layoutCount", 0},
                   {"desiredAudioCount", 0}}},
                 {"observations",
-                 {{{"type", "playback-observation"}, {"stepIndex", 3}, {"handled", true}}}}}},
+                 {{{"type", "playback-observation"}, {"stepIndex", 3}, {"handled", true}}}},
+                {"gameplayInstances", nlohmann::json::array()}}},
               {"events",
                {{{"type", "playback-observation"}, {"stepIndex", 3}, {"handled", true}},
                 {{"type", "notification"}, {"message", "ready"}}}},
@@ -732,7 +733,8 @@ TEST_CASE("typed playback report encoder has stable external shape")
                            {"environmentCount", 0},
                            {"layoutCount", 0},
                            {"desiredAudioCount", 0}}},
-                         {"observations", nlohmann::json::array()}}}});
+                         {"observations", nlohmann::json::array()},
+                         {"gameplayInstances", nlohmann::json::array()}}}});
 }
 
 TEST_CASE("typed debug snapshot exposes checkpoint readiness without a safety override")

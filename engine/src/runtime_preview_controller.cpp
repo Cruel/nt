@@ -248,6 +248,52 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
     if (!waiting_reason.empty())
         waiting["reason"] = std::move(waiting_reason);
 
+    nlohmann::json gameplay_instances = nlohmann::json::array();
+    for (const auto& instance : publication.gameplay_instances) {
+        std::string kind;
+        std::string id;
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::RoomId>)
+                    kind = "room";
+                else if constexpr (std::is_same_v<T, core::CharacterId>)
+                    kind = "character";
+                else
+                    kind = "interactable";
+                id = value.text();
+            },
+            instance.instance);
+        std::string provenance = "declared";
+        switch (instance.provenance.kind) {
+        case core::RuntimeInstanceProvenanceKind::Declared:
+            provenance = "declared";
+            break;
+        case core::RuntimeInstanceProvenanceKind::Archetype:
+            provenance = "archetype";
+            break;
+        case core::RuntimeInstanceProvenanceKind::CompiledDefinition:
+            provenance = "compiled-definition";
+            break;
+        case core::RuntimeInstanceProvenanceKind::Clone:
+            provenance = "clone";
+            break;
+        }
+        nlohmann::json source = nullptr;
+        if (instance.provenance.source_instance)
+            std::visit([&](const auto& value) { source = value.text(); },
+                       *instance.provenance.source_instance);
+        gameplay_instances.push_back(
+            {{"kind", std::move(kind)},
+             {"id", std::move(id)},
+             {"declared", instance.declared},
+             {"provenance", std::move(provenance)},
+             {"archetype", instance.provenance.archetype
+                               ? nlohmann::json(instance.provenance.archetype->text())
+                               : nlohmann::json(nullptr)},
+             {"source", std::move(source)}});
+    }
+
     nlohmann::json snapshot = {
         {"loaded", true},
         {"running", preview_running},
@@ -276,7 +322,8 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
           {"propCount", presentation.props.size()},
           {"environmentCount", presentation.environments.size()},
           {"layoutCount", presentation.layouts.size()},
-          {"desiredAudioCount", presentation.desired_audio.size()}}},
+          {"desiredAudioCount", presentation.desired_audio.size()},
+          {"gameplayInstances", std::move(gameplay_instances)}}},
     };
 
     if (view.room) {
@@ -380,6 +427,44 @@ std::string RuntimePreviewController::reset_variable(const std::string& variable
 std::string RuntimePreviewController::teleport_room(const std::string& room_id)
 {
     return typed_mutation_result(m_preview_host->teleport_room(room_id));
+}
+
+std::string RuntimePreviewController::create_runtime_instance(const std::string& kind,
+                                                              const std::string& source_kind,
+                                                              const std::string& source_id)
+{
+    return typed_mutation_result(
+        m_preview_host->create_runtime_instance(kind, source_kind, source_id));
+}
+
+std::string RuntimePreviewController::replace_runtime_instance_configuration(
+    const std::string& kind, const std::string& instance_id, const std::string& source_kind,
+    const std::string& source_id)
+{
+    return typed_mutation_result(m_preview_host->replace_runtime_instance_configuration(
+        kind, instance_id, source_kind, source_id));
+}
+
+std::string
+RuntimePreviewController::clear_runtime_instance_configuration(const std::string& kind,
+                                                               const std::string& instance_id)
+{
+    return typed_mutation_result(
+        m_preview_host->clear_runtime_instance_configuration(kind, instance_id));
+}
+
+std::string RuntimePreviewController::destroy_runtime_instance(const std::string& kind,
+                                                               const std::string& instance_id)
+{
+    return typed_mutation_result(m_preview_host->destroy_runtime_instance(kind, instance_id));
+}
+
+std::string RuntimePreviewController::retarget_runtime_room_exit(const std::string& room_id,
+                                                                 const std::string& exit_id,
+                                                                 const std::string& target_room_id)
+{
+    return typed_mutation_result(
+        m_preview_host->retarget_runtime_room_exit(room_id, exit_id, target_room_id));
 }
 
 bool RuntimePreviewController::begin_recording() { return m_preview_host->begin_recording(); }

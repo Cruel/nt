@@ -11,6 +11,7 @@ namespace noveltea::core {
     struct name##Tag;                                                                              \
     using name = StrongId<name##Tag>
 NOVELTEA_DOMAIN_ID(ProjectId);
+NOVELTEA_DOMAIN_ID(ArchetypeId);
 NOVELTEA_DOMAIN_ID(RoomId);
 NOVELTEA_DOMAIN_ID(SceneId);
 NOVELTEA_DOMAIN_ID(DialogueId);

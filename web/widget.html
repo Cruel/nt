@@ -1395,6 +1395,21 @@ thead, tbody, tfoot {
         case 'runtime-teleport-room':
           finishRuntimeDebugMutation(message, 'noveltea_runtime_teleport_room', ['string'], [message.roomId], `Runtime room '${message.roomId}' could not be teleported to. The id may not exist in the loaded project.`);
           return true;
+        case 'runtime-create-instance':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_create_instance', ['string', 'string', 'string'], [message.instanceKind, message.sourceKind, message.sourceId], `Runtime ${message.instanceKind} could not be created from ${message.sourceKind} source '${message.sourceId}'.`);
+          return true;
+        case 'runtime-replace-instance-configuration':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_replace_instance_configuration', ['string', 'string', 'string', 'string'], [message.instanceKind, message.instanceId, message.sourceKind, message.sourceId], `Runtime ${message.instanceKind} '${message.instanceId}' configuration could not be replaced.`);
+          return true;
+        case 'runtime-clear-instance-configuration':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_clear_instance_configuration', ['string', 'string'], [message.instanceKind, message.instanceId], `Runtime ${message.instanceKind} '${message.instanceId}' configuration could not be cleared.`);
+          return true;
+        case 'runtime-destroy-instance':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_destroy_instance', ['string', 'string'], [message.instanceKind, message.instanceId], `Runtime ${message.instanceKind} '${message.instanceId}' could not be destroyed.`);
+          return true;
+        case 'runtime-retarget-room-exit':
+          finishRuntimeDebugMutation(message, 'noveltea_runtime_retarget_room_exit', ['string', 'string', 'string'], [message.roomId, message.exitId, message.targetRoomId], `Runtime Room exit '${message.roomId}/${message.exitId}' could not be retargeted to '${message.targetRoomId}'.`);
+          return true;
         default:
           return false;
       }

@@ -172,8 +172,6 @@ private:
     ScriptInvocationPort& m_scripts;
     PresentationModelPort& m_presentation_model;
     PresentationRuntimePort& m_presentation;
-    core::TypedSaveSlotStore& m_saves;
-    const core::SaveStateCodecPort& m_save_codec;
     RuntimeCheckpointService m_checkpoint_service;
     MutationImpactJournal m_transaction_impacts;
     std::chrono::milliseconds m_transaction_elapsed{0};

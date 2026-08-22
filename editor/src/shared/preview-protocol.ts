@@ -226,6 +226,15 @@ export interface RuntimeDebugDiagnosticSnapshot {
   luaTraceback?: string;
 }
 
+export interface RuntimeDebugGameplayInstanceSnapshot {
+  kind: 'room' | 'character' | 'interactable';
+  id: string;
+  declared: boolean;
+  provenance: 'declared' | 'archetype' | 'compiled-definition' | 'clone';
+  archetype: string | null;
+  source: string | null;
+}
+
 export interface RuntimeDebugPublicationSnapshot {
   revision: number;
   presentationRevision: number;
@@ -236,6 +245,7 @@ export interface RuntimeDebugPublicationSnapshot {
   environmentCount: number;
   layoutCount: number;
   desiredAudioCount: number;
+  gameplayInstances: RuntimeDebugGameplayInstanceSnapshot[];
 }
 
 export type RuntimeFastForwardStopReason =
@@ -293,6 +303,11 @@ export type RuntimeDebugEventKind =
   | 'inventory-give'
   | 'inventory-remove'
   | 'room-teleport'
+  | 'instance-create'
+  | 'instance-replace-configuration'
+  | 'instance-clear-configuration'
+  | 'instance-destroy'
+  | 'room-exit-retarget'
   | 'object-select'
   | 'object-clear-selection'
   | 'action-run';
@@ -363,6 +378,45 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-give-object'; requestId: string; objectId: string }
   | { version: 1; type: 'runtime-remove-inventory-object'; requestId: string; objectId: string }
   | { version: 1; type: 'runtime-teleport-room'; requestId: string; roomId: string }
+  | {
+      version: 1;
+      type: 'runtime-create-instance';
+      requestId: string;
+      instanceKind: 'room' | 'character' | 'interactable';
+      sourceKind: 'archetype' | 'compiled' | 'effective';
+      sourceId: string;
+    }
+  | {
+      version: 1;
+      type: 'runtime-replace-instance-configuration';
+      requestId: string;
+      instanceKind: 'room' | 'character' | 'interactable';
+      instanceId: string;
+      sourceKind: 'archetype' | 'compiled' | 'effective';
+      sourceId: string;
+    }
+  | {
+      version: 1;
+      type: 'runtime-clear-instance-configuration';
+      requestId: string;
+      instanceKind: 'room' | 'character' | 'interactable';
+      instanceId: string;
+    }
+  | {
+      version: 1;
+      type: 'runtime-destroy-instance';
+      requestId: string;
+      instanceKind: 'room' | 'character' | 'interactable';
+      instanceId: string;
+    }
+  | {
+      version: 1;
+      type: 'runtime-retarget-room-exit';
+      requestId: string;
+      roomId: string;
+      exitId: string;
+      targetRoomId: string;
+    }
   | {
       version: 1;
       type: 'load-preview-document';
@@ -748,6 +802,21 @@ function isNonnegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
+function isRuntimeDebugGameplayInstanceSnapshot(
+  value: unknown,
+): value is RuntimeDebugGameplayInstanceSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    ['room', 'character', 'interactable'].includes(String(value.kind)) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.declared === 'boolean' &&
+    ['declared', 'archetype', 'compiled-definition', 'clone'].includes(String(value.provenance)) &&
+    (value.archetype === null || typeof value.archetype === 'string') &&
+    (value.source === null || typeof value.source === 'string')
+  );
+}
+
 function isRuntimeDebugPublicationSnapshot(
   value: unknown,
 ): value is RuntimeDebugPublicationSnapshot {
@@ -761,7 +830,9 @@ function isRuntimeDebugPublicationSnapshot(
     isNonnegativeInteger(value.propCount) &&
     isNonnegativeInteger(value.environmentCount) &&
     isNonnegativeInteger(value.layoutCount) &&
-    isNonnegativeInteger(value.desiredAudioCount)
+    isNonnegativeInteger(value.desiredAudioCount) &&
+    Array.isArray(value.gameplayInstances) &&
+    value.gameplayInstances.every(isRuntimeDebugGameplayInstanceSnapshot)
   );
 }
 
@@ -850,6 +921,11 @@ function isRuntimeDebugEventKind(value: unknown): value is RuntimeDebugEventKind
     'inventory-give',
     'inventory-remove',
     'room-teleport',
+    'instance-create',
+    'instance-replace-configuration',
+    'instance-clear-configuration',
+    'instance-destroy',
+    'room-exit-retarget',
     'object-select',
     'object-clear-selection',
     'action-run',
@@ -998,6 +1074,38 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return typeof value.objectId === 'string' && value.objectId.length > 0;
     case 'runtime-teleport-room':
       return typeof value.roomId === 'string' && value.roomId.length > 0;
+    case 'runtime-create-instance':
+      return (
+        ['room', 'character', 'interactable'].includes(String(value.instanceKind)) &&
+        ['archetype', 'compiled', 'effective'].includes(String(value.sourceKind)) &&
+        typeof value.sourceId === 'string' &&
+        value.sourceId.length > 0
+      );
+    case 'runtime-replace-instance-configuration':
+      return (
+        ['room', 'character', 'interactable'].includes(String(value.instanceKind)) &&
+        typeof value.instanceId === 'string' &&
+        value.instanceId.length > 0 &&
+        ['archetype', 'compiled', 'effective'].includes(String(value.sourceKind)) &&
+        typeof value.sourceId === 'string' &&
+        value.sourceId.length > 0
+      );
+    case 'runtime-clear-instance-configuration':
+    case 'runtime-destroy-instance':
+      return (
+        ['room', 'character', 'interactable'].includes(String(value.instanceKind)) &&
+        typeof value.instanceId === 'string' &&
+        value.instanceId.length > 0
+      );
+    case 'runtime-retarget-room-exit':
+      return (
+        typeof value.roomId === 'string' &&
+        value.roomId.length > 0 &&
+        typeof value.exitId === 'string' &&
+        value.exitId.length > 0 &&
+        typeof value.targetRoomId === 'string' &&
+        value.targetRoomId.length > 0
+      );
     case 'load-preview-document':
     case 'update-preview-document': {
       if (!isPreviewDocument(value.document)) return false;

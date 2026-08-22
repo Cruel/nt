@@ -146,10 +146,9 @@ RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvoc
                                std::unique_ptr<RuntimeExecutor> kernel, std::string runtime_locale,
                                RuntimeBudgetConfiguration runtime_budget) noexcept
     : m_project(project), m_scripts(scripts), m_presentation_model(presentation_model),
-      m_presentation(presentation), m_saves(saves), m_save_codec(save_codec),
-      m_checkpoint_service(project, saves, save_codec), m_kernel(std::move(kernel)),
-      m_runtime_budget(runtime_budget), m_runtime_locale(std::move(runtime_locale)),
-      m_owner_thread(std::this_thread::get_id())
+      m_presentation(presentation), m_checkpoint_service(project, saves, save_codec),
+      m_kernel(std::move(kernel)), m_runtime_budget(runtime_budget),
+      m_runtime_locale(std::move(runtime_locale)), m_owner_thread(std::this_thread::get_id())
 {
     m_kernel->gateway().bind_services(this);
 }
@@ -1212,10 +1211,26 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         m_kernel->commit_pending_presentation();
     }
 
+    std::vector<runtime::RuntimeGameplayInstanceSnapshot> gameplay_instances;
+    const auto& session_state = m_kernel->state();
+    gameplay_instances.reserve(session_state.runtime_rooms().size() +
+                               session_state.runtime_characters().size() +
+                               session_state.runtime_interactables().size());
+    for (const auto& instance : session_state.runtime_rooms())
+        gameplay_instances.push_back(runtime::RuntimeGameplayInstanceSnapshot{
+            core::GameplayInstanceRef{instance.id}, instance.declared, instance.provenance});
+    for (const auto& instance : session_state.runtime_characters())
+        gameplay_instances.push_back(runtime::RuntimeGameplayInstanceSnapshot{
+            core::GameplayInstanceRef{instance.id}, instance.declared, instance.provenance});
+    for (const auto& instance : session_state.runtime_interactables())
+        gameplay_instances.push_back(runtime::RuntimeGameplayInstanceSnapshot{
+            core::GameplayInstanceRef{instance.id}, instance.declared, instance.provenance});
+
     runtime::RuntimePublication publication{.revision = m_next_publication_revision,
                                             .gameplay_ui = std::move(gameplay_ui),
                                             .presentation = std::move(presentation_value),
-                                            .observations = std::move(observations)};
+                                            .observations = std::move(observations),
+                                            .gameplay_instances = std::move(gameplay_instances)};
     m_next_publication_revision = *subsequent;
     m_current_publication = publication;
     result.publication = std::move(publication);

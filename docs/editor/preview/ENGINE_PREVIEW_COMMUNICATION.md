@@ -257,6 +257,11 @@ Editor to preview:
 - `runtime-give-object`
 - `runtime-remove-inventory-object`
 - `runtime-teleport-room`
+- `runtime-create-instance`
+- `runtime-replace-instance-configuration`
+- `runtime-clear-instance-configuration`
+- `runtime-destroy-instance`
+- `runtime-retarget-room-exit`
 - `load-preview-document`
 - `update-preview-document`
 - `set-preview-mode`
@@ -270,6 +275,12 @@ Editor to preview:
 snapshots expose each available navigation input as `{ exitId, direction, label, enabled }`. The
 preview validates that the identified exit still belongs to the active Room and is enabled before
 submitting `NavigateRoomInput`; direction remains presentation and recorded-test metadata only.
+
+Runtime Gameplay Instance tooling uses the same semantic gateway as authored Lua. Create and
+configuration-replacement messages identify `instanceKind`, one source kind (`archetype`, `compiled`,
+or `effective`), and a stable source ID. Clear, destroy, and Room-exit retarget commands address exact
+typed identities. Successful commands settle the Runtime Session before the preview publishes the
+result; failed validation leaves the prior session world unchanged.
 
 The Play preview loads the normal title screen. Starting the preview runtime is routed through the
 runtime shell's `StartGameShellCommand`, which starts gameplay, hides the modal title Layout, and
@@ -307,8 +318,12 @@ Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 The widget also publishes `runtime-debug-snapshot` without a request ID whenever the active,
 visible runtime's semantic debugger state changes. The comparison covers current entity/Room,
 runtime mode, waiting and available-input state, variables, inventory, selection, and diagnostics;
-publication-only revision churn does not produce debugger traffic. Explicit
-`runtime-request-debug-snapshot` remains available for initial synchronization and manual refresh.
+publication-only revision churn does not produce debugger traffic. The publication summary also
+contains `gameplayInstances`, a stable list of live Room, Character, and Interactable identities with
+declared/runtime ownership and provenance (`declared`, `archetype`, `compiled-definition`, or
+`clone`) plus optional source metadata. This lets editor tooling inspect runtime-created identities
+without treating renderer occurrences as gameplay authority. Explicit `runtime-request-debug-snapshot`
+remains available for initial synchronization and manual refresh.
 
 `set-engine-settings` applies editor-wide preview diagnostics and rendering preferences to an
 already-running host. Its optional settings are `showFpsCounter`, `fpsCap`, and

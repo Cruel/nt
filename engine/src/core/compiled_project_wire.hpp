@@ -103,6 +103,14 @@ struct InteractableDefinition {
     InteractablePresentation presentation;
 };
 
+using ArchetypeConfiguration =
+    std::variant<RoomDefinition, CharacterDefinition, InteractableDefinition>;
+struct ArchetypeDefinition {
+    ArchetypeId id;
+    GameplayInstanceKind kind;
+    ArchetypeConfiguration configuration;
+};
+
 struct VerbDefinition {
     DefinitionIdentity<VerbId> identity;
     TextContent action_text;
@@ -148,6 +156,7 @@ struct SharedProject {
     Localization localization;
     std::vector<PropertyDeclaration> properties;
     std::vector<TraitDeclaration> traits;
+    std::vector<ArchetypeDefinition> archetypes;
     std::vector<InventoryDefinition> inventories;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;

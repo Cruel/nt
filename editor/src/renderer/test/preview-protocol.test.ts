@@ -510,6 +510,65 @@ describe('preview protocol validation', () => {
     expect(
       isEditorToPreviewMessage({
         version: 1,
+        type: 'runtime-create-instance',
+        requestId: 'runtime-create-instance',
+        instanceKind: 'character',
+        sourceKind: 'archetype',
+        sourceId: 'guard-template',
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-replace-instance-configuration',
+        requestId: 'runtime-replace-instance',
+        instanceKind: 'room',
+        instanceId: 'runtime-room-1',
+        sourceKind: 'effective',
+        sourceId: 'foyer',
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-clear-instance-configuration',
+        requestId: 'runtime-clear-instance',
+        instanceKind: 'interactable',
+        instanceId: 'runtime-interactable-2',
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-destroy-instance',
+        requestId: 'runtime-destroy-instance',
+        instanceKind: 'character',
+        instanceId: 'runtime-character-3',
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-retarget-room-exit',
+        requestId: 'runtime-retarget-exit',
+        roomId: 'runtime-room-1',
+        exitId: 'east',
+        targetRoomId: 'foyer',
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-create-instance',
+        requestId: 'runtime-create-instance-bad',
+        instanceKind: 'scene',
+        sourceKind: 'compiled',
+        sourceId: 'opening',
+      }),
+    ).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
         type: 'load-preview-document',
         requestId: 'r1',
         document: { kind: 'unknown' },
@@ -616,6 +675,7 @@ describe('preview protocol validation', () => {
               environmentCount: 0,
               layoutCount: 0,
               desiredAudioCount: 0,
+              gameplayInstances: [],
             },
           },
         },
@@ -715,6 +775,24 @@ describe('preview protocol validation', () => {
         environmentCount: 1,
         layoutCount: 2,
         desiredAudioCount: 1,
+        gameplayInstances: [
+          {
+            kind: 'room',
+            id: 'foyer',
+            declared: true,
+            provenance: 'declared',
+            archetype: null,
+            source: null,
+          },
+          {
+            kind: 'interactable',
+            id: 'runtime-interactable-3',
+            declared: false,
+            provenance: 'clone',
+            archetype: null,
+            source: 'lamp',
+          },
+        ],
       },
     };
 

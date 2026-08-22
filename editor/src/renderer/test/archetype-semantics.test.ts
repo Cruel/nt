@@ -472,7 +472,16 @@ describe('Archetype authoring semantics', () => {
       displayName: 'Compiled inherited room',
       background: { fit: 'contain', color: '#123456' },
     });
-    expect(lowered.draft).not.toHaveProperty('archetypes');
+    expect(lowered.draft?.archetypes).toEqual([
+      expect.objectContaining({
+        id: 'room-base',
+        instanceKind: 'room',
+        configuration: expect.objectContaining({
+          displayName: 'Compiled inherited room',
+          background: expect.objectContaining({ fit: 'contain' }),
+        }),
+      }),
+    ]);
     expect(lowered.draft?.definitions).not.toHaveProperty('archetypes');
   });
 });

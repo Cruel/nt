@@ -3,17 +3,185 @@
 namespace noveltea::core::save_state_codec {
 namespace {
 
-bool feature_exists(const CompiledProject& project, const RoomFeatureRef& reference)
+const SavedRuntimeRoomConfiguration* saved_room(const SaveState& save, const RoomId& id) noexcept
 {
-    const auto* room = project.find_room(reference.room);
+    const auto found = std::find_if(save.runtime_rooms.begin(), save.runtime_rooms.end(),
+                                    [&](const auto& value) { return value.id == id; });
+    return found == save.runtime_rooms.end() ? nullptr : &*found;
+}
+
+const SavedRuntimeCharacterConfiguration* saved_character(const SaveState& save,
+                                                          const CharacterId& id) noexcept
+{
+    const auto found = std::find_if(save.runtime_characters.begin(), save.runtime_characters.end(),
+                                    [&](const auto& value) { return value.id == id; });
+    return found == save.runtime_characters.end() ? nullptr : &*found;
+}
+
+const SavedRuntimeInteractableConfiguration* saved_interactable(const SaveState& save,
+                                                                const InteractableId& id) noexcept
+{
+    const auto found =
+        std::find_if(save.runtime_interactables.begin(), save.runtime_interactables.end(),
+                     [&](const auto& value) { return value.id == id; });
+    return found == save.runtime_interactables.end() ? nullptr : &*found;
+}
+
+std::optional<compiled::RoomDefinition>
+materialize_room_source(const CompiledProject& project, const RuntimeConfigurationSource& source,
+                        const RoomId& id)
+{
+    std::optional<compiled::RoomDefinition> result;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, CompiledRoomConfigurationSource>) {
+                if (const auto* definition = project.find_room(value.room))
+                    result = *definition;
+            } else if constexpr (std::is_same_v<T, ArchetypeConfigurationSource>) {
+                const auto* archetype = project.find_archetype(value.archetype);
+                if (archetype != nullptr && archetype->kind == compiled::GameplayInstanceKind::Room)
+                    if (const auto* definition =
+                            std::get_if<compiled::RoomDefinition>(&archetype->configuration))
+                        result = *definition;
+            }
+        },
+        source);
+    if (result)
+        result->identity.id = id;
+    return result;
+}
+
+std::optional<compiled::CharacterDefinition>
+materialize_character_source(const CompiledProject& project,
+                             const RuntimeConfigurationSource& source, const CharacterId& id)
+{
+    std::optional<compiled::CharacterDefinition> result;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, CompiledCharacterConfigurationSource>) {
+                if (const auto* definition = project.find_character(value.character))
+                    result = *definition;
+            } else if constexpr (std::is_same_v<T, ArchetypeConfigurationSource>) {
+                const auto* archetype = project.find_archetype(value.archetype);
+                if (archetype != nullptr &&
+                    archetype->kind == compiled::GameplayInstanceKind::Character)
+                    if (const auto* definition =
+                            std::get_if<compiled::CharacterDefinition>(&archetype->configuration))
+                        result = *definition;
+            }
+        },
+        source);
+    if (result)
+        result->identity.id = id;
+    return result;
+}
+
+std::optional<compiled::InteractableDefinition>
+materialize_interactable_source(const CompiledProject& project,
+                                const RuntimeConfigurationSource& source, const InteractableId& id)
+{
+    std::optional<compiled::InteractableDefinition> result;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, CompiledInteractableConfigurationSource>) {
+                if (const auto* definition = project.find_interactable(value.interactable))
+                    result = *definition;
+            } else if constexpr (std::is_same_v<T, ArchetypeConfigurationSource>) {
+                const auto* archetype = project.find_archetype(value.archetype);
+                if (archetype != nullptr &&
+                    archetype->kind == compiled::GameplayInstanceKind::Interactable)
+                    if (const auto* definition = std::get_if<compiled::InteractableDefinition>(
+                            &archetype->configuration))
+                        result = *definition;
+            }
+        },
+        source);
+    if (result)
+        result->identity.id = id;
+    return result;
+}
+
+std::optional<compiled::RoomDefinition> resolved_room(const CompiledProject& project,
+                                                      const SaveState& save, const RoomId& id)
+{
+    const auto* record = saved_room(save, id);
+    if (record == nullptr)
+        return std::nullopt;
+    auto birth = materialize_room_source(project, record->birth_source, id);
+    if (!birth)
+        return std::nullopt;
+    for (const auto& edit : record->birth_exit_target_overrides) {
+        const auto found = std::find_if(birth->exits.begin(), birth->exits.end(),
+                                        [&](const auto& value) { return value.id == edit.exit; });
+        if (found == birth->exits.end())
+            return std::nullopt;
+        found->target = edit.target;
+    }
+    auto configuration =
+        record->structural_override_source
+            ? materialize_room_source(project, *record->structural_override_source, id)
+            : std::move(birth);
+    if (!configuration)
+        return std::nullopt;
+    if (record->structural_override_source) {
+        for (const auto& edit : record->structural_override_exit_target_overrides) {
+            const auto found =
+                std::find_if(configuration->exits.begin(), configuration->exits.end(),
+                             [&](const auto& value) { return value.id == edit.exit; });
+            if (found == configuration->exits.end())
+                return std::nullopt;
+            found->target = edit.target;
+        }
+    }
+    for (const auto& edit : record->exit_target_overrides) {
+        const auto found = std::find_if(configuration->exits.begin(), configuration->exits.end(),
+                                        [&](const auto& value) { return value.id == edit.exit; });
+        if (found == configuration->exits.end())
+            return std::nullopt;
+        found->target = edit.target;
+    }
+    return configuration;
+}
+
+std::optional<compiled::CharacterDefinition>
+resolved_character(const CompiledProject& project, const SaveState& save, const CharacterId& id)
+{
+    const auto* record = saved_character(save, id);
+    return record == nullptr
+               ? std::nullopt
+               : materialize_character_source(
+                     project, record->structural_override_source.value_or(record->birth_source),
+                     id);
+}
+
+std::optional<compiled::InteractableDefinition>
+resolved_interactable(const CompiledProject& project, const SaveState& save,
+                      const InteractableId& id)
+{
+    const auto* record = saved_interactable(save, id);
+    return record == nullptr
+               ? std::nullopt
+               : materialize_interactable_source(
+                     project, record->structural_override_source.value_or(record->birth_source),
+                     id);
+}
+
+bool feature_exists(const CompiledProject& project, const SaveState& save,
+                    const RoomFeatureRef& reference)
+{
+    auto room = resolved_room(project, save, reference.room);
     return room && std::ranges::any_of(room->features, [&](const auto& feature) {
                return feature.identity.id == reference.feature_id;
            });
 }
 
-bool feature_exists(const CompiledProject& project, const InteractableFeatureRef& reference)
+bool feature_exists(const CompiledProject& project, const SaveState& save,
+                    const InteractableFeatureRef& reference)
 {
-    const auto* interactable = project.find_interactable(reference.interactable);
+    auto interactable = resolved_interactable(project, save, reference.interactable);
     return interactable && std::ranges::any_of(interactable->features, [&](const auto& feature) {
                return feature.identity.id == reference.feature_id;
            });
@@ -21,32 +189,34 @@ bool feature_exists(const CompiledProject& project, const InteractableFeatureRef
 
 } // namespace
 
-bool owner_exists(const CompiledProject& project, const PropertyOwnerRef& owner)
+bool owner_exists(const CompiledProject& project, const SaveState& save,
+                  const PropertyOwnerRef& owner)
 {
     return std::visit(
-        [&project](const auto& id) {
+        [&project, &save](const auto& id) {
             using T = std::decay_t<decltype(id)>;
             if constexpr (std::is_same_v<T, RoomId>)
-                return project.find_room(id) != nullptr;
+                return resolved_room(project, save, id).has_value();
             else if constexpr (std::is_same_v<T, CharacterId>)
-                return project.find_character(id) != nullptr;
+                return resolved_character(project, save, id).has_value();
             else if constexpr (std::is_same_v<T, InteractableId>)
-                return project.find_interactable(id) != nullptr;
+                return resolved_interactable(project, save, id).has_value();
             else
-                return feature_exists(project, id);
+                return feature_exists(project, save, id);
         },
         owner);
 }
 
-bool target_exists(const CompiledProject& project, const PropertyTargetRef& target)
+bool target_exists(const CompiledProject& project, const SaveState& save,
+                   const PropertyTargetRef& target)
 {
     return std::visit(
-        [&project](const auto& value) {
+        [&project, &save](const auto& value) {
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, GlobalPropertyTarget>)
                 return true;
             else
-                return owner_exists(project, PropertyOwnerRef{value});
+                return owner_exists(project, save, PropertyOwnerRef{value});
         },
         target);
 }
@@ -132,22 +302,72 @@ bool has_interaction_instruction(const compiled::InteractionProgram& program,
     return instruction_by_id(program.instructions, id) != nullptr;
 }
 
-bool valid_location(const CompiledProject& project, const InteractableId& interactable,
+bool inventory_exists(const CompiledProject& project, const SaveState& save,
+                      const compiled::InventoryRef& inventory)
+{
+    return std::visit(
+        [&](const auto& owner) {
+            using T = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<T, compiled::ProjectInventoryOwner>)
+                return project.find_inventory(inventory) != nullptr;
+            else if constexpr (std::is_same_v<T, compiled::CharacterInventoryOwner>) {
+                auto definition = resolved_character(project, save, owner.character);
+                return definition &&
+                       std::ranges::any_of(definition->inventories, [&](const auto& value) {
+                           return value.id == inventory.inventory_id;
+                       });
+            } else if constexpr (std::is_same_v<T, compiled::InteractableInventoryOwner>) {
+                auto definition = resolved_interactable(project, save, owner.interactable);
+                return definition &&
+                       std::ranges::any_of(definition->inventories, [&](const auto& value) {
+                           return value.id == inventory.inventory_id;
+                       });
+            } else if constexpr (std::is_same_v<T, RoomFeatureRef>) {
+                auto definition = resolved_room(project, save, owner.room);
+                if (!definition)
+                    return false;
+                const auto feature =
+                    std::ranges::find_if(definition->features, [&](const auto& value) {
+                        return value.identity.id == owner.feature_id;
+                    });
+                return feature != definition->features.end() &&
+                       std::ranges::any_of(feature->inventories, [&](const auto& value) {
+                           return value.id == inventory.inventory_id;
+                       });
+            } else {
+                auto definition = resolved_interactable(project, save, owner.interactable);
+                if (!definition)
+                    return false;
+                const auto feature =
+                    std::ranges::find_if(definition->features, [&](const auto& value) {
+                        return value.identity.id == owner.feature_id;
+                    });
+                return feature != definition->features.end() &&
+                       std::ranges::any_of(feature->inventories, [&](const auto& value) {
+                           return value.id == inventory.inventory_id;
+                       });
+            }
+        },
+        inventory.owner);
+}
+
+bool valid_location(const CompiledProject& project, const SaveState& save,
+                    const InteractableId& interactable,
                     const compiled::InteractableLocation& location)
 {
     (void)interactable;
     if (const auto* room = std::get_if<compiled::RoomLocation>(&location))
-        return project.find_room(room->room) != nullptr;
+        return resolved_room(project, save, room->room).has_value();
     if (const auto* inventory = std::get_if<compiled::InventoryLocation>(&location))
-        return project.find_inventory(inventory->inventory) != nullptr;
+        return inventory_exists(project, save, inventory->inventory);
     return true;
 }
 
-bool valid_character_location(const CompiledProject& project,
+bool valid_character_location(const CompiledProject& project, const SaveState& save,
                               const CharacterWorldLocation& location)
 {
     const auto* room = std::get_if<compiled::RoomLocation>(&location);
-    return room == nullptr || project.find_room(room->room) != nullptr;
+    return room == nullptr || resolved_room(project, save, room->room).has_value();
 }
 
 std::optional<InteractableId> inventory_interactable_owner(const compiled::InventoryRef& inventory)
@@ -173,10 +393,11 @@ const compiled::RoomExit* find_exit(const compiled::RoomDefinition& room, const 
     return found == room.exits.end() ? nullptr : &*found;
 }
 
-bool valid_destination(const CompiledProject& project, const ReturnDestination& destination)
+bool valid_destination(const CompiledProject& project, const SaveState& save,
+                       const ReturnDestination& destination)
 {
     if (const auto* room = std::get_if<ResumeRoomDestination>(&destination))
-        return project.find_room(room->room) != nullptr;
+        return resolved_room(project, save, room->room).has_value();
     return true;
 }
 
@@ -196,6 +417,23 @@ std::string target_text(const PropertyTargetRef& target)
                 return value.text();
         },
         target);
+}
+
+std::optional<std::uint64_t> runtime_ordinal(std::string_view text,
+                                             std::string_view prefix) noexcept
+{
+    if (!text.starts_with(prefix) || text.size() == prefix.size())
+        return std::nullopt;
+    std::uint64_t value = 0;
+    for (const char character : text.substr(prefix.size())) {
+        if (character < '0' || character > '9')
+            return std::nullopt;
+        const auto digit = static_cast<std::uint64_t>(character - '0');
+        if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10U)
+            return std::nullopt;
+        value = value * 10U + digit;
+    }
+    return value == 0 ? std::nullopt : std::optional<std::uint64_t>{value};
 }
 
 bool valid_scene_position(const compiled::SceneDefinition& scene,
@@ -276,26 +514,26 @@ bool valid_dialogue_position(const compiled::DialogueDefinition& dialogue,
     return false;
 }
 
-std::size_t hook_effects(const CompiledProject& project, const SavedRoomTransitionFrame& frame,
-                         RoomTransitionStage stage)
+std::size_t hook_effects(const CompiledProject& project, const SaveState& save,
+                         const SavedRoomTransitionFrame& frame, RoomTransitionStage stage)
 {
-    const compiled::RoomDefinition* room = nullptr;
+    std::optional<compiled::RoomDefinition> room;
     std::optional<compiled::RoomHookKind> hook;
     switch (stage) {
     case RoomTransitionStage::BeforeLeave:
-        room = frame.source_room ? project.find_room(*frame.source_room) : nullptr;
+        room = frame.source_room ? resolved_room(project, save, *frame.source_room) : std::nullopt;
         hook = compiled::RoomHookKind::BeforeLeave;
         break;
     case RoomTransitionStage::BeforeEnter:
-        room = project.find_room(frame.target_room);
+        room = resolved_room(project, save, frame.target_room);
         hook = compiled::RoomHookKind::BeforeEnter;
         break;
     case RoomTransitionStage::AfterLeave:
-        room = frame.source_room ? project.find_room(*frame.source_room) : nullptr;
+        room = frame.source_room ? resolved_room(project, save, *frame.source_room) : std::nullopt;
         hook = compiled::RoomHookKind::AfterLeave;
         break;
     case RoomTransitionStage::AfterEnter:
-        room = project.find_room(frame.target_room);
+        room = resolved_room(project, save, frame.target_room);
         hook = compiled::RoomHookKind::AfterEnter;
         break;
     default:
@@ -309,7 +547,8 @@ std::size_t hook_effects(const CompiledProject& project, const SavedRoomTransiti
     return found == room->lifecycle.hooks.end() ? 0 : found->effects.size();
 }
 
-bool valid_room_position(const CompiledProject& project, const SavedRoomTransitionFrame& frame)
+bool valid_room_position(const CompiledProject& project, const SaveState& save,
+                         const SavedRoomTransitionFrame& frame)
 {
     const auto& position = frame.position;
     if (position.stage > RoomTransitionStage::Complete)
@@ -319,7 +558,7 @@ bool valid_room_position(const CompiledProject& project, const SavedRoomTransiti
     case RoomTransitionStage::BeforeEnter:
     case RoomTransitionStage::AfterLeave:
     case RoomTransitionStage::AfterEnter: {
-        const auto count = hook_effects(project, frame, position.stage);
+        const auto count = hook_effects(project, save, frame, position.stage);
         return position.next_effect <= count &&
                (!position.awaiting_completion || position.next_effect < count);
     }
@@ -350,9 +589,9 @@ bool valid_saved_owner(const CompiledProject& project, const SaveState& save,
                        project.find_scene(value.scene) != nullptr;
             } else if constexpr (std::is_same_v<T, SavedCurrentRoomPresentationOwner>) {
                 return save.active_room_visit && save.active_room_visit->room == value.room &&
-                       project.find_room(value.room) != nullptr;
+                       resolved_room(project, save, value.room).has_value();
             } else if constexpr (std::is_same_v<T, SavedRoomPresentationOwner>) {
-                return project.find_room(value.room) != nullptr;
+                return resolved_room(project, save, value.room).has_value();
             } else {
                 return true;
             }
@@ -420,11 +659,11 @@ bool valid_background_record(const CompiledProject& project,
            (!value.asset || project.find_asset(*value.asset) != nullptr);
 }
 
-bool valid_actor_character_state(const CompiledProject& project,
+bool valid_actor_character_state(const CompiledProject& project, const SaveState& save,
                                  const SavedActorPresentation& actor) noexcept
 {
-    const auto* character = project.find_character(actor.character);
-    if (character == nullptr || !std::isfinite(actor.placement.offset.x) ||
+    auto character = resolved_character(project, save, actor.character);
+    if (!character || !std::isfinite(actor.placement.offset.x) ||
         !std::isfinite(actor.placement.offset.y) || !std::isfinite(actor.placement.scale) ||
         actor.placement.scale <= 0.0 || actor.placement.position > compiled::ActorPosition::Custom)
         return false;
@@ -451,17 +690,17 @@ bool valid_actor_record(const CompiledProject& project, const SaveState& save,
                         const SavedActorPresentation& actor) noexcept
 {
     if (!valid_saved_owner(project, save, actor.owner) ||
-        !valid_actor_character_state(project, actor))
+        !valid_actor_character_state(project, save, actor))
         return false;
     return std::visit(
-        [&project, &actor](const auto& key) {
+        [&project, &save, &actor](const auto& key) {
             using T = std::decay_t<decltype(key)>;
             if constexpr (std::is_same_v<T, CharacterActorKey>) {
                 return key.character == actor.character;
             } else if constexpr (std::is_same_v<T, RoomCastActorKey>) {
                 const auto* owner = std::get_if<SavedRoomPresentationOwner>(&actor.owner);
-                const auto* room = project.find_room(key.room);
-                if (owner == nullptr || owner->room != key.room || room == nullptr)
+                auto room = resolved_room(project, save, key.room);
+                if (owner == nullptr || owner->room != key.room || !room)
                     return false;
                 const auto found = std::find_if(
                     room->cast.begin(), room->cast.end(),
@@ -497,11 +736,11 @@ bool valid_prop_record(const CompiledProject& project, const SaveState& save,
         return false;
     if (!prop.placement)
         return true;
-    const auto* room = project.find_room(prop.placement->room);
-    return room != nullptr && std::any_of(room->placements.begin(), room->placements.end(),
-                                          [&prop](const compiled::RoomPlacement& value) {
-                                              return value.id == prop.placement->placement_id;
-                                          });
+    auto room = resolved_room(project, save, prop.placement->room);
+    return room && std::any_of(room->placements.begin(), room->placements.end(),
+                               [&prop](const compiled::RoomPlacement& value) {
+                                   return value.id == prop.placement->placement_id;
+                               });
 }
 
 bool valid_environment_record(const CompiledProject& project, const SaveState& save,
@@ -548,14 +787,14 @@ bool valid_layout_record(const CompiledProject& project, const SaveState& save,
         layout.composition_group > PresentationCompositionGroup::Debug)
         return false;
     return std::visit(
-        [&project, &layout](const auto& key) {
+        [&project, &save, &layout](const auto& key) {
             using T = std::decay_t<decltype(key)>;
             if constexpr (std::is_same_v<T, ReservedLayoutMountKey>) {
                 return key.slot <= compiled::LayoutSlot::Custom;
             } else if constexpr (std::is_same_v<T, RoomOverlayLayoutMountKey>) {
                 const auto* owner = std::get_if<SavedRoomPresentationOwner>(&layout.owner);
-                const auto* room = project.find_room(key.room);
-                if (owner == nullptr || owner->room != key.room || room == nullptr ||
+                auto room = resolved_room(project, save, key.room);
+                if (owner == nullptr || owner->room != key.room || !room ||
                     layout.policy.plane != PresentationPlane::WorldOverlay ||
                     layout.composition_group != PresentationCompositionGroup::World)
                     return false;
@@ -582,11 +821,11 @@ bool valid_desired_audio_record(const CompiledProject& project, const SaveState&
            audio.fade_in.count() >= 0 && audio.fade_out.count() >= 0;
 }
 
-bool valid_presented_text(const CompiledProject& project,
+bool valid_presented_text(const CompiledProject& project, const SaveState& save,
                           const std::optional<PresentedTextState>& text) noexcept
 {
     return !text || (text->markup <= TextMarkup::ActiveText &&
-                     (!text->speaker || project.find_character(*text->speaker) != nullptr));
+                     (!text->speaker || resolved_character(project, save, *text->speaker)));
 }
 
 bool valid_active_choice(const CompiledProject& project,
@@ -671,6 +910,182 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
               "Save Contract does not match the loaded compiled project.");
     if (save.play_time.count() < 0)
         error("save_codec.invalid_time", "Play time cannot be negative.");
+    if (save.next_runtime_instance_id == 0)
+        error("save_codec.invalid_runtime_allocator",
+              "Runtime Gameplay Instance allocator position must be positive.");
+
+    std::unordered_set<std::uint64_t> runtime_ordinals;
+    const auto validate_runtime_identity = [&](std::string_view text, std::string_view prefix,
+                                               bool declared) {
+        if (declared)
+            return;
+        const auto ordinal = runtime_ordinal(text, prefix);
+        if (!ordinal || *ordinal >= save.next_runtime_instance_id ||
+            !runtime_ordinals.insert(*ordinal).second)
+            error("save_codec.invalid_runtime_identity",
+                  "Runtime-created Gameplay Instance identity is invalid, reused, or beyond the "
+                  "saved allocator position.");
+    };
+    const auto validate_provenance = [&](const RuntimeInstanceProvenance& provenance, bool declared,
+                                         compiled::GameplayInstanceKind kind) {
+        if (declared != (provenance.kind == RuntimeInstanceProvenanceKind::Declared))
+            error("save_codec.invalid_runtime_provenance",
+                  "Gameplay Instance declared state and provenance disagree.");
+        if (provenance.kind == RuntimeInstanceProvenanceKind::Archetype) {
+            const auto* archetype =
+                provenance.archetype ? project.find_archetype(*provenance.archetype) : nullptr;
+            if (archetype == nullptr || archetype->kind != kind || provenance.source_instance)
+                error("save_codec.invalid_runtime_provenance",
+                      "Archetype provenance is missing or incompatible with the instance kind.");
+        } else if (provenance.archetype) {
+            error("save_codec.invalid_runtime_provenance",
+                  "Only Archetype-created instances may carry Archetype provenance.");
+        }
+        if (provenance.kind == RuntimeInstanceProvenanceKind::CompiledDefinition ||
+            provenance.kind == RuntimeInstanceProvenanceKind::Clone) {
+            if (!provenance.source_instance)
+                error("save_codec.invalid_runtime_provenance",
+                      "Definition/clone provenance requires a typed source identity.");
+            else {
+                const bool same_kind = std::visit(
+                    [kind](const auto& source) {
+                        using T = std::decay_t<decltype(source)>;
+                        return (kind == compiled::GameplayInstanceKind::Room &&
+                                std::is_same_v<T, RoomId>) ||
+                               (kind == compiled::GameplayInstanceKind::Character &&
+                                std::is_same_v<T, CharacterId>) ||
+                               (kind == compiled::GameplayInstanceKind::Interactable &&
+                                std::is_same_v<T, InteractableId>);
+                    },
+                    *provenance.source_instance);
+                if (!same_kind)
+                    error("save_codec.invalid_runtime_provenance",
+                          "Gameplay Instance provenance source has the wrong typed identity.");
+            }
+        } else if (provenance.source_instance) {
+            error("save_codec.invalid_runtime_provenance",
+                  "This Gameplay Instance provenance kind cannot carry a source identity.");
+        }
+    };
+
+    std::unordered_set<std::string> runtime_room_ids;
+    for (const auto& record : save.runtime_rooms) {
+        if (!runtime_room_ids.insert(record.id.text()).second)
+            error("save_codec.duplicate_runtime_instance",
+                  "Runtime Room configuration appears more than once.");
+        const bool declared = project.find_room(record.id) != nullptr;
+        if (record.declared != declared)
+            error("save_codec.invalid_runtime_instance",
+                  "Runtime Room declared flag does not match compiled Project identity.");
+        auto birth = materialize_room_source(project, record.birth_source, record.id);
+        if (!birth)
+            error("save_codec.invalid_runtime_configuration",
+                  "Runtime Room birth configuration source is invalid or wrong-kind.");
+        if (record.structural_override_source &&
+            !materialize_room_source(project, *record.structural_override_source, record.id))
+            error("save_codec.invalid_runtime_configuration",
+                  "Runtime Room structural override source is invalid or wrong-kind.");
+        if (!record.structural_override_source &&
+            !record.structural_override_exit_target_overrides.empty())
+            error("save_codec.invalid_runtime_configuration",
+                  "Room replacement-source topology edits require a structural override source.");
+        if (declared) {
+            const auto* source = std::get_if<CompiledRoomConfigurationSource>(&record.birth_source);
+            if (source == nullptr || source->room != record.id ||
+                !record.birth_exit_target_overrides.empty())
+                error(
+                    "save_codec.invalid_runtime_configuration",
+                    "Declared Room birth configuration must be its immutable compiled definition.");
+        }
+        validate_runtime_identity(record.id.text(), "runtime-room-", declared);
+        validate_provenance(record.provenance, declared, compiled::GameplayInstanceKind::Room);
+        const auto validate_edits = [&](const std::vector<RuntimeRoomExitTargetOverride>& edits) {
+            std::unordered_set<std::string> exit_ids;
+            for (const auto& edit : edits) {
+                if (!exit_ids.insert(edit.exit.text()).second ||
+                    saved_room(save, edit.target) == nullptr)
+                    error("save_codec.invalid_runtime_topology",
+                          "Room topology edit is duplicate or targets a non-live Room identity.");
+            }
+        };
+        validate_edits(record.birth_exit_target_overrides);
+        validate_edits(record.structural_override_exit_target_overrides);
+        validate_edits(record.exit_target_overrides);
+        if (!resolved_room(project, save, record.id))
+            error("save_codec.invalid_runtime_configuration",
+                  "Runtime Room effective configuration cannot be reconstructed.");
+    }
+    for (const auto& room : project.rooms()) {
+        const auto* record = saved_room(save, room.identity.id);
+        if (record == nullptr || !record->declared)
+            error("save_codec.incomplete_runtime_world",
+                  "Save must retain every declared Room Gameplay Instance.");
+    }
+
+    std::unordered_set<std::string> runtime_character_ids;
+    for (const auto& record : save.runtime_characters) {
+        if (!runtime_character_ids.insert(record.id.text()).second)
+            error("save_codec.duplicate_runtime_instance",
+                  "Runtime Character configuration appears more than once.");
+        const bool declared = project.find_character(record.id) != nullptr;
+        if (record.declared != declared)
+            error("save_codec.invalid_runtime_instance",
+                  "Runtime Character declared flag does not match compiled Project identity.");
+        if (!materialize_character_source(project, record.birth_source, record.id) ||
+            (record.structural_override_source &&
+             !materialize_character_source(project, *record.structural_override_source, record.id)))
+            error("save_codec.invalid_runtime_configuration",
+                  "Runtime Character configuration source is invalid or wrong-kind.");
+        if (declared) {
+            const auto* source =
+                std::get_if<CompiledCharacterConfigurationSource>(&record.birth_source);
+            if (source == nullptr || source->character != record.id)
+                error("save_codec.invalid_runtime_configuration",
+                      "Declared Character birth configuration must be its compiled definition.");
+        }
+        validate_runtime_identity(record.id.text(), "runtime-character-", declared);
+        validate_provenance(record.provenance, declared, compiled::GameplayInstanceKind::Character);
+    }
+    for (const auto& character : project.characters()) {
+        const auto* record = saved_character(save, character.identity.id);
+        if (record == nullptr || !record->declared)
+            error("save_codec.incomplete_runtime_world",
+                  "Save must retain every declared Character Gameplay Instance.");
+    }
+
+    std::unordered_set<std::string> runtime_interactable_ids;
+    for (const auto& record : save.runtime_interactables) {
+        if (!runtime_interactable_ids.insert(record.id.text()).second)
+            error("save_codec.duplicate_runtime_instance",
+                  "Runtime Interactable configuration appears more than once.");
+        const bool declared = project.find_interactable(record.id) != nullptr;
+        if (record.declared != declared)
+            error("save_codec.invalid_runtime_instance",
+                  "Runtime Interactable declared flag does not match compiled Project identity.");
+        if (!materialize_interactable_source(project, record.birth_source, record.id) ||
+            (record.structural_override_source &&
+             !materialize_interactable_source(project, *record.structural_override_source,
+                                              record.id)))
+            error("save_codec.invalid_runtime_configuration",
+                  "Runtime Interactable configuration source is invalid or wrong-kind.");
+        if (declared) {
+            const auto* source =
+                std::get_if<CompiledInteractableConfigurationSource>(&record.birth_source);
+            if (source == nullptr || source->interactable != record.id)
+                error("save_codec.invalid_runtime_configuration",
+                      "Declared Interactable birth configuration must be its compiled definition.");
+        }
+        validate_runtime_identity(record.id.text(), "runtime-interactable-", declared);
+        validate_provenance(record.provenance, declared,
+                            compiled::GameplayInstanceKind::Interactable);
+    }
+    for (const auto& interactable : project.interactables()) {
+        const auto* record = saved_interactable(save, interactable.identity.id);
+        if (record == nullptr || !record->declared)
+            error("save_codec.incomplete_runtime_world",
+                  "Save must retain every declared Interactable Gameplay Instance.");
+    }
+
     std::unordered_set<std::string> overrides;
     for (const auto& item : save.property_overrides) {
         const auto key = std::to_string(item.target.index()) + ":" + target_text(item.target) +
@@ -678,7 +1093,7 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         const auto* definition = project.find_property(item.property);
         if (!overrides.insert(key).second)
             error("save_codec.duplicate_record", "Property override appears more than once.");
-        if (!target_exists(project, item.target) || !definition ||
+        if (!target_exists(project, save, item.target) || !definition ||
             !make_property_override(item.target, *definition, item.value))
             error("save_codec.invalid_property_override",
                   "Property override is not permitted by the loaded project.");
@@ -687,14 +1102,14 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     for (const auto& item : save.interactables) {
         if (!interactables.insert(item.interactable.text()).second)
             error("save_codec.duplicate_record", "Interactable state appears more than once.");
-        if (!project.find_interactable(item.interactable) ||
-            !valid_location(project, item.interactable, item.location))
+        if (!resolved_interactable(project, save, item.interactable) ||
+            !valid_location(project, save, item.interactable, item.location))
             error("save_codec.invalid_interactable",
                   "Interactable state has an invalid reference or location.");
     }
-    if (save.interactables.size() != project.interactables().size())
+    if (save.interactables.size() != save.runtime_interactables.size())
         error("save_codec.incomplete_interactables",
-              "Save must contain every compiled Interactable.");
+              "Save must contain state for every live Interactable Gameplay Instance.");
     for (const auto& start : save.interactables) {
         std::unordered_set<InteractableId> visited;
         visited.insert(start.interactable);
@@ -722,32 +1137,34 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     for (const auto& item : save.characters) {
         if (!characters.insert(item.character.text()).second)
             error("save_codec.duplicate_record", "Character world state appears more than once.");
-        if (!project.find_character(item.character) ||
-            !valid_character_location(project, item.location))
+        if (!resolved_character(project, save, item.character) ||
+            !valid_character_location(project, save, item.location))
             error("save_codec.invalid_character",
                   "Character world state has an invalid reference or location.");
     }
-    if (save.characters.size() != project.characters().size())
-        error("save_codec.incomplete_characters", "Save must contain every compiled Character.");
+    if (save.characters.size() != save.runtime_characters.size())
+        error("save_codec.incomplete_characters",
+              "Save must contain state for every live Character Gameplay Instance.");
     std::unordered_set<std::string> room_history;
     for (const auto& item : save.room_visits) {
-        if (!room_history.insert(item.room.text()).second || !project.find_room(item.room))
+        if (!room_history.insert(item.room.text()).second ||
+            !resolved_room(project, save, item.room))
             error("save_codec.invalid_room_history", "Room history is duplicate or stale.");
     }
     if (save.active_room_visit) {
         const auto& visit = *save.active_room_visit;
-        const auto* room = project.find_room(visit.room);
+        auto room = resolved_room(project, save, visit.room);
         const auto history =
             std::find_if(save.room_visits.begin(), save.room_visits.end(),
                          [&visit](const SavedRoomVisits& item) { return item.room == visit.room; });
         bool entry_valid = !visit.entry_exit;
         if (visit.entry_exit) {
-            const auto* source = project.find_room(visit.entry_exit->room);
+            auto source = resolved_room(project, save, visit.entry_exit->room);
             const auto* exit = source ? find_exit(*source, visit.entry_exit->exit_id) : nullptr;
-            entry_valid = source != nullptr && exit != nullptr && exit->target == visit.room &&
+            entry_valid = source.has_value() && exit != nullptr && exit->target == visit.room &&
                           visit.source_room == visit.entry_exit->room;
         }
-        if (!room || (visit.source_room && !project.find_room(*visit.source_room)) ||
+        if (!room || (visit.source_room && !resolved_room(project, save, *visit.source_room)) ||
             history == save.room_visits.end() || visit.visit_index == 0 ||
             history->count != visit.visit_index || !entry_valid)
             error("save_codec.invalid_active_room_visit",
@@ -817,7 +1234,7 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                 }
             },
             entry.origin);
-        if (!origin_ok || (entry.speaker && !project.find_character(*entry.speaker)))
+        if (!origin_ok || (entry.speaker && !resolved_character(project, save, *entry.speaker)))
             error("save_codec.invalid_text_log", "Text log entry has a stale origin or speaker.");
     }
     std::unordered_set<std::uint64_t> timer_ids;
@@ -835,15 +1252,15 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     if (flow_mode != !save.flow_stack.empty())
         error("save_codec.incoherent_flow", "Runtime mode and flow stack do not agree.");
     if (const auto* room = std::get_if<RoomMode>(&save.mode);
-        room && !project.find_room(room->room))
+        room && !resolved_room(project, save, room->room))
         error("save_codec.invalid_reference", "Room mode references an unknown Room.");
     std::unordered_set<std::uint64_t> frame_ids;
     for (std::size_t item_index = 0; item_index < save.flow_stack.size(); ++item_index) {
         const auto& frame = save.flow_stack[item_index];
         const auto valid = std::visit(
-            [&project](const auto& item) {
+            [&project, &save](const auto& item) {
                 using T = std::decay_t<decltype(item)>;
-                if (!valid_destination(project, item.destination))
+                if (!valid_destination(project, save, item.destination))
                     return false;
                 if constexpr (std::is_same_v<T, SavedSceneFrame>) {
                     const auto* scene = project.find_scene(item.scene);
@@ -857,24 +1274,27 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                     return program && verb && item.invocation.operands.size() == verb->arity &&
                            std::all_of(
                                item.invocation.operands.begin(), item.invocation.operands.end(),
-                               [&project](const compiled::InteractionSubject& subject) {
+                               [&project, &save](const compiled::InteractionSubject& subject) {
                                    return std::visit(
-                                       [&project](const auto& value) {
+                                       [&project, &save](const auto& value) {
                                            using S = std::decay_t<decltype(value)>;
                                            if constexpr (std::is_same_v<
                                                              S,
                                                              compiled::CharacterInteractionSubject>)
-                                               return project.find_character(value.character) !=
-                                                      nullptr;
+                                               return resolved_character(project, save,
+                                                                         value.character)
+                                                   .has_value();
                                            else if constexpr (
                                                std::is_same_v<
                                                    S, compiled::InteractableInteractionSubject>)
-                                               return project.find_interactable(
-                                                          value.interactable) != nullptr;
+                                               return resolved_interactable(project, save,
+                                                                            value.interactable)
+                                                   .has_value();
                                            else
                                                return std::visit(
-                                                   [&project](const auto& reference) {
-                                                       return feature_exists(project, reference);
+                                                   [&project, &save](const auto& reference) {
+                                                       return feature_exists(project, save,
+                                                                             reference);
                                                    },
                                                    value.feature);
                                        },
@@ -888,13 +1308,13 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                            (!item.position.awaiting_completion ||
                             item.position.next_instruction.has_value());
                 } else {
-                    if (!project.find_room(item.target_room) ||
-                        (item.source_room && !project.find_room(*item.source_room)) ||
-                        !valid_room_position(project, item))
+                    if (!resolved_room(project, save, item.target_room) ||
+                        (item.source_room && !resolved_room(project, save, *item.source_room)) ||
+                        !valid_room_position(project, save, item))
                         return false;
                     if (!item.selected_exit)
                         return !item.source_room;
-                    const auto* room = project.find_room(item.selected_exit->room);
+                    auto room = resolved_room(project, save, item.selected_exit->room);
                     if (!room)
                         return false;
                     const auto found =
@@ -993,7 +1413,7 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                   "Desired audio has an invalid owner, bus, Asset, volume, or fade policy.");
     }
 
-    if (!valid_presented_text(project, save.presented_text))
+    if (!valid_presented_text(project, save, save.presented_text))
         error("save_codec.invalid_presentation_record",
               "Presented text has a stale speaker or invalid markup mode.");
     if (!valid_active_choice(project, save.active_choice))

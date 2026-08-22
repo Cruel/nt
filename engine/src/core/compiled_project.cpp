@@ -393,6 +393,10 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
         TraitId, traits,
         [](const compiled::TraitDefinition& value) -> const TraitId& { return value.id; }, "trait");
     BUILD_INDEX(
+        ArchetypeId, archetypes,
+        [](const compiled::ArchetypeDefinition& value) -> const ArchetypeId& { return value.id; },
+        "archetype");
+    BUILD_INDEX(
         AssetId, assets,
         [](const compiled::AssetResource& value) -> const AssetId& { return value.id; }, "asset");
     BUILD_INDEX(
@@ -431,13 +435,13 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
       m_bootstrap_module(std::move(input.bootstrap_module)),
       m_save_contract(std::move(input.save_contract)),
       m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),
-      m_traits(std::move(input.traits)), m_inventories(std::move(input.inventories)),
-      m_assets(std::move(input.assets)), m_layouts(std::move(input.layouts)),
-      m_scripts(std::move(input.scripts)), m_characters(std::move(input.characters)),
-      m_rooms(std::move(input.rooms)), m_interactables(std::move(input.interactables)),
-      m_verbs(std::move(input.verbs)), m_interactions(std::move(input.interactions)),
-      m_scenes(std::move(input.scenes)), m_dialogues(std::move(input.dialogues)),
-      m_maps(std::move(input.maps))
+      m_traits(std::move(input.traits)), m_archetypes(std::move(input.archetypes)),
+      m_inventories(std::move(input.inventories)), m_assets(std::move(input.assets)),
+      m_layouts(std::move(input.layouts)), m_scripts(std::move(input.scripts)),
+      m_characters(std::move(input.characters)), m_rooms(std::move(input.rooms)),
+      m_interactables(std::move(input.interactables)), m_verbs(std::move(input.verbs)),
+      m_interactions(std::move(input.interactions)), m_scenes(std::move(input.scenes)),
+      m_dialogues(std::move(input.dialogues)), m_maps(std::move(input.maps))
 {
     Diagnostics unused;
 #define INDEX(id_type, singular, plural, expression, label)                                        \
@@ -449,6 +453,10 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     INDEX(
         TraitId, trait, traits,
         [](const compiled::TraitDefinition& value) -> const TraitId& { return value.id; }, "trait");
+    INDEX(
+        ArchetypeId, archetype, archetypes,
+        [](const compiled::ArchetypeDefinition& value) -> const ArchetypeId& { return value.id; },
+        "archetype");
     INDEX(
         AssetId, asset, assets,
         [](const compiled::AssetResource& value) -> const AssetId& { return value.id; }, "asset");
@@ -485,6 +493,7 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     }
 FIND(property, properties, PropertyId, PropertyDefinition)
 FIND(trait, traits, TraitId, compiled::TraitDefinition)
+FIND(archetype, archetypes, ArchetypeId, compiled::ArchetypeDefinition)
 FIND(asset, assets, AssetId, compiled::AssetResource)
 FIND(layout, layouts, LayoutId, compiled::LayoutResource)
 FIND(script, scripts, ScriptId, compiled::ScriptResource)

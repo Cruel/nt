@@ -80,6 +80,28 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     unset_property(const core::PropertyOwnerRef& owner, const core::PropertyId& property);
 
+    [[nodiscard]] core::Result<core::RoomId, core::Diagnostics>
+    create_room(RuntimeInstanceConfigurationRequest source);
+    [[nodiscard]] core::Result<core::CharacterId, core::Diagnostics>
+    create_character(RuntimeInstanceConfigurationRequest source,
+                     core::CharacterWorldLocation location = core::compiled::UnplacedLocation{},
+                     bool enabled = true, bool visible = true);
+    [[nodiscard]] core::Result<core::InteractableId, core::Diagnostics> create_interactable(
+        RuntimeInstanceConfigurationRequest source,
+        core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{},
+        bool enabled = true, bool visible = true);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    replace_instance_configuration(core::GameplayInstanceRef instance,
+                                   RuntimeInstanceConfigurationRequest source);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_instance_configuration(core::GameplayInstanceRef instance);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    retarget_room_exit(core::RoomId room, core::RoomExitId exit, core::RoomId target);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    destroy_instance(core::GameplayInstanceRef instance);
+    [[nodiscard]] core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>
+    instance_provenance(const core::GameplayInstanceRef& instance) const;
+
     [[nodiscard]] core::Result<core::compiled::InteractableLocation, core::Diagnostics>
     interactable_location(const core::InteractableId& interactable) const;
     [[nodiscard]] core::Result<core::InteractableState, core::Diagnostics>

@@ -306,6 +306,93 @@ RuntimeCommandGateway::unset_property(const core::PropertyOwnerRef& owner,
     return changed;
 }
 
+core::Result<core::RoomId, core::Diagnostics>
+RuntimeCommandGateway::create_room(RuntimeInstanceConfigurationRequest source)
+{
+    auto created = m_world.create_room(std::move(source));
+    if (created)
+        record_structural_mutation();
+    return created;
+}
+
+core::Result<core::CharacterId, core::Diagnostics>
+RuntimeCommandGateway::create_character(RuntimeInstanceConfigurationRequest source,
+                                        core::CharacterWorldLocation location, bool enabled,
+                                        bool visible)
+{
+    auto created =
+        m_world.create_character(std::move(source), std::move(location), enabled, visible);
+    if (created)
+        record_structural_mutation();
+    return created;
+}
+
+core::Result<core::InteractableId, core::Diagnostics>
+RuntimeCommandGateway::create_interactable(RuntimeInstanceConfigurationRequest source,
+                                           core::compiled::InteractableLocation location,
+                                           bool enabled, bool visible)
+{
+    auto created =
+        m_world.create_interactable(std::move(source), std::move(location), enabled, visible);
+    if (created)
+        record_structural_mutation();
+    return created;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::replace_instance_configuration(core::GameplayInstanceRef instance,
+                                                      RuntimeInstanceConfigurationRequest source)
+{
+    auto result = std::visit(
+        [&](const auto& id) {
+            return m_world.replace_structural_configuration(id, std::move(source));
+        },
+        instance);
+    if (result)
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::clear_instance_configuration(core::GameplayInstanceRef instance)
+{
+    auto result = std::visit(
+        [&](const auto& id) { return m_world.clear_structural_configuration(id); }, instance);
+    if (result)
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::retarget_room_exit(core::RoomId room, core::RoomExitId exit,
+                                          core::RoomId target)
+{
+    auto result = m_world.retarget_room_exit(room, exit, target);
+    if (result)
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::destroy_instance(core::GameplayInstanceRef instance)
+{
+    auto result = m_world.destroy(instance);
+    if (result)
+        record_structural_mutation();
+    return result;
+}
+
+core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>
+RuntimeCommandGateway::instance_provenance(const core::GameplayInstanceRef& instance) const
+{
+    const auto* value = m_world.provenance(instance);
+    return value != nullptr
+               ? core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>::success(*value)
+               : core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>::failure(
+                     gateway_error("runtime.unknown_gameplay_instance",
+                                   "Gameplay Instance is not live"));
+}
+
 core::Result<core::compiled::InteractableLocation, core::Diagnostics>
 RuntimeCommandGateway::interactable_location(const core::InteractableId& interactable) const
 {

@@ -1377,6 +1377,42 @@ TEST_CASE("typed Lua host services distinguish Room transient and navigation req
     CHECK(command->target == core::RoomId::create("hall").value());
 }
 
+TEST_CASE("Lua runtime instance APIs create clone inspect and destroy through capabilities")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto project = load_script_project();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor flow(project, state);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, flow);
+
+    auto create =
+        invoker.execute("runtime_first, runtime_err = noveltea.instances.create('interactable', "
+                        "'compiled', 'dust'); "
+                        "assert(runtime_first == 'runtime-interactable-1' and runtime_err == nil)",
+                        "runtime-instance-create");
+    if (!create)
+        INFO(create.error().message);
+    REQUIRE(create);
+    REQUIRE(invoker.execute(
+        "local provenance = assert(noveltea.instances.provenance('interactable', runtime_first)); "
+        "assert(provenance.kind == 'compiled-definition' and provenance.source == 'dust'); "
+        "runtime_clone = assert(noveltea.instances.create('interactable', 'effective', "
+        "runtime_first)); "
+        "assert(runtime_clone == 'runtime-interactable-2')",
+        "runtime-instance-clone"));
+    REQUIRE(invoker.execute(
+        "local ok, blocked = noveltea.instances.destroy('interactable', runtime_first); "
+        "assert(not ok and type(blocked) == 'string'); "
+        "ok, runtime_err = noveltea.instances.destroy('interactable', runtime_clone); "
+        "assert(ok and runtime_err == nil); "
+        "ok, runtime_err = noveltea.instances.destroy('interactable', runtime_first); "
+        "assert(ok and runtime_err == nil)",
+        "runtime-instance-destroy"));
+}
+
 TEST_CASE("runtime script API enforces capability profiles and stale generations")
 {
     auto project = load_script_project();

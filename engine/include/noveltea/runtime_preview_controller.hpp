@@ -51,6 +51,17 @@ public:
     std::string set_variable(const std::string& variable_id, core::RuntimeValue value);
     std::string reset_variable(const std::string& variable_id);
     std::string teleport_room(const std::string& room_id);
+    std::string create_runtime_instance(const std::string& kind, const std::string& source_kind,
+                                        const std::string& source_id);
+    std::string replace_runtime_instance_configuration(const std::string& kind,
+                                                       const std::string& instance_id,
+                                                       const std::string& source_kind,
+                                                       const std::string& source_id);
+    std::string clear_runtime_instance_configuration(const std::string& kind,
+                                                     const std::string& instance_id);
+    std::string destroy_runtime_instance(const std::string& kind, const std::string& instance_id);
+    std::string retarget_runtime_room_exit(const std::string& room_id, const std::string& exit_id,
+                                           const std::string& target_room_id);
 
     bool begin_recording();
     bool end_recording();

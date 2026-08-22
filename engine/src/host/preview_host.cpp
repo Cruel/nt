@@ -252,6 +252,50 @@ std::string first_diagnostic_message(const core::Diagnostics& diagnostics)
     return diagnostics.empty() ? std::string{} : diagnostics.front().message;
 }
 
+std::optional<core::GameplayInstanceRef> gameplay_instance_ref(std::string_view kind,
+                                                               const std::string& id)
+{
+    if (kind == "room") {
+        auto parsed = core::RoomId::create(id);
+        return parsed ? std::optional<core::GameplayInstanceRef>{*parsed.value_if()} : std::nullopt;
+    }
+    if (kind == "character") {
+        auto parsed = core::CharacterId::create(id);
+        return parsed ? std::optional<core::GameplayInstanceRef>{*parsed.value_if()} : std::nullopt;
+    }
+    if (kind == "interactable") {
+        auto parsed = core::InteractableId::create(id);
+        return parsed ? std::optional<core::GameplayInstanceRef>{*parsed.value_if()} : std::nullopt;
+    }
+    return std::nullopt;
+}
+
+std::optional<runtime::RuntimeInstanceConfigurationRequest>
+runtime_instance_source(std::string_view kind, std::string_view source_kind,
+                        const std::string& source_id)
+{
+    if (source_kind == "archetype") {
+        auto parsed = core::ArchetypeId::create(source_id);
+        return parsed
+                   ? std::optional<
+                         runtime::
+                             RuntimeInstanceConfigurationRequest>{runtime::
+                                                                      ArchetypeInstanceConfiguration{
+                                                                          *parsed.value_if()}}
+                   : std::nullopt;
+    }
+    auto instance = gameplay_instance_ref(kind, source_id);
+    if (!instance)
+        return std::nullopt;
+    if (source_kind == "compiled")
+        return runtime::RuntimeInstanceConfigurationRequest{
+            runtime::CompiledInstanceConfiguration{std::move(*instance)}};
+    if (source_kind == "effective")
+        return runtime::RuntimeInstanceConfigurationRequest{
+            runtime::EffectiveInstanceConfiguration{std::move(*instance)}};
+    return std::nullopt;
+}
+
 } // namespace
 
 PreviewHost::PreviewHost(Dependencies dependencies) noexcept
@@ -505,6 +549,117 @@ PreviewMutationResult PreviewHost::teleport_room(const std::string& room_id)
     if (result)
         (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
     return mutation_result(static_cast<bool>(result), "teleport-room", room_id,
+                           result ? "" : first_diagnostic_message(result.error()));
+}
+
+PreviewMutationResult PreviewHost::create_runtime_instance(const std::string& kind,
+                                                           const std::string& source_kind,
+                                                           const std::string& source_id)
+{
+    auto* running_game = m_dependencies.game_host.running_game();
+    auto source = runtime_instance_source(kind, source_kind, source_id);
+    if (!running_game || !source)
+        return mutation_result(false, "instance-create", source_id,
+                               "invalid Gameplay Instance creation request");
+
+    auto& gateway = running_game->session().gateway();
+    if (kind == "room") {
+        auto created = gateway.create_room(std::move(*source));
+        if (!created)
+            return mutation_result(false, "instance-create", source_id,
+                                   first_diagnostic_message(created.error()));
+        const auto id = created.value_if()->text();
+        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+        return mutation_result(true, "instance-create", id);
+    }
+    if (kind == "character") {
+        auto created = gateway.create_character(std::move(*source));
+        if (!created)
+            return mutation_result(false, "instance-create", source_id,
+                                   first_diagnostic_message(created.error()));
+        const auto id = created.value_if()->text();
+        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+        return mutation_result(true, "instance-create", id);
+    }
+    if (kind == "interactable") {
+        auto created = gateway.create_interactable(std::move(*source));
+        if (!created)
+            return mutation_result(false, "instance-create", source_id,
+                                   first_diagnostic_message(created.error()));
+        const auto id = created.value_if()->text();
+        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+        return mutation_result(true, "instance-create", id);
+    }
+    return mutation_result(false, "instance-create", source_id,
+                           "Gameplay Instance kind must be room, character, or interactable");
+}
+
+PreviewMutationResult PreviewHost::replace_runtime_instance_configuration(
+    const std::string& kind, const std::string& instance_id, const std::string& source_kind,
+    const std::string& source_id)
+{
+    auto* running_game = m_dependencies.game_host.running_game();
+    auto instance = gameplay_instance_ref(kind, instance_id);
+    auto source = runtime_instance_source(kind, source_kind, source_id);
+    if (!running_game || !instance || !source)
+        return mutation_result(false, "instance-replace-configuration", instance_id,
+                               "invalid Gameplay Instance configuration replacement request");
+    auto result = running_game->session().gateway().replace_instance_configuration(
+        std::move(*instance), std::move(*source));
+    if (result)
+        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+    return mutation_result(static_cast<bool>(result), "instance-replace-configuration", instance_id,
+                           result ? "" : first_diagnostic_message(result.error()));
+}
+
+PreviewMutationResult
+PreviewHost::clear_runtime_instance_configuration(const std::string& kind,
+                                                  const std::string& instance_id)
+{
+    auto* running_game = m_dependencies.game_host.running_game();
+    auto instance = gameplay_instance_ref(kind, instance_id);
+    if (!running_game || !instance)
+        return mutation_result(false, "instance-clear-configuration", instance_id,
+                               "invalid Gameplay Instance configuration clear request");
+    auto result =
+        running_game->session().gateway().clear_instance_configuration(std::move(*instance));
+    if (result)
+        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+    return mutation_result(static_cast<bool>(result), "instance-clear-configuration", instance_id,
+                           result ? "" : first_diagnostic_message(result.error()));
+}
+
+PreviewMutationResult PreviewHost::destroy_runtime_instance(const std::string& kind,
+                                                            const std::string& instance_id)
+{
+    auto* running_game = m_dependencies.game_host.running_game();
+    auto instance = gameplay_instance_ref(kind, instance_id);
+    if (!running_game || !instance)
+        return mutation_result(false, "instance-destroy", instance_id,
+                               "invalid Gameplay Instance destruction request");
+    auto result = running_game->session().gateway().destroy_instance(std::move(*instance));
+    if (result)
+        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+    return mutation_result(static_cast<bool>(result), "instance-destroy", instance_id,
+                           result ? "" : first_diagnostic_message(result.error()));
+}
+
+PreviewMutationResult PreviewHost::retarget_runtime_room_exit(const std::string& room_id,
+                                                              const std::string& exit_id,
+                                                              const std::string& target_room_id)
+{
+    auto* running_game = m_dependencies.game_host.running_game();
+    auto room = core::RoomId::create(room_id);
+    auto exit = core::RoomExitId::create(exit_id);
+    auto target = core::RoomId::create(target_room_id);
+    if (!running_game || !room || !exit || !target)
+        return mutation_result(false, "room-exit-retarget", room_id,
+                               "invalid Room Exit retarget request");
+    auto result = running_game->session().gateway().retarget_room_exit(
+        *room.value_if(), *exit.value_if(), *target.value_if());
+    if (result)
+        (void)dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+    return mutation_result(static_cast<bool>(result), "room-exit-retarget", room_id,
                            result ? "" : first_diagnostic_message(result.error()));
 }
 
