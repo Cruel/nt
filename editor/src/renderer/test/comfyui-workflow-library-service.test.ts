@@ -568,6 +568,33 @@ describe('comfyui workflow library service', () => {
     );
     expect(after.entries[0]).toMatchObject({ onlineStatus: 'previously-verified' });
   });
+  it('loads and copies embedded built-in workflow packages without filesystem assets', async () => {
+    const { editorRoot, options } = testRootsWithoutProject();
+    options.roots!.builtInRoot = undefined;
+    options.embeddedBuiltInFiles = {
+      'embedded.manifest.json': `${JSON.stringify(manifest('embedded'), null, 2)}\n`,
+      'embedded.workflow.json': `${JSON.stringify(workflow(), null, 2)}\n`,
+    };
+
+    const listed = await listComfyUiWorkflowLibrary({}, options);
+    expect(listed.activeWorkflows).toEqual([
+      expect.objectContaining({ id: 'embedded', source: 'built-in', runnable: true }),
+    ]);
+    const embedded = listed.entries.find((entry) => entry.id === 'embedded');
+    expect(embedded).toMatchObject({
+      manifestPath: 'embedded:comfyui/embedded.manifest.json',
+      workflowPath: 'embedded:comfyui/embedded.workflow.json',
+    });
+
+    const copied = await copyComfyUiWorkflow(
+      { workflowKey: embedded!.workflowKey, targetSource: 'user' },
+      options,
+    );
+    expect(copied).toMatchObject({ success: true, action: 'copied' });
+    expect(fs.existsSync(path.join(editorRoot, 'embedded.manifest.json'))).toBe(true);
+    expect(fs.existsSync(path.join(editorRoot, 'embedded.workflow.json'))).toBe(true);
+  });
+
   it('does not reuse verification cache across different ComfyUI versions', async () => {
     const { editorRoot, options } = testRoots();
     writePackage(editorRoot, 'portrait', 'Editor Portrait');
