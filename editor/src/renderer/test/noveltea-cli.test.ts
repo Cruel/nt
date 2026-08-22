@@ -1543,7 +1543,7 @@ describe('NovelTea headless CLI', () => {
     ].map((match) => match[1]);
     expect(projectDefinitionReaders).toEqual(['scene', 'dialogue', 'verb', 'interaction', 'map']);
     const projectIdentityReaders = [
-      ...typedBindings.matchAll(/bind_identity_reader<[^>]+>\(project,\s*"([^"]+)"/g),
+      ...typedBindings.matchAll(/bind_identity_reader<[^>]+>\s*\(\s*project,\s*"([^"]+)"/g),
     ].map((match) => match[1]);
     expect(projectIdentityReaders).toEqual(['room', 'character', 'interactable']);
     for (const name of [...projectDefinitionReaders, ...projectIdentityReaders])
