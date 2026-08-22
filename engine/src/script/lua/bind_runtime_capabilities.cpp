@@ -55,6 +55,86 @@ template<class Id> core::Result<Id, core::Diagnostics> parse_id(std::string valu
     return Id::create(std::move(value));
 }
 
+core::Result<core::GameplayInstanceRef, core::Diagnostics>
+parse_gameplay_instance_ref(const std::string& kind, std::string id)
+{
+    using Result = core::Result<core::GameplayInstanceRef, core::Diagnostics>;
+    if (kind == "room") {
+        auto parsed = parse_id<core::RoomId>(std::move(id));
+        const auto* value = parsed.value_if();
+        return value ? Result::success(*value) : Result::failure(parsed.error());
+    }
+    if (kind == "character") {
+        auto parsed = parse_id<core::CharacterId>(std::move(id));
+        const auto* value = parsed.value_if();
+        return value ? Result::success(*value) : Result::failure(parsed.error());
+    }
+    if (kind == "interactable") {
+        auto parsed = parse_id<core::InteractableId>(std::move(id));
+        const auto* value = parsed.value_if();
+        return value ? Result::success(*value) : Result::failure(parsed.error());
+    }
+    return Result::failure(
+        invalid("runtime.invalid_gameplay_instance_kind",
+                "Gameplay Instance kind must be 'room', 'character', or 'interactable'"));
+}
+
+core::Result<runtime::RuntimeInstanceConfigurationRequest, core::Diagnostics>
+parse_instance_configuration_source(const std::string& instance_kind,
+                                    const std::string& source_kind, std::string source_id)
+{
+    using Result = core::Result<runtime::RuntimeInstanceConfigurationRequest, core::Diagnostics>;
+    if (source_kind == "archetype") {
+        auto parsed = parse_id<core::ArchetypeId>(std::move(source_id));
+        const auto* value = parsed.value_if();
+        return value ? Result::success(runtime::ArchetypeInstanceConfiguration{*value})
+                     : Result::failure(parsed.error());
+    }
+    auto parsed = parse_gameplay_instance_ref(instance_kind, std::move(source_id));
+    const auto* value = parsed.value_if();
+    if (value == nullptr)
+        return Result::failure(parsed.error());
+    if (source_kind == "compiled")
+        return Result::success(runtime::CompiledInstanceConfiguration{*value});
+    if (source_kind == "effective")
+        return Result::success(runtime::EffectiveInstanceConfiguration{*value});
+    return Result::failure(
+        invalid("runtime.invalid_instance_configuration_source",
+                "Configuration source kind must be 'archetype', 'compiled', or 'effective'"));
+}
+
+const char* provenance_kind_name(core::RuntimeInstanceProvenanceKind kind) noexcept
+{
+    switch (kind) {
+    case core::RuntimeInstanceProvenanceKind::Declared:
+        return "declared";
+    case core::RuntimeInstanceProvenanceKind::Archetype:
+        return "archetype";
+    case core::RuntimeInstanceProvenanceKind::CompiledDefinition:
+        return "compiled-definition";
+    case core::RuntimeInstanceProvenanceKind::Clone:
+        return "clone";
+    }
+    return "declared";
+}
+
+core::Result<core::compiled::RoomLocation, core::Diagnostics>
+parse_optional_room_location(const sol::optional<sol::table>& options)
+{
+    using Result = core::Result<core::compiled::RoomLocation, core::Diagnostics>;
+    if (!options)
+        return Result::failure(
+            invalid("runtime.location_unplaced", "No Room Location was supplied"));
+    const auto room = table_option<std::string>(*options, "room");
+    if (!room)
+        return Result::failure(
+            invalid("runtime.location_unplaced", "No Room Location was supplied"));
+    auto parsed = parse_id<core::RoomId>(*room);
+    const auto* value = parsed.value_if();
+    return value ? Result::success(core::compiled::RoomLocation{*value})
+                 : Result::failure(parsed.error());
+}
+
 core::Result<core::compiled::InitialMapMode, core::Diagnostics>
 parse_map_mode(const std::string& value)
 {
@@ -526,6 +606,147 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                            std::move(parsed).error()));
         });
     noveltea["room_presentation"] = room_presentation;
+
+    sol::table instances = lua.create_table();
+    instances.set_function(
+        "create",
+        [api](std::string kind, std::string source_kind, std::string source_id,
+              sol::optional<sol::table> options, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto source =
+                parse_instance_configuration_source(kind, source_kind, std::move(source_id));
+            auto* source_value = source.value_if();
+            if (source_value == nullptr)
+                return failure(view, source.error());
+            const bool enabled =
+                options ? table_option<bool>(*options, "enabled").value_or(true) : true;
+            const bool visible =
+                options ? table_option<bool>(*options, "visible").value_or(true) : true;
+            if (kind == "room") {
+                auto result = api->create_room(std::move(*source_value));
+                const auto* value = result.value_if();
+                return value ? ObjectResult{sol::make_object(view, value->text()), nil(view)}
+                             : failure(view, result.error());
+            }
+            if (kind == "character") {
+                core::CharacterWorldLocation location = core::compiled::UnplacedLocation{};
+                if (options && table_option<std::string>(*options, "room")) {
+                    auto parsed = parse_optional_room_location(options);
+                    const auto* room = parsed.value_if();
+                    if (room == nullptr)
+                        return failure(view, parsed.error());
+                    location = *room;
+                }
+                auto result = api->create_character(std::move(*source_value), std::move(location),
+                                                    enabled, visible);
+                const auto* value = result.value_if();
+                return value ? ObjectResult{sol::make_object(view, value->text()), nil(view)}
+                             : failure(view, result.error());
+            }
+            if (kind == "interactable") {
+                core::compiled::InteractableLocation location = core::compiled::UnplacedLocation{};
+                if (options && table_option<std::string>(*options, "room")) {
+                    auto parsed = parse_optional_room_location(options);
+                    const auto* room = parsed.value_if();
+                    if (room == nullptr)
+                        return failure(view, parsed.error());
+                    location = *room;
+                }
+                auto result = api->create_interactable(std::move(*source_value),
+                                                       std::move(location), enabled, visible);
+                const auto* value = result.value_if();
+                return value ? ObjectResult{sol::make_object(view, value->text()), nil(view)}
+                             : failure(view, result.error());
+            }
+            return failure(view, invalid("runtime.invalid_gameplay_instance_kind",
+                                         "Gameplay Instance kind must be 'room', 'character', or "
+                                         "'interactable'"));
+        });
+    instances.set_function(
+        "replace_configuration",
+        [api](std::string kind, std::string id, std::string source_kind, std::string source_id,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = parse_gameplay_instance_ref(kind, std::move(id));
+            const auto* instance_value = instance.value_if();
+            if (instance_value == nullptr)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(instance.error()));
+            auto source =
+                parse_instance_configuration_source(kind, source_kind, std::move(source_id));
+            auto* source_value = source.value_if();
+            if (source_value == nullptr)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(source.error()));
+            return mutation(view, api->replace_instance_configuration(*instance_value,
+                                                                      std::move(*source_value)));
+        });
+    instances.set_function(
+        "clear_configuration",
+        [api](std::string kind, std::string id, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = parse_gameplay_instance_ref(kind, std::move(id));
+            const auto* value = instance.value_if();
+            return value
+                       ? mutation(view, api->clear_instance_configuration(*value))
+                       : mutation(view,
+                                  core::Result<void, core::Diagnostics>::failure(instance.error()));
+        });
+    instances.set_function(
+        "destroy",
+        [api](std::string kind, std::string id, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = parse_gameplay_instance_ref(kind, std::move(id));
+            const auto* value = instance.value_if();
+            return value
+                       ? mutation(view, api->destroy_instance(*value))
+                       : mutation(view,
+                                  core::Result<void, core::Diagnostics>::failure(instance.error()));
+        });
+    instances.set_function(
+        "retarget_exit",
+        [api](std::string room, std::string exit, std::string target,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto room_id = parse_id<core::RoomId>(std::move(room));
+            auto exit_id = parse_id<core::RoomExitId>(std::move(exit));
+            auto target_id = parse_id<core::RoomId>(std::move(target));
+            const auto* room_value = room_id.value_if();
+            const auto* exit_value = exit_id.value_if();
+            const auto* target_value = target_id.value_if();
+            if (!room_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(room_id.error()));
+            if (!exit_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(exit_id.error()));
+            if (!target_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(target_id.error()));
+            return mutation(view, api->retarget_room_exit(*room_value, *exit_value, *target_value));
+        });
+    instances.set_function(
+        "provenance",
+        [api](std::string kind, std::string id, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            auto instance = parse_gameplay_instance_ref(kind, std::move(id));
+            const auto* instance_value = instance.value_if();
+            if (instance_value == nullptr)
+                return failure(view, instance.error());
+            auto result = api->instance_provenance(*instance_value);
+            const auto* provenance = result.value_if();
+            if (provenance == nullptr)
+                return failure(view, result.error());
+            sol::table object = view.create_table();
+            object["kind"] = provenance_kind_name(provenance->kind);
+            if (provenance->archetype)
+                object["archetype"] = provenance->archetype->text();
+            if (provenance->source_instance)
+                std::visit([&](const auto& source) { object["source"] = source.text(); },
+                           *provenance->source_instance);
+            return {sol::make_object(view, object), nil(view)};
+        });
+    noveltea["instances"] = instances;
 
     sol::table random = lua.create_table();
     random.set_function("seed", [api](std::int64_t seed, sol::this_state state) {

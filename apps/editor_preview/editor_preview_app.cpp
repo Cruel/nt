@@ -364,6 +364,60 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_teleport_room(const char* room
     return result.c_str();
 }
 
+EMSCRIPTEN_KEEPALIVE const char*
+noveltea_runtime_create_instance(const char* kind, const char* source_kind, const char* source_id)
+{
+    static std::string result;
+    result.clear();
+    if (auto* preview = preview_controller(); preview && kind && source_kind && source_id)
+        result = preview->create_runtime_instance(kind, source_kind, source_id);
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char*
+noveltea_runtime_replace_instance_configuration(const char* kind, const char* instance_id,
+                                                const char* source_kind, const char* source_id)
+{
+    static std::string result;
+    result.clear();
+    if (auto* preview = preview_controller();
+        preview && kind && instance_id && source_kind && source_id)
+        result = preview->replace_runtime_instance_configuration(kind, instance_id, source_kind,
+                                                                 source_id);
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char*
+noveltea_runtime_clear_instance_configuration(const char* kind, const char* instance_id)
+{
+    static std::string result;
+    result.clear();
+    if (auto* preview = preview_controller(); preview && kind && instance_id)
+        result = preview->clear_runtime_instance_configuration(kind, instance_id);
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_destroy_instance(const char* kind,
+                                                                   const char* instance_id)
+{
+    static std::string result;
+    result.clear();
+    if (auto* preview = preview_controller(); preview && kind && instance_id)
+        result = preview->destroy_runtime_instance(kind, instance_id);
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_retarget_room_exit(const char* room_id,
+                                                                     const char* exit_id,
+                                                                     const char* target_room_id)
+{
+    static std::string result;
+    result.clear();
+    if (auto* preview = preview_controller(); preview && room_id && exit_id && target_room_id)
+        result = preview->retarget_runtime_room_exit(room_id, exit_id, target_room_id);
+    return result.c_str();
+}
+
 EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_debug_snapshot()
 {
     static std::string result;

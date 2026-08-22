@@ -21,6 +21,8 @@ disallowed, and stale capability generations fail without dereferencing replaced
 The gateway covers approved runtime behavior such as:
 
 - typed variable/property reads and writes;
+- Room, Character, and Interactable Gameplay Instance creation, cloning, structural editing,
+  provenance inspection, and destruction;
 - room, scene, dialogue, and interaction requests;
 - interactable location/inventory changes;
 - presentation, layout, transition, and audio requests;
@@ -29,6 +31,8 @@ The gateway covers approved runtime behavior such as:
 
 The current capability surface includes:
 
+- `noveltea.instances.create`, `replace_configuration`, `clear_configuration`, `retarget_exit`,
+  `destroy`, and `provenance` for session-owned Gameplay Instances;
 - `noveltea.random.seed`, `noveltea.random.integer`, and `noveltea.random.number`; Lua's
   `math.random` and `math.randomseed` are wrappers over the same saved session generator;
 - `noveltea.map.present`, `hide`, `select`, `activate`, and `state`;
@@ -50,6 +54,22 @@ The current capability surface includes:
 Mutation functions return `ok, error`. Query functions return `value, error`; a legitimate absent
 value is represented by `nil, nil`. Stable project IDs are used instead of file paths, resource
 aliases, indexes, or generic JSON records.
+
+`noveltea.instances.create(kind, source_kind, source_id, options)` accepts `room`, `character`, or
+`interactable`. `source_kind` is exactly `archetype`, `compiled`, or `effective`: `compiled` selects
+an immutable same-kind Project definition, while `effective` snapshots the current structural
+configuration of a live Gameplay Instance. Character and Interactable creation accepts `room`,
+`enabled`, and `visible` options; omitting `room` creates the identity Unplaced. Creation validates
+its source and initial connection before publishing the new identity and advances the deterministic
+session allocator only for an admitted allocation.
+
+`replace_configuration` applies a validated structural overlay without changing mutable Location or
+ordinary runtime state. `clear_configuration` validates the transition back to immutable birth
+configuration before removing the overlay. `retarget_exit` is the targeted Room-topology edit.
+`destroy` is non-cascading: declared identities cannot be destroyed, and runtime-created identities
+remain live while Flow, topology, Location/Inventory, presentation, provenance, or other
+lifecycle-critical references depend on them. `provenance` reports `declared`, `archetype`,
+`compiled-definition`, or `clone`, with source identity/Archetype metadata where applicable.
 
 `noveltea.project.room(id)`, `character(id)`, and `interactable(id)` now return typed gameplay identity references rather than copied definition summaries. `noveltea.project.feature(owner_kind, owner_id, feature_id)` returns the corresponding qualified Feature identity reference. A reference stores only its semantic kind and stable ID(s); methods such as `prop`, `set_prop`, `unset_prop`, `location`, and `set_location` resolve through the `RuntimeScriptApi` capability active at the moment of the call. Retaining a reference in Lua therefore retains identity only: it cannot retain an old command gateway, session object, or prior invocation authority.
 

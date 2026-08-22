@@ -26,10 +26,36 @@ std::string property_target_text(const PropertyTargetRef& target)
         target);
 }
 
-const compiled::FeatureDefinition* find_feature(const CompiledProject& project,
+const compiled::RoomDefinition* find_room(const SessionState& state, const RoomId& id) noexcept
+{
+    const auto found = std::find_if(state.runtime_rooms().begin(), state.runtime_rooms().end(),
+                                    [&](const auto& value) { return value.id == id; });
+    return found == state.runtime_rooms().end() ? nullptr : &found->effective_configuration();
+}
+
+const compiled::CharacterDefinition* find_character(const SessionState& state,
+                                                    const CharacterId& id) noexcept
+{
+    const auto found =
+        std::find_if(state.runtime_characters().begin(), state.runtime_characters().end(),
+                     [&](const auto& value) { return value.id == id; });
+    return found == state.runtime_characters().end() ? nullptr : &found->effective_configuration();
+}
+
+const compiled::InteractableDefinition* find_interactable(const SessionState& state,
+                                                          const InteractableId& id) noexcept
+{
+    const auto found =
+        std::find_if(state.runtime_interactables().begin(), state.runtime_interactables().end(),
+                     [&](const auto& value) { return value.id == id; });
+    return found == state.runtime_interactables().end() ? nullptr
+                                                        : &found->effective_configuration();
+}
+
+const compiled::FeatureDefinition* find_feature(const SessionState& state,
                                                 const RoomFeatureRef& ref) noexcept
 {
-    const auto* room = project.find_room(ref.room);
+    const auto* room = find_room(state, ref.room);
     if (room == nullptr)
         return nullptr;
     const auto found =
@@ -38,10 +64,10 @@ const compiled::FeatureDefinition* find_feature(const CompiledProject& project,
     return found == room->features.end() ? nullptr : &*found;
 }
 
-const compiled::FeatureDefinition* find_feature(const CompiledProject& project,
+const compiled::FeatureDefinition* find_feature(const SessionState& state,
                                                 const InteractableFeatureRef& ref) noexcept
 {
-    const auto* interactable = project.find_interactable(ref.interactable);
+    const auto* interactable = find_interactable(state, ref.interactable);
     if (interactable == nullptr)
         return nullptr;
     const auto found =
@@ -102,14 +128,13 @@ resolve_identity(const CompiledProject& project, const SessionState& state,
                                     : PropertyLookupResult{MissingPropertyValue{target, property}});
 }
 
-template<class Id, class FindDefinition>
+template<class Id, class Definition>
 Result<PropertyLookupResult, Diagnostics>
 resolve_definition(const CompiledProject& project, const SessionState& state, const Id& id,
                    const PropertyId& property, const PropertyDefinition& declaration,
-                   FindDefinition find_definition)
+                   const Definition* definition)
 {
     const PropertyTargetRef target{id};
-    const auto* definition = (project.*find_definition)(id);
     if (definition == nullptr)
         return Result<PropertyLookupResult, Diagnostics>::failure(
             property_error("runtime.unknown_property_owner", target, property,
@@ -167,14 +192,14 @@ bool PropertyResolver::owner_exists(const PropertyOwnerRef& owner) const noexcep
         [this](const auto& id) {
             using T = std::decay_t<decltype(id)>;
             if constexpr (std::is_same_v<T, RoomId>)
-                return m_project.find_room(id) != nullptr;
+                return find_room(m_state, id) != nullptr;
             else if constexpr (std::is_same_v<T, CharacterId>)
-                return m_project.find_character(id) != nullptr;
+                return find_character(m_state, id) != nullptr;
             else if constexpr (std::is_same_v<T, InteractableId>)
-                return m_project.find_interactable(id) != nullptr;
+                return find_interactable(m_state, id) != nullptr;
             else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
                                std::is_same_v<T, InteractableFeatureRef>)
-                return find_feature(m_project, id) != nullptr;
+                return find_feature(m_state, id) != nullptr;
         },
         owner);
 }
@@ -246,16 +271,16 @@ Result<PropertyLookupResult, Diagnostics> PropertyResolver::get(const PropertyOw
             using T = std::decay_t<decltype(id)>;
             if constexpr (std::is_same_v<T, RoomId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
-                                          &CompiledProject::find_room);
+                                          find_room(m_state, id));
             else if constexpr (std::is_same_v<T, CharacterId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
-                                          &CompiledProject::find_character);
+                                          find_character(m_state, id));
             else if constexpr (std::is_same_v<T, InteractableId>)
                 return resolve_definition(m_project, m_state, id, property, *declaration,
-                                          &CompiledProject::find_interactable);
+                                          find_interactable(m_state, id));
             else if constexpr (std::is_same_v<T, RoomFeatureRef> ||
                                std::is_same_v<T, InteractableFeatureRef>) {
-                const auto* feature = find_feature(m_project, id);
+                const auto* feature = find_feature(m_state, id);
                 if (feature == nullptr)
                     return Result<PropertyLookupResult, Diagnostics>::failure(
                         property_error("runtime.unknown_property_owner", PropertyTargetRef{id},

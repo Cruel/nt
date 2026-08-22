@@ -475,6 +475,8 @@ std::optional<CharacterDefinition> decode_character(Decoder&, const nlohmann::js
 std::optional<RoomDefinition> decode_room(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<InteractableDefinition> decode_interactable(Decoder&, const nlohmann::json&,
                                                           std::string_view);
+std::optional<ArchetypeDefinition> decode_archetype(Decoder&, const nlohmann::json&,
+                                                    std::string_view);
 std::optional<MapDefinition> decode_map(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<SceneDefinition> decode_scene(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<DialogueDefinition> decode_dialogue(Decoder&, const nlohmann::json&,

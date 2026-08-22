@@ -1478,6 +1478,58 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                                   std::move(*state),    std::move(*presentation)};
 }
 
+std::optional<ArchetypeDefinition> decode_archetype(Decoder& decoder, const nlohmann::json& value,
+                                                    std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"configuration", "id", "instanceKind"}))
+        return std::nullopt;
+    const auto* id_value = decoder.member(value, "id", pointer);
+    const auto* kind_value = decoder.member(value, "instanceKind", pointer);
+    const auto* configuration_value = decoder.member(value, "configuration", pointer);
+    auto id =
+        id_value ? decoder.id<ArchetypeId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
+    auto kind = kind_value ? decoder.string(*kind_value, pointer_child(pointer, "instanceKind"))
+                           : std::nullopt;
+    if (!id || !kind || !configuration_value || !configuration_value->is_object()) {
+        if (configuration_value && !configuration_value->is_object())
+            decoder.error(k_code_type, "Expected Archetype configuration object.",
+                          pointer_child(pointer, "configuration"));
+        return std::nullopt;
+    }
+
+    auto configuration = *configuration_value;
+    configuration["id"] = id->text();
+    const auto configuration_pointer = pointer_child(pointer, "configuration");
+    if (*kind == "room") {
+        auto decoded = decode_room(decoder, configuration, configuration_pointer);
+        if (decoded)
+            return ArchetypeDefinition{std::move(*id), GameplayInstanceKind::Room,
+                                       std::move(*decoded)};
+        return std::nullopt;
+    }
+    if (*kind == "character") {
+        configuration["initialWorldState"] = {
+            {"enabled", true}, {"location", {{"kind", "unplaced"}}}, {"visible", true}};
+        auto decoded = decode_character(decoder, configuration, configuration_pointer);
+        if (decoded)
+            return ArchetypeDefinition{std::move(*id), GameplayInstanceKind::Character,
+                                       std::move(*decoded)};
+        return std::nullopt;
+    }
+    if (*kind == "interactable") {
+        configuration["initialState"] = {
+            {"enabled", true}, {"location", {{"kind", "unplaced"}}}, {"visible", true}};
+        auto decoded = decode_interactable(decoder, configuration, configuration_pointer);
+        if (decoded)
+            return ArchetypeDefinition{std::move(*id), GameplayInstanceKind::Interactable,
+                                       std::move(*decoded)};
+        return std::nullopt;
+    }
+    decoder.error(k_code_variant, "Unknown Gameplay Instance Archetype kind.",
+                  pointer_child(pointer, "instanceKind"));
+    return std::nullopt;
+}
+
 std::optional<MapDefinition> decode_map(Decoder& decoder, const nlohmann::json& value,
                                         std::string_view pointer)
 {

@@ -244,6 +244,7 @@ async function postInputSnapshot(
           environmentCount: 0,
           layoutCount: 0,
           desiredAudioCount: 0,
+          gameplayInstances: [],
         },
       },
     });
@@ -728,6 +729,7 @@ describe('FullGamePreviewEditor', () => {
               environmentCount: 0,
               layoutCount: 0,
               desiredAudioCount: 0,
+              gameplayInstances: [],
             },
           },
         },
@@ -813,6 +815,7 @@ describe('FullGamePreviewEditor', () => {
             environmentCount: 0,
             layoutCount: 0,
             desiredAudioCount: 0,
+            gameplayInstances: [],
           },
         },
       });
@@ -892,6 +895,7 @@ describe('FullGamePreviewEditor', () => {
             environmentCount: 0,
             layoutCount: 0,
             desiredAudioCount: 0,
+            gameplayInstances: [],
           },
         },
       });

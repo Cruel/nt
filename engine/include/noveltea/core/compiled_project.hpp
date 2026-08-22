@@ -604,6 +604,23 @@ struct InteractableDefinition {
     InteractablePresentation presentation;
 };
 
+enum class GameplayInstanceKind : std::uint8_t {
+    Room,
+    Character,
+    Interactable,
+};
+
+// Archetype configuration is compiled, fully resolved vocabulary. The contained definition-shaped
+// value is a template only: its identity field is never indexed or exposed as a Gameplay Instance.
+// RuntimeWorld replaces that placeholder with a session-owned identity when creating an instance.
+using ArchetypeConfiguration =
+    std::variant<RoomDefinition, CharacterDefinition, InteractableDefinition>;
+struct ArchetypeDefinition {
+    ArchetypeId id;
+    GameplayInstanceKind kind;
+    ArchetypeConfiguration configuration;
+};
+
 struct ApplyEffectInstruction {
     InteractionInstructionId id;
     Effect effect;
@@ -1022,6 +1039,7 @@ struct CompiledProjectInput {
     Localization localization;
     std::vector<PropertyDefinition> properties;
     std::vector<TraitDefinition> traits;
+    std::vector<ArchetypeDefinition> archetypes;
     std::vector<InventoryDefinition> inventories;
     std::vector<AssetResource> assets;
     std::vector<LayoutResource> layouts;
@@ -1064,6 +1082,10 @@ public:
     [[nodiscard]] const std::vector<compiled::TraitDefinition>& traits() const noexcept
     {
         return m_traits;
+    }
+    [[nodiscard]] const std::vector<compiled::ArchetypeDefinition>& archetypes() const noexcept
+    {
+        return m_archetypes;
     }
     [[nodiscard]] const std::vector<compiled::InventoryDefinition>& inventories() const noexcept
     {
@@ -1117,6 +1139,8 @@ public:
 
     [[nodiscard]] const PropertyDefinition* find_property(const PropertyId& id) const noexcept;
     [[nodiscard]] const compiled::TraitDefinition* find_trait(const TraitId& id) const noexcept;
+    [[nodiscard]] const compiled::ArchetypeDefinition*
+    find_archetype(const ArchetypeId& id) const noexcept;
     [[nodiscard]] const compiled::InventoryDefinition*
     find_inventory(const compiled::InventoryRef& reference) const noexcept;
     [[nodiscard]] const compiled::AssetResource* find_asset(const AssetId& id) const noexcept;
@@ -1152,6 +1176,7 @@ private:
     compiled::Localization m_localization;
     std::vector<PropertyDefinition> m_properties;
     std::vector<compiled::TraitDefinition> m_traits;
+    std::vector<compiled::ArchetypeDefinition> m_archetypes;
     std::vector<compiled::InventoryDefinition> m_inventories;
     std::vector<compiled::AssetResource> m_assets;
     std::vector<compiled::LayoutResource> m_layouts;
@@ -1168,6 +1193,7 @@ private:
 #define NOVELTEA_COMPILED_INDEX(type, name) std::unordered_map<type, std::size_t> m_##name##_index
     NOVELTEA_COMPILED_INDEX(PropertyId, property);
     NOVELTEA_COMPILED_INDEX(TraitId, trait);
+    NOVELTEA_COMPILED_INDEX(ArchetypeId, archetype);
     NOVELTEA_COMPILED_INDEX(AssetId, asset);
     NOVELTEA_COMPILED_INDEX(LayoutId, layout);
     NOVELTEA_COMPILED_INDEX(ScriptId, script);

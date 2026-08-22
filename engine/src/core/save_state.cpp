@@ -160,6 +160,10 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                      .save_contract = project.save_contract()},
         .play_time = session.m_play_time,
         .random_state = session.m_random_state,
+        .next_runtime_instance_id = session.m_next_runtime_instance_id,
+        .runtime_rooms = {},
+        .runtime_characters = {},
+        .runtime_interactables = {},
         .property_overrides = {},
         .characters = session.m_character_world,
         .interactables = session.m_interactables,
@@ -183,6 +187,23 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .flow_stack = {},
         .blocker = std::nullopt,
     };
+
+    save.runtime_rooms.reserve(session.m_runtime_rooms.size());
+    for (const auto& value : session.m_runtime_rooms)
+        save.runtime_rooms.push_back(SavedRuntimeRoomConfiguration{
+            value.id, value.declared, value.birth_source, value.structural_override_source,
+            value.provenance, value.birth_exit_target_overrides,
+            value.structural_override_exit_target_overrides, value.exit_target_overrides});
+    save.runtime_characters.reserve(session.m_runtime_characters.size());
+    for (const auto& value : session.m_runtime_characters)
+        save.runtime_characters.push_back(
+            SavedRuntimeCharacterConfiguration{value.id, value.declared, value.birth_source,
+                                               value.structural_override_source, value.provenance});
+    save.runtime_interactables.reserve(session.m_runtime_interactables.size());
+    for (const auto& value : session.m_runtime_interactables)
+        save.runtime_interactables.push_back(SavedRuntimeInteractableConfiguration{
+            value.id, value.declared, value.birth_source, value.structural_override_source,
+            value.provenance});
 
     save.property_overrides.reserve(session.m_property_overrides.size());
     for (const auto& value : session.m_property_overrides)

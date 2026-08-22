@@ -1195,6 +1195,51 @@ nlohmann::json encode_publication(const runtime::RuntimePublication& publication
     nlohmann::json observations = nlohmann::json::array();
     for (const auto& observation : publication.observations.values)
         observations.push_back(encode_observation(observation));
+    nlohmann::json instances = nlohmann::json::array();
+    for (const auto& snapshot : publication.gameplay_instances) {
+        std::string kind;
+        std::string id;
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, RoomId>)
+                    kind = "room";
+                else if constexpr (std::is_same_v<T, CharacterId>)
+                    kind = "character";
+                else
+                    kind = "interactable";
+                id = value.text();
+            },
+            snapshot.instance);
+        std::string provenance = "declared";
+        switch (snapshot.provenance.kind) {
+        case RuntimeInstanceProvenanceKind::Declared:
+            provenance = "declared";
+            break;
+        case RuntimeInstanceProvenanceKind::Archetype:
+            provenance = "archetype";
+            break;
+        case RuntimeInstanceProvenanceKind::CompiledDefinition:
+            provenance = "compiled-definition";
+            break;
+        case RuntimeInstanceProvenanceKind::Clone:
+            provenance = "clone";
+            break;
+        }
+        nlohmann::json source = nullptr;
+        if (snapshot.provenance.source_instance)
+            std::visit([&](const auto& value) { source = value.text(); },
+                       *snapshot.provenance.source_instance);
+        instances.push_back(
+            {{"kind", std::move(kind)},
+             {"id", std::move(id)},
+             {"declared", snapshot.declared},
+             {"provenance", std::move(provenance)},
+             {"archetype", snapshot.provenance.archetype
+                               ? nlohmann::json(snapshot.provenance.archetype->text())
+                               : nlohmann::json(nullptr)},
+             {"source", std::move(source)}});
+    }
     return {
         {"revision", publication.revision.number()},
         {"gameplayUi", encode_view(publication.gameplay_ui)},
@@ -1207,6 +1252,7 @@ nlohmann::json encode_publication(const runtime::RuntimePublication& publication
           {"layoutCount", presentation.layouts.size()},
           {"desiredAudioCount", presentation.desired_audio.size()}}},
         {"observations", std::move(observations)},
+        {"gameplayInstances", std::move(instances)},
     };
 }
 

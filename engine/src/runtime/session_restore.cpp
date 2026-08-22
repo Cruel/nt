@@ -21,6 +21,88 @@ std::uint64_t saved_frame_number(const SavedFlowFrame& frame) noexcept
     return std::visit([](const auto& value) { return value.snapshot_id.value; }, frame);
 }
 
+template<class Definition, class Id> void replace_identity(Definition& definition, const Id& id)
+{
+    definition.identity.id = id;
+}
+
+std::optional<compiled::RoomDefinition> materialize_room(const CompiledProject& project,
+                                                         const RuntimeConfigurationSource& source,
+                                                         const RoomId& id)
+{
+    std::optional<compiled::RoomDefinition> result;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, CompiledRoomConfigurationSource>) {
+                if (const auto* definition = project.find_room(value.room))
+                    result = *definition;
+            } else if constexpr (std::is_same_v<T, ArchetypeConfigurationSource>) {
+                const auto* archetype = project.find_archetype(value.archetype);
+                if (archetype != nullptr && archetype->kind == compiled::GameplayInstanceKind::Room)
+                    if (const auto* definition =
+                            std::get_if<compiled::RoomDefinition>(&archetype->configuration))
+                        result = *definition;
+            }
+        },
+        source);
+    if (result)
+        replace_identity(*result, id);
+    return result;
+}
+
+std::optional<compiled::CharacterDefinition>
+materialize_character(const CompiledProject& project, const RuntimeConfigurationSource& source,
+                      const CharacterId& id)
+{
+    std::optional<compiled::CharacterDefinition> result;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, CompiledCharacterConfigurationSource>) {
+                if (const auto* definition = project.find_character(value.character))
+                    result = *definition;
+            } else if constexpr (std::is_same_v<T, ArchetypeConfigurationSource>) {
+                const auto* archetype = project.find_archetype(value.archetype);
+                if (archetype != nullptr &&
+                    archetype->kind == compiled::GameplayInstanceKind::Character)
+                    if (const auto* definition =
+                            std::get_if<compiled::CharacterDefinition>(&archetype->configuration))
+                        result = *definition;
+            }
+        },
+        source);
+    if (result)
+        replace_identity(*result, id);
+    return result;
+}
+
+std::optional<compiled::InteractableDefinition>
+materialize_interactable(const CompiledProject& project, const RuntimeConfigurationSource& source,
+                         const InteractableId& id)
+{
+    std::optional<compiled::InteractableDefinition> result;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, CompiledInteractableConfigurationSource>) {
+                if (const auto* definition = project.find_interactable(value.interactable))
+                    result = *definition;
+            } else if constexpr (std::is_same_v<T, ArchetypeConfigurationSource>) {
+                const auto* archetype = project.find_archetype(value.archetype);
+                if (archetype != nullptr &&
+                    archetype->kind == compiled::GameplayInstanceKind::Interactable)
+                    if (const auto* definition = std::get_if<compiled::InteractableDefinition>(
+                            &archetype->configuration))
+                        result = *definition;
+            }
+        },
+        source);
+    if (result)
+        replace_identity(*result, id);
+    return result;
+}
+
 Result<PresentationOwner, Diagnostics>
 restore_presentation_owner(const SavedPresentationOwner& owner,
                            const std::unordered_map<std::uint64_t, FlowFrameId>& frame_ids,
@@ -92,6 +174,111 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     auto* state = created.value_if();
     if (state == nullptr)
         return Result<SessionState, Diagnostics>::failure(created.error());
+
+    std::vector<RuntimeRoomConfiguration> runtime_rooms;
+    runtime_rooms.reserve(save.runtime_rooms.size());
+    for (const auto& saved : save.runtime_rooms) {
+        auto birth = materialize_room(project, saved.birth_source, saved.id);
+        if (!birth)
+            return Result<SessionState, Diagnostics>::failure(
+                restore_error("save_restore.invalid_runtime_configuration",
+                              "Saved Room birth configuration source cannot be reconstructed."));
+        for (const auto& edit : saved.birth_exit_target_overrides) {
+            const auto exit =
+                std::find_if(birth->exits.begin(), birth->exits.end(),
+                             [&](const auto& value) { return value.id == edit.exit; });
+            if (exit == birth->exits.end())
+                return Result<SessionState, Diagnostics>::failure(
+                    restore_error("save_restore.invalid_runtime_configuration",
+                                  "Saved Room birth Exit edit cannot be reconstructed."));
+            exit->target = edit.target;
+        }
+        std::optional<compiled::RoomDefinition> structural_override;
+        if (saved.structural_override_source) {
+            structural_override =
+                materialize_room(project, *saved.structural_override_source, saved.id);
+            if (!structural_override)
+                return Result<SessionState, Diagnostics>::failure(restore_error(
+                    "save_restore.invalid_runtime_configuration",
+                    "Saved Room structural override source cannot be reconstructed."));
+        }
+        auto& effective = structural_override ? *structural_override : *birth;
+        if (structural_override) {
+            for (const auto& edit : saved.structural_override_exit_target_overrides) {
+                const auto exit =
+                    std::find_if(effective.exits.begin(), effective.exits.end(),
+                                 [&](const auto& value) { return value.id == edit.exit; });
+                if (exit == effective.exits.end())
+                    return Result<SessionState, Diagnostics>::failure(restore_error(
+                        "save_restore.invalid_runtime_configuration",
+                        "Saved Room replacement-source Exit edit cannot be reconstructed."));
+                exit->target = edit.target;
+            }
+        }
+        for (const auto& edit : saved.exit_target_overrides) {
+            const auto exit =
+                std::find_if(effective.exits.begin(), effective.exits.end(),
+                             [&](const auto& value) { return value.id == edit.exit; });
+            if (exit == effective.exits.end())
+                return Result<SessionState, Diagnostics>::failure(
+                    restore_error("save_restore.invalid_runtime_configuration",
+                                  "Saved Room Exit structural edit cannot be reconstructed."));
+            exit->target = edit.target;
+        }
+        runtime_rooms.push_back(RuntimeRoomConfiguration{
+            saved.id, saved.declared, saved.birth_source, saved.structural_override_source,
+            saved.provenance, std::move(*birth), std::move(structural_override),
+            saved.birth_exit_target_overrides, saved.structural_override_exit_target_overrides,
+            saved.exit_target_overrides});
+    }
+
+    std::vector<RuntimeCharacterConfiguration> runtime_characters;
+    runtime_characters.reserve(save.runtime_characters.size());
+    for (const auto& saved : save.runtime_characters) {
+        auto birth = materialize_character(project, saved.birth_source, saved.id);
+        if (!birth)
+            return Result<SessionState, Diagnostics>::failure(restore_error(
+                "save_restore.invalid_runtime_configuration",
+                "Saved Character birth configuration source cannot be reconstructed."));
+        std::optional<compiled::CharacterDefinition> structural_override;
+        if (saved.structural_override_source) {
+            structural_override =
+                materialize_character(project, *saved.structural_override_source, saved.id);
+            if (!structural_override)
+                return Result<SessionState, Diagnostics>::failure(restore_error(
+                    "save_restore.invalid_runtime_configuration",
+                    "Saved Character structural override source cannot be reconstructed."));
+        }
+        runtime_characters.push_back(RuntimeCharacterConfiguration{
+            saved.id, saved.declared, saved.birth_source, saved.structural_override_source,
+            saved.provenance, std::move(*birth), std::move(structural_override)});
+    }
+
+    std::vector<RuntimeInteractableConfiguration> runtime_interactables;
+    runtime_interactables.reserve(save.runtime_interactables.size());
+    for (const auto& saved : save.runtime_interactables) {
+        auto birth = materialize_interactable(project, saved.birth_source, saved.id);
+        if (!birth)
+            return Result<SessionState, Diagnostics>::failure(restore_error(
+                "save_restore.invalid_runtime_configuration",
+                "Saved Interactable birth configuration source cannot be reconstructed."));
+        std::optional<compiled::InteractableDefinition> structural_override;
+        if (saved.structural_override_source) {
+            structural_override =
+                materialize_interactable(project, *saved.structural_override_source, saved.id);
+            if (!structural_override)
+                return Result<SessionState, Diagnostics>::failure(restore_error(
+                    "save_restore.invalid_runtime_configuration",
+                    "Saved Interactable structural override source cannot be reconstructed."));
+        }
+        runtime_interactables.push_back(RuntimeInteractableConfiguration{
+            saved.id, saved.declared, saved.birth_source, saved.structural_override_source,
+            saved.provenance, std::move(*birth), std::move(structural_override)});
+    }
+    state->m_runtime_rooms = std::move(runtime_rooms);
+    state->m_runtime_characters = std::move(runtime_characters);
+    state->m_runtime_interactables = std::move(runtime_interactables);
+    state->m_next_runtime_instance_id = save.next_runtime_instance_id;
 
     state->m_mode = save.mode;
     state->m_flow_stack.clear();
@@ -244,7 +431,11 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_map_presentation = save.map_presentation;
     const auto reconstruct_room_presentation =
         [&project, state](const RoomId& room) -> Result<void, Diagnostics> {
-        const auto* definition = project.find_room(room);
+        const auto record =
+            std::find_if(state->runtime_rooms().begin(), state->runtime_rooms().end(),
+                         [&](const auto& value) { return value.id == room; });
+        const auto* definition =
+            record == state->runtime_rooms().end() ? nullptr : &record->effective_configuration();
         if (definition == nullptr)
             return Result<void, Diagnostics>::failure(restore_error(
                 "save_restore.invalid_room", "Room presentation could not be reconstructed."));

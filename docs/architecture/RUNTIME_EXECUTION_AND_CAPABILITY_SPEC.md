@@ -341,14 +341,36 @@ authority. Candidate save restoration validates serialized references against im
 before the new live boundary is constructed.
 
 `RuntimeWorld::resolved_configuration(...)` is the named production boundary for effective immutable
-Room, Character, and Interactable configuration. Authoring Archetype chains are fully resolved and
-flattened by the TypeScript compiler before the compiled V4 boundary, so runtime resolution still
-returns a borrowed const view of the declared compiled definition; there is no runtime Archetype
-collection, lookup, identity, Location, or mutable state. The view is valid for the borrowed
-`CompiledProject` lifetime and is neither copied into `SessionState` nor cached as mutable runtime
-data. Gameplay Instance Property reads use `RuntimeWorld::resolve_property(...)`, which applies target override, own authored assignment, configured Trait value, declaration default, and typed-missing semantics while keeping that lookup policy behind the same world boundary. Property overrides themselves remain authoritative mutable `SessionState`, not part of immutable configuration.
+Room, Character, and Interactable configuration. Authoring Archetype chains are fully resolved by the
+TypeScript compiler. Compiled V4 retains each resolved Archetype as immutable same-kind configuration
+vocabulary so admitted runtime code can create an instance from an Archetype without performing
+runtime inheritance. Archetypes still have no Gameplay Instance identity, Location, or mutable state.
 
-This seam is deliberately representation-independent for runtime consumers. The current compiled representation retains explicit Trait attachments and ordinary Property assignments only on supported Gameplay Instances (Room, Character, and Interactable); future configuration mechanisms can change resolver implementation and compiled definition construction without changing every runtime consumer. This phase does not add a second configuration registry, runtime-created instances, or structural creation APIs. Future instance creation extends `RuntimeWorld`; it must not make `CompiledProject` mutable or introduce another live world registry alongside this boundary.
+`SessionState` owns one runtime configuration record for every declared or runtime-created Gameplay
+Instance. Each record captures immutable birth configuration, optional validated structural overlay,
+provenance, and the stable typed identity allocated by the session. `RuntimeWorld` resolves both
+declared and runtime-created identities through those records while `CompiledProject` remains
+immutable. Creation accepts an Archetype, an explicit compiled Room/Character/Interactable
+definition, or another live instance's current effective configuration. Cloning snapshots the source
+configuration at creation time; later source edits do not change the clone's birth configuration.
+Clearing a structural overlay reveals that immutable birth value.
+
+Structural replacement, Room-exit retargeting, connected Character/Interactable creation, and clear
+operations validate all affected live topology before committing. They reject changes that would
+invalidate active Flow/lifecycle state, Feature references, Inventory membership, Room placements,
+cast/actor state, or mounted Room overlays. Runtime code may select only compiled vocabulary; it does
+not manufacture declarations, resources, programs, Verbs, Interactions, or Archetypes. Destruction
+is explicit and non-cascading, is never admitted for declared instances, and fails while live
+provenance, Flow, Location, Inventory, presentation, topology, or lifecycle references depend on the
+identity.
+
+Gameplay Instance Property reads use `RuntimeWorld::resolve_property(...)`, which applies target
+override, own authored assignment, configured Trait value, declaration default, and typed-missing
+semantics behind the same world boundary. Property overrides and ordinary Character/Interactable
+world state remain authoritative mutable `SessionState`, separate from structural configuration.
+Checkpoint projection serializes runtime identity/provenance, configuration source snapshots and Room
+exit overlays, topology/state, and the deterministic allocator position; restoration reconstructs the
+runtime world before validating dependent state.
 
 ## RuntimeSession ownership
 

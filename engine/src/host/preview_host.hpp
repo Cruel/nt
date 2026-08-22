@@ -115,6 +115,20 @@ public:
                                                      core::RuntimeValue value);
     [[nodiscard]] PreviewMutationResult reset_variable(const std::string& variable_id);
     [[nodiscard]] PreviewMutationResult teleport_room(const std::string& room_id);
+    [[nodiscard]] PreviewMutationResult create_runtime_instance(const std::string& kind,
+                                                                const std::string& source_kind,
+                                                                const std::string& source_id);
+    [[nodiscard]] PreviewMutationResult
+    replace_runtime_instance_configuration(const std::string& kind, const std::string& instance_id,
+                                           const std::string& source_kind,
+                                           const std::string& source_id);
+    [[nodiscard]] PreviewMutationResult
+    clear_runtime_instance_configuration(const std::string& kind, const std::string& instance_id);
+    [[nodiscard]] PreviewMutationResult destroy_runtime_instance(const std::string& kind,
+                                                                 const std::string& instance_id);
+    [[nodiscard]] PreviewMutationResult
+    retarget_runtime_room_exit(const std::string& room_id, const std::string& exit_id,
+                               const std::string& target_room_id);
 
     [[nodiscard]] bool begin_recording();
     [[nodiscard]] bool end_recording();

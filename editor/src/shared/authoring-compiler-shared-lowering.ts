@@ -1,5 +1,8 @@
 import { parseAssetData } from './project-schema/authoring-assets';
-import { resolveGameplayInstanceRecord } from './project-schema/authoring-archetypes';
+import {
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from './project-schema/authoring-archetypes';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import type {
   CompiledCondition,
@@ -75,6 +78,7 @@ export interface CompiledProjectSharedDraft {
   entrypoint: CompiledProjectWireV4['entrypoint'];
   properties: CompiledProjectWireV4['properties'];
   traits: CompiledProjectWireV4['traits'];
+  archetypes: CompiledProjectWireV4['archetypes'];
   inventories: CompiledProjectWireV4['inventories'];
   localization: CompiledProjectWireV4['localization'];
   resources: WireResources;
@@ -674,6 +678,224 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     });
   }
 
+  const archetypes: CompiledProjectWireV4['archetypes'] = [];
+  for (const [id, record] of sortedEntries(project.archetypes)) {
+    const configuration = resolveArchetypeConfiguration(project, id);
+    if (!configuration) {
+      diagnostics.push({
+        code: 'authoring.compile.invalid-archetype',
+        path: `/archetypes/${id}`,
+        message: `Archetype '${id}' does not resolve to a valid compiled configuration.`,
+      });
+      continue;
+    }
+    const kind = record.data.instanceKind;
+    if (kind === 'room') {
+      const data = requireData(parseRoomData(configuration.data), `/archetypes/${id}/data`);
+      if (!data) continue;
+      const identity = {
+        traits: [...configuration.traits].sort(),
+        propertyAssignments: propertyAssignments(configuration),
+      };
+      const declared = {
+        ...identity,
+        displayName: data.displayName,
+        background: {
+          asset: assetRef(data.background.asset),
+          material: materialRef(data.background.material),
+          fit: data.background.fit,
+          color: data.background.color,
+        },
+        description: compileText(data.description),
+        exits: data.exits.map((exit) => ({
+          id: exit.id,
+          label: compileText({ markup: 'plain', source: { kind: 'inline', text: exit.label } }),
+          direction: exit.direction,
+          target: roomRef(exit.target.$ref.id),
+          condition: compileCondition(exit.condition),
+          transition: exit.transition ? compileRoomNavigationTransition(exit.transition) : null,
+        })),
+        lifecycle: {
+          canEnter: compileCondition(data.lifecycle.canEnter),
+          canLeave: compileCondition(data.lifecycle.canLeave),
+          hooks: [],
+        },
+        overlays: data.overlays.map((overlay) => ({
+          id: overlay.id,
+          layout: layoutRef(overlay.layout)!,
+          condition: compileCondition(overlay.condition),
+          visible: overlay.visible,
+          order: overlay.order,
+        })),
+        cast: data.cast.map((entry) => ({
+          id: entry.id,
+          character: characterRef(entry.character)!,
+          condition: compileCondition(entry.condition),
+          placementId: entry.placementId,
+          poseId: entry.poseId,
+          expressionId: entry.expressionId,
+          ...(entry.idleId ? { idleId: entry.idleId } : {}),
+          visible: entry.visible,
+          order: entry.order,
+        })),
+        props: data.props.map((entry) => ({
+          id: entry.id,
+          condition: compileCondition(entry.condition),
+          placementId: entry.placementId,
+          asset: assetRef(entry.asset),
+          material: materialRef(entry.material),
+          visible: entry.visible,
+          order: entry.order,
+        })),
+        interactables: data.interactables.map((entry) => ({
+          id: entry.id,
+          interactable: { kind: 'interactable' as const, id: entry.interactable.$ref.id },
+          condition: compileCondition(entry.condition),
+          placementId: entry.placementId,
+          visible: entry.visible,
+          order: entry.order,
+        })),
+        environments: data.environments.map((entry) => ({
+          id: entry.id,
+          condition: compileCondition(entry.condition),
+          asset: assetRef(entry.asset),
+          material: materialRef(entry.material)!,
+          bounds: { ...entry.bounds },
+          plane: entry.plane,
+          order: entry.order,
+          clock: entry.clock,
+          scrollPerSecond: { ...entry.scrollPerSecond },
+          opacity: entry.opacity,
+          visible: entry.visible,
+        })),
+        compose: data.compose
+          ? { script: { kind: 'script' as const, id: data.compose.script.$ref.id } }
+          : null,
+        scriptHooks: data.scriptHooks.map((mapping) => ({
+          hook: mapping.hook,
+          handler: {
+            module: { kind: 'script' as const, id: mapping.handler.module.$ref.id },
+            export: mapping.handler.export.trim(),
+          },
+        })),
+        placements: data.placements.map((placement, index) => ({
+          id: placement.id,
+          bounds: { ...placement.bounds },
+          order: placement.order ?? index,
+          presentation: {
+            label: placement.presentation.label ? compileText(placement.presentation.label) : null,
+            layout: layoutRef(placement.presentation.layout),
+          },
+        })),
+        features: data.features.map(compileFeature),
+        hotspots: data.hotspots.map((hotspot) => ({
+          id: hotspot.id,
+          label: hotspot.label,
+          condition: compileCondition(hotspot.condition),
+          inputOrder: hotspot.inputOrder,
+          highlight: compileHighlight(hotspot.highlight),
+          shape: { kind: 'rect' as const, bounds: { ...hotspot.shape.bounds } },
+          target: compileRoomHotspotTarget(hotspot.target),
+        })),
+      };
+      archetypes.push({ id, instanceKind: 'room', configuration: declared });
+    } else if (kind === 'character') {
+      const raw = {
+        ...(configuration.data as object),
+        initialWorldState: { location: { kind: 'unplaced' }, enabled: true, visible: true },
+      };
+      const data = requireData(parseCharacterData(raw), `/archetypes/${id}/data`);
+      if (!data) continue;
+      archetypes.push({
+        id,
+        instanceKind: 'character',
+        configuration: {
+          traits: [...configuration.traits].sort(),
+          propertyAssignments: propertyAssignments(configuration),
+          displayName: data.displayName,
+          dialogue: { ...data.dialogue },
+          defaults: {
+            poseId: data.defaults.poseId,
+            expressionId: data.defaults.expressionId,
+            ...(data.defaults.idleId ? { idleId: data.defaults.idleId } : {}),
+          },
+          poses: data.poses.map((pose) => ({
+            id: pose.id,
+            sprite: assetRef(pose.sprite),
+            material: materialRef(pose.material),
+            offset: { ...pose.offset },
+            scale: pose.scale,
+            anchor: { ...pose.anchor },
+          })),
+          expressions: data.expressions.map((expression) => ({
+            id: expression.id,
+            poseId: expression.poseId,
+            sprite: assetRef(expression.sprite),
+            material: materialRef(expression.material),
+          })),
+          ...(data.idles.length > 0
+            ? {
+                idles: data.idles.map((idle) => ({
+                  id: idle.id,
+                  kind: idle.kind,
+                  amplitude: idle.amplitude,
+                  periodMs: idle.periodMs,
+                  clock: idle.clock,
+                })),
+              }
+            : {}),
+          inventories: compileInventories(data.inventories),
+        },
+      });
+    } else {
+      const raw = {
+        ...(configuration.data as object),
+        initialState: { location: { kind: 'unplaced' }, enabled: true, visible: true },
+      };
+      const data = requireData(parseInteractableData(raw), `/archetypes/${id}/data`);
+      if (!data) continue;
+      const hotspotDefinition = data.presentation.hotspots!;
+      archetypes.push({
+        id,
+        instanceKind: 'interactable',
+        configuration: {
+          traits: [...configuration.traits].sort(),
+          propertyAssignments: propertyAssignments(configuration),
+          displayName: data.displayName,
+          features: data.features.map(compileFeature),
+          inventories: compileInventories(data.inventories),
+          presentation: {
+            sprite: assetRef(data.presentation.sprite),
+            material: materialRef(data.presentation.material),
+            hotspots:
+              hotspotDefinition.kind === 'sprite-alpha'
+                ? {
+                    kind: 'sprite-alpha',
+                    hotspot: {
+                      ...hotspotDefinition.hotspot,
+                      condition: compileCondition(hotspotDefinition.hotspot.condition),
+                      highlight: compileHighlight(hotspotDefinition.hotspot.highlight),
+                      target: compileInteractableHotspotTarget(hotspotDefinition.hotspot.target),
+                    },
+                  }
+                : {
+                    kind: 'custom',
+                    hotspots: hotspotDefinition.hotspots.map((hotspot) => ({
+                      id: hotspot.id,
+                      label: hotspot.label,
+                      condition: compileCondition(hotspot.condition),
+                      inputOrder: hotspot.inputOrder,
+                      highlight: compileHighlight(hotspot.highlight),
+                      target: compileInteractableHotspotTarget(hotspot.target),
+                      shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
+                    })),
+                  },
+          },
+        },
+      });
+    }
+  }
+
   const properties: CompiledProjectWireV4['properties'] = sortedEntries(project.properties).map(
     ([id, definition]) => ({
       id,
@@ -762,6 +984,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     entrypoint: compileEntrypoint(project.entrypoint),
     properties,
     traits,
+    archetypes,
     inventories: compileInventories(project.inventories),
     localization: {
       defaultLocale: project.localization.defaultLocale,

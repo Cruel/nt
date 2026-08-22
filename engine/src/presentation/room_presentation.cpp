@@ -248,15 +248,41 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
             [&](const auto& value) -> Result<std::string, Diagnostics> {
                 using T = std::decay_t<decltype(value)>;
                 if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>) {
-                    const auto* definition = project.find_character(value.character);
+                    const auto* definition = world.resolved_configuration(value.character);
                     if (definition != nullptr)
                         return Result<std::string, Diagnostics>::success(definition->display_name);
                 } else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>) {
-                    const auto* definition = project.find_interactable(value.interactable);
+                    const auto* definition = world.resolved_configuration(value.interactable);
                     if (definition != nullptr)
                         return Result<std::string, Diagnostics>::success(definition->display_name);
                 } else {
-                    const auto* definition = project.find_feature(value.feature);
+                    const auto* definition = std::visit(
+                        [&](const auto& reference) -> const compiled::FeatureDefinition* {
+                            using R = std::decay_t<decltype(reference)>;
+                            if constexpr (std::is_same_v<R, RoomFeatureRef>) {
+                                const auto* owner = world.resolved_configuration(reference.room);
+                                if (owner == nullptr)
+                                    return nullptr;
+                                const auto found = std::find_if(
+                                    owner->features.begin(), owner->features.end(),
+                                    [&](const auto& feature) {
+                                        return feature.identity.id == reference.feature_id;
+                                    });
+                                return found == owner->features.end() ? nullptr : &*found;
+                            } else {
+                                const auto* owner =
+                                    world.resolved_configuration(reference.interactable);
+                                if (owner == nullptr)
+                                    return nullptr;
+                                const auto found = std::find_if(
+                                    owner->features.begin(), owner->features.end(),
+                                    [&](const auto& feature) {
+                                        return feature.identity.id == reference.feature_id;
+                                    });
+                                return found == owner->features.end() ? nullptr : &*found;
+                            }
+                        },
+                        value.feature);
                     if (definition != nullptr)
                         return Result<std::string, Diagnostics>::success(definition->label);
                 }

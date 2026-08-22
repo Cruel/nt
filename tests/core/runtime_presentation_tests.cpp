@@ -483,8 +483,9 @@ TEST_CASE("snapshot publisher revisions only complete target changes and is fail
     CHECK(std::any_of(failed.error().begin(), failed.error().end(), [](const auto& diagnostic) {
         return diagnostic.code == "presentation.unresolved_reference";
     }));
-    CHECK(std::any_of(failed.error().begin(), failed.error().end(), [](const auto& diagnostic) {
-        return diagnostic.code == "presentation.room_actor_visual_missing";
-    }));
+    // Effective Gameplay Instance configuration is session-owned, so the comprehensive-state actor
+    // remains resolvable even while this test deliberately projects against a minimal immutable
+    // Project. Missing Project resources still reject the candidate and must not replace
+    // publication.
     CHECK(*publisher.published() == before);
 }

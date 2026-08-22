@@ -460,6 +460,24 @@ const interactableDefinitionSchema = strict({
   }),
 });
 
+const archetypeDefinitionSchema = z.discriminatedUnion('instanceKind', [
+  strict({
+    id,
+    instanceKind: z.literal('room'),
+    configuration: roomDefinitionSchema.omit({ id: true }),
+  }),
+  strict({
+    id,
+    instanceKind: z.literal('character'),
+    configuration: characterDefinitionSchema.omit({ id: true, initialWorldState: true }),
+  }),
+  strict({
+    id,
+    instanceKind: z.literal('interactable'),
+    configuration: interactableDefinitionSchema.omit({ id: true, initialState: true }),
+  }),
+]);
+
 const interactionMoveTargetSchema = interactableLocationSchema;
 const interactionInstructionSchema = z.discriminatedUnion('kind', [
   strict({ effect: compiledEffectSchema, id, kind: z.literal('apply-effect') }),
@@ -901,6 +919,7 @@ export const compiledDiagnosticSchema = strict({
 });
 
 export const compiledProjectWireV4Schema = strict({
+  archetypes: z.array(archetypeDefinitionSchema),
   definitions: strict({
     characters: z.array(characterDefinitionSchema),
     dialogues: z.array(dialogueDefinitionSchema),
@@ -949,6 +968,7 @@ export const compiledProjectWireV4Schema = strict({
     { path: ['definitions', 'verbs'], records: project.definitions.verbs },
     { path: ['properties'], records: project.properties },
     { path: ['traits'], records: project.traits },
+    { path: ['archetypes'], records: project.archetypes },
     { path: ['resources', 'assets'], records: project.resources.assets },
     { path: ['resources', 'layouts'], records: project.resources.layouts },
     { path: ['resources', 'scripts'], records: project.resources.scripts },
@@ -1113,6 +1133,7 @@ export function computeCompiledProjectSaveContract(
 ): `sc1:${string}` {
   const projection: CanonicalJson = {
     bootstrapModule: project.bootstrapModule as CanonicalJson,
+    archetypes: project.archetypes as CanonicalJson,
     definitions: project.definitions as CanonicalJson,
     inventories: project.inventories as CanonicalJson,
     properties: project.properties as CanonicalJson,

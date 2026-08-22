@@ -58,6 +58,197 @@ nlohmann::json encode_room_visit(const std::optional<RoomVisitContext>& visit)
             {"visitIndex", visit->visit_index}};
 }
 
+nlohmann::json encode_gameplay_instance_ref(const GameplayInstanceRef& value)
+{
+    return std::visit(
+        [](const auto& id) -> nlohmann::json {
+            using T = std::decay_t<decltype(id)>;
+            if constexpr (std::is_same_v<T, RoomId>)
+                return {{"kind", "room"}, {"id", id.text()}};
+            else if constexpr (std::is_same_v<T, CharacterId>)
+                return {{"kind", "character"}, {"id", id.text()}};
+            else
+                return {{"kind", "interactable"}, {"id", id.text()}};
+        },
+        value);
+}
+
+std::optional<GameplayInstanceRef>
+decode_gameplay_instance_ref(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!d.object(value, pointer, {"id", "kind"}))
+        return std::nullopt;
+    const auto* kind = d.member(value, "kind", pointer);
+    const auto* id = d.member(value, "id", pointer);
+    auto name = kind ? d.string(*kind, child(pointer, "kind")) : std::nullopt;
+    if (!name || !id)
+        return std::nullopt;
+    if (*name == "room") {
+        auto decoded = d.id<RoomId>(*id, child(pointer, "id"));
+        return decoded ? std::optional<GameplayInstanceRef>{std::move(*decoded)} : std::nullopt;
+    }
+    if (*name == "character") {
+        auto decoded = d.id<CharacterId>(*id, child(pointer, "id"));
+        return decoded ? std::optional<GameplayInstanceRef>{std::move(*decoded)} : std::nullopt;
+    }
+    if (*name == "interactable") {
+        auto decoded = d.id<InteractableId>(*id, child(pointer, "id"));
+        return decoded ? std::optional<GameplayInstanceRef>{std::move(*decoded)} : std::nullopt;
+    }
+    d.error(k_variant, "Unknown Gameplay Instance reference kind.", child(pointer, "kind"));
+    return std::nullopt;
+}
+
+nlohmann::json encode_configuration_source(const RuntimeConfigurationSource& source)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, CompiledRoomConfigurationSource>)
+                return {{"kind", "room-definition"}, {"id", value.room.text()}};
+            else if constexpr (std::is_same_v<T, CompiledCharacterConfigurationSource>)
+                return {{"kind", "character-definition"}, {"id", value.character.text()}};
+            else if constexpr (std::is_same_v<T, CompiledInteractableConfigurationSource>)
+                return {{"kind", "interactable-definition"}, {"id", value.interactable.text()}};
+            else
+                return {{"kind", "archetype"}, {"id", value.archetype.text()}};
+        },
+        source);
+}
+
+std::optional<RuntimeConfigurationSource>
+decode_configuration_source(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!d.object(value, pointer, {"id", "kind"}))
+        return std::nullopt;
+    const auto* kind = d.member(value, "kind", pointer);
+    const auto* id = d.member(value, "id", pointer);
+    auto name = kind ? d.string(*kind, child(pointer, "kind")) : std::nullopt;
+    if (!name || !id)
+        return std::nullopt;
+    if (*name == "room-definition") {
+        auto decoded = d.id<RoomId>(*id, child(pointer, "id"));
+        return decoded ? std::optional<RuntimeConfigurationSource>{CompiledRoomConfigurationSource{
+                             std::move(*decoded)}}
+                       : std::nullopt;
+    }
+    if (*name == "character-definition") {
+        auto decoded = d.id<CharacterId>(*id, child(pointer, "id"));
+        return decoded
+                   ? std::optional<RuntimeConfigurationSource>{CompiledCharacterConfigurationSource{
+                         std::move(*decoded)}}
+                   : std::nullopt;
+    }
+    if (*name == "interactable-definition") {
+        auto decoded = d.id<InteractableId>(*id, child(pointer, "id"));
+        return decoded ? std::optional<
+                             RuntimeConfigurationSource>{CompiledInteractableConfigurationSource{
+                             std::move(*decoded)}}
+                       : std::nullopt;
+    }
+    if (*name == "archetype") {
+        auto decoded = d.id<ArchetypeId>(*id, child(pointer, "id"));
+        return decoded ? std::optional<RuntimeConfigurationSource>{ArchetypeConfigurationSource{
+                             std::move(*decoded)}}
+                       : std::nullopt;
+    }
+    d.error(k_variant, "Unknown runtime configuration source kind.", child(pointer, "kind"));
+    return std::nullopt;
+}
+
+nlohmann::json encode_provenance(const RuntimeInstanceProvenance& provenance)
+{
+    std::string kind = "declared";
+    switch (provenance.kind) {
+    case RuntimeInstanceProvenanceKind::Declared:
+        kind = "declared";
+        break;
+    case RuntimeInstanceProvenanceKind::Archetype:
+        kind = "archetype";
+        break;
+    case RuntimeInstanceProvenanceKind::CompiledDefinition:
+        kind = "compiled-definition";
+        break;
+    case RuntimeInstanceProvenanceKind::Clone:
+        kind = "clone";
+        break;
+    }
+    return {{"kind", std::move(kind)},
+            {"archetype", provenance.archetype ? nlohmann::json(provenance.archetype->text())
+                                               : nlohmann::json(nullptr)},
+            {"source", provenance.source_instance
+                           ? encode_gameplay_instance_ref(*provenance.source_instance)
+                           : nlohmann::json(nullptr)}};
+}
+
+std::optional<std::vector<RuntimeRoomExitTargetOverride>>
+decode_room_exit_targets(Decoder& d, const nlohmann::json* value, std::string_view pointer)
+{
+    if (!value || !value->is_array()) {
+        d.error(k_type, "Expected an array.", std::string(pointer));
+        return std::nullopt;
+    }
+    std::vector<RuntimeRoomExitTargetOverride> result;
+    result.reserve(value->size());
+    for (std::size_t item = 0; item < value->size(); ++item) {
+        const auto* edit = json_access::element(*value, item);
+        const auto edit_pointer = index(pointer, item);
+        if (!edit || !d.object(*edit, edit_pointer, {"exit", "target"}))
+            continue;
+        const auto* exit_value = d.member(*edit, "exit", edit_pointer);
+        const auto* target_value = d.member(*edit, "target", edit_pointer);
+        auto exit =
+            exit_value ? d.id<RoomExitId>(*exit_value, child(edit_pointer, "exit")) : std::nullopt;
+        auto target = target_value ? d.id<RoomId>(*target_value, child(edit_pointer, "target"))
+                                   : std::nullopt;
+        if (exit && target)
+            result.push_back(RuntimeRoomExitTargetOverride{std::move(*exit), std::move(*target)});
+    }
+    return result;
+}
+
+std::optional<RuntimeInstanceProvenance> decode_provenance(Decoder& d, const nlohmann::json& value,
+                                                           std::string_view pointer)
+{
+    if (!d.object(value, pointer, {"archetype", "kind", "source"}))
+        return std::nullopt;
+    const auto* kind = d.member(value, "kind", pointer);
+    const auto* archetype = d.member(value, "archetype", pointer);
+    const auto* source = d.member(value, "source", pointer);
+    auto name = kind ? d.string(*kind, child(pointer, "kind")) : std::nullopt;
+    if (!name || archetype == nullptr || source == nullptr)
+        return std::nullopt;
+    RuntimeInstanceProvenanceKind provenance_kind;
+    if (*name == "declared")
+        provenance_kind = RuntimeInstanceProvenanceKind::Declared;
+    else if (*name == "archetype")
+        provenance_kind = RuntimeInstanceProvenanceKind::Archetype;
+    else if (*name == "compiled-definition")
+        provenance_kind = RuntimeInstanceProvenanceKind::CompiledDefinition;
+    else if (*name == "clone")
+        provenance_kind = RuntimeInstanceProvenanceKind::Clone;
+    else {
+        d.error(k_variant, "Unknown runtime provenance kind.", child(pointer, "kind"));
+        return std::nullopt;
+    }
+    std::optional<ArchetypeId> saved_archetype;
+    if (!archetype->is_null()) {
+        auto decoded = d.id<ArchetypeId>(*archetype, child(pointer, "archetype"));
+        if (!decoded)
+            return std::nullopt;
+        saved_archetype = std::move(*decoded);
+    }
+    std::optional<GameplayInstanceRef> saved_source;
+    if (!source->is_null()) {
+        auto decoded = decode_gameplay_instance_ref(d, *source, child(pointer, "source"));
+        if (!decoded)
+            return std::nullopt;
+        saved_source = std::move(*decoded);
+    }
+    return RuntimeInstanceProvenance{provenance_kind, std::move(saved_archetype),
+                                     std::move(saved_source)};
+}
+
 std::optional<std::optional<RoomVisitContext>>
 decode_room_visit(Decoder& d, const nlohmann::json& value, std::string_view pointer)
 {
@@ -146,6 +337,60 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
                               {"location", encode_character_location(value.location)},
                               {"enabled", value.enabled},
                               {"visible", value.visible}});
+
+    nlohmann::json runtime_rooms = nlohmann::json::array();
+    for (const auto& value : save.runtime_rooms) {
+        nlohmann::json birth_exit_targets = nlohmann::json::array();
+        for (const auto& edit : value.birth_exit_target_overrides)
+            birth_exit_targets.push_back(
+                {{"exit", edit.exit.text()}, {"target", edit.target.text()}});
+        nlohmann::json structural_exit_targets = nlohmann::json::array();
+        for (const auto& edit : value.structural_override_exit_target_overrides)
+            structural_exit_targets.push_back(
+                {{"exit", edit.exit.text()}, {"target", edit.target.text()}});
+        nlohmann::json exit_targets = nlohmann::json::array();
+        for (const auto& edit : value.exit_target_overrides)
+            exit_targets.push_back({{"exit", edit.exit.text()}, {"target", edit.target.text()}});
+        runtime_rooms.push_back(
+            {{"id", value.id.text()},
+             {"declared", value.declared},
+             {"birthSource", encode_configuration_source(value.birth_source)},
+             {"structuralOverrideSource",
+              value.structural_override_source
+                  ? encode_configuration_source(*value.structural_override_source)
+                  : nlohmann::json(nullptr)},
+             {"provenance", encode_provenance(value.provenance)},
+             {"birthExitTargetOverrides", std::move(birth_exit_targets)},
+             {"structuralOverrideExitTargetOverrides", std::move(structural_exit_targets)},
+             {"exitTargetOverrides", std::move(exit_targets)}});
+    }
+    nlohmann::json runtime_characters = nlohmann::json::array();
+    for (const auto& value : save.runtime_characters)
+        runtime_characters.push_back(
+            {{"id", value.id.text()},
+             {"declared", value.declared},
+             {"birthSource", encode_configuration_source(value.birth_source)},
+             {"structuralOverrideSource",
+              value.structural_override_source
+                  ? encode_configuration_source(*value.structural_override_source)
+                  : nlohmann::json(nullptr)},
+             {"provenance", encode_provenance(value.provenance)}});
+    nlohmann::json runtime_interactables = nlohmann::json::array();
+    for (const auto& value : save.runtime_interactables)
+        runtime_interactables.push_back(
+            {{"id", value.id.text()},
+             {"declared", value.declared},
+             {"birthSource", encode_configuration_source(value.birth_source)},
+             {"structuralOverrideSource",
+              value.structural_override_source
+                  ? encode_configuration_source(*value.structural_override_source)
+                  : nlohmann::json(nullptr)},
+             {"provenance", encode_provenance(value.provenance)}});
+    nlohmann::json runtime_world = {{"nextInstanceId", save.next_runtime_instance_id},
+                                    {"rooms", std::move(runtime_rooms)},
+                                    {"characters", std::move(runtime_characters)},
+                                    {"interactables", std::move(runtime_interactables)}};
+
     nlohmann::json room_visits = nlohmann::json::array();
     for (const auto& value : save.room_visits)
         room_visits.push_back({{"room", value.room.text()}, {"count", value.count}});
@@ -184,6 +429,7 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
            {"saveContract", save.metadata.save_contract}}},
          {"playTimeMs", save.play_time.count()},
          {"randomState", save.random_state},
+         {"runtimeWorld", std::move(runtime_world)},
          {"propertyOverrides", std::move(overrides)},
          {"characters", std::move(characters)},
          {"interactables", std::move(interactables)},
@@ -205,15 +451,32 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
 {
     Decoder d(std::move(source_path));
     d.object(document, "",
-             {"schema", "version", "metadata", "playTimeMs", "randomState", "propertyOverrides",
-              "characters", "interactables", "activeRoomVisit", "roomVisits", "dialogueLineHistory",
-              "dialogueChoiceHistory", "textLog", "logicalTimers", "pendingTimerCompletions",
-              "presentation", "mode", "flowStack", "blocker"});
+             {"schema",
+              "version",
+              "metadata",
+              "playTimeMs",
+              "randomState",
+              "runtimeWorld",
+              "propertyOverrides",
+              "characters",
+              "interactables",
+              "activeRoomVisit",
+              "roomVisits",
+              "dialogueLineHistory",
+              "dialogueChoiceHistory",
+              "textLog",
+              "logicalTimers",
+              "pendingTimerCompletions",
+              "presentation",
+              "mode",
+              "flowStack",
+              "blocker"});
     const auto* schema = d.member(document, "schema", "");
     const auto* version = d.member(document, "version", "");
     const auto* metadata = d.member(document, "metadata", "");
     const auto* play_time = d.member(document, "playTimeMs", "");
     const auto* random_state = d.member(document, "randomState", "");
+    const auto* runtime_world = d.member(document, "runtimeWorld", "");
     const auto* overrides = d.member(document, "propertyOverrides", "");
     const auto* characters = d.member(document, "characters", "");
     const auto* interactables = d.member(document, "interactables", "");
@@ -256,6 +519,158 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     auto saved_random_state = random_state
                                   ? d.unsigned_integer<std::uint64_t>(*random_state, "/randomState")
                                   : std::nullopt;
+
+    std::optional<std::uint64_t> saved_next_runtime_instance_id;
+    std::optional<std::vector<SavedRuntimeRoomConfiguration>> saved_runtime_rooms;
+    std::optional<std::vector<SavedRuntimeCharacterConfiguration>> saved_runtime_characters;
+    std::optional<std::vector<SavedRuntimeInteractableConfiguration>> saved_runtime_interactables;
+    if (runtime_world && d.object(*runtime_world, "/runtimeWorld",
+                                  {"nextInstanceId", "rooms", "characters", "interactables"})) {
+        const auto* next_id = d.member(*runtime_world, "nextInstanceId", "/runtimeWorld");
+        const auto* rooms = d.member(*runtime_world, "rooms", "/runtimeWorld");
+        const auto* characters_value = d.member(*runtime_world, "characters", "/runtimeWorld");
+        const auto* interactables_value =
+            d.member(*runtime_world, "interactables", "/runtimeWorld");
+        saved_next_runtime_instance_id =
+            next_id
+                ? d.unsigned_integer<std::uint64_t>(*next_id, "/runtimeWorld/nextInstanceId", true)
+                : std::nullopt;
+        saved_runtime_rooms = decode_array<SavedRuntimeRoomConfiguration>(
+            d, rooms, "/runtimeWorld/rooms",
+            [&d](const nlohmann::json& value,
+                 const std::string& pointer) -> std::optional<SavedRuntimeRoomConfiguration> {
+                if (!d.object(value, pointer,
+                              {"id", "declared", "birthSource", "structuralOverrideSource",
+                               "provenance", "birthExitTargetOverrides",
+                               "structuralOverrideExitTargetOverrides", "exitTargetOverrides"}))
+                    return std::nullopt;
+                const auto* id_value = d.member(value, "id", pointer);
+                const auto* declared_value = d.member(value, "declared", pointer);
+                const auto* birth_value = d.member(value, "birthSource", pointer);
+                const auto* override_value = d.member(value, "structuralOverrideSource", pointer);
+                const auto* provenance_value = d.member(value, "provenance", pointer);
+                const auto* birth_edits_value =
+                    d.member(value, "birthExitTargetOverrides", pointer);
+                const auto* structural_edits_value =
+                    d.member(value, "structuralOverrideExitTargetOverrides", pointer);
+                const auto* edits_value = d.member(value, "exitTargetOverrides", pointer);
+                auto id = id_value ? d.id<RoomId>(*id_value, child(pointer, "id")) : std::nullopt;
+                auto declared = declared_value
+                                    ? d.boolean(*declared_value, child(pointer, "declared"))
+                                    : std::nullopt;
+                auto birth = birth_value ? decode_configuration_source(
+                                               d, *birth_value, child(pointer, "birthSource"))
+                                         : std::nullopt;
+                std::optional<RuntimeConfigurationSource> override_source;
+                bool override_ok = override_value != nullptr;
+                if (override_value && !override_value->is_null()) {
+                    auto decoded = decode_configuration_source(
+                        d, *override_value, child(pointer, "structuralOverrideSource"));
+                    override_ok = decoded.has_value();
+                    if (decoded)
+                        override_source = std::move(*decoded);
+                }
+                auto provenance = provenance_value ? decode_provenance(d, *provenance_value,
+                                                                       child(pointer, "provenance"))
+                                                   : std::nullopt;
+                auto birth_edits = decode_room_exit_targets(
+                    d, birth_edits_value, child(pointer, "birthExitTargetOverrides"));
+                auto structural_edits = decode_room_exit_targets(
+                    d, structural_edits_value,
+                    child(pointer, "structuralOverrideExitTargetOverrides"));
+                auto edits =
+                    decode_room_exit_targets(d, edits_value, child(pointer, "exitTargetOverrides"));
+                return id && declared && birth && override_ok && provenance && birth_edits &&
+                               structural_edits && edits
+                           ? std::optional<SavedRuntimeRoomConfiguration>(
+                                 SavedRuntimeRoomConfiguration{
+                                     std::move(*id), *declared, std::move(*birth),
+                                     std::move(override_source), std::move(*provenance),
+                                     std::move(*birth_edits), std::move(*structural_edits),
+                                     std::move(*edits)})
+                           : std::nullopt;
+            });
+        saved_runtime_characters = decode_array<SavedRuntimeCharacterConfiguration>(
+            d, characters_value, "/runtimeWorld/characters",
+            [&d](const nlohmann::json& value,
+                 const std::string& pointer) -> std::optional<SavedRuntimeCharacterConfiguration> {
+                if (!d.object(value, pointer,
+                              {"id", "declared", "birthSource", "structuralOverrideSource",
+                               "provenance"}))
+                    return std::nullopt;
+                const auto* id_value = d.member(value, "id", pointer);
+                const auto* declared_value = d.member(value, "declared", pointer);
+                const auto* birth_value = d.member(value, "birthSource", pointer);
+                const auto* override_value = d.member(value, "structuralOverrideSource", pointer);
+                const auto* provenance_value = d.member(value, "provenance", pointer);
+                auto id =
+                    id_value ? d.id<CharacterId>(*id_value, child(pointer, "id")) : std::nullopt;
+                auto declared = declared_value
+                                    ? d.boolean(*declared_value, child(pointer, "declared"))
+                                    : std::nullopt;
+                auto birth = birth_value ? decode_configuration_source(
+                                               d, *birth_value, child(pointer, "birthSource"))
+                                         : std::nullopt;
+                std::optional<RuntimeConfigurationSource> override_source;
+                bool override_ok = override_value != nullptr;
+                if (override_value && !override_value->is_null()) {
+                    auto decoded = decode_configuration_source(
+                        d, *override_value, child(pointer, "structuralOverrideSource"));
+                    override_ok = decoded.has_value();
+                    if (decoded)
+                        override_source = std::move(*decoded);
+                }
+                auto provenance = provenance_value ? decode_provenance(d, *provenance_value,
+                                                                       child(pointer, "provenance"))
+                                                   : std::nullopt;
+                return id && declared && birth && override_ok && provenance
+                           ? std::optional<SavedRuntimeCharacterConfiguration>(
+                                 SavedRuntimeCharacterConfiguration{
+                                     std::move(*id), *declared, std::move(*birth),
+                                     std::move(override_source), std::move(*provenance)})
+                           : std::nullopt;
+            });
+        saved_runtime_interactables = decode_array<SavedRuntimeInteractableConfiguration>(
+            d, interactables_value, "/runtimeWorld/interactables",
+            [&d](const nlohmann::json& value, const std::string& pointer)
+                -> std::optional<SavedRuntimeInteractableConfiguration> {
+                if (!d.object(value, pointer,
+                              {"id", "declared", "birthSource", "structuralOverrideSource",
+                               "provenance"}))
+                    return std::nullopt;
+                const auto* id_value = d.member(value, "id", pointer);
+                const auto* declared_value = d.member(value, "declared", pointer);
+                const auto* birth_value = d.member(value, "birthSource", pointer);
+                const auto* override_value = d.member(value, "structuralOverrideSource", pointer);
+                const auto* provenance_value = d.member(value, "provenance", pointer);
+                auto id =
+                    id_value ? d.id<InteractableId>(*id_value, child(pointer, "id")) : std::nullopt;
+                auto declared = declared_value
+                                    ? d.boolean(*declared_value, child(pointer, "declared"))
+                                    : std::nullopt;
+                auto birth = birth_value ? decode_configuration_source(
+                                               d, *birth_value, child(pointer, "birthSource"))
+                                         : std::nullopt;
+                std::optional<RuntimeConfigurationSource> override_source;
+                bool override_ok = override_value != nullptr;
+                if (override_value && !override_value->is_null()) {
+                    auto decoded = decode_configuration_source(
+                        d, *override_value, child(pointer, "structuralOverrideSource"));
+                    override_ok = decoded.has_value();
+                    if (decoded)
+                        override_source = std::move(*decoded);
+                }
+                auto provenance = provenance_value ? decode_provenance(d, *provenance_value,
+                                                                       child(pointer, "provenance"))
+                                                   : std::nullopt;
+                return id && declared && birth && override_ok && provenance
+                           ? std::optional<SavedRuntimeInteractableConfiguration>(
+                                 SavedRuntimeInteractableConfiguration{
+                                     std::move(*id), *declared, std::move(*birth),
+                                     std::move(override_source), std::move(*provenance)})
+                           : std::nullopt;
+            });
+    }
     if (milliseconds &&
         *milliseconds > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
         d.error(k_value, "Play time is outside the supported range.", "/playTimeMs");
@@ -450,16 +865,21 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
             return decode_frame(d, value, pointer);
         });
     auto saved_blocker = blocker ? decode_blocker(d, *blocker, "/blocker") : std::nullopt;
-    if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state || !saved_overrides ||
-        !saved_characters || !saved_interactables || !saved_active_room_visit ||
-        !saved_room_visits || !saved_line_history || !saved_choice_history || !saved_log ||
-        !saved_timers || !saved_completions || !saved_presentation || !saved_mode ||
-        !saved_frames || !saved_blocker)
+    if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state ||
+        !saved_next_runtime_instance_id || !saved_runtime_rooms || !saved_runtime_characters ||
+        !saved_runtime_interactables || !saved_overrides || !saved_characters ||
+        !saved_interactables || !saved_active_room_visit || !saved_room_visits ||
+        !saved_line_history || !saved_choice_history || !saved_log || !saved_timers ||
+        !saved_completions || !saved_presentation || !saved_mode || !saved_frames || !saved_blocker)
         return Result<SaveState, Diagnostics>::failure(d.take());
     return Result<SaveState, Diagnostics>::success(
         SaveState{std::move(*saved_metadata),
                   std::chrono::milliseconds(*milliseconds),
                   *saved_random_state,
+                  *saved_next_runtime_instance_id,
+                  std::move(*saved_runtime_rooms),
+                  std::move(*saved_runtime_characters),
+                  std::move(*saved_runtime_interactables),
                   std::move(*saved_overrides),
                   std::move(*saved_characters),
                   std::move(*saved_interactables),

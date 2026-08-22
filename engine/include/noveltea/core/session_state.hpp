@@ -7,6 +7,7 @@
 #include "noveltea/core/presentation_operation_contracts.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/room_presentation_contracts.hpp"
+#include "noveltea/core/runtime_instance.hpp"
 
 #include <cstddef>
 #include <chrono>
@@ -17,6 +18,10 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
+
+namespace noveltea::runtime {
+class RuntimeWorld;
+}
 
 namespace noveltea::core {
 
@@ -73,13 +78,23 @@ protected:
 
 class GameplayState {
 protected:
-    GameplayState(std::vector<CharacterWorldState> characters,
+    GameplayState(std::vector<RuntimeRoomConfiguration> rooms,
+                  std::vector<RuntimeCharacterConfiguration> character_configurations,
+                  std::vector<RuntimeInteractableConfiguration> interactable_configurations,
+                  std::vector<CharacterWorldState> characters,
                   std::vector<InteractableState> interactables)
-        : m_character_world(std::move(characters)), m_interactables(std::move(interactables))
+        : m_runtime_rooms(std::move(rooms)),
+          m_runtime_characters(std::move(character_configurations)),
+          m_runtime_interactables(std::move(interactable_configurations)),
+          m_character_world(std::move(characters)), m_interactables(std::move(interactables))
     {
     }
 
     std::vector<PropertyOverride> m_property_overrides;
+    std::vector<RuntimeRoomConfiguration> m_runtime_rooms;
+    std::vector<RuntimeCharacterConfiguration> m_runtime_characters;
+    std::vector<RuntimeInteractableConfiguration> m_runtime_interactables;
+    std::uint64_t m_next_runtime_instance_id = 1;
     std::vector<CharacterWorldState> m_character_world;
     std::vector<InteractableState> m_interactables;
     std::optional<RoomVisitContext> m_room_visit;
@@ -258,6 +273,24 @@ public:
     remove_presentation_environments(const PresentationEnvironmentStopKey& stop_key,
                                      const PresentationOwner& owner);
 
+    [[nodiscard]] const std::vector<RuntimeRoomConfiguration>& runtime_rooms() const noexcept
+    {
+        return m_runtime_rooms;
+    }
+    [[nodiscard]] const std::vector<RuntimeCharacterConfiguration>&
+    runtime_characters() const noexcept
+    {
+        return m_runtime_characters;
+    }
+    [[nodiscard]] const std::vector<RuntimeInteractableConfiguration>&
+    runtime_interactables() const noexcept
+    {
+        return m_runtime_interactables;
+    }
+    [[nodiscard]] std::uint64_t next_runtime_instance_id() const noexcept
+    {
+        return m_next_runtime_instance_id;
+    }
     [[nodiscard]] const std::vector<InteractableState>& interactables() const noexcept
     {
         return m_interactables;
@@ -380,16 +413,22 @@ public:
 private:
     friend class FlowExecutor;
     friend class PropertyResolver;
+    friend class runtime::RuntimeWorld;
     friend Result<SaveState, Diagnostics> make_save_state(const CompiledProject&,
                                                           const SessionState&);
 
     SessionState(RuntimeMode mode, FlowStack flow_stack,
+                 std::vector<RuntimeRoomConfiguration> rooms,
+                 std::vector<RuntimeCharacterConfiguration> character_configurations,
+                 std::vector<RuntimeInteractableConfiguration> interactable_configurations,
                  std::vector<CharacterWorldState> characters,
                  std::vector<InteractableState> interactables, std::uint64_t next_frame_id,
                  PresentationSessionId presentation_session,
                  ShellPresentationScopeId shell_presentation_scope)
         : FlowState(std::move(mode), std::move(flow_stack), next_frame_id),
-          GameplayState(std::move(characters), std::move(interactables)),
+          GameplayState(std::move(rooms), std::move(character_configurations),
+                        std::move(interactable_configurations), std::move(characters),
+                        std::move(interactables)),
           PresentationState(presentation_session, shell_presentation_scope)
     {
     }

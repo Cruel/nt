@@ -292,6 +292,34 @@ export function usePreviewTransport({
       removeRuntimeInventoryObject: (objectId: string) =>
         send({ type: 'runtime-remove-inventory-object', objectId }),
       teleportRuntimeRoom: (roomId: string) => send({ type: 'runtime-teleport-room', roomId }),
+      createRuntimeInstance: (
+        instanceKind: 'room' | 'character' | 'interactable',
+        sourceKind: 'archetype' | 'compiled' | 'effective',
+        sourceId: string,
+      ) => send({ type: 'runtime-create-instance', instanceKind, sourceKind, sourceId }),
+      replaceRuntimeInstanceConfiguration: (
+        instanceKind: 'room' | 'character' | 'interactable',
+        instanceId: string,
+        sourceKind: 'archetype' | 'compiled' | 'effective',
+        sourceId: string,
+      ) =>
+        send({
+          type: 'runtime-replace-instance-configuration',
+          instanceKind,
+          instanceId,
+          sourceKind,
+          sourceId,
+        }),
+      clearRuntimeInstanceConfiguration: (
+        instanceKind: 'room' | 'character' | 'interactable',
+        instanceId: string,
+      ) => send({ type: 'runtime-clear-instance-configuration', instanceKind, instanceId }),
+      destroyRuntimeInstance: (
+        instanceKind: 'room' | 'character' | 'interactable',
+        instanceId: string,
+      ) => send({ type: 'runtime-destroy-instance', instanceKind, instanceId }),
+      retargetRuntimeRoomExit: (roomId: string, exitId: string, targetRoomId: string) =>
+        send({ type: 'runtime-retarget-room-exit', roomId, exitId, targetRoomId }),
       play: () => send({ type: 'play' }),
       stop: () => send({ type: 'stop' }),
       loadPreviewDocument: (document: PreviewDocument, environment?: AuthoredPreviewEnvironment) =>

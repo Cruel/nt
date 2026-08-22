@@ -65,6 +65,7 @@ function representativeWireFixture() {
       },
     ],
     traits: [],
+    archetypes: [],
     inventories: [{ id: 'player', label: 'Player Inventory' }],
     localization: {
       defaultLocale: 'en',

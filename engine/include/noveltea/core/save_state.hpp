@@ -22,6 +22,31 @@ struct SaveStateMetadata {
     std::string save_contract;
 };
 
+struct SavedRuntimeRoomConfiguration {
+    RoomId id;
+    bool declared = false;
+    RuntimeConfigurationSource birth_source;
+    std::optional<RuntimeConfigurationSource> structural_override_source;
+    RuntimeInstanceProvenance provenance;
+    std::vector<RuntimeRoomExitTargetOverride> birth_exit_target_overrides;
+    std::vector<RuntimeRoomExitTargetOverride> structural_override_exit_target_overrides;
+    std::vector<RuntimeRoomExitTargetOverride> exit_target_overrides;
+};
+struct SavedRuntimeCharacterConfiguration {
+    CharacterId id;
+    bool declared = false;
+    RuntimeConfigurationSource birth_source;
+    std::optional<RuntimeConfigurationSource> structural_override_source;
+    RuntimeInstanceProvenance provenance;
+};
+struct SavedRuntimeInteractableConfiguration {
+    InteractableId id;
+    bool declared = false;
+    RuntimeConfigurationSource birth_source;
+    std::optional<RuntimeConfigurationSource> structural_override_source;
+    RuntimeInstanceProvenance provenance;
+};
+
 struct SavedPropertyOverride {
     PropertyTargetRef target;
     PropertyId property;
@@ -202,6 +227,10 @@ struct SaveState {
     SaveStateMetadata metadata;
     std::chrono::milliseconds play_time{0};
     std::uint64_t random_state = 0;
+    std::uint64_t next_runtime_instance_id = 1;
+    std::vector<SavedRuntimeRoomConfiguration> runtime_rooms;
+    std::vector<SavedRuntimeCharacterConfiguration> runtime_characters;
+    std::vector<SavedRuntimeInteractableConfiguration> runtime_interactables;
     std::vector<SavedPropertyOverride> property_overrides;
     std::vector<CharacterWorldState> characters;
     std::vector<InteractableState> interactables;

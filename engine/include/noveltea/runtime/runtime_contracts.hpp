@@ -29,11 +29,19 @@ struct RuntimeObservationSnapshot {
     bool operator==(const RuntimeObservationSnapshot&) const = default;
 };
 
+struct RuntimeGameplayInstanceSnapshot {
+    core::GameplayInstanceRef instance;
+    bool declared = false;
+    core::RuntimeInstanceProvenance provenance;
+    bool operator==(const RuntimeGameplayInstanceSnapshot&) const = default;
+};
+
 struct RuntimePublication {
     RuntimePublicationRevision revision;
     core::TypedRuntimeUIViewState gameplay_ui;
     core::RuntimePresentationSnapshot presentation;
     RuntimeObservationSnapshot observations;
+    std::vector<RuntimeGameplayInstanceSnapshot> gameplay_instances;
 };
 
 struct NotificationEvent {

@@ -316,6 +316,71 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                           "/definitions/interactables/" + std::to_string(index) + "/features"),
             std::move(value.inventories), std::move(value.initial_state),
             std::move(value.presentation)}));
+
+    std::vector<compiled::ArchetypeDefinition> archetypes;
+    archetypes.reserve(wire.archetypes.size());
+    for (std::size_t index = 0; index < wire.archetypes.size(); ++index) {
+        auto& archetype = wire.archetypes[index];
+        const auto path = "/archetypes/" + std::to_string(index) + "/configuration";
+        std::optional<compiled::ArchetypeConfiguration> configuration;
+        if (auto* room = std::get_if<compiled::wire::RoomDefinition>(&archetype.configuration)) {
+            auto identity =
+                link_identity(std::move(room->identity), PropertyOwnerKind::Room, property_index,
+                              trait_index, diagnostics, source_path, path);
+            if (identity)
+                configuration = compiled::RoomDefinition{
+                    std::move(*identity),
+                    std::move(room->display_name),
+                    std::move(room->description),
+                    std::move(room->background),
+                    compiled::RoomLifecycle{std::move(room->lifecycle.can_enter),
+                                            std::move(room->lifecycle.can_leave),
+                                            std::move(room->lifecycle.hooks)},
+                    std::move(room->overlays),
+                    std::move(room->cast),
+                    std::move(room->interactables),
+                    std::move(room->props),
+                    std::move(room->environments),
+                    std::move(room->compose),
+                    std::move(room->script_hooks),
+                    std::move(room->placements),
+                    std::move(room->exits),
+                    link_features(std::move(room->features), path + "/features"),
+                    std::move(room->hotspots)};
+        } else if (auto* character =
+                       std::get_if<compiled::wire::CharacterDefinition>(&archetype.configuration)) {
+            auto identity =
+                link_identity(std::move(character->identity), PropertyOwnerKind::Character,
+                              property_index, trait_index, diagnostics, source_path, path);
+            if (identity)
+                configuration =
+                    compiled::CharacterDefinition{std::move(*identity),
+                                                  std::move(character->display_name),
+                                                  std::move(character->dialogue),
+                                                  std::move(character->defaults),
+                                                  std::move(character->poses),
+                                                  std::move(character->expressions),
+                                                  std::move(character->idles),
+                                                  std::move(character->inventories),
+                                                  std::move(character->initial_world_state)};
+        } else if (auto* interactable = std::get_if<compiled::wire::InteractableDefinition>(
+                       &archetype.configuration)) {
+            auto identity =
+                link_identity(std::move(interactable->identity), PropertyOwnerKind::Interactable,
+                              property_index, trait_index, diagnostics, source_path, path);
+            if (identity)
+                configuration = compiled::InteractableDefinition{
+                    std::move(*identity),
+                    std::move(interactable->display_name),
+                    link_features(std::move(interactable->features), path + "/features"),
+                    std::move(interactable->inventories),
+                    std::move(interactable->initial_state),
+                    std::move(interactable->presentation)};
+        }
+        if (configuration)
+            archetypes.push_back(compiled::ArchetypeDefinition{
+                std::move(archetype.id), archetype.kind, std::move(*configuration)});
+    }
     LINK_DEFINITIONS(
         verbs, verbs, VerbDefinition, VerbId,
         (compiled::VerbDefinition{std::move(identity), std::move(value.action_text), value.arity,
@@ -353,6 +418,7 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         .localization = std::move(wire.localization),
         .properties = std::move(properties),
         .traits = std::move(traits),
+        .archetypes = std::move(archetypes),
         .inventories = std::move(wire.inventories),
         .assets = std::move(wire.assets),
         .layouts = std::move(wire.layouts),

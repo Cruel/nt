@@ -27,6 +27,21 @@ core::Diagnostics stale()
                              .message = "The script capability generation is no longer active"}};
 }
 
+runtime::RuntimeCapabilityGroup instance_group(const core::GameplayInstanceRef& instance) noexcept
+{
+    return std::visit(
+        [](const auto& id) {
+            using T = std::decay_t<decltype(id)>;
+            if constexpr (std::is_same_v<T, core::RoomId>)
+                return runtime::RuntimeCapabilityGroup::Room;
+            else if constexpr (std::is_same_v<T, core::CharacterId>)
+                return runtime::RuntimeCapabilityGroup::Character;
+            else
+                return runtime::RuntimeCapabilityGroup::Interactable;
+        },
+        instance);
+}
+
 } // namespace
 
 struct RuntimeScriptApi::State {
@@ -144,6 +159,103 @@ RuntimeScriptApi::unset_property(const core::PropertyOwnerRef& owner,
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Properties, "property unset",
                           gateway->unset_property(owner, property));
 }
+
+core::Result<core::RoomId, core::Diagnostics>
+RuntimeScriptApi::create_room(runtime::RuntimeInstanceConfigurationRequest source)
+{
+    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Room, "Room instance creation",
+                          gateway->create_room(std::move(source)));
+}
+
+core::Result<core::CharacterId, core::Diagnostics>
+RuntimeScriptApi::create_character(runtime::RuntimeInstanceConfigurationRequest source,
+                                   core::CharacterWorldLocation location, bool enabled,
+                                   bool visible)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Character, "Character instance creation",
+        gateway->create_character(std::move(source), std::move(location), enabled, visible));
+}
+
+core::Result<core::InteractableId, core::Diagnostics>
+RuntimeScriptApi::create_interactable(runtime::RuntimeInstanceConfigurationRequest source,
+                                      core::compiled::InteractableLocation location, bool enabled,
+                                      bool visible)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Interactable, "Interactable instance creation",
+        gateway->create_interactable(std::move(source), std::move(location), enabled, visible));
+}
+
+core::Result<void, core::Diagnostics> RuntimeScriptApi::replace_instance_configuration(
+    core::GameplayInstanceRef instance, runtime::RuntimeInstanceConfigurationRequest source)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway = m_state->capabilities->command_gateway(instance_group(instance));
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Gameplay Instance configuration replacement"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    return gateway->replace_instance_configuration(std::move(instance), std::move(source));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_instance_configuration(core::GameplayInstanceRef instance)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway = m_state->capabilities->command_gateway(instance_group(instance));
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Gameplay Instance configuration clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    return gateway->clear_instance_configuration(std::move(instance));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::retarget_room_exit(core::RoomId room, core::RoomExitId exit, core::RoomId target)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Room, "Room Exit retargeting",
+        gateway->retarget_room_exit(std::move(room), std::move(exit), std::move(target)));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::destroy_instance(core::GameplayInstanceRef instance)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway = m_state->capabilities->command_gateway(instance_group(instance));
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Gameplay Instance destruction"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    return gateway->destroy_instance(std::move(instance));
+}
+
+core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>
+RuntimeScriptApi::instance_provenance(const core::GameplayInstanceRef& instance) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>::failure(
+            unavailable());
+    const auto* gateway = m_state->capabilities->query_gateway(instance_group(instance));
+    if (gateway == nullptr)
+        return core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>::failure(
+            denied("Gameplay Instance provenance query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<core::RuntimeInstanceProvenance, core::Diagnostics>::failure(stale());
+    return gateway->instance_provenance(instance);
+}
+
 core::Result<core::compiled::InteractableLocation, core::Diagnostics>
 RuntimeScriptApi::interactable_location(const core::InteractableId& interactable) const
 {

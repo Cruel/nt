@@ -436,20 +436,24 @@ RuntimeExecutor::inventory_view(std::string_view runtime_locale)
             }
         };
     append_inventories(core::compiled::ProjectInventoryOwner{}, m_project.inventories());
-    for (const auto& character : m_project.characters())
-        append_inventories(core::compiled::CharacterInventoryOwner{character.identity.id},
+    for (const auto& record : m_state.runtime_characters()) {
+        const auto& character = record.effective_configuration();
+        append_inventories(core::compiled::CharacterInventoryOwner{record.id},
                            character.inventories);
-    for (const auto& room : m_project.rooms())
+    }
+    for (const auto& record : m_state.runtime_rooms()) {
+        const auto& room = record.effective_configuration();
         for (const auto& feature : room.features)
-            append_inventories(core::RoomFeatureRef{room.identity.id, feature.identity.id},
+            append_inventories(core::RoomFeatureRef{record.id, feature.identity.id},
                                feature.inventories);
-    for (const auto& interactable : m_project.interactables()) {
-        append_inventories(core::compiled::InteractableInventoryOwner{interactable.identity.id},
+    }
+    for (const auto& record : m_state.runtime_interactables()) {
+        const auto& interactable = record.effective_configuration();
+        append_inventories(core::compiled::InteractableInventoryOwner{record.id},
                            interactable.inventories);
         for (const auto& feature : interactable.features)
-            append_inventories(
-                core::InteractableFeatureRef{interactable.identity.id, feature.identity.id},
-                feature.inventories);
+            append_inventories(core::InteractableFeatureRef{record.id, feature.identity.id},
+                               feature.inventories);
     }
     for (const auto& state : m_state.interactables()) {
         const auto* location = std::get_if<core::compiled::InventoryLocation>(&state.location);

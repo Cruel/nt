@@ -38,9 +38,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 {
     Decoder decoder(std::move(source_path));
     if (!decoder.object(document, "",
-                        {"bootstrapModule", "definitions", "entrypoint", "inventories",
-                         "localization", "project", "properties", "resources", "saveContract",
-                         "schema", "schemaVersion", "settings", "traits"}))
+                        {"archetypes", "bootstrapModule", "definitions", "entrypoint",
+                         "inventories", "localization", "project", "properties", "resources",
+                         "saveContract", "schema", "schemaVersion", "settings", "traits"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -54,6 +54,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* inventories_value = decoder.member(document, "inventories", "");
     const auto* properties_value = decoder.member(document, "properties", "");
     const auto* traits_value = decoder.member(document, "traits", "");
+    const auto* archetypes_value = decoder.member(document, "archetypes", "");
     const auto* resources_value = decoder.member(document, "resources", "");
     const auto* definitions_value = decoder.member(document, "definitions", "");
 
@@ -139,6 +140,13 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                          return decode_trait(decoder, item, pointer);
                                      })
                                : std::nullopt;
+    auto archetypes = archetypes_value
+                          ? decoder.array<ArchetypeDefinition>(
+                                *archetypes_value, "/archetypes",
+                                [&](const nlohmann::json& item, const std::string& pointer) {
+                                    return decode_archetype(decoder, item, pointer);
+                                })
+                          : std::nullopt;
 
     std::optional<std::vector<AssetResource>> assets;
     std::optional<std::vector<LayoutResource>> layouts;
@@ -211,6 +219,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         decoder.duplicate_ids(
             *traits, "/traits",
             [](const TraitDeclaration& value) -> const TraitId& { return value.id; });
+    if (archetypes)
+        decoder.duplicate_ids(
+            *archetypes, "/archetypes",
+            [](const ArchetypeDefinition& value) -> const ArchetypeId& { return value.id; });
     if (assets)
         decoder.duplicate_ids(
             *assets, "/resources/assets",
@@ -239,19 +251,19 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
                           save_contract && localization && inventories && properties && traits &&
-                          assets && layouts && scripts && characters && rooms && interactables &&
-                          verbs && interactions && scenes && dialogues && maps;
+                          archetypes && assets && layouts && scripts && characters && rooms &&
+                          interactables && verbs && interactions && scenes && dialogues && maps;
     if (!complete || decoder.failed())
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
-    return Result<SharedProject, Diagnostics>::success(
-        SharedProject{std::move(*identity),   std::move(*settings),      std::move(*entrypoint),
-                      std::move(*bootstrap),  std::move(*save_contract), std::move(*localization),
-                      std::move(*properties), std::move(*traits),        std::move(*inventories),
-                      std::move(*assets),     std::move(*layouts),       std::move(*scripts),
-                      std::move(*characters), std::move(*rooms),         std::move(*interactables),
-                      std::move(*verbs),      std::move(*interactions),  std::move(*scenes),
-                      std::move(*dialogues),  std::move(*maps)});
+    return Result<SharedProject, Diagnostics>::success(SharedProject{
+        std::move(*identity),      std::move(*settings),      std::move(*entrypoint),
+        std::move(*bootstrap),     std::move(*save_contract), std::move(*localization),
+        std::move(*properties),    std::move(*traits),        std::move(*archetypes),
+        std::move(*inventories),   std::move(*assets),        std::move(*layouts),
+        std::move(*scripts),       std::move(*characters),    std::move(*rooms),
+        std::move(*interactables), std::move(*verbs),         std::move(*interactions),
+        std::move(*scenes),        std::move(*dialogues),     std::move(*maps)});
 }
 
 } // namespace noveltea::core::compiled::wire
