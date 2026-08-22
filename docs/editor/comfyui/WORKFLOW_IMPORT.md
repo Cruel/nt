@@ -58,20 +58,29 @@ from the invocation override, then shared user configuration, then `http://127.0
 verifies the active workflow set. Verification is diagnostic-only apart from the disposable cache and never repairs or
 rewrites a package.
 
-`noveltea comfyui run <workflow-id>` now provides the first generic execution slice. It accepts repeated scalar
-`--input name=value` arguments, splitting only on the first `=`, and requires one explicit `--output <path>`. The complete
-scalar invocation is validated before network work: duplicate or unknown inputs, missing required inputs, invalid
-integer/number/boolean values, unsupported image-valued inputs, incompatible output contracts, unusable parent paths,
-and existing destinations without `--force` all fail locally. Manifest defaults fill omitted optional scalar inputs, and
-one public value is written to every graph binding declared for that input.
+`noveltea comfyui run <workflow-id>` accepts repeated `--input name=value` arguments, splitting only on the first `=`,
+and requires one explicit `--output <path>`. Duplicate or unknown inputs, missing required inputs, invalid scalar values,
+incompatible output contracts, unusable parent paths, and existing destinations without `--force` fail locally. Manifest
+defaults fill omitted optional inputs, and one public value is written to every graph binding declared for that input.
+Scalar inputs support string, integer, number, and boolean values.
 
-This slice runs only workflows with exactly one required cardinality-`one` image output. It verifies the selected active
-workflow against the selected server, submits one uniquely identified prompt, polls `/history/<prompt-id>` over HTTP with
-no fixed whole-job timeout, resolves the named output binding, downloads one bounded image, validates its media format,
-and publishes it atomically to the requested filesystem path. Missing parent directories are created only for final
-publication. `.png`, `.jpg`/`.jpeg`, `.webp`, and `.gif` destinations are admitted, and the extension must agree with the
-returned image format; NovelTea does not transcode. Project Asset publication, local image inputs, classification-default
-selection, cardinality-many routing, and named multi-output routing remain later slices.
+A public `image` input accepts an explicitly named local file, with relative paths resolved from the invocation working
+directory. The reusable image media handler enforces the 32 MiB source ceiling and decodes the file through NovelTea's
+shared/native image-inspection capability before any network request. PNG, JPEG, WebP, and GIF inputs are admitted.
+Local bytes may then be uploaded only to credential-free plain HTTP using a literal loopback IP address: `127.0.0.0/8`,
+`::1`, and admitted IPv4-mapped IPv6 loopback forms. `localhost`, HTTPS, credentials, arbitrary hostnames, and non-loopback
+addresses are rejected before upload. This restriction applies only when local bytes would be disclosed; text-only
+ComfyUI commands retain ordinary HTTP/HTTPS server support. Remote upload names are random NovelTea identities that keep
+the validated media extension and never reuse the local basename. Online workflow verification completes before upload,
+and a failed upload aborts before `/prompt` without claiming remote rollback.
+
+The current runner still requires exactly one required cardinality-`one` image output. It submits one uniquely identified
+prompt, polls `/history/<prompt-id>` over HTTP with no fixed whole-job timeout, resolves the named output binding,
+downloads one bounded image, validates its media format, and publishes it atomically to the requested filesystem path.
+Missing parent directories are created only for final publication. `.png`, `.jpg`/`.jpeg`, `.webp`, and `.gif`
+destinations are admitted, and the extension must agree with the returned image format; NovelTea does not transcode.
+Project Asset publication, classification-default selection, cardinality-many routing, and named multi-output routing
+remain later slices.
 
 Ctrl-C attempts prompt-specific cancellation by deleting only this invocation's prompt from the ComfyUI queue; it never
 uses the global `/interrupt` endpoint. Interrupted runs use exit status 130. Independent CLI runs are not serialized and

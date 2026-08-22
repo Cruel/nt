@@ -1,9 +1,9 @@
 import path from 'node:path';
-import { checkComfyUiConnection } from '../main/services/comfyui-service';
+import { checkHeadlessComfyUiConnection } from '../main/services/comfyui-connection-service';
 import { loadComfyUiUserConfig } from '../main/services/comfyui-user-config-service';
 import {
   ComfyUiRunError,
-  prepareComfyUiScalarWorkflow,
+  prepareComfyUiWorkflow,
   preflightComfyUiScalarRun,
   runComfyUiScalarWorkflow,
   type ComfyUiRunnableWorkflowEntry,
@@ -451,13 +451,15 @@ export async function runComfyUiCatalogCommand(
     const entry = selectedEntry as ComfyUiRunnableWorkflowEntry;
 
     const absoluteOutputPath = path.resolve(options.cwd, runCommand.outputPath);
-    let workflow;
+    let prepared;
     try {
-      workflow = prepareComfyUiScalarWorkflow(entry, runCommand.inputs);
+      prepared = await prepareComfyUiWorkflow(entry, runCommand.inputs, options.cwd);
       await preflightComfyUiScalarRun({
         entry,
         outputPath: absoluteOutputPath,
         force: runCommand.force,
+        config,
+        imageInputs: prepared.imageInputs,
       });
     } catch (error) {
       const failure =
@@ -541,7 +543,8 @@ export async function runComfyUiCatalogCommand(
     try {
       const result = await runComfyUiScalarWorkflow({
         entry,
-        workflow,
+        workflow: prepared.workflow,
+        imageInputs: prepared.imageInputs,
         config,
         outputPath: absoluteOutputPath,
         force: runCommand.force,
@@ -607,7 +610,7 @@ export async function runComfyUiCatalogCommand(
       );
     const shared = await loadComfyUiUserConfig();
     const config = resolvedComfyUiConfig(shared, statusCommand.server);
-    const status = await checkComfyUiConnection(config);
+    const status = await checkHeadlessComfyUiConnection(config);
     if (status.state !== 'ready') {
       const diagnostic = cliDiagnostic(
         'COMFYUI_SERVER_UNAVAILABLE',
