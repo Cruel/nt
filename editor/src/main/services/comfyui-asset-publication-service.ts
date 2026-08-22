@@ -380,29 +380,3 @@ export async function publishComfyUiOutputs(options: {
   }
   return published;
 }
-
-export async function publishComfyUiGeneratedAsset(options: {
-  projectRoot: string;
-  workspace: ProjectWorkspaceService;
-  fileSystem: ProjectWorkspaceFileSystem;
-  workflow: ComfyUiRunnableWorkflowEntry;
-  promptId: string;
-  output: ComfyUiGeneratedImage;
-}): Promise<ComfyUiPublishedAssetOutput> {
-  const published = await publishComfyUiOutputs({
-    ...options,
-    projectRoot: options.projectRoot,
-    force: false,
-    plan: {
-      routes: {
-        [options.output.outputId]: {
-          outputId: options.output.outputId,
-          target: 'asset',
-          cardinality: 'one',
-        },
-      },
-    },
-    outputs: { [options.output.outputId]: [options.output] },
-  });
-  return published[options.output.outputId]![0] as ComfyUiPublishedAssetOutput;
-}
