@@ -301,10 +301,64 @@ const core::TypedRuntimeUIViewState& published_view(const runtime::RuntimeDispat
     return result.publication->gameplay_ui;
 }
 
+class RecordingScriptPort final : public runtime::ScriptInvocationPort {
+public:
+    explicit RecordingScriptPort(ScriptRuntime& delegate) noexcept : m_delegate(delegate) {}
+
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+    invoke(const runtime::ScriptInvocationRequest& request,
+           const runtime::RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate.invoke(request, capabilities);
+    }
+
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+    resume(const core::ScriptInvocationHandle& invocation,
+           const runtime::RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate.resume(invocation, capabilities);
+    }
+
+    [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
+    run_project_on_game_ready(const runtime::RuntimeCapabilitySet& capabilities) override
+    {
+        ++ready_calls;
+        ready_profiles.push_back(capabilities.profile());
+        if (fail_next_ready) {
+            fail_next_ready = false;
+            return core::Result<void, runtime::ScriptInvocationError>::failure(
+                {.code = runtime::ScriptInvocationErrorCode::RuntimeFailed,
+                 .message = "On Game Ready failed for test",
+                 .chunk = "module:test#on_ready",
+                 .traceback = "module:test#on_ready: failure"});
+        }
+        return m_delegate.run_project_on_game_ready(capabilities);
+    }
+
+    void cancel(const core::ScriptInvocationHandle& invocation,
+                runtime::ScriptCancellationReason reason) override
+    {
+        m_delegate.cancel(invocation, reason);
+    }
+
+    void invalidate_capabilities(runtime::CapabilityGeneration generation) noexcept override
+    {
+        m_delegate.invalidate_capabilities(generation);
+    }
+
+    std::size_t ready_calls = 0;
+    bool fail_next_ready = false;
+    std::vector<runtime::RuntimeCapabilityProfile> ready_profiles;
+
+private:
+    ScriptRuntime& m_delegate;
+};
+
 struct Fixture {
     core::CompiledProject project;
     test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
+    RecordingScriptPort script_port{runtime};
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     std::unique_ptr<TypedRuntimeSession> session;
@@ -331,8 +385,8 @@ struct Fixture {
                                 "function prepare_transition() end\n"
                                 "function transition_label() return 'Transition' end\n",
                                 "typed-session-fixture"));
-        auto created = test_support::create_runtime_session(project, runtime, presentation, saves,
-                                                            "en", runtime_budget);
+        auto created = test_support::create_runtime_session(project, script_port, presentation,
+                                                            saves, "en", runtime_budget);
         REQUIRE(created);
         session = std::move(created).value();
     }
@@ -457,6 +511,54 @@ TEST_CASE(
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision.number() ==
           retained_before_failed_load.revision.number() + 1);
     CHECK(fixture.session->checkpoint_service().generations() == core::CheckpointGenerationState{});
+}
+
+TEST_CASE("On Game Ready runs for session creation reset and successful restoration")
+{
+    Fixture fixture("minimal.json");
+    REQUIRE(fixture.script_port.ready_calls == 1);
+    REQUIRE(fixture.script_port.ready_profiles ==
+            std::vector{runtime::RuntimeCapabilityProfile::OnGameReady});
+
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto slot = core::TypedSaveSlotId::manual(8);
+    REQUIRE(
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::SaveRuntimeInput{slot}})
+            .diagnostics.empty());
+
+    fixture.presentation.terminations.clear();
+    fixture.script_port.fail_next_ready = true;
+    const auto generation_before_failed_reset = fixture.session->gateway().generation();
+    auto failed_reset =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+    REQUIRE_FALSE(failed_reset.diagnostics.empty());
+    CHECK(diagnostics_have_code(failed_reset.diagnostics, "runtime.on_game_ready_failed"));
+    CHECK(fixture.presentation.terminations.empty());
+    CHECK(fixture.session->gateway().generation() == generation_before_failed_reset);
+    CHECK(fixture.script_port.ready_calls == 2);
+
+    auto reset = fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+    REQUIRE(reset.diagnostics.empty());
+    CHECK(fixture.script_port.ready_calls == 3);
+
+    const auto corrupt_slot = core::TypedSaveSlotId::manual(7);
+    REQUIRE(fixture.saves.write_slot(corrupt_slot, "{corrupt"));
+    auto corrupt =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{corrupt_slot}});
+    REQUIRE_FALSE(corrupt.diagnostics.empty());
+    CHECK(fixture.script_port.ready_calls == 3);
+
+    fixture.presentation.terminations.clear();
+    auto loaded =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
+    REQUIRE(loaded.diagnostics.empty());
+    CHECK(fixture.script_port.ready_calls == 4);
+    CHECK(fixture.script_port.ready_profiles.back() ==
+          runtime::RuntimeCapabilityProfile::OnGameReady);
+    REQUIRE(fixture.presentation.terminations.size() == 1);
+    CHECK(fixture.presentation.terminations.front() ==
+          core::PresentationCancellationReason::CheckpointLoad);
 }
 
 TEST_CASE("runtime reset clears checkpoint and transient lifecycle without fabricated completion")

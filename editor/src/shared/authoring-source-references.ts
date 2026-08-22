@@ -48,9 +48,61 @@ export interface AuthoringSourceReferenceRecognizer {
   ): AuthoringSourceReferenceRecognition | null;
 }
 
-/** Product recognizers are registered here only after their Lua/RML API contract is designed. */
+function literalCallPrefix(input: AuthoringSourceReferenceRecognizerInput): string {
+  const start = input.occurrence.regionStartUtf16;
+  if (start < 0 || start > input.region.decodedSource.length) return '';
+  return input.region.decodedSource.slice(0, start);
+}
+
+function rewriteableLiteral(
+  input: AuthoringSourceReferenceRecognizerInput,
+  target: AuthoringDependencyNodeKey,
+): AuthoringSourceReferenceRecognition {
+  const { occurrence } = input;
+  if (occurrence.literalKind === 'long-bracket') return { classification: 'exact-manual', target };
+  return {
+    classification: 'exact-rewriteable',
+    target,
+    rewriteRange: {
+      startUtf16: occurrence.regionStartUtf16 + 1,
+      endUtf16: occurrence.regionEndUtf16 - 1,
+      expectedText: occurrence.decodedValue,
+    },
+  };
+}
+
+const scriptModuleImportRecognizer: AuthoringSourceReferenceRecognizer = {
+  id: 'noveltea.script-module-import',
+  recognize(input) {
+    if (input.region.sourceKind !== 'lua-field') return null;
+    if (!/(?:^|[^\w.])import\s*\(\s*$/.test(literalCallPrefix(input))) return null;
+    return rewriteableLiteral(input, {
+      kind: 'record',
+      collection: 'scripts',
+      id: input.occurrence.decodedValue,
+    });
+  },
+};
+
+const gameplayIdentityRecognizer: AuthoringSourceReferenceRecognizer = {
+  id: 'noveltea.gameplay-identity',
+  recognize(input) {
+    if (input.region.sourceKind !== 'lua-field') return null;
+    const prefix = literalCallPrefix(input);
+    const match = prefix.match(/noveltea\.project\.(room|character|interactable)\s*\(\s*$/);
+    if (!match) return null;
+    const collection = `${match[1]}s` as 'rooms' | 'characters' | 'interactables';
+    return rewriteableLiteral(input, {
+      kind: 'record',
+      collection,
+      id: input.occurrence.decodedValue,
+    });
+  },
+};
+
+/** Product recognizers are registered only after their Lua/RML API contract is designed. */
 export const AUTHORING_SOURCE_REFERENCE_RECOGNIZERS: readonly AuthoringSourceReferenceRecognizer[] =
-  Object.freeze([]);
+  Object.freeze([scriptModuleImportRecognizer, gameplayIdentityRecognizer]);
 
 export interface ClassifiedAuthoringSourceReference {
   classification: AuthoringSourceReferenceClassification;

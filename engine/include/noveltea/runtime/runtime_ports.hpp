@@ -93,6 +93,8 @@ public:
     [[nodiscard]] virtual core::Result<ScriptInvocationOutcome, ScriptInvocationError>
     resume(const core::ScriptInvocationHandle& invocation,
            const RuntimeCapabilitySet& capabilities) = 0;
+    [[nodiscard]] virtual core::Result<void, ScriptInvocationError>
+    run_project_on_game_ready(const RuntimeCapabilitySet& capabilities) = 0;
     virtual void cancel(const core::ScriptInvocationHandle& invocation,
                         ScriptCancellationReason reason) = 0;
     virtual void invalidate_capabilities(CapabilityGeneration generation) noexcept = 0;

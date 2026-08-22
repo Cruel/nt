@@ -713,6 +713,93 @@ TEST_CASE("Project Script Module imports reject cycles missing modules exports a
     }
 }
 
+TEST_CASE("On Game Ready runs loaded module handlers dependency-first with read-only live state")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto project = load_script_project_with_modules({
+        {"order", "return { value = '' }"},
+        {"a", "local order = import('order')\n"
+              "local retained_room = nil\n"
+              "return { on_ready = function()\n"
+              "  retained_room = retained_room or select(1, noveltea.project.room('start'))\n"
+              "  assert(retained_room.kind == 'room' and retained_room.id == 'start')\n"
+              "  local mood, present, err = retained_room:prop('mood')\n"
+              "  assert(err == nil and present and mood == 'calm')\n"
+              "  local ok, write_err = retained_room:set_prop('mood', 'tense')\n"
+              "  assert(not ok and type(write_err) == 'string')\n"
+              "  order.value = order.value .. 'a'\n"
+              "end }"},
+        {"z", "local order = import('order')\n"
+              "return { on_ready = function()\n"
+              "  assert(order.value == 'a')\n"
+              "  order.value = order.value .. 'z'\n"
+              "end }"},
+        {"bootstrap", "import('z')\nimport('a')\nreturn {}"},
+    });
+    REQUIRE(fixture.runtime.prepare_project_modules(project));
+    REQUIRE(fixture.runtime.run_project_bootstrap());
+
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    runtime::RuntimeWorld world(project, state);
+    runtime::RuntimeCommandGateway gateway(project, state, world,
+                                           *runtime::CapabilityGeneration::from_number(1));
+    auto ready = issue_capabilities(gateway, runtime::RuntimeCapabilityProfile::OnGameReady);
+
+    auto result = fixture.runtime.run_project_on_game_ready(ready);
+    INFO((result ? std::string{} : result.error().message + " | " + result.error().traceback));
+    REQUIRE(result);
+    CHECK(gateway.command_queue().empty());
+}
+
+TEST_CASE("On Game Ready rejects yielding handlers invalid exports and late module initialization")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+
+    const auto run = [&](std::initializer_list<std::pair<std::string, std::string>> modules) {
+        auto project = load_script_project_with_modules(modules);
+        REQUIRE(fixture.runtime.prepare_project_modules(project));
+        REQUIRE(fixture.runtime.run_project_bootstrap());
+        auto state_result = core::SessionState::create(project);
+        REQUIRE(state_result);
+        auto state = std::move(state_result).value();
+        runtime::RuntimeWorld world(project, state);
+        runtime::RuntimeCommandGateway gateway(project, state, world,
+                                               *runtime::CapabilityGeneration::from_number(1));
+        auto ready = issue_capabilities(gateway, runtime::RuntimeCapabilityProfile::OnGameReady);
+        return fixture.runtime.run_project_on_game_ready(ready);
+    };
+
+    SECTION("yield")
+    {
+        auto result = run({{"ready", "return { on_ready = function() coroutine.yield() end }"},
+                           {"bootstrap", "import('ready')\nreturn {}"}});
+        REQUIRE_FALSE(result);
+        CHECK((result.error().code == script::ScriptErrorCode::YieldForbidden ||
+               result.error().message.find("yield") != std::string::npos));
+    }
+
+    SECTION("invalid export")
+    {
+        auto result = run(
+            {{"ready", "return { on_ready = true }"}, {"bootstrap", "import('ready')\nreturn {}"}});
+        REQUIRE_FALSE(result);
+        CHECK(result.error().message.find("must be a function") != std::string::npos);
+    }
+
+    SECTION("late import")
+    {
+        auto result = run({{"late", "return {}"},
+                           {"ready", "return { on_ready = function() import('late') end }"},
+                           {"bootstrap", "import('ready')\nreturn {}"}});
+        REQUIRE_FALSE(result);
+        CHECK(result.error().message.find("during Bootstrap") != std::string::npos);
+    }
+}
+
 TEST_CASE("Project Bootstrap and module initialization cannot yield or use gameplay capabilities")
 {
     RuntimeFixture fixture;
@@ -954,6 +1041,18 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
 
         local scene, scene_error = noveltea.project.scene("opening")
         assert(scene_error == nil and scene.id == "opening" and scene.display_name == "Opening")
+        local room, room_error = noveltea.project.room("hall")
+        assert(room_error == nil and room.kind == "room" and room.id == "hall")
+        local identity_mood, identity_present, identity_error = room:prop("mood")
+        assert(identity_error == nil and identity_present and identity_mood == "tense")
+        local character, character_error = noveltea.project.character("hero")
+        assert(character_error == nil and character.kind == "character" and character.id == "hero")
+        local character_location, character_location_error = character:location()
+        assert(character_location_error == nil and character_location.kind == "room")
+        local interactable, interactable_error = noveltea.project.interactable("key")
+        assert(interactable_error == nil and interactable.kind == "interactable" and interactable.id == "key")
+        local interactable_location, interactable_location_error = interactable:location()
+        assert(interactable_location_error == nil and interactable_location.kind == "room")
         local missing, missing_error = noveltea.project.room("missing")
         assert(missing == nil and type(missing_error) == "string")
 
@@ -1147,9 +1246,23 @@ TEST_CASE("script invocation capabilities are scoped to the active frontend call
     auto evaluated = invoker.evaluate(core::LuaPredicate{"Game.prop('count') == 0"});
     REQUIRE(evaluated);
 
-    auto escaped = fixture.runtime.execute("local value, err = Game.prop('count'); "
-                                           "assert(value == nil and type(err) == 'string')",
-                                           "capability-after-return");
+    REQUIRE(invoker.execute(
+        "retained_room = select(1, noveltea.project.room('hall')); "
+        "assert(retained_room.kind == 'room' and retained_room.id == 'hall'); "
+        "local ok, err = retained_room:set_prop('mood', 'calm'); assert(ok and err == nil)",
+        "retain-gameplay-identity"));
+    auto denied = invoker.evaluate(
+        core::LuaPredicate{"(function() local ok, err = retained_room:set_prop('mood', 'tense'); "
+                           "return not ok and type(err) == 'string' end)()"});
+    REQUIRE(denied);
+    CHECK(denied.value());
+
+    auto escaped = fixture.runtime.execute(
+        "local value, err = Game.prop('count'); "
+        "assert(value == nil and type(err) == 'string'); "
+        "local prop, present, prop_err = retained_room:prop('mood'); "
+        "assert(prop == nil and not present and type(prop_err) == 'string')",
+        "capability-after-return");
     REQUIRE(escaped);
 }
 

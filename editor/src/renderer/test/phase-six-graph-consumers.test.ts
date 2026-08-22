@@ -25,6 +25,7 @@ import {
   recordTarget,
 } from '../project/authoring-repair';
 import {
+  classifyAuthoringLiteralEvidence,
   nestedNodeKey,
   recordNodeKey,
   serializeAuthoringDependencyNodeKey,
@@ -115,6 +116,62 @@ describe('Phase 6 graph consumers and structural preflight', () => {
   beforeEach(() => {
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();
+  });
+
+  it('recognizes Script Module imports and typed gameplay identity references as exact tooling edges', () => {
+    const project = createAuthoringProject();
+    project.scripts.shared = {
+      id: 'shared',
+      label: 'Shared',
+      data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return {}' } },
+    };
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    const classify = (source: string, literal: string, decodedValue: string) => {
+      const start = source.indexOf(literal);
+      return classifyAuthoringLiteralEvidence(
+        project,
+        {
+          sourcePath: '/scripts/bootstrap/data/source/source',
+          sourceUrl: 'authoring:inline-lua',
+          sourceContentHash: `sha256:${'1'.repeat(64)}`,
+          regionOrdinal: 0,
+          regionStartUtf16: start,
+          regionEndUtf16: start + literal.length,
+          line: 1,
+          column: start + 1,
+          rawLiteral: literal,
+          decodedValue,
+          literalKind: 'single-quoted',
+          sourceKind: 'lua-field',
+        },
+        {
+          semanticOwner: { kind: 'record', collection: 'scripts', id: 'bootstrap' },
+          sourceKind: 'lua-field',
+          sourcePath: '/scripts/bootstrap/data/source/source',
+          sourceUrl: 'authoring:inline-lua',
+          containerContentHash: `sha256:${'1'.repeat(64)}`,
+          regionOrdinal: 0,
+          containerLine: 1,
+          containerColumn: 1,
+          decodedSource: source,
+        },
+      );
+    };
+
+    expect(classify("import('shared')", "'shared'", 'shared')).toMatchObject({
+      classification: 'exact-rewriteable',
+      recognizedBy: 'noveltea.script-module-import',
+      occurrence: {
+        candidateTargets: [{ kind: 'record', collection: 'scripts', id: 'shared' }],
+      },
+    });
+    expect(classify("noveltea.project.room('hall')", "'hall'", 'hall')).toMatchObject({
+      classification: 'exact-rewriteable',
+      recognizedBy: 'noveltea.gameplay-identity',
+      occurrence: {
+        candidateTargets: [{ kind: 'record', collection: 'rooms', id: 'hall' }],
+      },
+    });
   });
 
   it('fails closed when the graph is stale or unavailable', () => {

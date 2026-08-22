@@ -10,6 +10,8 @@ continuation targets, or mutable session records.
 
 Modules never autorun because they exist in a collection or package. Every Project names one Bootstrap Module by stable Script Module ID. A fresh Project VM imports that module synchronously before the Room/Scene/Dialogue entrypoint begins; other modules execute only when the Bootstrap Module or another explicit runtime reference imports them. Bootstrap and module initialization cannot yield.
 
+A loaded module opts into **On Game Ready** by exporting `on_ready` as a function. After authoritative runtime state exists, NovelTea runs all loaded handlers synchronously: imported dependencies first, then stable Script Module ID order. This lifecycle runs for initial session creation, reset, and successful restoration. It may read authoritative gameplay state and rebuild module-local/transient Lua state, but its dedicated capability profile admits no gameplay mutation and no yielding. It also cannot initialize a module that was not already loaded during Bootstrap/module initialization. Invalid `on_ready` exports or handler failures reject the lifecycle operation. There is no separate effectful New Game Hook.
+
 ## Execution and state
 
 Conditions and text expressions are synchronous and cannot yield. Effect scripts and explicit script instructions may yield and return a closed Completed/Suspended outcome through `core::Result`. Every suspension has an engine-owned typed correlation handle bound to one flow frame.
@@ -23,7 +25,7 @@ Lua VM and coroutine state are never serialized. Saving is rejected while suspen
 - **Mutable:** engine-owned invocation/correlation state only; serializable logical waits may enter `SaveState`, never VM state.
 - **Tooling only:** categories, tags, colors, sort keys, source-editor selection, diagnostics display, and preview state.
 
-The TypeScript compiler treats Lua as opaque text after structural validation. Preview/export certification and shipped package loading use the native Lua loader for syntax diagnostics; no JavaScript Lua parser dependency is introduced.
+The TypeScript compiler treats Lua as opaque text after structural validation. For inline modules, lightweight tooling metadata recognizes literal `import('module-id')` calls and `on_ready` declarations without pretending to parse arbitrary Lua: statically knowable missing literal imports and literal import cycles are authoring errors, and asset-backed/dynamic relationships remain runtime-authoritative. Preview/export certification and shipped package loading use the native Lua loader for syntax diagnostics; no JavaScript Lua parser dependency is introduced.
 
 ## Implementation
 
@@ -35,8 +37,9 @@ emits the Project's stable `bootstrapModule` reference without changing compiled
 
 The native Project loader gives every Script Module a module-local environment with an `import(id, export?)`
 function. First import executes the target once in the current Project VM, requires the module to return an
-exports table, caches that table, and returns either the table or the requested named export. Repeated imports
-return the cached object. Missing modules, missing named exports, import cycles, yielded initialization, and
-failed initialization are hard errors; a failed module is not retried in the same VM. `package`, `require`,
+exports table, caches that table, records the import dependency for deterministic On Game Ready ordering, and
+returns either the table or the requested named export. Repeated imports return the cached object. Missing
+modules, missing named exports, import cycles, yielded initialization, and failed initialization are hard errors;
+a failed module is not retried in the same VM. `package`, `require`,
 `dofile`, `loadfile`, and unrestricted filesystem loaders remain unavailable. There is no legacy
 Script/CustomScript entity path, implicit collection execution, or generic property API.

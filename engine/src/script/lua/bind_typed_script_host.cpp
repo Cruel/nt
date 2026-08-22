@@ -18,6 +18,13 @@ namespace {
 using ObjectResult = std::tuple<sol::object, sol::object>;
 using MutationResult = std::tuple<bool, sol::object>;
 
+struct GameplayIdentityReference {
+    RuntimeScriptApi* host = nullptr;
+    core::PropertyOwnerRef owner;
+    std::string kind;
+    std::string id;
+};
+
 std::string diagnostic_message(const core::Diagnostics& diagnostics)
 {
     return diagnostics.empty() ? "typed host request failed" : diagnostics.front().message;
@@ -421,6 +428,28 @@ void bind_definition_reader(sol::table project, const char* name, core::ProjectD
     });
 }
 
+template<class Id>
+void bind_identity_reader(sol::table project, const char* name, core::ProjectDefinitionKind kind,
+                          const char* identity_kind, RuntimeScriptApi* host)
+{
+    project.set_function(
+        name, [host, kind, identity_kind](std::string id, sol::this_state state) -> ObjectResult {
+            sol::state_view lua(state);
+            auto parsed = parse_id<Id>(id);
+            if (!parsed)
+                return failure(lua, parsed.error());
+            auto definition = host->definition(kind, id);
+            if (!definition)
+                return failure(lua, definition.error());
+            return {
+                sol::make_object(lua,
+                                 GameplayIdentityReference{
+                                     host, core::PropertyOwnerRef{std::move(*parsed.value_if())},
+                                     identity_kind, std::move(id)}),
+                nil(lua)};
+        });
+}
+
 } // namespace
 
 void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
@@ -432,13 +461,116 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
         return;
     }
 
+    lua.new_usertype<GameplayIdentityReference>(
+        "__noveltea_gameplay_identity", sol::no_constructor, "kind",
+        sol::readonly(&GameplayIdentityReference::kind), "id",
+        sol::readonly(&GameplayIdentityReference::id), "prop",
+        [](GameplayIdentityReference& self, std::string property_id,
+           sol::this_state state) -> std::tuple<sol::object, bool, sol::object> {
+            sol::state_view view(state);
+            auto property = parse_id<core::PropertyId>(std::move(property_id));
+            if (!property)
+                return {nil(view), false,
+                        sol::make_object(view, diagnostic_message(property.error()))};
+            auto value = self.host->property(self.owner, *property.value_if());
+            const auto* lookup = value.value_if();
+            if (!lookup)
+                return {nil(view), false,
+                        sol::make_object(view, diagnostic_message(value.error()))};
+            if (const auto* present = std::get_if<core::RuntimeValue>(lookup))
+                return {lua_value(view, *present), true, nil(view)};
+            return {nil(view), false, nil(view)};
+        },
+        "set_prop",
+        [](GameplayIdentityReference& self, std::string property_id, sol::object value,
+           sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto property = parse_id<core::PropertyId>(std::move(property_id));
+            auto parsed_value = runtime_value(value);
+            if (!property)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(property.error()));
+            if (!parsed_value)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(parsed_value.error()));
+            return mutation(view, self.host->set_property(self.owner, *property.value_if(),
+                                                          std::move(*parsed_value.value_if())));
+        },
+        "unset_prop",
+        [](GameplayIdentityReference& self, std::string property_id,
+           sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto property = parse_id<core::PropertyId>(std::move(property_id));
+            if (!property)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(property.error()));
+            return mutation(view, self.host->unset_property(self.owner, *property.value_if()));
+        },
+        "location",
+        [](GameplayIdentityReference& self, sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            if (const auto* character = std::get_if<core::CharacterId>(&self.owner)) {
+                auto value = self.host->character_location(*character);
+                return value ? ObjectResult{character_location_object(view, *value.value_if()),
+                                            nil(view)}
+                             : failure(view, value.error());
+            }
+            if (const auto* interactable = std::get_if<core::InteractableId>(&self.owner)) {
+                auto value = self.host->interactable_location(*interactable);
+                return value ? ObjectResult{location_object(view, *value.value_if()), nil(view)}
+                             : failure(view, value.error());
+            }
+            return failure(view, location_error("This gameplay identity has no world Location"));
+        },
+        "set_location",
+        [](GameplayIdentityReference& self, sol::table target,
+           sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            if (const auto* character = std::get_if<core::CharacterId>(&self.owner)) {
+                auto location = parse_character_location(target);
+                return location ? mutation(view, self.host->request_character_location(
+                                                     *character, std::move(*location.value_if())))
+                                : mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                     location.error()));
+            }
+            if (const auto* interactable = std::get_if<core::InteractableId>(&self.owner)) {
+                auto location = parse_interactable_location(target);
+                return location
+                           ? mutation(view, self.host->request_interactable_location(
+                                                *interactable, std::move(*location.value_if())))
+                           : mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                location.error()));
+            }
+            return mutation(view, core::Result<void, core::Diagnostics>::failure(location_error(
+                                      "This gameplay identity has no mutable world Location")));
+        });
+    lua["__noveltea_gameplay_identity"] = sol::lua_nil;
+
     sol::table project = lua.create_table();
-    bind_definition_reader(project, "room", core::ProjectDefinitionKind::Room, host);
+    bind_identity_reader<core::RoomId>(project, "room", core::ProjectDefinitionKind::Room, "room",
+                                       host);
     bind_definition_reader(project, "scene", core::ProjectDefinitionKind::Scene, host);
     bind_definition_reader(project, "dialogue", core::ProjectDefinitionKind::Dialogue, host);
-    bind_definition_reader(project, "character", core::ProjectDefinitionKind::Character, host);
-    bind_definition_reader(project, "interactable", core::ProjectDefinitionKind::Interactable,
-                           host);
+    bind_identity_reader<core::CharacterId>(
+        project, "character", core::ProjectDefinitionKind::Character, "character", host);
+    bind_identity_reader<core::InteractableId>(
+        project, "interactable", core::ProjectDefinitionKind::Interactable, "interactable", host);
+    project.set_function(
+        "feature",
+        [host](std::string owner_kind, std::string owner_id, std::string feature_id,
+               sol::this_state state) -> ObjectResult {
+            sol::state_view view(state);
+            const std::string qualified_id = owner_kind + ":" + owner_id + "#" + feature_id;
+            auto feature = feature_ref(owner_kind, owner_id, feature_id);
+            if (!feature)
+                return failure(view, feature.error());
+            auto owner = std::visit(
+                [](auto reference) { return core::PropertyOwnerRef{std::move(reference)}; },
+                std::move(*feature.value_if()));
+            return {sol::make_object(view, GameplayIdentityReference{host, std::move(owner),
+                                                                     "feature", qualified_id}),
+                    nil(view)};
+        });
     bind_definition_reader(project, "verb", core::ProjectDefinitionKind::Verb, host);
     bind_definition_reader(project, "interaction", core::ProjectDefinitionKind::Interaction, host);
     bind_definition_reader(project, "map", core::ProjectDefinitionKind::Map, host);
@@ -844,6 +976,7 @@ void clear_typed_script_host(lua_State* state)
     noveltea["project"] = sol::lua_nil;
     noveltea["properties"] = sol::lua_nil;
     noveltea["interactables"] = sol::lua_nil;
+    noveltea["characters"] = sol::lua_nil;
     noveltea["navigation"] = sol::lua_nil;
     noveltea["flow"] = sol::lua_nil;
     noveltea["notify"] = sol::lua_nil;

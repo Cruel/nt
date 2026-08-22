@@ -4,7 +4,10 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
-import { parseScriptModuleData } from '../../../shared/project-schema/authoring-script-modules';
+import {
+  parseScriptModuleData,
+  scriptModuleLifecycleMetadata,
+} from '../../../shared/project-schema/authoring-script-modules';
 import {
   authoringProjectFromDocument,
   typedRef,
@@ -20,6 +23,7 @@ export function ScriptModuleEditor({ tab }: WorkbenchEditorProps) {
   const data = parseScriptModuleData(record?.data);
   if (!project || !id || !record || !data)
     return <div className="p-4 text-sm text-muted-foreground">Script Module record not found.</div>;
+  const lifecycle = scriptModuleLifecycleMetadata(data);
   const commit = (next: typeof data) =>
     useCommandStore.getState().executeCommand({
       type: 'script.replaceData',
@@ -30,9 +34,21 @@ export function ScriptModuleEditor({ tab }: WorkbenchEditorProps) {
     });
   return (
     <div className="h-full overflow-auto bg-background p-4">
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         <h2 className="text-lg font-semibold">{record.label}</h2>
         <Badge variant="outline">{id}</Badge>
+        {lifecycle.onGameReady === 'declared' ? (
+          <Badge variant="secondary">On Game Ready</Badge>
+        ) : null}
+        {lifecycle.literalImports.length ? (
+          <Badge variant="outline">
+            {lifecycle.literalImports.length} literal import
+            {lifecycle.literalImports.length === 1 ? '' : 's'}
+          </Badge>
+        ) : null}
+        {lifecycle.onGameReady === 'unknown' ? (
+          <Badge variant="outline">Lifecycle metadata resolved at runtime</Badge>
+        ) : null}
       </div>
       <ScriptModuleForm data={data} project={project} onChange={commit} />
     </div>

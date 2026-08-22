@@ -24,6 +24,21 @@ core::Diagnostics as_diagnostics(RuntimeExecutionError error)
                              .message = std::get<ScriptInvocationError>(error).message}};
 }
 
+core::Diagnostics run_on_game_ready(ScriptInvocationPort& scripts, RuntimeExecutor& kernel)
+{
+    RuntimeCapabilityIssuer issuer(kernel.gateway(), kernel.gateway().generation());
+    const auto capabilities = issuer.issue(RuntimeCapabilityProfile::OnGameReady);
+    if (!capabilities)
+        return {core::Diagnostic{.code = "runtime.on_game_ready_capability_failed",
+                                 .message = "On Game Ready capability profile is unavailable"}};
+    auto ready = scripts.run_project_on_game_ready(*capabilities);
+    if (ready)
+        return {};
+    return {core::Diagnostic{.code = "runtime.on_game_ready_failed",
+                             .message = ready.error().message,
+                             .source_path = ready.error().chunk}};
+}
+
 template<class T> const T* active_blocker(const RuntimeExecutor& kernel)
 {
     return kernel.state().blocker() ? std::get_if<T>(&*kernel.state().blocker()) : nullptr;
@@ -369,6 +384,10 @@ RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvo
     if (!kernel)
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             std::move(kernel).error());
+    auto ready_diagnostics = run_on_game_ready(scripts, **kernel.value_if());
+    if (!ready_diagnostics.empty())
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
+            std::move(ready_diagnostics));
     return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::success(
         std::unique_ptr<RuntimeSession>(new RuntimeSession(
             project, scripts, presentation_model, presentation, saves, save_codec,
@@ -1241,21 +1260,27 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             RuntimeExecutor::create(m_project, m_scripts, m_presentation_model,
                                                     m_next_capability_generation);
                         if (reset) {
-                            m_presentation.terminate(
-                                core::PresentationCancellationReason::RuntimeReset);
-                            invalidate_kernel(runtime::ScriptCancellationReason::RuntimeReset);
-                            m_kernel = std::move(*reset.value_if());
-                            m_next_capability_generation = *subsequent_generation;
-                            m_kernel->gateway().bind_services(this);
-                            m_selection.clear();
-                            m_room_description_visit.reset();
-                            m_room_description_visible = false;
-                            m_pending_presentation.reset();
-                            m_pending_audio.reset();
-                            m_pending_events.clear();
-                            m_checkpoint_service.reset();
-                            m_skip_next_checkpoint_settlement = true;
-                            m_force_publication = true;
+                            auto ready_diagnostics =
+                                run_on_game_ready(m_scripts, **reset.value_if());
+                            if (!ready_diagnostics.empty()) {
+                                result.diagnostics = std::move(ready_diagnostics);
+                            } else {
+                                m_presentation.terminate(
+                                    core::PresentationCancellationReason::RuntimeReset);
+                                invalidate_kernel(runtime::ScriptCancellationReason::RuntimeReset);
+                                m_kernel = std::move(*reset.value_if());
+                                m_next_capability_generation = *subsequent_generation;
+                                m_kernel->gateway().bind_services(this);
+                                m_selection.clear();
+                                m_room_description_visit.reset();
+                                m_room_description_visible = false;
+                                m_pending_presentation.reset();
+                                m_pending_audio.reset();
+                                m_pending_events.clear();
+                                m_checkpoint_service.reset();
+                                m_skip_next_checkpoint_settlement = true;
+                                m_force_publication = true;
+                            }
                         } else
                             result.diagnostics = std::move(reset).error();
                     }
@@ -1402,27 +1427,34 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                     : core::Result<core::LatestSaveCheckpoint,
                                                    core::Diagnostics>::failure(loaded.error());
                             if (checkpoint) {
-                                m_presentation.terminate(
-                                    core::PresentationCancellationReason::CheckpointLoad);
-                                invalidate_kernel(
-                                    runtime::ScriptCancellationReason::CheckpointLoad);
-                                m_kernel = std::move(*loaded.value_if());
-                                m_next_capability_generation = *subsequent_generation;
-                                m_kernel->gateway().bind_services(this);
-                                static_cast<void>(m_kernel->gateway().take_mutation_impacts());
-                                m_transaction_impacts.clear();
-                                m_selection.clear();
-                                m_room_description_visit.reset();
-                                m_room_description_visible = false;
-                                m_pending_presentation.reset();
-                                m_pending_audio.reset();
-                                m_pending_events.clear();
-                                m_checkpoint_service.commit_loaded_checkpoint(
-                                    std::move(*checkpoint.value_if()));
-                                result.events.emplace_back(runtime::SaveOutcomeEvent{
-                                    core::SaveOutcome{value.slot, core::SaveOutcomeStatus::Loaded,
-                                                      value.slot.is_autosave()}});
-                                m_force_publication = true;
+                                auto ready_diagnostics =
+                                    run_on_game_ready(m_scripts, **loaded.value_if());
+                                if (!ready_diagnostics.empty()) {
+                                    result.diagnostics = std::move(ready_diagnostics);
+                                } else {
+                                    m_presentation.terminate(
+                                        core::PresentationCancellationReason::CheckpointLoad);
+                                    invalidate_kernel(
+                                        runtime::ScriptCancellationReason::CheckpointLoad);
+                                    m_kernel = std::move(*loaded.value_if());
+                                    m_next_capability_generation = *subsequent_generation;
+                                    m_kernel->gateway().bind_services(this);
+                                    static_cast<void>(m_kernel->gateway().take_mutation_impacts());
+                                    m_transaction_impacts.clear();
+                                    m_selection.clear();
+                                    m_room_description_visit.reset();
+                                    m_room_description_visible = false;
+                                    m_pending_presentation.reset();
+                                    m_pending_audio.reset();
+                                    m_pending_events.clear();
+                                    m_checkpoint_service.commit_loaded_checkpoint(
+                                        std::move(*checkpoint.value_if()));
+                                    result.events.emplace_back(runtime::SaveOutcomeEvent{
+                                        core::SaveOutcome{value.slot,
+                                                          core::SaveOutcomeStatus::Loaded,
+                                                          value.slot.is_autosave()}});
+                                    m_force_publication = true;
+                                }
                             } else
                                 result.diagnostics = std::move(checkpoint).error();
                         }

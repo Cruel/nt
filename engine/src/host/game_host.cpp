@@ -187,6 +187,12 @@ public:
         return m_delegate.resume(invocation, capabilities);
     }
 
+    [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
+    run_project_on_game_ready(const runtime::RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate.run_project_on_game_ready(capabilities);
+    }
+
     void cancel(const core::ScriptInvocationHandle& invocation,
                 runtime::ScriptCancellationReason reason) override
     {

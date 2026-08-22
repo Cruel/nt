@@ -20,6 +20,32 @@ export interface ScriptModuleSchemaDiagnostic {
   message: string;
   category?: string;
 }
+
+export interface ScriptModuleLifecycleMetadata {
+  onGameReady: 'declared' | 'not-declared' | 'unknown';
+  literalImports: readonly string[];
+}
+
+const literalImports = (source: string): string[] => {
+  const imports: string[] = [];
+  const matcher = /(?:^|[^\w.])import\s*\(\s*(['"])([^'"\r\n]+)\1/g;
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(source)) !== null) {
+    if (match[2] && !imports.includes(match[2])) imports.push(match[2]);
+  }
+  return imports;
+};
+
+export function scriptModuleLifecycleMetadata(
+  data: ScriptModuleData,
+): ScriptModuleLifecycleMetadata {
+  if (data.source.kind !== 'inline-lua') return { onGameReady: 'unknown', literalImports: [] };
+  return {
+    onGameReady: /\bon_ready\s*=/.test(data.source.source) ? 'declared' : 'not-declared',
+    literalImports: literalImports(data.source.source),
+  };
+}
+
 const diagnostic = (
   path: string,
   message: string,
@@ -43,7 +69,38 @@ export function validateScriptModuleData(
     return parsed.error.issues.map((issue) =>
       diagnostic(`${base}/${issue.path.join('/')}`, issue.message),
     );
-  if (parsed.data.source.kind !== 'asset') return [];
+  if (parsed.data.source.kind === 'inline-lua') {
+    const imports = literalImports(parsed.data.source.source);
+    const diagnostics = imports
+      .filter((dependency) => !project.scripts[dependency])
+      .map((dependency) =>
+        diagnostic(
+          `${base}/source/source`,
+          `Script Module imports missing Script Module '${dependency}'.`,
+        ),
+      );
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (id: string): boolean => {
+      if (visiting.has(id)) return true;
+      if (visited.has(id)) return false;
+      visiting.add(id);
+      const dependencyData = parseScriptModuleData(project.scripts[id]?.data);
+      if (dependencyData?.source.kind === 'inline-lua') {
+        for (const dependency of literalImports(dependencyData.source.source)) {
+          if (project.scripts[dependency] && visit(dependency)) return true;
+        }
+      }
+      visiting.delete(id);
+      visited.add(id);
+      return false;
+    };
+    if (visit(scriptId))
+      diagnostics.push(
+        diagnostic(`${base}/source/source`, 'Script Module literal imports contain a cycle.'),
+      );
+    return diagnostics;
+  }
   const asset = project.assets[parsed.data.source.asset.$ref.id];
   if (!asset)
     return [
