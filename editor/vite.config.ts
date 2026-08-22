@@ -328,7 +328,11 @@ export default defineConfig({
       name: 'scriptc-island',
       deps: {
         ...commonNodePack.deps,
-        neverBundle: [...electronRuntimeExternals, 'noveltea-scriptc-agent-kit-source'],
+        neverBundle: [
+          ...electronRuntimeExternals,
+          'noveltea-scriptc-agent-kit-source',
+          'noveltea-scriptc-comfyui-workflows',
+        ],
         onlyBundle: ['pe-library', 'resedit', 'saxes', 'xmlchars', 'zod'],
       },
       entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },

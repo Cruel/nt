@@ -297,6 +297,17 @@ Object.defineProperty(window, 'noveltea', {
       ).__novelteaEditorCacheEpochListener = callback;
       return () => {};
     }),
+    loadComfyUiUserConfig: vi.fn().mockResolvedValue({
+      format: 'noveltea.comfyui-user-config',
+      formatVersion: 1,
+      serverUrl: 'http://127.0.0.1:8000',
+      requestTimeoutMs: 15000,
+      defaultWorkflows: {
+        'image.generate': 'flux2-klein-text-to-image',
+        'image.edit': 'flux2-klein-image-edit',
+      },
+    }),
+    saveComfyUiUserConfig: vi.fn().mockImplementation(async (value) => value),
     checkComfyUiConnection: vi.fn().mockResolvedValue({
       state: 'ready',
       serverUrl: 'http://127.0.0.1:8000',
@@ -342,7 +353,7 @@ Object.defineProperty(window, 'noveltea', {
       ok: true,
       success: true,
       diagnostics: [],
-      workflowKey: 'editor:mock.manifest.json',
+      workflowKey: 'user:mock.manifest.json',
       workflowFile: 'mock.workflow.json',
       manifestFile: 'mock.manifest.json',
     }),
@@ -350,7 +361,7 @@ Object.defineProperty(window, 'noveltea', {
       ok: true,
       success: true,
       diagnostics: [],
-      workflowKey: 'editor:mock.manifest.json',
+      workflowKey: 'user:mock.manifest.json',
       workflowFile: 'mock.workflow.json',
       manifestFile: 'mock.manifest.json',
     }),

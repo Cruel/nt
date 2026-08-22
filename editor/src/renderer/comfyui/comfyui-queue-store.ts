@@ -4,7 +4,7 @@ import type {
   ComfyUiEditImageRequest,
   ComfyUiGenerateImageRequest,
 } from '../../shared/comfyui-generation';
-import type { ComfyUiWorkflowRole } from '../../shared/comfyui-workflows';
+import type { ComfyUiWorkflowClassification } from '../../shared/comfyui-workflows';
 
 export type ComfyUiQueueItemState = 'queued' | 'running' | 'finalizing' | 'error' | 'interrupted';
 
@@ -23,7 +23,7 @@ export interface ComfyUiQueueItem {
   projectFilePath: string | null;
   workflowId: string | null;
   workflowLabel: string;
-  role: ComfyUiWorkflowRole | null;
+  classification: ComfyUiWorkflowClassification | null;
   mode: 'generate' | 'edit' | null;
   promptSummary: string;
   state: ComfyUiQueueItemState;
@@ -40,7 +40,7 @@ type EnqueueComfyUiJobOptions = ComfyUiLocalJobRequest & {
   tabId: string;
   config: ComfyUiConfig;
   workflowLabel: string;
-  role: ComfyUiWorkflowRole;
+  classification: ComfyUiWorkflowClassification;
   promptSummary: string;
 };
 
@@ -106,7 +106,7 @@ function itemFromProgress(
       previous?.workflowLabel ??
       progress.workflowId ??
       'ComfyUI workflow',
-    role: progress.role ?? previous?.role ?? null,
+    classification: progress.classification ?? previous?.classification ?? null,
     mode: progress.mode ?? previous?.mode ?? null,
     promptSummary: progress.promptSummary ?? previous?.promptSummary ?? '(unknown prompt)',
     state: resolvedState,
@@ -156,7 +156,7 @@ export const useComfyUiQueueStore = create<ComfyUiQueueStore>()((set, get) => ({
         localJob.kind === 'edit' ? localJob.projectFilePath : localJob.request.projectFilePath,
       workflowId: itemRequest.workflowId ?? itemRequest.workflowKey ?? null,
       workflowLabel: options.workflowLabel,
-      role: options.role,
+      classification: options.classification,
       mode: options.kind,
       promptSummary: options.promptSummary,
       state: 'queued',

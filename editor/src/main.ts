@@ -41,6 +41,10 @@ import {
 } from './main/services/comfyui-workflow-library-service';
 import { analyzeComfyUiWorkflowImport } from './main/services/comfyui-workflow-import-service';
 import {
+  loadComfyUiUserConfig,
+  saveComfyUiUserConfig,
+} from './main/services/comfyui-user-config-service';
+import {
   auditProjectAssets,
   importUntrackedProjectAssets,
   purgeProjectTrash,
@@ -112,6 +116,7 @@ import {
   comfyUiCancelJobArgumentsSchema,
   comfyUiConfigArgumentsSchema,
   comfyUiCopyWorkflowArgumentsSchema,
+  comfyUiUserConfigArgumentsSchema,
   comfyUiDeleteWorkflowArgumentsSchema,
   comfyUiEditImageArgumentsSchema,
   comfyUiGenerateImageArgumentsSchema,
@@ -1356,6 +1361,18 @@ void app.whenReady().then(async () => {
   };
 
   guardedIpc.handle(
+    IPC_CHANNELS.COMFYUI_LOAD_USER_CONFIG,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => loadComfyUiUserConfig(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.COMFYUI_SAVE_USER_CONFIG,
+    (arguments_) => comfyUiUserConfigArgumentsSchema.parse(arguments_),
+    (config) => saveComfyUiUserConfig(config),
+  );
+
+  guardedIpc.handle(
     IPC_CHANNELS.COMFYUI_CHECK_CONNECTION,
     (arguments_) => comfyUiConfigArgumentsSchema.parse(arguments_),
     (config) => checkComfyUiConnection(config),
@@ -1443,6 +1460,7 @@ void app.whenReady().then(async () => {
         workflowKey.startsWith('project:')
           ? requireComfyUiProjectFilePath(projectSessionId)
           : comfyUiProjectFilePath(projectSessionId),
+        { showItemInFolder: (itemPath) => shell.showItemInFolder(itemPath) },
       ),
   );
 
@@ -1503,7 +1521,7 @@ void app.whenReady().then(async () => {
     (arguments_) => comfyUiCancelJobArgumentsSchema.parse(arguments_),
     (projectSessionId, config) => {
       activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-      return cancelComfyUiJob(config);
+      return cancelComfyUiJob(config, projectSessionId);
     },
   );
 

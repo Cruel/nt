@@ -3,13 +3,15 @@ import type { ComfyUiAnalyzedWorkflow } from './comfyui-workflow-graph';
 import type { ComfyUiRoleCandidateMap } from './comfyui-workflow-inference';
 
 export type ComfyUiWorkflowId = string;
-export type ComfyUiWorkflowRole = 'image.generate' | 'image.edit';
+export type ComfyUiWorkflowClassification = string;
+export type ComfyUiKnownWorkflowClassification = 'image.generate' | 'image.edit';
 export type ComfyUiWorkflowProvider = 'comfyui';
-export type ComfyUiWorkflowValueType = 'string' | 'integer' | 'number' | 'image-upload-reference';
-export type ComfyUiContractInputType = 'string' | 'integer' | 'number' | 'image';
-export type ComfyUiContractOutputType = 'image-list';
-export type ComfyUiImagePrimaryOutput = 'first';
+export type ComfyUiWorkflowInputType = 'string' | 'integer' | 'number' | 'boolean' | 'image';
+export type ComfyUiWorkflowOutputCardinality = 'one' | 'many';
+export type ComfyUiWorkflowOutputMediaType = string;
 
+// These semantic names are image-authoring inference hints only. Generic workflow parsing and
+// execution use the public IDs declared by each manifest instead of this catalog.
 export type ComfyUiSemanticInput =
   | 'prompt'
   | 'negativePrompt'
@@ -27,7 +29,13 @@ export type ComfyUiWorkflowSchemaVersion = typeof COMFYUI_WORKFLOW_SCHEMA_VERSIO
 export const COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA =
   'noveltea.comfyui-workflow-verification-cache' as const;
 export const COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION = 1 as const;
-export type ComfyUiWorkflowEditorField = 'textarea' | 'text' | 'integer' | 'number' | 'imageAsset';
+export type ComfyUiWorkflowEditorField =
+  | 'textarea'
+  | 'text'
+  | 'integer'
+  | 'number'
+  | 'boolean'
+  | 'imageAsset';
 
 export interface ComfyUiWorkflowBindingSelector {
   title?: string;
@@ -42,7 +50,6 @@ export interface ComfyUiWorkflowBinding {
   nodeTitle?: string;
   classType?: string;
   inputName: string;
-  valueType: ComfyUiWorkflowValueType;
   selector?: ComfyUiWorkflowBindingSelector;
   resolvedNodeId?: string;
 }
@@ -51,8 +58,6 @@ export interface ComfyUiWorkflowOutputBinding {
   nodeId?: string;
   nodeTitle?: string;
   classType?: string;
-  valueType: ComfyUiContractOutputType;
-  primary: ComfyUiImagePrimaryOutput;
 }
 
 export interface ComfyUiWorkflowNodeLike {
@@ -65,24 +70,30 @@ export interface ComfyUiWorkflowNodeLike {
 
 export type ComfyUiWorkflowGraphLike = Record<string, ComfyUiWorkflowNodeLike>;
 
-export interface ComfyUiWorkflowContractInput {
-  type: ComfyUiContractInputType;
-  required: boolean;
+export interface ComfyUiWorkflowAuthoringMetadata {
+  label?: string;
+  description?: string;
   editorField?: ComfyUiWorkflowEditorField;
-  defaultValue?: string | number;
+}
+
+export type ComfyUiWorkflowDefaultValue = string | number | boolean;
+
+export interface ComfyUiWorkflowContractInput {
+  type: ComfyUiWorkflowInputType;
+  required: boolean;
+  defaultValue?: ComfyUiWorkflowDefaultValue;
+  authoring?: ComfyUiWorkflowAuthoringMetadata;
 }
 
 export interface ComfyUiWorkflowContractOutput {
-  type: ComfyUiContractOutputType;
+  mediaType: ComfyUiWorkflowOutputMediaType;
   required: boolean;
-  primary: ComfyUiImagePrimaryOutput;
+  cardinality: ComfyUiWorkflowOutputCardinality;
 }
 
 export interface ComfyUiWorkflowContract {
-  inputs: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowContractInput>>;
-  outputs: {
-    images?: ComfyUiWorkflowContractOutput;
-  };
+  inputs: Record<string, ComfyUiWorkflowContractInput>;
+  outputs: Record<string, ComfyUiWorkflowContractOutput>;
 }
 
 export interface ComfyUiWorkflowDefinition {
@@ -90,42 +101,41 @@ export interface ComfyUiWorkflowDefinition {
   id: ComfyUiWorkflowId;
   label: string;
   provider: ComfyUiWorkflowProvider;
-  role: ComfyUiWorkflowRole;
+  classification?: ComfyUiWorkflowClassification;
   description?: string;
   workflowFile: string;
   contract: ComfyUiWorkflowContract;
   requiredNodeClasses: string[];
-  bindings: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowBinding>>;
-  outputBindings: Partial<Record<ComfyUiSemanticOutput, ComfyUiWorkflowOutputBinding[]>>;
-  defaults: Record<string, string | number> & { filenamePrefix: string };
+  bindings: Record<string, ComfyUiWorkflowBinding[]>;
+  outputBindings: Record<string, ComfyUiWorkflowOutputBinding[]>;
   manifestFile?: string;
 }
 
-export interface ComfyUiWorkflowRoleInputDefinition {
-  type: ComfyUiContractInputType;
+export interface ComfyUiWorkflowClassificationInputDefinition {
+  type: ComfyUiWorkflowInputType;
   required: boolean;
   editorField?: ComfyUiWorkflowEditorField;
-  defaultValue?: string | number;
+  defaultValue?: ComfyUiWorkflowDefaultValue;
   minBindings: number;
   maxBindings: number;
 }
 
-export interface ComfyUiWorkflowRoleOutputDefinition {
-  type: ComfyUiContractOutputType;
+export interface ComfyUiWorkflowClassificationOutputDefinition {
+  mediaType: 'image';
   required: boolean;
-  primary: ComfyUiImagePrimaryOutput;
+  cardinality: ComfyUiWorkflowOutputCardinality;
   minBindings: number;
   maxBindings: number;
 }
 
-export interface ComfyUiWorkflowRoleDefinition {
-  role: ComfyUiWorkflowRole;
+export interface ComfyUiWorkflowClassificationDefinition {
+  classification: ComfyUiKnownWorkflowClassification;
   label: string;
   description: string;
   provider: ComfyUiWorkflowProvider;
   contract: {
-    inputs: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition>>;
-    outputs: Record<ComfyUiSemanticOutput, ComfyUiWorkflowRoleOutputDefinition>;
+    inputs: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowClassificationInputDefinition>>;
+    outputs: Record<ComfyUiSemanticOutput, ComfyUiWorkflowClassificationOutputDefinition>;
   };
   inference: {
     titleMarkers: Partial<Record<ComfyUiSemanticInput | ComfyUiSemanticOutput, string>>;
@@ -139,7 +149,7 @@ export interface ComfyUiWorkflowDiagnostic {
   message: string;
 }
 
-export type ComfyUiWorkflowSource = 'built-in' | 'editor' | 'project';
+export type ComfyUiWorkflowSource = 'built-in' | 'user' | 'project';
 export type ComfyUiMutableWorkflowSource = Exclude<ComfyUiWorkflowSource, 'built-in'>;
 export type ComfyUiWorkflowKey = `${ComfyUiWorkflowSource}:${string}`;
 export type ComfyUiPackageHash = `sha256:${string}`;
@@ -175,6 +185,7 @@ export interface ComfyUiWorkflowLibrarySummary {
 export interface ComfyUiWorkflowVerificationRecord {
   workflowKey: ComfyUiWorkflowKey;
   id: ComfyUiWorkflowId;
+  serverIdentity: string;
   packageHash: ComfyUiPackageHash;
   comfyUiVersion: string;
   status: Extract<ComfyUiWorkflowVerificationStatus, 'verified' | 'failed'>;
@@ -198,7 +209,7 @@ export interface ComfyUiWorkflowPackageFiles {
 }
 
 export interface ComfyUiWorkflowCapabilities {
-  canCopyToEditor: boolean;
+  canCopyToUser: boolean;
   canCopyToProject: boolean;
   canDelete: boolean;
   canRepair: boolean;
@@ -211,7 +222,7 @@ export interface ComfyUiWorkflowLibraryEntry {
   workflowKey: ComfyUiWorkflowKey;
   id?: ComfyUiWorkflowId;
   label?: string;
-  role?: ComfyUiWorkflowRole;
+  classification?: ComfyUiWorkflowClassification;
   definition?: ComfyUiWorkflowDefinition;
   manifestFile: string;
   workflowFile?: string;
@@ -223,6 +234,7 @@ export interface ComfyUiWorkflowLibraryEntry {
   overriddenBy?: ComfyUiWorkflowKey;
   offlineStatus: ComfyUiWorkflowValidationStatus;
   onlineStatus: ComfyUiWorkflowVerificationStatus;
+  runnable?: boolean;
   repairable: boolean;
   diagnostics: ComfyUiWorkflowDiagnostic[];
   verificationDiagnostics: ComfyUiWorkflowDiagnostic[];
@@ -236,11 +248,12 @@ export interface ComfyUiWorkflowActiveEntry {
   source: ComfyUiWorkflowSource;
   id: ComfyUiWorkflowId;
   label: string;
-  role: ComfyUiWorkflowRole;
+  classification?: ComfyUiWorkflowClassification;
   definition: ComfyUiWorkflowDefinition;
   packageHash?: ComfyUiPackageHash;
   offlineStatus: Exclude<ComfyUiWorkflowValidationStatus, 'invalid'>;
   onlineStatus: ComfyUiWorkflowVerificationStatus;
+  runnable: boolean;
   diagnostics: ComfyUiWorkflowDiagnostic[];
   verificationDiagnostics: ComfyUiWorkflowDiagnostic[];
 }
@@ -248,6 +261,7 @@ export interface ComfyUiWorkflowActiveEntry {
 export interface ComfyUiWorkflowLibraryListRequest {
   projectFilePath?: string | null;
   includeOverridden?: boolean;
+  serverIdentity?: string;
   comfyUiVersion?: string;
 }
 
@@ -353,6 +367,7 @@ export interface ComfyUiRepairWorkflowInLibraryResponse {
 export interface ComfyUiVerifyWorkflowLibraryRequest {
   projectFilePath?: string | null;
   config: ComfyUiConfig;
+  workflowId?: ComfyUiWorkflowId;
   force?: boolean;
 }
 
@@ -382,7 +397,7 @@ export interface ComfyUiWorkflowListEntry {
   definition?: ComfyUiWorkflowDefinition;
   id?: string;
   label?: string;
-  role?: ComfyUiWorkflowRole;
+  classification?: ComfyUiWorkflowClassification;
   status: 'valid' | 'warning' | 'invalid';
   repairable: boolean;
   diagnostics: ComfyUiWorkflowDiagnostic[];
@@ -414,14 +429,16 @@ export interface ComfyUiAnalyzeWorkflowImportRequest {
   config?: ComfyUiConfig;
 }
 
-export interface ComfyUiWorkflowRoleImportAnalysis {
+export interface ComfyUiWorkflowClassificationImportAnalysis {
   candidates: ComfyUiRoleCandidateMap;
 }
 
 export interface ComfyUiAnalyzeWorkflowImportResponse {
   ok: boolean;
   analysis?: ComfyUiAnalyzedWorkflow;
-  roleCandidates: Partial<Record<ComfyUiWorkflowRole, ComfyUiWorkflowRoleImportAnalysis>>;
+  classificationCandidates: Partial<
+    Record<ComfyUiKnownWorkflowClassification, ComfyUiWorkflowClassificationImportAnalysis>
+  >;
   diagnostics: ComfyUiWorkflowDiagnostic[];
   error?: string;
 }
@@ -452,12 +469,12 @@ export interface ComfyUiRepairWorkflowManifestRequest {
   overwrite: true;
 }
 
-export const COMFYUI_WORKFLOW_ROLE_CATALOG: Record<
-  ComfyUiWorkflowRole,
-  ComfyUiWorkflowRoleDefinition
+export const COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG: Record<
+  ComfyUiKnownWorkflowClassification,
+  ComfyUiWorkflowClassificationDefinition
 > = {
   'image.generate': {
-    role: 'image.generate',
+    classification: 'image.generate',
     label: 'Text to Image',
     description: 'Generate images from a text prompt.',
     provider: 'comfyui',
@@ -526,9 +543,9 @@ export const COMFYUI_WORKFLOW_ROLE_CATALOG: Record<
       },
       outputs: {
         images: {
-          type: 'image-list',
+          mediaType: 'image',
           required: true,
-          primary: 'first',
+          cardinality: 'many',
           minBindings: 1,
           maxBindings: 1,
         },
@@ -549,7 +566,7 @@ export const COMFYUI_WORKFLOW_ROLE_CATALOG: Record<
     },
   },
   'image.edit': {
-    role: 'image.edit',
+    classification: 'image.edit',
     label: 'Image Edit',
     description: 'Edit an existing image from a source image and text prompt.',
     provider: 'comfyui',
@@ -609,9 +626,9 @@ export const COMFYUI_WORKFLOW_ROLE_CATALOG: Record<
       },
       outputs: {
         images: {
-          type: 'image-list',
+          mediaType: 'image',
           required: true,
-          primary: 'first',
+          cardinality: 'many',
           minBindings: 1,
           maxBindings: 1,
         },
@@ -633,47 +650,42 @@ export const COMFYUI_WORKFLOW_ROLE_CATALOG: Record<
   },
 };
 
-export const SUPPORTED_COMFYUI_WORKFLOW_ROLES = Object.keys(
-  COMFYUI_WORKFLOW_ROLE_CATALOG,
-) as ComfyUiWorkflowRole[];
+export const KNOWN_COMFYUI_WORKFLOW_CLASSIFICATIONS = Object.keys(
+  COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG,
+) as ComfyUiKnownWorkflowClassification[];
 
 export const BUILTIN_COMFYUI_WORKFLOW_MANIFESTS = [
   'flux2-klein-text-to-image.manifest.json',
   'flux2-klein-image-edit.manifest.json',
 ] as const;
 
-const bindingValueTypes = new Set<ComfyUiWorkflowValueType>([
+const contractInputTypes = new Set<ComfyUiWorkflowInputType>([
   'string',
   'integer',
   'number',
-  'image-upload-reference',
-]);
-const contractInputTypes = new Set<ComfyUiContractInputType>([
-  'string',
-  'integer',
-  'number',
+  'boolean',
   'image',
 ]);
-const semanticInputs = new Set<ComfyUiSemanticInput>([
-  'prompt',
-  'negativePrompt',
-  'sourceImage',
-  'maskImage',
-  'width',
-  'height',
-  'seed',
-  'steps',
-  'cfg',
-  'filenamePrefix',
-]);
-const semanticOutputs = new Set<ComfyUiSemanticOutput>(['images']);
+const outputCardinalities = new Set<ComfyUiWorkflowOutputCardinality>(['one', 'many']);
 const editorFields = new Set<ComfyUiWorkflowEditorField>([
   'textarea',
   'text',
   'integer',
   'number',
+  'boolean',
   'imageAsset',
 ]);
+const publicIdPattern = /^[A-Za-z][A-Za-z0-9_-]*$/;
+
+export function isComfyUiWorkflowPublicId(value: string): boolean {
+  return publicIdPattern.test(value);
+}
+const classificationPattern = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
+const mediaTypePattern = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$/;
+
+export function isComfyUiWorkflowClassification(value: string): boolean {
+  return classificationPattern.test(value);
+}
 
 function asRecord(value: unknown, message: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(message);
@@ -748,162 +760,174 @@ function parseBinding(value: unknown, path: string): ComfyUiWorkflowBinding {
   const binding = asRecord(value, `${path} must be an object.`);
   assertExactKeys(
     binding,
-    ['nodeId', 'nodeTitle', 'classType', 'inputName', 'valueType', 'selector', 'resolvedNodeId'],
+    ['nodeId', 'nodeTitle', 'classType', 'inputName', 'selector', 'resolvedNodeId'],
     path,
   );
-  const valueType = asString(
-    binding.valueType,
-    `${path}.valueType is required.`,
-  ) as ComfyUiWorkflowValueType;
-  if (!bindingValueTypes.has(valueType))
-    throw new Error(`${path}.valueType '${valueType}' is not supported.`);
-  return {
+  const parsed = {
     nodeId: optionalString(binding.nodeId, `${path}.nodeId`),
     nodeTitle: optionalString(binding.nodeTitle, `${path}.nodeTitle`),
     classType: optionalString(binding.classType, `${path}.classType`),
     inputName: asString(binding.inputName, `${path}.inputName is required.`),
-    valueType,
     selector: parseBindingSelector(binding.selector, `${path}.selector`),
     resolvedNodeId: optionalString(binding.resolvedNodeId, `${path}.resolvedNodeId`),
   };
+  if (!parsed.nodeId && !parsed.nodeTitle && !parsed.classType && !parsed.selector)
+    throw new Error(`${path} must include nodeId, nodeTitle, classType, or selector metadata.`);
+  return parsed;
 }
 
-function parseContractInput(value: unknown, path: string): ComfyUiWorkflowContractInput {
-  const input = asRecord(value, `${path} must be an object.`);
-  assertExactKeys(input, ['type', 'required', 'editorField', 'defaultValue'], path);
-  const type = asString(input.type, `${path}.type is required.`) as ComfyUiContractInputType;
-  if (!contractInputTypes.has(type)) throw new Error(`${path}.type '${type}' is not supported.`);
+function parseAuthoringMetadata(
+  value: unknown,
+  path: string,
+): ComfyUiWorkflowAuthoringMetadata | undefined {
+  if (value === undefined) return undefined;
+  const authoring = asRecord(value, `${path} must be an object.`);
+  assertExactKeys(authoring, ['label', 'description', 'editorField'], path);
   const editorField =
-    input.editorField === undefined
+    authoring.editorField === undefined
       ? undefined
       : (asString(
-          input.editorField,
+          authoring.editorField,
           `${path}.editorField must be a string.`,
         ) as ComfyUiWorkflowEditorField);
   if (editorField && !editorFields.has(editorField))
     throw new Error(`${path}.editorField '${editorField}' is not supported.`);
-  const defaultValue = input.defaultValue;
-  if (
-    defaultValue !== undefined &&
-    typeof defaultValue !== 'string' &&
-    typeof defaultValue !== 'number'
-  )
-    throw new Error(`${path}.defaultValue must be a string or number.`);
+  return {
+    label: optionalString(authoring.label, `${path}.label`),
+    description: optionalString(authoring.description, `${path}.description`),
+    editorField,
+  };
+}
+
+function validateDefaultValue(
+  type: ComfyUiWorkflowInputType,
+  value: unknown,
+  path: string,
+): ComfyUiWorkflowDefaultValue | undefined {
+  if (value === undefined) return undefined;
+  if (type === 'string' || type === 'image') {
+    if (typeof value !== 'string') throw new Error(`${path} must be a string for type '${type}'.`);
+    return value;
+  }
+  if (type === 'boolean') {
+    if (typeof value !== 'boolean') throw new Error(`${path} must be a boolean.`);
+    return value;
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value))
+    throw new Error(`${path} must be a finite number.`);
+  if (type === 'integer' && !Number.isInteger(value))
+    throw new Error(`${path} must be an integer.`);
+  return value;
+}
+
+function parseContractInput(value: unknown, path: string): ComfyUiWorkflowContractInput {
+  const input = asRecord(value, `${path} must be an object.`);
+  assertExactKeys(input, ['type', 'required', 'defaultValue', 'authoring'], path);
+  const type = asString(input.type, `${path}.type is required.`) as ComfyUiWorkflowInputType;
+  if (!contractInputTypes.has(type)) throw new Error(`${path}.type '${type}' is not supported.`);
   return {
     type,
     required: asBoolean(input.required, `${path}.required is required.`),
-    editorField,
-    defaultValue,
+    defaultValue: validateDefaultValue(type, input.defaultValue, `${path}.defaultValue`),
+    authoring: parseAuthoringMetadata(input.authoring, `${path}.authoring`),
   };
 }
 
 function parseContractOutput(value: unknown, path: string): ComfyUiWorkflowContractOutput {
   const output = asRecord(value, `${path} must be an object.`);
-  assertExactKeys(output, ['type', 'required', 'primary'], path);
-  const type = asString(output.type, `${path}.type is required.`) as ComfyUiContractOutputType;
-  if (type !== 'image-list') throw new Error(`${path}.type '${String(type)}' is not supported.`);
-  const primary = asString(
-    output.primary,
-    `${path}.primary is required.`,
-  ) as ComfyUiImagePrimaryOutput;
-  if (primary !== 'first')
-    throw new Error(`${path}.primary '${String(primary)}' is not supported.`);
-  return { type, required: asBoolean(output.required, `${path}.required is required.`), primary };
+  assertExactKeys(output, ['mediaType', 'required', 'cardinality'], path);
+  const mediaType = asString(output.mediaType, `${path}.mediaType is required.`);
+  if (!mediaTypePattern.test(mediaType))
+    throw new Error(`${path}.mediaType '${mediaType}' is not a valid media type identifier.`);
+  const cardinality = asString(
+    output.cardinality,
+    `${path}.cardinality is required.`,
+  ) as ComfyUiWorkflowOutputCardinality;
+  if (!outputCardinalities.has(cardinality))
+    throw new Error(`${path}.cardinality '${cardinality}' is not supported.`);
+  return {
+    mediaType,
+    required: asBoolean(output.required, `${path}.required is required.`),
+    cardinality,
+  };
+}
+
+function assertPublicId(value: string, path: string) {
+  if (!publicIdPattern.test(value))
+    throw new Error(`${path} '${value}' is not a CLI-safe public identifier.`);
 }
 
 function parseContract(value: unknown): ComfyUiWorkflowContract {
   const contract = asRecord(value, 'contract must be an object.');
   assertExactKeys(contract, ['inputs', 'outputs'], 'contract');
   const inputsRecord = asRecord(contract.inputs, 'contract.inputs must be an object.');
-  const inputs: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowContractInput>> = {};
+  const inputs: Record<string, ComfyUiWorkflowContractInput> = {};
   for (const [key, input] of Object.entries(inputsRecord)) {
-    if (!semanticInputs.has(key as ComfyUiSemanticInput))
-      throw new Error(`contract.inputs.${key} is not a supported semantic input.`);
-    inputs[key as ComfyUiSemanticInput] = parseContractInput(input, `contract.inputs.${key}`);
+    assertPublicId(key, 'contract input id');
+    inputs[key] = parseContractInput(input, `contract.inputs.${key}`);
   }
   const outputsRecord = asRecord(contract.outputs, 'contract.outputs must be an object.');
-  assertExactKeys(outputsRecord, ['images'], 'contract.outputs');
-  return {
-    inputs,
-    outputs: {
-      images: parseContractOutput(outputsRecord.images, 'contract.outputs.images'),
-    },
-  };
+  const outputs: Record<string, ComfyUiWorkflowContractOutput> = {};
+  for (const [key, output] of Object.entries(outputsRecord)) {
+    assertPublicId(key, 'contract output id');
+    outputs[key] = parseContractOutput(output, `contract.outputs.${key}`);
+  }
+  if (Object.keys(outputs).length === 0)
+    throw new Error('contract.outputs must declare at least one output.');
+  return { inputs, outputs };
 }
 
-function parseBindings(
-  value: unknown,
-): Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowBinding>> {
+function parseBindings(value: unknown): Record<string, ComfyUiWorkflowBinding[]> {
   const record = asRecord(value, 'bindings must be an object.');
-  const bindings: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowBinding>> = {};
-  for (const [key, binding] of Object.entries(record)) {
-    if (!semanticInputs.has(key as ComfyUiSemanticInput))
-      throw new Error(`bindings.${key} is not a supported semantic input.`);
-    bindings[key as ComfyUiSemanticInput] = parseBinding(binding, `bindings.${key}`);
+  const bindings: Record<string, ComfyUiWorkflowBinding[]> = {};
+  for (const [key, rawBindings] of Object.entries(record)) {
+    assertPublicId(key, 'binding public input id');
+    if (!Array.isArray(rawBindings)) throw new Error(`bindings.${key} must be an array.`);
+    if (rawBindings.length === 0)
+      throw new Error(`bindings.${key} must contain at least one graph binding.`);
+    bindings[key] = rawBindings.map((binding, index) =>
+      parseBinding(binding, `bindings.${key}.${index}`),
+    );
   }
   return bindings;
 }
 
 function parseOutputBinding(value: unknown, path: string): ComfyUiWorkflowOutputBinding {
   const binding = asRecord(value, `${path} must be an object.`);
-  assertExactKeys(binding, ['nodeId', 'nodeTitle', 'classType', 'valueType', 'primary'], path);
-  const valueType = asString(
-    binding.valueType,
-    `${path}.valueType is required.`,
-  ) as ComfyUiContractOutputType;
-  if (valueType !== 'image-list')
-    throw new Error(`${path}.valueType '${String(valueType)}' is not supported.`);
-  const primary = asString(
-    binding.primary,
-    `${path}.primary is required.`,
-  ) as ComfyUiImagePrimaryOutput;
-  if (primary !== 'first')
-    throw new Error(`${path}.primary '${String(primary)}' is not supported.`);
+  assertExactKeys(binding, ['nodeId', 'nodeTitle', 'classType'], path);
   const parsed = {
     nodeId: optionalString(binding.nodeId, `${path}.nodeId`),
     nodeTitle: optionalString(binding.nodeTitle, `${path}.nodeTitle`),
     classType: optionalString(binding.classType, `${path}.classType`),
-    valueType,
-    primary,
   };
   if (!parsed.nodeId && !parsed.nodeTitle && !parsed.classType)
     throw new Error(`${path} must include nodeId, nodeTitle, or classType.`);
   return parsed;
 }
 
-function parseOutputBindings(
-  value: unknown,
-): Partial<Record<ComfyUiSemanticOutput, ComfyUiWorkflowOutputBinding[]>> {
+function parseOutputBindings(value: unknown): Record<string, ComfyUiWorkflowOutputBinding[]> {
   const record = asRecord(value, 'outputBindings must be an object.');
-  assertExactKeys(record, ['images'], 'outputBindings');
-  const bindings: Partial<Record<ComfyUiSemanticOutput, ComfyUiWorkflowOutputBinding[]>> = {};
-  for (const [key, outputBindings] of Object.entries(record)) {
-    if (!semanticOutputs.has(key as ComfyUiSemanticOutput))
-      throw new Error(`outputBindings.${key} is not a supported semantic output.`);
-    if (!Array.isArray(outputBindings)) throw new Error(`outputBindings.${key} must be an array.`);
-    bindings[key as ComfyUiSemanticOutput] = outputBindings.map((binding, index) =>
+  const bindings: Record<string, ComfyUiWorkflowOutputBinding[]> = {};
+  for (const [key, rawBindings] of Object.entries(record)) {
+    assertPublicId(key, 'output binding public output id');
+    if (!Array.isArray(rawBindings)) throw new Error(`outputBindings.${key} must be an array.`);
+    if (rawBindings.length === 0)
+      throw new Error(`outputBindings.${key} must contain at least one graph binding.`);
+    bindings[key] = rawBindings.map((binding, index) =>
       parseOutputBinding(binding, `outputBindings.${key}.${index}`),
     );
   }
-  if (bindings.images?.length !== 1)
-    throw new Error('outputBindings.images must contain exactly one binding.');
   return bindings;
 }
 
-function parseDefaults(value: unknown): ComfyUiWorkflowDefinition['defaults'] {
-  const record = asRecord(value, 'defaults must be an object.');
-  const defaults: Record<string, string | number> & { filenamePrefix: string } = {
-    filenamePrefix: asString(record.filenamePrefix, 'defaults.filenamePrefix is required.'),
-  };
-  for (const [key, item] of Object.entries(record)) {
-    if (key === 'filenamePrefix') continue;
-    if (!semanticInputs.has(key as ComfyUiSemanticInput))
-      throw new Error(`defaults.${key} is not a supported semantic input.`);
-    if (typeof item !== 'string' && typeof item !== 'number')
-      throw new Error(`defaults.${key} must be a string or number.`);
-    (defaults as Record<string, string | number>)[key] = item;
-  }
-  return defaults;
+function parseClassification(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const classification = asString(value, 'classification must be a string.');
+  if (!classificationPattern.test(classification))
+    throw new Error(
+      `classification '${classification}' is not a dotted classification identifier.`,
+    );
+  return classification;
 }
 
 function safeWorkflowSiblingPath(value: string, label: string) {
@@ -918,230 +942,95 @@ function safeWorkflowSiblingPath(value: string, label: string) {
   }
 }
 
-function workflowContractDiagnostic(path: string, message: string): ComfyUiWorkflowDiagnostic {
-  return { severity: 'error', category: 'comfyui-workflows', path, message };
+function workflowContractDiagnostic(
+  path: string,
+  message: string,
+  severity: ComfyUiWorkflowDiagnostic['severity'] = 'error',
+): ComfyUiWorkflowDiagnostic {
+  return { severity, category: 'comfyui-workflows', path, message };
 }
 
-export function comfyUiWorkflowBindingValueTypeMatchesContract(
-  contractType: ComfyUiContractInputType,
-  valueType: ComfyUiWorkflowValueType,
-): boolean {
-  if (contractType === 'string') return valueType === 'string';
-  if (contractType === 'integer') return valueType === 'integer';
-  if (contractType === 'number') return valueType === 'number' || valueType === 'integer';
-  if (contractType === 'image') return valueType === 'image-upload-reference';
-  return false;
+export interface ComfyUiWorkflowExecutionSupport {
+  runnable: boolean;
+  unsupportedOutputMediaTypes: string[];
 }
 
-function inputBindingCount(
+export function getComfyUiWorkflowExecutionSupport(
   definition: ComfyUiWorkflowDefinition,
-  input: ComfyUiSemanticInput,
-): number {
-  return definition.bindings[input] ? 1 : 0;
-}
-
-function outputBindingCount(
-  definition: ComfyUiWorkflowDefinition,
-  output: ComfyUiSemanticOutput,
-): number {
-  return definition.outputBindings[output]?.length ?? 0;
+): ComfyUiWorkflowExecutionSupport {
+  const unsupportedOutputMediaTypes = [
+    ...new Set(
+      Object.values(definition.contract.outputs)
+        .map((output) => output.mediaType)
+        .filter((mediaType) => mediaType !== 'image'),
+    ),
+  ].sort();
+  return {
+    runnable: unsupportedOutputMediaTypes.length === 0,
+    unsupportedOutputMediaTypes,
+  };
 }
 
 export function validateComfyUiWorkflowDefinitionContract(
   definition: ComfyUiWorkflowDefinition,
 ): ComfyUiWorkflowDiagnostic[] {
   const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
-  const roleDefinition = COMFYUI_WORKFLOW_ROLE_CATALOG[definition.role];
-  if (!roleDefinition) {
-    diagnostics.push(
-      workflowContractDiagnostic('/role', `role '${definition.role}' is not supported.`),
-    );
-    return diagnostics;
-  }
 
-  for (const [input, contractInput] of Object.entries(definition.contract.inputs) as Array<
-    [ComfyUiSemanticInput, ComfyUiWorkflowContractInput]
-  >) {
-    const roleInput = roleDefinition.contract.inputs[input];
-    if (!roleInput) {
+  for (const inputId of Object.keys(definition.contract.inputs)) {
+    if (!definition.bindings[inputId]?.length) {
       diagnostics.push(
         workflowContractDiagnostic(
-          `/contract/inputs/${input}`,
-          `${definition.role} workflows do not support contract.inputs.${input}.`,
+          `/bindings/${inputId}`,
+          `contract.inputs.${inputId} must declare at least one graph binding.`,
         ),
       );
-      continue;
     }
-    if (contractInput.type !== roleInput.type) {
+  }
+  for (const inputId of Object.keys(definition.bindings)) {
+    if (!definition.contract.inputs[inputId]) {
       diagnostics.push(
         workflowContractDiagnostic(
-          `/contract/inputs/${input}/type`,
-          `${definition.role} workflows must declare contract.inputs.${input} as ${roleInput.type}.`,
+          `/bindings/${inputId}`,
+          `bindings.${inputId} must be declared by contract.inputs.${inputId}.`,
         ),
       );
     }
   }
 
-  for (const [input, roleInput] of Object.entries(roleDefinition.contract.inputs) as Array<
-    [ComfyUiSemanticInput, ComfyUiWorkflowRoleInputDefinition]
-  >) {
-    const contractInput = definition.contract.inputs[input];
-    const binding = definition.bindings[input];
-    const bindingCount = inputBindingCount(definition, input);
-    const minimum = contractInput?.required
-      ? Math.max(1, roleInput.minBindings)
-      : roleInput.minBindings;
-    if (roleInput.required && (!contractInput?.required || contractInput.type !== roleInput.type)) {
+  for (const [outputId, output] of Object.entries(definition.contract.outputs)) {
+    if (!definition.outputBindings[outputId]?.length) {
       diagnostics.push(
         workflowContractDiagnostic(
-          `/contract/inputs/${input}`,
-          `${definition.role} workflows must declare required contract.inputs.${input} as ${roleInput.type}.`,
+          `/outputBindings/${outputId}`,
+          `contract.outputs.${outputId} must declare at least one graph binding.`,
         ),
       );
     }
-    if (bindingCount < minimum) {
+    if (output.mediaType !== 'image') {
       diagnostics.push(
         workflowContractDiagnostic(
-          `/bindings/${input}`,
-          `${definition.role} workflows require ${minimum === 1 ? 'exactly one' : `at least ${minimum}`} ${input} binding.`,
-        ),
-      );
-    }
-    if (bindingCount > roleInput.maxBindings) {
-      diagnostics.push(
-        workflowContractDiagnostic(
-          `/bindings/${input}`,
-          `${input} supports at most ${roleInput.maxBindings} binding${roleInput.maxBindings === 1 ? '' : 's'} for ${definition.role}.`,
-        ),
-      );
-    }
-    if (
-      binding &&
-      contractInput &&
-      !comfyUiWorkflowBindingValueTypeMatchesContract(contractInput.type, binding.valueType)
-    ) {
-      diagnostics.push(
-        workflowContractDiagnostic(
-          `/bindings/${input}/valueType`,
-          `bindings.${input}.valueType '${binding.valueType}' is not compatible with contract.inputs.${input}.type '${contractInput.type}'.`,
+          `/contract/outputs/${outputId}/mediaType`,
+          `Output media type '${output.mediaType}' is discoverable but not runnable by this NovelTea build.`,
+          'warning',
         ),
       );
     }
   }
-
-  for (const [input, binding] of Object.entries(definition.bindings) as Array<
-    [ComfyUiSemanticInput, ComfyUiWorkflowBinding]
-  >) {
-    const contractInput = definition.contract.inputs[input];
-    const roleInput = roleDefinition.contract.inputs[input];
-    if (!roleInput) {
+  for (const outputId of Object.keys(definition.outputBindings)) {
+    if (!definition.contract.outputs[outputId]) {
       diagnostics.push(
         workflowContractDiagnostic(
-          `/bindings/${input}`,
-          `${definition.role} workflows do not support bindings.${input}.`,
-        ),
-      );
-      continue;
-    }
-    if (!contractInput) {
-      diagnostics.push(
-        workflowContractDiagnostic(
-          `/bindings/${input}`,
-          `bindings.${input} must be declared by contract.inputs.${input}.`,
-        ),
-      );
-      continue;
-    }
-    if (!comfyUiWorkflowBindingValueTypeMatchesContract(contractInput.type, binding.valueType)) {
-      diagnostics.push(
-        workflowContractDiagnostic(
-          `/bindings/${input}/valueType`,
-          `bindings.${input}.valueType '${binding.valueType}' is not compatible with contract.inputs.${input}.type '${contractInput.type}'.`,
+          `/outputBindings/${outputId}`,
+          `outputBindings.${outputId} must be declared by contract.outputs.${outputId}.`,
         ),
       );
     }
-  }
-
-  for (const [input] of Object.entries(definition.defaults) as Array<
-    [ComfyUiSemanticInput, string | number]
-  >) {
-    if (input === 'filenamePrefix') continue;
-    if (!roleDefinition.contract.inputs[input]) {
-      diagnostics.push(
-        workflowContractDiagnostic(
-          `/defaults/${input}`,
-          `${definition.role} workflows do not support defaults.${input}.`,
-        ),
-      );
-      continue;
-    }
-    if (!definition.contract.inputs[input]) {
-      diagnostics.push(
-        workflowContractDiagnostic(
-          `/defaults/${input}`,
-          `defaults.${input} must be declared by contract.inputs.${input}.`,
-        ),
-      );
-    }
-  }
-
-  const roleImages = roleDefinition.contract.outputs.images;
-  const images = definition.contract.outputs.images;
-  if (!images) {
-    diagnostics.push(
-      workflowContractDiagnostic(
-        '/contract/outputs/images',
-        `${definition.role} workflows must declare required contract.outputs.images.`,
-      ),
-    );
-  } else {
-    if (roleImages.required && !images.required) {
-      diagnostics.push(
-        workflowContractDiagnostic(
-          '/contract/outputs/images/required',
-          `${definition.role} workflows must declare required contract.outputs.images.`,
-        ),
-      );
-    }
-    if (images.type !== roleImages.type || images.primary !== roleImages.primary) {
-      diagnostics.push(
-        workflowContractDiagnostic(
-          '/contract/outputs/images',
-          `${definition.role} workflows must declare contract.outputs.images as ${roleImages.type}/${roleImages.primary}.`,
-        ),
-      );
-    }
-  }
-  const imageBindingCount = outputBindingCount(definition, 'images');
-  if (imageBindingCount < roleImages.minBindings) {
-    diagnostics.push(
-      workflowContractDiagnostic(
-        '/outputBindings/images',
-        `${definition.role} workflows require at least one images output binding.`,
-      ),
-    );
-  }
-  if (imageBindingCount > roleImages.maxBindings) {
-    diagnostics.push(
-      workflowContractDiagnostic(
-        '/outputBindings/images',
-        `images supports at most ${roleImages.maxBindings} output binding${roleImages.maxBindings === 1 ? '' : 's'} for ${definition.role}.`,
-      ),
-    );
-  }
-  if (definition.outputBindings.images?.length && !images) {
-    diagnostics.push(
-      workflowContractDiagnostic(
-        '/outputBindings/images',
-        'outputBindings.images must be declared by contract.outputs.images.',
-      ),
-    );
   }
 
   return diagnostics;
 }
 
-function validateRoleContract(definition: ComfyUiWorkflowDefinition) {
+function assertCanonicalContract(definition: ComfyUiWorkflowDefinition) {
   const diagnostics = validateComfyUiWorkflowDefinitionContract(definition);
   const firstError = diagnostics.find((item) => item.severity === 'error');
   if (firstError) throw new Error(firstError.message);
@@ -1159,22 +1048,18 @@ export function parseComfyUiWorkflowDefinition(
       'id',
       'label',
       'provider',
-      'role',
+      'classification',
       'description',
       'workflowFile',
       'contract',
       'requiredNodeClasses',
       'bindings',
       'outputBindings',
-      'defaults',
     ],
     'manifest',
   );
   const provider = asString(manifest.provider, 'provider is required.') as ComfyUiWorkflowProvider;
   if (provider !== 'comfyui') throw new Error(`provider '${String(provider)}' is not supported.`);
-  const role = asString(manifest.role, 'role is required.') as ComfyUiWorkflowRole;
-  if (!SUPPORTED_COMFYUI_WORKFLOW_ROLES.includes(role))
-    throw new Error(`role '${role}' is not supported.`);
   const workflowFile = asString(manifest.workflowFile, 'workflowFile is required.');
   safeWorkflowSiblingPath(workflowFile, 'workflowFile');
   const definition: ComfyUiWorkflowDefinition = {
@@ -1182,18 +1067,17 @@ export function parseComfyUiWorkflowDefinition(
     id: asString(manifest.id, 'id is required.'),
     label: asString(manifest.label, 'label is required.'),
     provider,
-    role,
+    classification: parseClassification(manifest.classification),
     description: optionalString(manifest.description, 'description'),
     workflowFile,
     contract: parseContract(manifest.contract),
     bindings: parseBindings(manifest.bindings),
-    defaults: parseDefaults(manifest.defaults),
     outputBindings: parseOutputBindings(manifest.outputBindings),
     requiredNodeClasses: optionalStringArray(manifest.requiredNodeClasses, 'requiredNodeClasses'),
     manifestFile,
   };
   safeWorkflowSiblingPath(definition.id, 'id');
-  validateRoleContract(definition);
+  assertCanonicalContract(definition);
   return definition;
 }
 
@@ -1340,24 +1224,50 @@ export function resolveComfyUiWorkflowOutputBinding(
 export function resolveComfyUiWorkflowOutputNodeIds(
   graph: ComfyUiWorkflowGraphLike,
   definition: ComfyUiWorkflowDefinition,
+  outputId?: string,
 ): ComfyUiBindingResolution {
-  const binding = definition.outputBindings.images?.[0];
-  if (!binding)
-    return {
-      ok: false,
-      message: `Workflow '${definition.label}' has no image output binding.`,
-    };
-  return resolveComfyUiWorkflowOutputBinding(graph, binding);
+  const outputIds = outputId ? [outputId] : Object.keys(definition.contract.outputs);
+  const resolvedNodeIds: string[] = [];
+  let rebased = false;
+  for (const publicOutputId of outputIds) {
+    const bindings = definition.outputBindings[publicOutputId] ?? [];
+    if (bindings.length === 0) {
+      return {
+        ok: false,
+        message: `Workflow '${definition.label}' has no output binding for '${publicOutputId}'.`,
+      };
+    }
+    for (const binding of bindings) {
+      const resolution = resolveComfyUiWorkflowOutputBinding(graph, binding);
+      if (!resolution.ok) return resolution;
+      if (resolution.nodeId) resolvedNodeIds.push(resolution.nodeId);
+      rebased ||= Boolean(resolution.rebased);
+    }
+  }
+  return { ok: true, nodeId: [...new Set(resolvedNodeIds)].join('\0'), rebased };
 }
 
 export function resolvedComfyUiWorkflowOutputNodeIdList(
   graph: ComfyUiWorkflowGraphLike,
   definition: ComfyUiWorkflowDefinition,
+  outputId?: string,
 ): string[] {
-  const resolution = resolveComfyUiWorkflowOutputNodeIds(graph, definition);
+  const resolution = resolveComfyUiWorkflowOutputNodeIds(graph, definition, outputId);
   if (!resolution.ok)
     throw new Error(
       resolution.message ?? `Workflow '${definition.label}' output bindings could not be resolved.`,
     );
   return resolution.nodeId ? resolution.nodeId.split('\0').filter(Boolean) : [];
+}
+
+export function resolvedComfyUiWorkflowOutputNodeIdsById(
+  graph: ComfyUiWorkflowGraphLike,
+  definition: ComfyUiWorkflowDefinition,
+): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.keys(definition.contract.outputs).map((outputId) => [
+      outputId,
+      resolvedComfyUiWorkflowOutputNodeIdList(graph, definition, outputId),
+    ]),
+  );
 }

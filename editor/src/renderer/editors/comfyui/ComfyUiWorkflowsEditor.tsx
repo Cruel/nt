@@ -36,6 +36,7 @@ import {
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { comfyUiServerIdentity } from '../../../shared/comfyui';
 import type {
   ComfyUiWorkflowLibraryEntry,
   ComfyUiWorkflowLibraryListResponse,
@@ -43,7 +44,7 @@ import type {
 
 function sourceLabel(source: string) {
   if (source === 'built-in') return 'Built-in';
-  if (source === 'editor') return 'Editor';
+  if (source === 'user') return 'User';
   if (source === 'project') return 'Project';
   return source;
 }
@@ -109,6 +110,7 @@ const COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA = 'noveltea.editor.comfyui-workflows-ta
 export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
+  const comfyUiConfig = useComfyUiStore((state) => state.config);
   const [showOverridden, setShowOverridden] = useState(false);
   const [response, setResponse] = useState<ComfyUiWorkflowLibraryListResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -152,6 +154,7 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
     void listComfyUiWorkflowLibrary({
       projectFilePath,
       includeOverridden: true,
+      serverIdentity: comfyUiServerIdentity(comfyUiConfig.serverUrl),
       comfyUiVersion: comfyUiStatus.comfyUiVersion,
     })
       .then((next) => {
@@ -178,7 +181,13 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
     return () => {
       canceled = true;
     };
-  }, [comfyUiStatus.comfyUiVersion, comfyUiStatus.state, projectFilePath, refreshToken]);
+  }, [
+    comfyUiConfig.serverUrl,
+    comfyUiStatus.comfyUiVersion,
+    comfyUiStatus.state,
+    projectFilePath,
+    refreshToken,
+  ]);
 
   const entries = visibleEntries(response, showOverridden);
 
@@ -213,7 +222,7 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
 
   async function copyWorkflow(
     entry: ComfyUiWorkflowLibraryEntry,
-    targetSource: 'editor' | 'project',
+    targetSource: 'user' | 'project',
   ) {
     const actionKey = `copy:${targetSource}:${entry.workflowKey}`;
     setBusyAction(actionKey);
@@ -397,7 +406,7 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
                 <tr>
                   <th className="px-3 py-2 font-medium">Source</th>
                   <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-3 py-2 font-medium">Role</th>
+                  <th className="px-3 py-2 font-medium">Classification</th>
                   <th className="w-16 whitespace-nowrap px-2 py-2 font-medium">Status</th>
                   <th className="w-8 px-1 py-2 text-right font-medium">
                     <span className="sr-only">Actions</span>
@@ -455,7 +464,7 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
                         </div>
                       )}
                     </td>
-                    <td className="px-3 py-2 font-mono text-xs">{entry.role}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{entry.classification ?? '—'}</td>
                     <td className="w-16 whitespace-nowrap px-2 py-2 align-middle">
                       <TooltipProvider>
                         <div className="flex items-center gap-2">
@@ -494,11 +503,11 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48 min-w-48">
                           <DropdownMenuItem
-                            disabled={!entry.capabilities.canCopyToEditor}
-                            onClick={() => void copyWorkflow(entry, 'editor')}
+                            disabled={!entry.capabilities.canCopyToUser}
+                            onClick={() => void copyWorkflow(entry, 'user')}
                           >
                             <Copy />
-                            Copy to Editor
+                            Copy to User
                           </DropdownMenuItem>
                           {projectFilePath ? (
                             <DropdownMenuItem

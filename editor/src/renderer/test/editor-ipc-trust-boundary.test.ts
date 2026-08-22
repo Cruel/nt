@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   cancelPlatformExportArgumentsSchema,
   comfyUiConfigArgumentsSchema,
+  comfyUiCopyWorkflowArgumentsSchema,
   comfyUiEditImageArgumentsSchema,
   comfyUiGenerateImageArgumentsSchema,
   comfyUiImportWorkflowArgumentsSchema,
   comfyUiListWorkflowLibraryArgumentsSchema,
+  comfyUiUserConfigArgumentsSchema,
   comfyUiRepairWorkflowArgumentsSchema,
   compileShadersArgumentsSchema,
   createEditorDocumentPolicy,
@@ -437,7 +439,6 @@ describe('guarded editor IPC registrar', () => {
     const config = {
       enabled: true,
       serverUrl: 'http://127.0.0.1:8188',
-      defaultWorkflowId: 'image-generate',
       defaultWorkflows: { 'image.generate': 'image-generate' },
       requestTimeoutMs: 15_000,
       connectionCheckIntervalMs: 10_000,
@@ -541,6 +542,46 @@ describe('guarded editor IPC registrar', () => {
       (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.UNTRUSTED_SENDER,
     );
     expect(generateService).not.toHaveBeenCalled();
+  });
+
+  it('admits current shared-user ComfyUI workflow keys and rejects the retired editor source', () => {
+    expect(
+      comfyUiCopyWorkflowArgumentsSchema.safeParse([
+        null,
+        { workflowKey: 'user:custom.manifest.json', targetSource: 'project' },
+      ]).success,
+    ).toBe(true);
+    expect(
+      comfyUiCopyWorkflowArgumentsSchema.safeParse([
+        null,
+        { workflowKey: 'editor:custom.manifest.json', targetSource: 'project' },
+      ]).success,
+    ).toBe(false);
+  });
+
+  it('admits only shared ComfyUI machine settings through the user-config IPC contract', () => {
+    const shared = {
+      format: 'noveltea.comfyui-user-config',
+      formatVersion: 1,
+      serverUrl: 'http://127.0.0.1:8188',
+      requestTimeoutMs: 15_000,
+      defaultWorkflows: {
+        'image.generate': 'image-generate',
+        'audio.generate': 'audio-generate',
+      },
+    };
+    expect(comfyUiUserConfigArgumentsSchema.safeParse([shared]).success).toBe(true);
+    expect(
+      comfyUiUserConfigArgumentsSchema.safeParse([{ ...shared, defaultWorkflowId: 'retired' }])
+        .success,
+    ).toBe(false);
+    expect(comfyUiUserConfigArgumentsSchema.safeParse([{ ...shared, enabled: true }]).success).toBe(
+      false,
+    );
+    expect(
+      comfyUiUserConfigArgumentsSchema.safeParse([{ ...shared, connectionCheckIntervalMs: 10_000 }])
+        .success,
+    ).toBe(false);
   });
 
   it('rejects malformed or oversized nested ComfyUI workflow manifests at the IPC parser', () => {

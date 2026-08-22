@@ -25,6 +25,7 @@ vi.mock('electron', () => ({
 }));
 
 const roots: string[] = [];
+const verificationServerIdentity = 'http://127.0.0.1:8188';
 
 function testRoots() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-workflow-library-'));
@@ -37,7 +38,7 @@ function testRoots() {
   const options: WorkflowLibraryServiceOptions = {
     roots: {
       builtInRoot,
-      editorRoot,
+      userRoot: editorRoot,
       projectRoot,
       cacheFile: path.join(editorRoot, '.verification-cache.json'),
     },
@@ -54,7 +55,7 @@ function testRootsWithoutProject() {
   const options: WorkflowLibraryServiceOptions = {
     roots: {
       builtInRoot,
-      editorRoot,
+      userRoot: editorRoot,
       cacheFile: path.join(editorRoot, '.verification-cache.json'),
     },
   };
@@ -82,20 +83,21 @@ function manifest(id: string, label = id, workflowFile = `${id}.workflow.json`) 
     id,
     label,
     provider: 'comfyui',
-    role: 'image.generate',
+    classification: 'image.generate',
     workflowFile,
     contract: {
       inputs: { prompt: { type: 'string', required: true } },
-      outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+      outputs: { images: { mediaType: 'image', required: true, cardinality: 'many' } },
     },
     bindings: {
-      prompt: {
-        nodeId: 'prompt',
-        nodeTitle: 'noveltea.prompt',
-        classType: 'PrimitiveStringMultiline',
-        inputName: 'value',
-        valueType: 'string',
-      },
+      prompt: [
+        {
+          nodeId: 'prompt',
+          nodeTitle: 'noveltea.prompt',
+          classType: 'PrimitiveStringMultiline',
+          inputName: 'value',
+        },
+      ],
     },
     outputBindings: {
       images: [
@@ -103,13 +105,17 @@ function manifest(id: string, label = id, workflowFile = `${id}.workflow.json`) 
           nodeId: 'output',
           nodeTitle: 'noveltea.output',
           classType: 'SaveImage',
-          valueType: 'image-list',
-          primary: 'first',
         },
       ],
     },
-    defaults: { filenamePrefix: 'NovelTea' },
     requiredNodeClasses: ['PrimitiveStringMultiline', 'SaveImage'],
+  };
+}
+
+function compatibleObjectInfo() {
+  return {
+    PrimitiveStringMultiline: { input: { required: { value: [] } } },
+    SaveImage: { input: { required: { images: [], filename_prefix: [] } } },
   };
 }
 
@@ -146,16 +152,52 @@ describe('comfyui workflow library service', () => {
 
     expect(withoutProject.activeWorkflows.map((entry) => `${entry.source}:${entry.id}`)).toEqual([
       'built-in:built-in-workflow',
-      'editor:editor-workflow',
+      'user:editor-workflow',
     ]);
     expect(
       withoutProject.summary.sources.find((source) => source.source === 'project'),
     ).toMatchObject({ available: false, workflowCount: 0 });
     expect(withProject.activeWorkflows.map((entry) => `${entry.source}:${entry.id}`)).toEqual([
       'built-in:built-in-workflow',
-      'editor:editor-workflow',
+      'user:editor-workflow',
       'project:project-workflow',
     ]);
+  });
+
+  it('keeps unsupported output media discoverable but marks the workflow non-runnable', async () => {
+    const { editorRoot, options } = testRootsWithoutProject();
+    const futureManifest = manifest('future-media');
+    fs.writeFileSync(
+      path.join(editorRoot, 'future-media.manifest.json'),
+      `${JSON.stringify(
+        {
+          ...futureManifest,
+          contract: {
+            inputs: futureManifest.contract.inputs,
+            outputs: { audio: { mediaType: 'audio', required: true, cardinality: 'one' } },
+          },
+          outputBindings: { audio: futureManifest.outputBindings.images },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    fs.writeFileSync(
+      path.join(editorRoot, 'future-media.workflow.json'),
+      `${JSON.stringify(workflow(), null, 2)}\n`,
+    );
+
+    const response = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
+
+    expect(response.activeWorkflows).toContainEqual(
+      expect.objectContaining({ id: 'future-media', runnable: false, offlineStatus: 'warning' }),
+    );
+    expect(response.entries[0]?.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warning',
+        message: expect.stringContaining("Output media type 'audio'"),
+      }),
+    );
   });
 
   it('discovers source-aware workflow entries and resolves active overrides by workflow id', async () => {
@@ -169,17 +211,17 @@ describe('comfyui workflow library service', () => {
     const full = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
 
     expect(visible.entries.map((entry) => `${entry.source}:${entry.id}`)).toEqual([
-      'editor:landscape',
+      'user:landscape',
       'project:portrait',
     ]);
     expect(
       full.overriddenEntries.map((entry) => `${entry.source}:${entry.id}->${entry.overriddenBy}`),
     ).toEqual([
       'built-in:portrait->project:portrait.manifest.json',
-      'editor:portrait->project:portrait.manifest.json',
+      'user:portrait->project:portrait.manifest.json',
     ]);
     expect(full.activeWorkflows.map((entry) => `${entry.source}:${entry.id}`)).toEqual([
-      'editor:landscape',
+      'user:landscape',
       'project:portrait',
     ]);
     expect(full.summary).toMatchObject({
@@ -218,32 +260,32 @@ describe('comfyui workflow library service', () => {
     writePackage(builtInRoot, 'portrait', 'Built-in Portrait');
 
     const copied = await copyComfyUiWorkflow(
-      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'editor' },
+      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'user' },
       options,
     );
     expect(copied).toMatchObject({
       ok: true,
       success: true,
       action: 'copied',
-      targetWorkflowKey: 'editor:portrait.manifest.json',
+      targetWorkflowKey: 'user:portrait.manifest.json',
     });
     expect(fs.existsSync(path.join(editorRoot, 'portrait.manifest.json'))).toBe(true);
 
     const duplicate = await copyComfyUiWorkflow(
-      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'editor' },
+      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'user' },
       options,
     );
     expect(duplicate.action).toBe('already-copied');
 
     writePackage(builtInRoot, 'portrait', 'Built-in Portrait Revised', 'Coffee');
     const collision = await copyComfyUiWorkflow(
-      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'editor' },
+      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'user' },
       options,
     );
     expect(collision).toMatchObject({ ok: false, success: false, action: 'replace-required' });
 
     const replaced = await copyComfyUiWorkflow(
-      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'editor', replace: true },
+      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'user', replace: true },
       options,
     );
     expect(replaced).toMatchObject({ ok: true, success: true, action: 'replaced' });
@@ -255,7 +297,7 @@ describe('comfyui workflow library service', () => {
     writePackage(editorRoot, 'portrait', 'Editor Portrait');
 
     const response = await deleteComfyUiWorkflow(
-      { workflowKey: 'editor:portrait.manifest.json' },
+      { workflowKey: 'user:portrait.manifest.json' },
       options,
     );
 
@@ -293,6 +335,7 @@ describe('comfyui workflow library service', () => {
         {
           workflowKey: entry.workflowKey,
           id: entry.id!,
+          serverIdentity: 'http://127.0.0.1:8188',
           packageHash: entry.packageHash!,
           comfyUiVersion: '1.0.0',
           status: 'verified',
@@ -306,15 +349,28 @@ describe('comfyui workflow library service', () => {
 
     const showItemInFolder = vi.fn();
     const second = await listComfyUiWorkflowLibrary(
-      { includeOverridden: true, comfyUiVersion: '1.0.0' },
+      {
+        includeOverridden: true,
+        serverIdentity: verificationServerIdentity,
+        comfyUiVersion: '1.0.0',
+      },
       options,
     );
-    const revealed = await revealComfyUiWorkflow('editor:portrait.manifest.json', null, {
+    const revealed = await revealComfyUiWorkflow('user:portrait.manifest.json', null, {
       ...options,
       showItemInFolder,
     });
 
     expect(second.entries[0]).toMatchObject({ onlineStatus: 'previously-verified' });
+    const otherServer = await listComfyUiWorkflowLibrary(
+      {
+        includeOverridden: true,
+        serverIdentity: 'http://127.0.0.1:9191',
+        comfyUiVersion: '1.0.0',
+      },
+      options,
+    );
+    expect(otherServer.entries[0]).toMatchObject({ onlineStatus: 'unverified' });
     expect(revealed).toBe(true);
     expect(showItemInFolder).toHaveBeenCalledWith(path.join(editorRoot, 'portrait.manifest.json'));
   });
@@ -348,7 +404,80 @@ describe('comfyui workflow library service', () => {
 
     expect(listed.entries[0]).toMatchObject({ onlineStatus: 'unverified' });
   });
-  it('verifies all offline-valid discovered workflows including overridden entries and reuses cache by package hash', async () => {
+  it('discards same-version verification cache records that lack server identity', async () => {
+    const { editorRoot, options } = testRoots();
+    writePackage(editorRoot, 'portrait', 'User Portrait');
+    const first = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
+    const entry = first.entries[0]!;
+    fs.writeFileSync(
+      path.join(editorRoot, '.verification-cache.json'),
+      `${JSON.stringify({
+        schema: 'noveltea.comfyui-workflow-verification-cache',
+        schemaVersion: 1,
+        records: [
+          {
+            workflowKey: entry.workflowKey,
+            id: entry.id,
+            packageHash: entry.packageHash,
+            comfyUiVersion: '1.0.0',
+            status: 'verified',
+            checkedAt: '2026-07-09T00:00:00.000Z',
+            diagnostics: [],
+          },
+        ],
+      })}\n`,
+    );
+
+    const listed = await listComfyUiWorkflowLibrary(
+      {
+        includeOverridden: true,
+        serverIdentity: verificationServerIdentity,
+        comfyUiVersion: '1.0.0',
+      },
+      options,
+    );
+    expect(listed.entries[0]).toMatchObject({ onlineStatus: 'unverified' });
+  });
+
+  it('rejects the retired editor-source identity in same-version verification cache records', async () => {
+    const { editorRoot, options } = testRoots();
+    writePackage(editorRoot, 'portrait', 'User Portrait');
+    const first = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
+    const entry = first.entries[0];
+    expect(entry).toBeDefined();
+    if (!entry?.id || !entry.packageHash) throw new Error('Expected a valid workflow entry.');
+    fs.writeFileSync(
+      path.join(editorRoot, '.verification-cache.json'),
+      `${JSON.stringify({
+        schema: 'noveltea.comfyui-workflow-verification-cache',
+        schemaVersion: 1,
+        records: [
+          {
+            workflowKey: 'editor:portrait.manifest.json',
+            id: entry.id,
+            serverIdentity: verificationServerIdentity,
+            packageHash: entry.packageHash,
+            comfyUiVersion: '1.0.0',
+            status: 'verified',
+            checkedAt: '2026-07-09T00:00:00.000Z',
+            diagnostics: [],
+          },
+        ],
+      })}\n`,
+    );
+
+    const listed = await listComfyUiWorkflowLibrary(
+      { includeOverridden: true, comfyUiVersion: '1.0.0' },
+      options,
+    );
+
+    expect(listed.entries[0]).toMatchObject({
+      workflowKey: 'user:portrait.manifest.json',
+      onlineStatus: 'unverified',
+    });
+  });
+
+  it('verifies only the active workflow selected by source precedence', async () => {
     const { builtInRoot, editorRoot, projectRoot, options } = testRoots();
     writePackage(builtInRoot, 'portrait', 'Built-in Portrait');
     writePackage(editorRoot, 'portrait', 'Editor Portrait');
@@ -363,9 +492,7 @@ describe('comfyui workflow library service', () => {
           return new Response(JSON.stringify({ system: { comfyui_version: '1.0.0' } }), {
             status: 200,
           });
-        return new Response(JSON.stringify({ PrimitiveStringMultiline: {}, SaveImage: {} }), {
-          status: 200,
-        });
+        return new Response(JSON.stringify(compatibleObjectInfo()), { status: 200 });
       }),
     );
 
@@ -377,7 +504,6 @@ describe('comfyui workflow library service', () => {
           serverUrl: 'http://127.0.0.1:8188',
           requestTimeoutMs: 1000,
           connectionCheckIntervalMs: 1000,
-          defaultWorkflowId: 'portrait',
           defaultWorkflows: {},
         },
       },
@@ -385,32 +511,10 @@ describe('comfyui workflow library service', () => {
     );
 
     expect(verified.success).toBe(true);
-    expect(verified.verified.map((record) => record.workflowKey).sort()).toEqual([
-      'built-in:portrait.manifest.json',
-      'editor:portrait.manifest.json',
+    expect(verified.verified.map((record) => record.workflowKey)).toEqual([
       'project:portrait.manifest.json',
     ]);
-
-    fs.rmSync(path.join(editorRoot, 'portrait.manifest.json'));
-    fs.rmSync(path.join(editorRoot, 'portrait.workflow.json'));
-    await copyComfyUiWorkflow(
-      { workflowKey: 'built-in:portrait.manifest.json', targetSource: 'editor' },
-      options,
-    );
-
-    const listed = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
-    const copied = listed.entries.find(
-      (entry) => entry.workflowKey === 'editor:portrait.manifest.json',
-    );
-    expect(copied).toMatchObject({ onlineStatus: 'unverified' });
-    const versionScoped = await listComfyUiWorkflowLibrary(
-      { includeOverridden: true, comfyUiVersion: verified.verified[0]!.comfyUiVersion },
-      options,
-    );
-    const versionScopedCopied = versionScoped.entries.find(
-      (entry) => entry.workflowKey === 'editor:portrait.manifest.json',
-    );
-    expect(versionScopedCopied).toMatchObject({ onlineStatus: 'previously-verified' });
+    expect(verified.verified[0]).toMatchObject({ serverIdentity: verificationServerIdentity });
   });
 
   it('preserves previous successful verification cache when object_info is unavailable', async () => {
@@ -423,6 +527,7 @@ describe('comfyui workflow library service', () => {
         {
           workflowKey: entry.workflowKey,
           id: entry.id!,
+          serverIdentity: 'http://127.0.0.1:8188',
           packageHash: entry.packageHash!,
           comfyUiVersion: '1.0.0',
           status: 'verified',
@@ -445,7 +550,6 @@ describe('comfyui workflow library service', () => {
           serverUrl: 'http://127.0.0.1:8188',
           requestTimeoutMs: 1000,
           connectionCheckIntervalMs: 1000,
-          defaultWorkflowId: 'portrait',
           defaultWorkflows: {},
         },
       },
@@ -453,13 +557,44 @@ describe('comfyui workflow library service', () => {
     );
 
     expect(failed.success).toBe(false);
-    expect(failed.skipped).toContain('editor:portrait.manifest.json');
+    expect(failed.skipped).toContain('user:portrait.manifest.json');
     const after = await listComfyUiWorkflowLibrary(
-      { includeOverridden: true, comfyUiVersion: '1.0.0' },
+      {
+        includeOverridden: true,
+        serverIdentity: verificationServerIdentity,
+        comfyUiVersion: '1.0.0',
+      },
       options,
     );
     expect(after.entries[0]).toMatchObject({ onlineStatus: 'previously-verified' });
   });
+  it('loads and copies embedded built-in workflow packages without filesystem assets', async () => {
+    const { editorRoot, options } = testRootsWithoutProject();
+    options.roots!.builtInRoot = undefined;
+    options.embeddedBuiltInFiles = {
+      'embedded.manifest.json': `${JSON.stringify(manifest('embedded'), null, 2)}\n`,
+      'embedded.workflow.json': `${JSON.stringify(workflow(), null, 2)}\n`,
+    };
+
+    const listed = await listComfyUiWorkflowLibrary({}, options);
+    expect(listed.activeWorkflows).toEqual([
+      expect.objectContaining({ id: 'embedded', source: 'built-in', runnable: true }),
+    ]);
+    const embedded = listed.entries.find((entry) => entry.id === 'embedded');
+    expect(embedded).toMatchObject({
+      manifestPath: 'embedded:comfyui/embedded.manifest.json',
+      workflowPath: 'embedded:comfyui/embedded.workflow.json',
+    });
+
+    const copied = await copyComfyUiWorkflow(
+      { workflowKey: embedded!.workflowKey, targetSource: 'user' },
+      options,
+    );
+    expect(copied).toMatchObject({ success: true, action: 'copied' });
+    expect(fs.existsSync(path.join(editorRoot, 'embedded.manifest.json'))).toBe(true);
+    expect(fs.existsSync(path.join(editorRoot, 'embedded.workflow.json'))).toBe(true);
+  });
+
   it('does not reuse verification cache across different ComfyUI versions', async () => {
     const { editorRoot, options } = testRoots();
     writePackage(editorRoot, 'portrait', 'Editor Portrait');
@@ -473,9 +608,7 @@ describe('comfyui workflow library service', () => {
           return new Response(JSON.stringify({ system: { comfyui_version: '1.0.0' } }), {
             status: 200,
           });
-        return new Response(JSON.stringify({ PrimitiveStringMultiline: {}, SaveImage: {} }), {
-          status: 200,
-        });
+        return new Response(JSON.stringify(compatibleObjectInfo()), { status: 200 });
       }),
     );
     const verified = await verifyComfyUiWorkflowLibrary(
@@ -485,7 +618,6 @@ describe('comfyui workflow library service', () => {
           serverUrl: 'http://127.0.0.1:8188',
           requestTimeoutMs: 1000,
           connectionCheckIntervalMs: 1000,
-          defaultWorkflowId: 'portrait',
           defaultWorkflows: {},
         },
       },
@@ -494,7 +626,11 @@ describe('comfyui workflow library service', () => {
     expect(verified.verified[0]).toMatchObject({ comfyUiVersion: '1.0.0' });
 
     let listed = await listComfyUiWorkflowLibrary(
-      { includeOverridden: true, comfyUiVersion: verified.verified[0]!.comfyUiVersion },
+      {
+        includeOverridden: true,
+        serverIdentity: verificationServerIdentity,
+        comfyUiVersion: verified.verified[0]!.comfyUiVersion,
+      },
       options,
     );
     expect(listed.entries[0]).toMatchObject({ onlineStatus: 'previously-verified' });
@@ -508,9 +644,7 @@ describe('comfyui workflow library service', () => {
           return new Response(JSON.stringify({ system: { comfyui_version: '2.0.0' } }), {
             status: 200,
           });
-        return new Response(JSON.stringify({ PrimitiveStringMultiline: {}, SaveImage: {} }), {
-          status: 200,
-        });
+        return new Response(JSON.stringify(compatibleObjectInfo()), { status: 200 });
       }),
     );
     await verifyComfyUiWorkflowLibrary(
@@ -520,7 +654,6 @@ describe('comfyui workflow library service', () => {
           serverUrl: 'http://127.0.0.1:8188',
           requestTimeoutMs: 1000,
           connectionCheckIntervalMs: 1000,
-          defaultWorkflowId: 'portrait',
           defaultWorkflows: {},
         },
       },
@@ -542,7 +675,11 @@ describe('comfyui workflow library service', () => {
       new Set(['1.0.0', '2.0.0']),
     );
     listed = await listComfyUiWorkflowLibrary(
-      { includeOverridden: true, comfyUiVersion: verified.verified[0]!.comfyUiVersion },
+      {
+        includeOverridden: true,
+        serverIdentity: verificationServerIdentity,
+        comfyUiVersion: verified.verified[0]!.comfyUiVersion,
+      },
       options,
     );
     expect(listed.entries[0]).toMatchObject({ onlineStatus: 'previously-verified' });

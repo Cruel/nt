@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import type { ComfyUiWorkflowId, ComfyUiWorkflowRole } from './comfyui-workflows';
+import {
+  isComfyUiWorkflowClassification,
+  type ComfyUiWorkflowClassification,
+  type ComfyUiWorkflowId,
+} from './comfyui-workflows';
 
 export type ComfyUiConnectionState = 'disabled' | 'unchecked' | 'checking' | 'ready' | 'error';
 
@@ -37,7 +41,7 @@ export const comfyUiWorkflowLabelSchema = utf8BoundedStringSchema(
   1,
 );
 export const comfyUiPromptSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.promptBytes);
-const comfyUiServerUrlSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.serverUrlBytes, 1)
+export const comfyUiServerUrlSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.serverUrlBytes, 1)
   .url()
   .refine((value) => {
     const protocol = new URL(value).protocol;
@@ -45,14 +49,20 @@ const comfyUiServerUrlSchema = utf8BoundedStringSchema(COMFYUI_IPC_LIMITS.server
   });
 
 const boundedWorkflowIdSchema = comfyUiWorkflowIdSchema;
+const workflowClassificationSchema = z
+  .string()
+  .min(3)
+  .max(256)
+  .refine(isComfyUiWorkflowClassification);
+const defaultWorkflowsSchema = z
+  .record(workflowClassificationSchema, boundedWorkflowIdSchema)
+  .refine((value) => Object.keys(value).length <= COMFYUI_IPC_LIMITS.defaultWorkflowEntries);
+
 export const comfyUiConfigSchema = z
   .object({
     enabled: z.boolean(),
     serverUrl: comfyUiServerUrlSchema,
-    defaultWorkflowId: boundedWorkflowIdSchema,
-    defaultWorkflows: z
-      .partialRecord(z.enum(['image.generate', 'image.edit']), boundedWorkflowIdSchema)
-      .refine((value) => Object.keys(value).length <= COMFYUI_IPC_LIMITS.defaultWorkflowEntries),
+    defaultWorkflows: defaultWorkflowsSchema,
     requestTimeoutMs: z.number().int().positive().max(COMFYUI_IPC_LIMITS.requestTimeoutMs),
     connectionCheckIntervalMs: z
       .number()
@@ -62,11 +72,21 @@ export const comfyUiConfigSchema = z
   })
   .strict();
 
+export const COMFYUI_USER_CONFIG_FORMAT = 'noveltea.comfyui-user-config' as const;
+export const COMFYUI_USER_CONFIG_FORMAT_VERSION = 1 as const;
+
+export interface ComfyUiSharedUserConfig {
+  format: typeof COMFYUI_USER_CONFIG_FORMAT;
+  formatVersion: typeof COMFYUI_USER_CONFIG_FORMAT_VERSION;
+  serverUrl: string;
+  requestTimeoutMs: number;
+  defaultWorkflows: Partial<Record<ComfyUiWorkflowClassification, ComfyUiWorkflowId>>;
+}
+
 export interface ComfyUiConfig {
   enabled: boolean;
   serverUrl: string;
-  defaultWorkflowId: string;
-  defaultWorkflows: Partial<Record<ComfyUiWorkflowRole, ComfyUiWorkflowId>>;
+  defaultWorkflows: Partial<Record<ComfyUiWorkflowClassification, ComfyUiWorkflowId>>;
   requestTimeoutMs: number;
   connectionCheckIntervalMs: number;
 }
@@ -93,7 +113,7 @@ export interface ComfyUiQueueProgress {
   projectSessionId?: string;
   projectFilePath?: string;
   workflowLabel?: string;
-  role?: ComfyUiWorkflowRole;
+  classification?: ComfyUiWorkflowClassification;
   mode?: 'generate' | 'edit';
   promptSummary?: string;
   queueNumber?: number;
@@ -101,36 +121,84 @@ export interface ComfyUiQueueProgress {
   updatedAt?: string;
 }
 
-export function defaultComfyUiConfig(): ComfyUiConfig {
+export function defaultComfyUiSharedUserConfig(): ComfyUiSharedUserConfig {
   return {
-    enabled: false,
+    format: COMFYUI_USER_CONFIG_FORMAT,
+    formatVersion: COMFYUI_USER_CONFIG_FORMAT_VERSION,
     serverUrl: 'http://127.0.0.1:8000',
-    defaultWorkflowId: 'flux2-klein-text-to-image',
     defaultWorkflows: {
       'image.generate': 'flux2-klein-text-to-image',
       'image.edit': 'flux2-klein-image-edit',
     },
     requestTimeoutMs: 15000,
+  };
+}
+
+export const comfyUiSharedUserConfigSchema = z
+  .object({
+    format: z.literal(COMFYUI_USER_CONFIG_FORMAT),
+    formatVersion: z.literal(COMFYUI_USER_CONFIG_FORMAT_VERSION),
+    serverUrl: comfyUiServerUrlSchema,
+    defaultWorkflows: defaultWorkflowsSchema,
+    requestTimeoutMs: z.number().int().positive().max(COMFYUI_IPC_LIMITS.requestTimeoutMs),
+  })
+  .strict();
+
+export function normalizeComfyUiSharedUserConfig(
+  config: Partial<ComfyUiSharedUserConfig> = {},
+): ComfyUiSharedUserConfig {
+  const defaults = defaultComfyUiSharedUserConfig();
+  return comfyUiSharedUserConfigSchema.parse({
+    ...defaults,
+    ...config,
+    serverUrl: normalizeComfyUiServerUrl(config.serverUrl ?? defaults.serverUrl),
+    defaultWorkflows: {
+      ...defaults.defaultWorkflows,
+      ...config.defaultWorkflows,
+    },
+  });
+}
+
+export function comfyUiSharedUserConfigFromRuntime(config: ComfyUiConfig): ComfyUiSharedUserConfig {
+  return normalizeComfyUiSharedUserConfig({
+    format: COMFYUI_USER_CONFIG_FORMAT,
+    formatVersion: COMFYUI_USER_CONFIG_FORMAT_VERSION,
+    serverUrl: config.serverUrl,
+    requestTimeoutMs: config.requestTimeoutMs,
+    defaultWorkflows: config.defaultWorkflows,
+  });
+}
+
+export function defaultComfyUiConfig(): ComfyUiConfig {
+  const shared = defaultComfyUiSharedUserConfig();
+  return {
+    enabled: false,
+    serverUrl: shared.serverUrl,
+    defaultWorkflows: shared.defaultWorkflows,
+    requestTimeoutMs: shared.requestTimeoutMs,
     connectionCheckIntervalMs: 10000,
   };
 }
 
 export function normalizeComfyUiConfig(config: Partial<ComfyUiConfig> = {}): ComfyUiConfig {
   const defaults = defaultComfyUiConfig();
-  const defaultWorkflowId = config.defaultWorkflowId ?? defaults.defaultWorkflowId;
   return {
     ...defaults,
     ...config,
     serverUrl: normalizeComfyUiServerUrl(config.serverUrl ?? defaults.serverUrl),
-    defaultWorkflowId,
     defaultWorkflows: {
       ...defaults.defaultWorkflows,
       ...config.defaultWorkflows,
-      'image.generate': config.defaultWorkflows?.['image.generate'] ?? defaultWorkflowId,
     },
   };
 }
 
 export function normalizeComfyUiServerUrl(serverUrl: string): string {
   return serverUrl.trim().replace(/\/+$/, '');
+}
+
+export function comfyUiServerIdentity(serverUrl: string): string {
+  const url = new URL(normalizeComfyUiServerUrl(serverUrl));
+  const pathname = url.pathname.replace(/\/+$/, '');
+  return `${url.protocol}//${url.host.toLowerCase()}${pathname}`;
 }
