@@ -4,6 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
+import {
+  configureImageInspectionService,
+  resetImageInspectionService,
+} from '../../main/services/image-inspection-service';
 import type { WorkflowLibraryServiceOptions } from '../../main/services/comfyui-workflow-library-service';
 
 const tempRoots: string[] = [];
@@ -60,6 +64,39 @@ function workflow() {
   };
 }
 
+function imageManifest(id = 'image-run') {
+  return {
+    ...manifest(id),
+    label: 'Image Run',
+    contract: {
+      inputs: {
+        source: { type: 'image', required: true },
+        text: { type: 'string', required: true },
+      },
+      outputs: {
+        image: { mediaType: 'image', required: true, cardinality: 'one' },
+      },
+    },
+    requiredNodeClasses: ['LoadImage', 'ScalarNode', 'SaveImage'],
+    bindings: {
+      source: [
+        { nodeId: 'load', classType: 'LoadImage', inputName: 'image' },
+        { nodeId: 'copy', classType: 'LoadImage', inputName: 'image' },
+      ],
+      text: [{ nodeId: 'a', classType: 'ScalarNode', inputName: 'text' }],
+    },
+  };
+}
+
+function imageWorkflow() {
+  return {
+    load: { class_type: 'LoadImage', inputs: { image: '' } },
+    copy: { class_type: 'LoadImage', inputs: { image: '' } },
+    a: { class_type: 'ScalarNode', inputs: { text: '' } },
+    out: { class_type: 'SaveImage', inputs: { images: ['load', 0], filename_prefix: 'NovelTea' } },
+  };
+}
+
 function writePackage(root: string, id = 'scalar-run') {
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(
@@ -69,6 +106,18 @@ function writePackage(root: string, id = 'scalar-run') {
   fs.writeFileSync(
     path.join(root, `${id}.workflow.json`),
     `${JSON.stringify(workflow(), null, 2)}\n`,
+  );
+}
+
+function writeImagePackage(root: string, id = 'image-run') {
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(
+    path.join(root, `${id}.manifest.json`),
+    `${JSON.stringify(imageManifest(id), null, 2)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(root, `${id}.workflow.json`),
+    `${JSON.stringify(imageWorkflow(), null, 2)}\n`,
   );
 }
 
@@ -94,6 +143,8 @@ interface FakeServerOptions {
   imageBytes?: Buffer;
   imageContentLength?: number;
   neverComplete?: boolean;
+  uploadStatus?: number;
+  host?: string;
 }
 
 async function fakeComfyUi(options: FakeServerOptions = {}) {
@@ -131,9 +182,20 @@ async function fakeComfyUi(options: FakeServerOptions = {}) {
                 required: { text: {}, count: {}, strength: {}, enabled: {} },
               },
             },
+            LoadImage: { input: { required: { image: {} } } },
             SaveImage: { input: { required: { images: {}, filename_prefix: {} } } },
           }),
         );
+        return;
+      }
+      if (requestPath === '/upload/image' && request.method === 'POST') {
+        if (options.uploadStatus && options.uploadStatus !== 200) {
+          response.statusCode = options.uploadStatus;
+          response.end(JSON.stringify({ error: 'upload failed' }));
+          return;
+        }
+        const filename = raw.match(/filename="([^"]+)"/)?.[1] ?? 'missing.png';
+        response.end(JSON.stringify({ name: filename, subfolder: 'noveltea' }));
         return;
       }
       if (requestPath === '/prompt' && request.method === 'POST') {
@@ -183,11 +245,12 @@ async function fakeComfyUi(options: FakeServerOptions = {}) {
     });
   });
   servers.push(server);
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const host = options.host ?? '127.0.0.1';
+  await new Promise<void>((resolve) => server.listen(0, host, resolve));
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP test server.');
   return {
-    url: `http://127.0.0.1:${address.port}`,
+    url: `http://${host.includes(':') ? `[${host}]` : host}:${address.port}`,
     requests,
     queueDelete,
   };
@@ -195,6 +258,27 @@ async function fakeComfyUi(options: FakeServerOptions = {}) {
 
 function envelope(result: Awaited<ReturnType<typeof runNovelTeaCli>>) {
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+function configureImageInspection() {
+  configureImageInspectionService(async () => ({ width: 1, height: 1, hasAlpha: true }));
+}
+
+function imageRunArguments(server: string, source: string, output: string) {
+  return [
+    '--json',
+    'comfyui',
+    'run',
+    'image-run',
+    '--input',
+    `source=${source}`,
+    '--input',
+    'text=edit this',
+    '--output',
+    output,
+    '--server',
+    server,
+  ];
 }
 
 function runArguments(server: string, output: string) {
@@ -217,6 +301,7 @@ function runArguments(server: string, output: string) {
 }
 
 afterEach(async () => {
+  resetImageInspectionService();
   await Promise.all(
     servers
       .splice(0)
@@ -418,6 +503,209 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
       expect.objectContaining({ code: 'COMFYUI_RESPONSE_TOO_LARGE' }),
     ]);
     expect(fs.existsSync(oversizedOutput)).toBe(false);
+  });
+
+  it('uploads a validated relative image input to loopback, hides the local basename, and binds the returned reference to every graph binding', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writeImagePackage(userRoot);
+    configureImageInspection();
+    fs.mkdirSync(path.join(root, 'inputs'), { recursive: true });
+    const source = path.join(root, 'inputs', 'private-source-name.png');
+    fs.writeFileSync(source, png());
+    const server = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+    const output = path.join(root, 'result.png');
+
+    const result = await runNovelTeaCli(
+      imageRunArguments(server.url, path.relative(root, source), output),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(fs.readFileSync(output)).toEqual(png());
+    const upload = server.requests.find((request) => request.path === '/upload/image');
+    expect(upload).toBeDefined();
+    expect(String(upload?.body)).not.toContain('private-source-name');
+    expect(String(upload?.body)).toMatch(/filename="noveltea-[^"]+\.png"/);
+    const prompt = server.requests.find((request) => request.path === '/prompt')?.body as {
+      prompt?: Record<string, { inputs?: Record<string, unknown> }>;
+    };
+    expect(prompt.prompt?.load.inputs?.image).toMatch(/^noveltea\/noveltea-.*\.png$/);
+    expect(prompt.prompt?.copy.inputs?.image).toBe(prompt.prompt?.load.inputs?.image);
+    expect(server.requests.findIndex((request) => request.path === '/object_info')).toBeLessThan(
+      server.requests.findIndex((request) => request.path === '/upload/image'),
+    );
+    expect(server.requests.findIndex((request) => request.path === '/upload/image')).toBeLessThan(
+      server.requests.findIndex((request) => request.path === '/prompt'),
+    );
+  });
+
+  it('rejects unsafe local-image upload targets before any network request while text-only runs remain remote-capable', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writeImagePackage(userRoot);
+    writePackage(userRoot, 'scalar-run');
+    configureImageInspection();
+    const source = path.join(root, 'source.png');
+    fs.writeFileSync(source, png());
+    const output = path.join(root, 'result.png');
+    const unsafeServers = [
+      'http://localhost:8188',
+      'http://user:pass@127.0.0.1:8188',
+      'https://127.0.0.1:8188',
+      'http://192.168.1.10:8188',
+      'http://example.com:8188',
+    ];
+
+    for (const serverUrl of unsafeServers) {
+      const result = await runNovelTeaCli(imageRunArguments(serverUrl, source, output), {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      });
+      expect(result.exitCode).toBe(4);
+      expect(envelope(result).diagnostics).toEqual([
+        expect.objectContaining({ code: 'COMFYUI_UPLOAD_TARGET_DENIED' }),
+      ]);
+    }
+
+    const remoteText = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+    const textServer = remoteText.url.replace('127.0.0.1', 'localhost');
+    const textResult = await runNovelTeaCli(
+      runArguments(textServer, path.join(root, 'text-only.png')),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(textResult.exitCode).toBe(0);
+  });
+
+  it('accepts IPv6 and IPv4-mapped IPv6 loopback image-upload targets', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writeImagePackage(userRoot);
+    configureImageInspection();
+    const source = path.join(root, 'source.png');
+    fs.writeFileSync(source, png());
+    const ipv4Server = await fakeComfyUi({ completeAfterHistoryCalls: 1 });
+    const mappedServer = ipv4Server.url.replace('127.0.0.1', '[::ffff:127.0.0.1]');
+    const mapped = await runNovelTeaCli(
+      imageRunArguments(mappedServer, source, path.join(root, 'mapped.png')),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(mapped.exitCode).toBe(0);
+
+    let server;
+    try {
+      server = await fakeComfyUi({ completeAfterHistoryCalls: 1, host: '::1' });
+    } catch {
+      return;
+    }
+
+    const result = await runNovelTeaCli(
+      imageRunArguments(server.url, source, path.join(root, 'ipv6.png')),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(server.requests.some((request) => request.path === '/upload/image')).toBe(true);
+  });
+
+  it('honors native decode rejection before verification or upload', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writeImagePackage(userRoot);
+    configureImageInspectionService(async () => {
+      throw new Error('decode failed');
+    });
+    const source = path.join(root, 'looks-valid.png');
+    fs.writeFileSync(source, png());
+    const server = await fakeComfyUi();
+
+    const result = await runNovelTeaCli(
+      imageRunArguments(server.url, source, path.join(root, 'decode-out.png')),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+
+    expect(result.exitCode).toBe(4);
+    expect(envelope(result).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_INPUT_IMAGE_INVALID' }),
+    ]);
+    expect(server.requests).toEqual([]);
+  });
+
+  it('rejects malformed and oversized local images before verification or upload', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writeImagePackage(userRoot);
+    configureImageInspection();
+    const server = await fakeComfyUi();
+
+    const malformed = path.join(root, 'broken.png');
+    fs.writeFileSync(malformed, 'not an image');
+    const malformedResult = await runNovelTeaCli(
+      imageRunArguments(server.url, malformed, path.join(root, 'broken-out.png')),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(malformedResult.exitCode).toBe(4);
+    expect(server.requests).toEqual([]);
+
+    const oversized = path.join(root, 'oversized.png');
+    fs.writeFileSync(oversized, Buffer.alloc(32 * 1024 * 1024 + 1));
+    const oversizedResult = await runNovelTeaCli(
+      imageRunArguments(server.url, oversized, path.join(root, 'oversized-out.png')),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+    expect(oversizedResult.exitCode).toBe(4);
+    expect(envelope(oversizedResult).diagnostics).toEqual([
+      expect.objectContaining({ code: 'COMFYUI_INPUT_IMAGE_TOO_LARGE' }),
+    ]);
+    expect(server.requests).toEqual([]);
+  });
+
+  it('aborts before prompt submission when image upload fails', async () => {
+    const root = tempRoot();
+    const builtInRoot = path.join(root, 'built-in');
+    const userRoot = path.join(root, 'user');
+    writeImagePackage(userRoot);
+    configureImageInspection();
+    const source = path.join(root, 'source.png');
+    fs.writeFileSync(source, png());
+    const server = await fakeComfyUi({ uploadStatus: 500 });
+
+    const result = await runNovelTeaCli(
+      imageRunArguments(server.url, source, path.join(root, 'result.png')),
+      {
+        cwd: root,
+        comfyUiWorkflowLibraryOptions: libraryOptions(builtInRoot, userRoot),
+      },
+    );
+
+    expect(result.exitCode).toBe(4);
+    expect(server.requests.some((request) => request.path === '/upload/image')).toBe(true);
+    expect(server.requests.some((request) => request.path === '/prompt')).toBe(false);
   });
 
   it('returns 130 on interruption and attempts prompt-specific queue cancellation without /interrupt', async () => {

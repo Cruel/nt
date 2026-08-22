@@ -4,6 +4,7 @@ import { runNovelTeaCli } from '../src/cli/application';
 import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
 import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
 import { createNovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service-node';
+import { configureImageInspectionService } from '../src/main/services/image-inspection-service';
 import { configurePlatformHostService } from '../src/main/services/platform-host-service';
 import {
   scriptcAgentKitProvenance,
@@ -64,13 +65,20 @@ function configureScriptcPlatformHost(invoke: ScriptcHostInvoke): void {
       throw new Error((response as { error: string }).error);
     return response as T;
   };
+  const inspectImage = async (sourcePath: string) =>
+    call<{
+      width: number;
+      height: number;
+      hasAlpha: boolean;
+      space?: string;
+      alphaBounds?: { left: number; top: number; right: number; bottom: number };
+    }>('image-inspect', { sourcePath });
+  configureImageInspectionService(inspectImage);
   configurePlatformHostService({
     async runProcess(request) {
       return call('run-process', request);
     },
-    async inspectImage(sourcePath) {
-      return call('image-inspect', { sourcePath });
-    },
+    inspectImage,
     async resizeImageToPng(request) {
       call('image-resize-png', request);
     },

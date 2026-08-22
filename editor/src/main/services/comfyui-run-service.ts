@@ -2,6 +2,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
+  prepareComfyUiImageInput,
+  uploadComfyUiImageInput,
+  validateComfyUiImageUploadTarget,
+  type PreparedComfyUiImageInput,
+} from './comfyui-image-media-service';
+import { ComfyUiRunError } from './comfyui-run-errors';
+import {
   resolveComfyUiWorkflowBinding,
   resolvedComfyUiWorkflowOutputNodeIdList,
   type ComfyUiWorkflowBinding,
@@ -15,6 +22,11 @@ const MAX_IMAGE_OUTPUT_BYTES = 32 * 1024 * 1024;
 const HISTORY_POLL_INTERVAL_MS = 250;
 
 type WorkflowGraph = Record<string, { class_type?: string; inputs?: Record<string, unknown> }>;
+
+export interface PreparedComfyUiWorkflow {
+  workflow: WorkflowGraph;
+  imageInputs: PreparedComfyUiImageInput[];
+}
 
 export type ComfyUiRunnableWorkflowEntry = ComfyUiWorkflowLibraryEntry & {
   id: string;
@@ -55,17 +67,7 @@ export interface ComfyUiScalarRunResult {
   output: ComfyUiScalarRunOutput;
 }
 
-export class ComfyUiRunError extends Error {
-  constructor(
-    readonly code: string,
-    readonly path: string,
-    message: string,
-    readonly interrupted = false,
-  ) {
-    super(message);
-    this.name = 'ComfyUiRunError';
-  }
-}
+export { ComfyUiRunError } from './comfyui-run-errors';
 
 function boundedMessage(value: unknown, fallback: string) {
   if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 512);
@@ -168,12 +170,6 @@ async function requestJson(config: ComfyUiConfig, pathname: string, init?: Reque
 }
 
 function coerceScalarInput(id: string, input: ComfyUiWorkflowContractInput, value: string) {
-  if (input.type === 'image')
-    throw new ComfyUiRunError(
-      'COMFYUI_INPUT_UNSUPPORTED',
-      `/inputs/${id}`,
-      `Input '${id}' requires image-file support from a later execution slice.`,
-    );
   if (input.type === 'string') return value;
   if (input.type === 'boolean') {
     if (value === 'true') return true;
@@ -219,10 +215,11 @@ function setBinding(workflow: WorkflowGraph, binding: ComfyUiWorkflowBinding, va
   node.inputs[inputName] = value;
 }
 
-export function prepareComfyUiScalarWorkflow(
+export async function prepareComfyUiWorkflow(
   entry: ComfyUiRunnableWorkflowEntry,
   suppliedInputs: ReadonlyMap<string, string>,
-) {
+  cwd: string,
+): Promise<PreparedComfyUiWorkflow> {
   if (!entry.workflowJsonText)
     throw new ComfyUiRunError(
       'COMFYUI_WORKFLOW_INVALID',
@@ -242,21 +239,27 @@ export function prepareComfyUiScalarWorkflow(
         `/inputs/${id}`,
         `Unknown workflow input '${id}'.`,
       );
+  const imageInputs: PreparedComfyUiImageInput[] = [];
   for (const [id, input] of Object.entries(entry.definition.contract.inputs)) {
     const supplied = suppliedInputs.get(id);
-    let value: unknown;
-    if (supplied !== undefined) value = coerceScalarInput(id, input, supplied);
-    else if (input.defaultValue !== undefined) value = input.defaultValue;
-    else if (input.required)
-      throw new ComfyUiRunError(
-        'COMFYUI_INPUT_REQUIRED',
-        `/inputs/${id}`,
-        `Required workflow input '${id}' was not supplied.`,
-      );
-    else continue;
+    const sourceValue = supplied ?? input.defaultValue;
+    if (sourceValue === undefined) {
+      if (input.required)
+        throw new ComfyUiRunError(
+          'COMFYUI_INPUT_REQUIRED',
+          `/inputs/${id}`,
+          `Required workflow input '${id}' was not supplied.`,
+        );
+      continue;
+    }
+    if (input.type === 'image') {
+      imageInputs.push(await prepareComfyUiImageInput(id, String(sourceValue), cwd));
+      continue;
+    }
+    const value = supplied !== undefined ? coerceScalarInput(id, input, supplied) : sourceValue;
     for (const binding of entry.definition.bindings[id] ?? []) setBinding(workflow, binding, value);
   }
-  return workflow;
+  return { workflow, imageInputs };
 }
 
 function imageFormat(bytes: Uint8Array): {
@@ -407,6 +410,21 @@ function descriptorsForOutput(history: unknown, promptId: string, nodeIds: strin
   return descriptors;
 }
 
+async function bindPreparedImageInputs(
+  config: ComfyUiConfig,
+  workflow: WorkflowGraph,
+  entry: ComfyUiRunnableWorkflowEntry,
+  imageInputs: PreparedComfyUiImageInput[],
+) {
+  if (imageInputs.length === 0) return;
+  validateComfyUiImageUploadTarget(config);
+  for (const input of imageInputs) {
+    const remoteReference = await uploadComfyUiImageInput(config, input);
+    for (const binding of entry.definition.bindings[input.id] ?? [])
+      setBinding(workflow, binding, remoteReference);
+  }
+}
+
 async function cancelPrompt(config: ComfyUiConfig, promptId: string) {
   await requestJson(config, '/queue', {
     method: 'POST',
@@ -450,7 +468,18 @@ export async function preflightComfyUiScalarRun(options: {
   entry: ComfyUiRunnableWorkflowEntry;
   outputPath: string;
   force: boolean;
+  config?: ComfyUiConfig;
+  imageInputs?: PreparedComfyUiImageInput[];
 }) {
+  if (options.imageInputs?.length) {
+    if (!options.config)
+      throw new ComfyUiRunError(
+        'COMFYUI_UPLOAD_TARGET_DENIED',
+        '/server',
+        'ComfyUI server configuration is required for local image inputs.',
+      );
+    validateComfyUiImageUploadTarget(options.config);
+  }
   const outputIds = Object.keys(options.entry.definition.contract.outputs);
   if (outputIds.length !== 1)
     throw new ComfyUiRunError(
@@ -505,6 +534,7 @@ export async function preflightComfyUiScalarRun(options: {
 export async function runComfyUiScalarWorkflow(options: {
   entry: ComfyUiRunnableWorkflowEntry;
   workflow: WorkflowGraph;
+  imageInputs?: PreparedComfyUiImageInput[];
   config: ComfyUiConfig;
   outputPath: string;
   force: boolean;
@@ -512,10 +542,16 @@ export async function runComfyUiScalarWorkflow(options: {
   onProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
 }): Promise<ComfyUiScalarRunResult> {
   const { entry, config } = options;
-  const { outputId, absoluteOutputPath } = await preflightComfyUiScalarRun(options);
+  const { outputId, absoluteOutputPath } = await preflightComfyUiScalarRun({
+    ...options,
+    config,
+    imageInputs: options.imageInputs,
+  });
 
   const clientId = randomUUID();
   const requestedPromptId = randomUUID();
+  if (options.signal?.aborted) throw abortError(requestedPromptId);
+  await bindPreparedImageInputs(config, options.workflow, entry, options.imageInputs ?? []);
   if (options.signal?.aborted) throw abortError(requestedPromptId);
   const submission = await requestJson(config, '/prompt', {
     method: 'POST',
