@@ -58,6 +58,25 @@ from the invocation override, then shared user configuration, then `http://127.0
 verifies the active workflow set. Verification is diagnostic-only apart from the disposable cache and never repairs or
 rewrites a package.
 
+`noveltea comfyui run <workflow-id>` now provides the first generic execution slice. It accepts repeated scalar
+`--input name=value` arguments, splitting only on the first `=`, and requires one explicit `--output <path>`. The complete
+scalar invocation is validated before network work: duplicate or unknown inputs, missing required inputs, invalid
+integer/number/boolean values, unsupported image-valued inputs, incompatible output contracts, unusable parent paths,
+and existing destinations without `--force` all fail locally. Manifest defaults fill omitted optional scalar inputs, and
+one public value is written to every graph binding declared for that input.
+
+This slice runs only workflows with exactly one required cardinality-`one` image output. It verifies the selected active
+workflow against the selected server, submits one uniquely identified prompt, polls `/history/<prompt-id>` over HTTP with
+no fixed whole-job timeout, resolves the named output binding, downloads one bounded image, validates its media format,
+and publishes it atomically to the requested filesystem path. Missing parent directories are created only for final
+publication. `.png`, `.jpg`/`.jpeg`, `.webp`, and `.gif` destinations are admitted, and the extension must agree with the
+returned image format; NovelTea does not transcode. Project Asset publication, local image inputs, classification-default
+selection, cardinality-many routing, and named multi-output routing remain later slices.
+
+Ctrl-C attempts prompt-specific cancellation by deleting only this invocation's prompt from the ComfyUI queue; it never
+uses the global `/interrupt` endpoint. Interrupted runs use exit status 130. Independent CLI runs are not serialized and
+use distinct client and prompt identities. `--json` still emits exactly one compact final envelope and keeps stderr empty.
+
 ## Author Workflow
 
 1. Build and test the workflow in ComfyUI.

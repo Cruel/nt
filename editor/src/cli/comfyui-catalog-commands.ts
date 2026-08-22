@@ -2,6 +2,13 @@ import path from 'node:path';
 import { checkComfyUiConnection } from '../main/services/comfyui-service';
 import { loadComfyUiUserConfig } from '../main/services/comfyui-user-config-service';
 import {
+  ComfyUiRunError,
+  prepareComfyUiScalarWorkflow,
+  preflightComfyUiScalarRun,
+  runComfyUiScalarWorkflow,
+  type ComfyUiRunnableWorkflowEntry,
+} from '../main/services/comfyui-run-service';
+import {
   listComfyUiWorkflowLibrary,
   verifyComfyUiWorkflowLibrary,
   type WorkflowLibraryServiceOptions,
@@ -40,6 +47,8 @@ interface RunComfyUiCatalogCommandOptions {
   cwd: string;
   fileSystem: ProjectWorkspaceFileSystem;
   libraryOptions?: WorkflowLibraryServiceOptions;
+  abortSignal?: AbortSignal;
+  onRunProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
 }
 
 function parseWorkflowCommand(command: readonly string[]) {
@@ -93,6 +102,69 @@ function parseStatusCommand(command: readonly string[]) {
   if (parsed.positional.length > 0)
     throw new CliCommandUsageError('Usage: noveltea comfyui status [--server <url>].');
   return { server: parsed.server };
+}
+
+function parseRunCommand(command: readonly string[]) {
+  if (command[0] !== 'comfyui' || command[1] !== 'run') return null;
+  let workflowId: string | null = null;
+  let outputPath: string | null = null;
+  let server: string | null = null;
+  let force = false;
+  const inputs = new Map<string, string>();
+  for (let index = 2; index < command.length; index += 1) {
+    const argument = command[index]!;
+    if (argument === '--input') {
+      const value = command[index + 1];
+      if (!value || value.startsWith('--'))
+        throw new CliCommandUsageError("Option '--input' requires <name=value>.");
+      const equals = value.indexOf('=');
+      if (equals <= 0) throw new CliCommandUsageError("Option '--input' requires <name=value>.");
+      const name = value.slice(0, equals);
+      if (inputs.has(name))
+        throw new CliCommandUsageError(`Input '${name}' was supplied more than once.`);
+      inputs.set(name, value.slice(equals + 1));
+      index += 1;
+      continue;
+    }
+    if (argument === '--output') {
+      if (outputPath)
+        throw new CliCommandUsageError(
+          "Option '--output' may be supplied only once in this execution slice.",
+        );
+      const value = command[index + 1];
+      if (!value || value.startsWith('--'))
+        throw new CliCommandUsageError("Option '--output' requires a path.");
+      outputPath = value;
+      index += 1;
+      continue;
+    }
+    if (argument === '--server') {
+      if (server) throw new CliCommandUsageError("Option '--server' may be supplied only once.");
+      const value = command[index + 1];
+      if (!value || value.startsWith('--'))
+        throw new CliCommandUsageError("Option '--server' requires an HTTP(S) URL.");
+      server = value;
+      index += 1;
+      continue;
+    }
+    if (argument === '--force') {
+      if (force) throw new CliCommandUsageError("Option '--force' may be supplied only once.");
+      force = true;
+      continue;
+    }
+    if (argument.startsWith('--'))
+      throw new CliCommandUsageError(`Unknown command option '${argument}'.`);
+    if (workflowId)
+      throw new CliCommandUsageError(
+        'Usage: noveltea comfyui run <workflow-id> [--input <name=value>]... --output <path> [--server <url>] [--force].',
+      );
+    workflowId = argument;
+  }
+  if (!workflowId)
+    throw new CliCommandUsageError("'comfyui run' requires an explicit workflow id in issue #107.");
+  if (!outputPath)
+    throw new CliCommandUsageError("'comfyui run' requires '--output <path>' in issue #107.");
+  return { workflowId, outputPath, server, force, inputs };
 }
 
 function parseVerifyCommand(command: readonly string[]) {
@@ -299,6 +371,234 @@ function inspectHuman(entry: ReturnType<typeof inspectedWorkflow>) {
 export async function runComfyUiCatalogCommand(
   options: RunComfyUiCatalogCommandOptions,
 ): Promise<NovelTeaCliCommandResult | null> {
+  const runCommand = parseRunCommand(options.command);
+  if (runCommand) {
+    const project = await optionalProjectRoot(
+      options.projectOption,
+      options.cwd,
+      options.fileSystem,
+    );
+    if (project.error)
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.workspace,
+          diagnostics: [project.error],
+        },
+        options.json,
+        { failure: project.error.message },
+      );
+    const shared = await loadComfyUiUserConfig();
+    const config = resolvedComfyUiConfig(shared, runCommand.server);
+    const projectFilePath = project.projectRoot
+      ? path.join(project.projectRoot, 'project.json')
+      : null;
+    const library = await listComfyUiWorkflowLibrary(
+      {
+        projectFilePath,
+        includeOverridden: false,
+        serverIdentity: comfyUiServerIdentity(config.serverUrl),
+        comfyUiVersion: 'unknown',
+      },
+      options.libraryOptions,
+    );
+    const selectedEntry = library.entries.find(
+      (candidate) => candidate.active && candidate.id === runCommand.workflowId,
+    );
+    if (!selectedEntry) {
+      const diagnostic = cliDiagnostic(
+        'COMFYUI_WORKFLOW_NOT_FOUND',
+        '/workflow',
+        `ComfyUI workflow '${runCommand.workflowId}' is not available in the effective catalog.`,
+      );
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics: [diagnostic],
+          workflowId: runCommand.workflowId,
+          serverUrl: config.serverUrl,
+        },
+        options.json,
+        { failure: diagnostic.message },
+      );
+    }
+    if (
+      !selectedEntry.runnable ||
+      !selectedEntry.id ||
+      !selectedEntry.label ||
+      !selectedEntry.definition ||
+      !selectedEntry.workflowJsonText ||
+      !selectedEntry.packageHash
+    ) {
+      const diagnostic = cliDiagnostic(
+        'COMFYUI_WORKFLOW_NOT_RUNNABLE',
+        '/workflow',
+        `ComfyUI workflow '${selectedEntry.id ?? runCommand.workflowId}' is not runnable by this NovelTea build.`,
+      );
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics: [diagnostic],
+          workflowId: selectedEntry.id ?? runCommand.workflowId,
+          serverUrl: config.serverUrl,
+        },
+        options.json,
+        { failure: diagnostic.message },
+      );
+    }
+    const entry = selectedEntry as ComfyUiRunnableWorkflowEntry;
+
+    const absoluteOutputPath = path.resolve(options.cwd, runCommand.outputPath);
+    let workflow;
+    try {
+      workflow = prepareComfyUiScalarWorkflow(entry, runCommand.inputs);
+      await preflightComfyUiScalarRun({
+        entry,
+        outputPath: absoluteOutputPath,
+        force: runCommand.force,
+      });
+    } catch (error) {
+      const failure =
+        error instanceof ComfyUiRunError
+          ? error
+          : new ComfyUiRunError(
+              'COMFYUI_PREFLIGHT_FAILED',
+              '/',
+              'ComfyUI execution preflight failed.',
+            );
+      const diagnostic = cliDiagnostic(failure.code, failure.path, failure.message);
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics: [diagnostic],
+          workflowId: entry.id,
+          serverUrl: config.serverUrl,
+        },
+        options.json,
+        { failure: diagnostic.message },
+      );
+    }
+
+    const verification = await verifyComfyUiWorkflowLibrary(
+      {
+        projectFilePath,
+        config,
+        workflowId: entry.id,
+        force: true,
+      },
+      options.libraryOptions,
+    );
+    if (!verification.success) {
+      const diagnostics = verification.diagnostics.map((value) =>
+        cliDiagnostic('COMFYUI_VERIFICATION_FAILED', value.path, value.message, value.severity),
+      );
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics,
+          workflowId: entry.id,
+          serverUrl: config.serverUrl,
+          verified: verification.verified,
+          failed: verification.failed,
+        },
+        options.json,
+        { failure: diagnostics[0]?.message ?? 'ComfyUI workflow verification failed.' },
+      );
+    }
+    if (
+      !verification.verified.some(
+        (record) =>
+          record.workflowKey === entry.workflowKey && record.packageHash === entry.packageHash,
+      )
+    ) {
+      const diagnostic = cliDiagnostic(
+        'COMFYUI_WORKFLOW_CHANGED',
+        '/workflow',
+        `ComfyUI workflow '${entry.id}' changed while the invocation was being prepared; run it again.`,
+      );
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics: [diagnostic],
+          workflowId: entry.id,
+          serverUrl: config.serverUrl,
+          packageHash: entry.packageHash,
+        },
+        options.json,
+        { failure: diagnostic.message },
+      );
+    }
+
+    const controller = options.abortSignal ? null : new AbortController();
+    const signal = options.abortSignal ?? controller!.signal;
+    const onSigint = () => controller?.abort();
+    if (controller) process.once('SIGINT', onSigint);
+    try {
+      const result = await runComfyUiScalarWorkflow({
+        entry,
+        workflow,
+        config,
+        outputPath: absoluteOutputPath,
+        force: runCommand.force,
+        signal,
+        onProgress: options.json ? undefined : options.onRunProgress,
+      });
+      return formatCliResult(
+        {
+          success: true,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+          diagnostics: [],
+          ...(project.projectRoot ? { projectRoot: project.projectRoot } : {}),
+          workflow: {
+            id: entry.id,
+            source: entry.source,
+            workflowKey: entry.workflowKey,
+            packageHash: entry.packageHash,
+          },
+          serverUrl: result.serverUrl,
+          clientId: result.clientId,
+          promptId: result.promptId,
+          outputs: { [result.output.outputId]: result.output },
+        },
+        options.json,
+        {
+          success: `ComfyUI workflow '${entry.id}' completed.\n${result.output.outputId}: ${result.output.path}`,
+        },
+      );
+    } catch (error) {
+      const failure =
+        error instanceof ComfyUiRunError
+          ? error
+          : new ComfyUiRunError('COMFYUI_RUN_FAILED', '/', 'ComfyUI execution failed.');
+      const diagnostic = cliDiagnostic(failure.code, failure.path, failure.message);
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: failure.interrupted
+            ? NOVELTEA_CLI_EXIT_CODES.interrupted
+            : NOVELTEA_CLI_EXIT_CODES.semantic,
+          diagnostics: [diagnostic],
+          workflow: {
+            id: entry.id,
+            source: entry.source,
+            workflowKey: entry.workflowKey,
+            packageHash: entry.packageHash,
+          },
+          serverUrl: config.serverUrl,
+        },
+        options.json,
+        { failure: diagnostic.message },
+      );
+    } finally {
+      if (controller) process.off('SIGINT', onSigint);
+    }
+  }
+
   const statusCommand = parseStatusCommand(options.command);
   if (statusCommand) {
     if (options.projectOption)
