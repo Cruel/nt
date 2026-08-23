@@ -289,6 +289,15 @@ auto-selects a primary Offer. Debug snapshots publish the complete resolved `ver
 `bindings`. It does not require a discoverable Offer and is intentionally independent from
 subject-first discovery.
 
+The Play inspector's Interaction resolver panel consumes this existing debug snapshot rather than
+introducing a second preview protocol. For the currently selected subject it explains authored Offer
+candidates and compares them with the native snapshot's resolved `verbOffers`, which is authoritative
+for the concrete running state. For complete selected commands it explains selector-containment
+tiers, priorities, known Guard outcomes from snapshot variables, ambiguity, shadowing, and fallback.
+Lua predicates and runtime facts not represented in the debug snapshot remain visibly conditional;
+the tooling never fabricates a result merely to make the explanation complete. Runtime-created
+subjects can still be analyzed by the exact family and identity already present in the snapshot.
+
 Runtime Gameplay Instance tooling uses the same semantic gateway as authored Lua. Create and
 configuration-replacement messages identify `instanceKind`, one source kind (`archetype`, `compiled`,
 or `effective`), and a stable source ID. Clear, destroy, and Room-exit retarget commands address exact

@@ -12,6 +12,7 @@ import { parseVerbData, subjectSelectorSchema } from './authoring-verbs';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateInventoryReference } from './authoring-inventory-validation';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { analyzeInteractionRules, selectorUnionOverlap } from '../interaction-resolver-analysis';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -313,7 +314,6 @@ export function validateInteractionData(
     );
   const diagnostics: InteractionSchemaDiagnostic[] = [];
   const seen = new Set<string>();
-  const matchKeys = new Map<string, number>();
   for (const [index, rule] of parsed.data.rules.entries()) {
     const path = `${base}/rules/${index}`;
     if (seen.has(rule.id))
@@ -346,6 +346,26 @@ export function validateInteractionData(
             `Rule Offer slot '${rule.offer.slotId}' must name a slot of Verb '${rule.verb.$ref.id}'.`,
           ),
         );
+      for (const [slotIndex, slot] of rule.slots.entries()) {
+        const verbSlot = verbData.slots.find((candidate) => candidate.id === slot.slotId);
+        if (!verbSlot) continue;
+        const overlap = selectorUnionOverlap(project, slot.selectors, verbSlot.selectors);
+        if (overlap === 'no')
+          diagnostics.push(
+            diagnostic(
+              `${path}/slots/${slotIndex}/selectors`,
+              `Rule '${rule.id}' can never match Verb '${rule.verb.$ref.id}' slot '${slot.slotId}' because their subject selector sets do not overlap.`,
+            ),
+          );
+        else if (overlap === 'unknown')
+          diagnostics.push(
+            diagnostic(
+              `${path}/slots/${slotIndex}/selectors`,
+              `Rule '${rule.id}' may match Verb '${rule.verb.$ref.id}' slot '${slot.slotId}' only for runtime-dependent Trait or identity facts.`,
+              'info',
+            ),
+          );
+      }
     }
     for (const [slotIndex, slot] of rule.slots.entries())
       for (const [selectorIndex, selector] of slot.selectors.entries())
@@ -374,31 +394,86 @@ export function validateInteractionData(
       }
     }
     diagnostics.push(...validateInteractionProgram(project, rule.program, `${path}/program`));
-    const key = JSON.stringify({
-      verb: rule.verb.$ref.id,
-      slots: [...rule.slots].sort((left, right) => left.slotId.localeCompare(right.slotId)),
-    });
-    const earlier = matchKeys.get(key);
-    if (earlier !== undefined) {
-      const previous = parsed.data.rules[earlier]!;
-      if (previous.priority === rule.priority) {
-        if (previous.guard.kind === 'always' && rule.guard.kind === 'always')
-          diagnostics.push(
-            diagnostic(
-              path,
-              `Rule conflicts with unconditional rule '${previous.id}' at equal structural specificity and priority ${rule.priority}.`,
-            ),
-          );
-        else
-          diagnostics.push(
-            diagnostic(
-              path,
-              `Rule may be ambiguous with guarded rule '${previous.id}' when both Guards pass at priority ${rule.priority}.`,
-              'warning',
-            ),
-          );
-      }
-    } else matchKeys.set(key, index);
+  }
+  const analyses = analyzeInteractionRules(project, parsed.data.rules);
+  for (const [index, analysis] of analyses.entries()) {
+    const path = `${base}/rules/${index}`;
+    if (analysis.unreachable === 'yes')
+      diagnostics.push(
+        diagnostic(
+          path,
+          `Rule '${analysis.rule.id}' is unreachable because an unconditional equal-match rule with higher priority always wins first.`,
+        ),
+      );
+    else if (analysis.unreachable === 'unknown')
+      diagnostics.push(
+        diagnostic(
+          path,
+          `Rule '${analysis.rule.id}' may be unreachable depending on runtime Guard results.`,
+          'warning',
+        ),
+      );
+    for (const conflict of analysis.conflicts) {
+      const otherIndex = parsed.data.rules.findIndex((rule) => rule.id === conflict.ruleId);
+      if (otherIndex < 0 || otherIndex >= index) continue;
+      diagnostics.push(
+        diagnostic(
+          path,
+          conflict.certainty === 'yes'
+            ? `Rule conflicts with unconditional rule '${conflict.ruleId}' at ${conflict.reason}.`
+            : `Rule may be ambiguous with rule '${conflict.ruleId}' at ${conflict.reason}.`,
+          conflict.certainty === 'yes' ? 'error' : 'warning',
+        ),
+      );
+    }
+  }
+  return diagnostics;
+}
+
+export function validateInteractionResolverProject(
+  project: AuthoringProject,
+): InteractionSchemaDiagnostic[] {
+  const diagnostics: InteractionSchemaDiagnostic[] = [];
+  const entries = Object.entries(project.interactions).flatMap(([interactionId, record]) => {
+    const data = parseInteractionData(record.data);
+    return (data?.rules ?? []).map((rule, ruleIndex) => ({ interactionId, rule, ruleIndex }));
+  });
+  for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
+    const left = entries[leftIndex]!;
+    for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
+      const right = entries[rightIndex]!;
+      if (left.interactionId === right.interactionId) continue;
+      const analysis = analyzeInteractionRules(project, [left.rule, right.rule]);
+      const leftAnalysis = analysis[0]!;
+      const rightAnalysis = analysis[1]!;
+      const rightPath = `/interactions/${right.interactionId}/data/rules/${right.ruleIndex}`;
+      const leftPath = `/interactions/${left.interactionId}/data/rules/${left.ruleIndex}`;
+      const conflict = rightAnalysis.conflicts.find((item) => item.ruleId === left.rule.id);
+      if (conflict)
+        diagnostics.push(
+          diagnostic(
+            rightPath,
+            conflict.certainty === 'yes'
+              ? `Rule conflicts with unconditional rule '${left.interactionId}:${left.rule.id}' at ${conflict.reason}.`
+              : `Rule may be ambiguous with rule '${left.interactionId}:${left.rule.id}' at ${conflict.reason}.`,
+            conflict.certainty === 'yes' ? 'error' : 'warning',
+          ),
+        );
+      if (leftAnalysis.unreachable === 'yes')
+        diagnostics.push(
+          diagnostic(
+            leftPath,
+            `Rule '${left.rule.id}' is unreachable because rule '${right.interactionId}:${right.rule.id}' has the same match space, an unconditional Guard, and higher priority.`,
+          ),
+        );
+      if (rightAnalysis.unreachable === 'yes')
+        diagnostics.push(
+          diagnostic(
+            rightPath,
+            `Rule '${right.rule.id}' is unreachable because rule '${left.interactionId}:${left.rule.id}' has the same match space, an unconditional Guard, and higher priority.`,
+          ),
+        );
+    }
   }
   return diagnostics;
 }

@@ -80,6 +80,11 @@ import type {
   PreviewToEditorMessage,
   RuntimeFastForwardResult,
 } from '../../../shared/preview-protocol';
+import {
+  analyzeConcreteInteractionResolution,
+  analyzeSubjectOffers,
+  type ResolverSubjectSnapshot,
+} from '../../../shared/interaction-resolver-analysis';
 
 type FullGamePreviewMode = 'debug' | 'recording';
 type CompiledProjectFreshness = 'not-loaded' | 'fresh' | 'stale';
@@ -320,6 +325,15 @@ function subjectText(subject: PreviewInteractionSubject) {
   return subject.kind === 'feature'
     ? `feature:${subject.ownerKind}:${subject.ownerId}:${subject.featureId}`
     : `${subject.kind}:${subject.id}`;
+}
+
+function resolverSubject(subject: PreviewInteractionSubject): ResolverSubjectSnapshot {
+  if (subject.kind === 'feature')
+    return {
+      kind: 'feature',
+      identity: `${subject.ownerKind}:${subject.ownerId}#${subject.featureId}`,
+    };
+  return { kind: subject.kind, identity: subject.id };
 }
 
 function recordedActionLabel(action: RecordedRuntimeAction) {
@@ -607,6 +621,164 @@ function RuntimeEntityButton({
       <Icon className={`h-3.5 w-3.5 shrink-0 ${visual.colorClassName}`} />
       <span className="truncate">{title}</span>
     </Button>
+  );
+}
+
+function ResolverAnalysisPanel({
+  snapshot,
+  project,
+}: {
+  snapshot: RuntimeDebugSnapshot | null;
+  project: AuthoringProject | null;
+}) {
+  const inputs = snapshot?.availableInputs;
+  const selected = inputs?.selectedSubjects ?? [];
+  const variables = (snapshot?.variables ?? []).map((variable) => ({
+    id: variable.id,
+    value: variable.value,
+  }));
+  const subject = selected[0] ? resolverSubject(selected[0]) : null;
+  const offers = project && subject ? analyzeSubjectOffers(project, subject, variables) : [];
+  const liveOfferEntries = inputs?.verbOffers ?? [];
+  const liveOffers = new Set(liveOfferEntries.map((offer) => offer.verbId));
+  const livePrimary = liveOfferEntries.filter((offer) => offer.primary);
+  const resolutions =
+    project && inputs
+      ? inputs.actions
+          .filter(
+            (action) =>
+              action.selectedCount === action.bindingOrder.length &&
+              action.bindingOrder.length <= inputs.selectedSubjects.length,
+          )
+          .map((action) => ({
+            action,
+            analysis: analyzeConcreteInteractionResolution(
+              project,
+              action.verbId,
+              action.bindingOrder.map((slotId, index) => ({
+                slotId,
+                subject: resolverSubject(inputs.selectedSubjects[index]!),
+              })),
+              variables,
+            ),
+          }))
+      : [];
+  return (
+    <Panel
+      title="Interaction resolver"
+      icon={<Binary className="h-3.5 w-3.5" />}
+      summary={subject ? subjectText(selected[0]!) : 'Select a subject'}
+      defaultOpen={false}
+    >
+      {!project || !subject ? (
+        <div className="text-xs text-muted-foreground">
+          Select or open the Verb menu for a subject to inspect Offer discovery in this live state.
+        </div>
+      ) : (
+        <div className="space-y-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>
+              <span className="font-medium">Subject:</span> {subjectText(selected[0]!)}
+            </span>
+            <Badge variant={livePrimary.length > 1 ? 'destructive' : 'outline'}>
+              {livePrimary.length > 1
+                ? `Primary ambiguous (${livePrimary.length})`
+                : livePrimary.length === 1 &&
+                    livePrimary[0]!.bindingOrder.length === 1 &&
+                    livePrimary[0]!.bindingOrder[0] === livePrimary[0]!.slotId
+                  ? `Primary executable: ${labelById(project, 'verbs', livePrimary[0]!.verbId)}`
+                  : livePrimary.length === 1
+                    ? 'Primary requires menu completion'
+                    : 'No live primary Offer'}
+            </Badge>
+          </div>
+          {offers
+            .filter((entry) => entry.candidates.length > 0 || liveOffers.has(entry.verbId))
+            .map((entry) => (
+              <div className="rounded border p-2" key={entry.verbId}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{labelById(project, 'verbs', entry.verbId)}</span>
+                  <Badge variant={liveOffers.has(entry.verbId) ? 'default' : 'outline'}>
+                    {liveOffers.has(entry.verbId) ? 'Live Offer' : 'No live Offer'}
+                  </Badge>
+                  <Badge variant="secondary">{entry.primaryStatus}</Badge>
+                  {entry.availability === 'unknown' && (
+                    <Badge variant="secondary">Availability ?</Badge>
+                  )}
+                </div>
+                <div className="mt-1 space-y-1 text-muted-foreground">
+                  {entry.candidates.map((candidate) => (
+                    <div key={candidate.sourceId}>
+                      <code>{candidate.sourceId}</code> · tier {candidate.specificity.tier}
+                      {candidate.specificity.detail ? `.${candidate.specificity.detail}` : ''} ·
+                      rank {candidate.rank} · condition {candidate.condition}
+                      {candidate.sourceId === entry.winner?.sourceId
+                        ? entry.winnerStatus === 'yes'
+                          ? ' · winner'
+                          : entry.winnerStatus === 'unknown'
+                            ? ' · conditional winner'
+                            : ' · structural winner suppressed by condition/availability'
+                        : candidate.shadowedBy
+                          ? ` · shadowed by ${candidate.shadowedBy}`
+                          : ''}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          {resolutions.map(({ action, analysis }) => (
+            <div className="rounded border p-2" key={`resolution:${action.verbId}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">
+                  Resolve {labelById(project, 'verbs', action.verbId)}
+                </span>
+                <Badge variant={analysis.ambiguity.length ? 'destructive' : 'outline'}>
+                  {analysis.winner
+                    ? `Winner ${analysis.winner}`
+                    : analysis.ambiguity.length
+                      ? 'Ambiguous'
+                      : analysis.fallback === 'conditional'
+                        ? 'Conditional'
+                        : 'Verb default'}
+                </Badge>
+                {analysis.uncertainty && <Badge variant="secondary">Runtime-dependent</Badge>}
+              </div>
+              <div className="mt-1 space-y-1 text-muted-foreground">
+                {analysis.candidates.map((candidate) => (
+                  <div key={`${candidate.interactionId}:${candidate.ruleId}`}>
+                    <code>
+                      {candidate.interactionId}:{candidate.ruleId}
+                    </code>{' '}
+                    · tier {candidate.tier ?? 'shadowed'} · priority {candidate.priority} · match{' '}
+                    {candidate.match} · Guard {candidate.guard} · {candidate.status}
+                    {candidate.shadowedBy ? ` by ${candidate.shadowedBy}` : ''}
+                  </div>
+                ))}
+                {analysis.ambiguity.length > 0 && (
+                  <div>Equal-ranked conflict: {analysis.ambiguity.join(', ')}</div>
+                )}
+                <div>
+                  Fallback: {analysis.fallback}. An unhandled rule falls through to the Verb
+                  default, then Project undefined-Interaction behavior when configured.
+                </div>
+              </div>
+            </div>
+          ))}
+          {offers.every(
+            (entry) => entry.candidates.length === 0 && !liveOffers.has(entry.verbId),
+          ) &&
+            resolutions.length === 0 && (
+              <div className="text-muted-foreground">No matching Offers or complete commands.</div>
+            )}
+          <div className="text-muted-foreground">
+            Live Offer and primary-status badges come from the native runtime snapshot. Complete
+            command tiers, Guards, ambiguity, and fallback appear once every Verb slot is selected.
+            Lua predicates and facts unavailable to static tooling remain conditional rather than
+            being guessed.
+          </div>
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -1806,6 +1978,7 @@ function RuntimeInspector({
           controlsContext={controlsContext}
           onCommand={onCommand}
         />
+        <ResolverAnalysisPanel snapshot={state.snapshot} project={project} />
         {mode === 'debug' ? (
           <>
             <VariablesPanel

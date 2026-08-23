@@ -18,7 +18,11 @@ import { validateCharacterData } from './authoring-characters';
 import { validateDialogueData } from './authoring-dialogues';
 import { parseInteractableData, validateInteractableData } from './authoring-interactables';
 import { parseItemDefinitionData, parseItemStackData } from './authoring-items';
-import { validateInteractionData, validateInteractionProgram } from './authoring-interactions';
+import {
+  validateInteractionData,
+  validateInteractionProgram,
+  validateInteractionResolverProject,
+} from './authoring-interactions';
 import { validateLayoutData, validateSystemLayoutSettings } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
 import { validateMapData } from './authoring-maps';
@@ -818,6 +822,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
     );
   for (const [id, record] of Object.entries(project.interactions))
     diagnostics.push(...validateInteractionData(project, id, record));
+  diagnostics.push(...validateInteractionResolverProject(project));
   for (const [id, record] of Object.entries(project.dialogues))
     diagnostics.push(...validateDialogueData(project, id, record));
   for (const [id, record] of Object.entries(project.scenes))
