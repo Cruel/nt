@@ -7,6 +7,7 @@ import {
   defaultInteractionData,
   parseInteractionData,
   validateInteractionData,
+  validateInteractionResolverProject,
 } from '../../shared/project-schema/authoring-interactions';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 
@@ -123,6 +124,76 @@ describe('authoring interactions', () => {
 
     expect(diagnostics).toContainEqual(
       expect.objectContaining({ severity: 'warning', path: '/interactions/rules/data/rules/1' }),
+    );
+  });
+
+  it('rejects rules whose subject space cannot satisfy the Verb slot', () => {
+    const project = createAuthoringProject();
+    const verb: ReturnType<typeof defaultVerbData> = oneSlotVerb('Use');
+    verb.slots[0]!.selectors = [{ kind: 'family', family: 'character' }];
+    project.verbs.use = { id: 'use', label: 'Use', data: verb };
+    const data = defaultInteractionData();
+    data.rules.push({
+      id: 'impossible',
+      verb: { $ref: { collection: 'verbs', id: 'use' } },
+      slots: [{ slotId: 'target', selectors: [{ kind: 'family', family: 'interactable' }] }],
+      offer: null,
+      guard: { kind: 'always' },
+      priority: 0,
+      program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
+    });
+
+    const diagnostics = validateInteractionData(project, 'rules', {
+      id: 'rules',
+      label: 'Rules',
+      data,
+    });
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        path: '/interactions/rules/data/rules/0/slots/0/selectors',
+      }),
+    );
+  });
+
+  it('detects unconditional equal-tier conflicts across Interaction records', () => {
+    const project = createAuthoringProject();
+    project.verbs.use = { id: 'use', label: 'Use', data: oneSlotVerb('Use') };
+    const makeRule = (id: string) => ({
+      id,
+      verb: { $ref: { collection: 'verbs' as const, id: 'use' } },
+      slots: [
+        {
+          slotId: 'target',
+          selectors: [{ kind: 'family' as const, family: 'interactable' as const }],
+        },
+      ],
+      offer: null,
+      guard: { kind: 'always' as const },
+      priority: 10,
+      program: {
+        instructions: [],
+        completion: { kind: 'return' as const },
+        outcome: 'handled' as const,
+      },
+    });
+    project.interactions.first = {
+      id: 'first',
+      label: 'First',
+      data: { kind: 'interaction', rules: [makeRule('a')] },
+    };
+    project.interactions.second = {
+      id: 'second',
+      label: 'Second',
+      data: { kind: 'interaction', rules: [makeRule('b')] },
+    };
+
+    expect(validateInteractionResolverProject(project)).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        path: '/interactions/second/data/rules/0',
+      }),
     );
   });
 

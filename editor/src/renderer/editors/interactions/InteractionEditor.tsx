@@ -12,6 +12,10 @@ import {
   type InteractionRule,
 } from '../../../shared/project-schema/authoring-interactions';
 import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
+import {
+  analyzeInteractionRules,
+  type RuleAnalysis,
+} from '../../../shared/interaction-resolver-analysis';
 import { SubjectSelectorEditor, defaultSubjectSelector } from './SubjectSelectorEditor';
 import {
   authoringProjectFromDocument,
@@ -79,6 +83,7 @@ function GuardEditor({
 
 function RuleEditor({
   rule,
+  analysis,
   index,
   count,
   project,
@@ -87,6 +92,7 @@ function RuleEditor({
   onDelete,
 }: {
   rule: InteractionRule;
+  analysis: RuleAnalysis;
   index: number;
   count: number;
   project: AuthoringEditorProject;
@@ -160,6 +166,75 @@ function RuleEditor({
         <Button className="self-end" size="sm" type="button" variant="ghost" onClick={onDelete}>
           Delete
         </Button>
+      </div>
+      <div
+        className="rounded border bg-muted/20 p-2 text-xs"
+        data-workbench-anchor={`interaction.rule.${rule.id}.analysis`}
+      >
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="font-medium">Resolver analysis</span>
+          <Badge variant={analysis.unreachable === 'yes' ? 'destructive' : 'outline'}>
+            {analysis.unreachable === 'yes'
+              ? 'Unreachable'
+              : analysis.unreachable === 'unknown'
+                ? 'Conditionally reachable'
+                : 'Reachable'}
+          </Badge>
+          {analysis.uncertainty && <Badge variant="secondary">Runtime-dependent</Badge>}
+        </div>
+        <div className="grid gap-1 text-muted-foreground md:grid-cols-2">
+          <div>
+            <span className="text-foreground">Match space:</span>{' '}
+            {rule.slots.length
+              ? rule.slots
+                  .map(
+                    (slot) =>
+                      `${slot.slotId} = ${slot.selectors.map((selector) => selector.kind).join(' | ')}`,
+                  )
+                  .join('; ')
+              : 'no subjects'}
+          </div>
+          <div>
+            <span className="text-foreground">Dominates:</span>{' '}
+            {analysis.broader.length ? analysis.broader.join(', ') : 'none'}
+          </div>
+          <div>
+            <span className="text-foreground">Narrower rules:</span>{' '}
+            {analysis.narrower.length ? analysis.narrower.join(', ') : 'none'}
+          </div>
+          <div>
+            <span className="text-foreground">Overlaps:</span>{' '}
+            {analysis.overlaps.length
+              ? analysis.overlaps
+                  .map((item) => `${item.ruleId}${item.certainty === 'unknown' ? ' (?)' : ''}`)
+                  .join(', ')
+              : 'none'}
+          </div>
+          <div>
+            <span className="text-foreground">Priority:</span> {rule.priority}
+          </div>
+          <div>
+            <span className="text-foreground">Guard:</span>{' '}
+            {rule.guard.kind === 'always' ? 'always passes' : 'evaluated at runtime'}
+          </div>
+        </div>
+        {analysis.conflicts.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {analysis.conflicts.map((conflict) => (
+              <div
+                key={conflict.ruleId}
+                className={
+                  conflict.certainty === 'yes'
+                    ? 'text-destructive'
+                    : 'text-amber-700 dark:text-amber-400'
+                }
+              >
+                {conflict.certainty === 'yes' ? 'Conflict' : 'Possible ambiguity'} with{' '}
+                <code>{conflict.ruleId}</code>: {conflict.reason}.
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       <div className="space-y-3">
         <Label>Named slot selectors</Label>
@@ -323,10 +398,12 @@ function RuleEditor({
 }
 
 function InteractionForm({
+  interactionId,
   data,
   project,
   onChange,
 }: {
+  interactionId: string;
   data: InteractionData;
   project: AuthoringEditorProject;
   onChange: (next: InteractionData) => void;
@@ -353,6 +430,13 @@ function InteractionForm({
       ],
     });
   };
+  const otherRules = Object.entries(project.interactions).flatMap(([id, record]) =>
+    id === interactionId ? [] : (parseInteractionData(record.data)?.rules ?? []),
+  );
+  const analyses = analyzeInteractionRules(project, [...data.rules, ...otherRules]).slice(
+    0,
+    data.rules.length,
+  );
   const update = (index: number, rule: InteractionRule) =>
     onChange({
       ...data,
@@ -373,6 +457,7 @@ function InteractionForm({
         <RuleEditor
           key={rule.id}
           rule={rule}
+          analysis={analyses[index]!}
           index={index}
           count={data.rules.length}
           project={project}
@@ -413,7 +498,7 @@ export function InteractionEditor({ tab }: WorkbenchEditorProps) {
         <h2 className="text-lg font-semibold">{record.label}</h2>
         <Badge variant="outline">{id}</Badge>
       </div>
-      <InteractionForm data={data} project={project} onChange={commit} />
+      <InteractionForm interactionId={id} data={data} project={project} onChange={commit} />
     </div>
   );
 }
