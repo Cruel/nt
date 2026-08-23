@@ -1,0 +1,88 @@
+body {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    margin: 0;
+    font-family: Liberation Sans;
+    color: #f7f4ed;
+    background-color: transparent;
+    pointer-events: none;
+}
+
+#command_builder_root {
+    position: absolute;
+    left: 276px;
+    bottom: 24px;
+    width: 250px;
+    max-height: 430px;
+    padding: 12px;
+    overflow-y: auto;
+    background-color: #101820e8;
+    border: 1px #728695cc;
+    pointer-events: auto;
+}
+
+.command-builder-heading {
+    margin: 0 0 7px 0;
+    color: #b8c8d3;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+#command_builder_label {
+    margin: 0 0 6px 0;
+    font-size: 17px;
+}
+
+#command_builder_progress,
+#command_builder_hint,
+.command-builder-warning {
+    margin: 5px 0;
+    font-size: 12px;
+    line-height: 1.25;
+}
+
+.command-builder-warning {
+    padding: 6px;
+    color: #ffe5bd;
+    background-color: #5b351ddd;
+    border: 1px #a36d3fcc;
+}
+
+button.command-builder-action,
+button.command-builder-clear,
+button.command-builder-rebind,
+#command_builder_submit,
+#command_builder_cancel {
+    display: block;
+    width: 100%;
+    margin-top: 6px;
+    padding: 8px 10px;
+    color: #f7f4ed;
+    background-color: #263640;
+    border: 1px #6f8999;
+    text-align: left;
+    pointer-events: auto;
+}
+
+button.command-builder-action:hover,
+button.command-builder-clear:hover,
+button.command-builder-rebind:hover,
+#command_builder_submit:hover,
+#command_builder_cancel:hover {
+    background-color: #354d5b;
+}
+
+button.command-builder-clear,
+#command_builder_cancel {
+    color: #101820;
+    background-color: #d7c98e;
+    border-color: #f4e7ac;
+}
+
+button.disabled {
+    color: #82898e;
+    background-color: #24282b;
+    border-color: #4c555b;
+}

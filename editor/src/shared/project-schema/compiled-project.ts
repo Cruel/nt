@@ -1013,6 +1013,7 @@ const runtimeSettingsSchema = strict({
         'text-log',
         'modal',
         'debug-overlay',
+        'command-builder',
       ]),
     }),
   ),

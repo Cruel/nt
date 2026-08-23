@@ -55,7 +55,14 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
                    std::is_same_v<T, core::SelectSceneChoiceInput> ||
                    std::is_same_v<T, core::SelectDialogueChoiceInput> ||
                    std::is_same_v<T, core::NavigateRoomInput> ||
+                   std::is_same_v<T, core::PrimaryActivateInput> ||
+                   std::is_same_v<T, core::OpenVerbMenuInput> ||
                    std::is_same_v<T, core::InvokeInteractionInput> ||
+                   std::is_same_v<T, core::BeginCommandBuilderInput> ||
+                   std::is_same_v<T, core::CommandBuilderSubjectPressInput> ||
+                   std::is_same_v<T, core::UpdateCommandBuilderWatchInput> ||
+                   std::is_same_v<T, core::SubmitCommandBuilderInput> ||
+                   std::is_same_v<T, core::CancelCommandBuilderInput> ||
                    std::is_same_v<T, core::LayoutSignalInput> ||
                    std::is_same_v<T, core::CommitLayoutStateInput> ||
                    std::is_same_v<T, core::ClearLayoutStateInput>;
@@ -438,6 +445,27 @@ RuntimeSession::accept_audio(const core::AudioOperation& operation)
 core::Diagnostic RuntimeSession::diagnostic(std::string code, std::string message) const
 {
     return core::Diagnostic{.code = std::move(code), .message = std::move(message)};
+}
+
+core::Diagnostics
+RuntimeSession::capture_command_builder_subject(const core::compiled::InteractionSubject& subject)
+{
+    auto reference = m_kernel->command_builder_reference(subject, m_runtime_locale);
+    if (!reference)
+        return as_diagnostics(std::move(reference).error());
+    const auto& state = *reference.value_if();
+    if (!state.live || !state.available || !state.enabled || !state.visible) {
+        return {diagnostic("runtime.command_builder_subject_unavailable",
+                           "Command Builder subject press is not currently available")};
+    }
+    m_command_builder->captured_subject = subject;
+    if (std::find(m_command_builder->captured_subjects.begin(),
+                  m_command_builder->captured_subjects.end(),
+                  subject) == m_command_builder->captured_subjects.end())
+        m_command_builder->captured_subjects.push_back(subject);
+    ++m_command_builder->capture_revision;
+    m_transaction_impacts.record(runtime::MutationImpact::GameplayUiInvalidated);
+    return {};
 }
 
 void RuntimeSession::invalidate_kernel(ScriptCancellationReason reason) noexcept
@@ -1020,6 +1048,33 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
             (active_blocker<core::InputFlowBlocker>(*m_kernel) != nullptr && !has_choice) ||
             room_description_pending;
     }
+
+    if (m_command_builder) {
+        const bool owner_alive = gameplay_ui.mode == "room" && gameplay_ui.room &&
+                                 m_command_builder->room &&
+                                 gameplay_ui.room->room == *m_command_builder->room &&
+                                 m_kernel->state().flow_stack().empty();
+        if (!owner_alive) {
+            m_command_builder.reset();
+            m_transaction_impacts.record(runtime::MutationImpact::GameplayUiInvalidated);
+        }
+    }
+    if (m_command_builder) {
+        gameplay_ui.command_builder.active = true;
+        gameplay_ui.command_builder.occurrence = m_command_builder->occurrence;
+        gameplay_ui.command_builder.capture_revision = m_command_builder->capture_revision;
+        gameplay_ui.command_builder.captured_subject = m_command_builder->captured_subject;
+        for (const auto& subject : m_command_builder->watched_subjects) {
+            auto watched = m_kernel->command_builder_reference(subject, m_runtime_locale);
+            if (!watched) {
+                core::append_diagnostics(result.diagnostics,
+                                         as_diagnostics(std::move(watched).error()));
+                result.disposition = runtime::RuntimeInputDisposition::Failed;
+                return;
+            }
+            gameplay_ui.command_builder.watched.push_back(std::move(*watched.value_if()));
+        }
+    }
     m_script_view = gameplay_ui;
 
     const auto* room_resolution = m_kernel->room_presentation();
@@ -1323,6 +1378,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::StopRuntimeInput>) {
                     m_running = false;
+                    m_command_builder.reset();
                     if (const auto* blocker = active_blocker<core::ScriptFlowBlocker>(*m_kernel)) {
                         m_scripts.cancel(blocker->handle,
                                          runtime::ScriptCancellationReason::RuntimeStop);
@@ -1337,6 +1393,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     m_pending_presentation.reset();
                     m_pending_audio.reset();
                 } else if constexpr (std::is_same_v<T, core::ResetRuntimeInput>) {
+                    m_command_builder.reset();
                     m_session_replacement_request = core::RuntimeInputMessage{value};
                 } else if constexpr (std::is_same_v<T, core::AdvanceTimeInput>) {
                     const auto elapsed =
@@ -1418,51 +1475,61 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             runtime::MutationImpact::GameplayUiInvalidated);
                     }
                 } else if constexpr (std::is_same_v<T, core::OpenVerbMenuInput>) {
-                    auto offers = m_kernel->verb_offers(value.subject, m_runtime_locale);
-                    if (!offers) {
-                        result.diagnostics = as_diagnostics(std::move(offers).error());
+                    if (m_command_builder) {
+                        result.diagnostics = capture_command_builder_subject(value.subject);
                     } else {
-                        m_selection = {value.subject};
-                        m_verb_menu_open = true;
-                        m_transaction_impacts.record(
-                            runtime::MutationImpact::GameplayUiInvalidated);
+                        auto offers = m_kernel->verb_offers(value.subject, m_runtime_locale);
+                        if (!offers) {
+                            result.diagnostics = as_diagnostics(std::move(offers).error());
+                        } else {
+                            m_selection = {value.subject};
+                            m_verb_menu_open = true;
+                            m_transaction_impacts.record(
+                                runtime::MutationImpact::GameplayUiInvalidated);
+                        }
                     }
                 } else if constexpr (std::is_same_v<T, core::PrimaryActivateInput>) {
-                    auto offers = m_kernel->verb_offers(value.subject, m_runtime_locale);
-                    if (!offers) {
-                        result.diagnostics = as_diagnostics(std::move(offers).error());
+                    if (m_command_builder) {
+                        result.diagnostics = capture_command_builder_subject(value.subject);
                     } else {
-                        m_selection = {value.subject};
-                        const auto& values = *offers.value_if();
-                        std::vector<const core::VerbOfferView*> primary;
-                        for (const auto& offer : values)
-                            if (offer.primary)
-                                primary.push_back(&offer);
-                        if (primary.size() == 1 && primary.front()->binding_order.size() == 1 &&
-                            primary.front()->slot == primary.front()->binding_order.front()) {
-                            auto invoked = m_kernel->interact(
-                                primary.front()->verb,
-                                {{primary.front()->slot, value.subject}});
-                            if (!invoked)
-                                result.diagnostics = as_diagnostics(std::move(invoked).error());
-                            else {
-                                m_verb_menu_open = false;
-                                result.diagnostics = run_kernel(result.events, result.observations);
-                            }
+                        auto offers = m_kernel->verb_offers(value.subject, m_runtime_locale);
+                        if (!offers) {
+                            result.diagnostics = as_diagnostics(std::move(offers).error());
                         } else {
-                            m_verb_menu_open = true;
-                            if (primary.size() > 1) {
-                                std::vector<core::VerbId> primary_verbs;
-                                primary_verbs.reserve(primary.size());
-                                for (const auto* offer : primary)
-                                    primary_verbs.push_back(offer->verb);
-                                result.events.emplace_back(runtime::ObservationEvent{
-                                    core::RuntimeObservation{core::VerbOfferAmbiguityObservation{
-                                        value.subject, std::move(primary_verbs)}}});
+                            m_selection = {value.subject};
+                            const auto& values = *offers.value_if();
+                            std::vector<const core::VerbOfferView*> primary;
+                            for (const auto& offer : values)
+                                if (offer.primary)
+                                    primary.push_back(&offer);
+                            if (primary.size() == 1 && primary.front()->binding_order.size() == 1 &&
+                                primary.front()->slot == primary.front()->binding_order.front()) {
+                                auto invoked =
+                                    m_kernel->interact(primary.front()->verb,
+                                                       {{primary.front()->slot, value.subject}});
+                                if (!invoked)
+                                    result.diagnostics = as_diagnostics(std::move(invoked).error());
+                                else {
+                                    m_verb_menu_open = false;
+                                    result.diagnostics =
+                                        run_kernel(result.events, result.observations);
+                                }
+                            } else {
+                                m_verb_menu_open = true;
+                                if (primary.size() > 1) {
+                                    std::vector<core::VerbId> primary_verbs;
+                                    primary_verbs.reserve(primary.size());
+                                    for (const auto* offer : primary)
+                                        primary_verbs.push_back(offer->verb);
+                                    result.events.emplace_back(
+                                        runtime::ObservationEvent{core::RuntimeObservation{
+                                            core::VerbOfferAmbiguityObservation{
+                                                value.subject, std::move(primary_verbs)}}});
+                                }
                             }
+                            m_transaction_impacts.record(
+                                runtime::MutationImpact::GameplayUiInvalidated);
                         }
-                        m_transaction_impacts.record(
-                            runtime::MutationImpact::GameplayUiInvalidated);
                     }
                 } else if constexpr (std::is_same_v<T, core::InvokeInteractionInput>) {
                     auto bindings = value.bindings;
@@ -1478,7 +1545,152 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         result.diagnostics = as_diagnostics(std::move(invoked).error());
                     else {
                         m_verb_menu_open = false;
+                        if (m_command_builder) {
+                            m_command_builder.reset();
+                            m_transaction_impacts.record(
+                                runtime::MutationImpact::GameplayUiInvalidated);
+                        }
                         result.diagnostics = run_kernel(result.events, result.observations);
+                    }
+                } else if constexpr (std::is_same_v<T, core::BeginCommandBuilderInput>) {
+                    const auto* room = std::get_if<core::RoomMode>(&m_kernel->state().mode());
+                    if (room == nullptr || !m_kernel->state().flow_stack().empty()) {
+                        result.diagnostics = {
+                            diagnostic("runtime.command_builder_unavailable",
+                                       "Command Builder requires settled Room exploration")};
+                    } else if (m_next_command_builder_occurrence ==
+                               std::numeric_limits<std::uint64_t>::max()) {
+                        result.diagnostics = {
+                            diagnostic("runtime.command_builder_occurrence_exhausted",
+                                       "Command Builder occurrence identity space is exhausted")};
+                    } else {
+                        std::vector<core::compiled::InteractionSubject> initial_subjects;
+                        initial_subjects.reserve(value.watched_subjects.size());
+                        bool authorized = true;
+                        for (const auto& subject : value.watched_subjects) {
+                            if (std::find(m_selection.begin(), m_selection.end(), subject) ==
+                                m_selection.end()) {
+                                authorized = false;
+                                break;
+                            }
+                            auto reference =
+                                m_kernel->command_builder_reference(subject, m_runtime_locale);
+                            if (!reference) {
+                                result.diagnostics = as_diagnostics(std::move(reference).error());
+                                authorized = false;
+                                break;
+                            }
+                            const auto& state = *reference.value_if();
+                            if (!state.live || !state.available || !state.enabled ||
+                                !state.visible) {
+                                result.diagnostics = {diagnostic(
+                                    "runtime.command_builder_subject_unavailable",
+                                    "Command Builder starting subject is not currently available")};
+                                authorized = false;
+                                break;
+                            }
+                            if (std::find(initial_subjects.begin(), initial_subjects.end(),
+                                          subject) == initial_subjects.end())
+                                initial_subjects.push_back(subject);
+                        }
+                        if (!authorized) {
+                            if (result.diagnostics.empty())
+                                result.diagnostics = {
+                                    diagnostic("runtime.command_builder_unauthorized_subject",
+                                               "Command Builder may begin only with "
+                                               "runtime-selected subjects")};
+                        } else {
+                            m_command_builder = CommandBuilderState{
+                                .occurrence = core::CommandBuilderOccurrenceId::from_number(
+                                    m_next_command_builder_occurrence++),
+                                .capture_revision = 0,
+                                .captured_subject = std::nullopt,
+                                .captured_subjects = initial_subjects,
+                                .watched_subjects = std::move(initial_subjects),
+                                .room = room->room};
+                            m_selection.clear();
+                            m_verb_menu_open = false;
+                            m_transaction_impacts.record(
+                                runtime::MutationImpact::GameplayUiInvalidated);
+                        }
+                    }
+                } else if constexpr (std::is_same_v<T, core::CommandBuilderSubjectPressInput>) {
+                    if (!m_command_builder || m_command_builder->occurrence != value.occurrence) {
+                        result.diagnostics = {
+                            diagnostic("runtime.stale_command_builder_occurrence",
+                                       "Command Builder subject press targets a stale occurrence")};
+                    } else {
+                        result.diagnostics = capture_command_builder_subject(value.subject);
+                    }
+                } else if constexpr (std::is_same_v<T, core::UpdateCommandBuilderWatchInput>) {
+                    if (!m_command_builder || m_command_builder->occurrence != value.occurrence) {
+                        result.diagnostics = {
+                            diagnostic("runtime.stale_command_builder_occurrence",
+                                       "Command Builder watch update targets a stale occurrence")};
+                    } else {
+                        const bool authorized = std::all_of(
+                            value.watched_subjects.begin(), value.watched_subjects.end(),
+                            [&](const auto& subject) {
+                                return std::find(m_command_builder->captured_subjects.begin(),
+                                                 m_command_builder->captured_subjects.end(),
+                                                 subject) !=
+                                       m_command_builder->captured_subjects.end();
+                            });
+                        if (!authorized) {
+                            result.diagnostics = {diagnostic(
+                                "runtime.command_builder_unauthorized_subject",
+                                "Command Builder may watch only runtime-captured subjects")};
+                        } else {
+                            m_command_builder->watched_subjects.clear();
+                            for (const auto& subject : value.watched_subjects) {
+                                if (std::find(m_command_builder->watched_subjects.begin(),
+                                              m_command_builder->watched_subjects.end(),
+                                              subject) == m_command_builder->watched_subjects.end())
+                                    m_command_builder->watched_subjects.push_back(subject);
+                            }
+                            m_transaction_impacts.record(
+                                runtime::MutationImpact::GameplayUiInvalidated);
+                        }
+                    }
+                } else if constexpr (std::is_same_v<T, core::SubmitCommandBuilderInput>) {
+                    if (!m_command_builder || m_command_builder->occurrence != value.occurrence) {
+                        result.diagnostics = {
+                            diagnostic("runtime.stale_command_builder_occurrence",
+                                       "Command Builder submission targets a stale occurrence")};
+                    } else {
+                        const bool authorized = std::all_of(
+                            value.bindings.begin(), value.bindings.end(), [&](const auto& binding) {
+                                return std::find(m_command_builder->captured_subjects.begin(),
+                                                 m_command_builder->captured_subjects.end(),
+                                                 binding.subject) !=
+                                       m_command_builder->captured_subjects.end();
+                            });
+                        if (!authorized) {
+                            result.diagnostics = {
+                                diagnostic("runtime.command_builder_unauthorized_subject",
+                                           "Command Builder submission contains a subject that "
+                                           "runtime did not capture")};
+                        } else {
+                            auto invoked = m_kernel->interact(value.verb, value.bindings);
+                            if (!invoked)
+                                result.diagnostics = as_diagnostics(std::move(invoked).error());
+                            else {
+                                m_command_builder.reset();
+                                result.diagnostics = run_kernel(result.events, result.observations);
+                                m_transaction_impacts.record(
+                                    runtime::MutationImpact::GameplayUiInvalidated);
+                            }
+                        }
+                    }
+                } else if constexpr (std::is_same_v<T, core::CancelCommandBuilderInput>) {
+                    if (!m_command_builder || m_command_builder->occurrence != value.occurrence) {
+                        result.diagnostics = {
+                            diagnostic("runtime.stale_command_builder_occurrence",
+                                       "Command Builder cancellation targets a stale occurrence")};
+                    } else {
+                        m_command_builder.reset();
+                        m_transaction_impacts.record(
+                            runtime::MutationImpact::GameplayUiInvalidated);
                     }
                 } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
                     auto changed =
@@ -1526,6 +1738,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 value.slot, core::SaveOutcomeStatus::Saved, false}});
                     }
                 } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
+                    m_command_builder.reset();
                     m_session_replacement_request = core::RuntimeInputMessage{value};
                 } else if constexpr (std::is_same_v<T, core::BeginPlaybackInput>) {
                     m_playback = true;

@@ -65,7 +65,21 @@ Initial values are `NovelTea`, empty subtitle, and `Start`.
 | `gameplay.room.objects` | array | Visible Room placement occupants in placement then occupant order. |
 | `gameplay.inventory.items` | array | Visible inventory items in source order. |
 | `gameplay.interaction.has_selection` | bool | At least one subject is selected. |
-| `gameplay.interaction.actions` | array | Room controls when a Room exists, otherwise inventory controls. |
+| `gameplay.interaction.selected_subject_kind` | string | Kind of the unique selected subject, otherwise empty. |
+| `gameplay.interaction.selected_subject_id` | string | Stable identity of the unique selected subject, otherwise empty; Feature identity remains owner-qualified. |
+| `gameplay.interaction.actions` | array | Resolved subject-first Verb Offers while the ordinary Verb menu is open. |
+| `gameplay.command_builder.active` | bool | A Command Builder occurrence is active. |
+| `gameplay.command_builder.occurrence` | integer | Current nonzero Builder occurrence token, otherwise zero. |
+| `gameplay.command_builder.capture_revision` | integer | Monotonic subject-capture revision for the active occurrence. |
+| `gameplay.command_builder.captured_subject_kind` | string | Kind of the latest captured subject, otherwise empty. |
+| `gameplay.command_builder.captured_subject_id` | string | Stable identity of the latest captured subject, otherwise empty; Feature identity remains owner-qualified. |
+| `gameplay.command_builder.verb_id` | string | Default adapter Draft Verb ID, otherwise empty. |
+| `gameplay.command_builder.label` | string | Layout-local Draft display label, otherwise empty. |
+| `gameplay.command_builder.binding_order` | array | Stable Verb slot IDs in binding order for the local Draft. |
+| `gameplay.command_builder.bound_slots` | array | Slot IDs currently bound by the local Draft. |
+| `gameplay.command_builder.focused_slot` | string | First currently unbound slot in binding order for the default Draft; empty when complete/inactive. |
+| `gameplay.command_builder.complete` | bool | The local Draft has a binding for every slot. |
+| `gameplay.command_builder.watched` | array | Typed snapshots for exactly the subject references the Builder asked runtime to watch. |
 | `gameplay.text_log.entries` | array | Text Log entries in source order. |
 
 Collection members are exact:
@@ -82,7 +96,10 @@ Collection members are exact:
   placements are preserved.
 - `gameplay.inventory.items[]`: `id`, `display_name`, `enabled`, `selected`. Invisible items are
   omitted.
-- `gameplay.interaction.actions[]`: `verb_id`, `label`, `binding_order`, `quick_action`, `enabled`.
+- `gameplay.interaction.actions[]`: `verb_id`, `slot_id`, `label`, `binding_order`, `rank`, `primary`, `enabled`. `slot_id` is the starting slot bound by the current subject-first Offer.
+- `gameplay.command_builder.watched[]`: `subject_kind`, `subject_id`, `live`, `available`, `enabled`,
+  `visible`, `room_id`, `traits`, `offers`. `traits` and `offers` contain stable IDs; `room_id` is
+  empty when the subject has no effective Room. Feature `subject_id` preserves owner qualification.
 - `gameplay.text_log.entries[]`: `sequence`, `kind` (`line`, `choice`, or `notification`),
   `has_speaker`, `speaker_id`, `text`, `body_rml`. `body_rml` is engine-generated sanitized rich RML
   and is the only model field intended for `data-rml`.
@@ -150,6 +167,9 @@ ui_navigate_room(exit_id)
 ui_toggle_subject(subject_kind, subject_id)
 ui_clear_selection()
 ui_invoke_interaction(verb_id)
+ui_command_builder_submit()
+ui_command_builder_rebind(slot_id)
+ui_command_builder_cancel()
 
 shell_start()
 shell_pause()
@@ -178,8 +198,32 @@ numbers, stale IDs, hidden/disabled targets, disallowed Layout contexts, and mal
 not dispatch typed commands.
 
 Each callback is a thin adapter over the same `RuntimeUiActionGateway` path used by the equivalent
-`Game.ui.*` or `Game.shell.*` Lua helper. The Lua APIs remain available; the model callbacks are not
-a second validation implementation.
+`Game.ui.*` or `Game.shell.*` Lua helper. `Game.ui.submit_command_builder()`,
+`Game.ui.rebind_command_builder(slot_id)`, and `Game.ui.cancel_command_builder()` use the same
+occurrence-bound path. Replacement Command Builder Layouts additionally use the Lua-only generic
+transport `Game.ui.begin_command_builder(subjects?)`, `Game.ui.set_command_builder_watch(subjects)`,
+and `Game.ui.submit_command_builder(verb_id, bindings)`. The Lua APIs remain available; the model
+callbacks are not a second validation implementation.
+
+The built-in Command Builder Draft is intentionally adapter-local transient state. Runtime publication
+contains only the occurrence, capture revision, latest captured subject, and watched-reference
+snapshots; save state and recorded gameplay do not serialize the partial Draft. Replacement Layouts
+retain their own presentation/editing state. They can derive the subject-first starting subject and
+Offer slot from `gameplay.interaction.selected_subject_kind`, `selected_subject_id`, and
+`actions[].slot_id`, then use the generic `Game.ui` Builder transport to begin an occurrence, replace
+its exact watched-reference set, and submit complete named bindings. Builder subject tables mirror
+the projection as `{ kind = "...", id = "..." }`: Character/Interactable/Item Stack use their stable
+ID, while Feature uses the projected owner-qualified `room:<owner>#<feature>` or
+`interactable:<owner>#<feature>` ID. Binding rows are `{ slotId = "...", subject = <subject> }`.
+
+A one-slot Offer can be submitted directly with its starting subject. The built-in adapter begins a
+multi-slot Builder occurrence and progressively binds subsequent world/inventory subject activations,
+updating only the exact bound subjects it currently watches. Its Draft can remove a bound slot with
+`ui_command_builder_rebind(slot_id)`, which makes that slot eligible for the next captured subject and
+immediately shrinks the runtime watch set. Runtime accepts watch and submission subjects only after
+semantic capture for the active occurrence. Final submit carries the active occurrence and the
+complete named bindings; runtime revalidates source authority and the entire command before Flow
+starts.
 
 Map navigation is owned by the `nt-map-view` semantic component path rather than the ordinary data
 model callbacks. `Game.ui.navigate_map_connection(map_id, connection_id)` and
@@ -207,8 +251,8 @@ There is no `nt-text-log` current contract. Text Log is ordinary data-driven RML
 
 ## Built-in Use
 
-All built-in Title, Game HUD, Pause, Settings, Save, Load, Text Log, and Modal documents opt into
-`noveltea`. The built-ins intentionally render only their current product surfaces; model availability
+All built-in Title, Game HUD, Command Builder, Pause, Settings, Save, Load, Text Log, and Modal
+documents opt into `noveltea`. The built-ins intentionally render only their current product surfaces; model availability
 does not imply every field should be displayed. In particular, the current Game HUD does not add a
 runtime-mode label, standalone Continue button, actor metadata list, Text Log, or Map merely because
 those values/capabilities exist.

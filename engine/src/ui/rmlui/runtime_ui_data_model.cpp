@@ -305,6 +305,37 @@ bool id_matches_selected(const std::vector<core::compiled::InteractionSubject>& 
     return std::find(selected.begin(), selected.end(), subject) != selected.end();
 }
 
+std::pair<std::string, std::string>
+subject_identity(const core::compiled::InteractionSubject& value)
+{
+    return std::visit(
+        [](const auto& subject) -> std::pair<std::string, std::string> {
+            using Subject = std::decay_t<decltype(subject)>;
+            if constexpr (std::is_same_v<Subject, core::compiled::CharacterInteractionSubject>)
+                return {"character", subject.character.text()};
+            else if constexpr (std::is_same_v<Subject,
+                                              core::compiled::InteractableInteractionSubject>)
+                return {"interactable", subject.interactable.text()};
+            else if constexpr (std::is_same_v<Subject, core::compiled::ItemStackInteractionSubject>)
+                return {"item-stack", subject.item_stack.text()};
+            else
+                return {"feature",
+                        std::visit(
+                            [](const auto& feature) {
+                                using Feature = std::decay_t<decltype(feature)>;
+                                if constexpr (std::is_same_v<Feature, core::RoomFeatureRef>)
+                                    return std::string("room:") + feature.room.text() + "#" +
+                                           feature.feature_id.text();
+                                else
+                                    return std::string("interactable:") +
+                                           feature.interactable.text() + "#" +
+                                           feature.feature_id.text();
+                            },
+                            subject.feature)};
+        },
+        value);
+}
+
 template<class T> T event_arg(const Rml::VariantList& arguments, std::size_t index, T fallback = {})
 {
     return index < arguments.size() ? arguments[index].Get<T>() : std::move(fallback);
@@ -404,12 +435,14 @@ struct InventoryItemProjection {
 
 struct ActionProjection {
     std::string verb_id;
+    std::string slot_id;
     std::string label;
     std::vector<std::string> binding_order;
     std::int64_t rank = 0;
     bool primary = false;
     bool enabled = false;
     std::string get_verb_id() { return verb_id; }
+    std::string get_slot_id() { return slot_id; }
     std::string get_label() { return label; }
     std::vector<std::string>& get_binding_order() { return binding_order; }
     std::int64_t get_rank() { return rank; }
@@ -450,11 +483,63 @@ struct InventoryProjection {
 
 struct InteractionProjection {
     bool has_selection = false;
+    std::string selected_subject_kind;
+    std::string selected_subject_id;
     bool verb_menu_open = false;
     std::vector<ActionProjection> actions;
     bool get_has_selection() { return has_selection; }
+    std::string get_selected_subject_kind() { return selected_subject_kind; }
+    std::string get_selected_subject_id() { return selected_subject_id; }
     bool get_verb_menu_open() { return verb_menu_open; }
     std::vector<ActionProjection>& get_actions() { return actions; }
+};
+
+struct CommandBuilderWatchedProjection {
+    std::string subject_kind;
+    std::string subject_id;
+    bool live = false;
+    bool available = false;
+    bool enabled = false;
+    bool visible = false;
+    std::string room_id;
+    std::vector<std::string> traits;
+    std::vector<std::string> offers;
+    std::string get_subject_kind() { return subject_kind; }
+    std::string get_subject_id() { return subject_id; }
+    bool get_live() { return live; }
+    bool get_available() { return available; }
+    bool get_enabled() { return enabled; }
+    bool get_visible() { return visible; }
+    std::string get_room_id() { return room_id; }
+    std::vector<std::string>& get_traits() { return traits; }
+    std::vector<std::string>& get_offers() { return offers; }
+};
+
+struct CommandBuilderProjection {
+    bool active = false;
+    std::uint64_t occurrence = 0;
+    std::uint64_t capture_revision = 0;
+    std::string captured_subject_kind;
+    std::string captured_subject_id;
+    std::string verb_id;
+    std::string label;
+    std::vector<std::string> binding_order;
+    std::vector<std::string> bound_slots;
+    std::string focused_slot;
+    bool complete = false;
+    std::vector<CommandBuilderWatchedProjection> watched;
+    bool get_active() { return active; }
+    std::uint64_t get_occurrence() { return occurrence; }
+    std::uint64_t get_capture_revision() { return capture_revision; }
+    std::string get_captured_subject_kind() { return captured_subject_kind; }
+    std::string get_captured_subject_id() { return captured_subject_id; }
+    std::string get_verb_id() { return verb_id; }
+    std::string get_label() { return label; }
+    std::vector<std::string>& get_binding_order() { return binding_order; }
+    std::vector<std::string>& get_bound_slots() { return bound_slots; }
+    std::string get_focused_slot() { return focused_slot; }
+    bool get_complete() { return complete; }
+    std::vector<CommandBuilderWatchedProjection>& get_watched() { return watched; }
 };
 
 struct TextLogProjection {
@@ -474,6 +559,7 @@ struct GameplayProjection {
     RoomProjection room;
     InventoryProjection inventory;
     InteractionProjection interaction;
+    CommandBuilderProjection command_builder;
     TextLogProjection text_log;
     bool get_available() { return available; }
     std::string get_mode() { return mode; }
@@ -486,6 +572,7 @@ struct GameplayProjection {
     RoomProjection& get_room() { return room; }
     InventoryProjection& get_inventory() { return inventory; }
     InteractionProjection& get_interaction() { return interaction; }
+    CommandBuilderProjection& get_command_builder() { return command_builder; }
     TextLogProjection& get_text_log() { return text_log; }
 };
 
@@ -658,9 +745,10 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(InventoryItemProjection, selected));
         ok &= c.RegisterArray<std::vector<std::string>>();
         ok &= register_struct<ActionProjection>(
-            c, NT_MEMBER(ActionProjection, verb_id), NT_MEMBER(ActionProjection, label),
-            NT_MEMBER(ActionProjection, binding_order), NT_MEMBER(ActionProjection, rank),
-            NT_MEMBER(ActionProjection, primary), NT_MEMBER(ActionProjection, enabled));
+            c, NT_MEMBER(ActionProjection, verb_id), NT_MEMBER(ActionProjection, slot_id),
+            NT_MEMBER(ActionProjection, label), NT_MEMBER(ActionProjection, binding_order),
+            NT_MEMBER(ActionProjection, rank), NT_MEMBER(ActionProjection, primary),
+            NT_MEMBER(ActionProjection, enabled));
         ok &= register_struct<TextLogEntryProjection>(
             c, NT_MEMBER(TextLogEntryProjection, sequence), NT_MEMBER(TextLogEntryProjection, kind),
             NT_MEMBER(TextLogEntryProjection, has_speaker),
@@ -679,7 +767,34 @@ struct RuntimeUiDataModel::Impl {
         ok &= register_struct<InventoryProjection>(c, NT_MEMBER(InventoryProjection, items));
         ok &= register_struct<InteractionProjection>(
             c, NT_MEMBER(InteractionProjection, has_selection),
-            NT_MEMBER(InteractionProjection, verb_menu_open), NT_MEMBER(InteractionProjection, actions));
+            NT_MEMBER(InteractionProjection, selected_subject_kind),
+            NT_MEMBER(InteractionProjection, selected_subject_id),
+            NT_MEMBER(InteractionProjection, verb_menu_open),
+            NT_MEMBER(InteractionProjection, actions));
+        ok &= register_struct<CommandBuilderWatchedProjection>(
+            c, NT_MEMBER(CommandBuilderWatchedProjection, subject_kind),
+            NT_MEMBER(CommandBuilderWatchedProjection, subject_id),
+            NT_MEMBER(CommandBuilderWatchedProjection, live),
+            NT_MEMBER(CommandBuilderWatchedProjection, available),
+            NT_MEMBER(CommandBuilderWatchedProjection, enabled),
+            NT_MEMBER(CommandBuilderWatchedProjection, visible),
+            NT_MEMBER(CommandBuilderWatchedProjection, room_id),
+            NT_MEMBER(CommandBuilderWatchedProjection, traits),
+            NT_MEMBER(CommandBuilderWatchedProjection, offers));
+        ok &= c.RegisterArray<std::vector<CommandBuilderWatchedProjection>>();
+        ok &= register_struct<CommandBuilderProjection>(
+            c, NT_MEMBER(CommandBuilderProjection, active),
+            NT_MEMBER(CommandBuilderProjection, occurrence),
+            NT_MEMBER(CommandBuilderProjection, capture_revision),
+            NT_MEMBER(CommandBuilderProjection, captured_subject_kind),
+            NT_MEMBER(CommandBuilderProjection, captured_subject_id),
+            NT_MEMBER(CommandBuilderProjection, verb_id),
+            NT_MEMBER(CommandBuilderProjection, label),
+            NT_MEMBER(CommandBuilderProjection, binding_order),
+            NT_MEMBER(CommandBuilderProjection, bound_slots),
+            NT_MEMBER(CommandBuilderProjection, focused_slot),
+            NT_MEMBER(CommandBuilderProjection, complete),
+            NT_MEMBER(CommandBuilderProjection, watched));
         ok &= register_struct<TextLogProjection>(c, NT_MEMBER(TextLogProjection, entries));
         ok &= register_struct<GameplayProjection>(
             c, NT_MEMBER(GameplayProjection, available), NT_MEMBER(GameplayProjection, mode),
@@ -688,7 +803,9 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(GameplayProjection, active_text_available),
             NT_MEMBER(GameplayProjection, choices), NT_MEMBER(GameplayProjection, actors),
             NT_MEMBER(GameplayProjection, room), NT_MEMBER(GameplayProjection, inventory),
-            NT_MEMBER(GameplayProjection, interaction), NT_MEMBER(GameplayProjection, text_log));
+            NT_MEMBER(GameplayProjection, interaction),
+            NT_MEMBER(GameplayProjection, command_builder),
+            NT_MEMBER(GameplayProjection, text_log));
         ok &= register_struct<ProjectProjection>(c, NT_MEMBER(ProjectProjection, title),
                                                  NT_MEMBER(ProjectProjection, subtitle),
                                                  NT_MEMBER(ProjectProjection, start_label));
@@ -767,6 +884,16 @@ struct RuntimeUiDataModel::Impl {
         ok &= c.BindEventCallback("ui_invoke_interaction", callback([this](const auto& args) {
                                       return gateway.action_invoke_interaction(
                                           event_arg<std::string>(args, 0));
+                                  }));
+        ok &= c.BindEventCallback("ui_command_builder_submit", callback([this](const auto&) {
+                                      return gateway.action_submit_command_builder();
+                                  }));
+        ok &= c.BindEventCallback("ui_command_builder_rebind", callback([this](const auto& args) {
+                                      return gateway.action_rebind_command_builder(
+                                          event_arg<std::string>(args, 0));
+                                  }));
+        ok &= c.BindEventCallback("ui_command_builder_cancel", callback([this](const auto&) {
+                                      return gateway.action_cancel_command_builder();
                                   }));
         ok &= c.BindEventCallback("shell_start", callback([this](const auto&) {
                                       return gateway.dispatch_shell_command(
@@ -981,6 +1108,11 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
              id_matches_selected(view.selected_subjects, item.interactable)});
     }
     out.interaction.has_selection = !view.selected_subjects.empty();
+    if (view.selected_subjects.size() == 1) {
+        const auto [kind, id] = subject_identity(view.selected_subjects.front());
+        out.interaction.selected_subject_kind = kind;
+        out.interaction.selected_subject_id = id;
+    }
     out.interaction.verb_menu_open = view.verb_menu_open;
     if (view.verb_menu_open) {
         const auto& controls = view.room ? view.room->controls : view.inventory.controls;
@@ -992,10 +1124,43 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
             binding_order.reserve(offer.binding_order.size());
             for (const auto& slot : offer.binding_order)
                 binding_order.push_back(slot.text());
-            out.interaction.actions.push_back(
-                {offer.verb.text(), offer.label, std::move(binding_order), offer.rank, offer.primary,
-                 control != controls.end() && control->enabled});
+            out.interaction.actions.push_back({offer.verb.text(), offer.slot.text(), offer.label,
+                                               std::move(binding_order), offer.rank, offer.primary,
+                                               control != controls.end() && control->enabled});
         }
+    }
+
+    const auto draft = m_impl->gateway.command_builder_draft();
+    out.command_builder.active = view.command_builder.active;
+    out.command_builder.occurrence =
+        view.command_builder.occurrence ? view.command_builder.occurrence->number() : 0;
+    out.command_builder.capture_revision = view.command_builder.capture_revision;
+    if (view.command_builder.captured_subject) {
+        const auto [kind, id] = subject_identity(*view.command_builder.captured_subject);
+        out.command_builder.captured_subject_kind = kind;
+        out.command_builder.captured_subject_id = id;
+    }
+    out.command_builder.verb_id = draft.verb_id;
+    out.command_builder.label = draft.label;
+    out.command_builder.binding_order = draft.binding_order;
+    out.command_builder.bound_slots = draft.bound_slots;
+    out.command_builder.focused_slot = draft.focused_slot;
+    out.command_builder.complete = draft.complete;
+    for (const auto& watched : view.command_builder.watched) {
+        CommandBuilderWatchedProjection projected;
+        const auto [kind, id] = subject_identity(watched.subject);
+        projected.subject_kind = kind;
+        projected.subject_id = id;
+        projected.live = watched.live;
+        projected.available = watched.available;
+        projected.enabled = watched.enabled;
+        projected.visible = watched.visible;
+        projected.room_id = watched.effective_room ? watched.effective_room->text() : std::string{};
+        for (const auto& trait : watched.traits)
+            projected.traits.push_back(trait.text());
+        for (const auto& offer : watched.offers)
+            projected.offers.push_back(offer.verb.text());
+        out.command_builder.watched.push_back(std::move(projected));
     }
     for (std::size_t i = 0; i < view.text_log.entries.size(); ++i) {
         const auto& entry = view.text_log.entries[i];

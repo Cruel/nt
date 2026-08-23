@@ -28,6 +28,7 @@ Project settings can replace the engine UI Layout assigned to each system role t
 ```text
 title
 game-hud
+command-builder
 pause-menu
 save-menu
 load-menu
@@ -37,7 +38,7 @@ modal
 debug-overlay
 ```
 
-Leaving `title`, `game-hud`, `pause-menu`, `save-menu`, `load-menu`, `settings-menu`, `text-log`, or `modal` unassigned uses the engine's built-in fallback. `debug-overlay` has no built-in fallback; assign a project Layout if the project needs one.
+Leaving `title`, `game-hud`, `command-builder`, `pause-menu`, `save-menu`, `load-menu`, `settings-menu`, `text-log`, or `modal` unassigned uses the engine's built-in fallback. `debug-overlay` has no built-in fallback; assign a project Layout if the project needs one.
 
 A system Layout override is a behavioral replacement, not just a visual skin. Preserve or deliberately replace the built-in data-model bindings, callbacks, custom elements, focus behavior, and RmlUi Lua needed by that role.
 
@@ -48,6 +49,8 @@ title          -> .noveltea/agent/system-layouts/ui/title/default-title.rml
                    .noveltea/agent/system-layouts/ui/title/default-title.rcss
 game-hud       -> .noveltea/agent/system-layouts/ui/runtime/runtime_game.rml
                    .noveltea/agent/system-layouts/ui/runtime/runtime_game.rcss
+command-builder -> .noveltea/agent/system-layouts/ui/runtime/command-builder.rml
+                   .noveltea/agent/system-layouts/ui/runtime/command-builder.rcss
 pause-menu     -> .noveltea/agent/system-layouts/ui/menu/pause-menu.rml
                    .noveltea/agent/system-layouts/ui/menu/pause-menu.rcss
 save-menu      -> .noveltea/agent/system-layouts/ui/menu/save-menu.rml
@@ -57,7 +60,7 @@ text-log       -> .noveltea/agent/system-layouts/ui/menu/text-log.rml
 modal          -> .noveltea/agent/system-layouts/ui/menu/modal.rml
 ```
 
-The save/load/settings/text-log/modal documents share `.noveltea/agent/system-layouts/ui/menu/system-menu.rcss`. `debug-overlay` has no built-in source because it has no built-in fallback.
+The save/load/settings/text-log/modal documents share `.noveltea/agent/system-layouts/ui/menu/system-menu.rcss`. The Command Builder is gameplay-owned: runtime publishes its active occurrence, latest captured subject, and exact watched-reference snapshots, while the Layout owns transient Draft presentation/editing. Replacement Command Builder Layouts use the unique selected subject and Offer `slot_id` from the `noveltea` model plus the generic `Game.ui.begin_command_builder`, `set_command_builder_watch`, and complete `submit_command_builder` Lua transport; see `RMLUI_DATA_BINDING.md` and `LUA.md`. `debug-overlay` has no built-in source because it has no built-in fallback.
 
 The generated `ui/` tree is copied byte-for-byte from the engine's shipped system UI assets. It is reference material under generated `.noveltea/` state, not project source: never edit it in place.
 

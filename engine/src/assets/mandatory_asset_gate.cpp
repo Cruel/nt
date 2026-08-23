@@ -530,8 +530,11 @@ struct MandatoryAssetGate::Impl {
     {
         StructuredAssetDependencyContext context;
         context.current_presentation = &snapshot;
-        if (snapshot.mode != core::PresentationRuntimeMode::Ended)
+        if (snapshot.mode != core::PresentationRuntimeMode::Ended) {
             context.required_system_layouts.push_back(core::compiled::SystemLayoutRole::GameHud);
+            context.required_system_layouts.push_back(
+                core::compiled::SystemLayoutRole::CommandBuilder);
+        }
         if (package != nullptr && snapshot.current_room) {
             if (const auto* room = package->project().find_room(*snapshot.current_room)) {
                 context.adjacent_alternatives.reserve(room->exits.size());

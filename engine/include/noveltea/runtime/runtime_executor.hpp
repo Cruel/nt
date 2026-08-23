@@ -151,6 +151,9 @@ public:
     inventory_view(std::string_view runtime_locale);
     [[nodiscard]] core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>
     verb_offers(const core::compiled::InteractionSubject& subject, std::string_view runtime_locale);
+    [[nodiscard]] core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>
+    command_builder_reference(const core::compiled::InteractionSubject& subject,
+                              std::string_view runtime_locale);
     [[nodiscard]] core::Result<core::MapView, RuntimeExecutionError>
     map_view(const core::MapId& map, std::string_view runtime_locale);
     [[nodiscard]] core::Result<void, RuntimeExecutionError>

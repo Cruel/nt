@@ -40,8 +40,10 @@ private:
 
 struct PresentationOperationTag;
 struct AudioOperationTag;
+struct CommandBuilderOccurrenceTag;
 using PresentationOperationId = SessionOperationId<PresentationOperationTag>;
 using AudioOperationId = SessionOperationId<AudioOperationTag>;
+using CommandBuilderOccurrenceId = SessionSequence<CommandBuilderOccurrenceTag>;
 using AudioCompletionHandle = std::variant<AudioFlowBlockerHandle, ScriptInvocationHandle>;
 
 } // namespace noveltea::core

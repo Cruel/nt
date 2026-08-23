@@ -24,6 +24,7 @@ enum class RuntimeLayoutBuiltinDocument : std::uint8_t {
     SettingsMenu,
     TextLog,
     Modal,
+    CommandBuilder,
 };
 
 struct RuntimeLayoutProjectSource {

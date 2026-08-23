@@ -3,11 +3,187 @@
 #include <algorithm>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include <sol/sol.hpp>
 
 namespace noveltea::ui::rmlui {
+namespace {
+
+void append_command_builder_lua_error(core::Diagnostics& diagnostics, std::string code,
+                                      std::string message)
+{
+    diagnostics.push_back(core::Diagnostic{.code = std::move(code), .message = std::move(message)});
+}
+
+template<class Id>
+std::optional<Id> command_builder_lua_id(const sol::object& value, core::Diagnostics& diagnostics,
+                                         std::string_view field)
+{
+    if (!value.is<std::string>()) {
+        append_command_builder_lua_error(diagnostics, "runtime_ui.invalid_command_builder_subject",
+                                         "Command Builder subject field '" + std::string(field) +
+                                             "' must be a string");
+        return std::nullopt;
+    }
+    auto parsed = Id::create(value.as<std::string>());
+    if (!parsed) {
+        append_command_builder_lua_error(diagnostics, "runtime_ui.invalid_command_builder_subject",
+                                         "Command Builder subject field '" + std::string(field) +
+                                             "' is invalid");
+        return std::nullopt;
+    }
+    return std::move(*parsed.value_if());
+}
+
+std::optional<core::compiled::InteractionSubject>
+command_builder_lua_subject(const sol::object& value, core::Diagnostics& diagnostics)
+{
+    if (!value.is<sol::table>()) {
+        append_command_builder_lua_error(diagnostics, "runtime_ui.invalid_command_builder_subject",
+                                         "Command Builder subjects must be tables");
+        return std::nullopt;
+    }
+    const auto subject = value.as<sol::table>();
+    const sol::object kind_value = subject["kind"];
+    if (!kind_value.is<std::string>()) {
+        append_command_builder_lua_error(diagnostics, "runtime_ui.invalid_command_builder_subject",
+                                         "Command Builder subjects require a string kind");
+        return std::nullopt;
+    }
+    const auto kind = kind_value.as<std::string>();
+    if (kind == "character") {
+        auto id = command_builder_lua_id<core::CharacterId>(subject["id"], diagnostics, "id");
+        if (!id)
+            return std::nullopt;
+        return core::compiled::CharacterInteractionSubject{std::move(*id)};
+    }
+    if (kind == "interactable") {
+        auto id = command_builder_lua_id<core::InteractableId>(subject["id"], diagnostics, "id");
+        if (!id)
+            return std::nullopt;
+        return core::compiled::InteractableInteractionSubject{std::move(*id)};
+    }
+    if (kind == "item-stack") {
+        auto id = command_builder_lua_id<core::ItemStackId>(subject["id"], diagnostics, "id");
+        if (!id)
+            return std::nullopt;
+        return core::compiled::ItemStackInteractionSubject{std::move(*id)};
+    }
+    if (kind == "feature") {
+        const sol::object id_value = subject["id"];
+        if (!id_value.is<std::string>()) {
+            append_command_builder_lua_error(
+                diagnostics, "runtime_ui.invalid_command_builder_subject",
+                "Command Builder Feature subjects require the owner-qualified projected id");
+            return std::nullopt;
+        }
+        const auto id = id_value.as<std::string>();
+        const auto separator = id.find('#');
+        if (separator == std::string::npos) {
+            append_command_builder_lua_error(
+                diagnostics, "runtime_ui.invalid_command_builder_subject",
+                "Command Builder Feature id must be room:<owner>#<feature> or "
+                "interactable:<owner>#<feature>");
+            return std::nullopt;
+        }
+        auto feature = core::FeatureId::create(id.substr(separator + 1));
+        if (!feature) {
+            append_command_builder_lua_error(
+                diagnostics, "runtime_ui.invalid_command_builder_subject",
+                "Command Builder Feature id has an invalid feature id");
+            return std::nullopt;
+        }
+        constexpr std::string_view room_prefix = "room:";
+        constexpr std::string_view interactable_prefix = "interactable:";
+        if (id.starts_with(room_prefix)) {
+            auto owner =
+                core::RoomId::create(id.substr(room_prefix.size(), separator - room_prefix.size()));
+            if (!owner) {
+                append_command_builder_lua_error(
+                    diagnostics, "runtime_ui.invalid_command_builder_subject",
+                    "Command Builder Feature id has an invalid Room owner");
+                return std::nullopt;
+            }
+            return core::compiled::FeatureInteractionSubject{
+                core::RoomFeatureRef{std::move(*owner.value_if()), std::move(*feature.value_if())}};
+        }
+        if (id.starts_with(interactable_prefix)) {
+            auto owner = core::InteractableId::create(
+                id.substr(interactable_prefix.size(), separator - interactable_prefix.size()));
+            if (!owner) {
+                append_command_builder_lua_error(
+                    diagnostics, "runtime_ui.invalid_command_builder_subject",
+                    "Command Builder Feature id has an invalid Interactable owner");
+                return std::nullopt;
+            }
+            return core::compiled::FeatureInteractionSubject{core::InteractableFeatureRef{
+                std::move(*owner.value_if()), std::move(*feature.value_if())}};
+        }
+        append_command_builder_lua_error(
+            diagnostics, "runtime_ui.invalid_command_builder_subject",
+            "Command Builder Feature id must be room:<owner>#<feature> or "
+            "interactable:<owner>#<feature>");
+        return std::nullopt;
+    }
+    append_command_builder_lua_error(
+        diagnostics, "runtime_ui.invalid_command_builder_subject",
+        "Command Builder subject kind must be character, interactable, feature, or item-stack");
+    return std::nullopt;
+}
+
+std::optional<std::vector<core::compiled::InteractionSubject>>
+command_builder_lua_subjects(const sol::table& values, core::Diagnostics& diagnostics)
+{
+    std::vector<core::compiled::InteractionSubject> subjects;
+    subjects.reserve(values.size());
+    for (std::size_t index = 1; index <= values.size(); ++index) {
+        auto subject = command_builder_lua_subject(values[index], diagnostics);
+        if (!subject)
+            return std::nullopt;
+        subjects.push_back(std::move(*subject));
+    }
+    return subjects;
+}
+
+std::optional<std::vector<core::InteractionSubjectBinding>>
+command_builder_lua_bindings(const sol::table& values, core::Diagnostics& diagnostics)
+{
+    std::vector<core::InteractionSubjectBinding> bindings;
+    bindings.reserve(values.size());
+    for (std::size_t index = 1; index <= values.size(); ++index) {
+        const sol::object value = values[index];
+        if (!value.is<sol::table>()) {
+            append_command_builder_lua_error(diagnostics,
+                                             "runtime_ui.invalid_command_builder_binding",
+                                             "Command Builder bindings must be tables");
+            return std::nullopt;
+        }
+        const auto binding = value.as<sol::table>();
+        const sol::object slot_value = binding["slotId"];
+        if (!slot_value.is<std::string>()) {
+            append_command_builder_lua_error(diagnostics,
+                                             "runtime_ui.invalid_command_builder_binding",
+                                             "Command Builder bindings require a string slotId");
+            return std::nullopt;
+        }
+        auto slot = core::VerbSlotId::create(slot_value.as<std::string>());
+        if (!slot) {
+            append_command_builder_lua_error(diagnostics,
+                                             "runtime_ui.invalid_command_builder_binding",
+                                             "Command Builder binding slotId is invalid");
+            return std::nullopt;
+        }
+        auto subject = command_builder_lua_subject(binding["subject"], diagnostics);
+        if (!subject)
+            return std::nullopt;
+        bindings.push_back({std::move(*slot.value_if()), std::move(*subject)});
+    }
+    return bindings;
+}
+
+} // namespace
 
 RuntimeUiActionGateway::RuntimeUiActionGateway(core::Diagnostics& diagnostics)
     : m_diagnostics(diagnostics)
@@ -55,6 +231,7 @@ bool RuntimeUiActionGateway::apply(const RuntimeUiGameplayValues& values)
         return false;
     }
     commit(values);
+    sync_command_builder_watches();
     return true;
 }
 
@@ -65,10 +242,62 @@ bool RuntimeUiActionGateway::can_apply(const RuntimeUiGameplayValues& values) co
 
 void RuntimeUiActionGateway::commit(RuntimeUiGameplayValues values) noexcept
 {
+    if (m_command_builder_draft) {
+        const auto& builder = values.view.command_builder;
+        if (!builder.active || !builder.occurrence) {
+            m_command_builder_draft.reset();
+            m_command_builder_watch_dirty = false;
+        } else if (!m_command_builder_draft->occurrence) {
+            m_command_builder_draft->occurrence = builder.occurrence;
+        } else if (m_command_builder_draft->occurrence != builder.occurrence) {
+            m_command_builder_draft.reset();
+            m_command_builder_watch_dirty = false;
+        }
+        if (m_command_builder_draft && m_command_builder_draft->occurrence == builder.occurrence &&
+            builder.capture_revision > m_command_builder_draft->last_capture_revision) {
+            m_command_builder_draft->last_capture_revision = builder.capture_revision;
+            if (builder.captured_subject) {
+                const auto next = std::find_if(
+                    m_command_builder_draft->binding_order.begin(),
+                    m_command_builder_draft->binding_order.end(), [&](const auto& slot) {
+                        return std::none_of(
+                            m_command_builder_draft->bindings.begin(),
+                            m_command_builder_draft->bindings.end(),
+                            [&](const auto& binding) { return binding.slot_id == slot; });
+                    });
+                if (next != m_command_builder_draft->binding_order.end()) {
+                    m_command_builder_draft->bindings.push_back({*next, *builder.captured_subject});
+                    m_command_builder_watch_dirty = true;
+                }
+            }
+        }
+    }
     m_values = std::move(values);
 }
 
-void RuntimeUiActionGateway::clear_gameplay_values() { m_values.reset(); }
+void RuntimeUiActionGateway::clear_gameplay_values()
+{
+    m_values.reset();
+    m_command_builder_draft.reset();
+    m_command_builder_watch_dirty = false;
+}
+
+void RuntimeUiActionGateway::sync_command_builder_watches()
+{
+    if (!m_command_builder_watch_dirty || !m_command_builder_draft ||
+        !m_command_builder_draft->occurrence)
+        return;
+    m_command_builder_watch_dirty = false;
+    std::vector<core::compiled::InteractionSubject> watched;
+    watched.reserve(m_command_builder_draft->bindings.size());
+    for (const auto& binding : m_command_builder_draft->bindings) {
+        if (std::find(watched.begin(), watched.end(), binding.subject) == watched.end())
+            watched.push_back(binding.subject);
+    }
+    if (!dispatch_layout_input(core::RuntimeInputMessage{core::UpdateCommandBuilderWatchInput{
+            *m_command_builder_draft->occurrence, std::move(watched)}}))
+        m_command_builder_watch_dirty = true;
+}
 
 void RuntimeUiActionGateway::set_shell_slots(
     const std::vector<core::RuntimeShellSaveSlotView>& slots)
@@ -316,6 +545,8 @@ RuntimeUiActionGateway::resolve_subject(std::string kind, std::string text)
 
 bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string text)
 {
+    if (view() && view()->command_builder.active && view()->command_builder.occurrence)
+        return action_primary_activate(std::move(kind), std::move(text));
     auto subject = resolve_subject(std::move(kind), std::move(text));
     if (!subject)
         return false;
@@ -332,15 +563,25 @@ bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string
 bool RuntimeUiActionGateway::action_primary_activate(std::string kind, std::string text)
 {
     auto subject = resolve_subject(std::move(kind), std::move(text));
-    return subject && dispatch_layout_input(
-                          core::RuntimeInputMessage{core::PrimaryActivateInput{std::move(*subject)}});
+    if (!subject)
+        return false;
+    if (view()->command_builder.active && view()->command_builder.occurrence)
+        return dispatch_layout_input(
+            core::RuntimeInputMessage{core::CommandBuilderSubjectPressInput{
+                *view()->command_builder.occurrence, std::move(*subject)}});
+    return dispatch_layout_input(
+        core::RuntimeInputMessage{core::PrimaryActivateInput{std::move(*subject)}});
 }
 
 bool RuntimeUiActionGateway::action_open_verb_menu(std::string kind, std::string text)
 {
+    if (view() && view()->command_builder.active && view()->command_builder.occurrence)
+        return action_primary_activate(std::move(kind), std::move(text));
     auto subject = resolve_subject(std::move(kind), std::move(text));
-    return subject && dispatch_layout_input(
-                          core::RuntimeInputMessage{core::OpenVerbMenuInput{std::move(*subject)}});
+    if (!subject)
+        return false;
+    return dispatch_layout_input(
+        core::RuntimeInputMessage{core::OpenVerbMenuInput{std::move(*subject)}});
 }
 
 bool RuntimeUiActionGateway::action_clear_selection()
@@ -365,8 +606,139 @@ bool RuntimeUiActionGateway::action_invoke_interaction(std::string text)
     if (found == controls->end() || !found->enabled)
         return invalid("runtime_ui.invalid_interaction",
                        "Interaction verb is stale, unknown, or disabled");
+    const auto offer =
+        std::find_if(view()->verb_offers.begin(), view()->verb_offers.end(),
+                     [&](const auto& value) { return value.verb == *id.value_if(); });
+    if (offer == view()->verb_offers.end() || view()->selected_subjects.size() != 1)
+        return dispatch_layout_input(
+            core::RuntimeInputMessage{core::InvokeInteractionInput{*id.value_if(), {}}});
+
+    const auto subject = view()->selected_subjects.front();
+    if (offer->binding_order.size() == 1 && offer->slot == offer->binding_order.front())
+        return dispatch_layout_input(core::RuntimeInputMessage{
+            core::InvokeInteractionInput{*id.value_if(), {{offer->slot, subject}}}});
+
+    m_command_builder_draft = CommandBuilderDraft{.verb = *id.value_if(),
+                                                  .label = offer->label,
+                                                  .binding_order = offer->binding_order,
+                                                  .bindings = {{offer->slot, subject}},
+                                                  .occurrence = std::nullopt,
+                                                  .last_capture_revision = 0};
+    if (!dispatch_layout_input(
+            core::RuntimeInputMessage{core::BeginCommandBuilderInput{{subject}}})) {
+        m_command_builder_draft.reset();
+        return false;
+    }
+    return true;
+}
+
+bool RuntimeUiActionGateway::action_begin_command_builder(
+    std::vector<core::compiled::InteractionSubject> subjects)
+{
+    if (!require_view())
+        return false;
     return dispatch_layout_input(
-        core::RuntimeInputMessage{core::InvokeInteractionInput{*id.value_if(), {}}});
+        core::RuntimeInputMessage{core::BeginCommandBuilderInput{std::move(subjects)}});
+}
+
+bool RuntimeUiActionGateway::action_set_command_builder_watch(
+    std::vector<core::compiled::InteractionSubject> subjects)
+{
+    if (!require_view() || !view()->command_builder.active || !view()->command_builder.occurrence)
+        return invalid("runtime_ui.command_builder_inactive", "Command Builder is not active");
+    return dispatch_layout_input(core::RuntimeInputMessage{core::UpdateCommandBuilderWatchInput{
+        *view()->command_builder.occurrence, std::move(subjects)}});
+}
+
+bool RuntimeUiActionGateway::action_submit_command_builder()
+{
+    if (!require_view() || !m_command_builder_draft || !m_command_builder_draft->occurrence)
+        return invalid("runtime_ui.command_builder_inactive", "Command Builder is not active");
+    if (m_command_builder_draft->bindings.size() != m_command_builder_draft->binding_order.size())
+        return invalid("runtime_ui.command_builder_incomplete",
+                       "Command Builder Draft is incomplete");
+    return dispatch_layout_input(core::RuntimeInputMessage{core::SubmitCommandBuilderInput{
+        *m_command_builder_draft->occurrence, m_command_builder_draft->verb,
+        m_command_builder_draft->bindings}});
+}
+
+bool RuntimeUiActionGateway::action_submit_command_builder(
+    std::string text, std::vector<core::InteractionSubjectBinding> bindings)
+{
+    if (!require_view() || !view()->command_builder.active || !view()->command_builder.occurrence)
+        return invalid("runtime_ui.command_builder_inactive", "Command Builder is not active");
+    auto verb = core::VerbId::create(std::move(text));
+    if (!verb) {
+        core::append_diagnostics(m_diagnostics, verb.error());
+        return false;
+    }
+    return dispatch_layout_input(core::RuntimeInputMessage{core::SubmitCommandBuilderInput{
+        *view()->command_builder.occurrence, std::move(*verb.value_if()), std::move(bindings)}});
+}
+
+bool RuntimeUiActionGateway::action_rebind_command_builder(std::string text)
+{
+    if (!require_view() || !m_command_builder_draft || !m_command_builder_draft->occurrence)
+        return invalid("runtime_ui.command_builder_inactive", "Command Builder is not active");
+    auto slot = core::VerbSlotId::create(std::move(text));
+    if (!slot) {
+        core::append_diagnostics(m_diagnostics, slot.error());
+        return false;
+    }
+    const auto binding = std::find_if(
+        m_command_builder_draft->bindings.begin(), m_command_builder_draft->bindings.end(),
+        [&](const auto& value) { return value.slot_id == *slot.value_if(); });
+    if (binding == m_command_builder_draft->bindings.end())
+        return invalid("runtime_ui.command_builder_slot_not_bound",
+                       "Command Builder can rebind only a currently bound slot");
+
+    const auto previous_bindings = m_command_builder_draft->bindings;
+    m_command_builder_draft->bindings.erase(binding);
+    m_command_builder_watch_dirty = true;
+    sync_command_builder_watches();
+    if (m_command_builder_watch_dirty) {
+        m_command_builder_draft->bindings = previous_bindings;
+        m_command_builder_watch_dirty = false;
+        return false;
+    }
+    return true;
+}
+
+bool RuntimeUiActionGateway::action_cancel_command_builder()
+{
+    if (!require_view() || !view()->command_builder.active || !view()->command_builder.occurrence)
+        return invalid("runtime_ui.command_builder_inactive", "Command Builder is not active");
+    return dispatch_layout_input(core::RuntimeInputMessage{
+        core::CancelCommandBuilderInput{*view()->command_builder.occurrence}});
+}
+
+RuntimeUiActionGateway::CommandBuilderDraftSnapshot
+RuntimeUiActionGateway::command_builder_draft() const
+{
+    CommandBuilderDraftSnapshot out;
+    if (!m_command_builder_draft)
+        return out;
+    out.active = true;
+    out.verb_id = m_command_builder_draft->verb.text();
+    out.label = m_command_builder_draft->label;
+    out.complete =
+        m_command_builder_draft->bindings.size() == m_command_builder_draft->binding_order.size();
+    out.binding_order.reserve(m_command_builder_draft->binding_order.size());
+    for (const auto& slot : m_command_builder_draft->binding_order)
+        out.binding_order.push_back(slot.text());
+    out.bound_slots.reserve(m_command_builder_draft->bindings.size());
+    for (const auto& binding : m_command_builder_draft->bindings)
+        out.bound_slots.push_back(binding.slot_id.text());
+    const auto focused = std::find_if(
+        m_command_builder_draft->binding_order.begin(),
+        m_command_builder_draft->binding_order.end(), [&](const auto& slot) {
+            return std::none_of(m_command_builder_draft->bindings.begin(),
+                                m_command_builder_draft->bindings.end(),
+                                [&](const auto& binding) { return binding.slot_id == slot; });
+        });
+    if (focused != m_command_builder_draft->binding_order.end())
+        out.focused_slot = focused->text();
+    return out;
 }
 
 bool RuntimeUiActionGateway::action_save_slot(std::uint64_t number)
@@ -510,6 +882,29 @@ void RuntimeUiActionGateway::install_lua_api()
     ui.set_function("invoke_interaction", [this](std::string text) {
         return action_invoke_interaction(std::move(text));
     });
+    ui.set_function(
+        "begin_command_builder",
+        sol::overload([this]() { return action_begin_command_builder({}); },
+                      [this](const sol::table& values) {
+                          auto subjects = command_builder_lua_subjects(values, m_diagnostics);
+                          return subjects && action_begin_command_builder(std::move(*subjects));
+                      }));
+    ui.set_function("set_command_builder_watch", [this](const sol::table& values) {
+        auto subjects = command_builder_lua_subjects(values, m_diagnostics);
+        return subjects && action_set_command_builder_watch(std::move(*subjects));
+    });
+    ui.set_function(
+        "submit_command_builder",
+        sol::overload([this]() { return action_submit_command_builder(); },
+                      [this](std::string verb_id, const sol::table& values) {
+                          auto bindings = command_builder_lua_bindings(values, m_diagnostics);
+                          return bindings && action_submit_command_builder(std::move(verb_id),
+                                                                           std::move(*bindings));
+                      }));
+    ui.set_function("rebind_command_builder", [this](std::string text) {
+        return action_rebind_command_builder(std::move(text));
+    });
+    ui.set_function("cancel_command_builder", [this]() { return action_cancel_command_builder(); });
     game["ui"] = std::move(ui);
 }
 

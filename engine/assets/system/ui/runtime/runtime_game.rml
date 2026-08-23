@@ -14,7 +14,7 @@
         </div>
 
         <div id="rt_interaction_dock"
-             data-if="gameplay.room.objects.size > 0 || gameplay.inventory.items.size > 0 || gameplay.interaction.has_selection || gameplay.interaction.verb_menu_open">
+             data-if="gameplay.room.objects.size > 0 || gameplay.inventory.items.size > 0">
             <div id="rt_objects_group" class="rt-control-group" data-if="gameplay.room.objects.size > 0">
                 <p class="rt-control-heading">Nearby</p>
                 <div id="rt_objects">
@@ -50,22 +50,6 @@
                             data-attrif-disabled="!item.enabled"
                             data-event-click="ui_open_verb_menu('interactable', item.id)">
                         Actions…
-                    </button>
-                </div>
-            </div>
-            <div id="rt_actions_group" class="rt-control-group"
-                 data-if="gameplay.interaction.verb_menu_open">
-                <p class="rt-control-heading">Actions</p>
-                <div id="rt_actions">
-                    <button class="clear-selection"
-                            data-if="gameplay.interaction.has_selection"
-                            data-event-click="ui_clear_selection()">Clear selection</button>
-                    <button data-for="action : gameplay.interaction.actions"
-                            class="action"
-                            data-class-disabled="!action.enabled"
-                            data-attrif-disabled="!action.enabled"
-                            data-event-click="ui_invoke_interaction(action.verb_id)">
-                        {{ action.label }}
                     </button>
                 </div>
             </div>

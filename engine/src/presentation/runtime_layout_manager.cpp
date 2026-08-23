@@ -16,6 +16,7 @@ constexpr const char* kBuiltinLoadMenuLayoutId = "builtin-load-menu";
 constexpr const char* kBuiltinSettingsMenuLayoutId = "builtin-settings-menu";
 constexpr const char* kBuiltinTextLogLayoutId = "builtin-text-log";
 constexpr const char* kBuiltinModalLayoutId = "builtin-modal";
+constexpr const char* kBuiltinCommandBuilderLayoutId = "builtin-command-builder";
 
 core::Diagnostics failure(std::string code, std::string message)
 {
@@ -54,6 +55,8 @@ system_role_for_builtin(RuntimeLayoutBuiltinDocument document) noexcept
         return core::compiled::SystemLayoutRole::TextLog;
     case RuntimeLayoutBuiltinDocument::Modal:
         return core::compiled::SystemLayoutRole::Modal;
+    case RuntimeLayoutBuiltinDocument::CommandBuilder:
+        return core::compiled::SystemLayoutRole::CommandBuilder;
     case RuntimeLayoutBuiltinDocument::None:
         return std::nullopt;
     }
@@ -163,6 +166,19 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request,
                           .gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible,
                           .visibility = core::LayoutVisibility::Visible,
                           .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::CommandBuilder:
+        request.layout_id = kBuiltinCommandBuilderLayoutId;
+        request.owner = core::MountedLayoutOwner::Gameplay;
+        request.policy = {.plane = core::PresentationPlane::GameUi,
+                          .local_order = 20,
+                          .clock = core::LayoutClockDomain::Gameplay,
+                          .input = core::LayoutInputMode::Normal,
+                          .gameplay_pause = core::GameplayPausePolicy::Continue,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
                           .entrance_operation = std::nullopt,
                           .exit_operation = std::nullopt};
         break;

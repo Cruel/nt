@@ -14,6 +14,16 @@ namespace noveltea::ui::rmlui {
 
 class RuntimeUiActionGateway {
 public:
+    struct CommandBuilderDraftSnapshot {
+        bool active = false;
+        std::string verb_id;
+        std::string label;
+        std::vector<std::string> binding_order;
+        std::vector<std::string> bound_slots;
+        std::string focused_slot;
+        bool complete = false;
+    };
+
     explicit RuntimeUiActionGateway(core::Diagnostics& diagnostics);
     ~RuntimeUiActionGateway();
 
@@ -49,6 +59,17 @@ public:
     [[nodiscard]] bool action_open_verb_menu(std::string kind, std::string id);
     [[nodiscard]] bool action_clear_selection();
     [[nodiscard]] bool action_invoke_interaction(std::string id);
+    [[nodiscard]] bool
+    action_begin_command_builder(std::vector<core::compiled::InteractionSubject> subjects);
+    [[nodiscard]] bool
+    action_set_command_builder_watch(std::vector<core::compiled::InteractionSubject> subjects);
+    [[nodiscard]] bool action_submit_command_builder();
+    [[nodiscard]] bool
+    action_submit_command_builder(std::string verb_id,
+                                  std::vector<core::InteractionSubjectBinding> bindings);
+    [[nodiscard]] bool action_rebind_command_builder(std::string slot_id);
+    [[nodiscard]] bool action_cancel_command_builder();
+    [[nodiscard]] CommandBuilderDraftSnapshot command_builder_draft() const;
     [[nodiscard]] bool action_save_slot(std::uint64_t number);
     [[nodiscard]] bool action_load_slot(std::string kind, std::uint64_t number);
 
@@ -56,6 +77,15 @@ public:
     [[nodiscard]] RuntimeUiEventResult finish_event_capture() noexcept;
 
 private:
+    struct CommandBuilderDraft {
+        core::VerbId verb;
+        std::string label;
+        std::vector<core::VerbSlotId> binding_order;
+        std::vector<core::InteractionSubjectBinding> bindings;
+        std::optional<core::CommandBuilderOccurrenceId> occurrence;
+        std::uint64_t last_capture_revision = 0;
+    };
+
     struct ShellSlotState {
         core::TypedSaveSlotId slot;
         bool occupied = false;
@@ -68,12 +98,15 @@ private:
     [[nodiscard]] std::optional<core::compiled::InteractionSubject>
     resolve_subject(std::string kind, std::string id);
     [[nodiscard]] const ShellSlotState* shell_slot(core::TypedSaveSlotId slot) const noexcept;
+    void sync_command_builder_watches();
 
     core::Diagnostics& m_diagnostics;
     lua_State* m_lua_state = nullptr;
     RuntimeUiInputSink* m_input_sink = nullptr;
     std::function<bool()> m_layout_gameplay_admission;
     std::optional<RuntimeUiGameplayValues> m_values;
+    std::optional<CommandBuilderDraft> m_command_builder_draft;
+    bool m_command_builder_watch_dirty = false;
     std::vector<ShellSlotState> m_shell_slots;
     bool m_event_capture_active = false;
     std::vector<core::RuntimeInputMessage> m_captured_runtime_inputs;

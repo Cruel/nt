@@ -161,14 +161,39 @@ gameplay.inventory.items[]:
   selected: bool
 
 gameplay.interaction.has_selection: bool
+gameplay.interaction.selected_subject_kind: string
+gameplay.interaction.selected_subject_id: string
 gameplay.interaction.verb_menu_open: bool
 gameplay.interaction.actions[]:
   verb_id: string
+  slot_id: string
   label: string
   binding_order: string[]
   rank: integer
   primary: bool
   enabled: bool
+
+gameplay.command_builder.active: bool
+gameplay.command_builder.occurrence: integer
+gameplay.command_builder.capture_revision: integer
+gameplay.command_builder.captured_subject_kind: string
+gameplay.command_builder.captured_subject_id: string
+gameplay.command_builder.verb_id: string
+gameplay.command_builder.label: string
+gameplay.command_builder.binding_order: string[]
+gameplay.command_builder.bound_slots: string[]
+gameplay.command_builder.focused_slot: string
+gameplay.command_builder.complete: bool
+gameplay.command_builder.watched[]:
+  subject_kind: 'character' | 'interactable' | 'item-stack' | 'feature'
+  subject_id: string
+  live: bool
+  available: bool
+  enabled: bool
+  visible: bool
+  room_id: string
+  traits: string[]
+  offers: string[]
 
 gameplay.text_log.entries[]:
   sequence: integer
@@ -244,6 +269,9 @@ ui_primary_activate(subject_kind, subject_id)
 ui_open_verb_menu(subject_kind, subject_id)
 ui_clear_selection()
 ui_invoke_interaction(verb_id)
+ui_command_builder_submit()
+ui_command_builder_rebind(slot_id)
+ui_command_builder_cancel()
 
 shell_start()
 shell_pause()
@@ -269,6 +297,7 @@ Argument vocabularies are closed where applicable:
 - `ui_choose`: `kind` is `scene` or `dialogue`.
 - `ui_toggle_subject`, `ui_primary_activate`, and `ui_open_verb_menu`: `subject_kind` is `character` or `interactable`.
 - `ui_primary_activate` requests the semantic primary action; `ui_open_verb_menu` opens the ordinary resolved Offer menu without auto-selecting a primary Offer.
+- `ui_command_builder_submit` confirms the built-in transient Draft for the active occurrence; `ui_command_builder_rebind` drops one currently bound slot so the next semantic subject capture can repair it; `ui_command_builder_cancel` terminates that occurrence. Runtime watches/submissions accept only subjects already captured for the active occurrence. Replacement Command Builder Layouts own their Draft and use the `Game.ui.begin_command_builder(...)`, `Game.ui.set_command_builder_watch(...)`, and `Game.ui.submit_command_builder(verb_id, bindings)` Lua transport described in `LUA.md`; `selected_subject_kind`, `selected_subject_id`, and each action's `slot_id` provide the subject-first starting information.
 - `shell_save_slot`: only currently exposed manual slots are valid.
 - `shell_load_slot`: `kind` is `autosave` with number `0`, or `manual` with an exposed manual slot number; the slot must currently be occupied.
 

@@ -161,6 +161,10 @@ const systemLayoutReferenceByRole: Readonly<
     supportingFiles: ['ui/menu/system-menu.rcss'],
   },
   'debug-overlay': { document: null, supportingFiles: [] },
+  'command-builder': {
+    document: 'ui/runtime/command-builder.rml',
+    supportingFiles: ['ui/runtime/command-builder.rcss'],
+  },
 };
 
 const schemaSources = {

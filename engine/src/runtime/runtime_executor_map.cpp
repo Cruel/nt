@@ -334,6 +334,7 @@ RuntimeExecutor::runtime_ui_view(std::string_view runtime_locale)
                                        .selected_subjects = {},
                                        .verb_offers = {},
                                        .verb_menu_open = false,
+                                       .command_builder = {},
                                        .can_continue = false};
     auto inventory = inventory_view(runtime_locale);
     auto* inventory_value = inventory.value_if();
