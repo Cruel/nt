@@ -32,121 +32,46 @@ function defaultSlots(project: AuthoringEditorProject, verbId: string): Interact
   }));
 }
 
-function ContextEditor({
+function GuardEditor({
   rule,
-  project,
   onChange,
 }: {
   rule: InteractionRule;
-  project: AuthoringEditorProject;
   onChange: (next: InteractionRule) => void;
 }) {
-  const context = rule.context;
   return (
-    <div className="grid gap-2 md:grid-cols-3">
+    <div className="grid gap-2 md:grid-cols-2">
       <div>
-        <Label>Context</Label>
+        <Label>Guard</Label>
         <Select
-          value={context.kind}
-          onValueChange={(kind) => {
-            if (kind === 'active-room') {
-              onChange({
-                ...rule,
-                context: { kind, room: typedRef('rooms', Object.keys(project.rooms)[0] ?? '') },
-              });
-            } else if (kind === 'room-placement') {
-              onChange({
-                ...rule,
-                context: {
-                  kind,
-                  placement: { room: Object.keys(project.rooms)[0] ?? '', placement: '' },
-                },
-              });
-            } else if (kind === 'predicate') {
-              onChange({
-                ...rule,
-                context: { kind, condition: { kind: 'lua-predicate', source: 'return true' } },
-              });
-            } else {
-              onChange({ ...rule, context: { kind: 'any' } });
-            }
-          }}
-        >
-          <SelectItem value="any">Any</SelectItem>
-          <SelectItem value="active-room" disabled={!Object.keys(project.rooms).length}>
-            Active room
-          </SelectItem>
-          <SelectItem value="room-placement" disabled={!Object.keys(project.rooms).length}>
-            Room placement
-          </SelectItem>
-          <SelectItem value="predicate">Predicate</SelectItem>
-        </Select>
-      </div>
-      {context.kind === 'active-room' && (
-        <Select
-          value={context.room.$ref.id}
-          onValueChange={(id) =>
+          value={rule.guard.kind === 'always' ? 'always' : 'lua-predicate'}
+          onValueChange={(kind) =>
             onChange({
               ...rule,
-              context: { kind: 'active-room', room: typedRef('rooms', String(id)) },
+              guard:
+                kind === 'always'
+                  ? { kind: 'always' }
+                  : { kind: 'lua-predicate', source: 'return true' },
             })
           }
         >
-          {Object.entries(project.rooms).map(([id, record]) => (
-            <SelectItem value={id} key={id}>
-              {record.label}
-            </SelectItem>
-          ))}
+          <SelectItem value="always">Always</SelectItem>
+          <SelectItem value="lua-predicate">Lua predicate</SelectItem>
         </Select>
-      )}
-      {context.kind === 'room-placement' && (
-        <>
-          <Select
-            value={context.placement.room}
-            onValueChange={(room) =>
-              onChange({
-                ...rule,
-                context: {
-                  kind: 'room-placement',
-                  placement: { room: String(room), placement: '' },
-                },
-              })
-            }
-          >
-            {Object.entries(project.rooms).map(([id, record]) => (
-              <SelectItem value={id} key={id}>
-                {record.label}
-              </SelectItem>
-            ))}
-          </Select>
+      </div>
+      {rule.guard.kind === 'lua-predicate' && (
+        <div>
+          <Label>Guard expression</Label>
           <Input
-            placeholder="Placement ID"
-            value={context.placement.placement}
+            value={rule.guard.source}
             onChange={(event) =>
               onChange({
                 ...rule,
-                context: {
-                  kind: 'room-placement',
-                  placement: { ...context.placement, placement: event.currentTarget.value },
-                },
+                guard: { kind: 'lua-predicate', source: event.currentTarget.value || ' ' },
               })
             }
           />
-        </>
-      )}
-      {context.kind === 'predicate' && (
-        <Input
-          value={context.condition.kind === 'lua-predicate' ? context.condition.source : ''}
-          onChange={(event) =>
-            onChange({
-              ...rule,
-              context: {
-                kind: 'predicate',
-                condition: { kind: 'lua-predicate', source: event.currentTarget.value || ' ' },
-              },
-            })
-          }
-        />
+        </div>
       )}
     </div>
   );
@@ -201,6 +126,16 @@ function RuleEditor({
               </SelectItem>
             ))}
           </Select>
+        </div>
+        <div>
+          <Label>Priority</Label>
+          <Input
+            type="number"
+            value={rule.priority}
+            onChange={(event) =>
+              onChange({ ...rule, priority: Number(event.currentTarget.value) || 0 })
+            }
+          />
         </div>
         <div className="flex items-end gap-1">
           <Button
@@ -377,7 +312,7 @@ function RuleEditor({
           </div>
         )}
       </div>
-      <ContextEditor rule={rule} project={project} onChange={onChange} />
+      <GuardEditor rule={rule} onChange={onChange} />
       <InteractionProgramEditor
         value={rule.program}
         project={project}
@@ -411,7 +346,8 @@ function InteractionForm({
           verb: typedRef('verbs', verbId),
           slots: defaultSlots(project, verbId),
           offer: null,
-          context: { kind: 'any' },
+          guard: { kind: 'always' },
+          priority: 0,
           program: defaultInteractionProgram(),
         },
       ],

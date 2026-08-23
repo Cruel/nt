@@ -154,7 +154,7 @@ describe('room commands', () => {
     });
   });
 
-  it('repairs Room-local and Interaction placement references on rename and rejects unsafe removal', () => {
+  it('repairs Room-local placement references without coupling Interaction resolution to placement state', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.placements = [
@@ -219,7 +219,8 @@ describe('room commands', () => {
           },
         ],
         offer: null,
-        context: { kind: 'room-placement', placement: { room: 'foyer', placement: 'anchor' } },
+        guard: { kind: 'always' },
+        priority: 0,
         program,
       },
     ];
@@ -245,7 +246,7 @@ describe('room commands', () => {
           data: {
             rules: [
               {
-                context: { placement: { placement: 'renamed-anchor' } },
+                guard: { kind: 'always' },
                 program: {
                   instructions: [
                     {
@@ -271,11 +272,6 @@ describe('room commands', () => {
       type: 'room.replaceData',
       payload: { roomId: 'foyer', data: removed },
     });
-    expect(removeResult.ok).toBe(false);
-    expect(removeResult.diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ message: expect.stringContaining('cannot be removed') }),
-      ]),
-    );
+    expect(removeResult.ok, JSON.stringify(removeResult.diagnostics, null, 2)).toBe(true);
   });
 });

@@ -47,6 +47,11 @@ import {
 } from '../../../shared/project-schema/authoring-project-settings';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../../shared/project-schema/project-display-contract';
 import {
+  defaultInteractionProgram,
+  type InteractionProgram,
+} from '../../../shared/project-schema/authoring-interaction-programs';
+import { InteractionProgramEditor } from '../interactions/InteractionProgramEditor';
+import {
   collectPendingInputDiagnostics,
   usePendingInputStore,
 } from '@/workbench/pending-input-store';
@@ -609,6 +614,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
+  function setUndefinedInteractionProgram(program: InteractionProgram | null) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.setUndefinedInteractionProgram',
+        { program },
+        'Set undefined Interaction behavior',
+      ),
+    );
+  }
+
   function setTitleScreen(patch: {
     titleImageId?: string | null;
     showProjectTitle?: boolean;
@@ -849,83 +864,117 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       ) : null}
 
       {activeCategory === 'runtime' ? (
-        <Card data-workbench-anchor="projectSettings.runtime">
-          <CardHeader>
-            <CardTitle>Runtime Defaults</CardTitle>
-            <CardDescription>
-              Built-in fallback resources are used when no project resource is selected.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
-              <div>
-                <Label>System layouts</Label>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Override individual engine UI roles. Leaving a role built-in keeps the
-                  engine-provided layout for that role.
-                </p>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {systemLayoutRoleValues.map((role) => {
-                  const selected = getSystemLayoutSetting(project, role);
-                  const selectedLayoutId = selected?.$ref.id ?? null;
-                  const selectedLayout = selectedLayoutId
-                    ? project.layouts[selectedLayoutId]
-                    : null;
-                  return (
-                    <div key={role} className="space-y-1">
-                      <Label>{systemLayoutRoleLabels[role]}</Label>
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-8 min-w-0 flex-1 justify-start px-2 text-left text-xs font-normal"
-                          aria-invalid={fieldInvalid(`/settings/ui/systemLayouts/${role}`)}
-                          data-workbench-anchor={`projectSettings.field.systemLayout.${role}`}
-                          onClick={() => setSystemLayoutSelectorRole(role)}
-                        >
-                          <span className="truncate">
-                            {selectedLayoutId
-                              ? `${selectedLayout?.label || selectedLayoutId} (${selectedLayoutId})`
-                              : `Built-in ${systemLayoutRoleLabels[role].toLowerCase()}`}
-                          </span>
-                        </Button>
-                        {selectedLayoutId ? (
+        <>
+          <Card data-workbench-anchor="projectSettings.runtime">
+            <CardHeader>
+              <CardTitle>Runtime Defaults</CardTitle>
+              <CardDescription>
+                Built-in fallback resources are used when no project resource is selected.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2 md:col-span-2">
+                <div>
+                  <Label>System layouts</Label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Override individual engine UI roles. Leaving a role built-in keeps the
+                    engine-provided layout for that role.
+                  </p>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {systemLayoutRoleValues.map((role) => {
+                    const selected = getSystemLayoutSetting(project, role);
+                    const selectedLayoutId = selected?.$ref.id ?? null;
+                    const selectedLayout = selectedLayoutId
+                      ? project.layouts[selectedLayoutId]
+                      : null;
+                    return (
+                      <div key={role} className="space-y-1">
+                        <Label>{systemLayoutRoleLabels[role]}</Label>
+                        <div className="flex gap-2">
                           <Button
                             type="button"
-                            size="sm"
                             variant="outline"
-                            onClick={() => setSystemLayout(role, null)}
+                            className="h-8 min-w-0 flex-1 justify-start px-2 text-left text-xs font-normal"
+                            aria-invalid={fieldInvalid(`/settings/ui/systemLayouts/${role}`)}
+                            data-workbench-anchor={`projectSettings.field.systemLayout.${role}`}
+                            onClick={() => setSystemLayoutSelectorRole(role)}
                           >
-                            {t('selectors.clear')}
+                            <span className="truncate">
+                              {selectedLayoutId
+                                ? `${selectedLayout?.label || selectedLayoutId} (${selectedLayoutId})`
+                                : `Built-in ${systemLayoutRoleLabels[role].toLowerCase()}`}
+                            </span>
                           </Button>
-                        ) : null}
+                          {selectedLayoutId ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setSystemLayout(role, null)}
+                            >
+                              {t('selectors.clear')}
+                            </Button>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="default-font">Default font</Label>
-              <select
-                id="default-font"
-                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                aria-invalid={fieldInvalid('/settings/text/defaultFont')}
-                data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/text/defaultFont']}
-                value={valueOrNone(settings.text.defaultFont?.$ref.id)}
-                onChange={(event) => setDefaultFont(nullableValue(event.currentTarget.value))}
-              >
-                <option value="__built_in__">Built-in default font</option>
-                {fontAssets.map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {asset.label} ({asset.id})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </CardContent>
-        </Card>
+              <div className="space-y-1">
+                <Label htmlFor="default-font">Default font</Label>
+                <select
+                  id="default-font"
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  aria-invalid={fieldInvalid('/settings/text/defaultFont')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/text/defaultFont']
+                  }
+                  value={valueOrNone(settings.text.defaultFont?.$ref.id)}
+                  onChange={(event) => setDefaultFont(nullableValue(event.currentTarget.value))}
+                >
+                  <option value="__built_in__">Built-in default font</option>
+                  {fontAssets.map((asset) => (
+                    <option key={asset.id} value={asset.id}>
+                      {asset.label} ({asset.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </CardContent>
+          </Card>
+          <Card data-workbench-anchor="projectSettings.undefinedInteraction">
+            <CardHeader>
+              <CardTitle>Undefined Interaction Behavior</CardTitle>
+              <CardDescription>
+                Optional project-wide fallback after a Verb default declines a complete command. If
+                omitted, the engine emits its localized undefined-interaction response.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={project.undefinedInteractionProgram !== null}
+                  onChange={(event) =>
+                    setUndefinedInteractionProgram(
+                      event.currentTarget.checked ? defaultInteractionProgram() : null,
+                    )
+                  }
+                />
+                Use project fallback behavior
+              </label>
+              {project.undefinedInteractionProgram ? (
+                <InteractionProgramEditor
+                  value={project.undefinedInteractionProgram}
+                  project={project}
+                  onChange={setUndefinedInteractionProgram}
+                />
+              ) : null}
+            </CardContent>
+          </Card>
+        </>
       ) : null}
 
       {activeCategory === 'display' ? (

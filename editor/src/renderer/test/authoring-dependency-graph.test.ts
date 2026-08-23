@@ -369,7 +369,8 @@ describe('authoring structural dependency graph and queries', () => {
         },
       ],
       offer: null,
-      context: { kind: 'any' },
+      guard: { kind: 'always' },
+      priority: 0,
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     });
     project.interactions.actions = { id: 'actions', label: 'Actions', data: interaction };

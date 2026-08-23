@@ -175,6 +175,7 @@ struct SharedProject {
     std::vector<ItemStackDeclaration> item_stacks;
     std::vector<VerbDefinition> verbs;
     std::vector<InteractionDefinition> interactions;
+    std::optional<InteractionProgram> undefined_interaction_program;
     std::vector<SceneDefinition> scenes;
     std::vector<DialogueDefinition> dialogues;
     std::vector<MapDefinition> maps;

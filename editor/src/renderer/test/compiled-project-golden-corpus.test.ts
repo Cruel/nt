@@ -107,16 +107,13 @@ describe('compiled project cross-language golden corpus', () => {
     const kinds = collectKinds([comprehensive, resources, scene, dialogue, interaction]);
 
     const requiredKinds = [
-      'active-room',
       'actor-cue',
       'always',
-      'any',
       'family',
       'apply-effect',
       'asset',
       'audio-cue',
       'call-dialogue',
-      'call-scene',
       'character',
       'choice',
       'conditional-branch',
@@ -138,12 +135,10 @@ describe('compiled project cross-language golden corpus', () => {
       'next',
       'notify',
       'unplaced',
-      'predicate',
       'rect',
       'redirect',
       'return',
       'room',
-      'room-placement',
       'run-lua',
       'run-lua-effect',
       'scene',
@@ -207,12 +202,12 @@ describe('compiled project cross-language golden corpus', () => {
     const actions = interaction.definitions.interactions.find(
       (candidate) => candidate.id === 'actions',
     )!;
-    expect(sorted(new Set(actions.rules.map((rule) => rule.context.kind)))).toEqual([
-      'active-room',
-      'any',
-      'predicate',
-      'room-placement',
+    expect(sorted(new Set(actions.rules.map((rule) => rule.guard.kind)))).toEqual([
+      'always',
+      'global-property-comparison',
+      'lua-predicate',
     ]);
+    expect(actions.rules.map((rule) => rule.priority)).toEqual([10, 10, 20, 0, 5, 0]);
     const room = interaction.definitions.rooms.find((candidate) => candidate.id === 'start')!;
     expect(room.hotspots).toEqual(
       expect.arrayContaining([
@@ -262,7 +257,6 @@ describe('compiled project cross-language golden corpus', () => {
     ).toEqual([
       'apply-effect',
       'call-dialogue',
-      'call-scene',
       'move-interactable',
       'notify',
       'set-interactable-state',
@@ -281,7 +275,7 @@ describe('compiled project cross-language golden corpus', () => {
           ),
         ),
       ),
-    ).toEqual(['inventory', 'room', 'unplaced']);
+    ).toEqual(['inventory', 'room']);
 
     expect(sorted(new Set(resources.resources.assets.map((asset) => asset.kind)))).toEqual([
       'audio',

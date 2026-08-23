@@ -755,7 +755,8 @@ describe('authoring compiler framework', () => {
           },
         ],
         offer: null,
-        context: { kind: 'room-placement', placement: { room: 'foyer', placement: 'key-place' } },
+        guard: { kind: 'always' },
+        priority: 20,
         program: {
           instructions: [
             {
@@ -787,18 +788,8 @@ describe('authoring compiler framework', () => {
               kind: 'notify',
               message: { source: { kind: 'inline', text: 'Unlocked' }, markup: 'plain' },
             },
-            {
-              id: 'scene',
-              kind: 'call-scene',
-              scene: { $ref: { collection: 'scenes', id: 'opening' } },
-            },
-            {
-              id: 'dialogue',
-              kind: 'call-dialogue',
-              dialogue: { $ref: { collection: 'dialogues', id: 'intro' } },
-            },
           ],
-          completion: { kind: 'room', id: 'hall' },
+          completion: { kind: 'return' },
           outcome: 'handled',
         },
       },
@@ -812,7 +803,8 @@ describe('authoring compiler framework', () => {
           },
         ],
         offer: null,
-        context: { kind: 'predicate', condition: { kind: 'always' } },
+        guard: { kind: 'always' },
+        priority: 0,
         program: defaultInteractionProgram(),
       },
     ];
@@ -854,7 +846,7 @@ describe('authoring compiler framework', () => {
       compiled.definitions.interactions[0]!.rules[0]!.program.instructions.map(
         (instruction) => instruction.id,
       ),
-    ).toEqual(['effect', 'move', 'state', 'notify', 'scene', 'dialogue']);
+    ).toEqual(['effect', 'move', 'state', 'notify']);
     expect(
       compiled.definitions.interactions[0]!.rules.map((rule) => rule.slots[0]!.selectors[0]!.kind),
     ).toEqual(['exact', 'family']);
@@ -899,15 +891,13 @@ describe('authoring compiler framework', () => {
         verb: { $ref: { collection: 'verbs', id: 'use' } },
         slots: [],
         offer: null,
-        context: {
-          kind: 'predicate',
-          condition: {
-            kind: 'variable-comparison',
-            variable: { $ref: { collection: 'variables', id: 'flag' } },
-            operator: 'equal',
-            value: 'not-a-boolean',
-          },
+        guard: {
+          kind: 'variable-comparison',
+          variable: { $ref: { collection: 'variables', id: 'flag' } },
+          operator: 'equal',
+          value: 'not-a-boolean',
         },
+        priority: 0,
         program: {
           instructions: [
             {
@@ -932,7 +922,7 @@ describe('authoring compiler framework', () => {
     expect(result.ok).toBe(false);
     for (const pointer of [
       '/dialogues/typed/data/blocks/0/segments/0/condition/value',
-      '/interactions/typed/data/rules/0/context/condition/value',
+      '/interactions/typed/data/rules/0/guard/value',
       '/interactions/typed/data/rules/0/program/instructions/0/effect/value',
       '/verbs/use/data/availability/value',
     ]) {
@@ -1289,7 +1279,8 @@ describe('authoring compiler framework', () => {
         verb: { $ref: { collection: 'verbs', id: 'look' } },
         slots: [],
         offer: null,
-        context: { kind: 'any' },
+        guard: { kind: 'always' },
+        priority: 0,
         program: {
           instructions: [
             {

@@ -94,7 +94,9 @@ struct InteractionRuleProgramRef {
 struct VerbDefaultProgramRef {
     VerbId verb;
 };
-using InteractionProgramRef = std::variant<InteractionRuleProgramRef, VerbDefaultProgramRef>;
+struct ProjectUndefinedProgramRef {};
+using InteractionProgramRef =
+    std::variant<InteractionRuleProgramRef, VerbDefaultProgramRef, ProjectUndefinedProgramRef>;
 enum class InteractionFallbackStage : std::uint8_t {
     SelectedProgram,
     VerbDefault,

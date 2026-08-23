@@ -293,9 +293,12 @@ const compiled::InteractionProgram* interaction_program(const CompiledProject& p
                                      return rule.id == item.rule;
                                  });
                 return found == interaction->rules.end() ? nullptr : &found->program;
-            } else {
+            } else if constexpr (std::is_same_v<T, VerbDefaultProgramRef>) {
                 const auto* verb = project.find_verb(item.verb);
                 return verb ? &verb->default_program : nullptr;
+            } else {
+                const auto& fallback = project.undefined_interaction_program();
+                return fallback ? &*fallback : nullptr;
             }
         },
         reference);

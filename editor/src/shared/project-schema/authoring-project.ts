@@ -27,6 +27,7 @@ import { defaultExportProfile, exportProfileSchema } from './authoring-export';
 import { platformExportProfileSchema } from './platform-export-contracts';
 import { inventoryDefinitionSchema } from './authoring-inventories';
 import { scriptRefSchema } from './authoring-flow';
+import { interactionProgramSchema } from './authoring-interaction-programs';
 
 export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
 export type { EntityId } from './authoring-common';
@@ -71,6 +72,7 @@ export const authoringProjectSchema = z
     settings: typedProjectSettingsSchema,
     export: projectExportSettingsSchema,
     bootstrapModule: scriptRefSchema,
+    undefinedInteractionProgram: interactionProgramSchema.nullable().default(null),
     entrypoint: projectEntrypointSchema.nullable().default(null),
     properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
@@ -157,6 +159,7 @@ export function createAuthoringProject(
       profiles: [],
     },
     bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
+    undefinedInteractionProgram: null,
     entrypoint: null,
     properties: {},
     traits: {},

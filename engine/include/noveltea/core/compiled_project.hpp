@@ -674,18 +674,6 @@ struct InteractionProgram {
     FlowTarget completion;
     InteractionOutcome outcome;
 };
-struct AnyInteractionContext {};
-struct ActiveRoomInteractionContext {
-    RoomId room;
-};
-struct PlacementInteractionContext {
-    RoomPlacementRef placement;
-};
-struct PredicateInteractionContext {
-    Condition condition;
-};
-using InteractionContext = std::variant<AnyInteractionContext, ActiveRoomInteractionContext,
-                                        PlacementInteractionContext, PredicateInteractionContext>;
 enum class SubjectFamily : std::uint8_t {
     Character,
     Interactable,
@@ -725,9 +713,10 @@ struct InteractionOffer {
 struct InteractionRule {
     InteractionRuleId id;
     VerbId verb;
-    InteractionContext context;
     std::vector<InteractionSlotSelector> slots;
     std::optional<InteractionOffer> offer;
+    Condition guard;
+    std::int64_t priority = 0;
     InteractionProgram program;
 };
 struct InteractionDefinition {
@@ -1115,6 +1104,7 @@ struct CompiledProjectInput {
     std::vector<ItemStackDeclaration> item_stacks;
     std::vector<VerbDefinition> verbs;
     std::vector<InteractionDefinition> interactions;
+    std::optional<InteractionProgram> undefined_interaction_program;
     std::vector<SceneDefinition> scenes;
     std::vector<DialogueDefinition> dialogues;
     std::vector<MapDefinition> maps;
@@ -1198,6 +1188,11 @@ public:
     {
         return m_interactions;
     }
+    [[nodiscard]] const std::optional<compiled::InteractionProgram>&
+    undefined_interaction_program() const noexcept
+    {
+        return m_undefined_interaction_program;
+    }
     [[nodiscard]] const std::vector<compiled::SceneDefinition>& scenes() const noexcept
     {
         return m_scenes;
@@ -1266,6 +1261,7 @@ private:
     std::vector<compiled::ItemStackDeclaration> m_item_stacks;
     std::vector<compiled::VerbDefinition> m_verbs;
     std::vector<compiled::InteractionDefinition> m_interactions;
+    std::optional<compiled::InteractionProgram> m_undefined_interaction_program;
     std::vector<compiled::SceneDefinition> m_scenes;
     std::vector<compiled::DialogueDefinition> m_dialogues;
     std::vector<compiled::MapDefinition> m_maps;

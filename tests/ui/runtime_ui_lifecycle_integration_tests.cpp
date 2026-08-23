@@ -731,7 +731,7 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
                                        .visible = true}}}},
         .exits = {{exit.value(), target.value(), noveltea::core::compiled::RoomExitDirection::North,
                    "North", true}},
-        .controls = {{verb.value(), "Inspect", {target_slot.value()}, false, true}}};
+        .controls = {{verb.value(), "Inspect", {target_slot.value()}, true}}};
     REQUIRE(ui.apply_gameplay_ui_values(values));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
         ui, "model-callbacks", kDataModelCallbackDocument, "preview://model-callbacks.rml", true));
@@ -1398,8 +1398,8 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
                    noveltea::core::compiled::RoomExitDirection::North, "North Hall", true},
                   {south.value(), target.value(),
                    noveltea::core::compiled::RoomExitDirection::South, "Blocked South", false}},
-        .controls = {{verb.value(), "Inspect", {target_slot.value()}, false, true},
-                     {disabled_verb.value(), "Use", {target_slot.value()}, false, false}}};
+        .controls = {{verb.value(), "Inspect", {target_slot.value()}, true},
+                     {disabled_verb.value(), "Use", {target_slot.value()}, false}}};
     values.view.inventory.items = {
         {.interactable = interactable.value(),
          .inventory = {noveltea::core::compiled::ProjectInventoryOwner{}, player_inventory.value()},
@@ -1417,6 +1417,19 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
          .visible = false}};
     values.view.selected_subjects = {
         noveltea::core::compiled::InteractableInteractionSubject{interactable.value()}};
+    values.view.verb_offers = {{.verb = verb.value(),
+                                .slot = target_slot.value(),
+                                .label = "Inspect",
+                                .binding_order = {target_slot.value()},
+                                .rank = 10,
+                                .primary = true},
+                               {.verb = disabled_verb.value(),
+                                .slot = target_slot.value(),
+                                .label = "Use",
+                                .binding_order = {target_slot.value()},
+                                .rank = 0,
+                                .primary = false}};
+    values.view.verb_menu_open = true;
     values.view.interaction = noveltea::core::InteractionView{
         .verb = verb.value(), .notification = "Interaction fallback"};
     values.view.maps.push_back(

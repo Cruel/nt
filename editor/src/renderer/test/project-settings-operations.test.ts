@@ -128,6 +128,46 @@ describe('project settings operations', () => {
     );
   });
 
+  it('sets and clears the optional Project undefined Interaction behavior without changing schema versions', () => {
+    const project = projectWithSettingsTargets();
+    const authoringVersion = project.schemaVersion;
+    let state = createInitialCommandBusState(toJsonValue(project));
+    const set = executeCommand(state, {
+      type: 'project.setUndefinedInteractionProgram',
+      payload: {
+        program: {
+          instructions: [
+            {
+              id: 'fallback-notice',
+              kind: 'notify',
+              message: { markup: 'plain', source: { kind: 'inline', text: 'Nothing useful.' } },
+            },
+          ],
+          completion: { kind: 'return' },
+          outcome: 'handled',
+        },
+      },
+    });
+    expect(set.ok).toBe(true);
+    expect(set.state.document).toMatchObject({
+      schemaVersion: authoringVersion,
+      undefinedInteractionProgram: {
+        instructions: [{ id: 'fallback-notice', kind: 'notify' }],
+        outcome: 'handled',
+      },
+    });
+    state = set.state;
+    const clear = executeCommand(state, {
+      type: 'project.setUndefinedInteractionProgram',
+      payload: { program: null },
+    });
+    expect(clear.ok).toBe(true);
+    expect(clear.state.document).toMatchObject({
+      schemaVersion: authoringVersion,
+      undefinedInteractionProgram: null,
+    });
+  });
+
   it('clears individual system layout roles back to built-in fallbacks', () => {
     let state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     state = executeCommand(state, {

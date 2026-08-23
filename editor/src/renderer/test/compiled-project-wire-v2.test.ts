@@ -208,7 +208,8 @@ function representativeWireFixture() {
               verb: { kind: 'verb', id: 'look' },
               slots: [],
               offer: null,
-              context: { kind: 'any' },
+              guard: { kind: 'always' },
+              priority: 0,
               program: {
                 instructions: [
                   {

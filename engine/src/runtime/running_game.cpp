@@ -226,10 +226,8 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
         const auto base = "/definitions/interactions/" + std::to_string(interaction_index);
         for (std::size_t rule_index = 0; rule_index < interaction.rules.size(); ++rule_index) {
             const auto& rule = interaction.rules[rule_index];
-            if (const auto* predicate =
-                    std::get_if<core::compiled::PredicateInteractionContext>(&rule.context))
-                certify_condition(diagnostics, scripts, predicate->condition,
-                                  base + "/rules/" + std::to_string(rule_index) + "/context");
+            certify_condition(diagnostics, scripts, rule.guard,
+                              base + "/rules/" + std::to_string(rule_index) + "/guard");
             certify_interaction_program(diagnostics, scripts, rule.program,
                                         base + "/rules/" + std::to_string(rule_index) + "/program");
         }

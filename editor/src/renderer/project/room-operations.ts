@@ -2,10 +2,6 @@ import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
 import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
 import {
-  parseInteractionData,
-  type InteractionData,
-} from '../../shared/project-schema/authoring-interactions';
-import {
   parseRoomData,
   validateRoomData,
   type RoomData,
@@ -76,46 +72,6 @@ function repairLocalPlacementReferences(data: RoomData, changes: PlacementChange
   };
 }
 
-function repairInteractionPlacements(
-  data: InteractionData,
-  roomId: string,
-  changes: PlacementChanges,
-  interactionId: string,
-): { data: InteractionData; changed: boolean; failure?: EntityOperationDiagnostic } {
-  let changed = false;
-  const rules = [] as InteractionData['rules'];
-  for (const [index, rule] of data.rules.entries()) {
-    let context = rule.context;
-    if (context.kind === 'room-placement' && context.placement.room === roomId) {
-      const nextPlacement = repairedPlacementId(context.placement.placement, changes);
-      if (!nextPlacement)
-        return {
-          data,
-          changed: false,
-          failure: error(
-            'Room placement is referenced by an Interaction context and cannot be removed.',
-            buildJsonPointer([
-              'interactions',
-              interactionId,
-              'data',
-              'rules',
-              String(index),
-              'context',
-              'placement',
-              'placement',
-            ]),
-          ),
-        };
-      if (nextPlacement !== context.placement.placement) {
-        context = { ...context, placement: { room: roomId, placement: nextPlacement } };
-        changed = true;
-      }
-    }
-    rules.push(context === rule.context ? rule : { ...rule, context });
-  }
-  return { data: changed ? { ...data, rules } : data, changed };
-}
-
 export function replaceRoomDataPatches(
   document: unknown,
   payload: ReplaceRoomDataPayload,
@@ -159,26 +115,6 @@ export function replaceRoomDataPatches(
       path: buildJsonPointer(['rooms', payload.roomId, 'archetypeOverrides']),
       value: toJsonValue(overrides),
     });
-
-  if (previous && changes) {
-    for (const [interactionId, interactionRecord] of Object.entries(document.interactions)) {
-      const interaction = parseInteractionData(interactionRecord.data);
-      if (!interaction) continue;
-      const repaired = repairInteractionPlacements(
-        interaction,
-        payload.roomId,
-        changes,
-        interactionId,
-      );
-      if (repaired.failure) return { patches: [], diagnostics: [repaired.failure] };
-      if (repaired.changed)
-        patches.push({
-          op: 'replace',
-          path: buildJsonPointer(['interactions', interactionId, 'data']),
-          value: toJsonValue(repaired.data),
-        });
-    }
-  }
 
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }

@@ -294,6 +294,40 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     CHECK(std::holds_alternative<SavedInteractionFrame>(interaction.value().flow_stack.front()));
 }
 
+TEST_CASE("current save-state round-trips the Project undefined Interaction fallback stage")
+{
+    const auto project = load_fixture("interaction-program.json", [](nlohmann::json& document) {
+        document["undefinedInteractionProgram"] = {
+            {"instructions", nlohmann::json::array()},
+            {"completion", {{"kind", "return"}}},
+            {"outcome", "unhandled"},
+        };
+    });
+    auto state = make_state(project);
+    FlowExecutor flow(project, state);
+    finish_initial_room_transition(flow);
+    REQUIRE(flow.start_interaction(
+        InteractionInvocationContext{
+            id<VerbId>("use"),
+            id<RoomId>("start"),
+            {{id<VerbSlotId>("target"),
+              compiled::InteractableInteractionSubject{id<InteractableId>("key")}}}},
+        ProjectUndefinedProgramRef{}));
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    REQUIRE(encoded.value()["flowStack"].size() == 1);
+    CHECK(encoded.value()["flowStack"][0]["program"] ==
+          nlohmann::json{{"kind", "project-undefined"}});
+
+    auto decoded = decode_save_state(project, encoded.value(), "project-fallback-save.json");
+    REQUIRE(decoded);
+    const auto& frame = std::get<SavedInteractionFrame>(decoded.value().flow_stack.front());
+    CHECK(std::holds_alternative<ProjectUndefinedProgramRef>(frame.program));
+}
+
 TEST_CASE("current save-state round-trips owner-qualified Feature interaction subjects")
 {
     const auto project = load_fixture("interaction-program.json");

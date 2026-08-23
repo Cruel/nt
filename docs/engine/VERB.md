@@ -55,7 +55,7 @@ Each Verb owns exactly one availability condition and one default `InteractionPr
 
 `Handled` and `Unhandled` are explicit successful outcomes on the authored default Interaction Program. `Failed` is produced only by runtime execution failure. There is no parent-Verb traversal and no inherited availability.
 
-Runtime controls expose the stable `bindingOrder`, resolved action text, and local availability as typed data. Subject-first discovery is published separately as resolved `VerbOfferView` values so direct complete-command submission remains independent. The current undefined-interaction fallback is the deterministic typed `Nothing happens.` notification.
+Runtime controls expose the stable `bindingOrder`, resolved action text, and local availability as typed data. Subject-first discovery is published separately as resolved `VerbOfferView` values so direct complete-command submission remains independent. If a complete command has no handled Interaction Rule, fallback proceeds through that Verb's default program, the optional Project undefined-Interaction behavior, and finally the engine's localized undefined-Interaction response.
 
 ## Authoring, compiled, and state disposition
 

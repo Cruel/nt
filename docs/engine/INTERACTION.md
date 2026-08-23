@@ -15,9 +15,9 @@ Each Interaction Rule binds every slot declared by its Verb exactly once. A rule
 
 Hotspots are not Interaction contexts. They are presentation/input geometry that resolve to one semantic subject or Room Exit before runtime dispatch. Interaction matching therefore sees the same subject identity whether selection came from a pointer Hotspot, Layout UI, Lua, preview/debugger, or an authored test.
 
-Rules carry one of the remaining semantic contexts: generic, active Room, Room placement, or predicate. They also carry an explicit nullable Offer declaration. `offer: null` opts the rule out of subject-first discovery; an Offer names its starting slot and owns an optional pure Offer Condition, authored rank, and primary intent. The starting subject selectors are the selectors already authored on that rule slot.
+Rules carry one pure `Guard` plus an explicit signed integer `priority`. Runtime context such as the active Room or a placement is not a hidden matching dimension; authors express dynamic eligibility through ordinary pure Conditions. Rules also carry an explicit nullable Offer declaration. `offer: null` opts the rule out of subject-first discovery; an Offer names its starting slot and owns an optional pure Offer Condition, authored rank, and primary intent. The starting subject selectors are the selectors already authored on that rule slot.
 
-Rule context and the later Interaction Guard contract are execution concerns. They never participate in Offer discovery. #84 adds the rule-derived Offer surface but does not implement the Guard/priority resolver from #85; current complete-command rule selection therefore keeps the existing deterministic pre-#85 policy after named-slot selector checks.
+Guards and priority are complete-command execution concerns and never participate in Offer discovery. Offer Conditions remain independent discovery predicates.
 
 ## Subject Selector matching
 
@@ -40,15 +40,17 @@ For each Verb, runtime first resolves the most-specific matching explicit or rul
 
 `Primary Activate` asks runtime to execute a unique immediately-complete primary Offer or otherwise open the ordinary Verb menu. `Open Verb Menu` only opens that menu and never auto-selects a primary Offer. Ambiguous primary Offers produce a typed diagnostic observation and leave the player at the menu.
 
-## Program
+## Resolution and compact behavior
 
-An `InteractionProgram` is an ordered list containing only ApplyEffect, MoveInteractable,
-SetInteractableState, Notify, CallScene, and CallDialogue, followed by one typed `FlowTarget` and an
-authored successful outcome of `Handled` or `Unhandled`. Child Scene/Dialogue calls push frames and
-return to the next instruction. Final targets use normal tail-continuation rules. Runtime instruction
-or child-flow failure produces `Failed`; it is not an authored success result.
+Complete-command resolution first validates the Verb and every named binding against the Verb slot selector unions. Candidate Interaction Rules then match only by Verb, named slot, and the closed structural Subject Selector vocabulary. Runtime orders matching rules by structural containment: a rule whose selector sets are strictly contained by another rule is narrower and is evaluated in an earlier tier. Declaration order is never a tie-break.
 
-The runtime matches by Verb, complete named bindings, the Verb slot selector unions, the corresponding Interaction Rule selector unions, semantic context, and predicates. The selected rule runs first. An `Unhandled` result then attempts the selected Verb's default program once, while `Handled` applies the program FlowTarget and `Failed` aborts. If that Verb default is also `Unhandled`, the current undefined-interaction policy is a typed `Nothing happens.` notification.
+Within the current narrowest tier, runtime evaluates each pure Guard. A false Guard removes that rule and resolution stays within the tier; if no rule in the tier passes, resolution falls through to the next broader tier. A Guard evaluation error faults the command before any behavior executes. Among passing rules in one tier, the greatest explicit `priority` wins. More than one passing rule at the greatest priority is an ambiguity fault and executes nothing.
+
+An `InteractionProgram` is the compact behavior representation. Its mutation prefix may contain ApplyEffect for typed non-Lua effects, MoveInteractable, and SetInteractableState. Runtime validates that mutation batch against a staged Session copy before committing any mutation, so a batch that would fail partway commits nothing. After the mutation prefix there may be at most one terminal action: Notify, Scene call, Dialogue call, or Lua handoff. A terminal `FlowTarget` such as Room navigation is also allowed when no terminal instruction is present. Terminal instructions must be final.
+
+`Unhandled` is only valid for an empty behavior and therefore can never follow committed work. Once a handled behavior commits mutations or begins its terminal handoff, fallback is impossible. A later terminal failure faults execution while retaining already committed gameplay state.
+
+Fallback is canonical and ordered: the selected Verb default program, then the optional Project undefined-Interaction program, then the engine's localized undefined-Interaction response. Each authored fallback can return `Unhandled` only while empty; a handled fallback terminates the chain. The built-in English response is `Nothing happens.` and the engine selects its localized equivalent from the active runtime locale.
 
 Interaction is not a Property or Trait owner. Runtime command matching and execution state belong to the Runtime Session rather than to the Interaction definition.
 
@@ -67,8 +69,8 @@ Multiple Hotspots may map to the same Feature. That produces one Interaction sub
 
 ## Authoring, compiled, and state disposition
 
-- **Current authoring schema:** collection-specific Interaction records with ordered rules, named slot selector unions, nullable rule-derived Offer declarations, semantic context, and strict programs. #84 keeps the already-selected authoring schema version.
-- **Compiled V4:** linked immutable `InteractionRule`/`InteractionProgram` with named slot selectors, nullable typed Offers, and owner-qualified Feature subjects. #84 keeps compiled schema version 4.
+- **Current authoring schema:** collection-specific Interaction records with named slot selector unions, nullable rule-derived Offers, pure Guards, explicit priority, and compact programs, plus an optional Project undefined-Interaction program. #85 preserves the already-selected authoring schema version.
+- **Compiled V4:** linked immutable `InteractionRule`/`InteractionProgram` with named slot selectors, nullable typed Offers, pure Guards, explicit priority, owner-qualified Feature subjects, and an optional Project fallback. #85 preserves compiled schema version 4.
 - **Mutable:** Interaction flow frames plus gameplay state changed by executed effects in `SessionState`; the Interaction definition itself has no mutable Property/Trait state.
 - **Tooling only:** categories, tags, colors, sort keys, notes, graph layout, selection, and previews.
 
@@ -78,10 +80,10 @@ Runtime selection and invocation messages, semantic Primary Activate/Open Verb M
 
 Pointer Hotspots never call an Interaction directly. A pointer release resolves a Hotspot target to an exact semantic subject and follows the default input policy: semantic Primary Activate for the main action, or Open Verb Menu when explicitly requested. Room Exit targets still dispatch ordinary navigation. Custom UI and tooling may independently select subjects or submit complete commands.
 
-Save state persists named bindings when a yielding Interaction frame exists. Ended Stack identities are rejected rather than redirected. Feature and Stack Property overrides use the normal Property-state path.
+Save state persists named bindings and the exact fallback program stage when an Interaction frame exists, including the Project undefined-Interaction stage. Ended Stack identities are rejected rather than redirected. Feature and Stack Property overrides use the normal Property-state path.
 
 ## Current editor implementation
 
-The Interaction editor authors one selector union per named Verb slot, all six Subject Selector variants, optional rule-derived Offers, remaining context variants, and closed program instructions. Every instruction has a stable nested ID; creation preserves that identity through editing and reordering. Validation checks that every Verb slot is represented exactly once, Offer starting slots name rule slots, selector references and Feature owners exist, Room placements and program references are valid, and stable IDs are unique.
+The Interaction editor authors one selector union per named Verb slot, all six Subject Selector variants, optional rule-derived Offers, a pure Guard, explicit priority, and compact program instructions. Every instruction has a stable nested ID; creation preserves that identity through editing and reordering. Project Settings → Runtime exposes the optional Project undefined-Interaction behavior. Validation checks complete named slots, selector references and Feature owners, Guard references, explicit equal-tier unconditional conflicts, compact terminal constraints, program references, and stable IDs.
 
-The compiler lowers rule slot IDs, selector unions, and Offers losslessly into compiled V4. Native decoding rejects stale positional `operands` fields and unknown selector variants. Runtime, preview, Lua, authored-test playback, and recorded-test playback preserve direct complete-command submission while the preview/default UI additionally expose subject-first Offer discovery and semantic activation requests.
+The compiler lowers rule slot IDs, selector unions, Offers, Guards, priorities, and the optional Project fallback losslessly into compiled V4. Native decoding rejects stale `context` and positional `operands` fields and unknown selector variants. Runtime, preview, Lua, authored-test playback, and recorded-test playback preserve direct complete-command submission while the preview/default UI additionally expose subject-first Offer discovery and semantic activation requests.

@@ -322,26 +322,8 @@ export function lowerDialogueAndInteractionPrograms(
                 rank: rule.offer.rank,
                 primary: rule.offer.primary,
               },
-        context:
-          rule.context.kind === 'any'
-            ? { kind: 'any' as const }
-            : rule.context.kind === 'active-room'
-              ? {
-                  kind: 'active-room' as const,
-                  room: { kind: 'room' as const, id: rule.context.room.$ref.id },
-                }
-              : rule.context.kind === 'room-placement'
-                ? {
-                    kind: 'room-placement' as const,
-                    placement: {
-                      room: { kind: 'room' as const, id: rule.context.placement.room },
-                      placementId: rule.context.placement.placement,
-                    },
-                  }
-                : {
-                    kind: 'predicate' as const,
-                    condition: compileCondition(rule.context.condition),
-                  },
+        guard: compileCondition(rule.guard),
+        priority: rule.priority,
         program: compileInteractionProgram(rule.program),
       })),
     });
@@ -350,6 +332,16 @@ export function lowerDialogueAndInteractionPrograms(
   if (diagnostics.length > 0) return { diagnostics };
   return {
     diagnostics,
-    draft: { ...partial, definitions: { ...partial.definitions, dialogues, interactions, verbs } },
+    draft: {
+      ...partial,
+      ...(project.undefinedInteractionProgram === null
+        ? {}
+        : {
+            undefinedInteractionProgram: compileInteractionProgram(
+              project.undefinedInteractionProgram,
+            ),
+          }),
+      definitions: { ...partial.definitions, dialogues, interactions, verbs },
+    },
   };
 }

@@ -1,11 +1,9 @@
 import { z } from 'zod';
 import {
-  conditionSchema,
   dialogueRefSchema,
   effectSchema,
   flowTargetSchema,
   interactableRefSchema,
-  roomRefSchema,
   sceneRefSchema,
   textContentSchema,
 } from './authoring-flow';
@@ -49,18 +47,10 @@ export const interactionProgramSchema = strict({
   outcome: z.enum(['handled', 'unhandled']),
 });
 
-export const interactionContextSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('any') }),
-  strict({ kind: z.literal('active-room'), room: roomRefSchema }),
-  strict({ kind: z.literal('room-placement'), placement: interactionRoomPlacementRefSchema }),
-  strict({ kind: z.literal('predicate'), condition: conditionSchema }),
-]);
-
 export type InteractionRoomPlacementRef = z.infer<typeof interactionRoomPlacementRefSchema>;
 export type InteractionMoveTarget = z.infer<typeof interactionMoveTargetSchema>;
 export type InteractionInstruction = z.infer<typeof interactionInstructionSchema>;
 export type InteractionProgram = z.infer<typeof interactionProgramSchema>;
-export type InteractionContext = z.infer<typeof interactionContextSchema>;
 
 export function defaultInteractionProgram(): InteractionProgram {
   return { instructions: [], completion: { kind: 'return' }, outcome: 'handled' };

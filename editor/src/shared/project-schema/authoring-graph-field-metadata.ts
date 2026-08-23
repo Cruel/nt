@@ -173,6 +173,13 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // all contribute to the owning Verb/Interaction runtime projection.
   [/^\/verbs\/\*\/data\/offers\//, OWNER],
   [/^\/interactions\/\*\/data\/rules\/\*\/offer(?:\/|$)/, OWNER],
+  // #85 replaces semantic Interaction contexts with pure Guards and explicit priority, and adds an
+  // optional Project undefined-interaction behavior at the preserved authoring schema version.
+  // Guard/program Lua source remains source-analyzed; all other leaves contribute to runtime shape.
+  [/^\/interactions\/\*\/data\/rules\/\*\/guard\/source$/, SOURCE],
+  [/^\/interactions\/\*\/data\/rules\/\*\/(?:guard|priority)(?:\/|$)/, OWNER],
+  [/^\/undefinedInteractionProgram\/instructions\/\*\/effect\/source$/, SOURCE],
+  [/^\/undefinedInteractionProgram(?:\/|$)/, OWNER],
   // #82 atomically replaces provisional Map point/shape and authored endpoint fields at the preserved
   // authoring schema version. New geometry, visibility, presentation, ordering, and exit-pair leaves
   // all contribute to the owning Map runtime projection.
@@ -421,6 +428,17 @@ const legacySchemaLeafPaths = [
   '/rooms/*/data/compose/additionalDependencies/targets/*/roomId' as JsonPointer,
   '/rooms/*/data/compose/script/$ref/collection' as JsonPointer,
   '/rooms/*/data/compose/script/$ref/id' as JsonPointer,
+  // #85 removes semantic Interaction contexts. Retain those same-version leaves solely to keep the
+  // pre-#85 reviewed graph-effect alignment while the replacement Guard/priority leaves above are
+  // classified explicitly.
+  ...sortedSchemaLeafPaths
+    .filter((path) => /^\/interactions\/\*\/data\/rules\/\*\/guard(?:\/|$)/.test(path))
+    .map((path) => path.replace('/guard', '/context/condition') as JsonPointer),
+  '/interactions/*/data/rules/*/context/kind' as JsonPointer,
+  '/interactions/*/data/rules/*/context/room/$ref/collection' as JsonPointer,
+  '/interactions/*/data/rules/*/context/room/$ref/id' as JsonPointer,
+  '/interactions/*/data/rules/*/context/placement/room' as JsonPointer,
+  '/interactions/*/data/rules/*/context/placement/placement' as JsonPointer,
   // #82 removes provisional Map position/shape and separately-authored Connection endpoint fields.
   // Retain those removed same-version leaves solely to preserve reviewed-effect alignment; every new
   // #82 Map leaf is classified explicitly above.
@@ -520,7 +538,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: 'b9fd529f',
     interactables: '86412986',
-    interactions: '29326d43',
+    interactions: 'dfffc1a2',
     inventories: 'a8c38dae',
     itemDefinitions: '255e512e',
     itemStacks: '3eaf965c',
@@ -539,6 +557,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     shaders: '94d3aa6e',
     tests: '9cbe2906',
     traits: 'e06af863',
+    undefinedInteractionProgram: '132464ef',
     variables: '9ac2af8d',
     verbs: 'dd471160',
   });

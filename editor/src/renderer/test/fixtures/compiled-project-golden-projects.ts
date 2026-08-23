@@ -62,7 +62,6 @@ const interactableReference = (id: string) => ({
   $ref: { collection: 'interactables' as const, id },
 });
 const roomReference = (id: string) => ({ $ref: { collection: 'rooms' as const, id } });
-const sceneReference = (id: string) => ({ $ref: { collection: 'scenes' as const, id } });
 const variableReference = (id: string) => ({ $ref: { collection: 'variables' as const, id } });
 const verbReference = (id: string) => ({ $ref: { collection: 'verbs' as const, id } });
 
@@ -1141,13 +1140,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     operator: 'truthy',
   };
   use.defaultProgram = {
-    instructions: [
-      {
-        id: 'base-notify',
-        kind: 'notify',
-        message: { markup: 'plain', source: { kind: 'inline', text: 'Nothing happens.' } },
-      },
-    ],
+    instructions: [],
     completion: { kind: 'return' },
     outcome: 'unhandled',
   };
@@ -1257,7 +1250,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     instructions: [
       { id: 'unlock-dialogue', kind: 'call-dialogue', dialogue: dialogueReference('intro') },
     ],
-    completion: { kind: 'end' },
+    completion: { kind: 'return' },
     outcome: 'handled',
   };
   project.verbs.unlock = { id: 'unlock', label: 'Unlock', data: unlock };
@@ -1288,7 +1281,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   combine.bindingOrder = ['first', 'second'];
   combine.defaultProgram = {
     instructions: [],
-    completion: { kind: 'scene', id: 'opening' },
+    completion: { kind: 'return' },
     outcome: 'unhandled',
   };
   project.verbs.combine = { id: 'combine', label: 'Combine', data: combine };
@@ -1313,8 +1306,9 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         },
       ],
       offer: { slotId: 'target', condition: { kind: 'always' }, rank: 0, primary: true },
-      context: { kind: 'active-room', room: roomReference('start') },
-      program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
+      guard: { kind: 'always' },
+      priority: 10,
+      program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
     },
     {
       id: 'interactable-feature',
@@ -1338,8 +1332,9 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         },
       ],
       offer: null,
-      context: { kind: 'any' },
-      program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
+      guard: { kind: 'always' },
+      priority: 10,
+      program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
     },
     {
       id: 'any-context',
@@ -1356,7 +1351,8 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         },
       ],
       offer: { slotId: 'target', condition: { kind: 'always' }, rank: 5, primary: true },
-      context: { kind: 'any' },
+      guard: { kind: 'always' },
+      priority: 20,
       program: {
         instructions: [
           {
@@ -1385,10 +1381,8 @@ export function interactionProgramGoldenProject(): AuthoringProject {
             kind: 'notify',
             message: { markup: 'plain', source: { kind: 'localized', key: 'dialogue-intro' } },
           },
-          { id: 'scene', kind: 'call-scene', scene: sceneReference('opening') },
-          { id: 'dialogue', kind: 'call-dialogue', dialogue: dialogueReference('intro') },
         ],
-        completion: { kind: 'room', id: 'hall' },
+        completion: { kind: 'return' },
         outcome: 'handled',
       },
     },
@@ -1402,17 +1396,11 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         },
       ],
       offer: null,
-      context: { kind: 'active-room', room: roomReference('start') },
+      guard: { kind: 'lua-predicate', source: 'offer_false()' },
+      priority: 0,
       program: {
-        instructions: [
-          {
-            id: 'unplaced',
-            kind: 'move-interactable',
-            interactable: interactableReference('coin'),
-            target: { kind: 'unplaced' },
-          },
-        ],
-        completion: { kind: 'scene', id: 'opening' },
+        instructions: [],
+        completion: { kind: 'return' },
         outcome: 'unhandled',
       },
     },
@@ -1431,7 +1419,8 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         },
       ],
       offer: null,
-      context: { kind: 'room-placement', placement: { room: 'start', placement: 'key-placement' } },
+      guard: { kind: 'always' },
+      priority: 5,
       program: {
         instructions: [
           {
@@ -1440,8 +1429,13 @@ export function interactionProgramGoldenProject(): AuthoringProject {
             interactable: interactableReference('key'),
             target: { kind: 'room', room: roomReference('start') },
           },
+          {
+            id: 'unlock-rule-dialogue',
+            kind: 'call-dialogue',
+            dialogue: dialogueReference('intro'),
+          },
         ],
-        completion: { kind: 'dialogue', id: 'intro' },
+        completion: { kind: 'return' },
         outcome: 'handled',
       },
     },
@@ -1469,15 +1463,13 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         },
       ],
       offer: null,
-      context: {
-        kind: 'predicate',
-        condition: {
-          kind: 'variable-comparison',
-          variable: variableReference('count'),
-          operator: 'greater',
-          value: 0,
-        },
+      guard: {
+        kind: 'variable-comparison',
+        variable: variableReference('count'),
+        operator: 'greater',
+        value: 0,
       },
+      priority: 0,
       program: {
         instructions: [
           {
@@ -1486,7 +1478,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
             effect: { kind: 'run-lua-effect', source: 'combine_items()' },
           },
         ],
-        completion: { kind: 'end' },
+        completion: { kind: 'return' },
         outcome: 'handled',
       },
     },

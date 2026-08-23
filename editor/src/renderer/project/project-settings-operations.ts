@@ -18,6 +18,7 @@ import {
 import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import type { RoomNavigationTransition } from '../../shared/project-schema/authoring-rooms';
+import type { InteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import {
   isTagColor,
   normalizeTagKey,
@@ -76,6 +77,10 @@ export interface SetProjectTitleScreenPayload {
   showAuthor?: boolean;
   subtitle?: string;
   startLabel?: string;
+}
+
+export interface SetProjectUndefinedInteractionProgramPayload {
+  program: InteractionProgram | null;
 }
 
 export interface SetProjectIconPayload {
@@ -293,6 +298,20 @@ export function setProjectTitleScreenPatches(
   if (payload.subtitle !== undefined) set('subtitle', payload.subtitle);
   if (payload.startLabel !== undefined) set('startLabel', payload.startLabel);
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
+}
+
+export function setProjectUndefinedInteractionProgramPatches(
+  document: unknown,
+  payload: SetProjectUndefinedInteractionProgramPayload,
+): EntityOperationResult {
+  if (!projectForCommand(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  const documentValue = toJsonValue(document);
+  const path = '/undefinedInteractionProgram';
+  return {
+    patches: [patchValue(documentValue, path, payload.program)],
+    affectedPaths: [path],
+  };
 }
 
 export function setProjectIconPatches(

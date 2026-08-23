@@ -334,8 +334,10 @@ nlohmann::json encode_interaction_program(const InteractionProgramRef& value)
                 return {{"kind", "rule"},
                         {"interaction", item.interaction.text()},
                         {"rule", item.rule.text()}};
-            else
+            else if constexpr (std::is_same_v<T, VerbDefaultProgramRef>)
                 return {{"kind", "verb-default"}, {"verb", item.verb.text()}};
+            else
+                return {{"kind", "project-undefined"}};
         },
         value);
 }
@@ -371,6 +373,10 @@ decode_interaction_program(Decoder& d, const nlohmann::json& value, std::string_
         return verb_id ? std::optional<InteractionProgramRef>(
                              VerbDefaultProgramRef{std::move(*verb_id)})
                        : std::nullopt;
+    }
+    if (*name == "project-undefined") {
+        d.object(value, pointer, {"kind"});
+        return InteractionProgramRef{ProjectUndefinedProgramRef{}};
     }
     d.error(k_variant, "Unknown interaction program kind '" + *name + "'.", child(pointer, "kind"));
     return std::nullopt;

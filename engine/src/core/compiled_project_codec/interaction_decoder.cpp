@@ -426,11 +426,12 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                   [&](const nlohmann::json& rule,
                       const std::string& rule_pointer) -> std::optional<InteractionRule> {
                       if (!decoder.object(rule, rule_pointer,
-                                          {"context", "id", "offer", "program", "slots", "verb"}))
+                                          {"guard", "id", "offer", "priority", "program", "slots", "verb"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(rule, "id", rule_pointer);
                       const auto* verb_value = decoder.member(rule, "verb", rule_pointer);
-                      const auto* context_value = decoder.member(rule, "context", rule_pointer);
+                      const auto* guard_value = decoder.member(rule, "guard", rule_pointer);
+                      const auto* priority_value = decoder.member(rule, "priority", rule_pointer);
                       const auto* slots_value = decoder.member(rule, "slots", rule_pointer);
                       const auto* offer_value = decoder.member(rule, "offer", rule_pointer);
                       const auto* program_value = decoder.member(rule, "program", rule_pointer);
@@ -441,63 +442,16 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                                                    decoder, *verb_value,
                                                    pointer_child(rule_pointer, "verb"), "verb")
                                              : std::nullopt;
-                      std::optional<InteractionContext> context;
-                      if (context_value && context_value->is_object()) {
-                          const auto context_pointer = pointer_child(rule_pointer, "context");
-                          const auto* kind_value =
-                              decoder.member(*context_value, "kind", context_pointer);
-                          auto kind = kind_value
-                                          ? decoder.string(*kind_value,
-                                                           pointer_child(context_pointer, "kind"))
+                      auto guard = guard_value
+                                       ? decode_condition_impl(decoder, *guard_value,
+                                                               pointer_child(rule_pointer, "guard"))
+                                       : std::nullopt;
+                      auto priority = priority_value
+                                          ? json_access::get<std::int64_t>(*priority_value)
                                           : std::nullopt;
-                          if (kind && *kind == "any") {
-                              decoder.object(*context_value, context_pointer, {"kind"});
-                              context = AnyInteractionContext{};
-                          } else if (kind && *kind == "active-room") {
-                              decoder.object(*context_value, context_pointer, {"kind", "room"});
-                              const auto* room_value =
-                                  decoder.member(*context_value, "room", context_pointer);
-                              auto room = room_value
-                                              ? decode_reference<RoomId>(
-                                                    decoder, *room_value,
-                                                    pointer_child(context_pointer, "room"), "room")
-                                              : std::nullopt;
-                              if (room)
-                                  context = ActiveRoomInteractionContext{std::move(*room)};
-                          } else if (kind && *kind == "room-placement") {
-                              decoder.object(*context_value, context_pointer,
-                                             {"kind", "placement"});
-                              const auto* placement_value =
-                                  decoder.member(*context_value, "placement", context_pointer);
-                              auto placement =
-                                  placement_value ? decode_placement_ref(
-                                                        decoder, *placement_value,
-                                                        pointer_child(context_pointer, "placement"))
-                                                  : std::nullopt;
-                              if (placement)
-                                  context = PlacementInteractionContext{std::move(*placement)};
-                          } else if (kind && *kind == "predicate") {
-                              decoder.object(*context_value, context_pointer,
-                                             {"condition", "kind"});
-                              const auto* condition_value =
-                                  decoder.member(*context_value, "condition", context_pointer);
-                              auto condition =
-                                  condition_value ? decode_condition_impl(
-                                                        decoder, *condition_value,
-                                                        pointer_child(context_pointer, "condition"))
-                                                  : std::nullopt;
-                              if (condition)
-                                  context = PredicateInteractionContext{std::move(*condition)};
-                          } else if (kind) {
-                              decoder.object(*context_value, context_pointer, {"kind"});
-                              decoder.error(k_code_variant,
-                                            "Unknown interaction context variant '" + *kind + "'.",
-                                            pointer_child(context_pointer, "kind"));
-                          }
-                      } else if (context_value) {
-                          decoder.error(k_code_type, "Expected an object.",
-                                        pointer_child(rule_pointer, "context"));
-                      }
+                      if (priority_value && !priority)
+                          decoder.error(k_code_type, "Expected an integer.",
+                                        pointer_child(rule_pointer, "priority"));
                       auto slots =
                           slots_value
                               ? decoder.array<InteractionSlotSelector>(
@@ -574,10 +528,11 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                               ? decode_interaction_program(decoder, *program_value,
                                                            pointer_child(rule_pointer, "program"))
                               : std::nullopt;
-                      if (id && verb && context && slots && offer_valid && program)
+                      if (id && verb && guard && priority && slots && offer_valid && program)
                           return InteractionRule{std::move(*id), std::move(*verb),
-                                                 std::move(*context), std::move(*slots),
-                                                 std::move(offer), std::move(*program)};
+                                                 std::move(*slots), std::move(offer),
+                                                 std::move(*guard), *priority,
+                                                 std::move(*program)};
                       return std::nullopt;
                   })
             : std::nullopt;

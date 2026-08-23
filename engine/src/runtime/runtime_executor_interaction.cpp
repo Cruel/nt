@@ -13,6 +13,19 @@ core::Diagnostics interaction_error(std::string code, std::string message)
         core::Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
+std::string_view undefined_interaction_message(std::string_view locale) noexcept
+{
+    if (locale.starts_with("es"))
+        return "No pasa nada.";
+    if (locale.starts_with("fr"))
+        return "Rien ne se passe.";
+    if (locale.starts_with("de"))
+        return "Nichts passiert.";
+    if (locale.starts_with("ja"))
+        return "何も起こらない。";
+    return "Nothing happens.";
+}
+
 const core::compiled::InteractionProgram* program_for(const core::CompiledProject& project,
                                                       const core::InteractionProgramRef& reference)
 {
@@ -29,9 +42,12 @@ const core::compiled::InteractionProgram* program_for(const core::CompiledProjec
                                      return rule.id == value.rule;
                                  });
                 return found == interaction->rules.end() ? nullptr : &found->program;
-            } else {
+            } else if constexpr (std::is_same_v<T, core::VerbDefaultProgramRef>) {
                 const auto* verb = project.find_verb(value.verb);
                 return verb == nullptr ? nullptr : &verb->default_program;
+            } else {
+                const auto& fallback = project.undefined_interaction_program();
+                return fallback ? &*fallback : nullptr;
             }
         },
         reference);
@@ -488,126 +504,168 @@ RuntimeExecutor::interact(core::VerbId verb_id,
         return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
             "execution.verb_unavailable", "Verb availability rejected the interaction"));
 
+    auto selector_contained_by = [&](const core::compiled::SubjectSelector& narrow,
+                                     const core::compiled::SubjectSelector& broad) {
+        if (std::holds_alternative<core::compiled::AnySubjectSelector>(broad))
+            return true;
+        if (narrow.index() == broad.index()) {
+            if (std::holds_alternative<core::compiled::AnySubjectSelector>(narrow))
+                return true;
+            if (const auto* left = std::get_if<core::compiled::FamilySubjectSelector>(&narrow))
+                return left->family ==
+                       std::get<core::compiled::FamilySubjectSelector>(broad).family;
+            if (const auto* left = std::get_if<core::compiled::TraitSubjectSelector>(&narrow))
+                return left->trait == std::get<core::compiled::TraitSubjectSelector>(broad).trait;
+            if (const auto* left =
+                    std::get_if<core::compiled::ItemDefinitionSubjectSelector>(&narrow))
+                return left->item_definition ==
+                       std::get<core::compiled::ItemDefinitionSubjectSelector>(broad)
+                           .item_definition;
+            if (const auto* left =
+                    std::get_if<core::compiled::QualifiedPatternSubjectSelector>(&narrow)) {
+                const auto& right =
+                    std::get<core::compiled::QualifiedPatternSubjectSelector>(broad);
+                const auto left_prefix = left->pattern.substr(0, left->pattern.size() - 1);
+                const auto right_prefix = right.pattern.substr(0, right.pattern.size() - 1);
+                return left->family == right.family && left_prefix.starts_with(right_prefix);
+            }
+            return std::get<core::compiled::ExactSubjectSelector>(narrow).subject ==
+                   std::get<core::compiled::ExactSubjectSelector>(broad).subject;
+        }
+        if (const auto* family = std::get_if<core::compiled::FamilySubjectSelector>(&broad)) {
+            if (const auto* exact = std::get_if<core::compiled::ExactSubjectSelector>(&narrow))
+                return subject_family(exact->subject) == family->family;
+            if (const auto* pattern =
+                    std::get_if<core::compiled::QualifiedPatternSubjectSelector>(&narrow))
+                return pattern->family == family->family;
+            if (std::holds_alternative<core::compiled::ItemDefinitionSubjectSelector>(narrow))
+                return family->family == core::compiled::SubjectFamily::ItemStack;
+        }
+        if (const auto* trait = std::get_if<core::compiled::TraitSubjectSelector>(&broad)) {
+            if (const auto* exact = std::get_if<core::compiled::ExactSubjectSelector>(&narrow))
+                return has_trait(exact->subject, trait->trait);
+        }
+        if (const auto* definition =
+                std::get_if<core::compiled::ItemDefinitionSubjectSelector>(&broad)) {
+            if (const auto* exact = std::get_if<core::compiled::ExactSubjectSelector>(&narrow)) {
+                const auto* stack =
+                    std::get_if<core::compiled::ItemStackInteractionSubject>(&exact->subject);
+                const auto* state = stack ? m_world.item_stack(stack->item_stack) : nullptr;
+                return state && state->definition == definition->item_definition;
+            }
+        }
+        if (const auto* pattern =
+                std::get_if<core::compiled::QualifiedPatternSubjectSelector>(&broad)) {
+            if (const auto* exact = std::get_if<core::compiled::ExactSubjectSelector>(&narrow)) {
+                if (subject_family(exact->subject) != pattern->family)
+                    return false;
+                const auto prefix = pattern->pattern.substr(0, pattern->pattern.size() - 1);
+                return subject_identity(exact->subject).starts_with(prefix);
+            }
+        }
+        return false;
+    };
+    auto union_contained_by = [&](const std::vector<core::compiled::SubjectSelector>& narrow,
+                                  const std::vector<core::compiled::SubjectSelector>& broad) {
+        return std::all_of(narrow.begin(), narrow.end(), [&](const auto& selector) {
+            return std::any_of(broad.begin(), broad.end(), [&](const auto& candidate) {
+                return selector_contained_by(selector, candidate);
+            });
+        });
+    };
+    auto rule_contained_by = [&](const core::compiled::InteractionRule& narrow,
+                                 const core::compiled::InteractionRule& broad) {
+        for (const auto& narrow_slot : narrow.slots) {
+            const auto broad_slot =
+                std::find_if(broad.slots.begin(), broad.slots.end(),
+                             [&](const auto& slot) { return slot.slot_id == narrow_slot.slot_id; });
+            if (broad_slot == broad.slots.end() ||
+                !union_contained_by(narrow_slot.selectors, broad_slot->selectors))
+                return false;
+        }
+        return true;
+    };
+
     struct Candidate {
         core::InteractionRuleProgramRef reference;
-        std::size_t exact_selectors = 0;
-        std::size_t constrained_selectors = 0;
-        std::size_t declaration_order = 0;
+        const core::compiled::InteractionRule* rule = nullptr;
     };
-    std::optional<Candidate> selected;
-    std::size_t order = 0;
+    std::vector<Candidate> remaining;
     for (const auto& interaction : m_project.interactions()) {
         for (const auto& rule : interaction.rules) {
-            const auto current_order = order++;
             if (rule.verb != verb_id || rule.slots.size() != bindings.size())
                 continue;
-            std::size_t exact = 0;
-            std::size_t constrained = 0;
-            bool matches = true;
-            for (const auto& rule_slot : rule.slots) {
-                const auto binding =
-                    std::find_if(bindings.begin(), bindings.end(), [&](const auto& item) {
-                        return item.slot_id == rule_slot.slot_id;
-                    });
-                if (binding == bindings.end() ||
-                    !selector_union_matches(rule_slot.selectors, binding->subject)) {
-                    matches = false;
-                    break;
-                }
-                if (std::any_of(
-                        rule_slot.selectors.begin(), rule_slot.selectors.end(),
-                        [](const auto& selector) {
-                            return std::holds_alternative<core::compiled::ExactSubjectSelector>(
-                                selector);
-                        }))
-                    ++exact;
-                if (std::any_of(
-                        rule_slot.selectors.begin(), rule_slot.selectors.end(),
-                        [](const auto& selector) {
-                            return !std::holds_alternative<core::compiled::AnySubjectSelector>(
-                                selector);
-                        }))
-                    ++constrained;
-            }
-            if (!matches)
-                continue;
-            bool context_matches = std::visit(
-                [this, &room_mode, &bindings](const auto& context) {
-                    using T = std::decay_t<decltype(context)>;
-                    if constexpr (std::is_same_v<T, core::compiled::AnyInteractionContext>)
-                        return true;
-                    else if constexpr (std::is_same_v<T,
-                                                      core::compiled::ActiveRoomInteractionContext>)
-                        return context.room == room_mode->room;
-                    else if constexpr (std::is_same_v<
-                                           T, core::compiled::PlacementInteractionContext>) {
-                        return std::any_of(
-                            bindings.begin(), bindings.end(),
-                            [this, &context](const auto& binding) {
-                                const auto& subject = binding.subject;
-                                if (context.placement.room !=
-                                    m_room_presentation->presentation.visit.room)
-                                    return false;
-                                if (const auto* character =
-                                        std::get_if<core::compiled::CharacterInteractionSubject>(
-                                            &subject))
-                                    return std::any_of(
-                                        m_room_presentation->presentation.actors.begin(),
-                                        m_room_presentation->presentation.actors.end(),
-                                        [&context,
-                                         character](const core::ResolvedRoomActor& actor) {
-                                            return actor.character == character->character &&
-                                                   actor.placement ==
-                                                       context.placement.placement_id;
-                                        });
-                                std::optional<core::InteractableId> interactable_id;
-                                if (const auto* interactable =
-                                        std::get_if<core::compiled::InteractableInteractionSubject>(
-                                            &subject))
-                                    interactable_id = interactable->interactable;
-                                else if (const auto* feature =
-                                             std::get_if<core::compiled::FeatureInteractionSubject>(
-                                                 &subject)) {
-                                    const auto* owner = std::get_if<core::InteractableFeatureRef>(
-                                        &feature->feature);
-                                    if (!owner)
-                                        return false;
-                                    interactable_id = owner->interactable;
-                                } else
-                                    return false;
-                                return std::any_of(
-                                    m_room_presentation->presentation.interactables.begin(),
-                                    m_room_presentation->presentation.interactables.end(),
-                                    [&context, &interactable_id](const auto& value) {
-                                        return value.interactable == *interactable_id &&
-                                               value.placement == context.placement.placement_id;
-                                    });
-                            });
-                    } else if constexpr (std::is_same_v<
-                                             T, core::compiled::PredicateInteractionContext>) {
-                        auto evaluated = evaluate(context.condition);
-                        const auto* value = evaluated.value_if();
-                        return value != nullptr && *value;
-                    } else
-                        return false;
-                },
-                rule.context);
-            if (!context_matches)
-                continue;
-            Candidate candidate{
-                {interaction.identity.id, rule.id}, exact, constrained, current_order};
-            if (!selected || candidate.exact_selectors > selected->exact_selectors ||
-                (candidate.exact_selectors == selected->exact_selectors &&
-                 candidate.constrained_selectors > selected->constrained_selectors) ||
-                (candidate.exact_selectors == selected->exact_selectors &&
-                 candidate.constrained_selectors == selected->constrained_selectors &&
-                 candidate.declaration_order < selected->declaration_order))
-                selected = std::move(candidate);
+            const bool matches =
+                std::all_of(rule.slots.begin(), rule.slots.end(), [&](const auto& slot) {
+                    const auto binding =
+                        std::find_if(bindings.begin(), bindings.end(), [&](const auto& item) {
+                            return item.slot_id == slot.slot_id;
+                        });
+                    return binding != bindings.end() &&
+                           selector_union_matches(slot.selectors, binding->subject);
+                });
+            if (matches)
+                remaining.push_back({{interaction.identity.id, rule.id}, &rule});
         }
     }
 
+    std::optional<core::InteractionRuleProgramRef> selected;
+    while (!remaining.empty() && !selected) {
+        std::vector<std::size_t> tier;
+        for (std::size_t index = 0; index < remaining.size(); ++index) {
+            bool has_strictly_narrower = false;
+            for (std::size_t other = 0; other < remaining.size(); ++other) {
+                if (index == other)
+                    continue;
+                const bool other_within =
+                    rule_contained_by(*remaining[other].rule, *remaining[index].rule);
+                const bool index_within =
+                    rule_contained_by(*remaining[index].rule, *remaining[other].rule);
+                if (other_within && !index_within) {
+                    has_strictly_narrower = true;
+                    break;
+                }
+            }
+            if (!has_strictly_narrower)
+                tier.push_back(index);
+        }
+
+        std::optional<std::int64_t> winning_priority;
+        std::vector<std::size_t> passing;
+        for (const auto index : tier) {
+            auto guard = evaluate(remaining[index].rule->guard);
+            const auto* guard_value = guard.value_if();
+            if (guard_value == nullptr)
+                return core::Result<void, RuntimeExecutionError>::failure(guard.error());
+            if (!*guard_value)
+                continue;
+            const auto priority = remaining[index].rule->priority;
+            if (!winning_priority || priority > *winning_priority) {
+                winning_priority = priority;
+                passing = {index};
+            } else if (priority == *winning_priority) {
+                passing.push_back(index);
+            }
+        }
+        if (passing.size() > 1)
+            return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
+                "execution.ambiguous_interaction",
+                "Multiple Interaction Rules passed at equal structural tier and priority"));
+        if (passing.size() == 1) {
+            selected = remaining[passing.front()].reference;
+            break;
+        }
+
+        std::vector<Candidate> broader;
+        broader.reserve(remaining.size() - tier.size());
+        for (std::size_t index = 0; index < remaining.size(); ++index)
+            if (std::find(tier.begin(), tier.end(), index) == tier.end())
+                broader.push_back(remaining[index]);
+        remaining = std::move(broader);
+    }
+
     const core::InteractionProgramRef program =
-        selected ? core::InteractionProgramRef{selected->reference}
+        selected ? core::InteractionProgramRef{*selected}
                  : core::InteractionProgramRef{core::VerbDefaultProgramRef{verb_id}};
     auto started = m_flow.start_interaction(
         core::InteractionInvocationContext{verb_id, room_mode->room, std::move(bindings)}, program);
@@ -656,7 +714,7 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
             return std::nullopt;
         }
 
-        if (std::get_if<core::VerbDefaultProgramRef>(&frame->program) == nullptr) {
+        if (std::holds_alternative<core::InteractionRuleProgramRef>(frame->program)) {
             core::InteractionProgramRef next_program =
                 core::VerbDefaultProgramRef{frame->invocation.verb};
             const auto* next_definition = program_for(m_project, next_program);
@@ -671,8 +729,22 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
                 return fault(advanced.error());
             return std::nullopt;
         }
+        if (std::holds_alternative<core::VerbDefaultProgramRef>(frame->program) &&
+            m_project.undefined_interaction_program()) {
+            core::InteractionProgramRef next_program = core::ProjectUndefinedProgramRef{};
+            const auto* next_definition = program_for(m_project, next_program);
+            auto next =
+                core::InteractionFramePosition{first_instruction(*next_definition),
+                                               core::InteractionFallbackStage::UndefinedInteraction,
+                                               core::InteractionExecutionOutcome::Pending, false};
+            auto advanced = m_flow.advance_interaction(expected, std::move(next_program), next);
+            if (!advanced)
+                return fault(advanced.error());
+            return std::nullopt;
+        }
 
-        auto requested = m_gateway.request_notification("Nothing happens.");
+        auto requested = m_gateway.request_notification(
+            std::string(undefined_interaction_message(runtime_locale)));
         if (!requested)
             return fault(requested.error());
         auto returned = m_flow.return_from_flow();
@@ -686,6 +758,99 @@ RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
     if (instruction == nullptr)
         return fault(interaction_error("execution.invalid_interaction_instruction",
                                        "Interaction instruction is missing"));
+
+    const auto is_mutation = [](const core::compiled::InteractionInstruction& candidate) {
+        return std::visit(
+            [](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::compiled::ApplyEffectInstruction>)
+                    return !std::holds_alternative<core::RunLuaEffect>(value.effect);
+                return std::is_same_v<T, core::compiled::MoveInteractableInstruction> ||
+                       std::is_same_v<T, core::compiled::SetInteractableStateInstruction>;
+            },
+            candidate);
+    };
+    if (is_mutation(*instruction)) {
+        auto staged_state = m_state;
+        core::FlowExecutor staged_flow(m_project, staged_state);
+        core::SharedPrimitiveEvaluator staged_primitives(m_project, staged_state, staged_flow);
+        RuntimeWorld staged_world(m_project, staged_state);
+        const auto current = std::find_if(
+            program->instructions.begin(), program->instructions.end(), [&](const auto& candidate) {
+                return std::visit([&](const auto& value) { return value.id == instruction_id; },
+                                  candidate);
+            });
+        auto cursor = current;
+        for (; cursor != program->instructions.end() && is_mutation(*cursor); ++cursor) {
+            auto staged = std::visit(
+                [&](const auto& value) -> core::Result<void, core::Diagnostics> {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, core::compiled::ApplyEffectInstruction>)
+                        return staged_primitives.apply(value.effect);
+                    else if constexpr (std::is_same_v<T,
+                                                      core::compiled::MoveInteractableInstruction>)
+                        return staged_world.move_interactable(value.interactable, value.target);
+                    else if constexpr (std::is_same_v<
+                                           T, core::compiled::SetInteractableStateInstruction>) {
+                        if (value.enabled) {
+                            auto changed = staged_world.set_interactable_enabled(value.interactable,
+                                                                                 *value.enabled);
+                            if (!changed)
+                                return changed;
+                        }
+                        if (value.visible)
+                            return staged_world.set_interactable_visible(value.interactable,
+                                                                         *value.visible);
+                        return core::Result<void, core::Diagnostics>::success();
+                    } else
+                        return core::Result<void, core::Diagnostics>::failure(interaction_error(
+                            "execution.invalid_interaction_program",
+                            "Non-mutation instruction entered the atomic mutation batch"));
+                },
+                *cursor);
+            if (!staged)
+                return fault(staged.error());
+        }
+        for (auto commit = current; commit != cursor; ++commit) {
+            auto applied = std::visit(
+                [&](const auto& value) -> core::Result<void, core::Diagnostics> {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, core::compiled::ApplyEffectInstruction>)
+                        return m_primitives.apply(value.effect);
+                    else if constexpr (std::is_same_v<T,
+                                                      core::compiled::MoveInteractableInstruction>)
+                        return m_world.move_interactable(value.interactable, value.target);
+                    else if constexpr (std::is_same_v<
+                                           T, core::compiled::SetInteractableStateInstruction>) {
+                        if (value.enabled) {
+                            auto changed = m_world.set_interactable_enabled(value.interactable,
+                                                                            *value.enabled);
+                            if (!changed)
+                                return changed;
+                        }
+                        if (value.visible)
+                            return m_world.set_interactable_visible(value.interactable,
+                                                                    *value.visible);
+                        return core::Result<void, core::Diagnostics>::success();
+                    } else
+                        return core::Result<void, core::Diagnostics>::failure(interaction_error(
+                            "execution.invalid_interaction_program",
+                            "Non-mutation instruction entered the atomic mutation batch"));
+                },
+                *commit);
+            if (!applied)
+                return fault(applied.error());
+        }
+        auto next = expected;
+        next.next_instruction = cursor == program->instructions.end()
+                                    ? std::nullopt
+                                    : std::optional<core::InteractionInstructionId>{std::visit(
+                                          [](const auto& value) { return value.id; }, *cursor)};
+        auto advanced = m_flow.advance_interaction(expected, frame->program, next);
+        return advanced ? std::nullopt
+                        : std::optional<core::FlowRunOutcome>{fault(advanced.error())};
+    }
+
     const auto sequential = next_instruction(*program, instruction_id);
     return std::visit(
         [this, &fault, &expected, &frame, &sequential,
