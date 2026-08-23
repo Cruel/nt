@@ -205,7 +205,6 @@ const layoutScaleOverridesSchema = strict({
   ui: layoutScaleInheritanceSchema.optional(),
   text: layoutScaleInheritanceSchema.optional(),
 });
-const roomPlacementReferenceSchema = strict({ placementId: id, room: roomReferenceSchema });
 const hotspotHighlightSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('default') }),
   strict({ kind: z.literal('material'), material: materialReferenceSchema }),
@@ -525,12 +524,6 @@ export const interactionProgramSchema = strict({
   instructions: z.array(interactionInstructionSchema),
   outcome: z.enum(['handled', 'unhandled']),
 });
-const interactionContextSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('any') }),
-  strict({ kind: z.literal('active-room'), room: roomReferenceSchema }),
-  strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
-  strict({ condition: compiledConditionSchema, kind: z.literal('predicate') }),
-]);
 const subjectFamilySchema = z.enum(['character', 'interactable', 'feature', 'item-stack']);
 export const compiledSubjectSelectorSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('any-subject') }),
@@ -555,8 +548,9 @@ const interactionOfferSchema = strict({
   primary: z.boolean(),
 });
 const interactionRuleSchema = strict({
-  context: interactionContextSchema,
+  guard: compiledConditionSchema,
   id,
+  priority: z.number().int(),
   slots: z.array(interactionSlotSelectorSchema),
   offer: interactionOfferSchema.nullable(),
   program: interactionProgramSchema,
@@ -1082,6 +1076,7 @@ export const compiledProjectWireV4Schema = strict({
   schemaVersion: z.literal(COMPILED_PROJECT_SCHEMA_VERSION),
   settings: runtimeSettingsSchema,
   bootstrapModule: scriptReferenceSchema,
+  undefinedInteractionProgram: interactionProgramSchema.nullable().optional(),
 }).superRefine((project, context) => {
   const collections = [
     { path: ['definitions', 'characters'], records: project.definitions.characters },

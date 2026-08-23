@@ -111,7 +111,8 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::variant_size_v<compiled::ScriptSource> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractableLocation> == 3);
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractionInstruction> == 6);
-    STATIC_REQUIRE(std::variant_size_v<compiled::InteractionContext> == 4);
+    STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::guard), Condition>);
+    STATIC_REQUIRE(std::is_same_v<decltype(compiled::InteractionRule::priority), std::int64_t>);
     STATIC_REQUIRE(std::variant_size_v<compiled::SubjectSelector> == 6);
     STATIC_REQUIRE(std::variant_size_v<compiled::SceneInstruction> == 13);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueSegment> == 2);

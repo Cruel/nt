@@ -113,7 +113,7 @@ CompiledProject make_project(compiled::Entrypoint entrypoint)
         {}, EndFlow{}, compiled::InteractionOutcome::Handled};
     compiled::InteractionProgram rule_program{
         {compiled::NotifyInstruction{id<InteractionInstructionId>("notify"), text("Done")}},
-        EndFlow{},
+        ReturnFlow{},
         compiled::InteractionOutcome::Handled};
     compiled::VerbDefinition verb{
         .identity = {id<VerbId>("look")},
@@ -127,9 +127,10 @@ CompiledProject make_project(compiled::Entrypoint entrypoint)
     };
     compiled::InteractionRule rule{id<InteractionRuleId>("look-rule"),
                                    id<VerbId>("look"),
-                                   compiled::AnyInteractionContext{},
                                    {},
                                    std::nullopt,
+                                   Always{},
+                                   0,
                                    std::move(rule_program)};
     compiled::InteractionDefinition interaction{{id<InteractionId>("room-actions")},
                                                 {std::move(rule)}};

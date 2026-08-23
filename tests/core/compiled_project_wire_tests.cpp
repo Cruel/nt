@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:47197e39e238d657e8a006a96c8732bb");
+    CHECK(project.save_contract == "sc1:b7f24937186a5c91efe1e6072309f0bd");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -257,8 +257,10 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(project.verbs[3].default_program.instructions.size() == 1);
         REQUIRE(project.interactions.front().rules.size() == 6);
         const auto& rules = project.interactions.front().rules;
-        CHECK(std::holds_alternative<ActiveRoomInteractionContext>(rules[0].context));
-        CHECK(std::holds_alternative<AnyInteractionContext>(rules[1].context));
+        CHECK(std::holds_alternative<Always>(rules[0].guard));
+        CHECK(rules[0].priority == 10);
+        CHECK(std::holds_alternative<Always>(rules[1].guard));
+        CHECK(rules[1].priority == 10);
         REQUIRE(
             std::holds_alternative<ExactSubjectSelector>(rules[0].slots.front().selectors.front()));
         CHECK(std::holds_alternative<FeatureInteractionSubject>(
@@ -267,21 +269,21 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
             std::holds_alternative<ExactSubjectSelector>(rules[1].slots.front().selectors.front()));
         CHECK(std::holds_alternative<FeatureInteractionSubject>(
             std::get<ExactSubjectSelector>(rules[1].slots.front().selectors.front()).subject));
-        CHECK(std::holds_alternative<AnyInteractionContext>(rules[2].context));
-        REQUIRE(rules[2].program.instructions.size() == 6);
+        CHECK(std::holds_alternative<Always>(rules[2].guard));
+        CHECK(rules[2].priority == 20);
+        REQUIRE(rules[2].program.instructions.size() == 4);
         CHECK(std::holds_alternative<ApplyEffectInstruction>(rules[2].program.instructions[0]));
         CHECK(
             std::holds_alternative<MoveInteractableInstruction>(rules[2].program.instructions[1]));
         CHECK(std::holds_alternative<SetInteractableStateInstruction>(
             rules[2].program.instructions[2]));
         CHECK(std::holds_alternative<NotifyInstruction>(rules[2].program.instructions[3]));
-        CHECK(std::holds_alternative<CallSceneInteractionInstruction>(
-            rules[2].program.instructions[4]));
-        CHECK(std::holds_alternative<CallDialogueInteractionInstruction>(
-            rules[2].program.instructions[5]));
-        CHECK(std::holds_alternative<ActiveRoomInteractionContext>(rules[3].context));
-        CHECK(std::holds_alternative<PlacementInteractionContext>(rules[4].context));
-        CHECK(std::holds_alternative<PredicateInteractionContext>(rules[5].context));
+        CHECK(std::holds_alternative<LuaPredicate>(rules[3].guard));
+        CHECK(rules[3].priority == 0);
+        CHECK(std::holds_alternative<Always>(rules[4].guard));
+        CHECK(rules[4].priority == 5);
+        CHECK(std::holds_alternative<GlobalPropertyComparison>(rules[5].guard));
+        CHECK(rules[5].priority == 0);
         REQUIRE(std::holds_alternative<FamilySubjectSelector>(
             rules[3].slots.front().selectors.front()));
         CHECK(std::get<FamilySubjectSelector>(rules[3].slots.front().selectors.front()).family ==
@@ -334,7 +336,7 @@ TEST_CASE("compiled project decoder rejects specialized discriminants and incomp
         {"dialogue-program", {"definitions", "dialogues", "1", "program", "edges", "0"}},
         {"interaction-program",
          {"definitions", "interactions", "0", "rules", "2", "program", "instructions", "0"}},
-        {"interaction-program", {"definitions", "interactions", "0", "rules", "2", "context"}},
+        {"interaction-program", {"definitions", "interactions", "0", "rules", "2", "guard"}},
         {"interaction-program",
          {"definitions", "interactions", "0", "rules", "2", "slots", "0", "selectors", "0"}},
     };

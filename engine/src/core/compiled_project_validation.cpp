@@ -1215,6 +1215,8 @@ private:
             validate_condition(value.availability, path + "/availability");
             validate_program(value.default_program, path + "/defaultProgram");
         }
+        if (m_input.undefined_interaction_program)
+            validate_program(*m_input.undefined_interaction_program, "/undefinedInteractionProgram");
         for (std::size_t index = 0; index < m_input.interactions.size(); ++index) {
             const auto& value = m_input.interactions[index];
             const auto path = item("/definitions/interactions", index);
@@ -1255,22 +1257,7 @@ private:
                 }
                 if (rule.offer && rule.offer->condition)
                     validate_condition(*rule.offer->condition, rule_path + "/offer/condition");
-                std::visit(
-                    [&](const auto& context) {
-                        using T = std::decay_t<decltype(context)>;
-                        if constexpr (std::is_same_v<T, ActiveRoomInteractionContext>)
-                            require(m_rooms, context.room, "room", rule_path + "/context/room");
-                        else if constexpr (std::is_same_v<T, PlacementInteractionContext>) {
-                            require(m_rooms, context.placement.room, "room",
-                                    rule_path + "/context/placement/room");
-                            if (!placement(context.placement))
-                                error("compiled_project.unresolved_nested_reference",
-                                      "Interaction context references a missing Room placement.",
-                                      rule_path + "/context/placement/placementId");
-                        } else if constexpr (std::is_same_v<T, PredicateInteractionContext>)
-                            validate_condition(context.condition, rule_path + "/context/condition");
-                    },
-                    rule.context);
+                validate_condition(rule.guard, rule_path + "/guard");
                 validate_program(rule.program, rule_path + "/program");
             }
         }

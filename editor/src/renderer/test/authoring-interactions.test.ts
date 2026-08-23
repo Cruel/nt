@@ -8,7 +8,6 @@ import {
   parseInteractionData,
   validateInteractionData,
 } from '../../shared/project-schema/authoring-interactions';
-import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 
 const slotText = (text: string) => ({
@@ -47,22 +46,8 @@ const twoSlotVerb = (label: string) => ({
 });
 
 describe('authoring interactions', () => {
-  it('does not warn that rules with different active-room contexts have equal specificity', () => {
+  it('rejects unconditional equal-priority rules at the same structural tier', () => {
     const project = createAuthoringProject();
-    project.rooms.a = {
-      id: 'a',
-      label: 'A',
-      traits: [],
-      properties: {},
-      data: defaultRoomData('A'),
-    };
-    project.rooms.b = {
-      id: 'b',
-      label: 'B',
-      traits: [],
-      properties: {},
-      data: defaultRoomData('B'),
-    };
     project.verbs.look = {
       id: 'look',
       label: 'Look',
@@ -75,7 +60,8 @@ describe('authoring interactions', () => {
         verb: { $ref: { collection: 'verbs', id: 'look' } },
         slots: [],
         offer: null,
-        context: { kind: 'active-room', room: { $ref: { collection: 'rooms', id: 'a' } } },
+        guard: { kind: 'always' },
+        priority: 10,
         program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
       },
       {
@@ -83,7 +69,8 @@ describe('authoring interactions', () => {
         verb: { $ref: { collection: 'verbs', id: 'look' } },
         slots: [],
         offer: null,
-        context: { kind: 'active-room', room: { $ref: { collection: 'rooms', id: 'b' } } },
+        guard: { kind: 'always' },
+        priority: 10,
         program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
       },
     );
@@ -94,7 +81,49 @@ describe('authoring interactions', () => {
       data,
     });
 
-    expect(diagnostics.filter((item) => item.severity === 'warning')).toEqual([]);
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'error', path: '/interactions/rules/data/rules/1' }),
+    );
+  });
+
+  it('warns when guarded equal-priority rules may overlap at the same structural tier', () => {
+    const project = createAuthoringProject();
+    project.verbs.look = {
+      id: 'look',
+      label: 'Look',
+      data: defaultVerbData('Look'),
+    };
+    const data = defaultInteractionData();
+    data.rules.push(
+      {
+        id: 'a',
+        verb: { $ref: { collection: 'verbs', id: 'look' } },
+        slots: [],
+        offer: null,
+        guard: { kind: 'lua-predicate', source: 'can_a()' },
+        priority: 10,
+        program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
+      },
+      {
+        id: 'b',
+        verb: { $ref: { collection: 'verbs', id: 'look' } },
+        slots: [],
+        offer: null,
+        guard: { kind: 'lua-predicate', source: 'can_b()' },
+        priority: 10,
+        program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
+      },
+    );
+
+    const diagnostics = validateInteractionData(project, 'rules', {
+      id: 'rules',
+      label: 'Rules',
+      data,
+    });
+
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'warning', path: '/interactions/rules/data/rules/1' }),
+    );
   });
 
   it('rejects duplicate stable instruction IDs', () => {
@@ -107,7 +136,8 @@ describe('authoring interactions', () => {
         verb: { $ref: { collection: 'verbs', id: 'look' } },
         slots: [],
         offer: null,
-        context: { kind: 'any' },
+        guard: { kind: 'always' },
+        priority: 0,
         program: {
           instructions: [
             {
@@ -134,6 +164,87 @@ describe('authoring interactions', () => {
     expect(diagnostics).toContainEqual(
       expect.objectContaining({
         path: '/interactions/rules/data/rules/0/program/instructions/1/id',
+        severity: 'error',
+      }),
+    );
+  });
+
+  it('rejects unhandled behavior that would commit work before fallback', () => {
+    const project = createAuthoringProject();
+    project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
+    const data = defaultInteractionData();
+    data.rules = [
+      {
+        id: 'bad-fallback',
+        verb: { $ref: { collection: 'verbs', id: 'look' } },
+        slots: [],
+        offer: null,
+        guard: { kind: 'always' },
+        priority: 0,
+        program: {
+          instructions: [
+            {
+              id: 'notice',
+              kind: 'notify',
+              message: { source: { kind: 'inline', text: 'Committed' }, markup: 'plain' },
+            },
+          ],
+          completion: { kind: 'return' },
+          outcome: 'unhandled',
+        },
+      },
+    ];
+    const diagnostics = validateInteractionData(project, 'rules', {
+      id: 'rules',
+      label: 'Rules',
+      data,
+    });
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        path: '/interactions/rules/data/rules/0/program',
+        severity: 'error',
+      }),
+    );
+  });
+
+  it('rejects more than one terminal action in a compact behavior', () => {
+    const project = createAuthoringProject();
+    project.verbs.look = { id: 'look', label: 'Look', data: defaultVerbData('Look') };
+    const data = defaultInteractionData();
+    data.rules = [
+      {
+        id: 'too-many-terminals',
+        verb: { $ref: { collection: 'verbs', id: 'look' } },
+        slots: [],
+        offer: null,
+        guard: { kind: 'always' },
+        priority: 0,
+        program: {
+          instructions: [
+            {
+              id: 'first',
+              kind: 'notify',
+              message: { source: { kind: 'inline', text: 'One' }, markup: 'plain' },
+            },
+            {
+              id: 'second',
+              kind: 'notify',
+              message: { source: { kind: 'inline', text: 'Two' }, markup: 'plain' },
+            },
+          ],
+          completion: { kind: 'return' },
+          outcome: 'handled',
+        },
+      },
+    ];
+    const diagnostics = validateInteractionData(project, 'rules', {
+      id: 'rules',
+      label: 'Rules',
+      data,
+    });
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        path: '/interactions/rules/data/rules/0/program',
         severity: 'error',
       }),
     );
@@ -172,7 +283,8 @@ describe('authoring interactions', () => {
         },
       ],
       offer: null,
-      context: { kind: 'any' },
+      guard: { kind: 'always' },
+      priority: 0,
       program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
     });
     project.interactions.use = {
@@ -242,7 +354,8 @@ describe('authoring interactions', () => {
           },
         ],
         offer: null,
-        context: { kind: 'any' },
+        guard: { kind: 'always' },
+        priority: 0,
         program,
       },
       {
@@ -253,7 +366,8 @@ describe('authoring interactions', () => {
           { slotId: 'second', selectors: [{ kind: 'any-subject' }] },
         ],
         offer: null,
-        context: { kind: 'any' },
+        guard: { kind: 'always' },
+        priority: 0,
         program,
       },
       {
@@ -264,7 +378,8 @@ describe('authoring interactions', () => {
           { slotId: 'second', selectors: [{ kind: 'any-subject' }] },
         ],
         offer: null,
-        context: { kind: 'any' },
+        guard: { kind: 'always' },
+        priority: 0,
         program,
       },
     ];

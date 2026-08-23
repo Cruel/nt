@@ -59,9 +59,12 @@ const compiled::InteractionProgram* find_interaction_program(const CompiledProje
                                      return rule.id == value.rule;
                                  });
                 return found == interaction->rules.end() ? nullptr : &found->program;
-            } else {
+            } else if constexpr (std::is_same_v<T, VerbDefaultProgramRef>) {
                 const auto* verb = project.find_verb(value.verb);
                 return verb == nullptr ? nullptr : &verb->default_program;
+            } else {
+                const auto& fallback = project.undefined_interaction_program();
+                return fallback ? &*fallback : nullptr;
             }
         },
         reference);
@@ -453,6 +456,8 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
             using T = std::decay_t<decltype(reference)>;
             if constexpr (std::is_same_v<T, VerbDefaultProgramRef>)
                 return reference.verb == invocation.verb;
+            else if constexpr (std::is_same_v<T, ProjectUndefinedProgramRef>)
+                return true;
             else {
                 const auto* interaction = m_project.find_interaction(reference.interaction);
                 if (interaction == nullptr)

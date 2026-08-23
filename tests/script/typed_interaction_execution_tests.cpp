@@ -94,10 +94,10 @@ void drive_to_room(TypedExecutionKernel& kernel)
     FAIL("Room entry did not complete");
 }
 
-void drive_interaction(TypedExecutionKernel& kernel)
+void drive_interaction(TypedExecutionKernel& kernel, std::string_view locale = "en")
 {
     for (std::size_t iteration = 0; iteration < 64; ++iteration) {
-        auto outcome = kernel.run_until_blocked(1, "en");
+        auto outcome = kernel.run_until_blocked(1, locale);
         if (const auto* blocked = std::get_if<core::FlowBlockedOutcome>(&outcome)) {
             if (std::holds_alternative<core::InputFlowBlocker>(blocked->blocker)) {
                 return;
@@ -195,7 +195,6 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
     generic["slots"] = nlohmann::json::array(
         {{{"slotId", "target"},
           {"selectors", nlohmann::json::array({{{"kind", "any-subject"}}})}}});
-    generic["context"] = {{"kind", "any"}};
     generic["program"] = program(nlohmann::json::array());
     auto typed = generic;
     typed["id"] = "typed-interactable";
@@ -224,6 +223,242 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
         std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
     REQUIRE(selected != nullptr);
     CHECK(selected->rule == id<core::InteractionRuleId>("typed-interactable"));
+}
+
+TEST_CASE("Interaction Guard fallthrough advances from a false narrower tier to a broader tier")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto narrow = definition(document, "interactions", "actions")["rules"][2];
+    narrow["id"] = "narrow-false";
+    narrow["guard"] = {{"kind", "lua-predicate"}, {"source", "offer_false()"}};
+    narrow["priority"] = 100;
+    narrow["program"] = program(nlohmann::json::array());
+    auto broad = narrow;
+    broad["id"] = "broad-true";
+    broad["guard"] = {{"kind", "always"}};
+    broad["priority"] = 0;
+    broad["slots"][0]["selectors"] =
+        nlohmann::json::array({{{"kind", "family"}, {"family", "interactable"}}});
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(broad), std::move(narrow)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+    auto interaction = kernel->interaction_view("en");
+    REQUIRE(interaction);
+    REQUIRE(interaction.value().program);
+    const auto* selected =
+        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+    REQUIRE(selected != nullptr);
+    CHECK(selected->rule == id<core::InteractionRuleId>("broad-true"));
+}
+
+TEST_CASE("Interaction priority selects one passing rule within a structural tier")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto low = definition(document, "interactions", "actions")["rules"][2];
+    low["id"] = "low-priority";
+    low["guard"] = {{"kind", "always"}};
+    low["priority"] = 5;
+    low["program"] = program(nlohmann::json::array());
+    auto high = low;
+    high["id"] = "high-priority";
+    high["priority"] = 10;
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(low), std::move(high)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+    auto interaction = kernel->interaction_view("en");
+    REQUIRE(interaction);
+    REQUIRE(interaction.value().program);
+    const auto* selected =
+        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+    REQUIRE(selected != nullptr);
+    CHECK(selected->rule == id<core::InteractionRuleId>("high-priority"));
+}
+
+TEST_CASE("equal-priority passing Interaction rules fault as ambiguous before execution")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto first = definition(document, "interactions", "actions")["rules"][2];
+    first["id"] = "ambiguous-a";
+    first["guard"] = {{"kind", "always"}};
+    first["priority"] = 10;
+    first["program"] = program({{{"id", "move"},
+                                 {"kind", "move-interactable"},
+                                 {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
+                                 {"target", {{"kind", "unplaced"}}}}});
+    auto second = first;
+    second["id"] = "ambiguous-b";
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(first), std::move(second)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    CHECK_FALSE(
+        kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
+    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    REQUIRE(key != nullptr);
+    CHECK(std::holds_alternative<core::compiled::RoomLocation>(key->location));
+    CHECK(std::holds_alternative<core::RoomMode>(kernel->state().mode()));
+}
+
+TEST_CASE("Interaction Guard errors fault before behavior execution")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto rule = definition(document, "interactions", "actions")["rules"][2];
+    rule["id"] = "guard-error";
+    rule["guard"] = {{"kind", "lua-predicate"}, {"source", "error('guard failed')"}};
+    rule["program"] = program({{{"id", "move"},
+                                {"kind", "move-interactable"},
+                                {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
+                                {"target", {{"kind", "unplaced"}}}}});
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(rule)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    CHECK_FALSE(
+        kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
+    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    REQUIRE(key != nullptr);
+    CHECK(std::holds_alternative<core::compiled::RoomLocation>(key->location));
+}
+
+TEST_CASE("compact Interaction mutation batches validate atomically before commit")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto rule = definition(document, "interactions", "actions")["rules"][2];
+    rule["id"] = "atomic-cycle";
+    const nlohmann::json key_into_coin = {
+        {"id", "key-into-coin"},
+        {"kind", "move-interactable"},
+        {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
+        {"target",
+         {{"kind", "inventory"},
+          {"inventory",
+           {{"owner",
+             {{"kind", "interactable"},
+              {"interactable", {{"kind", "interactable"}, {"id", "coin"}}}}},
+            {"inventoryId", "pouch"}}}}},
+    };
+    const nlohmann::json coin_into_key = {
+        {"id", "coin-into-key"},
+        {"kind", "move-interactable"},
+        {"interactable", {{"kind", "interactable"}, {"id", "coin"}}},
+        {"target",
+         {{"kind", "inventory"},
+          {"inventory",
+           {{"owner",
+             {{"kind", "interactable"},
+              {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}},
+            {"inventoryId", "hidden"}}}}},
+    };
+    rule["program"] =
+        program(nlohmann::json::array({std::move(key_into_coin), std::move(coin_into_key)}));
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(rule)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    REQUIRE(
+        kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
+    auto outcome = kernel->run_until_blocked(8, "en");
+    REQUIRE(std::holds_alternative<core::FlowFaultOutcome>(outcome));
+    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    REQUIRE(key != nullptr);
+    CHECK(std::holds_alternative<core::compiled::RoomLocation>(key->location));
+}
+
+TEST_CASE("committed Interaction effects survive a later Lua handoff failure without fallback")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto rule = definition(document, "interactions", "actions")["rules"][2];
+    rule["id"] = "commit-then-fail";
+    const nlohmann::json move = {
+        {"id", "move"},
+        {"kind", "move-interactable"},
+        {"interactable", {{"kind", "interactable"}, {"id", "key"}}},
+        {"target",
+         {{"kind", "inventory"},
+          {"inventory", {{"owner", {{"kind", "project"}}}, {"inventoryId", "player"}}}}},
+    };
+    const nlohmann::json lua = {
+        {"id", "lua"},
+        {"kind", "apply-effect"},
+        {"effect", {{"kind", "run-lua-effect"}, {"source", "error('terminal failed')"}}},
+    };
+    rule["program"] = program(nlohmann::json::array({std::move(move), std::move(lua)}));
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(rule)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    REQUIRE(
+        kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key_subject}}));
+    auto outcome = kernel->run_until_blocked(8, "en");
+    REQUIRE(std::holds_alternative<core::FlowFaultOutcome>(outcome));
+    const auto* key = kernel->state().interactable(id<core::InteractableId>("key"));
+    REQUIRE(key != nullptr);
+    CHECK(std::holds_alternative<core::compiled::InventoryLocation>(key->location));
+    const auto fallback = std::find_if(
+        kernel->gateway().events().begin(), kernel->gateway().events().end(),
+        [](const runtime::RuntimeEvent& event) {
+            const auto* notification = std::get_if<runtime::NotificationEvent>(&event);
+            return notification != nullptr && notification->message == "Nothing happens.";
+        });
+    CHECK(fallback == kernel->gateway().events().end());
 }
 
 TEST_CASE("named Verb slots allow the same live subject to bind more than once")
@@ -269,7 +504,6 @@ TEST_CASE("runtime-created subjects match live Trait and qualified-pattern selec
           {"pattern", "item-stack:runtime-item-stack-*"}}});
     auto rule = definition(document, "interactions", "actions")["rules"][2];
     rule["id"] = "runtime-created";
-    rule["context"] = {{"kind", "any"}};
     rule["program"] = program(nlohmann::json::array());
     rule["slots"][0]["selectors"] = use["slots"][0]["selectors"];
     definition(document, "interactions", "actions")["rules"] =
@@ -313,7 +547,6 @@ TEST_CASE("item Stack definitions participate in Subject Selector matching")
           {"itemDefinition", {{"kind", "item-definition"}, {"id", "credits"}}}}});
     auto rule = definition(document, "interactions", "actions")["rules"][2];
     rule["id"] = "credits-stack";
-    rule["context"] = {{"kind", "any"}};
     rule["program"] = program(nlohmann::json::array());
     rule["slots"][0]["selectors"] = use["slots"][0]["selectors"];
     definition(document, "interactions", "actions")["rules"] =
@@ -359,7 +592,6 @@ TEST_CASE("typed Interaction selector unions cannot overwrite an earlier mismatc
           {"selectors",
            nlohmann::json::array({{{"kind", "family"}, {"family", "interactable"}}})}}});
     exact_then_wildcard["offer"] = nullptr;
-    exact_then_wildcard["context"] = {{"kind", "any"}};
     exact_then_wildcard["program"] = program(nlohmann::json::array());
     auto generic = exact_then_wildcard;
     generic["id"] = "matching-wildcards";
@@ -405,7 +637,6 @@ TEST_CASE("typed Interaction and Room publication preserve exact live item Stack
                               {"subject",
                                {{"kind", "item-stack"},
                                 {"itemStack", {{"kind", "item-stack"}, {"id", "wallet"}}}}}}})}}});
-    exact["context"] = {{"kind", "any"}};
     exact["program"] = program(nlohmann::json::array());
     auto wildcard = exact;
     wildcard["id"] = "item-stack-family";
@@ -614,6 +845,76 @@ TEST_CASE(
     auto room = kernel->room_view("en");
     REQUIRE(room);
     CHECK(room.value().controls.size() == inventory.value().controls.size());
+}
+
+TEST_CASE("Interaction fallback uses optional Project behavior before the engine response")
+{
+    auto document = load_document();
+    definition(document, "interactions", "actions")["rules"] = nlohmann::json::array();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    definition(document, "verbs", "use")["defaultProgram"] =
+        program(nlohmann::json::array(), "unhandled");
+    document["undefinedInteractionProgram"] = program(nlohmann::json::array(
+        {{{"id", "project-fallback"},
+          {"kind", "notify"},
+          {"message",
+           {{"markup", "plain"},
+            {"source", {{"kind", "inline"}, {"text", "Project fallback"}}}}}}}));
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+    drive_interaction(*kernel);
+    const auto project_fallback = std::find_if(
+        kernel->gateway().events().begin(), kernel->gateway().events().end(),
+        [](const runtime::RuntimeEvent& event) {
+            const auto* notification = std::get_if<runtime::NotificationEvent>(&event);
+            return notification != nullptr && notification->message == "Project fallback";
+        });
+    REQUIRE(project_fallback != kernel->gateway().events().end());
+    const auto engine_fallback = std::find_if(
+        kernel->gateway().events().begin(), kernel->gateway().events().end(),
+        [](const runtime::RuntimeEvent& event) {
+            const auto* notification = std::get_if<runtime::NotificationEvent>(&event);
+            return notification != nullptr && notification->message == "Nothing happens.";
+        });
+    CHECK(engine_fallback == kernel->gateway().events().end());
+}
+
+TEST_CASE("undefined Interaction engine fallback is localized by runtime locale")
+{
+    auto document = load_document();
+    definition(document, "interactions", "actions")["rules"] = nlohmann::json::array();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    definition(document, "verbs", "use")["defaultProgram"] =
+        program(nlohmann::json::array(), "unhandled");
+    document.erase("undefinedInteractionProgram");
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), key}}));
+    drive_interaction(*kernel, "es");
+    const auto localized =
+        std::find_if(kernel->gateway().events().begin(), kernel->gateway().events().end(),
+                     [](const runtime::RuntimeEvent& event) {
+                         const auto* notification = std::get_if<runtime::NotificationEvent>(&event);
+                         return notification != nullptr && notification->message == "No pasa nada.";
+                     });
+    CHECK(localized != kernel->gateway().events().end());
 }
 
 TEST_CASE("Room and Interactable Features preserve owner-qualified semantic invocation")

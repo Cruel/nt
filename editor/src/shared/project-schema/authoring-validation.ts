@@ -808,6 +808,14 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
       );
     }
   }
+  if (project.undefinedInteractionProgram)
+    diagnostics.push(
+      ...validateInteractionProgram(
+        project,
+        project.undefinedInteractionProgram,
+        '/undefinedInteractionProgram',
+      ),
+    );
   for (const [id, record] of Object.entries(project.interactions))
     diagnostics.push(...validateInteractionData(project, id, record));
   for (const [id, record] of Object.entries(project.dialogues))

@@ -61,7 +61,8 @@ describe('runtime-content authoring contracts', () => {
         },
       ],
       offer: null,
-      context: { kind: 'active-room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+      guard: { kind: 'always' },
+      priority: 0,
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     });
     project.interactions.actions = {
@@ -127,7 +128,8 @@ describe('runtime-content authoring contracts', () => {
       verb: { $ref: { collection: 'verbs', id: 'use' } },
       slots: [],
       offer: null,
-      context: { kind: 'any' },
+      guard: { kind: 'always' },
+      priority: 0,
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     });
     project.interactions.actions = {

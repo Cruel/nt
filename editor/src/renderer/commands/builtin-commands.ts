@@ -83,6 +83,7 @@ import {
   setProjectSystemLayoutPatches,
   setProjectTagColorPatches,
   setProjectTitleScreenPatches,
+  setProjectUndefinedInteractionProgramPatches,
   updateProjectMetadataPatches,
 } from '@/project/project-settings-operations';
 import { systemLayoutRoleValues } from '../../shared/project-schema/authoring-layouts';
@@ -102,6 +103,7 @@ import { gameplayInstanceKindValues } from '../../shared/project-schema/authorin
 import { imageAssetMetadataSchema } from '../../shared/project-schema/authoring-assets';
 import { roomHotspotDataSchema } from '../../shared/project-schema/authoring-rooms';
 import { roomNormalizedRectSchema } from '../../shared/project-schema/authoring-rooms';
+import { interactionProgramSchema } from '../../shared/project-schema/authoring-interaction-programs';
 import {
   interactableHotspotBehaviorSchema,
   interactableHotspotsSchema,
@@ -815,6 +817,9 @@ const projectTitleScreenSchema = z.object({
   subtitle: z.string().optional(),
   startLabel: z.string().optional(),
 });
+const projectUndefinedInteractionProgramSchema = z.object({
+  program: interactionProgramSchema.nullable(),
+});
 const projectIconSchema = z.object({ assetId: entityIdSchema.nullable() });
 const projectAssetRefSchema = z
   .object({
@@ -1390,6 +1395,14 @@ export const projectSetTitleScreenCommand: CommandHandler = ({ document, payload
     setProjectTitleScreenPatches(document, parsed),
   );
 
+export const projectSetUndefinedInteractionProgramCommand: CommandHandler = ({
+  document,
+  payload,
+}) =>
+  parseEntityCommand(projectUndefinedInteractionProgramSchema, payload, (parsed) =>
+    setProjectUndefinedInteractionProgramPatches(document, parsed),
+  );
+
 export const projectSetIconCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectIconSchema, payload, (parsed) =>
     setProjectIconPatches(document, parsed),
@@ -1512,6 +1525,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.setSystemLayout': projectSetSystemLayoutCommand,
     'project.setDefaultFont': projectSetDefaultFontCommand,
     'project.setTitleScreen': projectSetTitleScreenCommand,
+    'project.setUndefinedInteractionProgram': projectSetUndefinedInteractionProgramCommand,
     'project.setIcon': projectSetIconCommand,
     'project.setApp': projectSetAppCommand,
     'project.setRoomNavigationTransition': projectSetRoomNavigationTransitionCommand,
@@ -1632,6 +1646,8 @@ export function labelForCommand(type: string): string {
       return 'Set project default font';
     case 'project.setTitleScreen':
       return 'Update title screen settings';
+    case 'project.setUndefinedInteractionProgram':
+      return 'Update undefined Interaction behavior';
     case 'project.setIcon':
       return 'Set project icon';
     case 'project.setApp':

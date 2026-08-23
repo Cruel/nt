@@ -4,7 +4,6 @@ import { conditionSchema, verbRefSchema } from './authoring-flow';
 import type { FeatureRefData } from './authoring-features';
 import {
   defaultInteractionProgram,
-  interactionContextSchema,
   interactionProgramSchema,
 } from './authoring-interaction-programs';
 import { parseInteractableData } from './authoring-interactables';
@@ -34,7 +33,8 @@ export const interactionRuleSchema = strict({
   verb: verbRefSchema,
   slots: z.array(interactionSlotSelectorSchema),
   offer: interactionOfferSchema.nullable(),
-  context: interactionContextSchema,
+  guard: conditionSchema,
+  priority: z.number().int(),
   program: interactionProgramSchema,
 });
 
@@ -67,23 +67,6 @@ export function parseInteractionData(value: unknown): InteractionData | null {
 
 export function defaultInteractionData(): InteractionData {
   return { kind: 'interaction', rules: [] };
-}
-
-function validateRoomPlacement(
-  project: AuthoringProject,
-  roomId: string,
-  placementId: string,
-  path: string,
-  diagnostics: InteractionSchemaDiagnostic[],
-) {
-  const room = project.rooms[roomId];
-  const roomData = room ? parseRoomData(room.data) : null;
-  if (!room) diagnostics.push(diagnostic(`${path}/room`, `Missing room '${roomId}'.`));
-  else if (!roomData?.placements.some((placement) => placement.id === placementId)) {
-    diagnostics.push(
-      diagnostic(`${path}/placement`, `Missing placement '${placementId}' in room '${roomId}'.`),
-    );
-  }
 }
 
 function validateFeatureRef(
@@ -227,6 +210,43 @@ export function validateInteractionProgram(
     }
   }
   validateFlowTarget(project, program.completion, `${path}/completion`, diagnostics);
+
+  const terminalKinds = new Set(['notify', 'call-scene', 'call-dialogue']);
+  const terminals = program.instructions
+    .map((instruction, index) => ({ instruction, index }))
+    .filter(
+      ({ instruction }) =>
+        terminalKinds.has(instruction.kind) ||
+        (instruction.kind === 'apply-effect' && instruction.effect.kind === 'run-lua-effect'),
+    );
+  if (program.outcome === 'unhandled') {
+    if (program.instructions.length !== 0)
+      diagnostics.push(
+        diagnostic(
+          path,
+          'An unhandled compact Interaction behavior must be empty so fallback cannot follow committed work.',
+        ),
+      );
+  } else {
+    if (terminals.length > 1)
+      diagnostics.push(
+        diagnostic(path, 'Compact Interaction behavior permits at most one terminal action.'),
+      );
+    if (terminals.length === 1 && terminals[0]!.index !== program.instructions.length - 1)
+      diagnostics.push(
+        diagnostic(
+          `${path}/instructions/${terminals[0]!.index}`,
+          'The terminal Interaction action must be the final instruction.',
+        ),
+      );
+    if (terminals.length === 1 && program.completion.kind !== 'return')
+      diagnostics.push(
+        diagnostic(
+          `${path}/completion`,
+          'A compact Interaction behavior cannot combine a terminal instruction with a terminal Flow target.',
+        ),
+      );
+  }
   return diagnostics;
 }
 
@@ -335,40 +355,19 @@ export function validateInteractionData(
           `${path}/slots/${slotIndex}/selectors/${selectorIndex}`,
           diagnostics,
         );
-    if (rule.context.kind === 'active-room' && !project.rooms[rule.context.room.$ref.id])
-      diagnostics.push(
-        diagnostic(`${path}/context/room/$ref`, `Missing room '${rule.context.room.$ref.id}'.`),
-      );
-    if (rule.context.kind === 'room-placement')
-      validateRoomPlacement(
-        project,
-        rule.context.placement.room,
-        rule.context.placement.placement,
-        `${path}/context/placement`,
-        diagnostics,
-      );
-    if (
-      rule.context.kind === 'predicate' &&
-      rule.context.condition.kind === 'variable-comparison'
-    ) {
-      const condition = rule.context.condition;
-      const variableId = condition.variable.$ref.id;
-      if (condition.value === undefined) {
+    if (rule.guard.kind === 'variable-comparison') {
+      const variableId = rule.guard.variable.$ref.id;
+      if (rule.guard.value === undefined) {
         if (!project.variables[variableId])
           diagnostics.push(
-            diagnostic(
-              `${path}/context/condition/variable/$ref`,
-              `Missing variable '${variableId}'.`,
-            ),
+            diagnostic(`${path}/guard/variable/$ref`, `Missing variable '${variableId}'.`),
           );
       } else {
-        const result = validateVariableRuntimeValue(project, variableId, condition.value);
+        const result = validateVariableRuntimeValue(project, variableId, rule.guard.value);
         if (!result.ok)
           diagnostics.push(
             diagnostic(
-              result.kind === 'missing'
-                ? `${path}/context/condition/variable/$ref`
-                : `${path}/context/condition/value`,
+              result.kind === 'missing' ? `${path}/guard/variable/$ref` : `${path}/guard/value`,
               result.message,
             ),
           );
@@ -378,18 +377,28 @@ export function validateInteractionData(
     const key = JSON.stringify({
       verb: rule.verb.$ref.id,
       slots: [...rule.slots].sort((left, right) => left.slotId.localeCompare(right.slotId)),
-      context: rule.context,
     });
     const earlier = matchKeys.get(key);
-    if (earlier !== undefined)
-      diagnostics.push(
-        diagnostic(
-          path,
-          `Rule has equal matching specificity to rule '${parsed.data.rules[earlier]?.id}'. Declared order is the tie-break.`,
-          'warning',
-        ),
-      );
-    else matchKeys.set(key, index);
+    if (earlier !== undefined) {
+      const previous = parsed.data.rules[earlier]!;
+      if (previous.priority === rule.priority) {
+        if (previous.guard.kind === 'always' && rule.guard.kind === 'always')
+          diagnostics.push(
+            diagnostic(
+              path,
+              `Rule conflicts with unconditional rule '${previous.id}' at equal structural specificity and priority ${rule.priority}.`,
+            ),
+          );
+        else
+          diagnostics.push(
+            diagnostic(
+              path,
+              `Rule may be ambiguous with guarded rule '${previous.id}' when both Guards pass at priority ${rule.priority}.`,
+              'warning',
+            ),
+          );
+      }
+    } else matchKeys.set(key, index);
   }
   return diagnostics;
 }

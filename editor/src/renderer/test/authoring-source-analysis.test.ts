@@ -349,14 +349,12 @@ describe('typed source registry and graph evidence', () => {
         verb: { $ref: { collection: 'verbs', id: 'verb' } },
         slots: [],
         offer: null,
-        context: {
-          kind: 'predicate',
-          condition: {
-            kind: 'lua-predicate',
-            source: `interaction_allowed()`,
-            additionalDependencies: { targets: [] },
-          },
+        guard: {
+          kind: 'lua-predicate',
+          source: `interaction_allowed()`,
+          additionalDependencies: { targets: [] },
         },
+        priority: 0,
         program: {
           instructions: [
             {

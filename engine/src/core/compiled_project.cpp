@@ -96,21 +96,37 @@ bool valid_interaction_program(const compiled::InteractionProgram& program) noex
 {
     if (!enum_at_most(program.outcome, compiled::InteractionOutcome::Unhandled))
         return false;
-    return std::all_of(
-        program.instructions.begin(), program.instructions.end(),
-        [](const compiled::InteractionInstruction& instruction) {
-            return std::visit(
-                [](const auto& value) {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, compiled::SetInteractableStateInstruction>)
-                        return value.enabled.has_value() || value.visible.has_value();
-                    else if constexpr (std::is_same_v<T, compiled::MoveInteractableInstruction>)
-                        return valid_interactable_location(value.target);
-                    else
-                        return true;
-                },
-                instruction);
-        });
+    if (program.outcome == compiled::InteractionOutcome::Unhandled)
+        return program.instructions.empty();
+
+    std::size_t terminal_count = 0;
+    for (std::size_t index = 0; index < program.instructions.size(); ++index) {
+        const bool valid = std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, compiled::SetInteractableStateInstruction>)
+                    return value.enabled.has_value() || value.visible.has_value();
+                else if constexpr (std::is_same_v<T, compiled::MoveInteractableInstruction>)
+                    return valid_interactable_location(value.target);
+                else if constexpr (std::is_same_v<T, compiled::NotifyInstruction> ||
+                                   std::is_same_v<T, compiled::CallSceneInteractionInstruction> ||
+                                   std::is_same_v<T, compiled::CallDialogueInteractionInstruction>) {
+                    ++terminal_count;
+                    return index + 1 == program.instructions.size();
+                } else if constexpr (std::is_same_v<T, compiled::ApplyEffectInstruction>) {
+                    if (std::holds_alternative<RunLuaEffect>(value.effect)) {
+                        ++terminal_count;
+                        return index + 1 == program.instructions.size();
+                    }
+                    return true;
+                } else
+                    return true;
+            },
+            program.instructions[index]);
+        if (!valid || terminal_count > 1)
+            return false;
+    }
+    return terminal_count == 0 || std::holds_alternative<ReturnFlow>(program.completion);
 }
 
 bool valid_scene_instruction(const compiled::SceneInstruction& instruction) noexcept
@@ -325,6 +341,11 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
             return false;
         }
     }
+    if (input.undefined_interaction_program &&
+        !valid_interaction_program(*input.undefined_interaction_program)) {
+        diagnostics = invalid_model("Project undefined Interaction behavior is invalid");
+        return false;
+    }
     for (const auto& scene : input.scenes) {
         if (!valid_background(scene.default_background) ||
             std::any_of(scene.program.instructions.begin(), scene.program.instructions.end(),
@@ -477,7 +498,9 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
       m_interactables(std::move(input.interactables)),
       m_item_definitions(std::move(input.item_definitions)),
       m_item_stacks(std::move(input.item_stacks)), m_verbs(std::move(input.verbs)),
-      m_interactions(std::move(input.interactions)), m_scenes(std::move(input.scenes)),
+      m_interactions(std::move(input.interactions)),
+      m_undefined_interaction_program(std::move(input.undefined_interaction_program)),
+      m_scenes(std::move(input.scenes)),
       m_dialogues(std::move(input.dialogues)), m_maps(std::move(input.maps))
 {
     Diagnostics unused;

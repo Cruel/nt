@@ -41,7 +41,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                         {"archetypes", "bootstrapModule", "definitions", "entrypoint",
                          "inventories", "localization", "project", "properties", "resources",
                          "itemStacks", "saveContract", "schema", "schemaVersion", "settings",
-                         "traits"}))
+                         "traits", "undefinedInteractionProgram"}))
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
     const auto* schema_value = decoder.member(document, "schema", "");
@@ -59,6 +59,9 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     const auto* archetypes_value = decoder.member(document, "archetypes", "");
     const auto* resources_value = decoder.member(document, "resources", "");
     const auto* definitions_value = decoder.member(document, "definitions", "");
+    const auto undefined_interaction_iter = document.find("undefinedInteractionProgram");
+    const auto* undefined_interaction_value =
+        undefined_interaction_iter == document.end() ? nullptr : &*undefined_interaction_iter;
 
     auto schema = schema_value ? decoder.string(*schema_value, "/schema") : std::nullopt;
     if (schema && *schema != "noveltea.compiled.project") {
@@ -108,6 +111,15 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
     auto localization = localization_value
                             ? decode_localization(decoder, *localization_value, "/localization")
                             : std::nullopt;
+    bool undefined_interaction_valid = true;
+    std::optional<InteractionProgram> undefined_interaction_program;
+    if (undefined_interaction_value && !undefined_interaction_value->is_null()) {
+        auto decoded = decode_interaction_program(decoder, *undefined_interaction_value,
+                                                  "/undefinedInteractionProgram");
+        undefined_interaction_valid = decoded.has_value();
+        if (decoded)
+            undefined_interaction_program = std::move(*decoded);
+    }
     auto inventories =
         inventories_value
             ? decoder.array<InventoryDefinition>(
@@ -307,7 +319,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                           save_contract && localization && inventories && properties && traits &&
                           archetypes && item_stacks && assets && layouts && scripts && characters &&
                           rooms && interactables && item_definitions && verbs && interactions &&
-                          scenes && dialogues && maps;
+                          undefined_interaction_valid && scenes && dialogues && maps;
     if (!complete || decoder.failed())
         return Result<SharedProject, Diagnostics>::failure(decoder.take_diagnostics());
 
@@ -331,6 +343,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                                                                      std::move(*item_stacks),
                                                                      std::move(*verbs),
                                                                      std::move(*interactions),
+                                                                     std::move(undefined_interaction_program),
                                                                      std::move(*scenes),
                                                                      std::move(*dialogues),
                                                                      std::move(*maps)});
