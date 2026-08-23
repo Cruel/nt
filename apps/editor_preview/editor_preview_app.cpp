@@ -308,6 +308,38 @@ EMSCRIPTEN_KEEPALIVE int noveltea_runtime_select_subjects(const char* subjects_j
     return preview->select_subjects(std::move(*subjects.value_if())) ? 1 : 0;
 }
 
+EMSCRIPTEN_KEEPALIVE int noveltea_runtime_primary_activate(const char* subjects_json)
+{
+    auto* preview = preview_controller();
+    if (!preview || !subjects_json)
+        return 0;
+    auto subjects = noveltea::core::editor::decode_editor_interaction_subjects_text(subjects_json);
+    if (!subjects) {
+        preview->report_diagnostics(std::move(subjects).error());
+        return 0;
+    }
+    auto* values = subjects.value_if();
+    if (values == nullptr || values->size() != 1)
+        return 0;
+    return preview->primary_activate(std::move(values->front())) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int noveltea_runtime_open_verb_menu(const char* subjects_json)
+{
+    auto* preview = preview_controller();
+    if (!preview || !subjects_json)
+        return 0;
+    auto subjects = noveltea::core::editor::decode_editor_interaction_subjects_text(subjects_json);
+    if (!subjects) {
+        preview->report_diagnostics(std::move(subjects).error());
+        return 0;
+    }
+    auto* values = subjects.value_if();
+    if (values == nullptr || values->size() != 1)
+        return 0;
+    return preview->open_verb_menu(std::move(values->front())) ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE int noveltea_runtime_clear_subject_selection()
 {
     auto* preview = preview_controller();

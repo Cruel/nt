@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
-import { verbRefSchema } from './authoring-flow';
+import { conditionSchema, verbRefSchema } from './authoring-flow';
 import type { FeatureRefData } from './authoring-features';
 import {
   defaultInteractionProgram,
@@ -22,10 +22,18 @@ export const interactionSlotSelectorSchema = strict({
   selectors: z.array(subjectSelectorSchema).min(1),
 });
 
+export const interactionOfferSchema = strict({
+  slotId: entityIdSchema,
+  condition: conditionSchema.optional(),
+  rank: z.number().int(),
+  primary: z.boolean(),
+});
+
 export const interactionRuleSchema = strict({
   id: entityIdSchema,
   verb: verbRefSchema,
   slots: z.array(interactionSlotSelectorSchema),
+  offer: interactionOfferSchema.nullable(),
   context: interactionContextSchema,
   program: interactionProgramSchema,
 });
@@ -36,6 +44,7 @@ export const interactionDataSchema = strict({
 });
 
 export type InteractionSlotSelector = z.infer<typeof interactionSlotSelectorSchema>;
+export type InteractionOffer = z.infer<typeof interactionOfferSchema>;
 export type InteractionRule = z.infer<typeof interactionRuleSchema>;
 export type InteractionData = z.infer<typeof interactionDataSchema>;
 export interface InteractionSchemaDiagnostic {
@@ -308,6 +317,13 @@ export function validateInteractionData(
           diagnostic(
             `${path}/slots`,
             `Interaction rule slots must bind every named slot of Verb '${rule.verb.$ref.id}' exactly once.`,
+          ),
+        );
+      if (rule.offer && !expectedSlots.has(rule.offer.slotId))
+        diagnostics.push(
+          diagnostic(
+            `${path}/offer/slotId`,
+            `Rule Offer slot '${rule.offer.slotId}' must name a slot of Verb '${rule.verb.$ref.id}'.`,
           ),
         );
     }

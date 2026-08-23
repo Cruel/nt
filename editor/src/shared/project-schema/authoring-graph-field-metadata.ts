@@ -167,6 +167,12 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     OWNER,
   ],
   [/^\/tests\/\*\/data\/steps\/\*\/runInteraction\/bindings\/\*\/slotId$/, OWNER],
+  [/^\/tests\/\*\/data\/steps\/\*\/subjectAction\//, OWNER],
+  // #84 adds explicit Verb Offers and opt-in rule-derived Offers at the preserved authoring schema
+  // version. Discovery selectors, optional pure conditions, starting slots, rank, and primary intent
+  // all contribute to the owning Verb/Interaction runtime projection.
+  [/^\/verbs\/\*\/data\/offers\//, OWNER],
+  [/^\/interactions\/\*\/data\/rules\/\*\/offer(?:\/|$)/, OWNER],
   // #82 atomically replaces provisional Map point/shape and authored endpoint fields at the preserved
   // authoring schema version. New geometry, visibility, presentation, ordering, and exit-pair leaves
   // all contribute to the owning Map runtime projection.
@@ -389,6 +395,10 @@ const legacySchemaLeafPaths = [
   // retain the retired source leaf only so the preserved pre-replacement reviewed sequence does not
   // shift unrelated field effects.
   '/startupHook/source' as JsonPointer,
+  // #84 replaces the provisional Verb quickAction leaf with explicit/rule-derived Offer semantics
+  // at the preserved authoring schema version. Retain the retired leaf only to preserve the
+  // pre-replacement reviewed-effect alignment; all Offer leaves are classified explicitly above.
+  '/verbs/*/data/quickAction' as JsonPointer,
   // #79 removes the provisional Room lifecycle effect arrays and standalone composition Script
   // surface. Lifecycle handlers and Compose are now resolved exclusively through the #74 Hook
   // Registry mappings. Retain the removed same-version leaves so unrelated reviewed graph effects
@@ -510,7 +520,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: 'b9fd529f',
     interactables: '86412986',
-    interactions: '8f337b87',
+    interactions: '29326d43',
     inventories: 'a8c38dae',
     itemDefinitions: '255e512e',
     itemStacks: '3eaf965c',
@@ -527,10 +537,10 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scripts: 'f3482815',
     settings: 'faa09891',
     shaders: '94d3aa6e',
-    tests: '3a7174b9',
+    tests: '9cbe2906',
     traits: 'e06af863',
     variables: '9ac2af8d',
-    verbs: '42b034a9',
+    verbs: 'dd471160',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {

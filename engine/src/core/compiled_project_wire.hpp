@@ -123,9 +123,9 @@ struct VerbDefinition {
     TextContent completed_command_text;
     std::vector<VerbSlot> slots;
     std::vector<VerbSlotId> binding_order;
+    std::vector<VerbOffer> offers;
     Condition availability;
     InteractionProgram default_program;
-    bool quick_action;
 };
 struct InteractionDefinition {
     DefinitionIdentity<InteractionId> identity;

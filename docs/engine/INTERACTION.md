@@ -15,7 +15,9 @@ Each Interaction Rule binds every slot declared by its Verb exactly once. A rule
 
 Hotspots are not Interaction contexts. They are presentation/input geometry that resolve to one semantic subject or Room Exit before runtime dispatch. Interaction matching therefore sees the same subject identity whether selection came from a pointer Hotspot, Layout UI, Lua, preview/debugger, or an authored test.
 
-Rules carry one of the remaining semantic contexts: generic, active Room, Room placement, or predicate. #83 replaces positional operand matching with named slot matching but does not implement the later Guard/priority resolver from #85. Current rule selection therefore keeps the existing deterministic pre-#85 ordering policy after the named-slot selector checks.
+Rules carry one of the remaining semantic contexts: generic, active Room, Room placement, or predicate. They also carry an explicit nullable Offer declaration. `offer: null` opts the rule out of subject-first discovery; an Offer names its starting slot and owns an optional pure Offer Condition, authored rank, and primary intent. The starting subject selectors are the selectors already authored on that rule slot.
+
+Rule context and the later Interaction Guard contract are execution concerns. They never participate in Offer discovery. #84 adds the rule-derived Offer surface but does not implement the Guard/priority resolver from #85; current complete-command rule selection therefore keeps the existing deterministic pre-#85 policy after named-slot selector checks.
 
 ## Subject Selector matching
 
@@ -29,6 +31,14 @@ Selector evaluation is based on the exact live subject and its current effective
 - `exact` compares the exact semantic subject identity.
 
 Declared Archetype provenance is not part of matching or specificity. A runtime-created subject therefore matches when its live family, effective Traits, Item Definition, qualified identity, or exact identity satisfies the selector. Copying or instantiating from an Archetype does not grant hidden selector preference.
+
+## Discovery versus command execution
+
+Offer discovery and complete-command execution are intentionally separate. Runtime may derive an Offer from a rule's starting-slot selectors without claiming that the rule will later win complete-command resolution. Conversely, a rule with `offer: null` can still handle a directly submitted complete command.
+
+For each Verb, runtime first resolves the most-specific matching explicit or rule-derived Offer. Only that declaration's Offer Condition is evaluated. A false condition suppresses that Verb for the subject and never falls back to a broader declaration. Rule context/predicates are not substituted for Offer Conditions.
+
+`Primary Activate` asks runtime to execute a unique immediately-complete primary Offer or otherwise open the ordinary Verb menu. `Open Verb Menu` only opens that menu and never auto-selects a primary Offer. Ambiguous primary Offers produce a typed diagnostic observation and leave the player at the menu.
 
 ## Program
 
@@ -57,21 +67,21 @@ Multiple Hotspots may map to the same Feature. That produces one Interaction sub
 
 ## Authoring, compiled, and state disposition
 
-- **Current authoring schema:** collection-specific Interaction records with ordered rules, named slot selector unions, semantic context, and strict programs. #83 replaces positional operand fields without changing the already-selected authoring schema version.
-- **Compiled V4:** linked immutable `InteractionRule`/`InteractionProgram` with named slot selectors and owner-qualified Feature subjects. #83 keeps compiled schema version 4.
+- **Current authoring schema:** collection-specific Interaction records with ordered rules, named slot selector unions, nullable rule-derived Offer declarations, semantic context, and strict programs. #84 keeps the already-selected authoring schema version.
+- **Compiled V4:** linked immutable `InteractionRule`/`InteractionProgram` with named slot selectors, nullable typed Offers, and owner-qualified Feature subjects. #84 keeps compiled schema version 4.
 - **Mutable:** Interaction flow frames plus gameplay state changed by executed effects in `SessionState`; the Interaction definition itself has no mutable Property/Trait state.
 - **Tooling only:** categories, tags, colors, sort keys, notes, graph layout, selection, and previews.
 
 ## Runtime and tooling surfaces
 
-Runtime selection and invocation messages, saved Interaction frames, editor playback, debug snapshots, RmlUi bindings, and Lua `Game.run_action` use the same semantic subject vocabulary. Final invocation is a collection of `{slotId, subject}` bindings. The wire shape for Feature subjects includes `ownerKind`, `ownerId`, and `featureId`; owner-qualified identity is preserved instead of being collapsed to the nested Feature ID.
+Runtime selection and invocation messages, semantic Primary Activate/Open Verb Menu inputs, editor playback, debug snapshots, RmlUi bindings, and direct Lua interaction submission use the same semantic subject vocabulary. Final invocation is a collection of `{slotId, subject}` bindings. The wire shape for Feature subjects includes `ownerKind`, `ownerId`, and `featureId`; owner-qualified identity is preserved instead of being collapsed to the nested Feature ID.
 
-Pointer Hotspots never call an Interaction directly. A pointer release resolves a Hotspot target to an exact semantic subject and dispatches ordinary subject selection, or resolves a Room Exit and dispatches ordinary navigation. There is no Hotspot-specific command shape.
+Pointer Hotspots never call an Interaction directly. A pointer release resolves a Hotspot target to an exact semantic subject and follows the default input policy: semantic Primary Activate for the main action, or Open Verb Menu when explicitly requested. Room Exit targets still dispatch ordinary navigation. Custom UI and tooling may independently select subjects or submit complete commands.
 
 Save state persists named bindings when a yielding Interaction frame exists. Ended Stack identities are rejected rather than redirected. Feature and Stack Property overrides use the normal Property-state path.
 
 ## Current editor implementation
 
-The Interaction editor authors one selector union per named Verb slot, all six Subject Selector variants, remaining context variants, and closed program instructions. Every instruction has a stable nested ID; creation preserves that identity through editing and reordering. Validation checks that every Verb slot is represented exactly once, selector references and Feature owners exist, Room placements and program references are valid, and stable IDs are unique.
+The Interaction editor authors one selector union per named Verb slot, all six Subject Selector variants, optional rule-derived Offers, remaining context variants, and closed program instructions. Every instruction has a stable nested ID; creation preserves that identity through editing and reordering. Validation checks that every Verb slot is represented exactly once, Offer starting slots name rule slots, selector references and Feature owners exist, Room placements and program references are valid, and stable IDs are unique.
 
-The compiler lowers rule slot IDs and selector unions losslessly into compiled V4. Native decoding rejects stale positional `operands` fields and unknown selector variants. Runtime, preview, Lua, authored-test playback, and recorded-test playback submit exact named bindings.
+The compiler lowers rule slot IDs, selector unions, and Offers losslessly into compiled V4. Native decoding rejects stale positional `operands` fields and unknown selector variants. Runtime, preview, Lua, authored-test playback, and recorded-test playback preserve direct complete-command submission while the preview/default UI additionally expose subject-first Offer discovery and semantic activation requests.

@@ -70,6 +70,10 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   if (step.input === 'continue') return { type: 'continue' };
   if (step.input === 'select-subjects')
     return { type: 'select-subjects', subjects: step.selectSubjects.subjects.map(typedSubject) };
+  if (step.input === 'primary-activate' && step.subjectAction.subject)
+    return { type: 'primary-activate', subject: typedSubject(step.subjectAction.subject) };
+  if (step.input === 'open-verb-menu' && step.subjectAction.subject)
+    return { type: 'open-verb-menu', subject: typedSubject(step.subjectAction.subject) };
   if (step.input === 'clear-subject-selection') return { type: 'clear-selection' };
   if (step.input === 'run-interaction') {
     return {

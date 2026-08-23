@@ -348,6 +348,7 @@ describe('typed source registry and graph evidence', () => {
         id: 'rule',
         verb: { $ref: { collection: 'verbs', id: 'verb' } },
         slots: [],
+        offer: null,
         context: {
           kind: 'predicate',
           condition: {

@@ -188,7 +188,7 @@ function representativeWireFixture() {
           id: 'look',
           slots: [],
           bindingOrder: [],
-          quickAction: true,
+          offers: [],
           actionText: { markup: 'plain', source: { kind: 'inline', text: 'Look' } },
           completedCommandText: { markup: 'plain', source: { kind: 'inline', text: 'Look' } },
           availability: { kind: 'always' },
@@ -207,6 +207,7 @@ function representativeWireFixture() {
               id: 'look-key-rule',
               verb: { kind: 'verb', id: 'look' },
               slots: [],
+              offer: null,
               context: { kind: 'any' },
               program: {
                 instructions: [

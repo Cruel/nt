@@ -620,11 +620,13 @@ Game.ui.navigate_map_connection(map_id, map_connection_id)
 Game.ui.navigate_map_location(map_id, map_location_id)
 Game.ui.toggle_interactable(interactable_id)
 Game.ui.toggle_character(character_id)
+Game.ui.primary_activate(subject_kind, subject_id)
+Game.ui.open_verb_menu(subject_kind, subject_id)
 Game.ui.clear_selection()
 Game.ui.invoke_interaction(verb_id)
 ```
 
-These return plain booleans. They are validated against the currently published gameplay view, not just ID syntax: hidden/disabled/stale choices, exits, Map connections/locations, subjects, or interactions fail. Use these in gameplay Layout event code rather than assuming the general `Game.*` index-based UI conveniences are equivalent.
+These return plain booleans. They are validated against the currently published gameplay view, not just ID syntax: hidden/disabled/stale choices, exits, Map connections/locations, subjects, or interactions fail. `primary_activate` requests semantic Primary Activate for a currently eligible `character` or `interactable`; `open_verb_menu` explicitly opens that subject's ordinary resolved Verb Offer menu and never auto-selects a primary Offer. Use these in gameplay Layout event code rather than assuming the general `Game.*` index-based UI conveniences are equivalent.
 
 Map Location convenience succeeds only when runtime projection finds exactly one actionable Exit-backed Connection from the active Room to that Location's Room. It dispatches that exact Exit rather than performing direct Room travel. `nt-map-view` pointer geometry ultimately targets these same semantic Location/Connection controls, so non-pointer activation is independent of polygon hit testing.
 

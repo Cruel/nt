@@ -161,11 +161,13 @@ gameplay.inventory.items[]:
   selected: bool
 
 gameplay.interaction.has_selection: bool
+gameplay.interaction.verb_menu_open: bool
 gameplay.interaction.actions[]:
   verb_id: string
   label: string
   binding_order: string[]
-  quick_action: bool
+  rank: integer
+  primary: bool
   enabled: bool
 
 gameplay.text_log.entries[]:
@@ -238,6 +240,8 @@ ui_continue()
 ui_choose(kind, id)
 ui_navigate_room(exit_id)
 ui_toggle_subject(subject_kind, subject_id)
+ui_primary_activate(subject_kind, subject_id)
+ui_open_verb_menu(subject_kind, subject_id)
 ui_clear_selection()
 ui_invoke_interaction(verb_id)
 
@@ -263,7 +267,8 @@ shell_cancel()
 Argument vocabularies are closed where applicable:
 
 - `ui_choose`: `kind` is `scene` or `dialogue`.
-- `ui_toggle_subject`: `subject_kind` is `character` or `interactable`.
+- `ui_toggle_subject`, `ui_primary_activate`, and `ui_open_verb_menu`: `subject_kind` is `character` or `interactable`.
+- `ui_primary_activate` requests the semantic primary action; `ui_open_verb_menu` opens the ordinary resolved Offer menu without auto-selecting a primary Offer.
 - `shell_save_slot`: only currently exposed manual slots are valid.
 - `shell_load_slot`: `kind` is `autosave` with number `0`, or `manual` with an exposed manual slot number; the slot must currently be occupied.
 

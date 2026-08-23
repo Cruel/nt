@@ -918,6 +918,21 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
         auto ids = subject_array(*input, "subjects", diagnostics, path, limits);
         if (ids)
             return success(SelectInteractionSubjectsInput{std::move(*ids)});
+    } else if (*type == "primary-activate" || *type == "open-verb-menu") {
+        exact_fields(*input, {"type", "subject"}, diagnostics, path);
+        const auto found = input->find("subject");
+        if (found == input->end()) {
+            diagnostics.push_back(error("editor_protocol.missing_field", "Missing subject.",
+                                        std::string(path) + "/subject"));
+        } else {
+            nlohmann::json wrapper{{"subjects", nlohmann::json::array({*found})}};
+            auto subjects = subject_array(wrapper, "subjects", diagnostics, path, limits);
+            if (subjects && subjects->size() == 1) {
+                if (*type == "primary-activate")
+                    return success(PrimaryActivateInput{std::move(subjects->front())});
+                return success(OpenVerbMenuInput{std::move(subjects->front())});
+            }
+        }
     } else if (*type == "invoke-interaction") {
         exact_fields(*input, {"type", "verb", "bindings"}, diagnostics, path);
         auto verb = id_field<VerbId>(*input, "verb", diagnostics, path, limits);
@@ -1036,11 +1051,24 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
     nlohmann::json out = {{"mode", view.mode},
                           {"gameplayPaused", view.gameplay_paused},
                           {"canContinue", view.can_continue},
+                          {"verbMenuOpen", view.verb_menu_open},
+                          {"verbOffers", nlohmann::json::array()},
                           {"selectedSubjects", nlohmann::json::array()},
                           {"inventories", nlohmann::json::array()},
                           {"inventory", nlohmann::json::array()},
                           {"itemStacks", nlohmann::json::array()},
                           {"textLog", nlohmann::json::array()}};
+    for (const auto& offer : view.verb_offers) {
+        nlohmann::json binding_order = nlohmann::json::array();
+        for (const auto& slot : offer.binding_order)
+            binding_order.push_back(slot.text());
+        out["verbOffers"].push_back({{"verb", offer.verb.text()},
+                                     {"slotId", offer.slot.text()},
+                                     {"label", offer.label},
+                                     {"bindingOrder", std::move(binding_order)},
+                                     {"rank", offer.rank},
+                                     {"primary", offer.primary}});
+    }
     for (const auto& id : view.selected_subjects)
         out["selectedSubjects"].push_back(encode_subject(id));
     for (const auto& inventory : view.inventory.inventories) {
@@ -1213,6 +1241,12 @@ nlohmann::json encode_observation(const RuntimeObservation& value)
                 return {{"type", "room-presentation-diagnostic"},
                         {"room", observation.room.text()},
                         {"diagnostics", std::move(diagnostics)}};
+            } else if constexpr (std::is_same_v<O, VerbOfferAmbiguityObservation>) {
+                nlohmann::json verbs = nlohmann::json::array();
+                for (const auto& verb : observation.primary_verbs)
+                    verbs.push_back(verb.text());
+                return {{"type", "verb-offer-ambiguity-observation"},
+                        {"primaryVerbs", std::move(verbs)}};
             } else if constexpr (std::is_same_v<O, LayoutSignalObservation>) {
                 nlohmann::json fields = nlohmann::json::array();
                 for (const auto& field : observation.fields)

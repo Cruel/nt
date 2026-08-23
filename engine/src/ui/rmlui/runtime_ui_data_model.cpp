@@ -406,12 +406,14 @@ struct ActionProjection {
     std::string verb_id;
     std::string label;
     std::vector<std::string> binding_order;
-    bool quick_action = false;
+    std::int64_t rank = 0;
+    bool primary = false;
     bool enabled = false;
     std::string get_verb_id() { return verb_id; }
     std::string get_label() { return label; }
     std::vector<std::string>& get_binding_order() { return binding_order; }
-    bool get_quick_action() { return quick_action; }
+    std::int64_t get_rank() { return rank; }
+    bool get_primary() { return primary; }
     bool get_enabled() { return enabled; }
 };
 
@@ -448,8 +450,10 @@ struct InventoryProjection {
 
 struct InteractionProjection {
     bool has_selection = false;
+    bool verb_menu_open = false;
     std::vector<ActionProjection> actions;
     bool get_has_selection() { return has_selection; }
+    bool get_verb_menu_open() { return verb_menu_open; }
     std::vector<ActionProjection>& get_actions() { return actions; }
 };
 
@@ -655,8 +659,8 @@ struct RuntimeUiDataModel::Impl {
         ok &= c.RegisterArray<std::vector<std::string>>();
         ok &= register_struct<ActionProjection>(
             c, NT_MEMBER(ActionProjection, verb_id), NT_MEMBER(ActionProjection, label),
-            NT_MEMBER(ActionProjection, binding_order), NT_MEMBER(ActionProjection, quick_action),
-            NT_MEMBER(ActionProjection, enabled));
+            NT_MEMBER(ActionProjection, binding_order), NT_MEMBER(ActionProjection, rank),
+            NT_MEMBER(ActionProjection, primary), NT_MEMBER(ActionProjection, enabled));
         ok &= register_struct<TextLogEntryProjection>(
             c, NT_MEMBER(TextLogEntryProjection, sequence), NT_MEMBER(TextLogEntryProjection, kind),
             NT_MEMBER(TextLogEntryProjection, has_speaker),
@@ -675,7 +679,7 @@ struct RuntimeUiDataModel::Impl {
         ok &= register_struct<InventoryProjection>(c, NT_MEMBER(InventoryProjection, items));
         ok &= register_struct<InteractionProjection>(
             c, NT_MEMBER(InteractionProjection, has_selection),
-            NT_MEMBER(InteractionProjection, actions));
+            NT_MEMBER(InteractionProjection, verb_menu_open), NT_MEMBER(InteractionProjection, actions));
         ok &= register_struct<TextLogProjection>(c, NT_MEMBER(TextLogProjection, entries));
         ok &= register_struct<GameplayProjection>(
             c, NT_MEMBER(GameplayProjection, available), NT_MEMBER(GameplayProjection, mode),
@@ -744,6 +748,16 @@ struct RuntimeUiDataModel::Impl {
                                   }));
         ok &= c.BindEventCallback("ui_toggle_subject", callback([this](const auto& args) {
                                       return gateway.action_toggle_subject(
+                                          event_arg<std::string>(args, 0),
+                                          event_arg<std::string>(args, 1));
+                                  }));
+        ok &= c.BindEventCallback("ui_primary_activate", callback([this](const auto& args) {
+                                      return gateway.action_primary_activate(
+                                          event_arg<std::string>(args, 0),
+                                          event_arg<std::string>(args, 1));
+                                  }));
+        ok &= c.BindEventCallback("ui_open_verb_menu", callback([this](const auto& args) {
+                                      return gateway.action_open_verb_menu(
                                           event_arg<std::string>(args, 0),
                                           event_arg<std::string>(args, 1));
                                   }));
@@ -967,15 +981,21 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
              id_matches_selected(view.selected_subjects, item.interactable)});
     }
     out.interaction.has_selection = !view.selected_subjects.empty();
-    const auto& controls = view.room ? view.room->controls : view.inventory.controls;
-    for (const auto& control : controls) {
-        std::vector<std::string> binding_order;
-        binding_order.reserve(control.binding_order.size());
-        for (const auto& slot : control.binding_order)
-            binding_order.push_back(slot.text());
-        out.interaction.actions.push_back({control.verb.text(), control.label,
-                                           std::move(binding_order), control.quick_action,
-                                           control.enabled});
+    out.interaction.verb_menu_open = view.verb_menu_open;
+    if (view.verb_menu_open) {
+        const auto& controls = view.room ? view.room->controls : view.inventory.controls;
+        for (const auto& offer : view.verb_offers) {
+            const auto control = std::find_if(controls.begin(), controls.end(), [&](const auto& value) {
+                return value.verb == offer.verb;
+            });
+            std::vector<std::string> binding_order;
+            binding_order.reserve(offer.binding_order.size());
+            for (const auto& slot : offer.binding_order)
+                binding_order.push_back(slot.text());
+            out.interaction.actions.push_back(
+                {offer.verb.text(), offer.label, std::move(binding_order), offer.rank, offer.primary,
+                 control != controls.end() && control->enabled});
+        }
     }
     for (std::size_t i = 0; i < view.text_log.entries.size(); ++i) {
         const auto& entry = view.text_log.entries[i];

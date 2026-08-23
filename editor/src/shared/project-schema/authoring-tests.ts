@@ -13,6 +13,8 @@ export const testInputTypeValues = [
   'dialogue-option',
   'navigate',
   'select-subjects',
+  'primary-activate',
+  'open-verb-menu',
   'clear-subject-selection',
   'run-interaction',
   'load-save',
@@ -118,6 +120,10 @@ export const testStepDataSchema = z
       .object({ subjects: z.array(testInteractionSubjectSchema).default([]) })
       .strict()
       .default({ subjects: [] }),
+    subjectAction: z
+      .object({ subject: testInteractionSubjectSchema.nullable().default(null) })
+      .strict()
+      .default({ subject: null }),
     runInteraction: z
       .object({
         verb: testVerbRefSchema.nullable().default(null),
@@ -416,6 +422,17 @@ function validateStep(
         diagnostics,
       ),
     );
+  if (step.input === 'primary-activate' || step.input === 'open-verb-menu') {
+    if (!step.subjectAction.subject)
+      diagnostics.push(diagnostic(`${path}/subjectAction/subject`, 'A subject is required.'));
+    else
+      validateInteractionSubject(
+        project,
+        step.subjectAction.subject,
+        `${path}/subjectAction/subject`,
+        diagnostics,
+      );
+  }
   if (step.input === 'run-interaction') {
     validateRef(project, step.runInteraction.verb, `${path}/runInteraction/verb`, diagnostics);
     const verbRecord = step.runInteraction.verb

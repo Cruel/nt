@@ -43,6 +43,26 @@ describe('recorded test draft conversion', () => {
             },
           },
           {
+            id: 'primary-1',
+            kind: 'primary-activate',
+            label: 'Activate lamp',
+            input: { type: 'primary-activate', subject: { kind: 'interactable', id: 'lamp' } },
+          },
+          {
+            id: 'menu-1',
+            kind: 'open-verb-menu',
+            label: 'Open door menu',
+            input: {
+              type: 'open-verb-menu',
+              subject: {
+                kind: 'feature',
+                ownerKind: 'room',
+                ownerId: 'foyer',
+                featureId: 'door',
+              },
+            },
+          },
+          {
             id: 'clear-1',
             kind: 'clear-subject-selection',
             label: 'Clear',
@@ -99,6 +119,30 @@ describe('recorded test draft conversion', () => {
                 },
               },
             ],
+          },
+        },
+        {
+          id: 'primary-1',
+          input: 'primary-activate',
+          subjectAction: {
+            subject: {
+              kind: 'interactable',
+              interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
+            },
+          },
+        },
+        {
+          id: 'menu-1',
+          input: 'open-verb-menu',
+          subjectAction: {
+            subject: {
+              kind: 'feature',
+              feature: {
+                ownerKind: 'room',
+                room: { $ref: { collection: 'rooms', id: 'foyer' } },
+                featureId: 'door',
+              },
+            },
           },
         },
         { id: 'clear-1', input: 'clear-subject-selection' },

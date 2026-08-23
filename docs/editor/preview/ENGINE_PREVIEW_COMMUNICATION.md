@@ -248,6 +248,8 @@ Editor to preview:
 - `runtime-dialogue-option`
 - `runtime-navigate`
 - `runtime-select-subjects`
+- `runtime-primary-activate`
+- `runtime-open-verb-menu`
 - `runtime-clear-subject-selection`
 - `runtime-run-interaction`
 - `runtime-request-debug-snapshot`
@@ -275,6 +277,17 @@ Editor to preview:
 snapshots expose each available navigation input as `{ exitId, direction, label, enabled }`. The
 preview validates that the identified exit still belongs to the active Room and is enabled before
 submitting `NavigateRoomInput`; direction remains presentation and recorded-test metadata only.
+
+`runtime-primary-activate` and `runtime-open-verb-menu` each carry one exact semantic subject. They
+remain distinct through the TypeScript protocol, web bridge, C export, preview controller, and Runtime
+Session. Primary Activate may execute one unique immediately-complete primary Verb Offer; absent or
+ambiguous primary behavior opens the ordinary menu. Open Verb Menu only opens that menu and never
+auto-selects a primary Offer. Debug snapshots publish the complete resolved `verbOffers` set plus
+`verbMenuOpen`; menu `actions` are populated only while the menu is open.
+
+`runtime-run-interaction` remains the direct complete-command surface and carries exact named
+`bindings`. It does not require a discoverable Offer and is intentionally independent from
+subject-first discovery.
 
 Runtime Gameplay Instance tooling uses the same semantic gateway as authored Lua. Create and
 configuration-replacement messages identify `instanceKind`, one source kind (`archetype`, `compiled`,

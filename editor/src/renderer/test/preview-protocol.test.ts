@@ -406,6 +406,22 @@ describe('preview protocol validation', () => {
     expect(
       isEditorToPreviewMessage({
         version: 1,
+        type: 'runtime-primary-activate',
+        requestId: 'runtime-primary',
+        subject: { kind: 'interactable', id: 'lamp' },
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'runtime-open-verb-menu',
+        requestId: 'runtime-menu',
+        subject: { kind: 'feature', ownerKind: 'room', ownerId: 'foyer', featureId: 'door' },
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
         type: 'runtime-run-interaction',
         requestId: 'runtime-action',
         verbId: 'look',
@@ -657,6 +673,8 @@ describe('preview protocol validation', () => {
               dialogueOptions: [{ index: 0, label: 'Yes', enabled: true }],
               navigation: [],
               actions: [],
+              verbOffers: [],
+              verbMenuOpen: false,
               selectedSubjects: [],
               clickableTargets: [],
             },
@@ -730,9 +748,22 @@ describe('preview protocol validation', () => {
             label: 'Look',
             bindingOrder: ['target'],
             selectedCount: 1,
+            rank: 0,
+            primary: true,
             enabled: true,
           },
         ],
+        verbOffers: [
+          {
+            verbId: 'look',
+            slotId: 'target',
+            label: 'Look',
+            bindingOrder: ['target'],
+            rank: 0,
+            primary: true,
+          },
+        ],
+        verbMenuOpen: true,
         selectedSubjects: [
           { kind: 'character', id: 'guard' },
           { kind: 'interactable', id: 'lamp' },

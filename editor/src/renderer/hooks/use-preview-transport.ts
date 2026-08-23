@@ -266,6 +266,12 @@ export function usePreviewTransport({
       selectRuntimeSubjects: (
         subjects: import('../../shared/preview-protocol').PreviewInteractionSubject[],
       ) => send({ type: 'runtime-select-subjects', subjects }),
+      primaryActivateRuntimeSubject: (
+        subject: import('../../shared/preview-protocol').PreviewInteractionSubject,
+      ) => send({ type: 'runtime-primary-activate', subject }),
+      openRuntimeVerbMenu: (
+        subject: import('../../shared/preview-protocol').PreviewInteractionSubject,
+      ) => send({ type: 'runtime-open-verb-menu', subject }),
       clearRuntimeSubjectSelection: () => send({ type: 'runtime-clear-subject-selection' }),
       runRuntimeInteraction: (
         verbId: string,

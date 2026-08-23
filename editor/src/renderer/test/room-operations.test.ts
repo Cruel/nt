@@ -218,6 +218,7 @@ describe('room commands', () => {
             selectors: [{ kind: 'family', family: 'interactable' }],
           },
         ],
+        offer: null,
         context: { kind: 'room-placement', placement: { room: 'foyer', placement: 'anchor' } },
         program,
       },

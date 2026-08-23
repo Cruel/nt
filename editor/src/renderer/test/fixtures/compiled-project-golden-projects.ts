@@ -539,7 +539,6 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.rooms.tower = { id: 'tower', label: 'Tower', data: tower };
 
   const look = defaultVerbData('Look');
-  look.quickAction = true;
   project.verbs.look = { id: 'look', label: 'Look', data: look };
   project.interactions.look = {
     id: 'look',
@@ -1106,6 +1105,15 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     },
   ];
   inspect.bindingOrder = ['target'];
+  inspect.offers = [
+    {
+      id: 'feature-offer',
+      slotId: 'target',
+      selectors: [{ kind: 'family', family: 'feature' }],
+      rank: 10,
+      primary: false,
+    },
+  ];
   project.verbs.inspect = { id: 'inspect', label: 'Inspect', data: inspect };
 
   const use = defaultVerbData('Use');
@@ -1118,6 +1126,15 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     },
   ];
   use.bindingOrder = ['target'];
+  use.offers = [
+    {
+      id: 'interactable-offer',
+      slotId: 'target',
+      selectors: [{ kind: 'family', family: 'interactable' }],
+      rank: 20,
+      primary: false,
+    },
+  ];
   use.availability = {
     kind: 'variable-comparison',
     variable: variableReference('flag'),
@@ -1295,6 +1312,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           ],
         },
       ],
+      offer: { slotId: 'target', condition: { kind: 'always' }, rank: 0, primary: true },
       context: { kind: 'active-room', room: roomReference('start') },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     },
@@ -1319,6 +1337,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           ],
         },
       ],
+      offer: null,
       context: { kind: 'any' },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     },
@@ -1336,6 +1355,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           ],
         },
       ],
+      offer: { slotId: 'target', condition: { kind: 'always' }, rank: 5, primary: true },
       context: { kind: 'any' },
       program: {
         instructions: [
@@ -1381,6 +1401,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           selectors: [{ kind: 'family', family: 'interactable' }],
         },
       ],
+      offer: null,
       context: { kind: 'active-room', room: roomReference('start') },
       program: {
         instructions: [
@@ -1409,6 +1430,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           ],
         },
       ],
+      offer: null,
       context: { kind: 'room-placement', placement: { room: 'start', placement: 'key-placement' } },
       program: {
         instructions: [
@@ -1446,6 +1468,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
           ],
         },
       ],
+      offer: null,
       context: {
         kind: 'predicate',
         condition: {

@@ -76,6 +76,255 @@ next_instruction(const core::compiled::InteractionProgram& program,
 
 } // namespace
 
+core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>
+RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
+                             std::string_view runtime_locale)
+{
+    const auto* room_mode = std::get_if<core::RoomMode>(&m_state.mode());
+    if (room_mode == nullptr || !m_state.flow_stack().empty())
+        return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::success({});
+
+    if (!m_room_presentation || m_room_presentation_dirty ||
+        m_room_presentation->presentation.visit.room != room_mode->room) {
+        auto settled = room_view(runtime_locale);
+        if (!settled)
+            return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::failure(
+                settled.error());
+    }
+    if (std::find(m_room_presentation->eligible_subjects.begin(),
+                  m_room_presentation->eligible_subjects.end(), subject) ==
+        m_room_presentation->eligible_subjects.end())
+        return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::success({});
+
+    const auto subject_family = [](const core::compiled::InteractionSubject& value) {
+        if (std::holds_alternative<core::compiled::CharacterInteractionSubject>(value))
+            return core::compiled::SubjectFamily::Character;
+        if (std::holds_alternative<core::compiled::InteractableInteractionSubject>(value))
+            return core::compiled::SubjectFamily::Interactable;
+        if (std::holds_alternative<core::compiled::FeatureInteractionSubject>(value))
+            return core::compiled::SubjectFamily::Feature;
+        return core::compiled::SubjectFamily::ItemStack;
+    };
+    const auto subject_identity = [](const core::compiled::InteractionSubject& value) {
+        return std::visit(
+            [](const auto& typed) -> std::string {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
+                    return std::string("character:") + typed.character.text();
+                else if constexpr (std::is_same_v<T,
+                                                  core::compiled::InteractableInteractionSubject>)
+                    return std::string("interactable:") + typed.interactable.text();
+                else if constexpr (std::is_same_v<T, core::compiled::ItemStackInteractionSubject>)
+                    return std::string("item-stack:") + typed.item_stack.text();
+                else
+                    return std::visit(
+                        [](const auto& feature) {
+                            using F = std::decay_t<decltype(feature)>;
+                            if constexpr (std::is_same_v<F, core::RoomFeatureRef>)
+                                return std::string("room:") + feature.room.text() + "#" +
+                                       feature.feature_id.text();
+                            else
+                                return std::string("interactable:") + feature.interactable.text() +
+                                       "#" + feature.feature_id.text();
+                        },
+                        typed.feature);
+            },
+            value);
+    };
+    const auto has_trait = [this](const core::compiled::InteractionSubject& value,
+                                  const core::TraitId& trait) {
+        const auto* traits = std::visit(
+            [this](const auto& typed) -> const std::vector<core::TraitId>* {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>) {
+                    const auto* config = m_world.resolved_configuration(typed.character);
+                    return config ? &config->identity.traits : nullptr;
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::InteractableInteractionSubject>) {
+                    const auto* config = m_world.resolved_configuration(typed.interactable);
+                    return config ? &config->identity.traits : nullptr;
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::ItemStackInteractionSubject>) {
+                    const auto* stack = m_world.item_stack(typed.item_stack);
+                    return stack ? &stack->traits : nullptr;
+                } else {
+                    return std::visit(
+                        [this](const auto& feature) -> const std::vector<core::TraitId>* {
+                            const auto* owner = m_world.resolved_configuration([&]() {
+                                if constexpr (std::is_same_v<std::decay_t<decltype(feature)>,
+                                                             core::RoomFeatureRef>)
+                                    return feature.room;
+                                else
+                                    return feature.interactable;
+                            }());
+                            if (!owner)
+                                return nullptr;
+                            const auto found =
+                                std::find_if(owner->features.begin(), owner->features.end(),
+                                             [&](const auto& item) {
+                                                 return item.identity.id == feature.feature_id;
+                                             });
+                            return found == owner->features.end() ? nullptr
+                                                                  : &found->identity.traits;
+                        },
+                        typed.feature);
+                }
+            },
+            value);
+        return traits && std::find(traits->begin(), traits->end(), trait) != traits->end();
+    };
+    const auto selector_matches = [&](const core::compiled::SubjectSelector& selector) {
+        return std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::compiled::AnySubjectSelector>)
+                    return true;
+                else if constexpr (std::is_same_v<T, core::compiled::FamilySubjectSelector>)
+                    return value.family == subject_family(subject);
+                else if constexpr (std::is_same_v<T, core::compiled::TraitSubjectSelector>)
+                    return has_trait(subject, value.trait);
+                else if constexpr (std::is_same_v<T,
+                                                  core::compiled::ItemDefinitionSubjectSelector>) {
+                    const auto* stack =
+                        std::get_if<core::compiled::ItemStackInteractionSubject>(&subject);
+                    const auto* state = stack ? m_world.item_stack(stack->item_stack) : nullptr;
+                    return state && state->definition == value.item_definition;
+                } else if constexpr (std::is_same_v<T,
+                                                    core::compiled::QualifiedPatternSubjectSelector>) {
+                    if (value.family != subject_family(subject))
+                        return false;
+                    const auto identity = subject_identity(subject);
+                    const auto prefix = value.pattern.substr(0, value.pattern.size() - 1);
+                    return identity.starts_with(prefix);
+                } else
+                    return value.subject == subject;
+            },
+            selector);
+    };
+    struct Specificity {
+        int tier = 0;
+        std::size_t detail = 0;
+        auto operator<=>(const Specificity&) const = default;
+    };
+    const auto selector_specificity = [&](const core::compiled::SubjectSelector& selector) {
+        return std::visit(
+            [](const auto& value) -> Specificity {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::compiled::ExactSubjectSelector>)
+                    return {5, 0};
+                else if constexpr (std::is_same_v<T,
+                                                  core::compiled::QualifiedPatternSubjectSelector>)
+                    return {4, value.pattern.size()};
+                else if constexpr (std::is_same_v<T, core::compiled::TraitSubjectSelector> ||
+                                   std::is_same_v<T,
+                                                  core::compiled::ItemDefinitionSubjectSelector>)
+                    return {3, 0};
+                else if constexpr (std::is_same_v<T, core::compiled::FamilySubjectSelector>)
+                    return {2, 0};
+                else
+                    return {1, 0};
+            },
+            selector);
+    };
+    const auto matching_specificity = [&](const std::vector<core::compiled::SubjectSelector>& selectors)
+        -> std::optional<Specificity> {
+        std::optional<Specificity> best;
+        for (const auto& selector : selectors) {
+            if (!selector_matches(selector))
+                continue;
+            const auto specificity = selector_specificity(selector);
+            if (!best || specificity > *best)
+                best = specificity;
+        }
+        return best;
+    };
+
+    struct Candidate {
+        core::VerbSlotId slot;
+        const core::Condition* condition = nullptr;
+        std::int64_t rank = 0;
+        bool primary = false;
+        Specificity specificity;
+        std::string stable_id;
+    };
+    std::vector<core::VerbOfferView> resolved;
+    for (const auto& verb : m_project.verbs()) {
+        auto available = evaluate(verb.availability);
+        const auto* availability_value = available.value_if();
+        if (availability_value == nullptr)
+            return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::failure(
+                available.error());
+        if (!*availability_value)
+            continue;
+
+        std::optional<Candidate> winner;
+        const auto consider = [&](Candidate candidate) {
+            if (!winner || candidate.specificity > winner->specificity ||
+                (candidate.specificity == winner->specificity && candidate.rank < winner->rank) ||
+                (candidate.specificity == winner->specificity && candidate.rank == winner->rank &&
+                 candidate.stable_id < winner->stable_id))
+                winner = std::move(candidate);
+        };
+        for (const auto& offer : verb.offers) {
+            const auto specificity = matching_specificity(offer.selectors);
+            if (!specificity)
+                continue;
+            consider(Candidate{offer.slot_id,
+                               offer.condition ? &*offer.condition : nullptr,
+                               offer.rank,
+                               offer.primary,
+                               *specificity,
+                               std::string("verb:") + offer.id.text()});
+        }
+        for (const auto& interaction : m_project.interactions()) {
+            for (const auto& rule : interaction.rules) {
+                if (rule.verb != verb.identity.id || !rule.offer)
+                    continue;
+                const auto slot = std::find_if(
+                    rule.slots.begin(), rule.slots.end(),
+                    [&](const auto& value) { return value.slot_id == rule.offer->slot_id; });
+                if (slot == rule.slots.end())
+                    continue;
+                const auto specificity = matching_specificity(slot->selectors);
+                if (!specificity)
+                    continue;
+                consider(Candidate{rule.offer->slot_id,
+                                   rule.offer->condition ? &*rule.offer->condition : nullptr,
+                                   rule.offer->rank,
+                                   rule.offer->primary,
+                                   *specificity,
+                                   std::string("rule:") + interaction.identity.id.text() + ":" +
+                                       rule.id.text()});
+            }
+        }
+        if (!winner)
+            continue;
+        if (winner->condition) {
+            auto condition = evaluate(*winner->condition);
+            const auto* condition_value = condition.value_if();
+            if (condition_value == nullptr)
+                return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::failure(
+                    condition.error());
+            if (!*condition_value)
+                continue;
+        }
+        auto label = resolve(verb.action_text.source, runtime_locale);
+        const auto* text = label.value_if();
+        if (text == nullptr)
+            return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::failure(
+                label.error());
+        resolved.push_back(core::VerbOfferView{verb.identity.id, winner->slot, *text,
+                                               verb.binding_order, winner->rank, winner->primary});
+    }
+    std::ranges::sort(resolved, [](const auto& left, const auto& right) {
+        if (left.rank != right.rank)
+            return left.rank < right.rank;
+        return left.verb.text() < right.verb.text();
+    });
+    return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::success(
+        std::move(resolved));
+}
+
 core::Result<void, RuntimeExecutionError>
 RuntimeExecutor::interact(core::VerbId verb_id,
                           std::vector<core::InteractionSubjectBinding> bindings)
@@ -624,8 +873,7 @@ RuntimeExecutor::inventory_view(std::string_view runtime_locale)
         if (enabled == nullptr)
             return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
                 available.error());
-        view.controls.push_back(
-            {verb.identity.id, *text, verb.binding_order, verb.quick_action, *enabled});
+        view.controls.push_back({verb.identity.id, *text, verb.binding_order, *enabled});
     }
     return core::Result<core::InventoryView, RuntimeExecutionError>::success(std::move(view));
 }

@@ -732,7 +732,13 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         bindingOrder: [...data.bindingOrder],
         actionText: compileText(data.actionText),
         completedCommandText: compileText(data.completedCommandText),
-        quickAction: data.quickAction,
+        offers: data.offers.map((offer) => ({
+          id: offer.id,
+          slotId: offer.slotId,
+          selectors: offer.selectors.map(compileSubjectSelector),
+          rank: offer.rank,
+          primary: offer.primary,
+        })),
       });
   }
 

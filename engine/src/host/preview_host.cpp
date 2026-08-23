@@ -497,6 +497,18 @@ bool PreviewHost::select_subjects(std::vector<core::compiled::InteractionSubject
                core::SelectInteractionSubjectsInput{std::move(subjects)}});
 }
 
+bool PreviewHost::primary_activate(core::compiled::InteractionSubject subject)
+{
+    return running_game_available() &&
+           dispatch(core::RuntimeInputMessage{core::PrimaryActivateInput{std::move(subject)}});
+}
+
+bool PreviewHost::open_verb_menu(core::compiled::InteractionSubject subject)
+{
+    return running_game_available() &&
+           dispatch(core::RuntimeInputMessage{core::OpenVerbMenuInput{std::move(subject)}});
+}
+
 bool PreviewHost::clear_subject_selection()
 {
     return running_game_available() &&

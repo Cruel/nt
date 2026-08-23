@@ -368,6 +368,7 @@ describe('authoring structural dependency graph and queries', () => {
           ],
         },
       ],
+      offer: null,
       context: { kind: 'any' },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     });

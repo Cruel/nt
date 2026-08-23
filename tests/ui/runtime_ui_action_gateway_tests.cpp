@@ -310,12 +310,10 @@ TEST_CASE("RuntimeUiActionGateway rejects stale hidden and disabled typed gamepl
         .controls = {{verb_enabled.value(),
                       "Inspect",
                       {noveltea::core::VerbSlotId::create("target").value()},
-                      false,
                       true},
                      {verb_disabled.value(),
                       "Use",
                       {noveltea::core::VerbSlotId::create("target").value()},
-                      false,
                       false}}};
     REQUIRE(binder.apply(values));
 

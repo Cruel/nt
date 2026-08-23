@@ -280,6 +280,12 @@ export function lowerDialogueAndInteractionPrograms(
     }
     verbs.push({
       ...verb,
+      offers: verb.offers.map((offer, index) => ({
+        ...offer,
+        ...(data.offers[index]?.condition === undefined
+          ? {}
+          : { condition: compileCondition(data.offers[index].condition) }),
+      })),
       availability: compileCondition(data.availability),
       defaultProgram: compileInteractionProgram(data.defaultProgram),
     });
@@ -305,6 +311,17 @@ export function lowerDialogueAndInteractionPrograms(
           slotId: slot.slotId,
           selectors: slot.selectors.map(compileSubjectSelector),
         })),
+        offer:
+          rule.offer === null
+            ? null
+            : {
+                slotId: rule.offer.slotId,
+                ...(rule.offer.condition === undefined
+                  ? {}
+                  : { condition: compileCondition(rule.offer.condition) }),
+                rank: rule.offer.rank,
+                primary: rule.offer.primary,
+              },
         context:
           rule.context.kind === 'any'
             ? { kind: 'any' as const }

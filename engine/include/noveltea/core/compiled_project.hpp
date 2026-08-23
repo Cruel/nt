@@ -716,11 +716,18 @@ struct InteractionSlotSelector {
     VerbSlotId slot_id;
     std::vector<SubjectSelector> selectors;
 };
+struct InteractionOffer {
+    VerbSlotId slot_id;
+    std::optional<Condition> condition;
+    std::int64_t rank = 0;
+    bool primary = false;
+};
 struct InteractionRule {
     InteractionRuleId id;
     VerbId verb;
     InteractionContext context;
     std::vector<InteractionSlotSelector> slots;
+    std::optional<InteractionOffer> offer;
     InteractionProgram program;
 };
 struct InteractionDefinition {
@@ -733,15 +740,23 @@ struct VerbSlot {
     TextContent prompt;
     std::vector<SubjectSelector> selectors;
 };
+struct VerbOffer {
+    VerbOfferId id;
+    VerbSlotId slot_id;
+    std::vector<SubjectSelector> selectors;
+    std::optional<Condition> condition;
+    std::int64_t rank = 0;
+    bool primary = false;
+};
 struct VerbDefinition {
     DefinitionIdentity<VerbId> identity;
     TextContent action_text;
     TextContent completed_command_text;
     std::vector<VerbSlot> slots;
     std::vector<VerbSlotId> binding_order;
+    std::vector<VerbOffer> offers;
     Condition availability;
     InteractionProgram default_program;
-    bool quick_action;
 };
 
 enum class BackgroundTransition : std::uint8_t {

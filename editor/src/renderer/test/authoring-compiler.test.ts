@@ -754,6 +754,7 @@ describe('authoring compiler framework', () => {
             ],
           },
         ],
+        offer: null,
         context: { kind: 'room-placement', placement: { room: 'foyer', placement: 'key-place' } },
         program: {
           instructions: [
@@ -810,6 +811,7 @@ describe('authoring compiler framework', () => {
             selectors: [{ kind: 'family', family: 'interactable' }],
           },
         ],
+        offer: null,
         context: { kind: 'predicate', condition: { kind: 'always' } },
         program: defaultInteractionProgram(),
       },
@@ -896,6 +898,7 @@ describe('authoring compiler framework', () => {
         id: 'typed-rule',
         verb: { $ref: { collection: 'verbs', id: 'use' } },
         slots: [],
+        offer: null,
         context: {
           kind: 'predicate',
           condition: {
@@ -1285,6 +1288,7 @@ describe('authoring compiler framework', () => {
         id: 'look-rule',
         verb: { $ref: { collection: 'verbs', id: 'look' } },
         slots: [],
+        offer: null,
         context: { kind: 'any' },
         program: {
           instructions: [

@@ -520,7 +520,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 28);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 30);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
@@ -928,6 +928,100 @@ TEST_CASE("internal runtime commands settle before checkpoint evaluation")
     CHECK(std::none_of(issues.begin(), issues.end(), [](const auto& issue) {
         return issue.reason == core::CheckpointReadinessReason::RuntimeQueueUnsettled;
     }));
+}
+
+TEST_CASE("semantic Verb menu publication never auto-selects a primary Offer")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto key = make_id<core::InteractableIdTag>("key");
+    const core::compiled::InteractionSubject subject =
+        core::compiled::InteractableInteractionSubject{key};
+
+    auto opened = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::OpenVerbMenuInput{subject}});
+    REQUIRE(opened.diagnostics.empty());
+    REQUIRE(opened.publication);
+    const auto& view = opened.publication->gameplay_ui;
+    CHECK(view.verb_menu_open);
+    REQUIRE(view.selected_subjects == std::vector<core::compiled::InteractionSubject>{subject});
+    const auto use = std::find_if(view.verb_offers.begin(), view.verb_offers.end(), [](const auto& offer) {
+        return offer.verb == make_id<core::VerbIdTag>("use");
+    });
+    REQUIRE(use != view.verb_offers.end());
+    CHECK(use->primary);
+    CHECK(view.mode == "room");
+    const auto location = fixture.session->gateway().interactable_location(key);
+    REQUIRE(location);
+    CHECK(std::holds_alternative<core::compiled::RoomLocation>(location.value()));
+}
+
+TEST_CASE("Primary Activate executes the unique primary Verb Offer")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto key = make_id<core::InteractableIdTag>("key");
+    const core::compiled::InteractionSubject subject =
+        core::compiled::InteractableInteractionSubject{key};
+
+    auto activated = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::PrimaryActivateInput{subject}});
+    REQUIRE(activated.diagnostics.empty());
+    const auto location = fixture.session->gateway().interactable_location(key);
+    REQUIRE(location);
+    CHECK(std::holds_alternative<core::compiled::InventoryLocation>(location.value()));
+    REQUIRE(activated.publication);
+    CHECK_FALSE(activated.publication->gameplay_ui.verb_menu_open);
+}
+
+TEST_CASE("ambiguous primary Verb Offers diagnose and open the ordinary menu")
+{
+    Fixture fixture("interaction-program.json", {}, [](nlohmann::json& document) {
+        auto& verbs = document["definitions"]["verbs"];
+        auto inspect = std::find_if(verbs.begin(), verbs.end(), [](const auto& verb) {
+            return verb["id"] == "inspect";
+        });
+        REQUIRE(inspect != verbs.end());
+        (*inspect)["offers"].push_back(
+            {{"id", "inspect-key"},
+             {"slotId", "target"},
+             {"selectors",
+              nlohmann::json::array(
+                  {{{"kind", "exact"},
+                    {"subject",
+                     {{"kind", "interactable"},
+                      {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}}}})},
+             {"rank", 1},
+             {"primary", true}});
+    });
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto key = make_id<core::InteractableIdTag>("key");
+    const core::compiled::InteractionSubject subject =
+        core::compiled::InteractableInteractionSubject{key};
+
+    auto activated = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::PrimaryActivateInput{subject}});
+    REQUIRE(activated.diagnostics.empty());
+    REQUIRE(activated.publication);
+    CHECK(activated.publication->gameplay_ui.verb_menu_open);
+    const auto location = fixture.session->gateway().interactable_location(key);
+    REQUIRE(location);
+    CHECK(std::holds_alternative<core::compiled::RoomLocation>(location.value()));
+    const auto ambiguity = std::find_if(activated.events.begin(), activated.events.end(),
+                                        [](const auto& event) {
+                                            const auto* observation =
+                                                std::get_if<runtime::ObservationEvent>(&event);
+                                            return observation && std::holds_alternative<
+                                                                      core::VerbOfferAmbiguityObservation>(
+                                                                      observation->observation);
+                                        });
+    REQUIRE(ambiguity != activated.events.end());
+    const auto& detail = std::get<core::VerbOfferAmbiguityObservation>(
+        std::get<runtime::ObservationEvent>(*ambiguity).observation);
+    CHECK(detail.primary_verbs.size() == 2);
 }
 
 TEST_CASE("deferred runtime commands execute inside one outer transaction")

@@ -226,6 +226,8 @@ async function postInputSnapshot(
           dialogueOptions: options.dialogueOptions ?? [],
           navigation: options.navigation ?? [],
           actions: [],
+          verbOffers: [],
+          verbMenuOpen: false,
           selectedSubjects: [],
           clickableTargets: options.clickableTargets ?? [],
         },
@@ -711,6 +713,8 @@ describe('FullGamePreviewEditor', () => {
               dialogueOptions: [],
               navigation: [],
               actions: [],
+              verbOffers: [],
+              verbMenuOpen: false,
               selectedSubjects: [],
               clickableTargets: [],
             },
@@ -791,9 +795,22 @@ describe('FullGamePreviewEditor', () => {
                 label: 'look',
                 bindingOrder: ['target'],
                 selectedCount: 1,
+                rank: 0,
+                primary: true,
                 enabled: true,
               },
             ],
+            verbOffers: [
+              {
+                verbId: 'look',
+                slotId: 'target',
+                label: 'look',
+                bindingOrder: ['target'],
+                rank: 0,
+                primary: true,
+              },
+            ],
+            verbMenuOpen: true,
             selectedSubjects: [{ kind: 'interactable', id: 'key' }],
             clickableTargets: [],
           },
@@ -878,6 +895,8 @@ describe('FullGamePreviewEditor', () => {
             dialogueOptions: [],
             navigation: [],
             actions: [],
+            verbOffers: [],
+            verbMenuOpen: false,
             selectedSubjects: [],
             clickableTargets: [],
           },
@@ -930,7 +949,7 @@ describe('FullGamePreviewEditor', () => {
     const { editorPort, previewPort } = await renderConnectedPreview();
 
     await postInputSnapshot(previewPort);
-    expect(screen.queryByText('Select Hidden object')).not.toBeInTheDocument();
+    expect(screen.queryByText('Activate Hidden object')).not.toBeInTheDocument();
 
     await postInputSnapshot(previewPort, {
       clickableTargets: [
@@ -941,13 +960,15 @@ describe('FullGamePreviewEditor', () => {
         },
       ],
     });
-    const selection = screen.getByText('Select Door');
+    const selection = screen.getByText('Activate Door');
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
     await user.click(selection);
-    expect(screen.queryByText('1. Select feature:room:foyer:door')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('1. Primary Activate feature:room:foyer:door'),
+    ).not.toBeInTheDocument();
 
-    const rejected = latestRequest(editorPort, 'runtime-select-subjects');
+    const rejected = latestRequest(editorPort, 'runtime-primary-activate');
     expect(rejected).toBeDefined();
     await act(async () => {
       previewPort.postMessage({
@@ -958,12 +979,14 @@ describe('FullGamePreviewEditor', () => {
         error: 'Subject is not currently eligible.',
       });
     });
-    expect(screen.queryByText('1. Select feature:room:foyer:door')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('1. Primary Activate feature:room:foyer:door'),
+    ).not.toBeInTheDocument();
 
     await user.click(selection);
-    await resolveLatest(editorPort, previewPort, 'runtime-select-subjects');
+    await resolveLatest(editorPort, previewPort, 'runtime-primary-activate');
     await waitFor(() =>
-      expect(screen.getByText('1. Select feature:room:foyer:door')).toBeInTheDocument(),
+      expect(screen.getByText('1. Primary Activate feature:room:foyer:door')).toBeInTheDocument(),
     );
   });
 

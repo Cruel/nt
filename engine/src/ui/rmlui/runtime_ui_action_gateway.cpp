@@ -250,17 +250,17 @@ bool RuntimeUiActionGateway::action_navigate_room(std::string text)
         core::RuntimeInputMessage{core::NavigateRoomInput{*id.value_if()}});
 }
 
-bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string text)
+std::optional<core::compiled::InteractionSubject>
+RuntimeUiActionGateway::resolve_subject(std::string kind, std::string text)
 {
     if (!require_view())
-        return false;
+        return std::nullopt;
     std::optional<core::compiled::InteractionSubject> subject;
-    bool available = false;
     if (kind == "interactable") {
         auto id = core::InteractableId::create(std::move(text));
         if (!id) {
             core::append_diagnostics(m_diagnostics, id.error());
-            return false;
+            return std::nullopt;
         }
         subject = core::compiled::InteractableInteractionSubject{*id.value_if()};
         const auto available_in_room =
@@ -278,35 +278,47 @@ bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string
             view()->inventory.items.begin(), view()->inventory.items.end(), [&](const auto& item) {
                 return item.interactable == *id.value_if() && item.visible && item.enabled;
             });
-        available = available_in_room || available_in_inventory;
-        if (!available)
-            return invalid("runtime_ui.invalid_interactable",
-                           "Interactable is stale, unknown, hidden, or disabled");
+        if (!available_in_room && !available_in_inventory) {
+            (void)invalid("runtime_ui.invalid_interactable",
+                          "Interactable is stale, unknown, hidden, or disabled");
+            return std::nullopt;
+        }
     } else if (kind == "character") {
         auto id = core::CharacterId::create(std::move(text));
         if (!id) {
             core::append_diagnostics(m_diagnostics, id.error());
-            return false;
+            return std::nullopt;
         }
         subject = core::compiled::CharacterInteractionSubject{*id.value_if()};
-        available = view()->room &&
-                    std::any_of(view()->room->placements.begin(), view()->room->placements.end(),
-                                [&](const auto& placement) {
-                                    return std::any_of(placement.occupants.begin(),
-                                                       placement.occupants.end(),
-                                                       [&](const auto& occupant) {
-                                                           return occupant.subject == *subject &&
-                                                                  occupant.visible &&
-                                                                  occupant.enabled;
-                                                       });
-                                });
-        if (!available)
-            return invalid("runtime_ui.invalid_character",
-                           "Character is stale, unknown, hidden, or disabled");
+        const bool available =
+            view()->room &&
+            std::any_of(view()->room->placements.begin(), view()->room->placements.end(),
+                        [&](const auto& placement) {
+                            return std::any_of(placement.occupants.begin(),
+                                               placement.occupants.end(),
+                                               [&](const auto& occupant) {
+                                                   return occupant.subject == *subject &&
+                                                          occupant.visible && occupant.enabled;
+                                               });
+                        });
+        if (!available) {
+            (void)invalid("runtime_ui.invalid_character",
+                          "Character is stale, unknown, hidden, or disabled");
+            return std::nullopt;
+        }
     } else {
-        return invalid("runtime_ui.invalid_subject_kind",
-                       "Interaction subject kind must be character or interactable");
+        (void)invalid("runtime_ui.invalid_subject_kind",
+                      "Interaction subject kind must be character or interactable");
+        return std::nullopt;
     }
+    return subject;
+}
+
+bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string text)
+{
+    auto subject = resolve_subject(std::move(kind), std::move(text));
+    if (!subject)
+        return false;
     auto selection = view()->selected_subjects;
     const auto selected = std::find(selection.begin(), selection.end(), *subject);
     if (selected == selection.end())
@@ -315,6 +327,20 @@ bool RuntimeUiActionGateway::action_toggle_subject(std::string kind, std::string
         selection.erase(selected);
     return dispatch_layout_input(
         core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{std::move(selection)}});
+}
+
+bool RuntimeUiActionGateway::action_primary_activate(std::string kind, std::string text)
+{
+    auto subject = resolve_subject(std::move(kind), std::move(text));
+    return subject && dispatch_layout_input(
+                          core::RuntimeInputMessage{core::PrimaryActivateInput{std::move(*subject)}});
+}
+
+bool RuntimeUiActionGateway::action_open_verb_menu(std::string kind, std::string text)
+{
+    auto subject = resolve_subject(std::move(kind), std::move(text));
+    return subject && dispatch_layout_input(
+                          core::RuntimeInputMessage{core::OpenVerbMenuInput{std::move(*subject)}});
 }
 
 bool RuntimeUiActionGateway::action_clear_selection()
@@ -473,6 +499,12 @@ void RuntimeUiActionGateway::install_lua_api()
     });
     ui.set_function("toggle_character", [this](std::string text) {
         return action_toggle_subject("character", std::move(text));
+    });
+    ui.set_function("primary_activate", [this](std::string kind, std::string text) {
+        return action_primary_activate(std::move(kind), std::move(text));
+    });
+    ui.set_function("open_verb_menu", [this](std::string kind, std::string text) {
+        return action_open_verb_menu(std::move(kind), std::move(text));
     });
     ui.set_function("clear_selection", [this]() { return action_clear_selection(); });
     ui.set_function("invoke_interaction", [this](std::string text) {

@@ -15,6 +15,8 @@ export type RecordedRuntimeInputKind =
   | 'dialogue-option'
   | 'navigate'
   | 'select-subjects'
+  | 'primary-activate'
+  | 'open-verb-menu'
   | 'clear-subject-selection'
   | 'run-interaction'
   | 'ui-click';
@@ -25,6 +27,7 @@ export interface RecordedRuntimeActionInput {
   exitId?: string;
   direction?: number;
   subjects?: RecordedInteractionSubject[];
+  subject?: RecordedInteractionSubject;
   verbId?: string;
   bindings?: Array<{ slotId: string; subject: RecordedInteractionSubject }>;
   documentId?: string;
@@ -153,6 +156,20 @@ export function lowerRecordedRuntimeActionToTestStep(
         action,
         index,
       );
+    case 'primary-activate':
+    case 'open-verb-menu': {
+      const subject = input.subject;
+      if (!subject || !validRecordedSubject(subject)) return null;
+      const inputType = input.type;
+      return withStepIdentity(
+        {
+          ...defaultTestStep(inputType, action.label || inputType),
+          subjectAction: { subject: testSubject(subject) },
+        },
+        action,
+        index,
+      );
+    }
     case 'clear-subject-selection':
       return withStepIdentity(
         defaultTestStep('clear-subject-selection', action.label || 'Clear subject selection'),

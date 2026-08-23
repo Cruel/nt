@@ -170,16 +170,30 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
     }
 
     nlohmann::json actions = nlohmann::json::array();
+    nlohmann::json verb_offers = nlohmann::json::array();
     const auto& controls = view.room ? view.room->controls : view.inventory.controls;
-    for (const auto& control : controls) {
+    for (const auto& offer : view.verb_offers) {
         nlohmann::json binding_order = nlohmann::json::array();
-        for (const auto& slot : control.binding_order)
+        for (const auto& slot : offer.binding_order)
             binding_order.push_back(slot.text());
-        actions.push_back({{"verbId", control.verb.text()},
-                           {"label", control.label},
+        verb_offers.push_back({{"verbId", offer.verb.text()},
+                               {"slotId", offer.slot.text()},
+                               {"label", offer.label},
+                               {"bindingOrder", binding_order},
+                               {"rank", offer.rank},
+                               {"primary", offer.primary}});
+        if (!view.verb_menu_open)
+            continue;
+        const auto control = std::find_if(controls.begin(), controls.end(), [&](const auto& value) {
+            return value.verb == offer.verb;
+        });
+        actions.push_back({{"verbId", offer.verb.text()},
+                           {"label", offer.label},
                            {"bindingOrder", std::move(binding_order)},
                            {"selectedCount", static_cast<int>(view.selected_subjects.size())},
-                           {"enabled", control.enabled}});
+                           {"rank", offer.rank},
+                           {"primary", offer.primary},
+                           {"enabled", control != controls.end() && control->enabled}});
     }
 
     nlohmann::json clickable_targets = nlohmann::json::array();
@@ -311,6 +325,8 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
           {"dialogueOptions", std::move(dialogue_options)},
           {"navigation", std::move(navigation)},
           {"actions", std::move(actions)},
+          {"verbOffers", std::move(verb_offers)},
+          {"verbMenuOpen", view.verb_menu_open},
           {"selectedSubjects", selected_subjects},
           {"clickableTargets", std::move(clickable_targets)}}},
         {"variables", nlohmann::json::array()},
@@ -405,6 +421,16 @@ bool RuntimePreviewController::select_subjects(
     std::vector<core::compiled::InteractionSubject> subjects)
 {
     return m_preview_host->select_subjects(std::move(subjects));
+}
+
+bool RuntimePreviewController::primary_activate(core::compiled::InteractionSubject subject)
+{
+    return m_preview_host->primary_activate(std::move(subject));
+}
+
+bool RuntimePreviewController::open_verb_menu(core::compiled::InteractionSubject subject)
+{
+    return m_preview_host->open_verb_menu(std::move(subject));
 }
 
 bool RuntimePreviewController::clear_subject_selection()
