@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:ddddb10c05675136859b6f9c76d26192");
+    CHECK(project.save_contract == "sc1:76f4f151cc3ecf9fd2622c2115a30903");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -110,7 +110,8 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.settings.accessibility.ui_scale.enabled);
     CHECK(project.settings.accessibility.text_scale.maximum == 2.0);
     CHECK(project.rooms.front().placements.front().id.text() == "coin-placement");
-    CHECK(project.maps.front().connections.front().exit.exit_id.text() == "north-exit");
+    REQUIRE(project.maps.front().connections.front().exits.size() == 1);
+    CHECK(project.maps.front().connections.front().exits.front().exit_id.text() == "north-exit");
     CHECK(project.localization.catalogs.size() == 2);
 }
 

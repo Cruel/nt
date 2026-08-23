@@ -109,30 +109,6 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
              mount.connected_signals, mount.state_shape, mount.state_values,
              mount.composition_group});
     }
-    if (snapshot.map && snapshot.map->layout) {
-        desired.push_back({"map/" + snapshot.map->map.text(),
-                           std::nullopt,
-                           *snapshot.map->layout,
-                           std::nullopt,
-                           core::MountedLayoutOwner::Gameplay,
-                           {.plane = core::PresentationPlane::GameUi,
-                            .local_order = 300,
-                            .clock = core::LayoutClockDomain::Gameplay,
-                            .input = core::LayoutInputMode::Normal,
-                            .gameplay_pause = core::GameplayPausePolicy::Continue,
-                            .visibility = snapshot.map->visible ? core::LayoutVisibility::Visible
-                                                                : core::LayoutVisibility::Hidden,
-                            .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
-                            .entrance_operation = std::nullopt,
-                            .exit_operation = std::nullopt},
-                           {},
-                           std::nullopt,
-                           {},
-                           {},
-                           std::nullopt,
-                           {},
-                           core::PresentationCompositionGroup::Interface});
-    }
     std::sort(desired.begin(), desired.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.identity < rhs.identity; });
 

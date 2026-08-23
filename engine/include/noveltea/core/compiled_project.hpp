@@ -1005,27 +1005,34 @@ struct DialogueDefinition {
     FlowTarget completion;
 };
 
-struct PointMapShape {};
-struct CircleMapShape {
-    double radius;
+struct MapPolygon {
+    std::vector<Vector2> points;
 };
-struct RectMapShape {
-    double width;
-    double height;
-};
-using MapShape = std::variant<PointMapShape, CircleMapShape, RectMapShape>;
 struct MapLocation {
     MapLocationId id;
-    std::optional<TextContent> label;
-    Vector2 position;
     RoomId room;
-    MapShape shape;
+    std::vector<MapPolygon> regions;
+    std::optional<TextContent> label;
+    std::optional<AssetId> icon;
+    std::optional<std::string> style;
+    std::optional<Vector2> label_anchor;
+    std::optional<Vector2> connection_anchor;
+    Condition visibility;
+    std::int64_t pick_order = 0;
+    std::int64_t logical_order = 0;
 };
 struct MapConnection {
     MapConnectionId id;
-    RoomExitRef exit;
+    std::vector<RoomExitRef> exits;
     MapLocationId source_location_id;
     MapLocationId target_location_id;
+    std::optional<TextContent> label;
+    std::optional<AssetId> icon;
+    std::optional<std::string> style;
+    Condition visibility;
+    std::int64_t logical_order = 0;
+    std::vector<Vector2> path;
+    std::vector<MapPolygon> hit_regions;
 };
 enum class InitialMapMode : std::uint8_t {
     Minimap,

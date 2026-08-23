@@ -1662,23 +1662,6 @@ function ownerLocalDiagnostics(
         if (!stepIds.has(target.id)) addMissing(target.path, 'Scene step', target.id);
       });
     });
-  } else if (collection === 'maps' && isRecord(record.data)) {
-    const locationIds = new Set(
-      tolerantObjectArray(record.data, 'locations')
-        .map((item) => item.id)
-        .filter((id): id is string => typeof id === 'string'),
-    );
-    tolerantObjectArray(record.data, 'connections').forEach((connection, index) => {
-      for (const field of ['sourceLocation', 'targetLocation'] as const) {
-        if (typeof connection[field] === 'string' && !locationIds.has(connection[field])) {
-          addMissing(
-            `${owningPath}/data/connections/${index}/${field}`,
-            'Map location',
-            connection[field],
-          );
-        }
-      }
-    });
   }
   return diagnostics;
 }

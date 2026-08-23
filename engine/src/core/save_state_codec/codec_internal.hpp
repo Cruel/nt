@@ -220,7 +220,6 @@ struct SavedPresentationRecords {
     std::vector<SavedDesiredAudio> desired_audio;
     std::optional<PresentedTextState> presented_text;
     std::optional<ActiveChoiceState> active_choice;
-    std::optional<MapPresentationState> map_presentation;
 };
 
 nlohmann::json encode_presentation_records(const SaveState& save);

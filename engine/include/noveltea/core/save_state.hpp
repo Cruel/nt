@@ -285,7 +285,6 @@ struct SaveState {
     std::vector<SavedDesiredAudio> desired_audio;
     std::optional<PresentedTextState> presented_text;
     std::optional<ActiveChoiceState> active_choice;
-    std::optional<MapPresentationState> map_presentation;
     RuntimeMode mode;
     std::vector<SavedFlowFrame> flow_stack;
     std::optional<SavedFlowBlocker> blocker;

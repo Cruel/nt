@@ -31,7 +31,7 @@ template<class Id> Id id(std::string value)
     return std::move(result).value();
 }
 
-core::CompiledProject load_project()
+core::CompiledProject load_project(bool reciprocal = false)
 {
     std::ifstream input(
         std::string(NOVELTEA_SOURCE_DIR) +
@@ -41,6 +41,10 @@ core::CompiledProject load_project()
                              std::istreambuf_iterator<char>());
     auto document = nlohmann::json::parse(source, nullptr, false);
     REQUIRE_FALSE(document.is_discarded());
+    if (reciprocal) {
+        document["definitions"]["maps"][0]["connections"][0]["exits"].push_back(
+            {{"exitId", "south-exit"}, {"room", {{"kind", "room"}, {"id", "hall"}}}});
+    }
     auto decoded = core::decode_compiled_project(document, "typed-map-test");
     REQUIRE(decoded);
     return std::move(decoded).value();
@@ -94,28 +98,26 @@ TEST_CASE("typed Map derives selection exclusively from Room exits and routes na
                             "function can_unlock() return true end\n"
                             "function key_label() return 'Key' end",
                             "typed-map-setup"));
-    auto project = load_project();
+    auto project = load_project(true);
     auto created = test_support::create_execution_kernel(project, runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
     drive_to_room(*kernel, id<core::RoomId>("start"));
 
-    REQUIRE(kernel->present_map(id<core::MapId>("house")));
-    auto map = kernel->map_view("en");
+    auto map = kernel->map_view(id<core::MapId>("house"), "en");
     REQUIRE(map);
     CHECK(map.value().title == "House Map");
     CHECK(map.value().current_room == id<core::RoomId>("start"));
     REQUIRE(map.value().connections.size() == 2);
-    CHECK(map.value().connections[0].selectable);
-    CHECK_FALSE(map.value().connections[1].selectable);
-
-    REQUIRE(kernel->select_map_location(id<core::MapLocationId>("hall-location"), "en"));
-    REQUIRE(kernel->state().map_presentation());
-    CHECK(kernel->state().map_presentation()->focused_location ==
-          id<core::MapLocationId>("hall-location"));
+    CHECK(map.value().connections[0].actionable);
+    CHECK_FALSE(map.value().connections[1].actionable);
+    CHECK(map.value().locations[1].actionable);
+    REQUIRE(map.value().locations[1].convenience_exit);
+    CHECK(map.value().locations[1].convenience_exit->exit_id == id<core::RoomExitId>("north-exit"));
     CHECK(kernel->state().flow_stack().empty());
 
-    REQUIRE(kernel->activate_map_connection(id<core::MapConnectionId>("start-hall"), "en"));
+    REQUIRE(kernel->activate_map_connection(id<core::MapId>("house"),
+                                            id<core::MapConnectionId>("start-hall"), "en"));
     REQUIRE_FALSE(kernel->state().flow_stack().empty());
     const auto* transition =
         std::get_if<core::RoomTransitionFrame>(&kernel->state().flow_stack().back());
@@ -127,9 +129,59 @@ TEST_CASE("typed Map derives selection exclusively from Room exits and routes na
 
     auto ui = kernel->runtime_ui_view("en");
     REQUIRE(ui);
-    REQUIRE(ui.value().map);
-    CHECK(ui.value().map->current_room == id<core::RoomId>("hall"));
-    CHECK(ui.value().map->locations[1].focused);
+    REQUIRE(ui.value().maps.size() == 1);
+    CHECK(ui.value().maps.front().current_room == id<core::RoomId>("hall"));
+    REQUIRE(ui.value().maps.front().connections.front().active_exit);
+    CHECK(ui.value().maps.front().connections.front().active_exit->room == id<core::RoomId>("hall"));
+    CHECK(ui.value().maps.front().connections.front().active_exit->exit_id ==
+          id<core::RoomExitId>("south-exit"));
+    CHECK(ui.value().maps.front().connections.front().actionable);
+    CHECK(ui.value().maps.front().locations.front().actionable);
+    REQUIRE(ui.value().maps.front().locations.front().convenience_exit);
+    CHECK(ui.value().maps.front().locations.front().convenience_exit->exit_id ==
+          id<core::RoomExitId>("south-exit"));
+
+    REQUIRE(kernel->activate_map_connection(id<core::MapId>("house"),
+                                            id<core::MapConnectionId>("start-hall"), "en"));
+    const auto* reverse_transition =
+        std::get_if<core::RoomTransitionFrame>(&kernel->state().flow_stack().back());
+    REQUIRE(reverse_transition != nullptr);
+    REQUIRE(reverse_transition->selected_exit);
+    CHECK(reverse_transition->selected_exit->room == id<core::RoomId>("hall"));
+    CHECK(reverse_transition->selected_exit->exit_id == id<core::RoomExitId>("south-exit"));
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+}
+
+TEST_CASE("typed Map visibility stays independent when canonical navigation guards deny actionability")
+{
+    test_support::MemoryScriptSource sources;
+    ScriptRuntime runtime;
+    REQUIRE(runtime.initialize({&sources}));
+    REQUIRE(runtime.execute("function initialize_fixture() end\n"
+                            "function can_leave_start() return false end\n"
+                            "function after_enter_start() end\n"
+                            "function before_leave_start() end\n"
+                            "function hall_description() return 'Hall' end\n"
+                            "function tower_open() return true end\n"
+                            "function can_unlock() return true end\n"
+                            "function key_label() return 'Key' end",
+                            "typed-map-guard-setup"));
+    auto project = load_project();
+    auto created = test_support::create_execution_kernel(project, runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+
+    auto map = kernel->map_view(id<core::MapId>("house"), "en");
+    REQUIRE(map);
+    REQUIRE(map.value().connections.size() == 2);
+    CHECK(map.value().connections[0].visible);
+    CHECK_FALSE(map.value().connections[0].actionable);
+    REQUIRE(map.value().locations.size() == 3);
+    CHECK(map.value().locations[1].visible);
+    CHECK_FALSE(map.value().locations[1].actionable);
+    CHECK_FALSE(map.value().locations[1].convenience_exit);
+    CHECK(kernel->state().flow_stack().empty());
 }
 
 } // namespace noveltea::script::test

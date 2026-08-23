@@ -156,6 +156,17 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #80/#81 add the reusable Layout Mount contract at the preserved authoring schema version.
   // Inputs, signals, and recursive State Shapes change the Layout runtime/save contribution and preview.
   [/^\/layouts\/\*\/data\/contract\//, OWNER],
+  // #82 atomically replaces provisional Map point/shape and authored endpoint fields at the preserved
+  // authoring schema version. New geometry, visibility, presentation, ordering, and exit-pair leaves
+  // all contribute to the owning Map runtime projection.
+  [
+    /^\/maps\/\*\/data\/locations\/\*\/(?:regions|icon|style|labelAnchor|connectionAnchor|visibility|pickOrder|logicalOrder)(?:\/|$)/,
+    OWNER,
+  ],
+  [
+    /^\/maps\/\*\/data\/connections\/\*\/(?:exits|label|icon|style|visibility|logicalOrder|path|hitRegions)(?:\/|$)/,
+    OWNER,
+  ],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
 ]);
 
@@ -321,6 +332,19 @@ const legacySchemaLeafPaths = [
   '/rooms/*/data/compose/additionalDependencies/targets/*/roomId' as JsonPointer,
   '/rooms/*/data/compose/script/$ref/collection' as JsonPointer,
   '/rooms/*/data/compose/script/$ref/id' as JsonPointer,
+  // #82 removes provisional Map position/shape and separately-authored Connection endpoint fields.
+  // Retain those removed same-version leaves solely to preserve reviewed-effect alignment; every new
+  // #82 Map leaf is classified explicitly above.
+  '/maps/*/data/locations/*/position/x' as JsonPointer,
+  '/maps/*/data/locations/*/position/y' as JsonPointer,
+  '/maps/*/data/locations/*/shape/kind' as JsonPointer,
+  '/maps/*/data/locations/*/shape/radius' as JsonPointer,
+  '/maps/*/data/locations/*/shape/width' as JsonPointer,
+  '/maps/*/data/locations/*/shape/height' as JsonPointer,
+  '/maps/*/data/connections/*/exit/room' as JsonPointer,
+  '/maps/*/data/connections/*/exit/exit' as JsonPointer,
+  '/maps/*/data/connections/*/sourceLocation' as JsonPointer,
+  '/maps/*/data/connections/*/targetLocation' as JsonPointer,
 ].sort();
 const legacyReviewedPaths = legacySchemaLeafPaths.filter((path) => !explicitFieldEffect(path));
 if (legacyReviewedPaths.length !== PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.length) {
@@ -413,7 +437,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     itemStacks: '3eaf965c',
     layouts: '35da7f67',
     localization: '3f6d0d11',
-    maps: '9b969995',
+    maps: 'af4e0eba',
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',

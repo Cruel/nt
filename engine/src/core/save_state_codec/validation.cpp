@@ -939,21 +939,6 @@ bool valid_active_choice(const CompiledProject& project,
         *choice);
 }
 
-bool valid_map_presentation(const CompiledProject& project,
-                            const std::optional<MapPresentationState>& value) noexcept
-{
-    if (!value)
-        return true;
-    const auto* map = project.find_map(value->map);
-    if (map == nullptr || value->mode > compiled::InitialMapMode::FullMap)
-        return false;
-    return !value->focused_location ||
-           std::any_of(map->locations.begin(), map->locations.end(),
-                       [&value](const compiled::MapLocation& location) {
-                           return location.id == *value->focused_location;
-                       });
-}
-
 Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& project,
                                                    const SaveState& save, std::string source_path)
 {
@@ -1591,10 +1576,6 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     if (!valid_active_choice(project, save.active_choice))
         error("save_codec.invalid_presentation_record",
               "Active choice has stale or incoherent authored references.");
-    if (!valid_map_presentation(project, save.map_presentation))
-        error("save_codec.invalid_presentation_record",
-              "Map presentation has a stale Map or focused location.");
-
     if (save.blocker) {
         const auto owner =
             std::visit([](const auto& value) { return value.owner.value; }, *save.blocker);

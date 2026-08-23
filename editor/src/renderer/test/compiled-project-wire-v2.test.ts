@@ -274,9 +274,23 @@ function representativeWireFixture() {
             {
               id: 'foyer-location',
               room: { kind: 'room', id: 'foyer' },
-              position: { x: 0, y: 0 },
-              shape: { kind: 'point' },
+              regions: [
+                {
+                  points: [
+                    { x: 0.1, y: 0.1 },
+                    { x: 0.2, y: 0.1 },
+                    { x: 0.2, y: 0.2 },
+                  ],
+                },
+              ],
               label: null,
+              icon: null,
+              style: null,
+              labelAnchor: null,
+              connectionAnchor: null,
+              visibility: { kind: 'always' },
+              pickOrder: 0,
+              logicalOrder: 0,
             },
           ],
           connections: [],

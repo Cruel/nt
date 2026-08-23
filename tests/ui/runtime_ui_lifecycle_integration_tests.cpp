@@ -1415,11 +1415,10 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
         noveltea::core::compiled::InteractableInteractionSubject{interactable.value()}};
     values.view.interaction = noveltea::core::InteractionView{
         .verb = verb.value(), .notification = "Interaction fallback"};
-    values.view.map =
+    values.view.maps.push_back(
         noveltea::core::MapView{.map = map.value(),
-                                .mode = noveltea::core::compiled::InitialMapMode::Minimap,
-                                .visible = true,
-                                .title = "Map <Title>"};
+                                .initial_mode = noveltea::core::compiled::InitialMapMode::Minimap,
+                                .title = "Map <Title>"});
     REQUIRE(ui.apply_gameplay_ui_values(values));
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
@@ -1429,8 +1428,7 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
     REQUIRE(document->GetContext());
     document->GetContext()->Update();
     CHECK(driver->element("binder-characterization", "rt_mode")->GetInnerRML() == "scene");
-    CHECK(driver->element("binder-characterization", "rt_title")->GetInnerRML() ==
-          "Map &lt;Title&gt;");
+    CHECK(driver->element("binder-characterization", "rt_title")->GetInnerRML().empty());
     CHECK(driver->element("binder-characterization", "rt_notification")->GetInnerRML() ==
           "Interaction fallback");
     Rml::ElementList continue_buttons;
@@ -1659,12 +1657,11 @@ TEST_CASE("RuntimeUI isolates ActiveText and provisional Map updates to supporte
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 1;
     values.view.can_continue = true;
-    values.view.map =
+    values.view.maps.push_back(
         noveltea::core::MapView{.map = map_id.value(),
-                                .mode = noveltea::core::compiled::InitialMapMode::Minimap,
-                                .visible = true,
+                                .initial_mode = noveltea::core::compiled::InitialMapMode::Minimap,
                                 .current_room = room_id.value(),
-                                .title = "Scoped map"};
+                                .title = "Scoped map"});
     REQUIRE(ui.apply_gameplay_ui_values(values));
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);

@@ -997,13 +997,6 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                                                   mounted.layout.text()});
             }
         }
-        if (publication.presentation.map && publication.presentation.map->layout &&
-            !project.find_layout(*publication.presentation.map->layout)) {
-            diagnostics.push_back(
-                {.code = "host.game_load_map_layout_missing",
-                 .message = "Initial map presentation references missing Layout " +
-                            publication.presentation.map->layout->text()});
-        }
         auto validated_layouts = m_layout_realizer.validate_project(project, candidate_assets);
         if (!validated_layouts)
             core::append_diagnostics(diagnostics, std::move(validated_layouts).error());

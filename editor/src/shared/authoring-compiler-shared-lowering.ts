@@ -747,6 +747,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   for (const [id, record] of sortedEntries(project.maps)) {
     const data = requireData(parseMapData(record.data), `/maps/${id}/data`);
     if (!data) continue;
+    const locationByRoom = new Map(
+      data.locations.map((location) => [location.room.$ref.id, location.id] as const),
+    );
     maps.push({
       ...definitionBase(id),
       presentation: {
@@ -758,16 +761,43 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       locations: data.locations.map((location) => ({
         id: location.id,
         room: roomRef(location.room.$ref.id),
-        position: { ...location.position },
-        shape: { ...location.shape },
+        regions: location.regions.map((region) => ({
+          points: region.points.map((point) => ({ ...point })),
+        })),
         label: location.label ? compileText(location.label) : null,
+        icon: assetRef(location.icon),
+        style: location.style,
+        labelAnchor: location.labelAnchor ? { ...location.labelAnchor } : null,
+        connectionAnchor: location.connectionAnchor ? { ...location.connectionAnchor } : null,
+        visibility: compileCondition(location.visibility),
+        pickOrder: location.pickOrder,
+        logicalOrder: location.logicalOrder,
       })),
-      connections: data.connections.map((connection) => ({
-        id: connection.id,
-        exit: { room: roomRef(connection.exit.room), exitId: connection.exit.exit },
-        sourceLocationId: connection.sourceLocation,
-        targetLocationId: connection.targetLocation,
-      })),
+      connections: data.connections.map((connection) => {
+        const first = connection.exits[0];
+        const sourceRoom = first.room;
+        const sourceExit = parseRoomData(project.rooms[sourceRoom]?.data)?.exits.find(
+          (exit) => exit.id === first.exit,
+        );
+        return {
+          id: connection.id,
+          exits: connection.exits.map((exit) => ({
+            room: roomRef(exit.room),
+            exitId: exit.exit,
+          })),
+          sourceLocationId: locationByRoom.get(sourceRoom) ?? '',
+          targetLocationId: locationByRoom.get(sourceExit?.target.$ref.id ?? '') ?? '',
+          label: connection.label ? compileText(connection.label) : null,
+          icon: assetRef(connection.icon),
+          style: connection.style,
+          visibility: compileCondition(connection.visibility),
+          logicalOrder: connection.logicalOrder,
+          path: connection.path.map((point) => ({ ...point })),
+          hitRegions: connection.hitRegions.map((region) => ({
+            points: region.points.map((point) => ({ ...point })),
+          })),
+        };
+      }),
     });
   }
 

@@ -346,11 +346,4 @@ struct DialogueChoiceState {
 
 using ActiveChoiceState = std::variant<SceneChoiceState, DialogueChoiceState>;
 
-struct MapPresentationState {
-    MapId map;
-    compiled::InitialMapMode mode;
-    bool visible = false;
-    std::optional<MapLocationId> focused_location;
-};
-
 } // namespace noveltea::core

@@ -318,23 +318,6 @@ parse_optional_room_location(const sol::optional<sol::table>& options)
                  : Result::failure(parsed.error());
 }
 
-core::Result<core::compiled::InitialMapMode, core::Diagnostics>
-parse_map_mode(const std::string& value)
-{
-    using Result = core::Result<core::compiled::InitialMapMode, core::Diagnostics>;
-    if (value == "minimap")
-        return Result::success(core::compiled::InitialMapMode::Minimap);
-    if (value == "full-map")
-        return Result::success(core::compiled::InitialMapMode::FullMap);
-    return Result::failure(
-        invalid("runtime.invalid_map_mode", "Map mode must be 'minimap' or 'full-map'"));
-}
-
-const char* map_mode_name(core::compiled::InitialMapMode mode) noexcept
-{
-    return mode == core::compiled::InitialMapMode::Minimap ? "minimap" : "full-map";
-}
-
 core::Result<core::compiled::LayoutSlot, core::Diagnostics>
 parse_layout_slot(const std::string& value)
 {
@@ -972,75 +955,23 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
 
     sol::table map = lua.create_table();
     map.set_function(
-        "present",
-        [api](std::string map_id, sol::optional<sol::table> options,
+        "activate",
+        [api](std::string map_id, std::string connection_id,
               sol::this_state state) -> MutationResult {
             sol::state_view view(state);
             auto parsed_map = parse_id<core::MapId>(std::move(map_id));
+            auto parsed_connection = parse_id<core::MapConnectionId>(std::move(connection_id));
             auto* map_value = parsed_map.value_if();
+            auto* connection_value = parsed_connection.value_if();
             if (!map_value)
-                return mutation(view,
-                                core::Result<void, core::Diagnostics>::failure(parsed_map.error()));
-
-            std::optional<core::compiled::InitialMapMode> mode;
-            bool visible = true;
-            std::optional<core::MapLocationId> focus;
-            if (options) {
-                if (const auto value = table_option<std::string>(*options, "mode"); value) {
-                    auto parsed = parse_map_mode(*value);
-                    const auto* parsed_value = parsed.value_if();
-                    if (!parsed_value)
-                        return mutation(
-                            view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
-                    mode = *parsed_value;
-                }
-                const auto visible_value = table_option<bool>(*options, "visible");
-                visible = visible_value.value_or(true);
-                if (const auto value = table_option<std::string>(*options, "focus"); value) {
-                    auto parsed = parse_id<core::MapLocationId>(*value);
-                    auto* parsed_value = parsed.value_if();
-                    if (!parsed_value)
-                        return mutation(
-                            view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
-                    focus = std::move(*parsed_value);
-                }
-            }
-            return mutation(
-                view, api->present_map(std::move(*map_value), mode, visible, std::move(focus)));
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(parsed_map.error()));
+            if (!connection_value)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(parsed_connection.error()));
+            return mutation(view, api->activate_map_connection(std::move(*map_value),
+                                                                std::move(*connection_value)));
         });
-    map.set_function("hide", [api](sol::this_state state) {
-        return mutation(sol::state_view(state), api->hide_map());
-    });
-    map.set_function("select", [api](std::string location, sol::this_state state) {
-        sol::state_view view(state);
-        auto parsed = parse_id<core::MapLocationId>(std::move(location));
-        auto* value = parsed.value_if();
-        return value
-                   ? mutation(view, api->select_map_location(std::move(*value)))
-                   : mutation(view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
-    });
-    map.set_function("activate", [api](std::string connection, sol::this_state state) {
-        sol::state_view view(state);
-        auto parsed = parse_id<core::MapConnectionId>(std::move(connection));
-        auto* value = parsed.value_if();
-        return value
-                   ? mutation(view, api->activate_map_connection(std::move(*value)))
-                   : mutation(view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
-    });
-    map.set_function("state", [api](sol::this_state state) -> ObjectResult {
-        sol::state_view view(state);
-        auto result = api->map_state();
-        const auto* value = result.value_if();
-        if (!value)
-            return failure(view, result.error());
-        sol::table object = view.create_table();
-        object["map"] = value->map.text();
-        object["mode"] = map_mode_name(value->mode);
-        object["visible"] = value->visible;
-        if (value->focused_location)
-            object["focused_location"] = value->focused_location->text();
-        return {sol::make_object(view, object), nil(view)};
-    });
     noveltea["map"] = map;
 
     sol::table layouts = lua.create_table();

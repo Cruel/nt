@@ -2,39 +2,48 @@ import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 import {
   assetRefSchema,
+  conditionSchema,
   layoutRefSchema,
   roomRefSchema,
   textContentSchema,
 } from './authoring-flow';
 import { parseRoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { validateVariableRuntimeValue } from './authoring-variable-usage';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+const normalizedCoordinate = z.number().finite().min(0).max(1);
 
-export const mapPointSchema = strict({ x: z.number().finite(), y: z.number().finite() });
-export const mapLocationShapeSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('point') }),
-  strict({ kind: z.literal('circle'), radius: z.number().finite().positive() }),
-  strict({
-    kind: z.literal('rect'),
-    width: z.number().finite().positive(),
-    height: z.number().finite().positive(),
-  }),
-]);
+export const mapPointSchema = strict({ x: normalizedCoordinate, y: normalizedCoordinate });
+export const mapPolygonSchema = strict({ points: z.array(mapPointSchema).min(3) });
+export const roomExitRefSchema = strict({ room: entityIdSchema, exit: entityIdSchema });
+
 export const mapLocationSchema = strict({
   id: entityIdSchema,
   room: roomRefSchema,
-  position: mapPointSchema,
-  shape: mapLocationShapeSchema,
+  regions: z.array(mapPolygonSchema),
   label: textContentSchema.nullable(),
+  icon: assetRefSchema.nullable(),
+  style: z.string().trim().min(1).nullable(),
+  labelAnchor: mapPointSchema.nullable(),
+  connectionAnchor: mapPointSchema.nullable(),
+  visibility: conditionSchema,
+  pickOrder: z.number().int(),
+  logicalOrder: z.number().int(),
 });
-export const roomExitRefSchema = strict({ room: entityIdSchema, exit: entityIdSchema });
+
 export const mapConnectionSchema = strict({
   id: entityIdSchema,
-  exit: roomExitRefSchema,
-  sourceLocation: entityIdSchema,
-  targetLocation: entityIdSchema,
+  exits: z.array(roomExitRefSchema).min(1).max(2),
+  label: textContentSchema.nullable(),
+  icon: assetRefSchema.nullable(),
+  style: z.string().trim().min(1).nullable(),
+  visibility: conditionSchema,
+  logicalOrder: z.number().int(),
+  path: z.array(mapPointSchema),
+  hitRegions: z.array(mapPolygonSchema),
 });
+
 export const mapPresentationSchema = strict({
   title: textContentSchema.nullable(),
   background: assetRefSchema.nullable(),
@@ -88,6 +97,37 @@ function duplicateDiagnostics(
   }
 }
 
+function validateCondition(
+  project: AuthoringProject,
+  condition: z.infer<typeof conditionSchema>,
+  path: string,
+  diagnostics: MapSchemaDiagnostic[],
+) {
+  if (condition.kind !== 'variable-comparison') return;
+  const variableId = condition.variable.$ref.id;
+  if (condition.value === undefined) {
+    if (!project.variables[variableId])
+      diagnostics.push(diagnostic(`${path}/variable/$ref`, `Missing variable '${variableId}'.`));
+    return;
+  }
+  const result = validateVariableRuntimeValue(project, variableId, condition.value);
+  if (!result.ok)
+    diagnostics.push(
+      diagnostic(
+        result.kind === 'missing' ? `${path}/variable/$ref` : `${path}/value`,
+        result.message,
+      ),
+    );
+}
+
+function resolveExit(project: AuthoringProject, reference: z.infer<typeof roomExitRefSchema>) {
+  const room = project.rooms[reference.room];
+  const exit = room
+    ? parseRoomData(room.data)?.exits.find((candidate) => candidate.id === reference.exit)
+    : null;
+  return { room, exit };
+}
+
 export function validateMapData(
   project: AuthoringProject,
   mapId: string,
@@ -103,25 +143,22 @@ export function validateMapData(
   const diagnostics: MapSchemaDiagnostic[] = [];
   duplicateDiagnostics(data.locations, `${base}/locations`, 'map location', diagnostics);
   duplicateDiagnostics(data.connections, `${base}/connections`, 'map connection', diagnostics);
-  const locations = new Map(data.locations.map((location) => [location.id, location]));
-  const rooms = new Set<string>();
+  const locationsByRoom = new Map<string, (typeof data.locations)[number]>();
   for (const [index, location] of data.locations.entries()) {
-    if (!project.rooms[location.room.$ref.id])
+    const path = `${base}/locations/${index}`;
+    const roomId = location.room.$ref.id;
+    if (!project.rooms[roomId])
+      diagnostics.push(diagnostic(`${path}/room/$ref`, `Missing room '${roomId}'.`));
+    if (locationsByRoom.has(roomId))
       diagnostics.push(
-        diagnostic(
-          `${base}/locations/${index}/room/$ref`,
-          `Missing room '${location.room.$ref.id}'.`,
-        ),
+        diagnostic(`${path}/room/$ref`, `Room '${roomId}' already has a Map Location.`),
       );
-    if (rooms.has(location.room.$ref.id))
+    else locationsByRoom.set(roomId, location);
+    if (location.icon && !project.assets[location.icon.$ref.id])
       diagnostics.push(
-        diagnostic(
-          `${base}/locations/${index}/room/$ref`,
-          `Room '${location.room.$ref.id}' already has a map location.`,
-          'warning',
-        ),
+        diagnostic(`${path}/icon/$ref`, `Missing asset '${location.icon.$ref.id}'.`),
       );
-    rooms.add(location.room.$ref.id);
+    validateCondition(project, location.visibility, `${path}/visibility`, diagnostics);
   }
   if (data.presentation.background && !project.assets[data.presentation.background.$ref.id])
     diagnostics.push(
@@ -137,51 +174,64 @@ export function validateMapData(
         `Missing layout '${data.presentation.layout.$ref.id}'.`,
       ),
     );
+
   for (const [index, connection] of data.connections.entries()) {
     const path = `${base}/connections/${index}`;
-    const source = locations.get(connection.sourceLocation);
-    const target = locations.get(connection.targetLocation);
-    if (!source)
+    if (connection.icon && !project.assets[connection.icon.$ref.id])
       diagnostics.push(
-        diagnostic(
-          `${path}/sourceLocation`,
-          `Missing source location '${connection.sourceLocation}'.`,
-        ),
+        diagnostic(`${path}/icon/$ref`, `Missing asset '${connection.icon.$ref.id}'.`),
       );
-    if (!target)
-      diagnostics.push(
-        diagnostic(
-          `${path}/targetLocation`,
-          `Missing target location '${connection.targetLocation}'.`,
-        ),
-      );
-    const room = project.rooms[connection.exit.room];
-    const exit = room
-      ? parseRoomData(room.data)?.exits.find((candidate) => candidate.id === connection.exit.exit)
-      : null;
-    if (!room)
-      diagnostics.push(diagnostic(`${path}/exit/room`, `Missing room '${connection.exit.room}'.`));
-    else if (!exit)
-      diagnostics.push(
-        diagnostic(
-          `${path}/exit/exit`,
-          `Missing exit '${connection.exit.exit}' in room '${connection.exit.room}'.`,
-        ),
-      );
-    if (source && source.room.$ref.id !== connection.exit.room)
-      diagnostics.push(
-        diagnostic(
-          `${path}/sourceLocation`,
-          'Connection source location must belong to the exit room.',
-        ),
-      );
-    if (exit && target && target.room.$ref.id !== exit.target.$ref.id)
-      diagnostics.push(
-        diagnostic(
-          `${path}/targetLocation`,
-          'Connection target location must belong to the exit target room.',
-        ),
-      );
+    validateCondition(project, connection.visibility, `${path}/visibility`, diagnostics);
+
+    const resolved = connection.exits.map((reference, exitIndex) => {
+      const result = resolveExit(project, reference);
+      if (!result.room)
+        diagnostics.push(
+          diagnostic(`${path}/exits/${exitIndex}/room`, `Missing room '${reference.room}'.`),
+        );
+      else if (!result.exit)
+        diagnostics.push(
+          diagnostic(
+            `${path}/exits/${exitIndex}/exit`,
+            `Missing exit '${reference.exit}' in room '${reference.room}'.`,
+          ),
+        );
+      return { reference, ...result };
+    });
+    const linked = resolved.filter(
+      (entry): entry is typeof entry & { exit: NonNullable<typeof entry.exit> } =>
+        Boolean(entry.exit),
+    );
+    for (const entry of linked) {
+      if (!locationsByRoom.has(entry.reference.room))
+        diagnostics.push(
+          diagnostic(
+            `${path}/exits`,
+            `Connection source room '${entry.reference.room}' has no Map Location.`,
+          ),
+        );
+      if (!locationsByRoom.has(entry.exit.target.$ref.id))
+        diagnostics.push(
+          diagnostic(
+            `${path}/exits`,
+            `Connection target room '${entry.exit.target.$ref.id}' has no Map Location.`,
+          ),
+        );
+    }
+    if (connection.exits.length === 2 && linked.length === 2) {
+      const [forward, reverse] = linked;
+      if (
+        forward.reference.room !== reverse.exit.target.$ref.id ||
+        reverse.reference.room !== forward.exit.target.$ref.id ||
+        forward.reference.room === reverse.reference.room
+      )
+        diagnostics.push(
+          diagnostic(
+            `${path}/exits`,
+            'A two-exit Map Connection must reference reciprocal exits between the same two Rooms.',
+          ),
+        );
+    }
   }
   return diagnostics;
 }

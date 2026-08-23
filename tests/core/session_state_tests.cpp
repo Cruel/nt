@@ -777,7 +777,7 @@ TEST_CASE("session state owns Dialogue history show-once choices and typed text 
                      std::nullopt, "Wrong kind", TextMarkup::Plain}));
 }
 
-TEST_CASE("session state validates Room visits overlays and Map presentation")
+TEST_CASE("session state validates Room visits and overlays")
 {
     const auto compiled_project = load_fixture("comprehensive.json");
     auto state_result = SessionState::create(compiled_project);
@@ -793,21 +793,6 @@ TEST_CASE("session state validates Room visits overlays and Map presentation")
     REQUIRE(state.mounted_layouts().size() == 1);
     CHECK_FALSE(state.mounted_layouts().front().policy.visibility == LayoutVisibility::Visible);
     CHECK_FALSE(state.set_overlay(compiled_project, start, id<RoomOverlayId>("missing"), true));
-
-    REQUIRE(state.set_map_presentation(compiled_project,
-                                       MapPresentationState{id<MapId>("house"),
-                                                            compiled::InitialMapMode::FullMap, true,
-                                                            id<MapLocationId>("hall-location")}));
-    REQUIRE(state.map_presentation());
-    CHECK(state.map_presentation()->focused_location == id<MapLocationId>("hall-location"));
-    CHECK_FALSE(state.set_map_presentation(
-        compiled_project,
-        MapPresentationState{id<MapId>("house"), compiled::InitialMapMode::Minimap, true,
-                             id<MapLocationId>("missing")}));
-    CHECK_FALSE(state.set_map_presentation(compiled_project,
-                                           MapPresentationState{id<MapId>("missing"),
-                                                                compiled::InitialMapMode::Minimap,
-                                                                true, std::nullopt}));
 }
 
 TEST_CASE("Room entry overlays receive stable Mount occurrence identity")
@@ -876,8 +861,7 @@ TEST_CASE("feature views are a closed typed vocabulary without mutable state own
     FeatureView dialogue = DialogueView{.dialogue = id<DialogueId>("intro")};
     FeatureView interaction = InteractionView{.verb = id<VerbId>("look")};
     FeatureView inventory = InventoryView{};
-    FeatureView map = MapView{
-        .map = id<MapId>("house"), .mode = compiled::InitialMapMode::Minimap, .visible = true};
+    FeatureView map = MapView{.map = id<MapId>("house")};
     CHECK(std::holds_alternative<SceneView>(scene));
     CHECK(std::holds_alternative<DialogueView>(dialogue));
     CHECK(std::holds_alternative<InteractionView>(interaction));

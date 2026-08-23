@@ -1566,15 +1566,21 @@ private:
             const auto& value = m_input.maps[map_index];
             const auto path = item("/definitions/maps", map_index);
             std::unordered_map<MapLocationId, const MapLocation*> locations;
+            std::unordered_map<RoomId, const MapLocation*> locations_by_room;
             for (std::size_t location_index = 0; location_index < value.locations.size();
                  ++location_index) {
                 const auto& location = value.locations[location_index];
+                const auto location_path = path + "/locations/" + std::to_string(location_index);
                 locations.emplace(location.id, &location);
-                require(m_rooms, location.room, "room",
-                        path + "/locations/" + std::to_string(location_index) + "/room");
+                require(m_rooms, location.room, "room", location_path + "/room");
+                if (!locations_by_room.emplace(location.room, &location).second)
+                    error("compiled_project.duplicate_map_room",
+                          "A Room may have only one Map Location in a Map.", location_path + "/room");
                 if (location.label)
-                    validate_text(*location.label,
-                                  path + "/locations/" + std::to_string(location_index) + "/label");
+                    validate_text(*location.label, location_path + "/label");
+                if (location.icon)
+                    require(m_assets, *location.icon, "asset", location_path + "/icon");
+                validate_condition(location.visibility, location_path + "/visibility");
             }
             for (std::size_t connection_index = 0; connection_index < value.connections.size();
                  ++connection_index) {
@@ -1589,20 +1595,47 @@ private:
                 if (target == locations.end())
                     error("compiled_project.unresolved_nested_reference",
                           "Map target location is missing.", connection_path + "/targetLocationId");
-                require(m_rooms, connection.exit.room, "room", connection_path + "/exit/room");
-                const auto* linked_exit = exit(connection.exit);
-                if (!linked_exit)
-                    error("compiled_project.unresolved_nested_reference",
-                          "Map connection exit is missing from its Room.",
-                          connection_path + "/exit/exitId");
-                if (source != locations.end() && source->second->room != connection.exit.room)
-                    error("compiled_project.inconsistent_map_topology",
-                          "Map connection source Room does not own its exit.", connection_path);
-                if (linked_exit && target != locations.end() &&
-                    target->second->room != linked_exit->target)
-                    error("compiled_project.inconsistent_map_topology",
-                          "Map connection target does not match the Room exit target.",
-                          connection_path);
+                if (connection.exits.empty() || connection.exits.size() > 2) {
+                    error("compiled_project.invalid_map_connection",
+                          "Map Connection must reference one directed Exit or one reciprocal pair.",
+                          connection_path + "/exits");
+                    continue;
+                }
+                std::vector<const RoomExit*> linked_exits;
+                linked_exits.reserve(connection.exits.size());
+                for (std::size_t exit_index = 0; exit_index < connection.exits.size(); ++exit_index) {
+                    const auto& reference = connection.exits[exit_index];
+                    const auto exit_path = connection_path + "/exits/" + std::to_string(exit_index);
+                    require(m_rooms, reference.room, "room", exit_path + "/room");
+                    const auto* linked_exit = exit(reference);
+                    if (!linked_exit)
+                        error("compiled_project.unresolved_nested_reference",
+                              "Map Connection Exit is missing from its Room.", exit_path + "/exitId");
+                    linked_exits.push_back(linked_exit);
+                }
+                if (!linked_exits.empty() && linked_exits.front() != nullptr) {
+                    if (source != locations.end() && source->second->room != connection.exits.front().room)
+                        error("compiled_project.inconsistent_map_topology",
+                              "Map Connection source must be derived from its first Exit Room.",
+                              connection_path + "/sourceLocationId");
+                    if (target != locations.end() && target->second->room != linked_exits.front()->target)
+                        error("compiled_project.inconsistent_map_topology",
+                              "Map Connection target must be derived from its first Exit target Room.",
+                              connection_path + "/targetLocationId");
+                }
+                if (connection.exits.size() == 2 && linked_exits.size() == 2 &&
+                    linked_exits[0] != nullptr && linked_exits[1] != nullptr &&
+                    (connection.exits[1].room != linked_exits[0]->target ||
+                     connection.exits[0].room != linked_exits[1]->target ||
+                     connection.exits[0].room == connection.exits[1].room))
+                    error("compiled_project.invalid_map_connection",
+                          "Two-Exit Map Connections must be an explicit reciprocal pair.",
+                          connection_path + "/exits");
+                if (connection.label)
+                    validate_text(*connection.label, connection_path + "/label");
+                if (connection.icon)
+                    require(m_assets, *connection.icon, "asset", connection_path + "/icon");
+                validate_condition(connection.visibility, connection_path + "/visibility");
             }
             if (value.presentation.background)
                 require(m_assets, *value.presentation.background, "asset",

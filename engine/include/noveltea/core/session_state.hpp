@@ -128,7 +128,6 @@ protected:
     std::vector<DesiredAudioInstance> m_desired_audio;
     std::optional<PresentedTextState> m_presented_text;
     std::optional<ActiveChoiceState> m_active_choice;
-    std::optional<MapPresentationState> m_map_presentation;
 };
 
 class HistoryState {
@@ -443,12 +442,6 @@ public:
     [[nodiscard]] Result<void, Diagnostics> present_choice(const CompiledProject& project,
                                                            ActiveChoiceState choice);
     void clear_choice() noexcept { m_active_choice.reset(); }
-    [[nodiscard]] const std::optional<MapPresentationState>& map_presentation() const noexcept
-    {
-        return m_map_presentation;
-    }
-    [[nodiscard]] Result<void, Diagnostics> set_map_presentation(const CompiledProject& project,
-                                                                 MapPresentationState map);
 
 private:
     friend class FlowExecutor;

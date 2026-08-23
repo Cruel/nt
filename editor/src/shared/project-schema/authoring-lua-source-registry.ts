@@ -345,10 +345,24 @@ function collectMapSources(data: JsonObject): RegisteredAuthoringLuaSource[] {
       supportsExplicitFallback: false,
     });
   asArray(data.locations).forEach((location, index) => {
-    if (isObject(location))
-      addTextContent(output, location.label, ['locations', String(index), 'label'], {
-        supportsExplicitFallback: false,
-      });
+    if (!isObject(location)) return;
+    const base = ['locations', String(index)];
+    addTextContent(output, location.label, [...base, 'label'], {
+      supportsExplicitFallback: false,
+    });
+    addCondition(output, location.visibility, [...base, 'visibility'], {
+      supportsExplicitFallback: false,
+    });
+  });
+  asArray(data.connections).forEach((connection, index) => {
+    if (!isObject(connection)) return;
+    const base = ['connections', String(index)];
+    addTextContent(output, connection.label, [...base, 'label'], {
+      supportsExplicitFallback: false,
+    });
+    addCondition(output, connection.visibility, [...base, 'visibility'], {
+      supportsExplicitFallback: false,
+    });
   });
   return output;
 }

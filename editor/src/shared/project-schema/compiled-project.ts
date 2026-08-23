@@ -791,29 +791,38 @@ const dialogueDefinitionSchema = strict({
   }),
 });
 
+const normalizedMapCoordinate = finiteNumber.min(0).max(1);
+const mapPointSchema = strict({ x: normalizedMapCoordinate, y: normalizedMapCoordinate });
+const mapPolygonSchema = strict({ points: z.array(mapPointSchema).min(3) });
+const mapExitReferenceSchema = strict({ exitId: id, room: roomReferenceSchema });
 const mapLocationSchema = strict({
   id,
-  label: compiledTextSchema.nullable(),
-  position: vector2Schema,
   room: roomReferenceSchema,
-  shape: z.discriminatedUnion('kind', [
-    strict({ kind: z.literal('point') }),
-    strict({ kind: z.literal('circle'), radius: finiteNumber.positive() }),
-    strict({
-      height: finiteNumber.positive(),
-      kind: z.literal('rect'),
-      width: finiteNumber.positive(),
-    }),
-  ]),
+  regions: z.array(mapPolygonSchema),
+  label: compiledTextSchema.nullable(),
+  icon: assetReferenceSchema.nullable(),
+  style: z.string().min(1).nullable(),
+  labelAnchor: mapPointSchema.nullable(),
+  connectionAnchor: mapPointSchema.nullable(),
+  visibility: compiledConditionSchema,
+  pickOrder: z.number().int(),
+  logicalOrder: z.number().int(),
 });
 const mapDefinitionSchema = strict({
   id,
   connections: z.array(
     strict({
-      exit: strict({ exitId: id, room: roomReferenceSchema }),
       id,
+      exits: z.array(mapExitReferenceSchema).min(1).max(2),
       sourceLocationId: id,
       targetLocationId: id,
+      label: compiledTextSchema.nullable(),
+      icon: assetReferenceSchema.nullable(),
+      style: z.string().min(1).nullable(),
+      visibility: compiledConditionSchema,
+      logicalOrder: z.number().int(),
+      path: z.array(mapPointSchema),
+      hitRegions: z.array(mapPolygonSchema),
     }),
   ),
   locations: z.array(mapLocationSchema),

@@ -37,7 +37,7 @@ The current capability surface includes:
   definition-filtered `consume_definition`/`aggregate_definition` for exact checked Item Stack state;
 - `noveltea.random.seed`, `noveltea.random.integer`, and `noveltea.random.number`; Lua's
   `math.random` and `math.randomseed` are wrappers over the same saved session generator;
-- `noveltea.map.present`, `hide`, `select`, `activate`, and `state`;
+- `noveltea.map.activate(map_id, connection_id)` for exact Exit-backed Map navigation;
 - `noveltea.layouts.get`, `set`, and `clear` for reserved gameplay Layout slots;
 - `noveltea.layouts.mount`, `unmount`, and `mounted` for stable custom gameplay Layout instances;
 - `noveltea.presentation.set_background`, `clear_background`, and `background`;
@@ -215,8 +215,11 @@ consuming a draw. Gameplay pause is session-only: it stops typed flow/time/input
 the next instruction, remains visible in typed UI/debug views, permits control operations such as
 resume and load, and is reset by save restoration.
 
-Map activation validates the currently presented Map against authoritative Room exits and queues the
-same typed navigation request used by player input. Reserved Layout calls mutate validated runtime
+Map activation is stateless presentation-wise: `noveltea.map.activate(map_id, connection_id)` verifies
+that the authored Connection currently has an exit owned by the active Room and queues that exact
+normal Navigation Attempt. It does not own focus/open/pan/zoom state and deliberately avoids
+synchronously evaluating Lua Room guards while already executing Lua; the queued navigation attempt
+runs the authoritative guard/rejection lifecycle. Reserved Layout calls mutate validated runtime
 slots; custom Layout calls mutate stable owner-scoped mounted intent with the complete typed policy.
 Direct Lua text-log entries require the `system` origin plus a compatible kind and markup; accepted
 entries use the normal typed log and save path.

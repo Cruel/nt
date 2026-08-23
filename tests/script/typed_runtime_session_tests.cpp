@@ -1729,7 +1729,7 @@ TEST_CASE("runtime Lua random state is deterministic across save load and invali
     CHECK(math_matches.value());
 }
 
-TEST_CASE("runtime Lua Map and layout controls use typed state and validated navigation")
+TEST_CASE("runtime Lua Map activation and layout controls use typed state and validated navigation")
 {
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
@@ -1740,20 +1740,14 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local ok, err = noveltea.map.present('house', {mode='full-map', visible=true, "
-        "focus='hall-location'}); assert(ok and err == nil)\n"
-        "local state = assert(noveltea.map.state()); assert(state.map == 'house' and "
-        "state.mode == 'full-map' and state.focused_location == 'hall-location')\n"
-        "ok, err = noveltea.layouts.set('custom', 'hud-assets'); assert(ok and err == nil)",
+        "local ok, err = noveltea.layouts.set('custom', 'hud-assets'); assert(ok and err == nil)",
         "typed-map-layout"));
     auto flushed = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(flushed.diagnostics.empty());
     const auto& view = published_view(flushed);
-    REQUIRE(view.map);
-    CHECK(view.map->map.text() == "house");
-    CHECK(view.map->mode == core::compiled::InitialMapMode::FullMap);
-    CHECK(view.map->locations[1].focused);
+    REQUIRE(view.maps.size() == 1);
+    CHECK(view.maps.front().map.text() == "house");
     REQUIRE(view.scene == std::nullopt);
     auto layout_value = fixture.session->gateway().layout(core::compiled::LayoutSlot::Custom);
     REQUIRE(layout_value);
@@ -1766,13 +1760,10 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local before = assert(noveltea.map.state())\n"
-        "local ok, err = noveltea.map.present('missing', {mode='minimap'}); "
-        "assert(not ok and err ~= nil)\n"
-        "local after = assert(noveltea.map.state()); assert(after.map == before.map)\n"
+        "local ok, err = noveltea.map.activate('missing', 'start-hall'); assert(not ok and err ~= nil)\n"
         "ok, err = noveltea.layouts.set('custom', 'missing'); assert(not ok and err ~= nil)\n"
         "assert(noveltea.layouts.get('custom') == 'hud-assets')\n"
-        "ok, err = noveltea.map.activate('start-hall'); assert(ok and err == nil)",
+        "ok, err = noveltea.map.activate('house', 'start-hall'); assert(ok and err == nil)",
         "typed-map-layout-atomic"));
     auto navigated =
         fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
@@ -1782,11 +1773,10 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
     REQUIRE(navigated_view.room);
     CHECK(navigated_view.room->room.text() == "hall");
 
-    REQUIRE(
-        execute_session_lua(fixture,
-                            "local ok, err = noveltea.map.hide(); assert(ok and err == nil)\n"
-                            "ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)",
-                            "typed-map-layout-clear"));
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)",
+        "typed-map-layout-clear"));
     auto cleared = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(cleared.diagnostics.empty());
@@ -1794,8 +1784,7 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
     REQUIRE(cleared_layout);
     CHECK_FALSE(cleared_layout.value());
     const auto& cleared_view = published_view(cleared);
-    REQUIRE(cleared_view.map);
-    CHECK_FALSE(cleared_view.map->visible);
+    REQUIRE(cleared_view.maps.size() == 1);
 }
 
 TEST_CASE("runtime Lua environment controls enqueue typed long-lived desired state")

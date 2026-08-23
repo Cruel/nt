@@ -407,29 +407,67 @@ void RuntimeUiActionGateway::install_lua_api()
                     [this](std::string text) { return action_navigate_room(std::move(text)); });
 
     auto require_view = [this]() { return this->require_view(); };
-    ui.set_function("navigate_map_connection", [this, require_view](std::string text) {
-        if (!require_view())
-            return false;
-        auto id = core::MapConnectionId::create(std::move(text));
-        if (!id) {
-            core::append_diagnostics(m_diagnostics, id.error());
-            return false;
-        }
-        const auto* map = view()->map ? &*view()->map : nullptr;
-        const core::MapConnectionView* found = nullptr;
-        if (map) {
-            const auto it = std::find_if(
-                map->connections.begin(), map->connections.end(),
-                [&](const auto& connection) { return connection.connection == *id.value_if(); });
-            if (it != map->connections.end() && it->selectable)
-                found = &*it;
-        }
-        if (!found)
-            return invalid("runtime_ui.invalid_map_connection",
-                           "Map connection is stale, unknown, or disabled");
-        return dispatch_layout_input(
-            core::RuntimeInputMessage{core::NavigateRoomInput{found->exit.exit_id}});
-    });
+    ui.set_function("navigate_map_connection",
+                    [this, require_view](std::string map_text, std::string connection_text) {
+                        if (!require_view())
+                            return false;
+                        auto map_id = core::MapId::create(std::move(map_text));
+                        auto connection_id = core::MapConnectionId::create(std::move(connection_text));
+                        if (!map_id) {
+                            core::append_diagnostics(m_diagnostics, map_id.error());
+                            return false;
+                        }
+                        if (!connection_id) {
+                            core::append_diagnostics(m_diagnostics, connection_id.error());
+                            return false;
+                        }
+                        const auto map = std::find_if(
+                            view()->maps.begin(), view()->maps.end(),
+                            [&](const auto& candidate) { return candidate.map == *map_id.value_if(); });
+                        if (map == view()->maps.end())
+                            return invalid("runtime_ui.invalid_map",
+                                           "Map is stale or unknown to this runtime view");
+                        const auto connection = std::find_if(
+                            map->connections.begin(), map->connections.end(), [&](const auto& candidate) {
+                                return candidate.connection == *connection_id.value_if();
+                            });
+                        if (connection == map->connections.end() || !connection->visible ||
+                            !connection->actionable || !connection->active_exit)
+                            return invalid("runtime_ui.invalid_map_connection",
+                                           "Map connection is stale, unknown, hidden, or disabled");
+                        return dispatch_layout_input(core::RuntimeInputMessage{
+                            core::NavigateRoomInput{connection->active_exit->exit_id}});
+                    });
+    ui.set_function("navigate_map_location",
+                    [this, require_view](std::string map_text, std::string location_text) {
+                        if (!require_view())
+                            return false;
+                        auto map_id = core::MapId::create(std::move(map_text));
+                        auto location_id = core::MapLocationId::create(std::move(location_text));
+                        if (!map_id) {
+                            core::append_diagnostics(m_diagnostics, map_id.error());
+                            return false;
+                        }
+                        if (!location_id) {
+                            core::append_diagnostics(m_diagnostics, location_id.error());
+                            return false;
+                        }
+                        const auto map = std::find_if(
+                            view()->maps.begin(), view()->maps.end(),
+                            [&](const auto& candidate) { return candidate.map == *map_id.value_if(); });
+                        if (map == view()->maps.end())
+                            return invalid("runtime_ui.invalid_map",
+                                           "Map is stale or unknown to this runtime view");
+                        const auto location = std::find_if(
+                            map->locations.begin(), map->locations.end(), [&](const auto& candidate) {
+                                return candidate.location == *location_id.value_if();
+                            });
+                        if (location == map->locations.end() || !location->visible ||
+                            !location->actionable || !location->convenience_exit)
+                            return false;
+                        return dispatch_layout_input(core::RuntimeInputMessage{
+                            core::NavigateRoomInput{location->convenience_exit->exit_id}});
+                    });
     ui.set_function("toggle_interactable", [this](std::string text) {
         return action_toggle_subject("interactable", std::move(text));
     });

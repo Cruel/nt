@@ -387,34 +387,6 @@ TEST_CASE("world reconciliation is failure atomic and identical snapshots do no 
     CHECK(backend.frame()->draws.front().command.rect.width == Catch::Approx(100.0f));
 }
 
-TEST_CASE("world backend keeps Map imagery in the GameUi underlay")
-{
-    FakeWorldResources resources;
-    resources.add_texture("map", 8, 400, 200, MaterialTextureSampler::ClampNearest);
-    WorldPresentationBackend backend(resources);
-
-    auto snapshot = base_snapshot();
-    snapshot.map =
-        PresentationMap{id<MapId>("city"),  compiled::InitialMapMode::FullMap, true, std::nullopt,
-                        id<AssetId>("map"), id<LayoutId>("map-layout")};
-    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
-    REQUIRE(backend.frame());
-    REQUIRE(backend.frame()->draws.size() == 1);
-    const auto& draw = backend.frame()->draws.front();
-    CHECK(draw.family == WorldDrawFamily::MapUnderlay);
-    CHECK(draw.plane == PresentationPlane::GameUi);
-    CHECK(draw.command.layer == GameLayer::UIOverlay);
-    CHECK(draw.command.rect.x == 0.0f);
-    CHECK(draw.command.rect.y == 0.0f);
-    CHECK(draw.command.rect.width == 1000.0f);
-    CHECK(draw.command.rect.height == 500.0f);
-    CHECK(backend.frame()->world_composition_batch.commands().empty());
-    REQUIRE(backend.frame()->game_ui_underlay_batch.commands().size() == 1);
-    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer == GameLayer::UIOverlay);
-    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().texture_sampler ==
-          MaterialTextureSampler::ClampNearest);
-}
-
 TEST_CASE("world backend can roll back a rejected target revision")
 {
     FakeWorldResources resources;
@@ -491,10 +463,9 @@ TEST_CASE("reconstructible environment loops restart from phase zero after backe
     CHECK(*backend.frame()->batch.commands().front().time_seconds == Catch::Approx(0.0f));
 }
 
-TEST_CASE("world transition composition excludes the GameUi underlay")
+TEST_CASE("world transition composition contains only world presentation draws")
 {
     FakeWorldResources resources;
-    resources.add_texture("map", 8, 400, 200);
     WorldPresentationBackend backend(resources);
 
     auto snapshot = base_snapshot();
@@ -502,17 +473,13 @@ TEST_CASE("world transition composition excludes the GameUi underlay")
                                                  .color = std::string{"#204060"},
                                                  .fit = compiled::BackgroundFit::Cover,
                                                  .material = std::nullopt};
-    snapshot.map =
-        PresentationMap{id<MapId>("city"),  compiled::InitialMapMode::FullMap, true, std::nullopt,
-                        id<AssetId>("map"), id<LayoutId>("map-layout")};
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
-    REQUIRE(backend.frame()->batch.commands().size() == 2);
+    REQUIRE(backend.frame()->batch.commands().size() == 1);
     REQUIRE(backend.frame()->world_composition_batch.commands().size() == 1);
-    REQUIRE(backend.frame()->game_ui_underlay_batch.commands().size() == 1);
+    CHECK(backend.frame()->game_ui_underlay_batch.commands().empty());
     CHECK(backend.frame()->world_composition_batch.commands().front().layer ==
           GameLayer::Background);
-    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer == GameLayer::UIOverlay);
 }
 
 TEST_CASE("hotspot overlays reuse the prepared owner geometry and update transiently")

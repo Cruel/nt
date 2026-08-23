@@ -93,9 +93,10 @@ belong to the mounted RML document and remain analyzable independently of that f
 
 Graph derivation tolerates structurally admitted but semantically invalid record fragments. Safely
 readable `$ref`, `$var`, flow, Room placement, and Room exit relationships remain available, while
-owner-local failures such as invalid Room placement selections, Dialogue block targets, Scene step
-targets, and Map location targets become graph diagnostics instead of suppressing unrelated graph
-content.
+owner-local failures such as invalid Room placement selections, Dialogue block targets, and Scene
+step targets become graph diagnostics instead of suppressing unrelated graph content. Map topology
+is derived from authoritative Room/Exit references and validated by the Map schema rather than by
+retired authored source/target Location fields.
 
 ## Path-sensitive impact
 

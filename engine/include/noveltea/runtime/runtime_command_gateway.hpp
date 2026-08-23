@@ -33,14 +33,6 @@ public:
     virtual ~RuntimeCommandGatewayServices() = default;
 
     [[nodiscard]] virtual core::Result<void, core::Diagnostics>
-    present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode, bool visible,
-                std::optional<core::MapLocationId> focused_location) = 0;
-    [[nodiscard]] virtual core::Result<void, core::Diagnostics> hide_map() = 0;
-    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
-    select_map_location(core::MapLocationId location) = 0;
-    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
-    activate_map_connection(core::MapConnectionId connection) = 0;
-    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
                   double volume, bool await_completion, core::AudioOperationPurpose purpose) = 0;
@@ -162,14 +154,7 @@ public:
     [[nodiscard]] core::Result<double, core::Diagnostics> random_unit();
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode, bool visible,
-                std::optional<core::MapLocationId> focused_location);
-    [[nodiscard]] core::Result<void, core::Diagnostics> hide_map();
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    select_map_location(core::MapLocationId location);
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    activate_map_connection(core::MapConnectionId connection);
-    [[nodiscard]] core::Result<core::MapPresentationState, core::Diagnostics> map_state() const;
+    activate_map_connection(core::MapId map, core::MapConnectionId connection);
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_background_override(core::DesiredBackgroundOverride value);

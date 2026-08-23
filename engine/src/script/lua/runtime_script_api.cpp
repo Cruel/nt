@@ -404,33 +404,10 @@ core::Result<std::int64_t, core::Diagnostics> RuntimeScriptApi::random_integer(s
                           gateway->random_integer(minimum, maximum));
 }
 core::Result<void, core::Diagnostics>
-RuntimeScriptApi::present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode,
-                              bool visible, std::optional<core::MapLocationId> focused_location)
-{
-    NOVELTEA_WITH_COMMAND(
-        runtime::RuntimeCapabilityGroup::Map, "Map presentation",
-        gateway->present_map(std::move(map), mode, visible, std::move(focused_location)));
-}
-core::Result<void, core::Diagnostics> RuntimeScriptApi::hide_map()
-{
-    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Map, "Map hiding", gateway->hide_map());
-}
-core::Result<void, core::Diagnostics>
-RuntimeScriptApi::select_map_location(core::MapLocationId location)
-{
-    NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Map, "Map selection",
-                          gateway->select_map_location(std::move(location)));
-}
-core::Result<void, core::Diagnostics>
-RuntimeScriptApi::activate_map_connection(core::MapConnectionId connection)
+RuntimeScriptApi::activate_map_connection(core::MapId map, core::MapConnectionId connection)
 {
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Map, "Map activation",
-                          gateway->activate_map_connection(std::move(connection)));
-}
-core::Result<core::MapPresentationState, core::Diagnostics> RuntimeScriptApi::map_state() const
-{
-    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Map, "Map state query",
-                        gateway->map_state());
+                          gateway->activate_map_connection(std::move(map), std::move(connection)));
 }
 core::Result<std::optional<core::LayoutId>, core::Diagnostics>
 RuntimeScriptApi::layout(core::compiled::LayoutSlot slot) const

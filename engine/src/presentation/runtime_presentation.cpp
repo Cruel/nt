@@ -962,34 +962,6 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
     validate_text_and_choice(project, world, state, diagnostics);
     result.text_and_choice = {state.presented_text(), state.active_choice()};
 
-    if (state.map_presentation()) {
-        const auto& current = *state.map_presentation();
-        const auto* map = project.find_map(current.map);
-        if (map == nullptr) {
-            diagnostics.push_back(unresolved("Map", current.map.text()));
-        } else {
-            validate_asset(project, map->presentation.background, compiled::AssetKind::Image,
-                           "Map background", diagnostics);
-            if (map->presentation.layout &&
-                project.find_layout(*map->presentation.layout) == nullptr)
-                diagnostics.push_back(unresolved("Map Layout", map->presentation.layout->text()));
-            if (current.focused_location) {
-                const auto location = std::find_if(
-                    map->locations.begin(), map->locations.end(),
-                    [&](const auto& value) { return value.id == *current.focused_location; });
-                if (location == map->locations.end())
-                    diagnostics.push_back(
-                        unresolved("Map location", current.focused_location->text()));
-            }
-            result.map = PresentationMap{current.map,
-                                         current.mode,
-                                         current.visible,
-                                         current.focused_location,
-                                         map->presentation.background,
-                                         map->presentation.layout};
-        }
-    }
-
     for (const auto& audio : state.desired_audio()) {
         if (!state.presentation_owner_is_active(audio.owner))
             continue;

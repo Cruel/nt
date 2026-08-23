@@ -1240,17 +1240,28 @@ describe('authoring compiler framework', () => {
       {
         id: 'foyer-location',
         room: { $ref: { collection: 'rooms', id: 'foyer' } },
-        position: { x: 0, y: 0 },
-        shape: { kind: 'point' },
+        regions: [],
         label: null,
+        icon: null,
+        style: null,
+        labelAnchor: null,
+        connectionAnchor: null,
+        visibility: { kind: 'always' },
+        pickOrder: 0,
+        logicalOrder: 0,
       },
     ];
     map.connections = [
       {
         id: 'north-connection',
-        sourceLocation: 'foyer-location',
-        targetLocation: 'foyer-location',
-        exit: { room: 'foyer', exit: 'north-exit' },
+        exits: [{ room: 'foyer', exit: 'north-exit' }],
+        label: null,
+        icon: null,
+        style: null,
+        visibility: { kind: 'always' },
+        logicalOrder: 0,
+        path: [],
+        hitRegions: [],
       },
     ];
     project.maps.house = { id: 'house', label: 'House', data: map };

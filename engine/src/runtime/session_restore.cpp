@@ -435,7 +435,6 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_desired_audio.clear();
     state->m_presented_text = save.presented_text;
     state->m_active_choice = save.active_choice;
-    state->m_map_presentation = save.map_presentation;
 
     for (const auto& saved : save.layout_state_slots) {
         const auto* layout = project.find_layout(saved.layout);

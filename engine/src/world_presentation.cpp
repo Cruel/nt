@@ -622,21 +622,6 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         }
     }
 
-    if (snapshot.map && snapshot.map->visible && snapshot.map->background) {
-        auto resolved = m_resources.resolve(snapshot.map->background, std::nullopt,
-                                            "map/" + snapshot.map->map.text() + "/background");
-        if (!resolved) {
-            append_resource_diagnostics(diagnostics, resolved);
-        } else {
-            const auto* visual = resolved.value_if();
-            const WorldFittedRect fitted = WorldPresentationLayoutPolicy::fit_background(
-                viewport, visual_size(*visual), core::compiled::BackgroundFit::Contain);
-            append_visual_draw(candidate.draws, core::PresentationPlane::GameUi,
-                               WorldDrawFamily::MapUnderlay, 0, snapshot.map->map.text(), 0,
-                               fitted.rect, fitted.uv, *visual);
-        }
-    }
-
     const auto owner_draw_for =
         [&](const core::compiled::HotspotRef& ref) -> const WorldPresentationDraw* {
         if (std::holds_alternative<core::compiled::RoomHotspotRef>(ref)) {

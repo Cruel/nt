@@ -318,21 +318,27 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
             diagnostics = invalid_model("Map presentation is invalid");
             return false;
         }
+        const auto valid_map_point = [](const compiled::Vector2& point) {
+            return valid_vector(point) && point.x >= 0.0 && point.x <= 1.0 && point.y >= 0.0 &&
+                   point.y <= 1.0;
+        };
+        const auto valid_polygon = [&](const compiled::MapPolygon& polygon) {
+            return polygon.points.size() >= 3 &&
+                   std::ranges::all_of(polygon.points, valid_map_point);
+        };
         for (const auto& location : map.locations) {
-            if (!valid_vector(location.position) ||
-                !std::visit(
-                    [](const auto& shape) {
-                        using T = std::decay_t<decltype(shape)>;
-                        if constexpr (std::is_same_v<T, compiled::CircleMapShape>)
-                            return finite(shape.radius) && shape.radius > 0.0;
-                        else if constexpr (std::is_same_v<T, compiled::RectMapShape>)
-                            return finite(shape.width) && finite(shape.height) &&
-                                   shape.width > 0.0 && shape.height > 0.0;
-                        else
-                            return true;
-                    },
-                    location.shape)) {
+            if (!std::ranges::all_of(location.regions, valid_polygon) ||
+                (location.label_anchor && !valid_map_point(*location.label_anchor)) ||
+                (location.connection_anchor && !valid_map_point(*location.connection_anchor))) {
                 diagnostics = invalid_model("Map location is invalid");
+                return false;
+            }
+        }
+        for (const auto& connection : map.connections) {
+            if (connection.exits.empty() || connection.exits.size() > 2 ||
+                !std::ranges::all_of(connection.path, valid_map_point) ||
+                !std::ranges::all_of(connection.hit_regions, valid_polygon)) {
+                diagnostics = invalid_model("Map connection is invalid");
                 return false;
             }
         }

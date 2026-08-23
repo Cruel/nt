@@ -50,6 +50,7 @@ TEST_CASE("RmlUi typed Map snapshot preserves strong IDs and typed selection tar
     const auto target_location = MapLocationId::create("hall-location");
     const auto connection_id = MapConnectionId::create("start-hall");
     const auto exit_id = RoomExitId::create("north-exit");
+    const auto icon_id = AssetId::create("map-icon");
     REQUIRE(map_id);
     REQUIRE(room_id);
     REQUIRE(target_room);
@@ -57,40 +58,104 @@ TEST_CASE("RmlUi typed Map snapshot preserves strong IDs and typed selection tar
     REQUIRE(target_location);
     REQUIRE(connection_id);
     REQUIRE(exit_id);
+    REQUIRE(icon_id);
 
     TypedRuntimeUIViewState state;
     state.mode = "room";
-    state.map = MapView{.map = map_id.value(),
-                        .mode = compiled::InitialMapMode::Minimap,
-                        .visible = true,
-                        .current_room = room_id.value(),
-                        .title = "House",
-                        .background = std::nullopt,
-                        .layout = std::nullopt,
-                        .locations = {{source_location.value(),
-                                       room_id.value(),
-                                       {0.0, 0.0},
-                                       compiled::PointMapShape{},
-                                       "Start",
-                                       false},
-                                      {target_location.value(),
-                                       target_room.value(),
-                                       {1.0, 0.0},
-                                       compiled::PointMapShape{},
-                                       "Hall",
-                                       true}},
-                        .connections = {{connection_id.value(),
-                                         {room_id.value(), exit_id.value()},
-                                         source_location.value(),
-                                         target_location.value(),
-                                         true}}};
+    state.maps.push_back(MapView{
+        .map = map_id.value(),
+        .initial_mode = compiled::InitialMapMode::Minimap,
+        .current_room = room_id.value(),
+        .title = "House",
+        .locations = {{.location = source_location.value(),
+                       .room = room_id.value(),
+                       .regions = {{{{0.0, 0.0}, {0.4, 0.0}, {0.4, 0.4}}}},
+                       .label = "Start",
+                       .icon = icon_id.value(),
+                       .style = "start-room",
+                       .label_anchor = compiled::Vector2{0.1, 0.2},
+                       .connection_anchor = compiled::Vector2{0.3, 0.4},
+                       .current = true},
+                      {.location = target_location.value(),
+                       .room = target_room.value(),
+                       .regions = {{{{0.6, 0.6}, {1.0, 0.6}, {1.0, 1.0}}}},
+                       .label = "Hall",
+                       .actionable = true,
+                       .convenience_exit = core::compiled::RoomExitRef{room_id.value(),
+                                                                       exit_id.value()}}},
+        .connections = {{.connection = connection_id.value(),
+                         .exits = {{room_id.value(), exit_id.value()}},
+                         .source = source_location.value(),
+                         .target = target_location.value(),
+                         .active_exit = core::compiled::RoomExitRef{room_id.value(), exit_id.value()},
+                         .label = "Hall route",
+                         .icon = icon_id.value(),
+                         .style = "hall-route",
+                         .actionable = true}}});
 
     const auto rml = map_view_rml(make_map_view_snapshot(state));
     CHECK(rml.find("data-map-id=\"house\"") != std::string::npos);
     CHECK(rml.find("data-exit-id=\"north-exit\"") != std::string::npos);
     CHECK(rml.find("data-location-id=\"hall-location\"") != std::string::npos);
-    CHECK(rml.find("Game.ui.navigate_map_connection(&#39;start-hall&#39;)") != std::string::npos);
+    CHECK(rml.find("data-icon-id=\"map-icon\"") != std::string::npos);
+    CHECK(rml.find("data-map-style=\"start-room\"") != std::string::npos);
+    CHECK(rml.find("data-map-style=\"hall-route\"") != std::string::npos);
+    CHECK(rml.find("data-label-anchor-x=\"0.1\"") != std::string::npos);
+    CHECK(rml.find("data-label-anchor-y=\"0.2\"") != std::string::npos);
+    CHECK(rml.find("data-connection-anchor-x=\"0.3\"") != std::string::npos);
+    CHECK(rml.find("data-connection-anchor-y=\"0.4\"") != std::string::npos);
+    CHECK(rml.find("Game.ui.navigate_map_connection(&#39;house&#39;, &#39;start-hall&#39;)") !=
+          std::string::npos);
     CHECK(rml.find("nt-map-view__room--focused") != std::string::npos);
+}
+
+TEST_CASE("RmlUi Map view state is isolated per element occurrence")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+
+    const auto map_id = MapId::create("house");
+    const auto room_id = RoomId::create("start");
+    const auto location_id = MapLocationId::create("start-location");
+    REQUIRE(map_id);
+    REQUIRE(room_id);
+    REQUIRE(location_id);
+
+    TypedMapViewComponentSnapshot snapshot;
+    snapshot.map = MapView{.map = map_id.value(),
+                           .initial_mode = compiled::InitialMapMode::Minimap,
+                           .current_room = room_id.value(),
+                           .title = "House",
+                           .locations = {{.location = location_id.value(),
+                                          .room = room_id.value(),
+                                          .regions = {},
+                                          .label = "Start",
+                                          .current = true}}};
+    snapshot.mode = compiled::InitialMapMode::Minimap;
+    snapshot.focused_location = location_id.value();
+
+    NtMapViewElement first("nt-map-view");
+    NtMapViewElement second("nt-map-view");
+    first.set_snapshot(snapshot);
+    second.set_snapshot(snapshot);
+
+    first.SetAttribute("open", "false");
+    first.SetAttribute("zoom", "2");
+    first.SetAttribute("pan-x", "0.25");
+
+    CHECK(first.GetInnerRML().find("nt-map-view__root--closed") != std::string::npos);
+    CHECK(first.GetAttribute<Rml::String>("zoom", "") == "2");
+    CHECK(first.GetAttribute<Rml::String>("pan-x", "") == "0.25");
+    CHECK(second.GetInnerRML().find("nt-map-view__root--closed") == std::string::npos);
+    CHECK(second.GetAttribute<Rml::String>("zoom", "") == "1");
+    CHECK(second.GetAttribute<Rml::String>("pan-x", "") == "0");
+
+    first.set_snapshot(snapshot);
+    second.set_snapshot(snapshot);
+    CHECK(first.GetInnerRML().find("nt-map-view__root--closed") != std::string::npos);
+    CHECK(first.GetAttribute<Rml::String>("zoom", "") == "2");
+    CHECK(second.GetInnerRML().find("nt-map-view__root--closed") == std::string::npos);
+    CHECK(second.GetAttribute<Rml::String>("zoom", "") == "1");
 }
 
 TEST_CASE("RmlUi provisional Map component preserves current placeholder and generated navigation "
@@ -105,14 +170,15 @@ TEST_CASE("RmlUi provisional Map component preserves current placeholder and gen
     REQUIRE(map_id);
     REQUIRE(room);
     TypedRuntimeUIViewState state;
-    state.map = MapView{.map = map_id.value(),
-                        .mode = compiled::InitialMapMode::Minimap,
-                        .visible = false,
-                        .current_room = room.value(),
-                        .title = "Provisional map"};
-    const auto rml = map_view_rml(make_map_view_snapshot(state));
-    CHECK(rml.find("nt-map-view__root--hidden") != std::string::npos);
-    CHECK(rml.find("Provisional map") != std::string::npos);
+    state.maps.push_back(MapView{.map = map_id.value(),
+                                 .initial_mode = compiled::InitialMapMode::Minimap,
+                                 .current_room = room.value(),
+                                 .title = "Provisional map"});
+    auto snapshot = make_map_view_snapshot(state);
+    snapshot.open = false;
+    const auto rml = map_view_rml(snapshot);
+    CHECK(rml.find("nt-map-view__root--closed") != std::string::npos);
+    CHECK(rml.find("Provisional map") == std::string::npos);
 }
 
 TEST_CASE("ActiveText typed snapshot remains data-only for direct rendering")

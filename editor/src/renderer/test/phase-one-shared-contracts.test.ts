@@ -297,7 +297,6 @@ describe('Phase 1 shared contracts', () => {
     expect(textSourceSchema.parse({ kind: 'lua-expression', source: 'label()' })).toMatchObject({
       additionalDependencies: { targets: [] },
     });
-    const room = defaultRoomData('Room');
     const layout = defaultLayoutData('Layout');
     expect(
       layoutDataSchema.parse({
