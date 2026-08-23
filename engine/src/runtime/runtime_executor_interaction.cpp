@@ -341,6 +341,114 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
         std::move(resolved));
 }
 
+core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>
+RuntimeExecutor::command_builder_reference(const core::compiled::InteractionSubject& subject,
+                                           std::string_view runtime_locale)
+{
+    core::CommandBuilderWatchedReferenceView view{.subject = subject,
+                                                  .live = false,
+                                                  .available = false,
+                                                  .enabled = false,
+                                                  .visible = false,
+                                                  .effective_room = std::nullopt,
+                                                  .traits = {},
+                                                  .offers = {}};
+    auto offers = verb_offers(subject, runtime_locale);
+    if (!offers)
+        return core::Result<core::CommandBuilderWatchedReferenceView,
+                            RuntimeExecutionError>::failure(offers.error());
+    view.offers = std::move(*offers.value_if());
+    view.available =
+        m_room_presentation && std::find(m_room_presentation->eligible_subjects.begin(),
+                                         m_room_presentation->eligible_subjects.end(),
+                                         subject) != m_room_presentation->eligible_subjects.end();
+
+    std::visit(
+        [&](const auto& typed) {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>) {
+                const auto* definition = m_world.resolved_configuration(typed.character);
+                const auto* state = m_world.character_state(typed.character);
+                view.live = definition != nullptr && state != nullptr;
+                if (definition)
+                    view.traits = definition->identity.traits;
+                if (state) {
+                    view.enabled = state->enabled;
+                    view.visible = state->visible;
+                    view.effective_room = m_world.effective_room(typed.character);
+                }
+            } else if constexpr (std::is_same_v<T,
+                                                core::compiled::InteractableInteractionSubject>) {
+                const auto* definition = m_world.resolved_configuration(typed.interactable);
+                const auto* state = m_world.interactable_state(typed.interactable);
+                view.live = definition != nullptr && state != nullptr;
+                if (definition)
+                    view.traits = definition->identity.traits;
+                if (state) {
+                    view.enabled = state->enabled;
+                    view.visible = state->visible;
+                    view.effective_room = m_world.effective_room(typed.interactable);
+                }
+            } else if constexpr (std::is_same_v<T, core::compiled::ItemStackInteractionSubject>) {
+                const auto* stack = m_world.item_stack(typed.item_stack);
+                view.live = stack != nullptr;
+                view.enabled = view.live;
+                view.visible = view.live;
+                if (stack) {
+                    view.traits = stack->traits;
+                    view.effective_room = m_world.effective_room(typed.item_stack);
+                }
+            } else {
+                std::visit(
+                    [&](const auto& feature) {
+                        using F = std::decay_t<decltype(feature)>;
+                        if constexpr (std::is_same_v<F, core::RoomFeatureRef>) {
+                            const auto* owner = m_world.resolved_configuration(feature.room);
+                            if (owner) {
+                                const auto found =
+                                    std::find_if(owner->features.begin(), owner->features.end(),
+                                                 [&](const auto& item) {
+                                                     return item.identity.id == feature.feature_id;
+                                                 });
+                                if (found != owner->features.end()) {
+                                    view.live = true;
+                                    view.enabled = true;
+                                    view.visible = true;
+                                    view.effective_room = feature.room;
+                                    view.traits = found->identity.traits;
+                                }
+                            }
+                        } else {
+                            const auto* owner =
+                                m_world.resolved_configuration(feature.interactable);
+                            const auto* state = m_world.interactable_state(feature.interactable);
+                            if (owner) {
+                                const auto found =
+                                    std::find_if(owner->features.begin(), owner->features.end(),
+                                                 [&](const auto& item) {
+                                                     return item.identity.id == feature.feature_id;
+                                                 });
+                                if (found != owner->features.end()) {
+                                    view.live = state != nullptr;
+                                    view.traits = found->identity.traits;
+                                    if (state) {
+                                        view.enabled = state->enabled;
+                                        view.visible = state->visible;
+                                        view.effective_room =
+                                            m_world.effective_room(feature.interactable);
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    typed.feature);
+            }
+        },
+        subject);
+    return core::Result<core::CommandBuilderWatchedReferenceView, RuntimeExecutionError>::success(
+        std::move(view));
+}
+
 core::Result<void, RuntimeExecutionError>
 RuntimeExecutor::interact(core::VerbId verb_id,
                           std::vector<core::InteractionSubjectBinding> bindings)

@@ -155,9 +155,13 @@ constexpr const char* kBinderCharacterizationDocument = R"RML(
       </div></div>
       <div id="rt_actions_group"
            data-if="gameplay.interaction.has_selection || gameplay.interaction.actions.size > 0"><div id="rt_actions">
+        <span id="rt_selected_subject" data-if="gameplay.interaction.has_selection"
+              data-attr-data-subject-kind="gameplay.interaction.selected_subject_kind"
+              data-attr-data-subject-id="gameplay.interaction.selected_subject_id"></span>
         <button class="clear-selection" data-if="gameplay.interaction.has_selection"
                 data-event-click="ui_clear_selection()">Clear selection</button>
         <button class="model-action" data-for="action : gameplay.interaction.actions"
+                data-attr-data-slot-id="action.slot_id"
                 data-class-disabled="!action.enabled" data-attrif-disabled="!action.enabled"
                 data-event-click="ui_invoke_interaction(action.verb_id)">{{ action.label }}</button>
       </div></div>
@@ -1520,7 +1524,12 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
     auto* use_action = find_inner(actions, "Use");
     REQUIRE(inspect_action);
     REQUIRE(use_action);
+    CHECK(inspect_action->GetAttribute<Rml::String>("data-slot-id", "") == "target");
     CHECK(use_action->HasAttribute("disabled"));
+    auto* selected_subject = driver->element("binder-characterization", "rt_selected_subject");
+    REQUIRE(selected_subject);
+    CHECK(selected_subject->GetAttribute<Rml::String>("data-subject-kind", "") == "interactable");
+    CHECK(selected_subject->GetAttribute<Rml::String>("data-subject-id", "") == "key");
     CHECK(driver->element("binder-characterization", "rt_objects_group")->IsVisible());
     CHECK(driver->element("binder-characterization", "rt_inventory_group")->IsVisible());
     CHECK(driver->element("binder-characterization", "rt_actions_group")->IsVisible());
@@ -2042,6 +2051,131 @@ TEST_CASE("built-in Game HUD navigation button submits the selected Room exit")
         std::get_if<noveltea::core::NavigateRoomInput>(&released.runtime_inputs.front());
     REQUIRE(navigation);
     CHECK(navigation->exit == *exit.value_if());
+}
+
+TEST_CASE("built-in Command Builder Layout begins and repairs a multi-slot Draft through RmlUi")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(
+        ui, "runtime_command_builder", "system:/ui/runtime/command-builder.rml"));
+
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+    const auto room = noveltea::core::RoomId::create("start");
+    const auto placement = noveltea::core::RoomPlacementId::create("placement");
+    const auto key = noveltea::core::InteractableId::create("key");
+    const auto coin = noveltea::core::InteractableId::create("coin");
+    const auto combine = noveltea::core::VerbId::create("combine");
+    const auto first = noveltea::core::VerbSlotId::create("first");
+    const auto second = noveltea::core::VerbSlotId::create("second");
+    REQUIRE(room);
+    REQUIRE(placement);
+    REQUIRE(key);
+    REQUIRE(coin);
+    REQUIRE(combine);
+    REQUIRE(first);
+    REQUIRE(second);
+    const noveltea::core::compiled::InteractionSubject key_subject =
+        noveltea::core::compiled::InteractableInteractionSubject{*key.value_if()};
+    const noveltea::core::compiled::InteractionSubject coin_subject =
+        noveltea::core::compiled::InteractableInteractionSubject{*coin.value_if()};
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "room";
+    values.view.room = noveltea::core::RoomView{
+        .room = *room.value_if(),
+        .placements =
+            {{.placement = *placement.value_if(),
+              .occupants = {{.subject = key_subject, .enabled = true, .visible = true},
+                            {.subject = coin_subject, .enabled = true, .visible = true}}}},
+        .controls = {
+            {*combine.value_if(), "Combine", {*first.value_if(), *second.value_if()}, true}}};
+    values.view.selected_subjects = {key_subject};
+    values.view.verb_menu_open = true;
+    values.view.verb_offers = {{.verb = *combine.value_if(),
+                                .slot = *first.value_if(),
+                                .label = "Combine",
+                                .binding_order = {*first.value_if(), *second.value_if()},
+                                .rank = 0,
+                                .primary = false}};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("runtime_command_builder");
+    REQUIRE(document);
+    const noveltea::PresentationTransform transform{
+        noveltea::make_presentation_metrics(
+            noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+            {.reference = {.size = {1920, 1080}}})
+            .value()};
+    const auto click_element = [&](Rml::Element& element) {
+        const auto offset = element.GetAbsoluteOffset(Rml::BoxArea::Content);
+        const auto size = element.GetBox().GetSize(Rml::BoxArea::Content);
+        REQUIRE(size.x > 0.0f);
+        REQUIRE(size.y > 0.0f);
+        const auto host_point = transform.reference_to_host_logical(
+            {offset.x + size.x * 0.5f, offset.y + size.y * 0.5f});
+        SDL_Event motion{};
+        motion.type = SDL_EVENT_MOUSE_MOTION;
+        motion.motion.x = host_point.x;
+        motion.motion.y = host_point.y;
+        (void)ui.process_event(motion);
+        SDL_Event press{};
+        press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+        press.button.button = SDL_BUTTON_LEFT;
+        press.button.x = host_point.x;
+        press.button.y = host_point.y;
+        (void)ui.process_event(press);
+        press.type = SDL_EVENT_MOUSE_BUTTON_UP;
+        return ui.process_event(press);
+    };
+
+    Rml::ElementList action_buttons;
+    document->GetElementsByClassName(action_buttons, "command-builder-action");
+    const auto action = std::find_if(action_buttons.begin(), action_buttons.end(),
+                                     [](const auto* element) { return element->IsVisible(true); });
+    REQUIRE(action != action_buttons.end());
+    CHECK(std::count_if(action_buttons.begin(), action_buttons.end(),
+                        [](const auto* element) { return element->IsVisible(true); }) == 1);
+    const auto begin = click_element(**action);
+    REQUIRE(begin.runtime_inputs.size() == 1);
+    const auto* begun =
+        std::get_if<noveltea::core::BeginCommandBuilderInput>(&begin.runtime_inputs.front());
+    REQUIRE(begun);
+    REQUIRE(begun->watched_subjects.size() == 1);
+    CHECK(begun->watched_subjects.front() == key_subject);
+
+    values.revision = 2;
+    values.view.verb_menu_open = false;
+    values.view.command_builder.active = true;
+    values.view.command_builder.occurrence =
+        noveltea::core::CommandBuilderOccurrenceId::from_number(9);
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    values.revision = 3;
+    values.view.command_builder.capture_revision = 1;
+    values.view.command_builder.captured_subject = coin_subject;
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    ui.begin_frame({});
+
+    Rml::ElementList rebind_buttons;
+    document->GetElementsByClassName(rebind_buttons, "command-builder-rebind");
+    std::vector<Rml::Element*> visible_rebinds;
+    std::copy_if(rebind_buttons.begin(), rebind_buttons.end(), std::back_inserter(visible_rebinds),
+                 [](const auto* element) { return element->IsVisible(true); });
+    REQUIRE(visible_rebinds.size() == 2);
+    const auto repair = click_element(*visible_rebinds.front());
+    REQUIRE(repair.runtime_inputs.size() == 1);
+    const auto* watch =
+        std::get_if<noveltea::core::UpdateCommandBuilderWatchInput>(&repair.runtime_inputs.front());
+    REQUIRE(watch);
+    CHECK(watch->occurrence == noveltea::core::CommandBuilderOccurrenceId::from_number(9));
+    REQUIRE(watch->watched_subjects.size() == 1);
+    CHECK(watch->watched_subjects.front() == coin_subject);
 }
 
 TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing document state")

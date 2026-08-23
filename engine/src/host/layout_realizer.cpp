@@ -1417,6 +1417,8 @@ std::string LayoutRealizer::builtin_document_id(RuntimeLayoutBuiltinDocument doc
         return "runtime_text_log";
     case RuntimeLayoutBuiltinDocument::Modal:
         return "runtime_modal";
+    case RuntimeLayoutBuiltinDocument::CommandBuilder:
+        return "runtime_command_builder";
     case RuntimeLayoutBuiltinDocument::None:
         return {};
     }

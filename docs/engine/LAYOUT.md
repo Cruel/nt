@@ -369,17 +369,17 @@ Layout-specific commands include:
 
 - `layout.replaceData` for validated full data replacement;
 - `project.setSystemLayout` for setting or clearing named engine UI roles under
-  `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `save-menu`, `load-menu`,
-  `settings-menu`, `text-log`, `modal`, and `debug-overlay`).
+  `settings.ui.systemLayouts` (`title`, `game-hud`, `command-builder`, `pause-menu`, `save-menu`,
+  `load-menu`, `settings-menu`, `text-log`, `modal`, and `debug-overlay`).
 
 Generic entity commands handle creation, rename, deletion, metadata, and duplication. Layouts do not participate in gameplay Trait attachments or universal record inheritance.
 
 ## System Layout Roles
 
 At runtime, `RuntimeSystemLayouts` resolves each requested system role from the compiled project.
-When no project Layout is assigned, the engine uses a built-in fallback only for title, game HUD,
-pause, save, load, settings, text log, and modal/confirmation. Debug overlay has no built-in fallback;
-projects that open it must assign a Layout.
+When no project Layout is assigned, the engine uses a built-in fallback for title, game HUD,
+Command Builder, pause, save, load, settings, text log, and modal/confirmation. Debug overlay has no
+built-in fallback; projects that open it must assign a Layout.
 
 Authored and built-in system Layouts both mount through `RuntimeLayoutManager` with the same policy:
 
@@ -387,6 +387,7 @@ Authored and built-in system Layouts both mount through `RuntimeLayoutManager` w
 | --- | --- | --- | --- | --- |
 | title | `MenuOverlay` | unscaled | modal | while visible |
 | game HUD | `GameUi` | gameplay | normal | continue |
+| Command Builder | `GameUi` | gameplay | normal | continue |
 | pause/settings/save/load | `MenuOverlay` | unscaled | modal | while visible |
 | text log | `MenuOverlay` | unscaled | block gameplay | continue |
 | modal/confirmation | `Modal` | unscaled | modal | while visible |
@@ -403,6 +404,23 @@ Copying a built-in RML/RCSS document into a project Layout preserves its declara
 the copied `data-model`, `data-*` bindings, and typed callbacks are retained. IDs may be changed or
 omitted unless the authored stylesheet, focus logic, or project code itself depends on them. Current
 projection state is reused after document reload or lifecycle-context recreation.
+
+The `command-builder` role is gameplay-owned and replaceable. Runtime owns its occurrence identity,
+semantic subject capture, exact watched-reference snapshots, forced lifecycle termination, and final
+complete-command validation. The Layout owns the transient partial Command Draft, focused slot,
+backtracking/rebinding UX, confirmation, and cancellation. The built-in document submits one-slot
+Offers directly; multi-slot Offers create a Layout-local Draft and progressively bind subject presses.
+Project-authored replacements derive the unique selected subject and Offer starting slot from the
+`noveltea` projection, then use the generic occurrence-bound `Game.ui` Builder transport to begin,
+replace the exact watch set, and submit their own complete named bindings. Each built-in bound-slot
+button can drop that binding for recapture, immediately resynchronizing the exact watched-reference
+set. Draft state is never part of Session/Save state or recorded playback. While an
+occurrence is active, world and inventory subject activation is captured for the Builder instead of
+executing the normal subject-first action. Runtime accepts watches and final bindings only for subjects
+semantically captured for that occurrence, rejects stale occurrence-bound updates/submissions, and
+revalidates the complete command against current control authority, live subject eligibility, Verb
+availability, and named-slot selectors before Interaction Flow begins. Losing Room/Flow ownership or
+accepting another direct control command terminates the occurrence.
 
 See `docs/ui/RMLUI_DATA_MODEL_CONTRACT.md` for the exact `project.*`, `gameplay.*`, and `shell.*`
 field schema, callbacks, projection semantics, and custom-element exceptions.

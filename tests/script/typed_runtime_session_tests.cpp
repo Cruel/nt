@@ -520,7 +520,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 30);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 35);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
@@ -1022,6 +1022,324 @@ TEST_CASE("ambiguous primary Verb Offers diagnose and open the ordinary menu")
     const auto& detail = std::get<core::VerbOfferAmbiguityObservation>(
         std::get<runtime::ObservationEvent>(*ambiguity).observation);
     CHECK(detail.primary_verbs.size() == 2);
+}
+
+TEST_CASE(
+    "Command Builder publishes watched references rejects stale occurrences and submits atomically")
+{
+    Fixture fixture("interaction-program.json", {}, [](nlohmann::json& document) {
+        for (auto& verb : document["definitions"]["verbs"]) {
+            if (verb["id"] != "combine")
+                continue;
+            verb["offers"].push_back(
+                {{"id", "combine-key"},
+                 {"slotId", "first"},
+                 {"selectors",
+                  nlohmann::json::array(
+                      {{{"kind", "exact"},
+                        {"subject",
+                         {{"kind", "interactable"},
+                          {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}}}})},
+                 {"rank", 0},
+                 {"primary", false}});
+        }
+        for (auto& interaction : document["definitions"]["interactions"]) {
+            if (interaction["id"] != "actions")
+                continue;
+            for (auto& rule : interaction["rules"]) {
+                if (rule["id"] == "predicate-context") {
+                    rule["slots"][1]["selectors"][0]["subject"]["interactable"]["id"] = "key";
+                    rule["program"]["instructions"] = nlohmann::json::array();
+                    rule["program"]["outcome"] = "handled";
+                }
+            }
+        }
+    });
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+
+    const auto key = make_id<core::InteractableIdTag>("key");
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{key};
+    REQUIRE(dispatch_settled(
+                *fixture.session,
+                core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{key_subject}}})
+                .diagnostics.empty());
+
+    auto begun = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::BeginCommandBuilderInput{{key_subject}}});
+    REQUIRE(begun.diagnostics.empty());
+    REQUIRE(begun.publication);
+    REQUIRE(begun.publication->gameplay_ui.command_builder.active);
+    REQUIRE(begun.publication->gameplay_ui.command_builder.occurrence);
+    const auto occurrence = *begun.publication->gameplay_ui.command_builder.occurrence;
+    REQUIRE(begun.publication->gameplay_ui.command_builder.watched.size() == 1);
+    const auto& watched_key = begun.publication->gameplay_ui.command_builder.watched.front();
+    CHECK(watched_key.subject == key_subject);
+    CHECK(watched_key.live);
+    CHECK(watched_key.available);
+    CHECK(watched_key.enabled);
+    CHECK(watched_key.visible);
+    REQUIRE(watched_key.effective_room);
+    CHECK(*watched_key.effective_room == make_id<core::RoomIdTag>("start"));
+    CHECK(std::any_of(watched_key.offers.begin(), watched_key.offers.end(), [](const auto& offer) {
+        return offer.verb == make_id<core::VerbIdTag>("combine");
+    }));
+
+    auto captured = dispatch_settled(
+        *fixture.session,
+        core::RuntimeInputMessage{core::CommandBuilderSubjectPressInput{occurrence, key_subject}});
+    REQUIRE(captured.diagnostics.empty());
+    REQUIRE(captured.publication);
+    REQUIRE(captured.publication->gameplay_ui.command_builder.captured_subject);
+    CHECK(*captured.publication->gameplay_ui.command_builder.captured_subject == key_subject);
+    CHECK(captured.publication->gameplay_ui.command_builder.capture_revision == 1);
+
+    auto watched = dispatch_settled(*fixture.session,
+                                    core::RuntimeInputMessage{core::UpdateCommandBuilderWatchInput{
+                                        occurrence, {key_subject, key_subject}}});
+    REQUIRE(watched.diagnostics.empty());
+    REQUIRE(watched.publication);
+    CHECK(watched.publication->gameplay_ui.command_builder.watched.size() == 1);
+
+    REQUIRE(fixture.session->gateway().request_interactable_state(key, std::nullopt, std::nullopt,
+                                                                  false));
+    auto hidden =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+    REQUIRE(hidden.diagnostics.empty());
+    REQUIRE(hidden.publication);
+    REQUIRE(hidden.publication->gameplay_ui.command_builder.watched.size() == 1);
+    CHECK_FALSE(hidden.publication->gameplay_ui.command_builder.watched.front().visible);
+
+    REQUIRE(fixture.session->gateway().request_interactable_state(key, std::nullopt, std::nullopt,
+                                                                  true));
+    auto restored =
+        dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+    REQUIRE(restored.diagnostics.empty());
+    REQUIRE(restored.publication);
+    REQUIRE(restored.publication->gameplay_ui.command_builder.watched.size() == 1);
+    CHECK(restored.publication->gameplay_ui.command_builder.watched.front().visible);
+
+    const auto stale_occurrence =
+        core::CommandBuilderOccurrenceId::from_number(occurrence.number() + 1);
+    auto stale = dispatch_settled(*fixture.session,
+                                  core::RuntimeInputMessage{core::CommandBuilderSubjectPressInput{
+                                      stale_occurrence, key_subject}});
+    REQUIRE_FALSE(stale.diagnostics.empty());
+    CHECK(stale.diagnostics.front().code == "runtime.stale_command_builder_occurrence");
+
+    auto submitted = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::SubmitCommandBuilderInput{
+                              occurrence,
+                              make_id<core::VerbIdTag>("combine"),
+                              {{make_id<core::VerbSlotIdTag>("first"), key_subject},
+                               {make_id<core::VerbSlotIdTag>("second"), key_subject}}}});
+    if (!submitted.diagnostics.empty())
+        INFO(submitted.diagnostics.front().code << ": " << submitted.diagnostics.front().message);
+    REQUIRE(submitted.diagnostics.empty());
+    REQUIRE(submitted.publication);
+    CHECK_FALSE(submitted.publication->gameplay_ui.command_builder.active);
+    CHECK_FALSE(submitted.publication->gameplay_ui.command_builder.occurrence);
+}
+
+TEST_CASE("Command Builder is transient and terminates on runtime lifecycle changes")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const core::compiled::InteractionSubject subject =
+        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("key")};
+    REQUIRE(
+        dispatch_settled(*fixture.session,
+                         core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{subject}}})
+            .diagnostics.empty());
+
+    auto begun = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::BeginCommandBuilderInput{{subject}}});
+    REQUIRE(begun.diagnostics.empty());
+    REQUIRE(begun.publication);
+    REQUIRE(begun.publication->gameplay_ui.command_builder.occurrence);
+    const auto occurrence = *begun.publication->gameplay_ui.command_builder.occurrence;
+
+    const auto require_stale_occurrence = [&]() {
+        auto stale = dispatch_settled(
+            *fixture.session,
+            core::RuntimeInputMessage{core::CancelCommandBuilderInput{occurrence}});
+        REQUIRE_FALSE(stale.diagnostics.empty());
+        CHECK(stale.diagnostics.front().code == "runtime.stale_command_builder_occurrence");
+    };
+
+    SECTION("stop")
+    {
+        auto stopped =
+            dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
+        REQUIRE(stopped.diagnostics.empty());
+        require_stale_occurrence();
+    }
+
+    SECTION("reset")
+    {
+        auto reset = dispatch_settled(*fixture.session,
+                                      core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+        REQUIRE(reset.diagnostics.empty());
+        REQUIRE(reset.session_replacement_request);
+        require_stale_occurrence();
+    }
+
+    SECTION("load")
+    {
+        const auto slot = core::TypedSaveSlotId::manual(6);
+        REQUIRE(dispatch_settled(*fixture.session,
+                                 core::RuntimeInputMessage{core::SaveRuntimeInput{slot}})
+                    .diagnostics.empty());
+        REQUIRE_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
+        auto load = dispatch_settled(*fixture.session,
+                                     core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
+        REQUIRE(load.diagnostics.empty());
+        REQUIRE(load.session_replacement_request);
+        require_stale_occurrence();
+    }
+
+    SECTION("Room transition")
+    {
+        REQUIRE(
+            dispatch_settled(*fixture.session,
+                             core::RuntimeInputMessage{core::SetVariableDebugInput{
+                                 make_id<core::PropertyIdTag>("flag"), core::RuntimeValue{true}}})
+                .diagnostics.empty());
+        auto navigated =
+            dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::NavigateRoomInput{
+                                                   make_id<core::RoomExitIdTag>("north-exit")}});
+        REQUIRE(navigated.diagnostics.empty());
+        REQUIRE(navigated.publication);
+        REQUIRE(navigated.publication->gameplay_ui.room);
+        CHECK(navigated.publication->gameplay_ui.room->room == make_id<core::RoomIdTag>("hall"));
+        CHECK_FALSE(navigated.publication->gameplay_ui.command_builder.active);
+        require_stale_occurrence();
+    }
+}
+
+TEST_CASE("Command Builder enforces runtime capture authority")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("key")};
+    const core::compiled::InteractionSubject unauthorized_subject =
+        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("coin")};
+    const core::compiled::InteractionSubject door_subject =
+        core::compiled::FeatureInteractionSubject{core::RoomFeatureRef{
+            make_id<core::RoomIdTag>("start"), make_id<core::FeatureIdTag>("door")}};
+    REQUIRE(dispatch_settled(
+                *fixture.session,
+                core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{key_subject}}})
+                .diagnostics.empty());
+
+    auto begun = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::BeginCommandBuilderInput{{key_subject}}});
+    REQUIRE(begun.diagnostics.empty());
+    REQUIRE(begun.publication);
+    REQUIRE(begun.publication->gameplay_ui.command_builder.occurrence);
+    const auto occurrence = *begun.publication->gameplay_ui.command_builder.occurrence;
+
+    auto unauthorized_watch = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::UpdateCommandBuilderWatchInput{
+                              occurrence, {key_subject, unauthorized_subject}}});
+    REQUIRE_FALSE(unauthorized_watch.diagnostics.empty());
+    CHECK(unauthorized_watch.diagnostics.front().code ==
+          "runtime.command_builder_unauthorized_subject");
+
+    auto world_capture = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::PrimaryActivateInput{door_subject}});
+    REQUIRE(world_capture.diagnostics.empty());
+    REQUIRE(world_capture.publication);
+    REQUIRE(world_capture.publication->gameplay_ui.command_builder.captured_subject);
+    CHECK(*world_capture.publication->gameplay_ui.command_builder.captured_subject == door_subject);
+
+    auto authorized_watch = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::UpdateCommandBuilderWatchInput{
+                              occurrence, {key_subject, door_subject}}});
+    REQUIRE(authorized_watch.diagnostics.empty());
+    REQUIRE(authorized_watch.publication);
+    CHECK(authorized_watch.publication->gameplay_ui.command_builder.watched.size() == 2);
+
+    auto unauthorized_submit = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::SubmitCommandBuilderInput{
+                              occurrence,
+                              make_id<core::VerbIdTag>("combine"),
+                              {{make_id<core::VerbSlotIdTag>("first"), key_subject},
+                               {make_id<core::VerbSlotIdTag>("second"), unauthorized_subject}}}});
+    REQUIRE_FALSE(unauthorized_submit.diagnostics.empty());
+    CHECK(unauthorized_submit.diagnostics.front().code ==
+          "runtime.command_builder_unauthorized_subject");
+}
+
+TEST_CASE("Command Builder transient Draft state does not change saved gameplay")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto baseline_slot = core::TypedSaveSlotId::manual(6);
+    REQUIRE(dispatch_settled(*fixture.session,
+                             core::RuntimeInputMessage{core::SaveRuntimeInput{baseline_slot}})
+                .diagnostics.empty());
+    REQUIRE_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
+    const auto baseline_save = fixture.saves.read_slot(baseline_slot);
+    REQUIRE(baseline_save);
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("key")};
+    REQUIRE(dispatch_settled(
+                *fixture.session,
+                core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{key_subject}}})
+                .diagnostics.empty());
+    auto begun = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::BeginCommandBuilderInput{{key_subject}}});
+    REQUIRE(begun.diagnostics.empty());
+    REQUIRE(begun.publication);
+    CHECK(begun.publication->gameplay_ui.command_builder.active);
+
+    const auto builder_slot = core::TypedSaveSlotId::manual(7);
+    REQUIRE(dispatch_settled(*fixture.session,
+                             core::RuntimeInputMessage{core::SaveRuntimeInput{builder_slot}})
+                .diagnostics.empty());
+    REQUIRE_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
+    const auto builder_save = fixture.saves.read_slot(builder_slot);
+    REQUIRE(builder_save);
+    CHECK(*builder_save.value_if() == *baseline_save.value_if());
+}
+
+TEST_CASE("Command Builder terminates after an accepted direct control command")
+{
+    Fixture fixture("interaction-program.json");
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{make_id<core::InteractableIdTag>("key")};
+    REQUIRE(dispatch_settled(
+                *fixture.session,
+                core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{key_subject}}})
+                .diagnostics.empty());
+    auto begun = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::BeginCommandBuilderInput{{key_subject}}});
+    REQUIRE(begun.diagnostics.empty());
+    REQUIRE(begun.publication);
+    REQUIRE(begun.publication->gameplay_ui.command_builder.occurrence);
+    const auto occurrence = *begun.publication->gameplay_ui.command_builder.occurrence;
+
+    auto invoked = dispatch_settled(*fixture.session,
+                                    core::RuntimeInputMessage{core::InvokeInteractionInput{
+                                        make_id<core::VerbIdTag>("use"),
+                                        {{make_id<core::VerbSlotIdTag>("target"), key_subject}}}});
+    REQUIRE(invoked.diagnostics.empty());
+    REQUIRE(invoked.publication);
+    CHECK_FALSE(invoked.publication->gameplay_ui.command_builder.active);
+
+    auto stale = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::CancelCommandBuilderInput{occurrence}});
+    REQUIRE_FALSE(stale.diagnostics.empty());
+    CHECK(stale.diagnostics.front().code == "runtime.stale_command_builder_occurrence");
 }
 
 TEST_CASE("deferred runtime commands execute inside one outer transaction")

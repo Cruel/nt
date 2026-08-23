@@ -185,6 +185,8 @@ const char* system_layout_role_key(core::compiled::SystemLayoutRole role)
         return "save-menu";
     case core::compiled::SystemLayoutRole::TextLog:
         return "text-log";
+    case core::compiled::SystemLayoutRole::CommandBuilder:
+        return "command-builder";
     }
     return "unknown";
 }
@@ -209,6 +211,8 @@ system_layout_builtin(core::compiled::SystemLayoutRole role)
         return RuntimeLayoutBuiltinDocument::TextLog;
     case core::compiled::SystemLayoutRole::Modal:
         return RuntimeLayoutBuiltinDocument::Modal;
+    case core::compiled::SystemLayoutRole::CommandBuilder:
+        return RuntimeLayoutBuiltinDocument::CommandBuilder;
     case core::compiled::SystemLayoutRole::DebugOverlay:
         return std::nullopt;
     }
@@ -1124,14 +1128,14 @@ Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
 
     RuntimeLayoutMountRequest request;
     request.layout_id = std::string("system-") + system_layout_role_key(role);
-    request.owner = role == core::compiled::SystemLayoutRole::GameHud
-                        ? core::MountedLayoutOwner::Gameplay
-                        : core::MountedLayoutOwner::Shell;
+    const bool gameplay_owned = role == core::compiled::SystemLayoutRole::GameHud ||
+                                role == core::compiled::SystemLayoutRole::CommandBuilder;
+    request.owner =
+        gameplay_owned ? core::MountedLayoutOwner::Gameplay : core::MountedLayoutOwner::Shell;
     request.policy = policy;
     request.system_role = role;
-    request.composition_group = role == core::compiled::SystemLayoutRole::GameHud
-                                    ? core::PresentationCompositionGroup::Interface
-                                    : core::PresentationCompositionGroup::Shell;
+    request.composition_group = gameplay_owned ? core::PresentationCompositionGroup::Interface
+                                               : core::PresentationCompositionGroup::Shell;
     if (m_game_host.runtime_publication())
         request.publication_revision = m_game_host.runtime_publication()->presentation.revision;
 

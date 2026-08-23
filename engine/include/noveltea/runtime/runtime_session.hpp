@@ -144,6 +144,8 @@ private:
                              std::vector<core::RuntimeObservation>& observations,
                              core::Diagnostics& diagnostics);
     [[nodiscard]] core::Diagnostic diagnostic(std::string code, std::string message) const;
+    [[nodiscard]] core::Diagnostics
+    capture_command_builder_subject(const core::compiled::InteractionSubject& subject);
     void record_structural_mutation() noexcept;
     void record_time_mutation(std::chrono::milliseconds elapsed) noexcept;
     void invalidate_kernel(ScriptCancellationReason reason) noexcept;
@@ -185,8 +187,19 @@ private:
     bool m_playback = false;
     core::EffectiveGameplayPause m_effective_gameplay_pause;
     std::size_t m_playback_step = 0;
+    struct CommandBuilderState {
+        core::CommandBuilderOccurrenceId occurrence;
+        std::uint64_t capture_revision = 0;
+        std::optional<core::compiled::InteractionSubject> captured_subject;
+        std::vector<core::compiled::InteractionSubject> captured_subjects;
+        std::vector<core::compiled::InteractionSubject> watched_subjects;
+        std::optional<core::RoomId> room;
+    };
+
     std::vector<core::compiled::InteractionSubject> m_selection;
     bool m_verb_menu_open = false;
+    std::optional<CommandBuilderState> m_command_builder;
+    std::uint64_t m_next_command_builder_occurrence = 1;
     std::optional<RoomDescriptionVisit> m_room_description_visit;
     bool m_room_description_visible = false;
     std::optional<PendingPresentationCompletion> m_pending_presentation;

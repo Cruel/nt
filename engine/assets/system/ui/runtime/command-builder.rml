@@ -1,0 +1,54 @@
+<rml>
+<head>
+    <title>NovelTea Command Builder</title>
+    <link type="text/rcss" href="system|/ui/runtime/command-builder.rcss"/>
+</head>
+<body data-model="noveltea">
+    <div id="command_builder_root"
+         data-if="gameplay.interaction.verb_menu_open || gameplay.command_builder.active">
+        <div data-if="!gameplay.command_builder.active">
+            <div id="command_builder_menu" data-if="gameplay.interaction.verb_menu_open">
+                <p class="command-builder-heading">Actions</p>
+                <button class="command-builder-clear"
+                        data-if="gameplay.interaction.has_selection"
+                        data-event-click="ui_clear_selection()">Clear selection</button>
+                <button data-for="action : gameplay.interaction.actions"
+                        class="command-builder-action"
+                        data-class-disabled="!action.enabled"
+                        data-attrif-disabled="!action.enabled"
+                        data-event-click="ui_invoke_interaction(action.verb_id)">
+                    {{ action.label }}
+                </button>
+            </div>
+        </div>
+
+        <div id="command_builder_draft" data-if="gameplay.command_builder.active">
+            <p class="command-builder-heading">Command</p>
+            <p id="command_builder_label">{{ gameplay.command_builder.label }}</p>
+            <p id="command_builder_progress">
+                {{ gameplay.command_builder.bound_slots.size }} / {{ gameplay.command_builder.binding_order.size }} subjects selected
+            </p>
+            <div id="command_builder_bindings" data-if="gameplay.command_builder.bound_slots.size > 0">
+                <button data-for="slot : gameplay.command_builder.bound_slots"
+                        class="command-builder-rebind"
+                        data-event-click="ui_command_builder_rebind(slot)">
+                    Change {{ slot }}
+                </button>
+            </div>
+            <p id="command_builder_hint" data-if="!gameplay.command_builder.complete">
+                Select the subject for {{ gameplay.command_builder.focused_slot }} in the world or inventory.
+            </p>
+            <div class="command-builder-warning"
+                 data-for="watched : gameplay.command_builder.watched"
+                 data-if="!watched.live || !watched.available || !watched.enabled || !watched.visible">
+                A selected subject changed or is no longer available.
+            </div>
+            <button id="command_builder_submit"
+                    data-if="gameplay.command_builder.complete"
+                    data-event-click="ui_command_builder_submit()">Confirm</button>
+            <button id="command_builder_cancel"
+                    data-event-click="ui_command_builder_cancel()">Cancel</button>
+        </div>
+    </div>
+</body>
+</rml>

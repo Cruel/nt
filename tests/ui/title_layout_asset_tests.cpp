@@ -119,8 +119,6 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(rml.find("data-event-click=\"ui_choose(choice.kind, choice.id)\"") != std::string::npos);
     CHECK(rml.find("data-for=\"object : gameplay.room.objects\"") != std::string::npos);
     CHECK(rml.find("data-for=\"item : gameplay.inventory.items\"") != std::string::npos);
-    CHECK(rml.find("data-for=\"action : gameplay.interaction.actions\"") != std::string::npos);
-    CHECK(rml.find("data-event-click=\"ui_clear_selection()\"") != std::string::npos);
     CHECK(rml.find("data-for=\"exit : gameplay.room.exits\"") != std::string::npos);
     CHECK(rml.find("data-event-click=\"ui_navigate_room(exit.id)\"") != std::string::npos);
     CHECK(rml.find("id=\"rt_menu\" data-event-click=\"shell_pause()\"") != std::string::npos);
@@ -137,6 +135,22 @@ TEST_CASE("built-in game HUD is a transparent functional overlay")
     CHECK(rcss.find(".nav-slot-northwest") != std::string::npos);
     CHECK(rcss.find(".nav-slot-southeast") != std::string::npos);
     CHECK(rcss.find(".nav-slot-south { left: 80px; bottom: 0; }") != std::string::npos);
+
+    const auto builder_rml = read_source_file(hud_root / "command-builder.rml");
+    const auto builder_rcss = read_source_file(hud_root / "command-builder.rcss");
+    REQUIRE_FALSE(builder_rml.empty());
+    REQUIRE_FALSE(builder_rcss.empty());
+    CHECK(builder_rml.find("system|/ui/runtime/command-builder.rcss") != std::string::npos);
+    CHECK(builder_rml.find("data-for=\"action : gameplay.interaction.actions\"") !=
+          std::string::npos);
+    CHECK(builder_rml.find("data-event-click=\"ui_clear_selection()\"") != std::string::npos);
+    CHECK(builder_rml.find("data-event-click=\"ui_command_builder_submit()\"") !=
+          std::string::npos);
+    CHECK(builder_rml.find("data-event-click=\"ui_command_builder_rebind(slot)\"") !=
+          std::string::npos);
+    CHECK(builder_rml.find("data-event-click=\"ui_command_builder_cancel()\"") !=
+          std::string::npos);
+    CHECK(builder_rcss.find("#command_builder_root") != std::string::npos);
     const std::vector<std::string> compass_directions{"northwest", "north",  "northeast",
                                                       "west",      "custom", "east",
                                                       "southwest", "south",  "southeast"};

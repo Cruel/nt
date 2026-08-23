@@ -624,9 +624,19 @@ Game.ui.primary_activate(subject_kind, subject_id)
 Game.ui.open_verb_menu(subject_kind, subject_id)
 Game.ui.clear_selection()
 Game.ui.invoke_interaction(verb_id)
+Game.ui.begin_command_builder(subjects?)
+Game.ui.set_command_builder_watch(subjects)
+Game.ui.submit_command_builder()
+Game.ui.submit_command_builder(verb_id, bindings)
+Game.ui.rebind_command_builder(slot_id)
+Game.ui.cancel_command_builder()
 ```
 
-These return plain booleans. They are validated against the currently published gameplay view, not just ID syntax: hidden/disabled/stale choices, exits, Map connections/locations, subjects, or interactions fail. `primary_activate` requests semantic Primary Activate for a currently eligible `character` or `interactable`; `open_verb_menu` explicitly opens that subject's ordinary resolved Verb Offer menu and never auto-selects a primary Offer. Use these in gameplay Layout event code rather than assuming the general `Game.*` index-based UI conveniences are equivalent.
+These return plain booleans. They are validated against the currently published gameplay view, not just ID syntax: hidden/disabled/stale choices, exits, Map connections/locations, subjects, or interactions fail. `primary_activate` requests semantic Primary Activate for a currently eligible `character` or `interactable`; `open_verb_menu` explicitly opens that subject's ordinary resolved Verb Offer menu and never auto-selects a primary Offer. While the Command Builder occurrence is active, subject activation is captured for that occurrence rather than executing the ordinary subject-first action.
+
+The zero-argument `submit_command_builder()` and `rebind_command_builder(slot_id)` are conveniences for the built-in RuntimeUI Draft. A replacement Command Builder owns its Draft and uses the generic occurrence-bound transport: `begin_command_builder(subjects?)` starts construction from zero or more runtime-selected subjects, `set_command_builder_watch(subjects)` replaces the exact watched-reference set, and `submit_command_builder(verb_id, bindings)` submits the replacement's complete Draft. Builder subject tables deliberately match the `noveltea` projection as `{ kind = "...", id = "..." }`, so a replacement can pass projected identities back without reconstructing hidden native state. Character, Interactable, and Item Stack IDs are their stable IDs. Feature IDs are the projected owner-qualified form `room:<owner>#<feature>` or `interactable:<owner>#<feature>`. `bindings` is an ordered sequence of `{ slotId = "slot-id", subject = <builder-subject-table> }`. Runtime accepts watched and submitted subjects only after semantic capture for the active occurrence and performs final live/selector/authority validation. `cancel_command_builder()` terminates the current occurrence.
+
+Replacement Layouts obtain subject-first starting information from `gameplay.interaction.selected_subject_kind`, `gameplay.interaction.selected_subject_id`, and each resolved action's `slot_id`; capture updates arrive through `gameplay.command_builder.capture_revision` and the latest captured subject. The partial Draft itself remains Layout-local. Use these APIs in gameplay Layout event code rather than assuming the general `Game.*` index-based UI conveniences are equivalent.
 
 Map Location convenience succeeds only when runtime projection finds exactly one actionable Exit-backed Connection from the active Room to that Location's Room. It dispatches that exact Exit rather than performing direct Room travel. `nt-map-view` pointer geometry ultimately targets these same semantic Location/Connection controls, so non-pointer activation is independent of polygon hit testing.
 

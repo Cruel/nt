@@ -215,6 +215,241 @@ TEST_CASE("RuntimeUiActionGateway does not expose Hotspot geometry as a Lua game
     lua_close(state);
 }
 
+TEST_CASE("RuntimeUiActionGateway directly submits one-slot offers and progressively builds "
+          "multi-slot commands")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::RuntimeUiActionGateway gateway(diagnostics);
+    RecordingRuntimeUiInputSink sink;
+    gateway.bind_input_sink(&sink);
+    gateway.bind_layout_gameplay_admission([]() { return true; });
+
+    const auto room = noveltea::core::RoomId::create("room");
+    const auto placement = noveltea::core::RoomPlacementId::create("placement");
+    const auto key = noveltea::core::InteractableId::create("key");
+    const auto coin = noveltea::core::InteractableId::create("coin");
+    const auto use = noveltea::core::VerbId::create("use");
+    const auto combine = noveltea::core::VerbId::create("combine");
+    const auto target = noveltea::core::VerbSlotId::create("target");
+    const auto first = noveltea::core::VerbSlotId::create("first");
+    const auto second = noveltea::core::VerbSlotId::create("second");
+    REQUIRE(room);
+    REQUIRE(placement);
+    REQUIRE(key);
+    REQUIRE(coin);
+    REQUIRE(use);
+    REQUIRE(combine);
+    REQUIRE(target);
+    REQUIRE(first);
+    REQUIRE(second);
+
+    const noveltea::core::compiled::InteractionSubject key_subject =
+        noveltea::core::compiled::InteractableInteractionSubject{key.value()};
+    const noveltea::core::compiled::InteractionSubject coin_subject =
+        noveltea::core::compiled::InteractableInteractionSubject{coin.value()};
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "room";
+    values.view.room = noveltea::core::RoomView{
+        .room = room.value(),
+        .placements =
+            {{.placement = placement.value(),
+              .occupants = {{.subject = key_subject, .enabled = true, .visible = true},
+                            {.subject = coin_subject, .enabled = true, .visible = true}}}},
+        .controls = {{use.value(), "Use", {target.value()}, true},
+                     {combine.value(), "Combine", {first.value(), second.value()}, true}}};
+    values.view.selected_subjects = {key_subject};
+    values.view.verb_offers = {{.verb = use.value(),
+                                .slot = target.value(),
+                                .label = "Use",
+                                .binding_order = {target.value()},
+                                .rank = 0,
+                                .primary = false},
+                               {.verb = combine.value(),
+                                .slot = first.value(),
+                                .label = "Combine",
+                                .binding_order = {first.value(), second.value()},
+                                .rank = 0,
+                                .primary = false}};
+    REQUIRE(gateway.apply(values));
+
+    REQUIRE(gateway.action_invoke_interaction("use"));
+    REQUIRE(sink.last_gameplay_input);
+    const auto* one_slot =
+        std::get_if<noveltea::core::InvokeInteractionInput>(&*sink.last_gameplay_input);
+    REQUIRE(one_slot != nullptr);
+    REQUIRE(one_slot->bindings.size() == 1);
+    CHECK(one_slot->bindings.front().slot_id == target.value());
+    CHECK(one_slot->bindings.front().subject == key_subject);
+    CHECK_FALSE(gateway.command_builder_draft().active);
+
+    REQUIRE(gateway.action_invoke_interaction("combine"));
+    REQUIRE(sink.last_gameplay_input);
+    CHECK(std::holds_alternative<noveltea::core::BeginCommandBuilderInput>(
+        *sink.last_gameplay_input));
+    auto draft = gateway.command_builder_draft();
+    REQUIRE(draft.active);
+    CHECK(draft.verb_id == "combine");
+    REQUIRE(draft.bound_slots.size() == 1);
+    CHECK(draft.bound_slots.front() == "first");
+    CHECK(draft.focused_slot == "second");
+    CHECK_FALSE(draft.complete);
+
+    values.revision = 2;
+    values.view.command_builder.active = true;
+    values.view.command_builder.occurrence =
+        noveltea::core::CommandBuilderOccurrenceId::from_number(7);
+    REQUIRE(gateway.apply(values));
+
+    const auto inputs_before_press = sink.gameplay_inputs;
+    REQUIRE(gateway.action_primary_activate("interactable", "coin"));
+    CHECK(sink.gameplay_inputs == inputs_before_press + 1);
+    REQUIRE(sink.last_gameplay_input);
+    const auto* captured =
+        std::get_if<noveltea::core::CommandBuilderSubjectPressInput>(&*sink.last_gameplay_input);
+    REQUIRE(captured != nullptr);
+    CHECK(captured->subject == coin_subject);
+
+    values.revision = 3;
+    values.view.command_builder.capture_revision = 1;
+    values.view.command_builder.captured_subject = coin_subject;
+    REQUIRE(gateway.apply(values));
+    CHECK(sink.gameplay_inputs == inputs_before_press + 2);
+    REQUIRE(sink.last_gameplay_input);
+    const auto* watch =
+        std::get_if<noveltea::core::UpdateCommandBuilderWatchInput>(&*sink.last_gameplay_input);
+    REQUIRE(watch != nullptr);
+    CHECK(watch->occurrence == noveltea::core::CommandBuilderOccurrenceId::from_number(7));
+    REQUIRE(watch->watched_subjects.size() == 2);
+    CHECK(watch->watched_subjects[0] == key_subject);
+    CHECK(watch->watched_subjects[1] == coin_subject);
+    draft = gateway.command_builder_draft();
+    CHECK(draft.complete);
+    CHECK(draft.focused_slot.empty());
+    REQUIRE(draft.bound_slots.size() == 2);
+    CHECK(draft.bound_slots[1] == "second");
+
+    const auto inputs_before_rebind = sink.gameplay_inputs;
+    REQUIRE(gateway.action_rebind_command_builder("second"));
+    CHECK(sink.gameplay_inputs == inputs_before_rebind + 1);
+    REQUIRE(sink.last_gameplay_input);
+    watch = std::get_if<noveltea::core::UpdateCommandBuilderWatchInput>(&*sink.last_gameplay_input);
+    REQUIRE(watch != nullptr);
+    REQUIRE(watch->watched_subjects.size() == 1);
+    CHECK(watch->watched_subjects.front() == key_subject);
+    draft = gateway.command_builder_draft();
+    CHECK_FALSE(draft.complete);
+    CHECK(draft.focused_slot == "second");
+    REQUIRE(draft.bound_slots.size() == 1);
+    CHECK(draft.bound_slots.front() == "first");
+
+    REQUIRE(gateway.action_primary_activate("interactable", "coin"));
+    values.revision = 4;
+    values.view.command_builder.capture_revision = 2;
+    values.view.command_builder.captured_subject = coin_subject;
+    REQUIRE(gateway.apply(values));
+    draft = gateway.command_builder_draft();
+    CHECK(draft.complete);
+    CHECK(draft.focused_slot.empty());
+
+    REQUIRE(gateway.action_submit_command_builder());
+    REQUIRE(sink.last_gameplay_input);
+    const auto* submitted =
+        std::get_if<noveltea::core::SubmitCommandBuilderInput>(&*sink.last_gameplay_input);
+    REQUIRE(submitted != nullptr);
+    CHECK(submitted->occurrence == noveltea::core::CommandBuilderOccurrenceId::from_number(7));
+    CHECK(submitted->verb == combine.value());
+    REQUIRE(submitted->bindings.size() == 2);
+    CHECK(submitted->bindings[0].subject == key_subject);
+    CHECK(submitted->bindings[1].subject == coin_subject);
+}
+
+TEST_CASE("RuntimeUiActionGateway exposes replacement Command Builder transport through Game.ui")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::RuntimeUiActionGateway gateway(diagnostics);
+    RecordingRuntimeUiInputSink sink;
+    gateway.bind_input_sink(&sink);
+    gateway.bind_layout_gameplay_admission([]() { return true; });
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "room";
+    REQUIRE(gateway.apply(values));
+
+    lua_State* state = luaL_newstate();
+    REQUIRE(state != nullptr);
+    luaL_openlibs(state);
+    gateway.set_lua_state(state);
+
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.begin_command_builder({"
+                                 "  { kind = 'interactable', id = 'key' }"
+                                 "}))") == LUA_OK);
+    REQUIRE(sink.last_gameplay_input);
+    const auto* begun =
+        std::get_if<noveltea::core::BeginCommandBuilderInput>(&*sink.last_gameplay_input);
+    REQUIRE(begun);
+    REQUIRE(begun->watched_subjects.size() == 1);
+    CHECK(begun->watched_subjects.front() ==
+          noveltea::core::compiled::InteractionSubject{
+              noveltea::core::compiled::InteractableInteractionSubject{
+                  noveltea::core::InteractableId::create("key").value()}});
+
+    values.revision = 2;
+    values.view.command_builder.active = true;
+    values.view.command_builder.occurrence =
+        noveltea::core::CommandBuilderOccurrenceId::from_number(17);
+    REQUIRE(gateway.apply(values));
+
+    REQUIRE(luaL_dostring(state, "assert(Game.ui.set_command_builder_watch({"
+                                 "  { kind = 'interactable', id = 'key' },"
+                                 "  { kind = 'feature', id = 'room:room#door' }"
+                                 "}))") == LUA_OK);
+    REQUIRE(sink.last_gameplay_input);
+    const auto* watched =
+        std::get_if<noveltea::core::UpdateCommandBuilderWatchInput>(&*sink.last_gameplay_input);
+    REQUIRE(watched);
+    CHECK(watched->occurrence == noveltea::core::CommandBuilderOccurrenceId::from_number(17));
+    REQUIRE(watched->watched_subjects.size() == 2);
+    CHECK(watched->watched_subjects[1] ==
+          noveltea::core::compiled::InteractionSubject{
+              noveltea::core::compiled::FeatureInteractionSubject{noveltea::core::RoomFeatureRef{
+                  noveltea::core::RoomId::create("room").value(),
+                  noveltea::core::FeatureId::create("door").value()}}});
+
+    REQUIRE(luaL_dostring(
+                state, "assert(Game.ui.submit_command_builder('combine', {"
+                       "  { slotId = 'first', subject = { kind = 'interactable', id = 'key' } },"
+                       "  { slotId = 'second', subject = { kind = 'item-stack', id = 'stack-1' } }"
+                       "}))") == LUA_OK);
+    REQUIRE(sink.last_gameplay_input);
+    const auto* submitted =
+        std::get_if<noveltea::core::SubmitCommandBuilderInput>(&*sink.last_gameplay_input);
+    REQUIRE(submitted);
+    CHECK(submitted->occurrence == noveltea::core::CommandBuilderOccurrenceId::from_number(17));
+    CHECK(submitted->verb == noveltea::core::VerbId::create("combine").value());
+    REQUIRE(submitted->bindings.size() == 2);
+    CHECK(submitted->bindings[1].slot_id == noveltea::core::VerbSlotId::create("second").value());
+    CHECK(submitted->bindings[1].subject ==
+          noveltea::core::compiled::InteractionSubject{
+              noveltea::core::compiled::ItemStackInteractionSubject{
+                  noveltea::core::ItemStackId::create("stack-1").value()}});
+
+    const auto before_invalid = sink.gameplay_inputs;
+    REQUIRE(
+        luaL_dostring(
+            state,
+            "assert(not Game.ui.set_command_builder_watch({{ kind = 'feature', id = 'door' }}))") ==
+        LUA_OK);
+    CHECK(sink.gameplay_inputs == before_invalid);
+    REQUIRE_FALSE(diagnostics.empty());
+    CHECK(diagnostics.back().code == "runtime_ui.invalid_command_builder_subject");
+
+    gateway.set_lua_state(nullptr);
+    lua_close(state);
+}
+
 TEST_CASE("RuntimeUiActionGateway rejects stale hidden and disabled typed gameplay actions "
           "independent of "
           "DOM markup")

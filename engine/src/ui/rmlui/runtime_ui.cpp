@@ -236,6 +236,7 @@ mount_persistable_value(const sol::object& object, const core::LayoutStateShape&
     return core::persistable_value_matches(shape, result) ? finish(std::move(result))
                                                           : finish(std::nullopt);
 }
+using ui::rmlui::kRuntimeCommandBuilderDocumentId;
 using ui::rmlui::kRuntimeGameDocumentId;
 using ui::rmlui::kRuntimeLoadMenuDocumentId;
 using ui::rmlui::kRuntimeModalDocumentId;
@@ -323,6 +324,8 @@ std::string_view builtin_document_id(core::compiled::SystemLayoutRole role) noex
         return kRuntimeTextLogDocumentId;
     case core::compiled::SystemLayoutRole::Modal:
         return kRuntimeModalDocumentId;
+    case core::compiled::SystemLayoutRole::CommandBuilder:
+        return kRuntimeCommandBuilderDocumentId;
     case core::compiled::SystemLayoutRole::DebugOverlay:
         return {};
     }

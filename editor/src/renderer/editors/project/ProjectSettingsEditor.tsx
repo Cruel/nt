@@ -401,6 +401,7 @@ const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
   'text-log': 'Text log',
   modal: 'Modal dialog',
   'debug-overlay': 'Debug overlay',
+  'command-builder': 'Command builder',
 };
 
 export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {

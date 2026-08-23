@@ -233,7 +233,8 @@ enum class SystemLayoutRole : std::uint8_t {
     Modal,
     DebugOverlay,
     SaveMenu,
-    TextLog
+    TextLog,
+    CommandBuilder
 };
 struct SystemLayout {
     SystemLayoutRole role;

@@ -79,6 +79,7 @@ Runtime defaults use:
 ```ts
 settings.ui.systemLayouts.title
 settings.ui.systemLayouts.game-hud
+settings.ui.systemLayouts.command-builder
 settings.ui.systemLayouts.pause-menu
 settings.ui.systemLayouts.load-menu
 settings.ui.systemLayouts.settings-menu
@@ -151,8 +152,9 @@ built-in title/menu/HUD documents compatible with project-authored replacements.
 
 ```ts
 settings.ui.systemLayouts.title = null       // built-in title layout
-settings.ui.systemLayouts.game-hud = null    // built-in gameplay HUD layout
-settings.ui.systemLayouts.pause-menu = null  // built-in pause menu layout
+settings.ui.systemLayouts.game-hud = null         // built-in gameplay HUD layout
+settings.ui.systemLayouts.command-builder = null  // built-in Command Builder layout
+settings.ui.systemLayouts.pause-menu = null       // built-in pause menu layout
 settings.text.defaultFont = null             // built-in default font
 ```
 

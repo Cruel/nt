@@ -4,6 +4,7 @@
 
 #include "noveltea/core/feature_state.hpp"
 #include "noveltea/core/flow.hpp"
+#include "noveltea/core/session_operation_id.hpp"
 
 #include <optional>
 #include <string>
@@ -189,6 +190,27 @@ struct MapView {
     std::vector<MapConnectionView> connections;
 };
 
+struct CommandBuilderWatchedReferenceView {
+    compiled::InteractionSubject subject;
+    bool live = false;
+    bool available = false;
+    bool enabled = false;
+    bool visible = false;
+    std::optional<RoomId> effective_room;
+    std::vector<TraitId> traits;
+    std::vector<VerbOfferView> offers;
+    bool operator==(const CommandBuilderWatchedReferenceView&) const = default;
+};
+
+struct CommandBuilderView {
+    bool active = false;
+    std::optional<CommandBuilderOccurrenceId> occurrence;
+    std::uint64_t capture_revision = 0;
+    std::optional<compiled::InteractionSubject> captured_subject;
+    std::vector<CommandBuilderWatchedReferenceView> watched;
+    bool operator==(const CommandBuilderView&) const = default;
+};
+
 struct TypedRuntimeUIViewState {
     std::string mode;
     // Authored/session source reported by Game.paused() and persisted by the runtime policy.
@@ -205,6 +227,7 @@ struct TypedRuntimeUIViewState {
     std::vector<compiled::InteractionSubject> selected_subjects;
     std::vector<VerbOfferView> verb_offers;
     bool verb_menu_open = false;
+    CommandBuilderView command_builder;
     bool can_continue = false;
 };
 

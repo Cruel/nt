@@ -201,6 +201,43 @@ describe('recorded test draft conversion', () => {
     });
   });
 
+  it('does not persist transient Command Builder Draft gestures as recorded gameplay', () => {
+    const result = recordedTestDraftToTestData({
+      actions: [
+        {
+          id: 'builder-begin',
+          kind: 'begin-command-builder',
+          label: 'Begin Command Builder',
+          input: { type: 'begin-command-builder' },
+        },
+        {
+          id: 'builder-capture',
+          kind: 'command-builder-subject-press',
+          label: 'Capture subject',
+          input: { type: 'command-builder-subject-press' },
+        },
+        {
+          id: 'interaction-1',
+          kind: 'run-interaction',
+          label: 'Use key',
+          input: {
+            type: 'run-interaction',
+            verbId: 'use',
+            bindings: [{ slotId: 'target', subject: { kind: 'interactable', id: 'key' } }],
+          },
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.skippedActionCount).toBe(2);
+    expect(result.diagnostics).toEqual([
+      "Skipped unsupported recorded input 'begin-command-builder'.",
+      "Skipped unsupported recorded input 'command-builder-subject-press'.",
+    ]);
+    expect(result.data.steps.map((step) => step.input)).toEqual(['tick', 'run-interaction']);
+  });
+
   it('normalizes runtime action ids into valid authoring step ids', () => {
     const result = recordedTestDraftToTestData({
       actions: [

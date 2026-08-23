@@ -136,6 +136,14 @@ TEST_CASE("system Layout policies derive shell pause, input, and clock behavior"
     CHECK(log.input == core::LayoutInputMode::BlockGameplay);
     CHECK(log.gameplay_pause == core::GameplayPausePolicy::Continue);
 
+    const auto builder =
+        runtime_system_layout_policy(core::compiled::SystemLayoutRole::CommandBuilder);
+    CHECK(builder.plane == core::PresentationPlane::GameUi);
+    CHECK(builder.clock == core::LayoutClockDomain::Gameplay);
+    CHECK(builder.input == core::LayoutInputMode::Normal);
+    CHECK(builder.gameplay_pause == core::GameplayPausePolicy::Continue);
+    CHECK(builder.escape_dismissal == core::EscapeDismissalPolicy::Ignore);
+
     const auto debug = runtime_system_layout_policy(core::compiled::SystemLayoutRole::DebugOverlay);
     CHECK(debug.plane == core::PresentationPlane::Debug);
     CHECK(debug.gameplay_pause == core::GameplayPausePolicy::Continue);
@@ -148,11 +156,16 @@ TEST_CASE("system Layout workflow supports nested pause settings confirmation an
     REQUIRE(layouts.initialize(true));
     CHECK(layouts.current_screen() == core::RuntimeShellScreen::Title);
     CHECK_FALSE(layouts.game_active());
+    const auto* command_builder =
+        mounted_role(host, core::compiled::SystemLayoutRole::CommandBuilder);
+    REQUIRE(command_builder);
+    CHECK(command_builder->policy.visibility == core::LayoutVisibility::Hidden);
 
     REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::StartGameShellCommand{}}));
     CHECK(host.dispatched<core::StartRuntimeInput>());
     CHECK(layouts.current_screen() == core::RuntimeShellScreen::None);
     CHECK(layouts.game_active());
+    CHECK(command_builder->policy.visibility == core::LayoutVisibility::Visible);
 
     REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::OpenPauseShellCommand{}}));
     REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::OpenSettingsShellCommand{}}));
@@ -252,5 +265,5 @@ TEST_CASE("system Layout reset clears shell stack and supports fresh project ini
     REQUIRE(layouts.initialize(true));
     CHECK_FALSE(layouts.game_active());
     CHECK(layouts.current_screen() == core::RuntimeShellScreen::Title);
-    CHECK(host.mounted.size() == mounts_before_reload + 2);
+    CHECK(host.mounted.size() == mounts_before_reload + 3);
 }

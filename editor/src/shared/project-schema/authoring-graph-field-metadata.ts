@@ -156,6 +156,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #80/#81 add the reusable Layout Mount contract at the preserved authoring schema version.
   // Inputs, signals, and recursive State Shapes change the Layout runtime/save contribution and preview.
   [/^\/layouts\/\*\/data\/contract\//, OWNER],
+  // #86 adds the replaceable Command Builder System Layout at the preserved authoring schema
+  // version. Its Layout reference contributes to runtime/UI dependency and preview invalidation.
+  [/^\/settings\/ui\/systemLayouts\/command-builder\//, OWNER],
   // #83 atomically replaces positional Verb arity/operand contracts with named slots, stable
   // binding order, completed-command text, and reusable Subject Selectors at the preserved authoring
   // schema version. These leaves all contribute to the owning Verb or Interaction projection.
@@ -553,7 +556,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
-    settings: 'faa09891',
+    settings: '7c371fa2',
     shaders: '94d3aa6e',
     tests: '9cbe2906',
     traits: 'e06af863',

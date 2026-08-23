@@ -34,6 +34,7 @@ inline constexpr char kRuntimeLoadMenuDocumentId[] = "runtime_load_menu";
 inline constexpr char kRuntimeSettingsMenuDocumentId[] = "runtime_settings_menu";
 inline constexpr char kRuntimeTextLogDocumentId[] = "runtime_text_log";
 inline constexpr char kRuntimeModalDocumentId[] = "runtime_modal";
+inline constexpr char kRuntimeCommandBuilderDocumentId[] = "runtime_command_builder";
 
 class RmlUiHost;
 

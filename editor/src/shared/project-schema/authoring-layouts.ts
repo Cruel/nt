@@ -37,6 +37,7 @@ export const systemLayoutRoleValues = [
   'text-log',
   'modal',
   'debug-overlay',
+  'command-builder',
 ] as const;
 
 export type LayoutKind = (typeof layoutKindValues)[number];
@@ -325,6 +326,7 @@ export const systemLayoutSettingsSchema = z
     'text-log': layoutRecordRefSchema.nullable().optional(),
     modal: layoutRecordRefSchema.nullable().optional(),
     'debug-overlay': layoutRecordRefSchema.nullable().optional(),
+    'command-builder': layoutRecordRefSchema.nullable().optional(),
   })
   .strict()
   .default({});

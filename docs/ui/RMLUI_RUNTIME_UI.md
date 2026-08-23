@@ -168,8 +168,19 @@ pointer. Built-in menu documents hide a scale control when its project policy di
 Project-authored system Layouts are resolved and mounted through the same policy path.
 
 System role owns lifecycle, mounting, input/pause policy, and shell routing, not a separate DOM
-population contract. Built-in and project-authored documents in any RuntimeUI context can read the
-same `noveltea` projection when they explicitly opt in. Copying a built-in RML/RCSS document into a
+population contract. The gameplay-owned `command-builder` role is the exception with a dedicated
+semantic lifecycle: runtime publishes an occurrence token, captured subject revisions, and exact
+watched-reference snapshots while the default RuntimeUI adapter retains only its transient partial
+Draft. Subject activation during an occurrence is captured instead of executing ordinary exploration;
+the default Draft can remove a bound slot for recapture and immediately resynchronizes its exact watch
+set. Runtime rejects watch/submission subjects that were not semantically captured for the active
+occurrence. Final confirmation sends the complete named bindings back through the occurrence-bound
+runtime input, which revalidates source authority and the live command before Interaction Flow begins.
+Project-authored replacements use the same publication and occurrence lifecycle, retain their own
+Draft state, and use the generic `Game.ui.begin_command_builder`, `set_command_builder_watch`, and
+complete `submit_command_builder` transport to report exact references and submit named bindings.
+Built-in and project-authored documents in any RuntimeUI context can read the same `noveltea`
+projection when they explicitly opt in. Copying a built-in RML/RCSS document into a
 project Layout therefore preserves its declarative behavior as long as the copied model bindings and
 typed callback expressions are retained; changing or removing an authored ID has no native
 population consequence.
