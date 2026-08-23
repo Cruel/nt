@@ -1193,6 +1193,25 @@ private:
                 error("compiled_project.invalid_verb_binding_order",
                       "Verb bindingOrder must contain every slot exactly once.",
                       path + "/bindingOrder");
+            std::unordered_set<VerbOfferId> offer_ids;
+            for (std::size_t offer_index = 0; offer_index < value.offers.size(); ++offer_index) {
+                const auto& offer = value.offers[offer_index];
+                const auto offer_path = path + "/offers/" + std::to_string(offer_index);
+                if (!offer_ids.insert(offer.id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Verb Offer ID.",
+                          offer_path + "/id");
+                if (!slot_ids.contains(offer.slot_id))
+                    error("compiled_project.invalid_verb_offer_slot",
+                          "Verb Offer starting slot must name a Verb slot.",
+                          offer_path + "/slotId");
+                for (std::size_t selector_index = 0; selector_index < offer.selectors.size();
+                     ++selector_index)
+                    validate_subject_selector(offer.selectors[selector_index],
+                                              offer_path + "/selectors/" +
+                                                  std::to_string(selector_index));
+                if (offer.condition)
+                    validate_condition(*offer.condition, offer_path + "/condition");
+            }
             validate_condition(value.availability, path + "/availability");
             validate_program(value.default_program, path + "/defaultProgram");
         }
@@ -1229,7 +1248,13 @@ private:
                         error("compiled_project.interaction_slot_mismatch",
                               "Interaction rule must define every named Verb slot exactly once.",
                               rule_path + "/slots");
+                    if (rule.offer && !rule_slots.contains(rule.offer->slot_id))
+                        error("compiled_project.invalid_interaction_offer_slot",
+                              "Rule-derived Offer starting slot must name a rule slot.",
+                              rule_path + "/offer/slotId");
                 }
+                if (rule.offer && rule.offer->condition)
+                    validate_condition(*rule.offer->condition, rule_path + "/offer/condition");
                 std::visit(
                     [&](const auto& context) {
                         using T = std::decay_t<decltype(context)>;

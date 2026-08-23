@@ -107,6 +107,8 @@ public:
     [[nodiscard]] bool select_dialogue_option(int option_index);
     [[nodiscard]] bool navigate(const core::RoomExitId& exit);
     [[nodiscard]] bool select_subjects(std::vector<core::compiled::InteractionSubject> subjects);
+    [[nodiscard]] bool primary_activate(core::compiled::InteractionSubject subject);
+    [[nodiscard]] bool open_verb_menu(core::compiled::InteractionSubject subject);
     [[nodiscard]] bool clear_subject_selection();
     [[nodiscard]] bool run_interaction(const std::string& verb_id,
                                        std::vector<core::InteractionSubjectBinding> bindings);

@@ -971,6 +971,18 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         gameplay_ui = m_current_publication->gameplay_ui;
     } else {
         gameplay_ui.selected_subjects = m_selection;
+        gameplay_ui.verb_menu_open = m_verb_menu_open;
+        gameplay_ui.verb_offers.clear();
+        if (m_selection.size() == 1) {
+            auto offers = m_kernel->verb_offers(m_selection.front(), m_runtime_locale);
+            if (!offers) {
+                core::append_diagnostics(result.diagnostics,
+                                         as_diagnostics(std::move(offers).error()));
+                result.disposition = runtime::RuntimeInputDisposition::Failed;
+                return;
+            }
+            gameplay_ui.verb_offers = std::move(*offers.value_if());
+        }
         gameplay_ui.effective_gameplay_pause = m_effective_gameplay_pause;
         auto& pause_sources = gameplay_ui.effective_gameplay_pause.active_sources;
         std::erase_if(pause_sources, [](const core::GameplayPauseSource& source) {
@@ -1391,15 +1403,64 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     else
                         result.diagnostics = run_kernel(result.events, result.observations);
                 } else if constexpr (std::is_same_v<T, core::SelectInteractionSubjectsInput>) {
-                    if (m_selection != value.subjects) {
+                    if (m_selection != value.subjects || m_verb_menu_open) {
                         m_selection = value.subjects;
+                        m_verb_menu_open = false;
                         m_transaction_impacts.record(
                             runtime::MutationImpact::GameplayUiInvalidated);
                     }
                 } else if constexpr (std::is_same_v<T,
                                                     core::ClearInteractionSubjectSelectionInput>) {
-                    if (!m_selection.empty()) {
+                    if (!m_selection.empty() || m_verb_menu_open) {
                         m_selection.clear();
+                        m_verb_menu_open = false;
+                        m_transaction_impacts.record(
+                            runtime::MutationImpact::GameplayUiInvalidated);
+                    }
+                } else if constexpr (std::is_same_v<T, core::OpenVerbMenuInput>) {
+                    auto offers = m_kernel->verb_offers(value.subject, m_runtime_locale);
+                    if (!offers) {
+                        result.diagnostics = as_diagnostics(std::move(offers).error());
+                    } else {
+                        m_selection = {value.subject};
+                        m_verb_menu_open = true;
+                        m_transaction_impacts.record(
+                            runtime::MutationImpact::GameplayUiInvalidated);
+                    }
+                } else if constexpr (std::is_same_v<T, core::PrimaryActivateInput>) {
+                    auto offers = m_kernel->verb_offers(value.subject, m_runtime_locale);
+                    if (!offers) {
+                        result.diagnostics = as_diagnostics(std::move(offers).error());
+                    } else {
+                        m_selection = {value.subject};
+                        const auto& values = *offers.value_if();
+                        std::vector<const core::VerbOfferView*> primary;
+                        for (const auto& offer : values)
+                            if (offer.primary)
+                                primary.push_back(&offer);
+                        if (primary.size() == 1 && primary.front()->binding_order.size() == 1 &&
+                            primary.front()->slot == primary.front()->binding_order.front()) {
+                            auto invoked = m_kernel->interact(
+                                primary.front()->verb,
+                                {{primary.front()->slot, value.subject}});
+                            if (!invoked)
+                                result.diagnostics = as_diagnostics(std::move(invoked).error());
+                            else {
+                                m_verb_menu_open = false;
+                                result.diagnostics = run_kernel(result.events, result.observations);
+                            }
+                        } else {
+                            m_verb_menu_open = true;
+                            if (primary.size() > 1) {
+                                std::vector<core::VerbId> primary_verbs;
+                                primary_verbs.reserve(primary.size());
+                                for (const auto* offer : primary)
+                                    primary_verbs.push_back(offer->verb);
+                                result.events.emplace_back(runtime::ObservationEvent{
+                                    core::RuntimeObservation{core::VerbOfferAmbiguityObservation{
+                                        value.subject, std::move(primary_verbs)}}});
+                            }
+                        }
                         m_transaction_impacts.record(
                             runtime::MutationImpact::GameplayUiInvalidated);
                     }
@@ -1415,8 +1476,10 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     auto invoked = m_kernel->interact(value.verb, std::move(bindings));
                     if (!invoked)
                         result.diagnostics = as_diagnostics(std::move(invoked).error());
-                    else
+                    else {
+                        m_verb_menu_open = false;
                         result.diagnostics = run_kernel(result.events, result.observations);
+                    }
                 } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
                     auto changed =
                         value.value
@@ -1519,6 +1582,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
         });
     if (stale_selection != m_selection.end()) {
         m_selection.erase(stale_selection, m_selection.end());
+        m_verb_menu_open = false;
         m_transaction_impacts.record(runtime::MutationImpact::GameplayUiInvalidated);
     }
     attach_runtime_context(result.diagnostics, *m_kernel);

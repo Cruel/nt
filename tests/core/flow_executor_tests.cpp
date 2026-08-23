@@ -121,14 +121,15 @@ CompiledProject make_project(compiled::Entrypoint entrypoint)
         .completed_command_text = text("Look"),
         .slots = {},
         .binding_order = {},
+        .offers = {},
         .availability = Always{},
         .default_program = std::move(default_program),
-        .quick_action = true,
     };
     compiled::InteractionRule rule{id<InteractionRuleId>("look-rule"),
                                    id<VerbId>("look"),
                                    compiled::AnyInteractionContext{},
                                    {},
+                                   std::nullopt,
                                    std::move(rule_program)};
     compiled::InteractionDefinition interaction{{id<InteractionId>("room-actions")},
                                                 {std::move(rule)}};

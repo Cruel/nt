@@ -58,6 +58,14 @@ struct SelectInteractionSubjectsInput {
 struct ClearInteractionSubjectSelectionInput {
     auto operator<=>(const ClearInteractionSubjectSelectionInput&) const = default;
 };
+struct PrimaryActivateInput {
+    compiled::InteractionSubject subject;
+    bool operator==(const PrimaryActivateInput&) const = default;
+};
+struct OpenVerbMenuInput {
+    compiled::InteractionSubject subject;
+    bool operator==(const OpenVerbMenuInput&) const = default;
+};
 struct InvokeInteractionInput {
     VerbId verb;
     std::vector<InteractionSubjectBinding> bindings;
@@ -152,7 +160,8 @@ using RuntimeInputMessage =
     std::variant<StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput,
                  ContinueInput, SelectSceneChoiceInput, SelectDialogueChoiceInput,
                  NavigateRoomInput, SelectInteractionSubjectsInput,
-                 ClearInteractionSubjectSelectionInput, InvokeInteractionInput,
+                 ClearInteractionSubjectSelectionInput, PrimaryActivateInput, OpenVerbMenuInput,
+                 InvokeInteractionInput,
                  SetVariableDebugInput, SetPropertyDebugInput, LayoutSignalInput,
                  CommitLayoutStateInput, ClearLayoutStateInput, SaveRuntimeInput, LoadRuntimeInput,
                  BeginPlaybackInput, EndPlaybackInput, ClearPlaybackInput, UndoPlaybackStepInput,
@@ -237,6 +246,11 @@ struct RoomPresentationDiagnosticObservation {
     Diagnostics diagnostics;
     bool operator==(const RoomPresentationDiagnosticObservation&) const = default;
 };
+struct VerbOfferAmbiguityObservation {
+    compiled::InteractionSubject subject;
+    std::vector<VerbId> primary_verbs;
+    bool operator==(const VerbOfferAmbiguityObservation&) const = default;
+};
 struct LayoutSignalObservation {
     PresentationOwner owner;
     MountedLayoutPresentationKey key;
@@ -247,7 +261,7 @@ struct LayoutSignalObservation {
 };
 using RuntimeObservation =
     std::variant<PlaybackObservation, DebuggerObservation, RuntimeStateObservation,
-                 RoomPresentationDiagnosticObservation, LayoutSignalObservation,
-                 CheckpointRuntimeObservation>;
+                 RoomPresentationDiagnosticObservation, VerbOfferAmbiguityObservation,
+                 LayoutSignalObservation, CheckpointRuntimeObservation>;
 
 } // namespace noveltea::core

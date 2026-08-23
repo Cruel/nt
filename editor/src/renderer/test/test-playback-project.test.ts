@@ -41,6 +41,18 @@ describe('authoring test playback project adapter', () => {
           ],
         },
       },
+      {
+        ...defaultTestStep('primary-activate'),
+        id: 'primary',
+        label: 'Primary',
+        subjectAction: { subject: testInteractableSubject('lamp') },
+      },
+      {
+        ...defaultTestStep('open-verb-menu'),
+        id: 'menu',
+        label: 'Menu',
+        subjectAction: { subject: testFeatureSubject(roomFeatureRef('foyer', 'door')) },
+      },
       { ...defaultTestStep('clear-subject-selection'), id: 'clear', label: 'Clear' },
       {
         ...defaultTestStep('run-interaction'),
@@ -83,9 +95,20 @@ describe('authoring test playback project adapter', () => {
             ],
           },
         },
-        { index: 3, input: { type: 'clear-selection' } },
+        {
+          index: 3,
+          input: { type: 'primary-activate', subject: { kind: 'interactable', id: 'lamp' } },
+        },
         {
           index: 4,
+          input: {
+            type: 'open-verb-menu',
+            subject: { kind: 'feature', ownerKind: 'room', ownerId: 'foyer', featureId: 'door' },
+          },
+        },
+        { index: 5, input: { type: 'clear-selection' } },
+        {
+          index: 6,
           input: {
             type: 'invoke-interaction',
             verb: 'look',
@@ -95,7 +118,7 @@ describe('authoring test playback project adapter', () => {
             ],
           },
         },
-        { index: 5, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
+        { index: 7, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
       ],
     });
   });

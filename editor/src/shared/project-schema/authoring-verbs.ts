@@ -44,6 +44,15 @@ export const verbSlotSchema = strict({
   selectors: z.array(subjectSelectorSchema).min(1),
 });
 
+export const verbOfferSchema = strict({
+  id: entityIdSchema,
+  slotId: entityIdSchema,
+  selectors: z.array(subjectSelectorSchema).min(1),
+  condition: conditionSchema.optional(),
+  rank: z.number().int(),
+  primary: z.boolean(),
+});
+
 export function validateVerbNamedTemplate(
   text: string,
   slotIds: ReadonlySet<string>,
@@ -75,7 +84,7 @@ export const verbDataSchema = strict({
   bindingOrder: z.array(entityIdSchema),
   actionText: textContentSchema,
   completedCommandText: textContentSchema,
-  quickAction: z.boolean(),
+  offers: z.array(verbOfferSchema),
   availability: conditionSchema,
   defaultProgram: interactionProgramSchema,
 }).superRefine((value, context) => {
@@ -93,6 +102,21 @@ export const verbDataSchema = strict({
       message: 'Binding order must contain every Verb slot exactly once.',
     });
   const slotIds = new Set(ids);
+  const offerIds = value.offers.map((offer) => offer.id);
+  if (new Set(offerIds).size !== offerIds.length)
+    context.addIssue({
+      code: 'custom',
+      path: ['offers'],
+      message: 'Verb Offer IDs must be unique.',
+    });
+  value.offers.forEach((offer, index) => {
+    if (!slotIds.has(offer.slotId))
+      context.addIssue({
+        code: 'custom',
+        path: ['offers', index, 'slotId'],
+        message: `Verb Offer slot '${offer.slotId}' must name a Verb slot.`,
+      });
+  });
   if (value.completedCommandText.source.kind === 'inline') {
     const message = validateCompletedCommandTemplate(
       value.completedCommandText.source.text,
@@ -124,6 +148,7 @@ export const verbDataSchema = strict({
 
 export type SubjectSelector = z.infer<typeof subjectSelectorSchema>;
 export type VerbSlot = z.infer<typeof verbSlotSchema>;
+export type VerbOffer = z.infer<typeof verbOfferSchema>;
 export type VerbData = z.infer<typeof verbDataSchema>;
 
 export function parseVerbData(value: unknown): VerbData | null {
@@ -138,7 +163,7 @@ export function defaultVerbData(label = 'Verb'): VerbData {
     bindingOrder: [],
     actionText: { source: { kind: 'inline', text: label }, markup: 'plain' },
     completedCommandText: { source: { kind: 'inline', text: label }, markup: 'plain' },
-    quickAction: false,
+    offers: [],
     availability: { kind: 'always' },
     defaultProgram: defaultInteractionProgram(),
   };

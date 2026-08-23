@@ -96,6 +96,7 @@ interface RecordedRuntimeAction {
     direction?: number;
     exitId?: string;
     subjects?: PreviewInteractionSubject[];
+    subject?: PreviewInteractionSubject;
     verbId?: string;
     bindings?: Array<{ slotId: string; subject: PreviewInteractionSubject }>;
     documentId?: string;
@@ -331,6 +332,10 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
       return `Navigate ${action.input.exitId ?? action.input.direction ?? '—'}`;
     case 'select-subjects':
       return `Select ${action.input.subjects?.map(subjectText).join(', ') || 'subjects'}`;
+    case 'primary-activate':
+      return `Primary Activate ${action.input.subject ? subjectText(action.input.subject) : 'subject'}`;
+    case 'open-verb-menu':
+      return `Open Verb Menu ${action.input.subject ? subjectText(action.input.subject) : 'subject'}`;
     case 'clear-subject-selection':
       return 'Clear subject selection';
     case 'run-interaction':
@@ -452,6 +457,14 @@ function executeRecordedAction(
       return context.controller.navigateRuntime(action.input.exitId ?? '');
     case 'select-subjects':
       return context.controller.selectRuntimeSubjects(action.input.subjects ?? []);
+    case 'primary-activate':
+      return action.input.subject
+        ? context.controller.primaryActivateRuntimeSubject(action.input.subject)
+        : Promise.resolve();
+    case 'open-verb-menu':
+      return action.input.subject
+        ? context.controller.openRuntimeVerbMenu(action.input.subject)
+        : Promise.resolve();
     case 'clear-subject-selection':
       return context.controller.clearRuntimeSubjectSelection();
     case 'run-interaction':
@@ -715,47 +728,76 @@ function InputAvailabilityPanel({
           {action.bindingOrder.length})
         </Button>
       ))}
-      {semanticTargets.map((target, index) => (
-        <Button
-          key={
-            target.kind === 'subject'
-              ? `subject:${subjectText(target.subject)}:${index}`
-              : `exit:${target.exitId}:${index}`
-          }
-          size="sm"
-          variant="outline"
-          className="w-full justify-start"
-          disabled={!controller}
-          onClick={() => {
-            if (!controller) return;
-            if (target.kind === 'subject') {
+      {semanticTargets.map((target, index) =>
+        target.kind === 'subject' ? (
+          <div className="flex gap-2" key={`subject:${subjectText(target.subject)}:${index}`}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1 justify-start"
+              disabled={!controller}
+              onClick={() => {
+                if (!controller) return;
+                onCommand(
+                  () => controller.primaryActivateRuntimeSubject(target.subject),
+                  `Primary Activate ${subjectText(target.subject)}`,
+                  {
+                    recordedAction: createRecordedAction('primary-activate', target.label, {
+                      type: 'primary-activate',
+                      subject: target.subject,
+                    }),
+                  },
+                );
+              }}
+            >
+              Activate {target.label}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!controller}
+              onClick={() => {
+                if (!controller) return;
+                onCommand(
+                  () => controller.openRuntimeVerbMenu(target.subject),
+                  `Open Verb Menu ${subjectText(target.subject)}`,
+                  {
+                    recordedAction: createRecordedAction('open-verb-menu', target.label, {
+                      type: 'open-verb-menu',
+                      subject: target.subject,
+                    }),
+                  },
+                );
+              }}
+            >
+              Menu
+            </Button>
+          </div>
+        ) : (
+          <Button
+            key={`exit:${target.exitId}:${index}`}
+            size="sm"
+            variant="outline"
+            className="w-full justify-start"
+            disabled={!controller}
+            onClick={() => {
+              if (!controller) return;
               onCommand(
-                () => controller.selectRuntimeSubjects([target.subject]),
-                `Selected ${subjectText(target.subject)}`,
+                () => controller.navigateRuntime(target.exitId),
+                `Navigate ${target.exitId} sent`,
                 {
-                  recordedAction: createRecordedAction('select-subjects', target.label, {
-                    type: 'select-subjects',
-                    subjects: [target.subject],
+                  recordedAction: createRecordedAction('navigate', target.label, {
+                    type: 'navigate',
+                    exitId: target.exitId,
                   }),
                 },
               );
-              return;
-            }
-            onCommand(
-              () => controller.navigateRuntime(target.exitId),
-              `Navigate ${target.exitId} sent`,
-              {
-                recordedAction: createRecordedAction('navigate', target.label, {
-                  type: 'navigate',
-                  exitId: target.exitId,
-                }),
-              },
-            );
-          }}
-        >
-          {target.kind === 'subject' ? `Select ${target.label}` : `Navigate ${target.label}`}
-        </Button>
-      ))}
+            }}
+          >
+            Navigate {target.label}
+          </Button>
+        ),
+      )}
     </Panel>
   );
 }

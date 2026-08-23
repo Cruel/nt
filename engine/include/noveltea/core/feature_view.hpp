@@ -76,8 +76,17 @@ struct InteractionControlView {
     VerbId verb;
     std::string label;
     std::vector<VerbSlotId> binding_order;
-    bool quick_action = false;
     bool enabled = false;
+};
+
+struct VerbOfferView {
+    VerbId verb;
+    VerbSlotId slot;
+    std::string label;
+    std::vector<VerbSlotId> binding_order;
+    std::int64_t rank = 0;
+    bool primary = false;
+    bool operator==(const VerbOfferView&) const = default;
 };
 
 struct ItemStackView {
@@ -194,6 +203,8 @@ struct TypedRuntimeUIViewState {
     TextLogView text_log;
     std::vector<MapView> maps;
     std::vector<compiled::InteractionSubject> selected_subjects;
+    std::vector<VerbOfferView> verb_offers;
+    bool verb_menu_open = false;
     bool can_continue = false;
 };
 

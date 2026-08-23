@@ -54,6 +54,7 @@ NOVELTEA_DOMAIN_ID(RoomEnvironmentId);
 NOVELTEA_DOMAIN_ID(SceneBranchId);
 NOVELTEA_DOMAIN_ID(SceneChoiceOptionId);
 NOVELTEA_DOMAIN_ID(InteractionRuleId);
+NOVELTEA_DOMAIN_ID(VerbOfferId);
 NOVELTEA_DOMAIN_ID(InteractionInstructionId);
 NOVELTEA_DOMAIN_ID(MapLocationId);
 NOVELTEA_DOMAIN_ID(MapConnectionId);

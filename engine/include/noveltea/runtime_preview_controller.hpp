@@ -44,6 +44,8 @@ public:
     bool select_dialogue_option(int option_index);
     bool navigate(std::string exit_id);
     bool select_subjects(std::vector<core::compiled::InteractionSubject> subjects);
+    bool primary_activate(core::compiled::InteractionSubject subject);
+    bool open_verb_menu(core::compiled::InteractionSubject subject);
     bool clear_subject_selection();
     bool run_interaction(const std::string& verb_id,
                          std::vector<core::InteractionSubjectBinding> bindings);

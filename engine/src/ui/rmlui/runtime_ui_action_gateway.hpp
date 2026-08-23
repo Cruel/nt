@@ -45,6 +45,8 @@ public:
     [[nodiscard]] bool action_choose(std::string kind, std::string id);
     [[nodiscard]] bool action_navigate_room(std::string id);
     [[nodiscard]] bool action_toggle_subject(std::string kind, std::string id);
+    [[nodiscard]] bool action_primary_activate(std::string kind, std::string id);
+    [[nodiscard]] bool action_open_verb_menu(std::string kind, std::string id);
     [[nodiscard]] bool action_clear_selection();
     [[nodiscard]] bool action_invoke_interaction(std::string id);
     [[nodiscard]] bool action_save_slot(std::uint64_t number);
@@ -63,6 +65,8 @@ private:
     void remove_lua_api() noexcept;
     [[nodiscard]] bool invalid(std::string code, std::string message);
     [[nodiscard]] bool require_view();
+    [[nodiscard]] std::optional<core::compiled::InteractionSubject>
+    resolve_subject(std::string kind, std::string id);
     [[nodiscard]] const ShellSlotState* shell_slot(core::TypedSaveSlotId slot) const noexcept;
 
     core::Diagnostics& m_diagnostics;

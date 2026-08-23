@@ -284,16 +284,16 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
 {
     if (!decoder.object(value, pointer,
                         {"actionText", "availability", "bindingOrder", "completedCommandText",
-                         "defaultProgram", "id", "quickAction", "slots"}))
+                         "defaultProgram", "id", "offers", "slots"}))
         return std::nullopt;
     auto identity = decode_definition_identity<VerbId>(decoder, value, pointer);
     const auto* action_value = decoder.member(value, "actionText", pointer);
     const auto* completed_value = decoder.member(value, "completedCommandText", pointer);
     const auto* slots_value = decoder.member(value, "slots", pointer);
     const auto* binding_order_value = decoder.member(value, "bindingOrder", pointer);
+    const auto* offers_value = decoder.member(value, "offers", pointer);
     const auto* availability_value = decoder.member(value, "availability", pointer);
     const auto* program_value = decoder.member(value, "defaultProgram", pointer);
-    const auto* quick_value = decoder.member(value, "quickAction", pointer);
     auto action = action_value
                       ? decode_text(decoder, *action_value, pointer_child(pointer, "actionText"))
                       : std::nullopt;
@@ -346,8 +346,55 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
                                       return decoder.id<VerbSlotId>(item, item_pointer);
                                   })
                             : std::nullopt;
-    auto quick = quick_value ? decoder.boolean(*quick_value, pointer_child(pointer, "quickAction"))
-                             : std::nullopt;
+    auto offers =
+        offers_value
+            ? decoder.array<VerbOffer>(
+                  *offers_value, pointer_child(pointer, "offers"),
+                  [&](const nlohmann::json& offer,
+                      const std::string& offer_pointer) -> std::optional<VerbOffer> {
+                      if (!decoder.object(offer, offer_pointer,
+                                          {"condition", "id", "primary", "rank", "selectors",
+                                           "slotId"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(offer, "id", offer_pointer);
+                      const auto* slot_value = decoder.member(offer, "slotId", offer_pointer);
+                      const auto* selectors_value = decoder.member(offer, "selectors", offer_pointer);
+                      const auto* rank_value = decoder.member(offer, "rank", offer_pointer);
+                      const auto* primary_value = decoder.member(offer, "primary", offer_pointer);
+                      auto id = id_value ? decoder.id<VerbOfferId>(
+                                               *id_value, pointer_child(offer_pointer, "id"))
+                                         : std::nullopt;
+                      auto slot = slot_value ? decoder.id<VerbSlotId>(
+                                                   *slot_value,
+                                                   pointer_child(offer_pointer, "slotId"))
+                                             : std::nullopt;
+                      auto selectors = selectors_value
+                                           ? decode_subject_selectors(
+                                                 decoder, *selectors_value,
+                                                 pointer_child(offer_pointer, "selectors"))
+                                           : std::nullopt;
+                      auto rank = rank_value ? json_access::get<std::int64_t>(*rank_value)
+                                             : std::nullopt;
+                      if (rank_value && !rank)
+                          decoder.error(k_code_type, "Expected an integer.",
+                                        pointer_child(offer_pointer, "rank"));
+                      auto primary = primary_value
+                                         ? decoder.boolean(*primary_value,
+                                                           pointer_child(offer_pointer, "primary"))
+                                         : std::nullopt;
+                      bool condition_valid = false;
+                      auto condition = decode_optional_condition(decoder, offer, offer_pointer,
+                                                                 condition_valid);
+                      return id && slot && selectors && rank && primary && condition_valid
+                                 ? std::optional<VerbOffer>(VerbOffer{
+                                       std::move(*id), std::move(*slot), std::move(*selectors),
+                                       std::move(condition), *rank, *primary})
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
+    if (offers)
+        decoder.duplicate_ids(*offers, pointer_child(pointer, "offers"),
+                              [](const VerbOffer& offer) -> const VerbOfferId& { return offer.id; });
     auto availability = availability_value
                             ? decode_condition_impl(decoder, *availability_value,
                                                     pointer_child(pointer, "availability"))
@@ -356,13 +403,13 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
                        ? decode_interaction_program(decoder, *program_value,
                                                     pointer_child(pointer, "defaultProgram"))
                        : std::nullopt;
-    if (!identity || !action || !completed || !slots || !binding_order || !availability ||
-        !program || !quick)
+    if (!identity || !action || !completed || !slots || !binding_order || !offers ||
+        !availability || !program)
         return std::nullopt;
     return VerbDefinition{std::move(*identity),      std::move(*action),
                           std::move(*completed),     std::move(*slots),
-                          std::move(*binding_order), std::move(*availability),
-                          std::move(*program),       *quick};
+                          std::move(*binding_order), std::move(*offers),
+                          std::move(*availability),  std::move(*program)};
 }
 
 std::optional<InteractionDefinition>
@@ -379,12 +426,13 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                   [&](const nlohmann::json& rule,
                       const std::string& rule_pointer) -> std::optional<InteractionRule> {
                       if (!decoder.object(rule, rule_pointer,
-                                          {"context", "id", "program", "slots", "verb"}))
+                                          {"context", "id", "offer", "program", "slots", "verb"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(rule, "id", rule_pointer);
                       const auto* verb_value = decoder.member(rule, "verb", rule_pointer);
                       const auto* context_value = decoder.member(rule, "context", rule_pointer);
                       const auto* slots_value = decoder.member(rule, "slots", rule_pointer);
+                      const auto* offer_value = decoder.member(rule, "offer", rule_pointer);
                       const auto* program_value = decoder.member(rule, "program", rule_pointer);
                       auto id = id_value ? decoder.id<InteractionRuleId>(
                                                *id_value, pointer_child(rule_pointer, "id"))
@@ -483,15 +531,53 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                                                    : std::nullopt;
                                     })
                               : std::nullopt;
+                      std::optional<InteractionOffer> offer;
+                      bool offer_valid = offer_value != nullptr;
+                      if (offer_value && !offer_value->is_null()) {
+                          const auto offer_pointer = pointer_child(rule_pointer, "offer");
+                          if (!decoder.object(*offer_value, offer_pointer,
+                                              {"condition", "primary", "rank", "slotId"})) {
+                              offer_valid = false;
+                          } else {
+                              const auto* slot_value =
+                                  decoder.member(*offer_value, "slotId", offer_pointer);
+                              const auto* rank_value =
+                                  decoder.member(*offer_value, "rank", offer_pointer);
+                              const auto* primary_value =
+                                  decoder.member(*offer_value, "primary", offer_pointer);
+                              auto slot = slot_value
+                                              ? decoder.id<VerbSlotId>(
+                                                    *slot_value,
+                                                    pointer_child(offer_pointer, "slotId"))
+                                              : std::nullopt;
+                              auto rank = rank_value ? json_access::get<std::int64_t>(*rank_value)
+                                                     : std::nullopt;
+                              if (rank_value && !rank)
+                                  decoder.error(k_code_type, "Expected an integer.",
+                                                pointer_child(offer_pointer, "rank"));
+                              auto primary = primary_value
+                                                 ? decoder.boolean(
+                                                       *primary_value,
+                                                       pointer_child(offer_pointer, "primary"))
+                                                 : std::nullopt;
+                              bool condition_valid = false;
+                              auto condition = decode_optional_condition(
+                                  decoder, *offer_value, offer_pointer, condition_valid);
+                              offer_valid = slot && rank && primary && condition_valid;
+                              if (offer_valid)
+                                  offer = InteractionOffer{std::move(*slot), std::move(condition),
+                                                           *rank, *primary};
+                          }
+                      }
                       auto program =
                           program_value
                               ? decode_interaction_program(decoder, *program_value,
                                                            pointer_child(rule_pointer, "program"))
                               : std::nullopt;
-                      if (id && verb && context && slots && program)
+                      if (id && verb && context && slots && offer_valid && program)
                           return InteractionRule{std::move(*id), std::move(*verb),
                                                  std::move(*context), std::move(*slots),
-                                                 std::move(*program)};
+                                                 std::move(offer), std::move(*program)};
                       return std::nullopt;
                   })
             : std::nullopt;

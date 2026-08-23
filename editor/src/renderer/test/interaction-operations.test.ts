@@ -22,6 +22,7 @@ describe('interaction operations', () => {
       id: 'look-rule',
       verb: { $ref: { collection: 'verbs', id: 'look' } },
       slots: [],
+      offer: null,
       context: { kind: 'any' },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     });

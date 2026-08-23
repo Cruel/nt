@@ -188,8 +188,19 @@ export interface RuntimeDebugActionSnapshot {
   label: string;
   bindingOrder: string[];
   selectedCount: number;
+  rank?: number;
+  primary?: boolean;
   enabled: boolean;
   reason?: string;
+}
+
+export interface RuntimeDebugVerbOfferSnapshot {
+  verbId: string;
+  slotId: string;
+  label: string;
+  bindingOrder: string[];
+  rank: number;
+  primary: boolean;
 }
 
 export type PreviewInteractionSubject =
@@ -212,6 +223,8 @@ export interface RuntimeDebugAvailableInputsSnapshot {
   dialogueOptions: RuntimeDebugDialogueOptionSnapshot[];
   navigation: RuntimeDebugNavigationSnapshot[];
   actions: RuntimeDebugActionSnapshot[];
+  verbOffers: RuntimeDebugVerbOfferSnapshot[];
+  verbMenuOpen: boolean;
   selectedSubjects: PreviewInteractionSubject[];
   clickableTargets: PreviewClickableTarget[];
 }
@@ -350,6 +363,18 @@ export type EditorToPreviewMessage =
       type: 'runtime-select-subjects';
       requestId: string;
       subjects: PreviewInteractionSubject[];
+    }
+  | {
+      version: 1;
+      type: 'runtime-primary-activate';
+      requestId: string;
+      subject: PreviewInteractionSubject;
+    }
+  | {
+      version: 1;
+      type: 'runtime-open-verb-menu';
+      requestId: string;
+      subject: PreviewInteractionSubject;
     }
   | { version: 1; type: 'runtime-clear-subject-selection'; requestId: string }
   | {
@@ -739,8 +764,27 @@ function isRuntimeDebugActionSnapshot(value: unknown): value is RuntimeDebugActi
     value.bindingOrder.every((slotId) => typeof slotId === 'string' && slotId.length > 0) &&
     typeof value.selectedCount === 'number' &&
     Number.isInteger(value.selectedCount) &&
+    (value.rank === undefined ||
+      (typeof value.rank === 'number' && Number.isInteger(value.rank))) &&
+    (value.primary === undefined || typeof value.primary === 'boolean') &&
     typeof value.enabled === 'boolean' &&
     (value.reason === undefined || typeof value.reason === 'string')
+  );
+}
+
+function isRuntimeDebugVerbOfferSnapshot(value: unknown): value is RuntimeDebugVerbOfferSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.verbId === 'string' &&
+    value.verbId.length > 0 &&
+    typeof value.slotId === 'string' &&
+    value.slotId.length > 0 &&
+    typeof value.label === 'string' &&
+    Array.isArray(value.bindingOrder) &&
+    value.bindingOrder.every((slotId) => typeof slotId === 'string' && slotId.length > 0) &&
+    typeof value.rank === 'number' &&
+    Number.isInteger(value.rank) &&
+    typeof value.primary === 'boolean'
   );
 }
 
@@ -778,6 +822,9 @@ function isRuntimeDebugAvailableInputsSnapshot(
     value.navigation.every(isRuntimeDebugNavigationSnapshot) &&
     Array.isArray(value.actions) &&
     value.actions.every(isRuntimeDebugActionSnapshot) &&
+    Array.isArray(value.verbOffers) &&
+    value.verbOffers.every(isRuntimeDebugVerbOfferSnapshot) &&
+    typeof value.verbMenuOpen === 'boolean' &&
     Array.isArray(value.selectedSubjects) &&
     value.selectedSubjects.every(isPreviewInteractionSubject) &&
     Array.isArray(value.clickableTargets) &&
@@ -1054,6 +1101,9 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return typeof value.exitId === 'string' && value.exitId.length > 0;
     case 'runtime-select-subjects':
       return Array.isArray(value.subjects) && value.subjects.every(isPreviewInteractionSubject);
+    case 'runtime-primary-activate':
+    case 'runtime-open-verb-menu':
+      return isPreviewInteractionSubject(value.subject);
     case 'runtime-run-interaction':
       return (
         typeof value.verbId === 'string' &&

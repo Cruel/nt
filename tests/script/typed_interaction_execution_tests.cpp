@@ -75,7 +75,8 @@ struct RuntimeFixture {
                                 "function hall_description() return 'Hall' end\n"
                                 "function tower_open() return true end\n"
                                 "function key_label() return 'Key' end\n"
-                                "function can_unlock() return true end",
+                                "function can_unlock() return true end\n"
+                                "function offer_false() return false end",
                                 "typed-interaction-setup"));
     }
 };
@@ -357,6 +358,7 @@ TEST_CASE("typed Interaction selector unions cannot overwrite an earlier mismatc
          {{"slotId", "second"},
           {"selectors",
            nlohmann::json::array({{{"kind", "family"}, {"family", "interactable"}}})}}});
+    exact_then_wildcard["offer"] = nullptr;
     exact_then_wildcard["context"] = {{"kind", "any"}};
     exact_then_wildcard["program"] = program(nlohmann::json::array());
     auto generic = exact_then_wildcard;
@@ -443,6 +445,134 @@ TEST_CASE("typed Interaction and Room publication preserve exact live item Stack
     CHECK(selected->rule == id<core::InteractionRuleId>("exact-wallet"));
 }
 
+TEST_CASE("Verb Offers resolve exact rule-derived declarations before broader Verb declarations")
+{
+    auto document = load_document();
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    auto offers = kernel->verb_offers(key, "en");
+    REQUIRE(offers);
+    const auto use = std::find_if(offers.value().begin(), offers.value().end(), [](const auto& offer) {
+        return offer.verb == id<core::VerbId>("use");
+    });
+    REQUIRE(use != offers.value().end());
+    CHECK(use->slot == id<core::VerbSlotId>("target"));
+    CHECK(use->rank == 5);
+    CHECK(use->primary);
+}
+
+TEST_CASE("a false most-specific Verb Offer suppresses the Verb without broader fallback")
+{
+    auto document = load_document();
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    const auto room_feature = std::find_if(rules.begin(), rules.end(), [](const auto& rule) {
+        return rule["id"] == "room-feature";
+    });
+    REQUIRE(room_feature != rules.end());
+    (*room_feature)["offer"]["condition"] =
+        {{"kind", "lua-predicate"}, {"source", "offer_false()"}};
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject door = core::compiled::FeatureInteractionSubject{
+        core::RoomFeatureRef{id<core::RoomId>("start"), id<core::FeatureId>("door")}};
+    auto offers = kernel->verb_offers(door, "en");
+    REQUIRE(offers);
+    CHECK(std::none_of(offers.value().begin(), offers.value().end(), [](const auto& offer) {
+        return offer.verb == id<core::VerbId>("inspect");
+    }));
+}
+
+TEST_CASE("Verb Offer publication orders equal authored ranks by stable Verb ID")
+{
+    auto document = load_document();
+    auto& inspect = definition(document, "verbs", "inspect");
+    inspect["offers"].push_back(
+        {{"id", "inspect-key"},
+         {"slotId", "target"},
+         {"selectors",
+          nlohmann::json::array(
+              {{{"kind", "exact"},
+                {"subject",
+                 {{"kind", "interactable"},
+                  {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}}}})},
+         {"rank", 20},
+         {"primary", false}});
+    definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    const auto use_rule = std::find_if(rules.begin(), rules.end(), [](const auto& rule) {
+        return rule["id"] == "any-context";
+    });
+    REQUIRE(use_rule != rules.end());
+    (*use_rule)["offer"] = nullptr;
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    auto offers = kernel->verb_offers(key, "en");
+    REQUIRE(offers);
+    const auto inspect_offer = std::find_if(offers.value().begin(), offers.value().end(), [](const auto& offer) {
+        return offer.verb == id<core::VerbId>("inspect");
+    });
+    const auto use_offer = std::find_if(offers.value().begin(), offers.value().end(), [](const auto& offer) {
+        return offer.verb == id<core::VerbId>("use");
+    });
+    REQUIRE(inspect_offer != offers.value().end());
+    REQUIRE(use_offer != offers.value().end());
+    CHECK(inspect_offer->rank == use_offer->rank);
+    CHECK(std::distance(offers.value().begin(), inspect_offer) <
+          std::distance(offers.value().begin(), use_offer));
+}
+
+TEST_CASE("direct complete-command submission does not require a discoverable Verb Offer")
+{
+    auto document = load_document();
+    auto& use = definition(document, "verbs", "use");
+    use["availability"] = {{"kind", "always"}};
+    use["offers"] = nlohmann::json::array();
+    auto& rules = definition(document, "interactions", "actions")["rules"];
+    for (auto& rule : rules)
+        if (rule["verb"]["id"] == "use")
+            rule["offer"] = nullptr;
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject key =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    auto offers = kernel->verb_offers(key, "en");
+    REQUIRE(offers);
+    CHECK(std::none_of(offers.value().begin(), offers.value().end(), [](const auto& offer) {
+        return offer.verb == id<core::VerbId>("use");
+    }));
+    REQUIRE(kernel->interact(id<core::VerbId>("use"),
+                             {{id<core::VerbSlotId>("target"), key}}));
+}
+
 TEST_CASE(
     "typed Interaction falls back to the selected Verb default then emits typed undefined fallback")
 {
@@ -480,8 +610,7 @@ TEST_CASE(
     REQUIRE(inventory.value().item_stacks.size() == 1);
     CHECK(inventory.value().item_stacks.front().stack == id<core::ItemStackId>("wallet"));
     CHECK(inventory.value().item_stacks.front().quantity == 25);
-    CHECK(std::any_of(inventory.value().controls.begin(), inventory.value().controls.end(),
-                      [](const auto& control) { return control.quick_action; }));
+    CHECK_FALSE(inventory.value().controls.empty());
     auto room = kernel->room_view("en");
     REQUIRE(room);
     CHECK(room.value().controls.size() == inventory.value().controls.size());

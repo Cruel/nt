@@ -186,6 +186,7 @@ private:
     core::EffectiveGameplayPause m_effective_gameplay_pause;
     std::size_t m_playback_step = 0;
     std::vector<core::compiled::InteractionSubject> m_selection;
+    bool m_verb_menu_open = false;
     std::optional<RoomDescriptionVisit> m_room_description_visit;
     bool m_room_description_visible = false;
     std::optional<PendingPresentationCompletion> m_pending_presentation;

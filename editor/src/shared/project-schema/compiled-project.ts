@@ -548,10 +548,17 @@ const interactionSlotSelectorSchema = strict({
   slotId: id,
   selectors: z.array(compiledSubjectSelectorSchema).min(1),
 });
+const interactionOfferSchema = strict({
+  slotId: id,
+  condition: compiledConditionSchema.optional(),
+  rank: z.number().int(),
+  primary: z.boolean(),
+});
 const interactionRuleSchema = strict({
   context: interactionContextSchema,
   id,
   slots: z.array(interactionSlotSelectorSchema),
+  offer: interactionOfferSchema.nullable(),
   program: interactionProgramSchema,
   verb: verbReferenceSchema,
 });
@@ -565,15 +572,23 @@ const verbSlotSchema = strict({
   prompt: compiledTextSchema,
   selectors: z.array(compiledSubjectSelectorSchema).min(1),
 });
+const verbOfferSchema = strict({
+  id,
+  slotId: id,
+  selectors: z.array(compiledSubjectSelectorSchema).min(1),
+  condition: compiledConditionSchema.optional(),
+  rank: z.number().int(),
+  primary: z.boolean(),
+});
 const verbDefinitionSchema = strict({
   id,
   actionText: compiledTextSchema,
   completedCommandText: compiledTextSchema,
   slots: z.array(verbSlotSchema),
   bindingOrder: z.array(id),
+  offers: z.array(verbOfferSchema),
   availability: compiledConditionSchema,
   defaultProgram: interactionProgramSchema,
-  quickAction: z.boolean(),
 });
 
 const sceneInstructionCommon = { condition: compiledConditionSchema.optional(), id };

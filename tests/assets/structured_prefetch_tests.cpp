@@ -161,7 +161,7 @@ core::LoadedCompiledPackage collector_package()
           {"prompt", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Target"}}}}},
           {"selectors", nlohmann::json::array({{{"kind", "any-subject"}}})}}});
     use_verb["bindingOrder"] = nlohmann::json::array({"target"});
-    use_verb["quickAction"] = false;
+    use_verb["offers"] = nlohmann::json::array();
     document["definitions"]["verbs"].push_back(std::move(use_verb));
     const auto alpha_hotspot = nlohmann::json{{"kind", "sprite-alpha"},
                                               {"hotspot",

@@ -388,8 +388,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         verbs, verbs, VerbDefinition, VerbId,
         (compiled::VerbDefinition{std::move(identity), std::move(value.action_text),
                                   std::move(value.completed_command_text), std::move(value.slots),
-                                  std::move(value.binding_order), std::move(value.availability),
-                                  std::move(value.default_program), value.quick_action}));
+                                  std::move(value.binding_order), std::move(value.offers),
+                                  std::move(value.availability), std::move(value.default_program)}));
     LINK_DEFINITIONS(
         interactions, interactions, InteractionDefinition, InteractionId,
         (compiled::InteractionDefinition{std::move(identity), std::move(value.rules)}));

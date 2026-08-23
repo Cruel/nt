@@ -1363,11 +1363,17 @@ thead, tbody, tfoot {
         case 'runtime-select-subjects':
           finishRuntimeCommand('noveltea_runtime_select_subjects', 'number', ['string'], [JSON.stringify(message.subjects || [])], 'Runtime subject selection was not handled in the current runtime mode.');
           return true;
+        case 'runtime-primary-activate':
+          finishRuntimeCommand('noveltea_runtime_primary_activate', 'number', ['string'], [JSON.stringify([message.subject])], 'Runtime primary activation was not handled in the current runtime mode.');
+          return true;
+        case 'runtime-open-verb-menu':
+          finishRuntimeCommand('noveltea_runtime_open_verb_menu', 'number', ['string'], [JSON.stringify([message.subject])], 'Runtime Verb menu request was not handled in the current runtime mode.');
+          return true;
         case 'runtime-clear-subject-selection':
           finishRuntimeCommand('noveltea_runtime_clear_subject_selection', 'number', [], [], 'Runtime clear subject selection was not handled in the current runtime mode.');
           return true;
         case 'runtime-run-interaction':
-          finishRuntimeCommand('noveltea_runtime_run_interaction', 'number', ['string', 'string'], [message.verbId, JSON.stringify(message.operands || [])], `Runtime interaction '${message.verbId}' was not handled in the current runtime mode.`);
+          finishRuntimeCommand('noveltea_runtime_run_interaction', 'number', ['string', 'string'], [message.verbId, JSON.stringify(message.bindings || [])], `Runtime interaction '${message.verbId}' was not handled in the current runtime mode.`);
           return true;
         case 'runtime-activate-hotspot':
           finishRuntimeCommand('noveltea_runtime_activate_hotspot', 'number', ['string'], [JSON.stringify(message.hotspot)], `Runtime hotspot '${message.hotspot && message.hotspot.hotspotId}' was not handled in the current runtime mode.`);

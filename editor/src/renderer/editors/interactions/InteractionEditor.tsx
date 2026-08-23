@@ -191,6 +191,7 @@ function RuleEditor({
                 ...rule,
                 verb: typedRef('verbs', String(verbId)),
                 slots: defaultSlots(project, String(verbId)),
+                offer: null,
               })
             }
           >
@@ -290,6 +291,92 @@ function RuleEditor({
           </section>
         ))}
       </div>
+      <div className="space-y-2 rounded border p-2">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={rule.offer !== null}
+            onChange={(event) =>
+              onChange({
+                ...rule,
+                offer: event.currentTarget.checked
+                  ? {
+                      slotId: rule.slots[0]?.slotId ?? '',
+                      rank: 0,
+                      primary: false,
+                    }
+                  : null,
+              })
+            }
+          />
+          Derive Verb Offer from this rule
+        </label>
+        {rule.offer && (
+          <div className="grid gap-2 md:grid-cols-4">
+            <div>
+              <Label>Offer slot</Label>
+              <Select
+                value={rule.offer.slotId}
+                onValueChange={(slotId) =>
+                  onChange({ ...rule, offer: { ...rule.offer!, slotId: String(slotId) } })
+                }
+              >
+                {rule.slots.map((slot) => (
+                  <SelectItem value={slot.slotId} key={slot.slotId}>
+                    {slot.slotId}
+                  </SelectItem>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Authored rank</Label>
+              <Input
+                type="number"
+                value={rule.offer.rank}
+                onChange={(event) =>
+                  onChange({
+                    ...rule,
+                    offer: { ...rule.offer!, rank: Number(event.currentTarget.value) || 0 },
+                  })
+                }
+              />
+            </div>
+            <label className="flex items-end gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={rule.offer.primary}
+                onChange={(event) =>
+                  onChange({
+                    ...rule,
+                    offer: { ...rule.offer!, primary: event.currentTarget.checked },
+                  })
+                }
+              />
+              Primary
+            </label>
+            <div>
+              <Label>Offer condition</Label>
+              <Input
+                placeholder="Lua predicate (blank = none)"
+                value={
+                  rule.offer.condition?.kind === 'lua-predicate' ? rule.offer.condition.source : ''
+                }
+                onChange={(event) =>
+                  onChange({
+                    ...rule,
+                    offer: {
+                      ...rule.offer!,
+                      condition: event.currentTarget.value
+                        ? { kind: 'lua-predicate', source: event.currentTarget.value }
+                        : undefined,
+                    },
+                  })
+                }
+              />
+            </div>
+          </div>
+        )}
+      </div>
       <ContextEditor rule={rule} project={project} onChange={onChange} />
       <InteractionProgramEditor
         value={rule.program}
@@ -323,6 +410,7 @@ function InteractionForm({
           ),
           verb: typedRef('verbs', verbId),
           slots: defaultSlots(project, verbId),
+          offer: null,
           context: { kind: 'any' },
           program: defaultInteractionProgram(),
         },

@@ -14,7 +14,7 @@
         </div>
 
         <div id="rt_interaction_dock"
-             data-if="gameplay.room.objects.size > 0 || gameplay.inventory.items.size > 0 || gameplay.interaction.has_selection || gameplay.interaction.actions.size > 0">
+             data-if="gameplay.room.objects.size > 0 || gameplay.inventory.items.size > 0 || gameplay.interaction.has_selection || gameplay.interaction.verb_menu_open">
             <div id="rt_objects_group" class="rt-control-group" data-if="gameplay.room.objects.size > 0">
                 <p class="rt-control-heading">Nearby</p>
                 <div id="rt_objects">
@@ -23,8 +23,14 @@
                             data-class-disabled="!object.enabled"
                             data-class-selected="object.selected"
                             data-attrif-disabled="!object.enabled"
-                            data-event-click="ui_toggle_subject(object.subject_kind, object.subject_id)">
+                            data-event-click="ui_primary_activate(object.subject_kind, object.subject_id)">
                         {{ object.label }}
+                    </button>
+                    <button data-for="object : gameplay.room.objects"
+                            class="object-menu"
+                            data-attrif-disabled="!object.enabled"
+                            data-event-click="ui_open_verb_menu(object.subject_kind, object.subject_id)">
+                        Actions…
                     </button>
                 </div>
             </div>
@@ -36,13 +42,19 @@
                             data-class-disabled="!item.enabled"
                             data-class-selected="item.selected"
                             data-attrif-disabled="!item.enabled"
-                            data-event-click="ui_toggle_subject('interactable', item.id)">
+                            data-event-click="ui_primary_activate('interactable', item.id)">
                         {{ item.display_name }}
+                    </button>
+                    <button data-for="item : gameplay.inventory.items"
+                            class="object-menu"
+                            data-attrif-disabled="!item.enabled"
+                            data-event-click="ui_open_verb_menu('interactable', item.id)">
+                        Actions…
                     </button>
                 </div>
             </div>
             <div id="rt_actions_group" class="rt-control-group"
-                 data-if="gameplay.interaction.has_selection || gameplay.interaction.actions.size > 0">
+                 data-if="gameplay.interaction.verb_menu_open">
                 <p class="rt-control-heading">Actions</p>
                 <div id="rt_actions">
                     <button class="clear-selection"

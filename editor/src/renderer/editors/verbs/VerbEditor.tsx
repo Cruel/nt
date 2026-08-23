@@ -187,20 +187,37 @@ function VerbForm({
   };
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="flex items-end">
-          <Button type="button" size="sm" variant="outline" onClick={addSlot}>
-            Add subject slot
-          </Button>
-        </div>
-        <label className="flex items-end gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={data.quickAction}
-            onChange={(event) => onChange({ ...data, quickAction: event.currentTarget.checked })}
-          />
-          Quick action
-        </label>
+      <div className="flex items-end gap-2">
+        <Button type="button" size="sm" variant="outline" onClick={addSlot}>
+          Add subject slot
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!data.slots.length}
+          onClick={() => {
+            const used = new Set(data.offers.map((offer) => offer.id));
+            let index = data.offers.length + 1;
+            let id = `offer-${index}`;
+            while (used.has(id)) id = `offer-${++index}`;
+            onChange({
+              ...data,
+              offers: [
+                ...data.offers,
+                {
+                  id,
+                  slotId: data.bindingOrder[0] ?? data.slots[0]!.id,
+                  selectors: [defaultSubjectSelector(project)],
+                  rank: data.offers.length,
+                  primary: false,
+                },
+              ],
+            });
+          }}
+        >
+          Add explicit Offer
+        </Button>
       </div>
       <div>
         <Label>Action text</Label>
@@ -232,6 +249,9 @@ function VerbForm({
                     ),
                     bindingOrder: data.bindingOrder.map((current) =>
                       current === slot.id ? id : current,
+                    ),
+                    offers: data.offers.map((offer) =>
+                      offer.slotId === slot.id ? { ...offer, slotId: id } : offer,
                     ),
                   });
                 }}
@@ -275,6 +295,7 @@ function VerbForm({
                     ...data,
                     slots: data.slots.filter((_, current) => current !== index),
                     bindingOrder: data.bindingOrder.filter((id) => id !== slot.id),
+                    offers: data.offers.filter((offer) => offer.slotId !== slot.id),
                   })
                 }
               >
@@ -374,6 +395,203 @@ function VerbForm({
         {data.slots.length > 0 && (
           <p className="text-xs text-muted-foreground">
             Binding order: {data.bindingOrder.join(' → ')}
+          </p>
+        )}
+      </div>
+      <div className="space-y-3">
+        <Label>Explicit Offers</Label>
+        {data.offers.map((offer, offerIndex) => (
+          <section className="space-y-2 rounded border p-3" key={offer.id}>
+            <div className="grid gap-2 md:grid-cols-4">
+              <div>
+                <Label>Offer ID</Label>
+                <Input
+                  value={offer.id}
+                  onChange={(event) =>
+                    onChange({
+                      ...data,
+                      offers: data.offers.map((current, index) =>
+                        index === offerIndex
+                          ? { ...current, id: event.currentTarget.value }
+                          : current,
+                      ),
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <Label>Starting slot</Label>
+                <Select
+                  value={offer.slotId}
+                  onValueChange={(slotId) =>
+                    onChange({
+                      ...data,
+                      offers: data.offers.map((current, index) =>
+                        index === offerIndex ? { ...current, slotId: String(slotId) } : current,
+                      ),
+                    })
+                  }
+                >
+                  {data.bindingOrder.map((slotId) => (
+                    <SelectItem value={slotId} key={slotId}>
+                      {slotId}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>Authored rank</Label>
+                <Input
+                  type="number"
+                  value={offer.rank}
+                  onChange={(event) =>
+                    onChange({
+                      ...data,
+                      offers: data.offers.map((current, index) =>
+                        index === offerIndex
+                          ? { ...current, rank: Number(event.currentTarget.value) || 0 }
+                          : current,
+                      ),
+                    })
+                  }
+                />
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={offer.primary}
+                    onChange={(event) =>
+                      onChange({
+                        ...data,
+                        offers: data.offers.map((current, index) =>
+                          index === offerIndex
+                            ? { ...current, primary: event.currentTarget.checked }
+                            : current,
+                        ),
+                      })
+                    }
+                  />
+                  Primary
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    onChange({
+                      ...data,
+                      offers: data.offers.filter((_, index) => index !== offerIndex),
+                    })
+                  }
+                >
+                  Delete
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Subject selectors</Label>
+              {offer.selectors.map((selector, selectorIndex) => (
+                <SubjectSelectorEditor
+                  key={selectorIndex}
+                  value={selector}
+                  project={project}
+                  onChange={(next) =>
+                    onChange({
+                      ...data,
+                      offers: data.offers.map((current, index) =>
+                        index === offerIndex
+                          ? {
+                              ...current,
+                              selectors: current.selectors.map((value, currentSelector) =>
+                                currentSelector === selectorIndex ? next : value,
+                              ),
+                            }
+                          : current,
+                      ),
+                    })
+                  }
+                  onDelete={
+                    offer.selectors.length > 1
+                      ? () =>
+                          onChange({
+                            ...data,
+                            offers: data.offers.map((current, index) =>
+                              index === offerIndex
+                                ? {
+                                    ...current,
+                                    selectors: current.selectors.filter(
+                                      (_, currentSelector) => currentSelector !== selectorIndex,
+                                    ),
+                                  }
+                                : current,
+                            ),
+                          })
+                      : undefined
+                  }
+                />
+              ))}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  onChange({
+                    ...data,
+                    offers: data.offers.map((current, index) =>
+                      index === offerIndex
+                        ? { ...current, selectors: [...current.selectors, { kind: 'any-subject' }] }
+                        : current,
+                    ),
+                  })
+                }
+              >
+                Add selector
+              </Button>
+            </div>
+            <div>
+              <label className="mb-2 flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  checked={offer.condition !== undefined}
+                  onChange={(event) =>
+                    onChange({
+                      ...data,
+                      offers: data.offers.map((current, index) =>
+                        index === offerIndex
+                          ? {
+                              ...current,
+                              condition: event.currentTarget.checked
+                                ? { kind: 'always' }
+                                : undefined,
+                            }
+                          : current,
+                      ),
+                    })
+                  }
+                />
+                Offer condition
+              </label>
+              {offer.condition && (
+                <ConditionEditor
+                  value={offer.condition}
+                  project={project}
+                  onChange={(condition) =>
+                    onChange({
+                      ...data,
+                      offers: data.offers.map((current, index) =>
+                        index === offerIndex ? { ...current, condition } : current,
+                      ),
+                    })
+                  }
+                />
+              )}
+            </div>
+          </section>
+        ))}
+        {!data.offers.length && (
+          <p className="text-xs text-muted-foreground">
+            No explicit Offers. Interaction Rules can opt in to rule-derived Offers.
           </p>
         )}
       </div>
