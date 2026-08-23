@@ -813,6 +813,146 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     CHECK(input_sink.shell_commands == shell_commands_before_invalid);
 }
 
+TEST_CASE("RuntimeUI Layout Slot Lua conversion accepts only declared persistable trees")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    auto& ui = fixture.runtime_ui();
+    RecordingRuntimeUiInputSink input_sink;
+    REQUIRE(fixture.initialize());
+    ui.bind_input_sink(&input_sink);
+
+    const auto instance = noveltea::core::ScopedLayoutInstanceId::create("stateful");
+    REQUIRE(instance);
+    const auto key = noveltea::core::MountedLayoutPresentationKey{
+        noveltea::core::ScopedLayoutMountKey{instance.value()}};
+    const auto owner = noveltea::core::PresentationOwner{noveltea::core::SessionPresentationOwner{
+        noveltea::core::PresentationSessionId::from_number(1)}};
+
+    noveltea::core::LayoutStateShape nested_array{
+        .type = noveltea::core::LayoutStateShapeType::Array,
+        .nullable = false,
+        .default_value = std::nullopt,
+        .items = {noveltea::core::LayoutStateShape{
+            .type = noveltea::core::LayoutStateShapeType::Array,
+            .nullable = false,
+            .default_value = std::nullopt,
+            .items = {noveltea::core::LayoutStateShape{
+                .type = noveltea::core::LayoutStateShapeType::String,
+                .nullable = true,
+                .default_value = std::nullopt,
+                .items = {},
+                .fields = {}}},
+            .fields = {}}},
+        .fields = {}};
+    ui.set_layout_mount_context(
+        "state-doc",
+        noveltea::RuntimeUiLayoutMountContext{
+            owner,
+            key,
+            noveltea::core::LayoutMountOccurrenceId::from_number(7),
+            {},
+            {},
+            nested_array,
+            {{noveltea::core::LayoutStateScope::Session,
+              noveltea::core::PersistableValue{noveltea::core::PersistableValue::Array{
+                  noveltea::core::PersistableValue{noveltea::core::PersistableValue::Array{
+                      noveltea::core::PersistableValue{std::monostate{}},
+                      noveltea::core::PersistableValue{std::string("saved")}}}}}}}});
+
+    REQUIRE(luaL_dostring(fixture.lua_state(),
+                          "local m=assert(Game.mount_context('state-doc')); "
+                          "local s=assert(m:state('session')); assert(s[1][1]==m.null); "
+                          "assert(s[1][2]=='saved'); "
+                          "assert(m:commit_state('session', {{m.null, 'ok'}}))") == LUA_OK);
+    REQUIRE(input_sink.gameplay_inputs == 1);
+    REQUIRE(input_sink.last_gameplay_input);
+    CHECK(std::holds_alternative<noveltea::core::CommitLayoutStateInput>(
+        *input_sink.last_gameplay_input));
+
+    const auto accepted = input_sink.gameplay_inputs;
+    REQUIRE(
+        luaL_dostring(
+            fixture.lua_state(),
+            "local m=Game.mount_context('state-doc'); "
+            "local sparse={[1]={'a'},[3]={'b'}}; assert(not m:commit_state('session', sparse)); "
+            "local mixed={{'a'}}; mixed.x={'b'}; assert(not m:commit_state('session', mixed)); "
+            "local cycle={}; cycle[1]=cycle; assert(not m:commit_state('session', cycle)); "
+            "local meta=setmetatable({{'a'}}, {}); assert(not m:commit_state('session', meta)); "
+            "assert(not m:commit_state('session', function() end)); "
+            "assert(not m:commit_state('session', coroutine.create(function() end)))") == LUA_OK);
+    CHECK(input_sink.gameplay_inputs == accepted);
+
+    noveltea::core::LayoutStateShape object_shape{
+        .type = noveltea::core::LayoutStateShapeType::Object,
+        .nullable = false,
+        .default_value = std::nullopt,
+        .items = {},
+        .fields = {
+            {noveltea::core::LayoutStateObjectField{
+                .id = "a",
+                .required = true,
+                .shape = {noveltea::core::LayoutStateShape{
+                    .type = noveltea::core::LayoutStateShapeType::String,
+                    .nullable = false,
+                    .default_value = std::nullopt,
+                    .items = {},
+                    .fields = {}}}}},
+            {noveltea::core::LayoutStateObjectField{
+                .id = "z",
+                .required = true,
+                .shape = {noveltea::core::LayoutStateShape{
+                    .type = noveltea::core::LayoutStateShapeType::String,
+                    .nullable = false,
+                    .default_value = std::nullopt,
+                    .items = {},
+                    .fields = {}}}}},
+        }};
+    ui.set_layout_mount_context("state-doc",
+                                noveltea::RuntimeUiLayoutMountContext{
+                                    owner,
+                                    key,
+                                    noveltea::core::LayoutMountOccurrenceId::from_number(7),
+                                    {},
+                                    {},
+                                    object_shape,
+                                    {}});
+    input_sink.last_gameplay_input.reset();
+    REQUIRE(luaL_dostring(fixture.lua_state(),
+                          "local m=Game.mount_context('state-doc'); "
+                          "local value={}; value.z='last'; value.a='first'; "
+                          "assert(m:commit_state('session', value))") == LUA_OK);
+    REQUIRE(input_sink.last_gameplay_input);
+    const auto& canonical_commit =
+        std::get<noveltea::core::CommitLayoutStateInput>(*input_sink.last_gameplay_input);
+    const auto& canonical_object =
+        std::get<noveltea::core::PersistableValue::Object>(canonical_commit.value.value);
+    REQUIRE(canonical_object.size() == 2);
+    CHECK(canonical_object[0].first == "a");
+    CHECK(canonical_object[1].first == "z");
+
+    const auto accepted_after_object = input_sink.gameplay_inputs;
+    noveltea::core::LayoutStateShape number_shape{.type =
+                                                      noveltea::core::LayoutStateShapeType::Number,
+                                                  .nullable = false,
+                                                  .default_value = std::nullopt,
+                                                  .items = {},
+                                                  .fields = {}};
+    ui.set_layout_mount_context("state-doc",
+                                noveltea::RuntimeUiLayoutMountContext{
+                                    owner,
+                                    key,
+                                    noveltea::core::LayoutMountOccurrenceId::from_number(7),
+                                    {},
+                                    {},
+                                    number_shape,
+                                    {}});
+    REQUIRE(luaL_dostring(fixture.lua_state(),
+                          "local m=Game.mount_context('state-doc'); "
+                          "assert(not m:commit_state('session', math.huge)); "
+                          "assert(not m:commit_state('session', 0/0))") == LUA_OK);
+    CHECK(input_sink.gameplay_inputs == accepted_after_object);
+}
+
 TEST_CASE("RmlUiHost fails primary context creation when required context initialization fails")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});

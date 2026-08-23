@@ -87,11 +87,17 @@ public:
             m_runtime_ui.set_layout_mount_context(
                 document_id, RuntimeUiLayoutMountContext{*layout.semantic_owner,
                                                          *layout.semantic_key, *layout.occurrence,
-                                                         layout.inputs, layout.connected_signals});
+                                                         layout.inputs, layout.connected_signals,
+                                                         layout.state_shape, layout.state_values});
         } else {
             m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
         }
         return true;
+    }
+
+    void clear_mount_context(const std::string& document_id) override
+    {
+        m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
     }
 
     bool apply_order(const std::vector<std::string>& ordered_document_ids) override
@@ -600,6 +606,8 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
                                              .occurrence = std::nullopt,
                                              .inputs = {},
                                              .connected_signals = {},
+                                             .state_shape = std::nullopt,
+                                             .state_values = {},
                                              .composition_group = value.composition_group,
                                              .publication_revision = value.publication_revision};
                 if (!m_host_generation || value.host_generation != *m_host_generation)
@@ -1230,24 +1238,47 @@ LayoutRealizer::layout_source_text(const core::compiled::LayoutSource& source,
 bool LayoutRealizer::load_candidate(const CandidateLayout& candidate)
 {
     const auto& realized = candidate.realized;
+    auto staging_policy = realized.desired.mounted.policy;
+    staging_policy.input = core::LayoutInputMode::None;
+    staging_policy.gameplay_pause = core::GameplayPausePolicy::Continue;
+    staging_policy.visibility = core::LayoutVisibility::Hidden;
+    staging_policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
+    staging_policy.entrance_operation.reset();
+    staging_policy.exit_operation.reset();
+
+    if (!m_backend.set_mount_context(realized.document_id, realized.desired))
+        return false;
+
     const auto group = layout_composition_group(realized.desired.composition_group);
+    bool loaded = false;
     switch (candidate.prepared.kind) {
     case PreparedSource::Kind::Builtin:
-        return m_backend.load_builtin(candidate.prepared.builtin, realized.desired.mounted.policy,
-                                      group, realized.desired.mounted.owner, realized.scale_policy,
-                                      realized.compatibility_group);
+        loaded = m_backend.load_builtin(candidate.prepared.builtin, staging_policy, group,
+                                        realized.desired.mounted.owner, realized.scale_policy,
+                                        realized.compatibility_group);
+        break;
     case PreparedSource::Kind::Path:
-        return m_backend.load_path(realized.document_id, candidate.prepared.logical_path,
-                                   realized.desired.mounted.policy, group,
-                                   realized.desired.mounted.owner, realized.scale_policy,
-                                   realized.compatibility_group);
+        loaded = m_backend.load_path(realized.document_id, candidate.prepared.logical_path,
+                                     staging_policy, group, realized.desired.mounted.owner,
+                                     realized.scale_policy, realized.compatibility_group);
+        break;
     case PreparedSource::Kind::Memory:
-        return m_backend.load_memory(realized.document_id, candidate.prepared.rml,
-                                     candidate.prepared.source_url, realized.desired.mounted.policy,
-                                     group, realized.desired.mounted.owner, realized.scale_policy,
-                                     realized.compatibility_group);
+        loaded = m_backend.load_memory(realized.document_id, candidate.prepared.rml,
+                                       candidate.prepared.source_url, staging_policy, group,
+                                       realized.desired.mounted.owner, realized.scale_policy,
+                                       realized.compatibility_group);
+        break;
     }
-    return false;
+    if (!loaded) {
+        m_backend.clear_mount_context(realized.document_id);
+        return false;
+    }
+    if (!m_backend.set_visible(realized.document_id, false)) {
+        (void)m_backend.unload(realized.document_id);
+        m_backend.clear_mount_context(realized.document_id);
+        return false;
+    }
+    return true;
 }
 
 core::Result<void, core::Diagnostics>

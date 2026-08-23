@@ -3,6 +3,7 @@
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/runtime_messages.hpp"
+#include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/core/runtime_shell_contracts.hpp"
 
 #include <cstdint>
@@ -24,6 +25,8 @@ struct RuntimeUiLayoutMountContext {
     core::LayoutMountOccurrenceId occurrence;
     std::vector<core::LayoutResolvedInput> inputs;
     std::vector<core::LayoutSignalId> connected_signals;
+    std::optional<core::LayoutStateShape> state_shape;
+    std::vector<core::PresentationLayoutStateValue> state_values;
     bool operator==(const RuntimeUiLayoutMountContext&) const = default;
 };
 

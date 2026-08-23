@@ -123,6 +123,7 @@ protected:
     std::vector<DesiredPresentationProp> m_presentation_props;
     std::vector<DesiredPresentationEnvironment> m_presentation_environments;
     std::vector<DesiredMountedLayout> m_mounted_layouts;
+    std::vector<LayoutStateSlot> m_layout_state_slots;
     std::uint64_t m_next_layout_mount_occurrence = 1;
     std::vector<DesiredAudioInstance> m_desired_audio;
     std::optional<PresentedTextState> m_presented_text;
@@ -382,6 +383,22 @@ public:
                            const MountedLayoutPresentationKey& key,
                            LayoutMountOccurrenceId occurrence, const LayoutSignalId& signal,
                            const std::vector<LayoutSignalFieldValue>& fields) const;
+    [[nodiscard]] const std::vector<LayoutStateSlot>& layout_state_slots() const noexcept
+    {
+        return m_layout_state_slots;
+    }
+    [[nodiscard]] Result<std::optional<PersistableValue>, Diagnostics>
+    layout_state(const CompiledProject& project, const PresentationOwner& owner,
+                 const MountedLayoutPresentationKey& key, LayoutMountOccurrenceId occurrence,
+                 LayoutStateScope scope) const;
+    [[nodiscard]] Result<void, Diagnostics>
+    commit_layout_state(const CompiledProject& project, const PresentationOwner& owner,
+                        const MountedLayoutPresentationKey& key, LayoutMountOccurrenceId occurrence,
+                        LayoutStateScope scope, PersistableValue value);
+    [[nodiscard]] Result<void, Diagnostics>
+    clear_layout_state(const CompiledProject& project, const PresentationOwner& owner,
+                       const MountedLayoutPresentationKey& key, LayoutMountOccurrenceId occurrence,
+                       LayoutStateScope scope);
     [[nodiscard]] Result<void, Diagnostics>
     remove_mounted_layout(const MountedLayoutPresentationKey& key, const PresentationOwner& owner);
     [[nodiscard]] Result<void, Diagnostics> set_layout(const CompiledProject& project,

@@ -235,6 +235,8 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
         .occurrence = request.occurrence,
         .inputs = std::move(request.inputs),
         .connected_signals = std::move(request.connected_signals),
+        .state_shape = std::move(request.state_shape),
+        .state_values = std::move(request.state_values),
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
     });
@@ -291,6 +293,8 @@ RuntimeLayoutManager::UpdateResult RuntimeLayoutManager::update(core::MountedLay
         .occurrence = request.occurrence,
         .inputs = std::move(request.inputs),
         .connected_signals = std::move(request.connected_signals),
+        .state_shape = std::move(request.state_shape),
+        .state_values = std::move(request.state_values),
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
     };

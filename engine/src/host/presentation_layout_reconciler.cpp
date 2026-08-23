@@ -90,6 +90,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         std::optional<core::LayoutMountOccurrenceId> occurrence;
         std::vector<core::LayoutResolvedInput> inputs;
         std::vector<core::LayoutSignalId> connected_signals;
+        std::optional<core::LayoutStateShape> state_shape;
+        std::vector<core::PresentationLayoutStateValue> state_values;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
     };
@@ -104,7 +106,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                  ? core::MountedLayoutOwner::Gameplay
                  : core::MountedLayoutOwner::Shell,
              mount.policy, mount.scale_overrides, mount.occurrence, mount.inputs,
-             mount.connected_signals, mount.composition_group});
+             mount.connected_signals, mount.state_shape, mount.state_values,
+             mount.composition_group});
     }
     if (snapshot.map && snapshot.map->layout) {
         desired.push_back({"map/" + snapshot.map->map.text(),
@@ -125,6 +128,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                            {},
                            std::nullopt,
                            {},
+                           {},
+                           std::nullopt,
                            {},
                            core::PresentationCompositionGroup::Interface});
     }
@@ -169,6 +174,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
             existing->second.occurrence == item.occurrence &&
             existing->second.inputs == item.inputs &&
             existing->second.connected_signals == item.connected_signals &&
+            existing->second.state_shape == item.state_shape &&
+            existing->second.state_values == item.state_values &&
             existing->second.composition_group == item.composition_group) {
             auto reused = existing->second;
             reused.key = item.key;
@@ -187,6 +194,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         request.occurrence = item.occurrence;
         request.inputs = item.inputs;
         request.connected_signals = item.connected_signals;
+        request.state_shape = item.state_shape;
+        request.state_values = item.state_values;
         request.source = presentation::RuntimeLayoutProjectSource{};
         request.composition_group = item.composition_group;
         request.publication_revision = snapshot.revision;
@@ -196,12 +205,13 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                 rollback_new_mounts();
                 return core::Result<void, core::Diagnostics>::failure(std::move(updated).error());
             }
-            next.insert_or_assign(
-                item.identity,
-                MountedPresentationLayout{
-                    item.key, existing->second.instance, item.layout, item.semantic_owner,
-                    item.owner, item.policy, item.scale_overrides, item.occurrence, item.inputs,
-                    item.connected_signals, item.composition_group, snapshot.revision});
+            next.insert_or_assign(item.identity,
+                                  MountedPresentationLayout{
+                                      item.key, existing->second.instance, item.layout,
+                                      item.semantic_owner, item.owner, item.policy,
+                                      item.scale_overrides, item.occurrence, item.inputs,
+                                      item.connected_signals, item.state_shape, item.state_values,
+                                      item.composition_group, snapshot.revision});
             continue;
         }
 
@@ -211,12 +221,12 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
             return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
         }
         newly_mounted.push_back(*mounted.value_if());
-        next.insert_or_assign(
-            item.identity, MountedPresentationLayout{item.key, *mounted.value_if(), item.layout,
-                                                     item.semantic_owner, item.owner, item.policy,
-                                                     item.scale_overrides, item.occurrence,
-                                                     item.inputs, item.connected_signals,
-                                                     item.composition_group, snapshot.revision});
+        next.insert_or_assign(item.identity,
+                              MountedPresentationLayout{
+                                  item.key, *mounted.value_if(), item.layout, item.semantic_owner,
+                                  item.owner, item.policy, item.scale_overrides, item.occurrence,
+                                  item.inputs, item.connected_signals, item.state_shape,
+                                  item.state_values, item.composition_group, snapshot.revision});
     }
 
     for (const auto& [identity, previous] : m_current) {

@@ -105,11 +105,15 @@ rejects the save without migration, repair, or partial restoration. The saved Pr
 metadata and need not equal the currently loaded Project version when identity and Save Contract match.
 
 Save format V8 persists the deterministic random-generator position and authoritative desired
-presentation. It also persists every exact live Item Stack and the deterministic next-Stack allocator;
-ended Stack identities and authoritative references to them are invalid. It stores logical identities and owner-remap data rather than effective snapshot caches,
-backend handles, or operation progress. Scene owners remap through snapshot-local Flow-frame IDs;
-current-Room owners bind to the restored visit; named-Room and session owners restore semantically;
-shell records are intentionally excluded. Exact authored Room-overlay defaults rebuild from compiled
+presentation. It also persists every exact live Item Stack, the deterministic next-Stack allocator,
+and validated engine-owned Layout State Slots. Ended Stack identities and authoritative references to
+them are invalid. Layout Slot values are recursive Persistable Value trees validated against the
+compiled Layout State Shape; arbitrary Lua VM state, RmlUi DOM/focus state, metatables, and backend
+objects are never encoded. It stores logical identities and owner-remap data rather than effective
+snapshot caches, backend handles, or operation progress. Visit, Room, Flow, and Session Slot owners
+remap with the same semantic lifetime rules as their runtime owners. Scene owners remap through
+snapshot-local Flow-frame IDs; current-Room owners bind to the restored visit; named-Room and session
+owners restore semantically; shell records are intentionally excluded. Exact authored Room-overlay defaults rebuild from compiled
 definitions, while runtime mutations persist. Actor records retain only their selected idle ID.
 Runtime-selected environment records retain owner/instance/stop key, typed resource and geometry
 parameters, plane/order, clock, scroll rate, opacity, and visibility. Immutable Room environment
@@ -122,10 +126,13 @@ mode rather than inheriting a pre-load pause flag.
 
 Environment, idle, and audio loop phase, decoder/sample position, backend epochs and handles,
 material/GPU resources, effective snapshots, and finite-operation progress are never encoded. Restore
-validates every saved owner and resource before publishing a fresh `SessionState`; invalid records
-fail atomically. Room resolution and presentation projection then rebuild the effective target, and
-fresh world/audio backends start reconstructible loops at phase zero without fabricating a completed
-operation or replaying an acknowledged one-shot.
+validates every saved owner, Layout State Shape/value, and resource before publishing a fresh
+`SessionState`; invalid records fail atomically. Stateful Layout realization is then staged hidden,
+input-disabled, non-pausing, and non-dismissible while reconstructed Slot values and resolved bindings
+are already available to synchronous Layout Lua. The authored policy is admitted only after that local
+reconstruction succeeds. Room resolution and presentation projection then rebuild the effective
+target, and fresh world/audio backends start reconstructible loops at phase zero without fabricating a
+completed operation or replaying an acknowledged one-shot.
 
 `TypedSaveSlotStore` persists encoded save bytes without owning a JSON DOM. The memory
 implementation supports preview/tests; the filesystem implementation supports players and keeps
@@ -150,9 +157,9 @@ The presentation coordinator publishes exact causal status before backend work. 
 presentation/audio, voice and gameplay SFX until semantic termination, ActiveText reveal/fade, and any
 opaque Lua suspension block checkpoint replacement. Those barriers do not invalidate the latest
 retained checkpoint, so a manual save can still persist it while new promotion is ineligible.
-Reconstructible desired actor idles, environment loops, Layouts, and desired audio remain
-checkpoint-safe; backend transition progress, tween progress, audio voices, and decoder positions are
-never runtime checkpoint facts.
+Reconstructible desired actor idles, environment loops, Layouts, validated Layout State Slots, and
+desired audio remain checkpoint-safe; backend transition progress, tween progress, audio voices,
+decoder positions, arbitrary Lua tables, and RmlUi state are never runtime checkpoint facts.
 
 Save/load requests travel through `SaveRuntimeInput` and `LoadRuntimeInput`. Unsupported or unsafe
 save points return typed outcomes/diagnostics. `SaveDocument` and controller checkpoint JSON no

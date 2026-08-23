@@ -73,6 +73,42 @@ describe('authoring layouts schema', () => {
     );
   });
 
+  it('validates recursive Layout State Shapes and defaults', () => {
+    const project = createAuthoringProject();
+    const data = defaultLayoutData('Stateful UI');
+    data.contract.state = {
+      type: 'object',
+      nullable: false,
+      fields: {
+        page: { required: true, shape: { type: 'integer', nullable: false } },
+        filters: {
+          required: false,
+          shape: {
+            type: 'array',
+            nullable: false,
+            items: { type: 'string', nullable: false },
+          },
+        },
+      },
+      defaultValue: { page: 1, filters: ['all'] },
+    };
+    project.layouts.stateful = { id: 'stateful', label: 'Stateful UI', data };
+    expect(validateLayoutData(project, 'stateful', project.layouts.stateful)).toEqual([]);
+
+    project.layouts.stateful.data = {
+      ...data,
+      contract: {
+        ...data.contract,
+        state: { ...data.contract.state, defaultValue: { page: 'one' } },
+      },
+    };
+    expect(validateLayoutData(project, 'stateful', project.layouts.stateful)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: expect.stringContaining('/contract/state/defaultValue') }),
+      ]),
+    );
+  });
+
   it('resolves omitted scale policy from the authored target', () => {
     expect(resolveLayoutScalePolicy('scene-overlay', undefined)).toEqual({
       ui: 'ignore',

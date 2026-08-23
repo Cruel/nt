@@ -358,6 +358,8 @@ TEST_CASE("Layout Mount bindings and signal connections survive save restore wit
                                                {"defaultValue", nullptr}}})},
             {"signals",
              nlohmann::json::array({{{"id", "confirm"}, {"fields", nlohmann::json::array()}}})},
+            {"state",
+             {{"type", "integer"}, {"nullable", false}, {"hasDefault", true}, {"defaultValue", 1}}},
         };
         layouts.push_back(std::move(contract_layout));
     });
@@ -387,6 +389,9 @@ TEST_CASE("Layout Mount bindings and signal connections survive save restore wit
     REQUIRE(original != state.mounted_layouts().end());
     REQUIRE(original->occurrence);
     const auto original_occurrence = *original->occurrence;
+    REQUIRE(state.commit_layout_state(project, original_owner, key, original_occurrence,
+                                      LayoutStateScope::Session,
+                                      PersistableValue{std::int64_t{7}}));
 
     auto saved = make_save_state(project, state);
     REQUIRE(saved);
@@ -394,6 +399,7 @@ TEST_CASE("Layout Mount bindings and signal connections survive save restore wit
         std::find_if(saved.value().mounted_layouts.begin(), saved.value().mounted_layouts.end(),
                      [&](const auto& value) { return value.key == key; });
     REQUIRE(saved_mount != saved.value().mounted_layouts.end());
+    REQUIRE(saved.value().layout_state_slots.size() == 1);
     CHECK(saved_mount->inputs.size() == 1);
     CHECK(saved_mount->connected_signals == std::vector<LayoutSignalId>{signal});
 
@@ -406,6 +412,12 @@ TEST_CASE("Layout Mount bindings and signal connections survive save restore wit
         });
     REQUIRE(encoded_mount != encoded.value()["presentation"]["mountedLayouts"].end());
     CHECK((*encoded_mount)["connectedSignals"] == nlohmann::json::array({"confirm"}));
+    REQUIRE(encoded.value()["presentation"]["layoutStateSlots"].size() == 1);
+    CHECK(encoded.value()["presentation"]["layoutStateSlots"][0]["value"] == 7);
+
+    auto invalid_state = encoded.value();
+    invalid_state["presentation"]["layoutStateSlots"][0]["value"] = "wrong";
+    CHECK_FALSE(decode_save_state(project, invalid_state, "layout-mount-invalid-state.json"));
 
     auto decoded = decode_save_state(project, encoded.value(), "layout-mount-save.json");
     REQUIRE(decoded);
@@ -417,6 +429,12 @@ TEST_CASE("Layout Mount bindings and signal connections survive save restore wit
     REQUIRE(restored_mount != restored.value().mounted_layouts().end());
     REQUIRE(restored_mount->occurrence);
     CHECK(restored_mount->owner != original_owner);
+    auto restored_state =
+        restored.value().layout_state(project, restored_mount->owner, key,
+                                      *restored_mount->occurrence, LayoutStateScope::Session);
+    REQUIRE(restored_state);
+    REQUIRE(restored_state.value());
+    CHECK(*restored_state.value() == PersistableValue{std::int64_t{7}});
     CHECK(restored_mount->inputs.size() == 1);
     CHECK(restored_mount->connected_signals == std::vector<LayoutSignalId>{signal});
     auto stale = restored.value().validate_layout_signal(project, original_owner, key,

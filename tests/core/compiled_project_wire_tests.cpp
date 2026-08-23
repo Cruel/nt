@@ -807,6 +807,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
                                                {"hasDefault", true},
                                                {"defaultValue", "HUD"}}})},
             {"signals", nlohmann::json::array()},
+            {"state", nullptr},
         };
         auto result =
             noveltea::core::decode_compiled_project(document, "system-layout-contract.json");

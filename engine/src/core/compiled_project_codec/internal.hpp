@@ -242,6 +242,8 @@ template<class T> bool assign(std::optional<T>& source, T& destination)
 
 std::optional<RuntimeValue> decode_runtime_value(Decoder&, const nlohmann::json&, std::string_view,
                                                  bool allow_null = true);
+std::optional<PersistableValue> decode_persistable_value(Decoder&, const nlohmann::json&,
+                                                         std::string_view);
 std::optional<TextContent> decode_text(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<Condition> decode_condition_impl(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<Effect> decode_effect_impl(Decoder&, const nlohmann::json&, std::string_view);

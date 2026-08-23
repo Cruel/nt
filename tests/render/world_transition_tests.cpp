@@ -592,7 +592,10 @@ TEST_CASE("layout fade uses the shared targeted lifecycle and clears on skip or 
 
     WorldTransitionBackend transitions(world);
     LayoutFinitePresentationOperation fade{
-        common(29), {key}, LayoutOperationKind::Fade, std::nullopt};
+        common(29),
+        {key, SessionPresentationOwner{PresentationSessionId::from_number(1)}},
+        LayoutOperationKind::Fade,
+        std::nullopt};
     REQUIRE(transitions.realize(targeted_delivery(29, fade)));
     (void)transitions.take_acknowledgements();
     RuntimeClockUpdate clocks;

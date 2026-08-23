@@ -160,10 +160,12 @@ occurrence. Each runtime occurrence is an engine-owned **Layout Mount** identifi
 pair `(PresentationOwner, MountedLayoutPresentationKey)` and carrying a separate occurrence token for
 stale-event rejection.
 
-The contract contains named scalar inputs and named semantic signals. Input and signal-field types are
-`boolean`, `integer`, `number`, and `string`; declarations also state nullability, input defaults, and
-whether each signal field is required. Empty contracts are the implicit compiled default so existing
-Layouts do not acquire wire noise merely by being compiled.
+The contract contains named scalar inputs, named semantic signals, and an optional recursive State
+Shape. Input and signal-field types are `boolean`, `integer`, `number`, and `string`; declarations also
+state nullability, input defaults, and whether each signal field is required. State Shapes add arrays
+and strict objects recursively. A State Shape default must itself be a valid Persistable Value for the
+whole shape. Empty contracts are the implicit compiled default so existing Layouts do not acquire wire
+noise merely by being compiled.
 
 Mount inputs are read-only. A Mount may supply an input from a literal value, a global Variable, an
 identity Property, or a standard engine facet. The current standard facets are runtime mode, current
@@ -179,10 +181,25 @@ atomically against the target Layout contract; a failed update leaves the prior 
 
 During a realized Layout input event, `Game.mount_context()` returns the exact occurrence context.
 `context:input(name)` reads the resolved typed input and `context:signal(name, payload)` submits a
-connected Layout Signal. Signals are semantic runtime inputs, not DOM events: the runtime validates
-the owner-qualified Mount identity, occurrence token, connection, field names, required fields, and
-field types before accepting them into the ordered input pipeline. An event emitted by an unmounted,
-replaced, or pre-load occurrence is stale and is rejected.
+connected Layout Signal. A stateful Layout additionally uses `context:state(scope)`,
+`context:commit_state(scope, value)`, and `context:clear_state(scope)`, where `scope` is `visit`,
+`room`, `flow`, or `session` when that scope is valid for the Mount owner. Signals and Slot commits are
+semantic runtime inputs, not DOM events: the runtime validates the owner-qualified Mount identity and
+occurrence token before accepting them into the ordered input pipeline.
+
+Layout Slot state is explicit engine-owned checkpoint state. A Slot is addressed by its semantic Mount
+key inside the selected lifetime scope, and a successful commit atomically replaces the prior value.
+Clearing removes the value so the State Shape default becomes visible again; unmounting a Layout does
+not clear a Slot whose scope still exists. Visit Slots expire with the Active Room Context, Room and
+Flow Slots expire with their semantic owners, and Session Slots expire with the runtime session.
+
+Lua values cross the Slot boundary only through the declared State Shape. The conversion accepts the
+supported scalar/array/object tree and rejects cycles, metatables, functions, coroutines, userdata and
+DOM objects, sparse or mixed tables, undeclared or invalid object keys, and non-finite numbers. A
+persisted `null` is exposed as `context.null` so null values remain representable inside Lua arrays and
+objects without collapsing into Lua `nil`; `nil` may still be committed for a nullable root/member when
+Lua can represent that position directly. The engine therefore never treats arbitrary Lua tables,
+RmlUi DOM/focus state, animations, or backend handles as save state.
 
 Updating inputs, order, visibility, or compatible policy keeps the Mount occurrence and does not imply
 UI replacement. Replacing the referenced Layout recreates the realized UI and allocates a fresh
@@ -190,11 +207,14 @@ occurrence token while retaining the owner-qualified semantic key; unmount ends 
 Runtime Session, Active Room Context, and Flow ownership continue to remove their Mounts
  deterministically when the owner ends.
 
-Save data retains reconstructible Mount intent: owner-qualified key, Layout reference, effective
-policy, literal configuration, typed binding definitions, and connected signals. It does not retain
+Save data retains reconstructible Mount intent plus validated Layout Slot records. It does not retain
 the occurrence token, DOM/focus state, animation progress, or arbitrary Lua state. Restore first
-reconstructs gameplay state and then allocates a fresh Mount occurrence before bindings reevaluate, so
-pre-load UI events cannot become valid again accidentally.
+reconstructs gameplay and Slot state, allocates fresh Mount occurrences, and reevaluates bindings.
+Realization stages each candidate hidden, input-disabled, non-pausing, and non-dismissible while its
+Mount context is already available to synchronous Layout Lua. Only a candidate whose Slot values,
+bindings, and synchronous local reconstruction all succeed is admitted with the authored policy and
+visibility. A reconstruction failure while loading rejects the candidate session; an ordinary later
+remount failure leaves the existing Slot untouched and diagnoses the Mount.
 
 The Layout editor exposes the contract as validated JSON alongside RML/RCSS/Lua and includes it in the
 focused-preview input/revision. Preview sample state remains editor-owned test data; it is not saved

@@ -676,10 +676,12 @@ private:
                 std::find_if(m_input.layouts.begin(), m_input.layouts.end(),
                              [&](const LayoutResource& value) { return value.id == layout_id; });
             if (layout != m_input.layouts.end() &&
-                (!layout->contract.inputs.empty() || !layout->contract.signals.empty()))
+                (!layout->contract.inputs.empty() || !layout->contract.signals.empty() ||
+                 layout->contract.state.has_value()))
                 error("compiled_project.system_layout_custom_contract",
                       "System Layout Roles use fixed engine contracts; project Layouts assigned to "
-                      "a System Layout Role must not declare custom inputs or signals.",
+                      "a System Layout Role must not declare custom inputs, signals, or State "
+                      "Shapes.",
                       path);
         }
         if (m_input.settings.text.default_font)
@@ -724,6 +726,10 @@ private:
                           path + "/contract/inputs/" + std::to_string(input_index) +
                               "/defaultValue");
             }
+            if (layout.contract.state && !layout_state_shape_valid(*layout.contract.state))
+                error("compiled_project.invalid_layout_state_shape",
+                      "Layout State Shape defaults and recursive members must be valid.",
+                      path + "/contract/state");
             std::unordered_set<LayoutSignalId> signal_ids;
             for (std::size_t signal_index = 0; signal_index < layout.contract.signals.size();
                  ++signal_index) {

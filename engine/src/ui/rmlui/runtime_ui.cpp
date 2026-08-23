@@ -9,12 +9,14 @@
 #include <cmath>
 #include <cstdio>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -39,6 +41,19 @@ namespace noveltea {
 using presentation::RuntimeLayoutBuiltinDocument;
 
 namespace {
+
+char g_layout_state_null_marker;
+
+[[nodiscard]] sol::object mount_layout_state_null(sol::state_view lua)
+{
+    return sol::make_object(lua, sol::lightuserdata_value{&g_layout_state_null_marker});
+}
+
+[[nodiscard]] bool is_mount_layout_state_null(const sol::object& object)
+{
+    return object.valid() && object.get_type() == sol::type::lightuserdata &&
+           object.as<void*>() == &g_layout_state_null_marker;
+}
 
 sol::object mount_lua_value(sol::state_view lua, const core::RuntimeValue& value)
 {
@@ -71,6 +86,155 @@ std::optional<core::RuntimeValue> mount_runtime_value(const sol::object& object)
     default:
         return std::nullopt;
     }
+}
+
+std::optional<core::LayoutStateScope> mount_layout_state_scope(std::string_view scope) noexcept
+{
+    if (scope == "visit")
+        return core::LayoutStateScope::Visit;
+    if (scope == "room")
+        return core::LayoutStateScope::Room;
+    if (scope == "flow")
+        return core::LayoutStateScope::Flow;
+    if (scope == "session")
+        return core::LayoutStateScope::Session;
+    return std::nullopt;
+}
+
+sol::object mount_persistable_lua_value(sol::state_view lua, const core::PersistableValue& value)
+{
+    return std::visit(
+        [&](const auto& item) -> sol::object {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, std::monostate>) {
+                return mount_layout_state_null(lua);
+            } else if constexpr (std::is_same_v<T, core::PersistableValue::Array>) {
+                sol::table table = lua.create_table(static_cast<int>(item.size()), 0);
+                for (std::size_t index = 0; index < item.size(); ++index)
+                    table[index + 1] = mount_persistable_lua_value(lua, item[index]);
+                return sol::make_object(lua, std::move(table));
+            } else if constexpr (std::is_same_v<T, core::PersistableValue::Object>) {
+                sol::table table = lua.create_table(0, static_cast<int>(item.size()));
+                for (const auto& [key, child] : item)
+                    table[key] = mount_persistable_lua_value(lua, child);
+                return sol::make_object(lua, std::move(table));
+            } else {
+                return sol::make_object(lua, item);
+            }
+        },
+        value.value);
+}
+
+std::optional<core::PersistableValue>
+mount_persistable_value(const sol::object& object, const core::LayoutStateShape& shape,
+                        std::unordered_set<const void*>& active_tables)
+{
+    if (!object.valid() || object == sol::lua_nil || is_mount_layout_state_null(object))
+        return shape.nullable
+                   ? std::optional<core::PersistableValue>{core::PersistableValue{std::monostate{}}}
+                   : std::nullopt;
+    switch (shape.type) {
+    case core::LayoutStateShapeType::Boolean:
+        return object.get_type() == sol::type::boolean
+                   ? std::optional<core::PersistableValue>{core::PersistableValue{
+                         object.as<bool>()}}
+                   : std::nullopt;
+    case core::LayoutStateShapeType::Integer:
+        return object.get_type() == sol::type::number && object.is<std::int64_t>()
+                   ? std::optional<core::PersistableValue>{core::PersistableValue{
+                         object.as<std::int64_t>()}}
+                   : std::nullopt;
+    case core::LayoutStateShapeType::Number:
+        if (object.get_type() != sol::type::number)
+            return std::nullopt;
+        if (object.is<std::int64_t>())
+            return core::PersistableValue{object.as<std::int64_t>()};
+        if (const double value = object.as<double>(); std::isfinite(value))
+            return core::PersistableValue{value};
+        return std::nullopt;
+    case core::LayoutStateShapeType::String:
+        return object.get_type() == sol::type::string
+                   ? std::optional<core::PersistableValue>{core::PersistableValue{
+                         object.as<std::string>()}}
+                   : std::nullopt;
+    case core::LayoutStateShapeType::Array:
+    case core::LayoutStateShapeType::Object:
+        break;
+    }
+    if (object.get_type() != sol::type::table)
+        return std::nullopt;
+
+    lua_State* state = object.lua_state();
+    const int pushed = sol::stack::push(state, object);
+    const int table_index = lua_absindex(state, -1);
+    if (lua_getmetatable(state, table_index) != 0) {
+        lua_pop(state, 1 + pushed);
+        return std::nullopt;
+    }
+    const void* identity = lua_topointer(state, table_index);
+    lua_pop(state, pushed);
+    if (!identity || !active_tables.insert(identity).second)
+        return std::nullopt;
+
+    const auto finish = [&](std::optional<core::PersistableValue> result) {
+        active_tables.erase(identity);
+        return result;
+    };
+    const sol::table table = object.as<sol::table>();
+    if (shape.type == core::LayoutStateShapeType::Array) {
+        if (shape.items.size() != 1)
+            return finish(std::nullopt);
+        core::PersistableValue::Array values;
+        std::size_t highest = 0;
+        for (const auto& entry : table) {
+            const sol::object key = entry.first;
+            if (key.get_type() != sol::type::number || !key.is<std::int64_t>())
+                return finish(std::nullopt);
+            const auto index = key.as<std::int64_t>();
+            if (index <= 0 ||
+                static_cast<std::uint64_t>(index) >
+                    static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
+                return finish(std::nullopt);
+            highest = std::max(highest, static_cast<std::size_t>(index));
+        }
+        if (highest != table.size())
+            return finish(std::nullopt);
+        values.reserve(highest);
+        for (std::size_t index = 1; index <= highest; ++index) {
+            sol::object member = table[index];
+            auto converted = mount_persistable_value(member, shape.items.front(), active_tables);
+            if (!converted)
+                return finish(std::nullopt);
+            values.push_back(std::move(*converted));
+        }
+        return finish(core::PersistableValue{std::move(values)});
+    }
+
+    core::PersistableValue::Object values;
+    values.reserve(table.size());
+    for (const auto& entry : table) {
+        const sol::object key = entry.first;
+        if (key.get_type() != sol::type::string)
+            return finish(std::nullopt);
+        const auto name = key.as<std::string>();
+        if (name.empty())
+            return finish(std::nullopt);
+        const auto field =
+            std::find_if(shape.fields.begin(), shape.fields.end(), [&](const auto& candidate) {
+                return candidate.id == name && candidate.shape.size() == 1;
+            });
+        if (field == shape.fields.end())
+            return finish(std::nullopt);
+        auto converted = mount_persistable_value(entry.second, field->shape.front(), active_tables);
+        if (!converted)
+            return finish(std::nullopt);
+        values.emplace_back(name, std::move(*converted));
+    }
+    std::sort(values.begin(), values.end(),
+              [](const auto& left, const auto& right) { return left.first < right.first; });
+    core::PersistableValue result{std::move(values)};
+    return core::persistable_value_matches(shape, result) ? finish(std::move(result))
+                                                          : finish(std::nullopt);
 }
 using ui::rmlui::kRuntimeGameDocumentId;
 using ui::rmlui::kRuntimeLoadMenuDocumentId;
@@ -405,7 +569,10 @@ void RuntimeUI::State::install_shell_lua_api()
     game.set_function("start", [this]() {
         return dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}});
     });
-    game.set_function("mount_context", [this, lua](sol::optional<std::string> document_id) mutable {
+    lua_State* mount_lua_state = lua_state;
+    game.set_function("mount_context", [this,
+                                        mount_lua_state](sol::optional<std::string> document_id) {
+        sol::state_view lua(mount_lua_state);
         const std::optional<std::string> selected =
             document_id ? std::optional<std::string>{*document_id} : active_layout_mount_document;
         if (!selected)
@@ -413,45 +580,79 @@ void RuntimeUI::State::install_shell_lua_api()
         const auto found = layout_mount_contexts.find(*selected);
         if (found == layout_mount_contexts.end())
             return sol::make_object(lua, sol::lua_nil);
-        const auto context = found->second;
+        const auto context = std::make_shared<const RuntimeUiLayoutMountContext>(found->second);
         sol::table mount = lua.create_table();
         mount["document_id"] = *selected;
-        mount["occurrence"] = context.occurrence.number();
-        mount.set_function("input", [context, lua](std::string name) mutable {
+        mount["occurrence"] = context->occurrence.number();
+        mount["null"] = mount_layout_state_null(lua);
+        mount.set_function("input", [context, mount_lua_state](sol::table, std::string name) {
+            sol::state_view lua(mount_lua_state);
             auto id = core::LayoutInputId::create(std::move(name));
             if (!id)
                 return sol::make_object(lua, sol::lua_nil);
             const auto input =
-                std::find_if(context.inputs.begin(), context.inputs.end(),
+                std::find_if(context->inputs.begin(), context->inputs.end(),
                              [&](const auto& value) { return value.input == *id.value_if(); });
-            return input == context.inputs.end() ? sol::make_object(lua, sol::lua_nil)
-                                                 : mount_lua_value(lua, input->value);
+            return input == context->inputs.end() ? sol::make_object(lua, sol::lua_nil)
+                                                  : mount_lua_value(lua, input->value);
         });
-        mount.set_function(
-            "signal", [this, context](std::string name, sol::optional<sol::table> payload) {
-                auto signal = core::LayoutSignalId::create(std::move(name));
-                if (!signal ||
-                    std::find(context.connected_signals.begin(), context.connected_signals.end(),
-                              *signal.value_if()) == context.connected_signals.end())
-                    return false;
-                std::vector<core::LayoutSignalFieldValue> fields;
-                if (payload) {
-                    for (const auto& entry : *payload) {
-                        const sol::object key = entry.first;
-                        const sol::object value = entry.second;
-                        if (key.get_type() != sol::type::string)
-                            return false;
-                        auto field = core::LayoutSignalFieldId::create(key.as<std::string>());
-                        auto runtime_value = mount_runtime_value(value);
-                        if (!field || !runtime_value)
-                            return false;
-                        fields.push_back({std::move(*field.value_if()), std::move(*runtime_value)});
-                    }
+        mount.set_function("state", [context, mount_lua_state](sol::table, std::string scope_name) {
+            sol::state_view lua(mount_lua_state);
+            const auto scope = mount_layout_state_scope(scope_name);
+            if (!scope || !context->state_shape)
+                return sol::make_object(lua, sol::lua_nil);
+            const auto found =
+                std::find_if(context->state_values.begin(), context->state_values.end(),
+                             [&](const auto& candidate) { return candidate.scope == *scope; });
+            return found == context->state_values.end() || !found->value
+                       ? sol::make_object(lua, sol::lua_nil)
+                       : mount_persistable_lua_value(lua, *found->value);
+        });
+        mount.set_function("commit_state", [this, context](sol::table, std::string scope_name,
+                                                           sol::object value) {
+            const auto scope = mount_layout_state_scope(scope_name);
+            if (!scope || !context->state_shape)
+                return false;
+            std::unordered_set<const void*> active_tables;
+            auto converted = mount_persistable_value(value, *context->state_shape, active_tables);
+            if (!converted)
+                return false;
+            return dispatch_layout_typed_input(core::RuntimeInputMessage{
+                core::CommitLayoutStateInput{context->owner, context->key, context->occurrence,
+                                             *scope, std::move(*converted)}});
+        });
+        mount.set_function("clear_state", [this, context](sol::table, std::string scope_name) {
+            const auto scope = mount_layout_state_scope(scope_name);
+            return scope && context->state_shape &&
+                   dispatch_layout_typed_input(
+                       core::RuntimeInputMessage{core::ClearLayoutStateInput{
+                           context->owner, context->key, context->occurrence, *scope}});
+        });
+        mount.set_function("signal", [this, context](sol::table, std::string name,
+                                                     sol::optional<sol::table> payload) {
+            auto signal = core::LayoutSignalId::create(std::move(name));
+            if (!signal ||
+                std::find(context->connected_signals.begin(), context->connected_signals.end(),
+                          *signal.value_if()) == context->connected_signals.end())
+                return false;
+            std::vector<core::LayoutSignalFieldValue> fields;
+            if (payload) {
+                for (const auto& entry : *payload) {
+                    const sol::object key = entry.first;
+                    const sol::object value = entry.second;
+                    if (key.get_type() != sol::type::string)
+                        return false;
+                    auto field = core::LayoutSignalFieldId::create(key.as<std::string>());
+                    auto runtime_value = mount_runtime_value(value);
+                    if (!field || !runtime_value)
+                        return false;
+                    fields.push_back({std::move(*field.value_if()), std::move(*runtime_value)});
                 }
-                return dispatch_layout_typed_input(core::RuntimeInputMessage{
-                    core::LayoutSignalInput{context.owner, context.key, context.occurrence,
-                                            std::move(*signal.value_if()), std::move(fields)}});
-            });
+            }
+            return dispatch_layout_typed_input(core::RuntimeInputMessage{
+                core::LayoutSignalInput{context->owner, context->key, context->occurrence,
+                                        std::move(*signal.value_if()), std::move(fields)}});
+        });
         return sol::make_object(lua, std::move(mount));
     });
 

@@ -884,7 +884,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
               <div>
                 <h3 className="text-sm font-medium">Mount Contract JSON</h3>
                 <p className="text-xs text-muted-foreground">
-                  Declare typed read-only inputs and typed signals exposed by each Mount occurrence.
+                  Declare typed read-only inputs, typed signals, and the recursive State Shape used
+                  by engine-owned Layout Slots.
                 </p>
               </div>
               <SourceEditor

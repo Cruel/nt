@@ -199,7 +199,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         m_room_lifecycle_diagnostics.push_back(core::Diagnostic{
             .code = "execution.directed_room_guard_false", .message = std::move(message)});
     };
-    auto guard_result = [&fault](const core::Result<bool, RuntimeExecutionError>& evaluated)
+    auto guard_result = [](const core::Result<bool, RuntimeExecutionError>& evaluated)
         -> core::Result<bool, core::Diagnostics> {
         if (!evaluated)
             return core::Result<bool, core::Diagnostics>::failure(

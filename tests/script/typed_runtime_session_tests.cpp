@@ -520,7 +520,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 26);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 28);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
@@ -2054,6 +2054,7 @@ TEST_CASE("runtime Lua custom Layout mounts accept typed contract bindings and s
                        })},
             {"signals",
              nlohmann::json::array({{{"id", "confirm"}, {"fields", nlohmann::json::array()}}})},
+            {"state", nullptr},
         };
         layouts.push_back(std::move(layout));
     });
