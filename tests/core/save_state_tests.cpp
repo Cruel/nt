@@ -284,7 +284,8 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
         InteractionInvocationContext{
             id<VerbId>("use"),
             id<RoomId>("start"),
-            {compiled::InteractableInteractionSubject{id<InteractableId>("key")}}},
+            {{id<VerbSlotId>("target"),
+              compiled::InteractableInteractionSubject{id<InteractableId>("key")}}}},
         InteractionRuleProgramRef{id<InteractionId>("actions"),
                                   id<InteractionRuleId>("any-context")}));
     auto interaction = make_save_state(interaction_project, interaction_state);
@@ -306,7 +307,8 @@ TEST_CASE("current save-state round-trips owner-qualified Feature interaction su
     const compiled::InteractionSubject feature = compiled::FeatureInteractionSubject{
         InteractableFeatureRef{id<InteractableId>("key"), id<FeatureId>("surface")}};
     REQUIRE(flow.start_interaction(
-        InteractionInvocationContext{id<VerbId>("use"), id<RoomId>("start"), {feature}},
+        InteractionInvocationContext{
+            id<VerbId>("use"), id<RoomId>("start"), {{id<VerbSlotId>("target"), feature}}},
         InteractionRuleProgramRef{id<InteractionId>("actions"),
                                   id<InteractionRuleId>("interactable-feature")}));
     auto snapshot = make_save_state(project, state);
@@ -315,24 +317,27 @@ TEST_CASE("current save-state round-trips owner-qualified Feature interaction su
     REQUIRE(encoded);
     REQUIRE(encoded.value()["flowStack"].size() == 1);
     CHECK_FALSE(encoded.value()["flowStack"][0]["invocation"].contains("hotspot"));
-    CHECK(encoded.value()["flowStack"][0]["invocation"]["operands"][0] ==
-          nlohmann::json{{"kind", "feature"},
-                         {"ownerKind", "interactable"},
-                         {"ownerId", "key"},
-                         {"featureId", "surface"}});
+    CHECK(encoded.value()["flowStack"][0]["invocation"]["bindings"][0] ==
+          nlohmann::json{{"slotId", "target"},
+                         {"subject",
+                          {{"kind", "feature"},
+                           {"ownerKind", "interactable"},
+                           {"ownerId", "key"},
+                           {"featureId", "surface"}}}});
 
     auto decoded = decode_save_state(project, encoded.value(), "feature-save.json");
     REQUIRE(decoded);
     const auto& frame = std::get<SavedInteractionFrame>(decoded.value().flow_stack.front());
-    REQUIRE(frame.invocation.operands.size() == 1);
-    CHECK(frame.invocation.operands.front() == feature);
+    REQUIRE(frame.invocation.bindings.size() == 1);
+    CHECK(frame.invocation.bindings.front().slot_id == id<VerbSlotId>("target"));
+    CHECK(frame.invocation.bindings.front().subject == feature);
 
     auto stale = encoded.value();
-    stale["flowStack"][0]["invocation"]["operands"][0]["featureId"] = "missing";
+    stale["flowStack"][0]["invocation"]["bindings"][0]["subject"]["featureId"] = "missing";
     CHECK_FALSE(decode_save_state(project, stale, "feature-save.json"));
 
     auto missing_owner = encoded.value();
-    missing_owner["flowStack"][0]["invocation"]["operands"][0]["ownerId"] = "missing";
+    missing_owner["flowStack"][0]["invocation"]["bindings"][0]["subject"]["ownerId"] = "missing";
     CHECK_FALSE(decode_save_state(project, missing_owner, "feature-save.json"));
 
     auto old_shape = encoded.value();

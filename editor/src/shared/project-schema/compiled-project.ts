@@ -35,6 +35,7 @@ const roomReferenceSchema = typedReference('room');
 const sceneReferenceSchema = typedReference('scene');
 const scriptReferenceSchema = typedReference('script');
 const propertyReferenceSchema = typedReference('property');
+const traitReferenceSchema = typedReference('trait');
 const verbReferenceSchema = typedReference('verb');
 const featureReferenceSchema = z.discriminatedUnion('ownerKind', [
   strict({ ownerKind: z.literal('room'), room: roomReferenceSchema, featureId: id }),
@@ -530,20 +531,27 @@ const interactionContextSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
   strict({ condition: compiledConditionSchema, kind: z.literal('predicate') }),
 ]);
-const interactionOperandSchema = z.discriminatedUnion('kind', [
-  strict({
-    subject: compiledInteractionSubjectSchema,
-    kind: z.literal('exact'),
-  }),
-  strict({ kind: z.literal('any-character') }),
-  strict({ kind: z.literal('any-interactable') }),
-  strict({ kind: z.literal('any-item-stack') }),
+const subjectFamilySchema = z.enum(['character', 'interactable', 'feature', 'item-stack']);
+export const compiledSubjectSelectorSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('any-subject') }),
+  strict({ kind: z.literal('family'), family: subjectFamilySchema }),
+  strict({ kind: z.literal('trait'), trait: traitReferenceSchema }),
+  strict({ kind: z.literal('item-definition'), itemDefinition: itemDefinitionReferenceSchema }),
+  strict({
+    kind: z.literal('qualified-pattern'),
+    family: subjectFamilySchema,
+    pattern: z.string().min(2),
+  }),
+  strict({ kind: z.literal('exact'), subject: compiledInteractionSubjectSchema }),
 ]);
+const interactionSlotSelectorSchema = strict({
+  slotId: id,
+  selectors: z.array(compiledSubjectSelectorSchema).min(1),
+});
 const interactionRuleSchema = strict({
   context: interactionContextSchema,
   id,
-  operands: z.array(interactionOperandSchema).max(2),
+  slots: z.array(interactionSlotSelectorSchema),
   program: interactionProgramSchema,
   verb: verbReferenceSchema,
 });
@@ -551,13 +559,20 @@ const interactionDefinitionSchema = strict({
   id,
   rules: z.array(interactionRuleSchema),
 });
+const verbSlotSchema = strict({
+  id,
+  label: compiledTextSchema,
+  prompt: compiledTextSchema,
+  selectors: z.array(compiledSubjectSelectorSchema).min(1),
+});
 const verbDefinitionSchema = strict({
   id,
   actionText: compiledTextSchema,
-  arity: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  completedCommandText: compiledTextSchema,
+  slots: z.array(verbSlotSchema),
+  bindingOrder: z.array(id),
   availability: compiledConditionSchema,
   defaultProgram: interactionProgramSchema,
-  operandRoles: z.array(z.string().min(1)).max(2),
   quickAction: z.boolean(),
 });
 

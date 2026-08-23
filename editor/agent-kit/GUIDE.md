@@ -12,7 +12,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - CLI commands and when to use direct edits instead: `.noveltea/agent/CLI.md`
 - General authoring concepts and choosing the right entity type: `.noveltea/agent/docs/AUTHORING.md`
 - Rooms, placements, props, room interactables, and background hotspots: `.noveltea/agent/docs/ROOMS.md`
-- Verbs, operand arity, interactions, and hotspot activation: `.noveltea/agent/docs/INTERACTIONS.md`
+- Verbs, named subject slots/selectors, interactions, and hotspot selection: `.noveltea/agent/docs/INTERACTIONS.md`
 - Assets, shaders, and materials: `.noveltea/agent/docs/ASSETS_SHADERS.md`
 - RML/RCSS authoring and RmlUi differences from browser HTML/CSS: `.noveltea/agent/docs/RMLUI.md`
 - Exact RCSS property/value/shorthand/unit support: `.noveltea/agent/docs/RCSS_REFERENCE.md`

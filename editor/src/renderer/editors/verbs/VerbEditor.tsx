@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -8,6 +9,10 @@ import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import type { Condition, TextContent } from '../../../shared/project-schema/authoring-flow';
 import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
+import {
+  SubjectSelectorEditor,
+  defaultSubjectSelector,
+} from '../interactions/SubjectSelectorEditor';
 import {
   authoringProjectFromDocument,
   InteractionProgramEditor,
@@ -165,27 +170,28 @@ function VerbForm({
   project: AuthoringEditorProject;
   onChange: (next: VerbData) => void;
 }) {
-  const setArity = (value: string | null) => {
-    const arity = Number(value ?? 0) as 0 | 1 | 2;
+  const addSlot = () => {
+    const used = new Set(data.slots.map((slot) => slot.id));
+    let index = data.slots.length + 1;
+    let id = `subject-${index}`;
+    while (used.has(id)) id = `subject-${++index}`;
+    const label = { source: { kind: 'inline' as const, text: id }, markup: 'plain' as const };
     onChange({
       ...data,
-      arity,
-      operandRoles: Array.from(
-        { length: arity },
-        (_, index) => data.operandRoles[index] ?? `operand-${index + 1}`,
-      ),
+      slots: [
+        ...data.slots,
+        { id, label, prompt: label, selectors: [defaultSubjectSelector(project)] },
+      ],
+      bindingOrder: [...data.bindingOrder, id],
     });
   };
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <Label>Arity</Label>
-          <Select value={String(data.arity)} onValueChange={setArity}>
-            <SelectItem value="0">0</SelectItem>
-            <SelectItem value="1">1</SelectItem>
-            <SelectItem value="2">2</SelectItem>
-          </Select>
+        <div className="flex items-end">
+          <Button type="button" size="sm" variant="outline" onClick={addSlot}>
+            Add subject slot
+          </Button>
         </div>
         <label className="flex items-end gap-2 text-sm">
           <input
@@ -203,22 +209,174 @@ function VerbForm({
           onChange={(actionText) => onChange({ ...data, actionText })}
         />
       </div>
-      {data.operandRoles.map((role, index) => (
-        <div key={index}>
-          <Label>Operand {index + 1} role</Label>
-          <Input
-            value={role}
-            onChange={(event) =>
-              onChange({
-                ...data,
-                operandRoles: data.operandRoles.map((current, item) =>
-                  item === index ? event.currentTarget.value : current,
-                ),
-              })
-            }
-          />
-        </div>
-      ))}
+      <div>
+        <Label>Completed command text</Label>
+        <TextContentEditor
+          value={data.completedCommandText}
+          onChange={(completedCommandText) => onChange({ ...data, completedCommandText })}
+        />
+      </div>
+      <div className="space-y-3">
+        <Label>Named subject slots</Label>
+        {data.slots.map((slot, index) => (
+          <section className="space-y-2 rounded border p-3" key={slot.id}>
+            <div className="grid gap-2 md:grid-cols-[1fr_auto_auto_auto]">
+              <Input
+                value={slot.id}
+                onChange={(event) => {
+                  const id = event.currentTarget.value;
+                  onChange({
+                    ...data,
+                    slots: data.slots.map((item, current) =>
+                      current === index ? { ...item, id } : item,
+                    ),
+                    bindingOrder: data.bindingOrder.map((current) =>
+                      current === slot.id ? id : current,
+                    ),
+                  });
+                }}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={data.bindingOrder.indexOf(slot.id) <= 0}
+                onClick={() => {
+                  const order = [...data.bindingOrder];
+                  const at = order.indexOf(slot.id);
+                  if (at <= 0) return;
+                  [order[at - 1], order[at]] = [order[at], order[at - 1]];
+                  onChange({ ...data, bindingOrder: order });
+                }}
+              >
+                Earlier
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={data.bindingOrder.indexOf(slot.id) >= data.bindingOrder.length - 1}
+                onClick={() => {
+                  const order = [...data.bindingOrder];
+                  const at = order.indexOf(slot.id);
+                  if (at < 0 || at >= order.length - 1) return;
+                  [order[at], order[at + 1]] = [order[at + 1], order[at]];
+                  onChange({ ...data, bindingOrder: order });
+                }}
+              >
+                Later
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  onChange({
+                    ...data,
+                    slots: data.slots.filter((_, current) => current !== index),
+                    bindingOrder: data.bindingOrder.filter((id) => id !== slot.id),
+                  })
+                }
+              >
+                Delete
+              </Button>
+            </div>
+            <div>
+              <Label>Slot label</Label>
+              <TextContentEditor
+                value={slot.label}
+                onChange={(label) =>
+                  onChange({
+                    ...data,
+                    slots: data.slots.map((item, current) =>
+                      current === index ? { ...item, label } : item,
+                    ),
+                  })
+                }
+              />
+            </div>
+            <div>
+              <Label>Slot prompt</Label>
+              <TextContentEditor
+                value={slot.prompt}
+                onChange={(prompt) =>
+                  onChange({
+                    ...data,
+                    slots: data.slots.map((item, current) =>
+                      current === index ? { ...item, prompt } : item,
+                    ),
+                  })
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Allowed subjects</Label>
+              {slot.selectors.map((selector, selectorIndex) => (
+                <SubjectSelectorEditor
+                  key={selectorIndex}
+                  value={selector}
+                  project={project}
+                  onChange={(next) =>
+                    onChange({
+                      ...data,
+                      slots: data.slots.map((item, current) =>
+                        current === index
+                          ? {
+                              ...item,
+                              selectors: item.selectors.map((value, currentSelector) =>
+                                currentSelector === selectorIndex ? next : value,
+                              ),
+                            }
+                          : item,
+                      ),
+                    })
+                  }
+                  onDelete={
+                    slot.selectors.length > 1
+                      ? () =>
+                          onChange({
+                            ...data,
+                            slots: data.slots.map((item, current) =>
+                              current === index
+                                ? {
+                                    ...item,
+                                    selectors: item.selectors.filter(
+                                      (_, currentSelector) => currentSelector !== selectorIndex,
+                                    ),
+                                  }
+                                : item,
+                            ),
+                          })
+                      : undefined
+                  }
+                />
+              ))}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  onChange({
+                    ...data,
+                    slots: data.slots.map((item, current) =>
+                      current === index
+                        ? { ...item, selectors: [...item.selectors, { kind: 'any-subject' }] }
+                        : item,
+                    ),
+                  })
+                }
+              >
+                Add selector
+              </Button>
+            </div>
+          </section>
+        ))}
+        {data.slots.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Binding order: {data.bindingOrder.join(' → ')}
+          </p>
+        )}
+      </div>
       <div>
         <Label>Availability</Label>
         <ConditionEditor

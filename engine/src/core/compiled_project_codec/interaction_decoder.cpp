@@ -170,44 +170,182 @@ decode_interaction_program(Decoder& decoder, const nlohmann::json& value, std::s
     return InteractionProgram{std::move(*instructions), std::move(*completion), *outcome};
 }
 
+std::optional<SubjectFamily> decode_subject_family(Decoder& decoder, const nlohmann::json& value,
+                                                   std::string_view pointer)
+{
+    return decoder.enumeration<SubjectFamily>(value, pointer,
+                                              {{"character", SubjectFamily::Character},
+                                               {"interactable", SubjectFamily::Interactable},
+                                               {"feature", SubjectFamily::Feature},
+                                               {"item-stack", SubjectFamily::ItemStack}});
+}
+
+std::optional<SubjectSelector>
+decode_subject_selector(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected a Subject Selector object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind =
+        kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "any-subject") {
+        decoder.object(value, pointer, {"kind"});
+        return SubjectSelector{AnySubjectSelector{}};
+    }
+    if (*kind == "family") {
+        decoder.object(value, pointer, {"family", "kind"});
+        const auto* family_value = decoder.member(value, "family", pointer);
+        auto family = family_value ? decode_subject_family(decoder, *family_value,
+                                                           pointer_child(pointer, "family"))
+                                   : std::nullopt;
+        return family ? std::optional<SubjectSelector>(FamilySubjectSelector{*family})
+                      : std::nullopt;
+    }
+    if (*kind == "trait") {
+        decoder.object(value, pointer, {"kind", "trait"});
+        const auto* trait_value = decoder.member(value, "trait", pointer);
+        auto trait = trait_value
+                         ? decode_reference<TraitId>(decoder, *trait_value,
+                                                     pointer_child(pointer, "trait"), "trait")
+                         : std::nullopt;
+        return trait ? std::optional<SubjectSelector>(TraitSubjectSelector{std::move(*trait)})
+                     : std::nullopt;
+    }
+    if (*kind == "item-definition") {
+        decoder.object(value, pointer, {"itemDefinition", "kind"});
+        const auto* definition_value = decoder.member(value, "itemDefinition", pointer);
+        auto definition = definition_value
+                              ? decode_reference<ItemDefinitionId>(
+                                    decoder, *definition_value,
+                                    pointer_child(pointer, "itemDefinition"), "item-definition")
+                              : std::nullopt;
+        return definition ? std::optional<SubjectSelector>(
+                                ItemDefinitionSubjectSelector{std::move(*definition)})
+                          : std::nullopt;
+    }
+    if (*kind == "qualified-pattern") {
+        decoder.object(value, pointer, {"family", "kind", "pattern"});
+        const auto* family_value = decoder.member(value, "family", pointer);
+        const auto* pattern_value = decoder.member(value, "pattern", pointer);
+        auto family = family_value ? decode_subject_family(decoder, *family_value,
+                                                           pointer_child(pointer, "family"))
+                                   : std::nullopt;
+        auto pattern = pattern_value
+                           ? decoder.string(*pattern_value, pointer_child(pointer, "pattern"), true)
+                           : std::nullopt;
+        if (pattern && (pattern->size() < 2 || pattern->back() != '*' ||
+                        pattern->substr(0, pattern->size() - 1).find('*') != std::string::npos)) {
+            decoder.error(
+                k_code_type,
+                "Qualified Subject Selector patterns require exactly one trailing wildcard.",
+                pointer_child(pointer, "pattern"));
+            pattern.reset();
+        }
+        return family && pattern ? std::optional<SubjectSelector>(QualifiedPatternSubjectSelector{
+                                       *family, std::move(*pattern)})
+                                 : std::nullopt;
+    }
+    if (*kind == "exact") {
+        decoder.object(value, pointer, {"kind", "subject"});
+        const auto* subject_value = decoder.member(value, "subject", pointer);
+        auto subject = subject_value ? decode_interaction_subject(decoder, *subject_value,
+                                                                  pointer_child(pointer, "subject"))
+                                     : std::nullopt;
+        return subject ? std::optional<SubjectSelector>(ExactSubjectSelector{std::move(*subject)})
+                       : std::nullopt;
+    }
+    decoder.object(value, pointer, {"kind"});
+    decoder.error(k_code_variant, "Unknown Subject Selector variant '" + *kind + "'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<std::vector<SubjectSelector>>
+decode_subject_selectors(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    auto selectors = decoder.array<SubjectSelector>(
+        value, pointer, [&](const nlohmann::json& selector, const std::string& selector_pointer) {
+            return decode_subject_selector(decoder, selector, selector_pointer);
+        });
+    if (selectors && selectors->empty()) {
+        decoder.error(k_code_type, "At least one Subject Selector is required.",
+                      std::string(pointer));
+        selectors.reset();
+    }
+    return selectors;
+}
+
 std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json& value,
                                           std::string_view pointer)
 {
     if (!decoder.object(value, pointer,
-                        {"actionText", "arity", "availability", "defaultProgram", "id",
-                         "operandRoles", "quickAction"}))
+                        {"actionText", "availability", "bindingOrder", "completedCommandText",
+                         "defaultProgram", "id", "quickAction", "slots"}))
         return std::nullopt;
     auto identity = decode_definition_identity<VerbId>(decoder, value, pointer);
     const auto* action_value = decoder.member(value, "actionText", pointer);
-    const auto* arity_value = decoder.member(value, "arity", pointer);
+    const auto* completed_value = decoder.member(value, "completedCommandText", pointer);
+    const auto* slots_value = decoder.member(value, "slots", pointer);
+    const auto* binding_order_value = decoder.member(value, "bindingOrder", pointer);
     const auto* availability_value = decoder.member(value, "availability", pointer);
     const auto* program_value = decoder.member(value, "defaultProgram", pointer);
-    const auto* roles_value = decoder.member(value, "operandRoles", pointer);
     const auto* quick_value = decoder.member(value, "quickAction", pointer);
     auto action = action_value
                       ? decode_text(decoder, *action_value, pointer_child(pointer, "actionText"))
                       : std::nullopt;
-    auto arity =
-        arity_value
-            ? decoder.unsigned_integer<std::uint8_t>(*arity_value, pointer_child(pointer, "arity"))
+    auto completed = completed_value ? decode_text(decoder, *completed_value,
+                                                   pointer_child(pointer, "completedCommandText"))
+                                     : std::nullopt;
+    auto slots =
+        slots_value
+            ? decoder.array<VerbSlot>(
+                  *slots_value, pointer_child(pointer, "slots"),
+                  [&](const nlohmann::json& slot,
+                      const std::string& slot_pointer) -> std::optional<VerbSlot> {
+                      if (!decoder.object(slot, slot_pointer,
+                                          {"id", "label", "prompt", "selectors"}))
+                          return std::nullopt;
+                      const auto* id_value = decoder.member(slot, "id", slot_pointer);
+                      const auto* label_value = decoder.member(slot, "label", slot_pointer);
+                      const auto* prompt_value = decoder.member(slot, "prompt", slot_pointer);
+                      const auto* selectors_value = decoder.member(slot, "selectors", slot_pointer);
+                      auto slot_id =
+                          id_value
+                              ? decoder.id<VerbSlotId>(*id_value, pointer_child(slot_pointer, "id"))
+                              : std::nullopt;
+                      auto label = label_value ? decode_text(decoder, *label_value,
+                                                             pointer_child(slot_pointer, "label"))
+                                               : std::nullopt;
+                      auto prompt = prompt_value
+                                        ? decode_text(decoder, *prompt_value,
+                                                      pointer_child(slot_pointer, "prompt"))
+                                        : std::nullopt;
+                      auto selectors =
+                          selectors_value
+                              ? decode_subject_selectors(decoder, *selectors_value,
+                                                         pointer_child(slot_pointer, "selectors"))
+                              : std::nullopt;
+                      return slot_id && label && prompt && selectors
+                                 ? std::optional<VerbSlot>(
+                                       VerbSlot{std::move(*slot_id), std::move(*label),
+                                                std::move(*prompt), std::move(*selectors)})
+                                 : std::nullopt;
+                  })
             : std::nullopt;
-    if (arity && *arity > 2) {
-        decoder.error(k_code_enum, "Verb arity must be 0, 1, or 2.",
-                      pointer_child(pointer, "arity"));
-        arity.reset();
-    }
-    auto roles = roles_value
-                     ? decoder.array<std::string>(
-                           *roles_value, pointer_child(pointer, "operandRoles"),
-                           [&](const nlohmann::json& role, const std::string& item_pointer) {
-                               return decoder.string(role, item_pointer, true);
-                           })
-                     : std::nullopt;
-    if (roles && roles->size() > 2) {
-        decoder.error(k_code_type, "At most two operand roles are allowed.",
-                      pointer_child(pointer, "operandRoles"));
-        roles.reset();
-    }
+    if (slots)
+        decoder.duplicate_ids(*slots, pointer_child(pointer, "slots"),
+                              [](const VerbSlot& slot) -> const VerbSlotId& { return slot.id; });
+    auto binding_order =
+        binding_order_value ? decoder.array<VerbSlotId>(
+                                  *binding_order_value, pointer_child(pointer, "bindingOrder"),
+                                  [&](const nlohmann::json& item, const std::string& item_pointer) {
+                                      return decoder.id<VerbSlotId>(item, item_pointer);
+                                  })
+                            : std::nullopt;
     auto quick = quick_value ? decoder.boolean(*quick_value, pointer_child(pointer, "quickAction"))
                              : std::nullopt;
     auto availability = availability_value
@@ -218,11 +356,13 @@ std::optional<VerbDefinition> decode_verb(Decoder& decoder, const nlohmann::json
                        ? decode_interaction_program(decoder, *program_value,
                                                     pointer_child(pointer, "defaultProgram"))
                        : std::nullopt;
-    if (!identity || !action || !arity || !availability || !program || !roles || !quick)
+    if (!identity || !action || !completed || !slots || !binding_order || !availability ||
+        !program || !quick)
         return std::nullopt;
-    return VerbDefinition{
-        std::move(*identity), std::move(*action), *arity, std::move(*availability),
-        std::move(*program),  std::move(*roles),  *quick};
+    return VerbDefinition{std::move(*identity),      std::move(*action),
+                          std::move(*completed),     std::move(*slots),
+                          std::move(*binding_order), std::move(*availability),
+                          std::move(*program),       *quick};
 }
 
 std::optional<InteractionDefinition>
@@ -239,12 +379,12 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                   [&](const nlohmann::json& rule,
                       const std::string& rule_pointer) -> std::optional<InteractionRule> {
                       if (!decoder.object(rule, rule_pointer,
-                                          {"context", "id", "operands", "program", "verb"}))
+                                          {"context", "id", "program", "slots", "verb"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(rule, "id", rule_pointer);
                       const auto* verb_value = decoder.member(rule, "verb", rule_pointer);
                       const auto* context_value = decoder.member(rule, "context", rule_pointer);
-                      const auto* operands_value = decoder.member(rule, "operands", rule_pointer);
+                      const auto* slots_value = decoder.member(rule, "slots", rule_pointer);
                       const auto* program_value = decoder.member(rule, "program", rule_pointer);
                       auto id = id_value ? decoder.id<InteractionRuleId>(
                                                *id_value, pointer_child(rule_pointer, "id"))
@@ -310,82 +450,47 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                           decoder.error(k_code_type, "Expected an object.",
                                         pointer_child(rule_pointer, "context"));
                       }
-                      auto operands =
-                          operands_value
-                              ? decoder.array<InteractionOperand>(
-                                    *operands_value, pointer_child(rule_pointer, "operands"),
-                                    [&](const nlohmann::json& operand,
-                                        const std::string& operand_pointer)
-                                        -> std::optional<InteractionOperand> {
-                                        if (!operand.is_object()) {
-                                            decoder.error(k_code_type,
-                                                          "Expected an operand object.",
-                                                          operand_pointer);
+                      auto slots =
+                          slots_value
+                              ? decoder.array<InteractionSlotSelector>(
+                                    *slots_value, pointer_child(rule_pointer, "slots"),
+                                    [&](const nlohmann::json& slot, const std::string& slot_pointer)
+                                        -> std::optional<InteractionSlotSelector> {
+                                        if (!decoder.object(slot, slot_pointer,
+                                                            {"selectors", "slotId"}))
                                             return std::nullopt;
-                                        }
-                                        const auto* kind_value =
-                                            decoder.member(operand, "kind", operand_pointer);
-                                        auto kind =
-                                            kind_value ? decoder.string(
-                                                             *kind_value,
-                                                             pointer_child(operand_pointer, "kind"))
-                                                       : std::nullopt;
-                                        if (kind && *kind == "any-interactable") {
-                                            decoder.object(operand, operand_pointer, {"kind"});
-                                            return InteractionOperand{AnyInteractableOperand{}};
-                                        }
-                                        if (kind && *kind == "any-character") {
-                                            decoder.object(operand, operand_pointer, {"kind"});
-                                            return InteractionOperand{AnyCharacterOperand{}};
-                                        }
-                                        if (kind && *kind == "any-item-stack") {
-                                            decoder.object(operand, operand_pointer, {"kind"});
-                                            return InteractionOperand{AnyItemStackOperand{}};
-                                        }
-                                        if (kind && *kind == "any-subject") {
-                                            decoder.object(operand, operand_pointer, {"kind"});
-                                            return InteractionOperand{
-                                                AnyInteractionSubjectOperand{}};
-                                        }
-                                        if (kind && *kind == "exact") {
-                                            decoder.object(operand, operand_pointer,
-                                                           {"kind", "subject"});
-                                            const auto* subject_value =
-                                                decoder.member(operand, "subject", operand_pointer);
-                                            auto subject =
-                                                subject_value
-                                                    ? decode_interaction_subject(
-                                                          decoder, *subject_value,
-                                                          pointer_child(operand_pointer, "subject"))
-                                                    : std::nullopt;
-                                            if (subject)
-                                                return InteractionOperand{
-                                                    ExactOperand{std::move(*subject)}};
-                                            return std::nullopt;
-                                        }
-                                        if (kind) {
-                                            decoder.object(operand, operand_pointer, {"kind"});
-                                            decoder.error(k_code_variant,
-                                                          "Unknown interaction operand variant '" +
-                                                              *kind + "'.",
-                                                          pointer_child(operand_pointer, "kind"));
-                                        }
-                                        return std::nullopt;
+                                        const auto* slot_id_value =
+                                            decoder.member(slot, "slotId", slot_pointer);
+                                        const auto* selectors_value =
+                                            decoder.member(slot, "selectors", slot_pointer);
+                                        auto slot_id =
+                                            slot_id_value
+                                                ? decoder.id<VerbSlotId>(
+                                                      *slot_id_value,
+                                                      pointer_child(slot_pointer, "slotId"))
+                                                : std::nullopt;
+                                        auto selectors =
+                                            selectors_value
+                                                ? decode_subject_selectors(
+                                                      decoder, *selectors_value,
+                                                      pointer_child(slot_pointer, "selectors"))
+                                                : std::nullopt;
+                                        return slot_id && selectors
+                                                   ? std::optional<InteractionSlotSelector>(
+                                                         InteractionSlotSelector{
+                                                             std::move(*slot_id),
+                                                             std::move(*selectors)})
+                                                   : std::nullopt;
                                     })
                               : std::nullopt;
-                      if (operands && operands->size() > 2) {
-                          decoder.error(k_code_type, "At most two operands are allowed.",
-                                        pointer_child(rule_pointer, "operands"));
-                          operands.reset();
-                      }
                       auto program =
                           program_value
                               ? decode_interaction_program(decoder, *program_value,
                                                            pointer_child(rule_pointer, "program"))
                               : std::nullopt;
-                      if (id && verb && context && operands && program)
+                      if (id && verb && context && slots && program)
                           return InteractionRule{std::move(*id), std::move(*verb),
-                                                 std::move(*context), std::move(*operands),
+                                                 std::move(*context), std::move(*slots),
                                                  std::move(*program)};
                       return std::nullopt;
                   })

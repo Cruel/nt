@@ -307,8 +307,16 @@ TEST_CASE("RuntimeUiActionGateway rejects stale hidden and disabled typed gamepl
                    noveltea::core::compiled::RoomExitDirection::North, "Enabled", true},
                   {exit_disabled.value(), target.value(),
                    noveltea::core::compiled::RoomExitDirection::South, "Disabled", false}},
-        .controls = {{verb_enabled.value(), "Inspect", 1, false, true},
-                     {verb_disabled.value(), "Use", 1, false, false}}};
+        .controls = {{verb_enabled.value(),
+                      "Inspect",
+                      {noveltea::core::VerbSlotId::create("target").value()},
+                      false,
+                      true},
+                     {verb_disabled.value(),
+                      "Use",
+                      {noveltea::core::VerbSlotId::create("target").value()},
+                      false,
+                      false}}};
     REQUIRE(binder.apply(values));
 
     lua_State* state = luaL_newstate();

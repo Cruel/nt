@@ -16,9 +16,10 @@ A bare `FeatureId` is never a project-wide reference. A Feature may attach compa
 assign compatible identity-scoped Properties. Those values use the same Property resolver, runtime
 override, save/load, Lua, validation, and diagnostics machinery as other Property-bearing identities.
 
-Features are admitted Interaction subjects alongside Characters and Interactables. Exact Interaction
-operands may therefore target a Character, an Interactable, or an owner-qualified Feature. `AnySubject`
-matches all three subject families; the narrower Character/Interactable wildcards remain narrow.
+Features are admitted Interaction subjects alongside Characters, Interactables, and exact live Item
+Stacks. Final Interaction commands bind those exact subjects to stable named Verb slots. Subject
+Selectors may admit a family, required Trait, Item Definition, qualified identity pattern, exact
+identity, or any supported subject; Hotspot identity itself never participates in slot matching.
 
 A **Hotspot** is geometry plus pointer-selection metadata. It does not own a Verb, an Interaction
 program, or an exact Interaction context. A Hotspot maps pointer geometry to one semantic target:
@@ -122,9 +123,10 @@ semantics.
 
 ## Lua, preview, debugger, and tests
 
-Lua `Game.run_action` accepts Character, Interactable, and owner-qualified Feature subjects. Feature
-Properties are available through the typed Feature Property helpers using `(owner_kind, owner_id,
-feature_id, property_id)`. A Feature reference remains owner-qualified at every Lua/runtime boundary.
+Lua `Game.run_action` accepts a map of stable Verb slot IDs to exact Character, Interactable,
+owner-qualified Feature, or Item Stack subjects. Feature Properties are available through the typed
+Feature Property helpers using `(owner_kind, owner_id, feature_id, property_id)`. A Feature reference
+remains owner-qualified at every Lua/runtime boundary.
 
 Runtime debug snapshots publish semantic clickable targets, not authored Hotspot definitions. A
 clickable target is either a semantic subject plus label or a Room Exit plus label. Hidden, disabled,
@@ -135,8 +137,9 @@ Interaction invocation. Recorder and authored-test playback store semantic `sele
 `run-interaction`, or `navigate` inputs. Two different Hotspots that map to the same Feature therefore
 produce the same recorded/runtime subject identity.
 
-Save state preserves owner-qualified Feature operands in yielding Interaction frames and Feature
-Property overrides. It does not persist Hotspot invocation identity.
+Save state preserves named Interaction bindings, including owner-qualified Feature subjects, in
+yielding Interaction frames and preserves Feature Property overrides. It does not persist Hotspot
+invocation identity.
 
 ## Export and package behavior
 

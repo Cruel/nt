@@ -1392,42 +1392,49 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                 } else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
                     const auto* program = interaction_program(project, item.program);
                     const auto* verb = project.find_verb(item.invocation.verb);
-                    return program && verb && item.invocation.operands.size() == verb->arity &&
-                           std::all_of(
-                               item.invocation.operands.begin(), item.invocation.operands.end(),
-                               [&project, &save](const compiled::InteractionSubject& subject) {
-                                   return std::visit(
-                                       [&project, &save](const auto& value) {
-                                           using S = std::decay_t<decltype(value)>;
-                                           if constexpr (std::is_same_v<
-                                                             S,
-                                                             compiled::CharacterInteractionSubject>)
-                                               return resolved_character(project, save,
-                                                                         value.character)
-                                                   .has_value();
-                                           else if constexpr (
-                                               std::is_same_v<
-                                                   S, compiled::InteractableInteractionSubject>)
-                                               return resolved_interactable(project, save,
-                                                                            value.interactable)
-                                                   .has_value();
-                                           else if constexpr (std::is_same_v<
-                                                                  S, compiled::
-                                                                         FeatureInteractionSubject>)
-                                               return std::visit(
-                                                   [&project, &save](const auto& reference) {
-                                                       return feature_exists(project, save,
-                                                                             reference);
-                                                   },
-                                                   value.feature);
-                                           else
-                                               return std::ranges::any_of(
-                                                   save.item_stacks, [&](const auto& stack) {
-                                                       return stack.id == value.item_stack;
-                                                   });
-                                       },
-                                       subject);
-                               }) &&
+                    std::unordered_set<VerbSlotId> binding_slots;
+                    const bool bindings_valid =
+                        verb && item.invocation.bindings.size() == verb->slots.size() &&
+                        std::all_of(
+                            item.invocation.bindings.begin(), item.invocation.bindings.end(),
+                            [&project, &save, verb,
+                             &binding_slots](const InteractionSubjectBinding& binding) {
+                                const bool known_slot = std::any_of(
+                                    verb->slots.begin(), verb->slots.end(),
+                                    [&](const auto& slot) { return slot.id == binding.slot_id; });
+                                if (!known_slot || !binding_slots.insert(binding.slot_id).second)
+                                    return false;
+                                return std::visit(
+                                    [&project, &save](const auto& value) {
+                                        using S = std::decay_t<decltype(value)>;
+                                        if constexpr (std::is_same_v<
+                                                          S, compiled::CharacterInteractionSubject>)
+                                            return resolved_character(project, save,
+                                                                      value.character)
+                                                .has_value();
+                                        else if constexpr (
+                                            std::is_same_v<
+                                                S, compiled::InteractableInteractionSubject>)
+                                            return resolved_interactable(project, save,
+                                                                         value.interactable)
+                                                .has_value();
+                                        else if constexpr (std::is_same_v<
+                                                               S,
+                                                               compiled::FeatureInteractionSubject>)
+                                            return std::visit(
+                                                [&project, &save](const auto& reference) {
+                                                    return feature_exists(project, save, reference);
+                                                },
+                                                value.feature);
+                                        else
+                                            return std::ranges::any_of(
+                                                save.item_stacks, [&](const auto& stack) {
+                                                    return stack.id == value.item_stack;
+                                                });
+                                    },
+                                    binding.subject);
+                            });
+                    return program && bindings_valid &&
                            (!item.position.next_instruction ||
                             has_interaction_instruction(*program,
                                                         *item.position.next_instruction)) &&

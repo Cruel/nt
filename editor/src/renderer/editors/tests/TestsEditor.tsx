@@ -43,6 +43,7 @@ import {
 } from '../../../shared/project-schema/authoring-tests';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
+import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
 import {
   buildRuntimePlaybackSpecFromAuthoringTest,
   getAuthoringTestRunReadiness,
@@ -347,7 +348,16 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
   const verbs = Object.entries(activeProject.verbs).map(([id, item]) => ({
     id,
     label: item.label,
+    bindingOrder: parseVerbData(item.data)?.bindingOrder ?? [],
   }));
+  const activeRunInteractionVerb =
+    activeStep?.input === 'run-interaction'
+      ? verbs.find((verb) => verb.id === refValue(activeStep.runInteraction.verb))
+      : undefined;
+  const nextRunInteractionSlotId =
+    activeStep?.input === 'run-interaction'
+      ? activeRunInteractionVerb?.bindingOrder[activeStep.runInteraction.bindings.length]
+      : undefined;
   const variables = Object.entries(activeProject.variables).map(([id, item]) => ({
     id,
     label: item.label,
@@ -919,6 +929,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                         runInteraction: {
                           ...activeStep.runInteraction,
                           verb: String(value) === '__none__' ? null : testVerbRef(String(value)),
+                          bindings: [],
                         },
                       })
                     }
@@ -930,109 +941,141 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                       </SelectItem>
                     ))}
                   </Select>
-                  <Select
-                    value="__add__"
-                    onValueChange={(value) =>
-                      value !== '__add__' &&
-                      replaceStep(activeStep.id, {
-                        runInteraction: {
-                          ...activeStep.runInteraction,
-                          operands: [
-                            ...activeStep.runInteraction.operands,
-                            testCharacterSubject(String(value)),
-                          ],
-                        },
-                      })
-                    }
-                  >
-                    <SelectItem value="__add__">Add character operand</SelectItem>
-                    {characters.map((character) => (
-                      <SelectItem key={character.id} value={character.id}>
-                        {character.label} ({character.id})
+                  {nextRunInteractionSlotId ? (
+                    <Select
+                      value="__add__"
+                      onValueChange={(value) =>
+                        value !== '__add__' &&
+                        replaceStep(activeStep.id, {
+                          runInteraction: {
+                            ...activeStep.runInteraction,
+                            bindings: [
+                              ...activeStep.runInteraction.bindings,
+                              {
+                                slotId: nextRunInteractionSlotId,
+                                subject: testCharacterSubject(String(value)),
+                              },
+                            ],
+                          },
+                        })
+                      }
+                    >
+                      <SelectItem value="__add__">
+                        Bind Character to {nextRunInteractionSlotId}
                       </SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    value="__add__"
-                    onValueChange={(value) =>
-                      value !== '__add__' &&
-                      replaceStep(activeStep.id, {
-                        runInteraction: {
-                          ...activeStep.runInteraction,
-                          operands: [
-                            ...activeStep.runInteraction.operands,
-                            testInteractableSubject(String(value)),
-                          ],
-                        },
-                      })
-                    }
-                  >
-                    <SelectItem value="__add__">Add interactable operand</SelectItem>
-                    {objects.map((object) => (
-                      <SelectItem key={object.id} value={object.id}>
-                        {object.label} ({object.id})
+                      {characters.map((character) => (
+                        <SelectItem key={character.id} value={character.id}>
+                          {character.label} ({character.id})
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  ) : null}
+                  {nextRunInteractionSlotId ? (
+                    <Select
+                      value="__add__"
+                      onValueChange={(value) =>
+                        value !== '__add__' &&
+                        replaceStep(activeStep.id, {
+                          runInteraction: {
+                            ...activeStep.runInteraction,
+                            bindings: [
+                              ...activeStep.runInteraction.bindings,
+                              {
+                                slotId: nextRunInteractionSlotId,
+                                subject: testInteractableSubject(String(value)),
+                              },
+                            ],
+                          },
+                        })
+                      }
+                    >
+                      <SelectItem value="__add__">
+                        Bind Interactable to {nextRunInteractionSlotId}
                       </SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    value="__add__"
-                    onValueChange={(value) =>
-                      value !== '__add__' &&
-                      replaceStep(activeStep.id, {
-                        runInteraction: {
-                          ...activeStep.runInteraction,
-                          operands: [
-                            ...activeStep.runInteraction.operands,
-                            testItemStackSubject(String(value)),
-                          ],
-                        },
-                      })
-                    }
-                  >
-                    <SelectItem value="__add__">Add item Stack operand</SelectItem>
-                    {itemStacks.map((stack) => (
-                      <SelectItem key={stack.id} value={stack.id}>
-                        {stack.label} ({stack.id})
+                      {objects.map((object) => (
+                        <SelectItem key={object.id} value={object.id}>
+                          {object.label} ({object.id})
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  ) : null}
+                  {nextRunInteractionSlotId ? (
+                    <Select
+                      value="__add__"
+                      onValueChange={(value) =>
+                        value !== '__add__' &&
+                        replaceStep(activeStep.id, {
+                          runInteraction: {
+                            ...activeStep.runInteraction,
+                            bindings: [
+                              ...activeStep.runInteraction.bindings,
+                              {
+                                slotId: nextRunInteractionSlotId,
+                                subject: testItemStackSubject(String(value)),
+                              },
+                            ],
+                          },
+                        })
+                      }
+                    >
+                      <SelectItem value="__add__">
+                        Bind Item Stack to {nextRunInteractionSlotId}
                       </SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    value="__add__"
-                    onValueChange={(value) => {
-                      const feature = features.find((item) => item.value === String(value));
-                      if (!feature) return;
-                      replaceStep(activeStep.id, {
-                        runInteraction: {
-                          ...activeStep.runInteraction,
-                          operands: [...activeStep.runInteraction.operands, feature.subject],
-                        },
-                      });
-                    }}
-                  >
-                    <SelectItem value="__add__">Add Feature operand</SelectItem>
-                    {features.map((feature) => (
-                      <SelectItem key={feature.value} value={feature.value}>
-                        {feature.label}
+                      {itemStacks.map((stack) => (
+                        <SelectItem key={stack.id} value={stack.id}>
+                          {stack.label} ({stack.id})
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  ) : null}
+                  {nextRunInteractionSlotId ? (
+                    <Select
+                      value="__add__"
+                      onValueChange={(value) => {
+                        const feature = features.find((item) => item.value === String(value));
+                        if (!feature) return;
+                        replaceStep(activeStep.id, {
+                          runInteraction: {
+                            ...activeStep.runInteraction,
+                            bindings: [
+                              ...activeStep.runInteraction.bindings,
+                              { slotId: nextRunInteractionSlotId, subject: feature.subject },
+                            ],
+                          },
+                        });
+                      }}
+                    >
+                      <SelectItem value="__add__">
+                        Bind Feature to {nextRunInteractionSlotId}
                       </SelectItem>
-                    ))}
-                  </Select>
-                  {activeStep.runInteraction.operands.map((subject, index) => (
+                      {features.map((feature) => (
+                        <SelectItem key={feature.value} value={feature.value}>
+                          {feature.label}
+                        </SelectItem>
+                      ))}
+                    </Select>
+                  ) : activeRunInteractionVerb ? (
+                    <p className="text-xs text-muted-foreground">
+                      All required Verb slots are bound.
+                    </p>
+                  ) : null}
+                  {activeStep.runInteraction.bindings.map((binding, index) => (
                     <Button
-                      key={`${subject.kind}-${subjectId(subject)}-${index}`}
+                      key={`${binding.slotId}-${binding.subject.kind}-${subjectId(binding.subject)}-${index}`}
                       size="sm"
                       variant="outline"
                       onClick={() =>
                         replaceStep(activeStep.id, {
                           runInteraction: {
                             ...activeStep.runInteraction,
-                            operands: activeStep.runInteraction.operands.filter(
+                            bindings: activeStep.runInteraction.bindings.filter(
                               (_, itemIndex) => itemIndex !== index,
                             ),
                           },
                         })
                       }
                     >
-                      Remove {subjectLabel(subject)}
+                      Remove {binding.slotId}: {subjectLabel(binding.subject)}
                     </Button>
                   ))}
                 </div>

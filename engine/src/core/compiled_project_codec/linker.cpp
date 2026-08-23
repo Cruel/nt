@@ -386,9 +386,10 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
     }
     LINK_DEFINITIONS(
         verbs, verbs, VerbDefinition, VerbId,
-        (compiled::VerbDefinition{std::move(identity), std::move(value.action_text), value.arity,
-                                  std::move(value.availability), std::move(value.default_program),
-                                  std::move(value.operand_roles), value.quick_action}));
+        (compiled::VerbDefinition{std::move(identity), std::move(value.action_text),
+                                  std::move(value.completed_command_text), std::move(value.slots),
+                                  std::move(value.binding_order), std::move(value.availability),
+                                  std::move(value.default_program), value.quick_action}));
     LINK_DEFINITIONS(
         interactions, interactions, InteractionDefinition, InteractionId,
         (compiled::InteractionDefinition{std::move(identity), std::move(value.rules)}));

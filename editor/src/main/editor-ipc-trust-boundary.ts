@@ -441,7 +441,16 @@ const playbackInputSchema = z.discriminatedUnion('type', [
     .object({
       type: z.literal('invoke-interaction'),
       verb: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
-      operands: z.array(playbackSubjectSchema).max(64),
+      bindings: z
+        .array(
+          z
+            .object({
+              slotId: z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
+              subject: playbackSubjectSchema,
+            })
+            .strict(),
+        )
+        .max(64),
     })
     .strict(),
   z

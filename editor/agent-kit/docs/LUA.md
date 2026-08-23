@@ -577,7 +577,7 @@ Game.choose(index) -> ok, error
 Game.navigate(index) -> ok, error
 Game.select_object(interactable_id) -> ok, error
 Game.clear_selection() -> ok, error
-Game.run_action(verb_id, subjects?) -> ok, error
+Game.run_action(verb_id, slot_bindings?) -> ok, error
 Game.save(manual_slot_number) -> ok, error
 Game.load(manual_slot_number) -> ok, error
 Game.autosave() -> ok, error
@@ -588,13 +588,13 @@ Game.paused() -> boolean, error
 
 `Game.choose` and `Game.navigate` are deliberately **zero-based**, despite ordinary Lua sequence conventions. They index the current effective runtime choices/navigation entries, so stale or out-of-range indices fail.
 
-`Game.run_action` subjects use the exact Interaction subject vocabulary:
+`Game.run_action` accepts a table keyed by stable Verb slot ID. Each value is one exact Interaction subject:
 
 ```lua
 {
-    { kind = "character", id = "character-id" },
-    { kind = "interactable", id = "interactable-id" },
-    {
+    object = { kind = "interactable", id = "interactable-id" },
+    recipient = { kind = "character", id = "character-id" },
+    target = {
         kind = "feature",
         ownerKind = "room", -- or "interactable"
         ownerId = "room-or-interactable-id",
@@ -603,7 +603,7 @@ Game.paused() -> boolean, error
 }
 ```
 
-Feature subjects are always owner-qualified; a bare Feature ID is never a runtime identity. Verb arity and current subject eligibility are still validated. Hotspots are not callable gameplay subjects: pointer geometry resolves to one of these semantic subjects (or a Room Exit) before runtime input is dispatched.
+Item Stack subjects use `{ kind = "item-stack", id = "stack-id" }`. Feature subjects are always owner-qualified; a bare Feature ID is never a runtime identity. Every required Verb slot must be bound exactly once, each subject must satisfy the slot's Subject Selectors, and current subject eligibility is validated. The same exact live subject may fill multiple slots. Hotspots are not callable gameplay subjects: pointer geometry resolves to one of these semantic subjects (or a Room Exit) before runtime input is dispatched.
 
 `Game.save`/`Game.load` address manual slots. Autosave has its dedicated `Game.autosave()` operation rather than manual slot `0` semantics.
 

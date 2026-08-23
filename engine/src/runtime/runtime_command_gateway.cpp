@@ -1188,7 +1188,7 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::clear_selection()
 
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::run_interaction(core::VerbId verb,
-                                       std::vector<core::compiled::InteractionSubject> operands)
+                                       std::vector<core::InteractionSubjectBinding> bindings)
 {
     auto available = require_services("Game.run_interaction");
     if (!available)
@@ -1197,7 +1197,7 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_verb", "Verb definition is missing"));
     }
-    for (const auto& operand : operands)
+    for (const auto& binding : bindings)
         if (!std::visit(
                 [this](const auto& value) {
                     using T = std::decay_t<decltype(value)>;
@@ -1207,15 +1207,31 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
                                            T, core::compiled::InteractableInteractionSubject>)
                         return m_world.resolved_configuration(value.interactable) != nullptr;
                     else if constexpr (std::is_same_v<T, core::compiled::FeatureInteractionSubject>)
-                        return m_project.find_feature(value.feature) != nullptr;
+                        return std::visit(
+                            [this](const auto& feature) {
+                                const auto* owner = m_world.resolved_configuration([&]() {
+                                    if constexpr (std::is_same_v<std::decay_t<decltype(feature)>,
+                                                                 core::RoomFeatureRef>)
+                                        return feature.room;
+                                    else
+                                        return feature.interactable;
+                                }());
+                                return owner &&
+                                       std::any_of(owner->features.begin(), owner->features.end(),
+                                                   [&](const auto& item) {
+                                                       return item.identity.id ==
+                                                              feature.feature_id;
+                                                   });
+                            },
+                            value.feature);
                     else
                         return m_world.item_stack(value.item_stack) != nullptr;
                 },
-                operand))
+                binding.subject))
             return core::Result<void, core::Diagnostics>::failure(
                 gateway_error("runtime.unknown_interaction_subject",
                               "Interaction subject definition is missing"));
-    m_services->queue_input(core::InvokeInteractionInput{std::move(verb), std::move(operands)});
+    m_services->queue_input(core::InvokeInteractionInput{std::move(verb), std::move(bindings)});
     return core::Result<void, core::Diagnostics>::success();
 }
 

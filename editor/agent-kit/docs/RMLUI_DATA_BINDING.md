@@ -164,7 +164,7 @@ gameplay.interaction.has_selection: bool
 gameplay.interaction.actions[]:
   verb_id: string
   label: string
-  arity: integer
+  binding_order: string[]
   quick_action: bool
   enabled: bool
 

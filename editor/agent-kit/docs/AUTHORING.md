@@ -10,8 +10,8 @@ NovelTea projects are file-first. Use the focused generated documents to underst
 - **Interactable**: a reusable interactive object definition. It owns its sprite/material presentation, hotspot definition, and initial enabled/visible state.
 - **Room interactable**: an instance of an Interactable in one Room. It references both the global Interactable record and a Room Placement.
 - **Room hotspot**: an interactive region directly on the Room background image, useful when the clickable feature is already baked into that image.
-- **Verb**: an interaction operation with arity `0`, `1`, or `2`. Its `operandRoles` length must equal its arity.
-- **Interaction**: authored behavior associated with a Verb and operands/conditions where applicable.
+- **Verb**: an interaction operation with stable named required subject slots, reusable Subject Selectors, and one locale-neutral `bindingOrder`.
+- **Interaction**: authored behavior associated with a Verb, one selector union per named Verb slot, and semantic context/conditions.
 
 References use stable IDs, not labels. Record filesystem identity is also ID-based; see `.noveltea/agent/PROJECT_FORMAT.md`.
 
@@ -42,7 +42,7 @@ Some required fields are routine defaults. Preserve them unless the requested be
 
 Other required fields encode important semantics and should not be guessed. In particular:
 
-- `operandRoles` must describe exactly one role per Verb operand.
+- Verb slot IDs and `bindingOrder` are semantic command identity. Completed-command templates reference those slot IDs with named placeholders such as `{target}`.
 - `defaultProgram` is the Verb's fallback behavior program; do not invent behavior merely to make validation pass.
 - Hotspots are pointer geometry that select semantic subjects or Room Exits; Features are owner-local semantic parts that may carry Traits/Properties and participate in Interactions. See `.noveltea/agent/docs/INTERACTIONS.md` and `.noveltea/agent/docs/ROOMS.md`.
 

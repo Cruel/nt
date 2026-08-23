@@ -91,10 +91,10 @@ describe('compiled project cross-language golden corpus', () => {
     const rule = interaction.definitions.interactions
       .flatMap((definition) => definition.rules)
       .find((candidate) => candidate.id === 'room-feature')!;
-    const operand = rule.operands[0];
-    if (operand?.kind !== 'exact' || operand.subject.kind !== 'feature')
-      throw new Error('Expected exact Feature operand.');
-    (operand.subject.feature as { featureId: unknown }).featureId = null;
+    const selector = rule.slots[0]?.selectors[0];
+    if (selector?.kind !== 'exact' || selector.subject.kind !== 'feature')
+      throw new Error('Expected exact Feature selector.');
+    (selector.subject.feature as { featureId: unknown }).featureId = null;
     expect(compiledProjectWireV4Schema.safeParse(interaction).success).toBe(false);
   });
 
@@ -111,7 +111,7 @@ describe('compiled project cross-language golden corpus', () => {
       'actor-cue',
       'always',
       'any',
-      'any-interactable',
+      'family',
       'apply-effect',
       'asset',
       'audio-cue',
@@ -244,9 +244,13 @@ describe('compiled project cross-language golden corpus', () => {
     });
     expect(
       sorted(
-        new Set(actions.rules.flatMap((rule) => rule.operands.map((operand) => operand.kind))),
+        new Set(
+          actions.rules.flatMap((rule) =>
+            rule.slots.flatMap((slot) => slot.selectors.map((selector) => selector.kind)),
+          ),
+        ),
       ),
-    ).toEqual(['any-interactable', 'exact']);
+    ).toEqual(['exact', 'family']);
     expect(
       sorted(
         new Set(

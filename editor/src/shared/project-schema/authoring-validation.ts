@@ -36,7 +36,11 @@ import { validateScriptModuleData } from './authoring-script-modules';
 import { validateShaderData } from './authoring-shaders';
 import { validateTestData } from './authoring-tests';
 import { validateVariableData } from './authoring-variables';
-import { parseVerbData } from './authoring-verbs';
+import {
+  parseVerbData,
+  validateCompletedCommandTemplate,
+  validateVerbNamedTemplate,
+} from './authoring-verbs';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import {
   authoringProjectSchema,
@@ -727,6 +731,47 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
         ),
       );
     else {
+      const slotIds = new Set(data.slots.map((slot) => slot.id));
+      const localizedTemplates = [
+        data.completedCommandText.source.kind === 'localized'
+          ? {
+              key: data.completedCommandText.source.key,
+              validate: validateCompletedCommandTemplate,
+            }
+          : null,
+        ...data.slots.flatMap((slot) => [
+          slot.label.source.kind === 'localized'
+            ? {
+                key: slot.label.source.key,
+                validate: (text: string, ids: ReadonlySet<string>) =>
+                  validateVerbNamedTemplate(text, ids, 'Slot label'),
+              }
+            : null,
+          slot.prompt.source.kind === 'localized'
+            ? {
+                key: slot.prompt.source.key,
+                validate: (text: string, ids: ReadonlySet<string>) =>
+                  validateVerbNamedTemplate(text, ids, 'Slot prompt'),
+              }
+            : null,
+        ]),
+      ].filter((template): template is NonNullable<typeof template> => template !== null);
+      for (const template of localizedTemplates) {
+        for (const [locale, catalog] of Object.entries(project.localization.catalogs)) {
+          const text = catalog[template.key];
+          if (text === undefined) continue;
+          const message = template.validate(text, slotIds);
+          if (message)
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `/localization/catalogs/${escapePathSegment(locale)}/${escapePathSegment(template.key)}`,
+                message,
+                'Verbs',
+              ),
+            );
+        }
+      }
       if (data.availability.kind === 'variable-comparison') {
         const variableId = data.availability.variable.$ref.id;
         if (data.availability.value === undefined) {

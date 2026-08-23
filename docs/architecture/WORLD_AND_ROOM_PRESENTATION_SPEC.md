@@ -193,7 +193,7 @@ That baseline had these limitations:
 - Room entry commits before a complete world presentation target is resolved;
 - Room composition cannot be deterministically rerun after load or backend recovery;
 - the current `previous_room` concept does not fully preserve entry-exit/direction context;
-- Interaction operands are Interactable-only;
+- the old Interaction contract admits only Interactable subjects;
 - `RoomView` and presentation projection do not share one complete Room resolution;
 - Room overlays, future Room actors, Interactables, and props do not yet flow through one resolver.
 
@@ -474,42 +474,23 @@ To make an object interactive in a Room, authors must define or reference an act
 set its authoritative Location to that Room, and declare the appropriate Room presentation occurrence
 when visual placement is needed.
 
-### Character and Interactable subjects
+### Interaction subjects and named Verb slots
 
-The Interaction domain must migrate from Interactable-only operands to an explicit closed subject
-variant, conceptually:
+The Interaction domain uses one closed semantic subject variant covering Character, Interactable,
+owner-qualified Feature, and exact live Item Stack identities. Room-local cast entries are not valid
+subjects merely because they portray a Character.
 
-```cpp
-struct CharacterInteractionSubject {
-    CharacterId character;
-};
+Verbs declare stable named required subject slots instead of numeric arity or positional operand roles.
+Each slot carries a finite union of reusable Subject Selectors. Selectors may admit any subject, one
+subject family, a required Trait, an Item Definition, a qualified identity prefix pattern, or one
+exact identity. `bindingOrder` is the locale-neutral progressive-selection order; final commands bind
+exact live subjects by `slotId`, so localized command wording may reorder placeholders without
+changing command semantics.
 
-struct InteractableInteractionSubject {
-    InteractableId interactable;
-};
-
-using InteractionSubject = std::variant<
-    CharacterInteractionSubject,
-    InteractableInteractionSubject>;
-```
-
-Exact and wildcard operands should become typed variants such as:
-
-```cpp
-struct ExactInteractionSubjectOperand {
-    InteractionSubject subject;
-};
-
-struct AnyCharacterOperand {};
-struct AnyInteractableOperand {};
-struct AnyInteractionSubjectOperand {};
-```
-
-The exact final wildcard set must be closed and compiler-validated. It must not use string kind tags
-or generic entity IDs.
-
-Interaction selection, preview/test inputs, runtime messages, Interaction matching, and RmlUi binding
-must consume the same subject vocabulary. Room-local cast entries are not valid exact subjects.
+Interaction selection, preview/test inputs, runtime messages, Interaction matching, Lua submission,
+and RmlUi binding consume the same subject and named-slot vocabulary. Runtime-created subjects match
+selectors from their live identity/effective configuration; Archetype provenance is not part of
+selector matching.
 
 ### Interaction eligibility derives from one resolution
 

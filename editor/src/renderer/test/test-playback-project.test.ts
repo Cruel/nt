@@ -48,7 +48,10 @@ describe('authoring test playback project adapter', () => {
         label: 'Action',
         runInteraction: {
           verb: testVerbRef('look'),
-          operands: [testCharacterSubject('guard'), testInteractableSubject('lamp')],
+          bindings: [
+            { slotId: 'first', subject: testCharacterSubject('guard') },
+            { slotId: 'second', subject: testInteractableSubject('lamp') },
+          ],
         },
       },
       {
@@ -86,9 +89,9 @@ describe('authoring test playback project adapter', () => {
           input: {
             type: 'invoke-interaction',
             verb: 'look',
-            operands: [
-              { kind: 'character', id: 'guard' },
-              { kind: 'interactable', id: 'lamp' },
+            bindings: [
+              { slotId: 'first', subject: { kind: 'character', id: 'guard' } },
+              { slotId: 'second', subject: { kind: 'interactable', id: 'lamp' } },
             ],
           },
         },

@@ -60,7 +60,7 @@ struct ClearInteractionSubjectSelectionInput {
 };
 struct InvokeInteractionInput {
     VerbId verb;
-    std::vector<compiled::InteractionSubject> operands;
+    std::vector<InteractionSubjectBinding> bindings;
     bool operator==(const InvokeInteractionInput&) const = default;
 };
 struct SetVariableDebugInput {

@@ -746,6 +746,44 @@ subject_array(const nlohmann::json& object, std::string_view key, Diagnostics& d
     return diagnostics.empty() ? std::optional{std::move(result)} : std::nullopt;
 }
 
+std::optional<std::vector<InteractionSubjectBinding>>
+binding_array(const nlohmann::json& object, std::string_view key, Diagnostics& diagnostics,
+              std::string_view path, const EditorRuntimeProtocolLimits& limits)
+{
+    const auto found = object.find(std::string(key));
+    if (found == object.end() || !found->is_array() || found->size() > limits.max_ids_per_input) {
+        diagnostics.push_back(error("editor_protocol.wrong_type",
+                                    "Expected a bounded Interaction binding array.",
+                                    std::string(path) + "/" + std::string(key)));
+        return std::nullopt;
+    }
+    std::vector<InteractionSubjectBinding> result;
+    for (std::size_t index = 0; index < found->size(); ++index) {
+        const auto item_path =
+            std::string(path) + "/" + std::string(key) + "/" + std::to_string(index);
+        const auto& item = (*found)[index];
+        if (!item.is_object()) {
+            diagnostics.push_back(error("editor_protocol.wrong_type",
+                                        "Expected an Interaction binding object.", item_path));
+            continue;
+        }
+        exact_fields(item, {"slotId", "subject"}, diagnostics, item_path);
+        auto slot = id_field<VerbSlotId>(item, "slotId", diagnostics, item_path, limits);
+        const auto subject = item.find("subject");
+        if (subject == item.end()) {
+            diagnostics.push_back(
+                error("editor_protocol.missing_field", "Missing subject.", item_path + "/subject"));
+            continue;
+        }
+        nlohmann::json wrapper{{"subjects", nlohmann::json::array({*subject})}};
+        auto subjects = subject_array(wrapper, "subjects", diagnostics, item_path, limits);
+        if (slot && subjects && subjects->size() == 1)
+            result.push_back(
+                InteractionSubjectBinding{std::move(*slot), std::move(subjects->front())});
+    }
+    return diagnostics.empty() ? std::optional{std::move(result)} : std::nullopt;
+}
+
 nlohmann::json encode_subject(const compiled::InteractionSubject& subject)
 {
     return std::visit(
@@ -881,11 +919,11 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
         if (ids)
             return success(SelectInteractionSubjectsInput{std::move(*ids)});
     } else if (*type == "invoke-interaction") {
-        exact_fields(*input, {"type", "verb", "operands"}, diagnostics, path);
+        exact_fields(*input, {"type", "verb", "bindings"}, diagnostics, path);
         auto verb = id_field<VerbId>(*input, "verb", diagnostics, path, limits);
-        auto operands = subject_array(*input, "operands", diagnostics, path, limits);
-        if (verb && operands)
-            return success(InvokeInteractionInput{std::move(*verb), std::move(*operands)});
+        auto bindings = binding_array(*input, "bindings", diagnostics, path, limits);
+        if (verb && bindings)
+            return success(InvokeInteractionInput{std::move(*verb), std::move(*bindings)});
     } else if (*type == "set-variable") {
         exact_fields(*input, {"type", "variable", "value"}, diagnostics, path);
         auto variable = id_field<PropertyId>(*input, "variable", diagnostics, path, limits);
@@ -1093,10 +1131,11 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                         {"hasChoice", view.scene->choice.has_value()}};
     if (view.interaction)
         out["interaction"] = {{"verb", view.interaction->verb.text()},
-                              {"operands", nlohmann::json::array()}};
+                              {"bindings", nlohmann::json::array()}};
     if (view.interaction)
-        for (const auto& operand : view.interaction->operands)
-            out["interaction"]["operands"].push_back(encode_subject(operand));
+        for (const auto& binding : view.interaction->bindings)
+            out["interaction"]["bindings"].push_back(
+                {{"slotId", binding.slot_id.text()}, {"subject", encode_subject(binding.subject)}});
     return out;
 }
 
@@ -1404,6 +1443,31 @@ decode_editor_interaction_subjects_text(std::string_view text,
             std::move(diagnostics));
     return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::success(
         std::move(subjects));
+}
+
+Result<std::vector<InteractionSubjectBinding>, Diagnostics>
+decode_editor_interaction_bindings_text(std::string_view text,
+                                        const EditorRuntimeProtocolLimits& limits)
+{
+    auto parsed = parse_editor_protocol_document(text, limits);
+    if (!parsed)
+        return Result<std::vector<InteractionSubjectBinding>, Diagnostics>::failure(
+            std::move(parsed).error());
+    auto& document = *parsed.value_if();
+    Diagnostics diagnostics;
+    if (!document.is_array()) {
+        diagnostics.push_back(
+            error("editor_protocol.wrong_type", "Expected an array.", "/bindings"));
+        return Result<std::vector<InteractionSubjectBinding>, Diagnostics>::failure(
+            std::move(diagnostics));
+    }
+    nlohmann::json wrapper{{"bindings", document}};
+    auto bindings = binding_array(wrapper, "bindings", diagnostics, "", limits);
+    if (!bindings || !diagnostics.empty())
+        return Result<std::vector<InteractionSubjectBinding>, Diagnostics>::failure(
+            std::move(diagnostics));
+    return Result<std::vector<InteractionSubjectBinding>, Diagnostics>::success(
+        std::move(*bindings));
 }
 
 Result<TypedEditorPreviewDocument, Diagnostics>

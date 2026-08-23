@@ -67,6 +67,31 @@ bool valid_background(const compiled::BackgroundPresentation& value) noexcept
 
 bool valid_interactable_location(const compiled::InteractableLocation&) noexcept { return true; }
 
+bool valid_subject_selector(const compiled::SubjectSelector& selector) noexcept
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::FamilySubjectSelector> ||
+                          std::is_same_v<T, compiled::QualifiedPatternSubjectSelector>) {
+                if (!enum_at_most(value.family, compiled::SubjectFamily::ItemStack))
+                    return false;
+                if constexpr (std::is_same_v<T, compiled::QualifiedPatternSubjectSelector>)
+                    return value.pattern.size() >= 2 && value.pattern.back() == '*' &&
+                           value.pattern.substr(0, value.pattern.size() - 1).find('*') ==
+                               std::string::npos;
+            }
+            return true;
+        },
+        selector);
+}
+
+bool valid_selector_union(const std::vector<compiled::SubjectSelector>& selectors) noexcept
+{
+    return !selectors.empty() &&
+           std::all_of(selectors.begin(), selectors.end(), valid_subject_selector);
+}
+
 bool valid_interaction_program(const compiled::InteractionProgram& program) noexcept
 {
     if (!enum_at_most(program.outcome, compiled::InteractionOutcome::Unhandled))
@@ -281,17 +306,20 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
     }
     for (const auto& interaction : input.interactions) {
         for (const auto& rule : interaction.rules) {
-            if (rule.operands.size() > 2 || !valid_interaction_program(rule.program)) {
+            if (std::any_of(
+                    rule.slots.begin(), rule.slots.end(),
+                    [](const auto& slot) { return !valid_selector_union(slot.selectors); }) ||
+                !valid_interaction_program(rule.program)) {
                 diagnostics = invalid_model("Interaction rule is invalid");
                 return false;
             }
         }
     }
     for (const auto& verb : input.verbs) {
-        if (verb.arity > 2 || verb.operand_roles.size() > 2 ||
-            verb.operand_roles.size() != verb.arity ||
-            std::any_of(verb.operand_roles.begin(), verb.operand_roles.end(),
-                        [](const std::string& role) { return role.empty(); }) ||
+        const auto valid_slots =
+            std::all_of(verb.slots.begin(), verb.slots.end(),
+                        [](const auto& slot) { return valid_selector_union(slot.selectors); });
+        if (!valid_slots || verb.binding_order.size() != verb.slots.size() ||
             !valid_interaction_program(verb.default_program)) {
             diagnostics = invalid_model("Verb definition is invalid");
             return false;

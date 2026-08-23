@@ -156,6 +156,17 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #80/#81 add the reusable Layout Mount contract at the preserved authoring schema version.
   // Inputs, signals, and recursive State Shapes change the Layout runtime/save contribution and preview.
   [/^\/layouts\/\*\/data\/contract\//, OWNER],
+  // #83 atomically replaces positional Verb arity/operand contracts with named slots, stable
+  // binding order, completed-command text, and reusable Subject Selectors at the preserved authoring
+  // schema version. These leaves all contribute to the owning Verb or Interaction projection.
+  [/^\/verbs\/\*\/data\/completedCommandText(?:\/|$)/, OWNER],
+  [/^\/verbs\/\*\/data\/slots\/\*\/(?:label|prompt|selectors)(?:\/|$)/, OWNER],
+  [/^\/interactions\/\*\/data\/rules\/\*\/slots\/\*\/slotId$/, OWNER],
+  [
+    /^\/interactions\/\*\/data\/rules\/\*\/slots\/\*\/selectors\/\*\/(?:family|trait|itemDefinition|pattern)(?:\/|$)/,
+    OWNER,
+  ],
+  [/^\/tests\/\*\/data\/steps\/\*\/runInteraction\/bindings\/\*\/slotId$/, OWNER],
   // #82 atomically replaces provisional Map point/shape and authored endpoint fields at the preserved
   // authoring schema version. New geometry, visibility, presentation, ordering, and exit-pair leaves
   // all contribute to the owning Map runtime projection.
@@ -281,22 +292,90 @@ function isItemContractLeaf(path: JsonPointer): boolean {
   );
 }
 
+function preservedReviewedPath(path: JsonPointer): JsonPointer {
+  const segments = parseJsonPointer(path);
+  if (
+    segments.length === 6 &&
+    segments[0] === 'verbs' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'slots' &&
+    segments[4] === '*' &&
+    segments[5] === 'id'
+  )
+    return '/verbs/*/data/arity';
+  if (
+    segments.length === 5 &&
+    segments[0] === 'verbs' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'bindingOrder' &&
+    segments[4] === '*'
+  )
+    return '/verbs/*/data/operandRoles/*';
+  if (
+    segments.length === 10 &&
+    segments[0] === 'interactions' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'rules' &&
+    segments[4] === '*' &&
+    segments[5] === 'slots' &&
+    segments[6] === '*' &&
+    segments[7] === 'selectors' &&
+    segments[8] === '*' &&
+    segments[9] === 'kind'
+  )
+    return '/interactions/*/data/rules/*/operands/*/kind';
+  if (
+    segments.length >= 11 &&
+    segments[0] === 'interactions' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'rules' &&
+    segments[4] === '*' &&
+    segments[5] === 'slots' &&
+    segments[6] === '*' &&
+    segments[7] === 'selectors' &&
+    segments[8] === '*' &&
+    segments[9] === 'subject'
+  )
+    return `/interactions/*/data/rules/*/operands/*/subject/${segments
+      .slice(10)
+      .join('/')}` as JsonPointer;
+  if (
+    segments.length >= 10 &&
+    segments[0] === 'tests' &&
+    segments[1] === '*' &&
+    segments[2] === 'data' &&
+    segments[3] === 'steps' &&
+    segments[4] === '*' &&
+    segments[5] === 'runInteraction' &&
+    segments[6] === 'bindings' &&
+    segments[7] === '*' &&
+    segments[8] === 'subject'
+  )
+    return `/tests/*/data/steps/*/runInteraction/operands/*/${segments
+      .slice(9)
+      .join('/')}` as JsonPointer;
+  if (
+    segments.length === 4 &&
+    legacyTraitBearingRoots.has(segments[0] ?? '') &&
+    segments[1] === '*' &&
+    segments[2] === 'traits' &&
+    segments[3] === '*'
+  )
+    return `/${segments[0]}/*/extends` as JsonPointer;
+  return path;
+}
+
 const legacySchemaLeafPaths = [
   ...sortedSchemaLeafPaths
     .filter(
       (path) =>
         !path.startsWith('/traits/') && !isArchetypeContractLeaf(path) && !isItemContractLeaf(path),
     )
-    .map((path) => {
-      const segments = parseJsonPointer(path);
-      return segments.length === 4 &&
-        legacyTraitBearingRoots.has(segments[0] ?? '') &&
-        segments[1] === '*' &&
-        segments[2] === 'traits' &&
-        segments[3] === '*'
-        ? (`/${segments[0]}/*/extends` as JsonPointer)
-        : path;
-    }),
+    .map(preservedReviewedPath),
   ...retiredPropertyBearingRoots.flatMap((root) => [
     `/${root}/*/extends` as JsonPointer,
     `/${root}/*/properties/*` as JsonPointer,
@@ -371,7 +450,7 @@ const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
       segments[3] === '*'
     )
       return 'o';
-    const preserved = legacyReviewedEffects.get(path);
+    const preserved = legacyReviewedEffects.get(preservedReviewedPath(path));
     if (!preserved)
       throw new Error(
         `Authoring graph field '${path}' has no preserved pre-Trait effect declaration.`,
@@ -431,7 +510,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: 'b9fd529f',
     interactables: '86412986',
-    interactions: '8db00473',
+    interactions: '8f337b87',
     inventories: 'a8c38dae',
     itemDefinitions: '255e512e',
     itemStacks: '3eaf965c',
@@ -448,10 +527,10 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scripts: 'f3482815',
     settings: 'faa09891',
     shaders: '94d3aa6e',
-    tests: '389d3153',
+    tests: '3a7174b9',
     traits: 'e06af863',
     variables: '9ac2af8d',
-    verbs: '1057096e',
+    verbs: '42b034a9',
   });
 
 function patternSegmentMatches(pattern: string, actual: string): boolean {

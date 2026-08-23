@@ -13,7 +13,7 @@ import type {
   InteractionProgram as AuthoringInteractionProgram,
 } from './project-schema/authoring-interaction-programs';
 import type { AuthoringProject } from './project-schema/authoring-project';
-import type { InteractionSubjectData } from './project-schema/authoring-features';
+import { compileSubjectSelector } from './authoring-compiler-shared-lowering';
 import type { InventoryReferenceData } from './project-schema/authoring-inventories';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
@@ -51,42 +51,6 @@ function compileCondition(condition: Condition): CompiledCondition {
     operator: condition.operator,
     property: { kind: 'property', id: condition.variable.$ref.id },
     ...(condition.value === undefined ? {} : { value: condition.value }),
-  };
-}
-
-function compileInteractionSubject(subject: InteractionSubjectData) {
-  if (subject.kind === 'character')
-    return {
-      kind: 'character' as const,
-      character: { kind: 'character' as const, id: subject.character.$ref.id },
-    };
-  if (subject.kind === 'interactable')
-    return {
-      kind: 'interactable' as const,
-      interactable: { kind: 'interactable' as const, id: subject.interactable.$ref.id },
-    };
-  if (subject.kind === 'item-stack')
-    return {
-      kind: 'item-stack' as const,
-      itemStack: { kind: 'item-stack' as const, id: subject.itemStack.$ref.id },
-    };
-  return {
-    kind: 'feature' as const,
-    feature:
-      subject.feature.ownerKind === 'room'
-        ? {
-            ownerKind: 'room' as const,
-            room: { kind: 'room' as const, id: subject.feature.room.$ref.id },
-            featureId: subject.feature.featureId,
-          }
-        : {
-            ownerKind: 'interactable' as const,
-            interactable: {
-              kind: 'interactable' as const,
-              id: subject.feature.interactable.$ref.id,
-            },
-            featureId: subject.feature.featureId,
-          },
   };
 }
 
@@ -337,11 +301,10 @@ export function lowerDialogueAndInteractionPrograms(
       rules: data.rules.map((rule) => ({
         id: rule.id,
         verb: { kind: 'verb', id: rule.verb.$ref.id },
-        operands: rule.operands.map((operand) =>
-          operand.kind === 'exact'
-            ? { kind: 'exact' as const, subject: compileInteractionSubject(operand.subject) }
-            : { kind: operand.kind },
-        ),
+        slots: rule.slots.map((slot) => ({
+          slotId: slot.slotId,
+          selectors: slot.selectors.map(compileSubjectSelector),
+        })),
         context:
           rule.context.kind === 'any'
             ? { kind: 'any' as const }

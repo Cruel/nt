@@ -53,6 +53,10 @@ nlohmann::json& definition(nlohmann::json& document, std::string_view collection
 core::CompiledProject decode(nlohmann::json document)
 {
     auto decoded = core::decode_compiled_project(document, "typed-interaction-test");
+    if (!decoded)
+        for (const auto& diagnostic : decoded.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message << " @ "
+                                          << diagnostic.json_pointer);
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -129,7 +133,8 @@ nlohmann::json program(nlohmann::json instructions, std::string outcome = "handl
 
 } // namespace
 
-TEST_CASE("typed Interaction selects exact operands before wildcard and mutates session state")
+TEST_CASE(
+    "typed Interaction selects exact selector before broader selector and mutates session state")
 {
     auto document = load_document();
     definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
@@ -155,7 +160,8 @@ TEST_CASE("typed Interaction selects exact operands before wildcard and mutates 
 
     REQUIRE(kernel->interact(
         id<core::VerbId>("use"),
-        {core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}));
+        {{id<core::VerbSlotId>("target"),
+          core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}}));
     auto active = kernel->interaction_view("en");
     REQUIRE(active);
     REQUIRE(active.value().program);
@@ -167,7 +173,7 @@ TEST_CASE("typed Interaction selects exact operands before wildcard and mutates 
     CHECK(runtime_ui.value().mode == "interaction");
     REQUIRE(runtime_ui.value().interaction);
     CHECK(runtime_ui.value().interaction->verb == active.value().verb);
-    CHECK(runtime_ui.value().interaction->operands == active.value().operands);
+    CHECK(runtime_ui.value().interaction->bindings == active.value().bindings);
     CHECK_FALSE(runtime_ui.value().scene);
     CHECK_FALSE(runtime_ui.value().dialogue);
     REQUIRE(runtime_ui.value().room);
@@ -185,12 +191,17 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
     definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
     auto generic = definition(document, "interactions", "actions")["rules"][2];
     generic["id"] = "generic-subject";
-    generic["operands"] = nlohmann::json::array({{{"kind", "any-subject"}}});
+    generic["slots"] = nlohmann::json::array(
+        {{{"slotId", "target"},
+          {"selectors", nlohmann::json::array({{{"kind", "any-subject"}}})}}});
     generic["context"] = {{"kind", "any"}};
     generic["program"] = program(nlohmann::json::array());
     auto typed = generic;
     typed["id"] = "typed-interactable";
-    typed["operands"] = nlohmann::json::array({{{"kind", "any-interactable"}}});
+    typed["slots"] = nlohmann::json::array(
+        {{{"slotId", "target"},
+          {"selectors",
+           nlohmann::json::array({{{"kind", "family"}, {"family", "interactable"}}})}}});
     definition(document, "interactions", "actions")["rules"] =
         nlohmann::json::array({std::move(generic), std::move(typed)});
 
@@ -203,7 +214,8 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
 
     REQUIRE(kernel->interact(
         id<core::VerbId>("use"),
-        {core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}));
+        {{id<core::VerbSlotId>("target"),
+          core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}}));
     auto interaction = kernel->interaction_view("en");
     REQUIRE(interaction);
     REQUIRE(interaction.value().program);
@@ -213,27 +225,148 @@ TEST_CASE("typed Interaction selects typed wildcard before any-subject wildcard"
     CHECK(selected->rule == id<core::InteractionRuleId>("typed-interactable"));
 }
 
-TEST_CASE("typed Interaction wildcard operands cannot overwrite an earlier mismatch")
+TEST_CASE("named Verb slots allow the same live subject to bind more than once")
+{
+    auto document = load_document();
+    auto& use = definition(document, "verbs", "use");
+    use["availability"] = {{"kind", "always"}};
+    const auto second_slot = use["slots"][0];
+    use["slots"][0]["id"] = "source";
+    use["slots"][0]["label"]["source"]["text"] = "source";
+    use["slots"][0]["prompt"]["source"]["text"] = "source";
+    use["slots"].push_back(second_slot);
+    use["bindingOrder"] = nlohmann::json::array({"source", "target"});
+    definition(document, "interactions", "actions")["rules"] = nlohmann::json::array();
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject subject =
+        core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("source"), subject},
+                                                       {id<core::VerbSlotId>("target"), subject}}));
+    auto interaction = kernel->interaction_view("en");
+    REQUIRE(interaction);
+    CHECK(interaction.value().bindings ==
+          std::vector<core::InteractionSubjectBinding>{{id<core::VerbSlotId>("source"), subject},
+                                                       {id<core::VerbSlotId>("target"), subject}});
+}
+
+TEST_CASE("runtime-created subjects match live Trait and qualified-pattern selectors")
+{
+    auto document = load_document();
+    auto& use = definition(document, "verbs", "use");
+    use["availability"] = {{"kind", "always"}};
+    use["slots"][0]["selectors"] = nlohmann::json::array(
+        {{{"kind", "trait"}, {"trait", {{"kind", "trait"}, {"id", "currency"}}}},
+         {{"kind", "qualified-pattern"},
+          {"family", "item-stack"},
+          {"pattern", "item-stack:runtime-item-stack-*"}}});
+    auto rule = definition(document, "interactions", "actions")["rules"][2];
+    rule["id"] = "runtime-created";
+    rule["context"] = {{"kind", "any"}};
+    rule["program"] = program(nlohmann::json::array());
+    rule["slots"][0]["selectors"] = use["slots"][0]["selectors"];
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(rule)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel);
+
+    auto split = kernel->gateway().split_item_stack(id<core::ItemStackId>("wallet"), 5);
+    REQUIRE(split);
+    REQUIRE(split.value().created.size() == 1);
+    const auto created_stack = split.value().created.front();
+    REQUIRE(kernel->gateway().transfer_item_quantity(
+        created_stack, 5, core::compiled::RoomLocation{id<core::RoomId>("start")},
+        runtime::ItemStackPlacementPolicy::KeepSeparate));
+    kernel->invalidate_room_presentation();
+    REQUIRE(kernel->refresh_room_presentation("en"));
+    const core::compiled::InteractionSubject subject =
+        core::compiled::ItemStackInteractionSubject{created_stack};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), subject}}));
+    auto interaction = kernel->interaction_view("en");
+    REQUIRE(interaction);
+    REQUIRE(interaction.value().program);
+    const auto* selected =
+        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+    REQUIRE(selected != nullptr);
+    CHECK(selected->rule == id<core::InteractionRuleId>("runtime-created"));
+}
+
+TEST_CASE("item Stack definitions participate in Subject Selector matching")
+{
+    auto document = load_document();
+    auto& use = definition(document, "verbs", "use");
+    use["availability"] = {{"kind", "always"}};
+    use["slots"][0]["selectors"] = nlohmann::json::array(
+        {{{"kind", "item-definition"},
+          {"itemDefinition", {{"kind", "item-definition"}, {"id", "credits"}}}}});
+    auto rule = definition(document, "interactions", "actions")["rules"][2];
+    rule["id"] = "credits-stack";
+    rule["context"] = {{"kind", "any"}};
+    rule["program"] = program(nlohmann::json::array());
+    rule["slots"][0]["selectors"] = use["slots"][0]["selectors"];
+    definition(document, "interactions", "actions")["rules"] =
+        nlohmann::json::array({std::move(rule)});
+
+    RuntimeFixture fixture;
+    auto project = decode(std::move(document));
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    const auto wallet_id = id<core::ItemStackId>("wallet");
+    REQUIRE(kernel->gateway().transfer_item_quantity(
+        wallet_id, 25, core::compiled::RoomLocation{id<core::RoomId>("start")},
+        runtime::ItemStackPlacementPolicy::KeepSeparate));
+    drive_to_room(*kernel);
+
+    const core::compiled::InteractionSubject wallet =
+        core::compiled::ItemStackInteractionSubject{wallet_id};
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), wallet}}));
+    auto interaction = kernel->interaction_view("en");
+    REQUIRE(interaction);
+    REQUIRE(interaction.value().program);
+    const auto* selected =
+        std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
+    REQUIRE(selected != nullptr);
+    CHECK(selected->rule == id<core::InteractionRuleId>("credits-stack"));
+}
+
+TEST_CASE("typed Interaction selector unions cannot overwrite an earlier mismatch")
 {
     auto document = load_document();
     auto exact_then_wildcard = definition(document, "interactions", "actions")["rules"][2];
     exact_then_wildcard["id"] = "mismatched-exact";
     exact_then_wildcard["verb"] = {{"kind", "verb"}, {"id", "combine"}};
-    auto mismatched_operands = nlohmann::json::array();
-    mismatched_operands.push_back(
-        {{"kind", "exact"},
-         {"subject",
-          {{"kind", "interactable"},
-           {"interactable", {{"kind", "interactable"}, {"id", "coin"}}}}}});
-    mismatched_operands.push_back({{"kind", "any-interactable"}});
-    exact_then_wildcard["operands"] = std::move(mismatched_operands);
+    exact_then_wildcard["slots"] = nlohmann::json::array(
+        {{{"slotId", "first"},
+          {"selectors", nlohmann::json::array(
+                            {{{"kind", "exact"},
+                              {"subject",
+                               {{"kind", "interactable"},
+                                {"interactable", {{"kind", "interactable"}, {"id", "coin"}}}}}}})}},
+         {{"slotId", "second"},
+          {"selectors",
+           nlohmann::json::array({{{"kind", "family"}, {"family", "interactable"}}})}}});
     exact_then_wildcard["context"] = {{"kind", "any"}};
     exact_then_wildcard["program"] = program(nlohmann::json::array());
     auto generic = exact_then_wildcard;
     generic["id"] = "matching-wildcards";
-    generic["operands"] = nlohmann::json::array();
-    generic["operands"].push_back({{"kind", "any-interactable"}});
-    generic["operands"].push_back({{"kind", "any-interactable"}});
+    generic["slots"] = nlohmann::json::array(
+        {{{"slotId", "first"},
+          {"selectors", nlohmann::json::array({{{"kind", "family"}, {"family", "interactable"}}})}},
+         {{"slotId", "second"},
+          {"selectors",
+           nlohmann::json::array({{{"kind", "family"}, {"family", "interactable"}}})}}});
     definition(document, "interactions", "actions")["rules"] =
         nlohmann::json::array({std::move(exact_then_wildcard), std::move(generic)});
 
@@ -246,7 +379,8 @@ TEST_CASE("typed Interaction wildcard operands cannot overwrite an earlier misma
 
     const auto key =
         core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")};
-    REQUIRE(kernel->interact(id<core::VerbId>("combine"), {key, key}));
+    REQUIRE(kernel->interact(id<core::VerbId>("combine"), {{id<core::VerbSlotId>("first"), key},
+                                                           {id<core::VerbSlotId>("second"), key}}));
     auto interaction = kernel->interaction_view("en");
     REQUIRE(interaction);
     REQUIRE(interaction.value().program);
@@ -262,15 +396,20 @@ TEST_CASE("typed Interaction and Room publication preserve exact live item Stack
     definition(document, "verbs", "use")["availability"] = {{"kind", "always"}};
     auto exact = definition(document, "interactions", "actions")["rules"][2];
     exact["id"] = "exact-wallet";
-    exact["operands"] = nlohmann::json::array(
-        {{{"kind", "exact"},
-          {"subject",
-           {{"kind", "item-stack"}, {"itemStack", {{"kind", "item-stack"}, {"id", "wallet"}}}}}}});
+    exact["slots"] = nlohmann::json::array(
+        {{{"slotId", "target"},
+          {"selectors", nlohmann::json::array(
+                            {{{"kind", "exact"},
+                              {"subject",
+                               {{"kind", "item-stack"},
+                                {"itemStack", {{"kind", "item-stack"}, {"id", "wallet"}}}}}}})}}});
     exact["context"] = {{"kind", "any"}};
     exact["program"] = program(nlohmann::json::array());
     auto wildcard = exact;
-    wildcard["id"] = "any-item-stack";
-    wildcard["operands"] = nlohmann::json::array({{{"kind", "any-item-stack"}}});
+    wildcard["id"] = "item-stack-family";
+    wildcard["slots"] = nlohmann::json::array(
+        {{{"slotId", "target"},
+          {"selectors", nlohmann::json::array({{{"kind", "family"}, {"family", "item-stack"}}})}}});
     definition(document, "interactions", "actions")["rules"] =
         nlohmann::json::array({std::move(wildcard), std::move(exact)});
 
@@ -292,10 +431,11 @@ TEST_CASE("typed Interaction and Room publication preserve exact live item Stack
 
     const core::compiled::InteractionSubject subject =
         core::compiled::ItemStackInteractionSubject{wallet};
-    REQUIRE(kernel->interact(id<core::VerbId>("use"), {subject}));
+    REQUIRE(kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), subject}}));
     auto interaction = kernel->interaction_view("en");
     REQUIRE(interaction);
-    CHECK(interaction.value().operands == std::vector<core::compiled::InteractionSubject>{subject});
+    CHECK(interaction.value().bindings ==
+          std::vector<core::InteractionSubjectBinding>{{id<core::VerbSlotId>("target"), subject}});
     REQUIRE(interaction.value().program);
     const auto* selected =
         std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
@@ -324,7 +464,8 @@ TEST_CASE(
 
     REQUIRE(kernel->interact(
         id<core::VerbId>("unlock"),
-        {core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}));
+        {{id<core::VerbSlotId>("target"),
+          core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}}));
     drive_interaction(*kernel);
     const auto found = std::find_if(
         kernel->gateway().events().begin(), kernel->gateway().events().end(),
@@ -360,11 +501,12 @@ TEST_CASE("Room and Interactable Features preserve owner-qualified semantic invo
         const core::compiled::InteractionSubject subject =
             core::compiled::FeatureInteractionSubject{
                 core::RoomFeatureRef{id<core::RoomId>("start"), id<core::FeatureId>("door")}};
-        REQUIRE(kernel->interact(id<core::VerbId>("inspect"), {subject}));
+        REQUIRE(kernel->interact(id<core::VerbId>("inspect"),
+                                 {{id<core::VerbSlotId>("target"), subject}}));
         auto interaction = kernel->interaction_view("en");
         REQUIRE(interaction);
-        CHECK(interaction.value().operands ==
-              std::vector<core::compiled::InteractionSubject>{subject});
+        CHECK(interaction.value().bindings == std::vector<core::InteractionSubjectBinding>{
+                                                  {id<core::VerbSlotId>("target"), subject}});
         REQUIRE(interaction.value().program);
         const auto* program =
             std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
@@ -386,11 +528,12 @@ TEST_CASE("Room and Interactable Features preserve owner-qualified semantic invo
         const core::compiled::InteractionSubject subject =
             core::compiled::FeatureInteractionSubject{core::InteractableFeatureRef{
                 id<core::InteractableId>("key"), id<core::FeatureId>("surface")}};
-        REQUIRE(kernel->interact(id<core::VerbId>("use"), {subject}));
+        REQUIRE(
+            kernel->interact(id<core::VerbId>("use"), {{id<core::VerbSlotId>("target"), subject}}));
         auto interaction = kernel->interaction_view("en");
         REQUIRE(interaction);
-        CHECK(interaction.value().operands ==
-              std::vector<core::compiled::InteractionSubject>{subject});
+        CHECK(interaction.value().bindings == std::vector<core::InteractionSubjectBinding>{
+                                                  {id<core::VerbSlotId>("target"), subject}});
         REQUIRE(interaction.value().program);
         const auto* program =
             std::get_if<core::InteractionRuleProgramRef>(&*interaction.value().program);
@@ -413,7 +556,8 @@ TEST_CASE("Interactable subjects remain distinct from owner Feature subjects")
 
     REQUIRE(kernel->interact(
         id<core::VerbId>("use"),
-        {core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}));
+        {{id<core::VerbSlotId>("target"),
+          core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}}));
     auto active = kernel->interaction_view("en");
     REQUIRE(active);
     REQUIRE(active.value().program);

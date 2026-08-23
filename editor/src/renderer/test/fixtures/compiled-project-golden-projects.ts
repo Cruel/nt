@@ -1093,13 +1093,31 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   };
 
   const inspect = defaultVerbData('Inspect');
-  inspect.arity = 1;
-  inspect.operandRoles = ['target'];
+  const targetText = {
+    source: { kind: 'inline' as const, text: 'target' },
+    markup: 'plain' as const,
+  };
+  inspect.slots = [
+    {
+      id: 'target',
+      label: targetText,
+      prompt: targetText,
+      selectors: [{ kind: 'any-subject' }],
+    },
+  ];
+  inspect.bindingOrder = ['target'];
   project.verbs.inspect = { id: 'inspect', label: 'Inspect', data: inspect };
 
   const use = defaultVerbData('Use');
-  use.arity = 1;
-  use.operandRoles = ['target'];
+  use.slots = [
+    {
+      id: 'target',
+      label: targetText,
+      prompt: targetText,
+      selectors: [{ kind: 'any-subject' }],
+    },
+  ];
+  use.bindingOrder = ['target'];
   use.availability = {
     kind: 'variable-comparison',
     variable: variableReference('flag'),
@@ -1208,8 +1226,15 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   };
 
   const unlock = defaultVerbData('Unlock');
-  unlock.arity = 1;
-  unlock.operandRoles = ['target'];
+  unlock.slots = [
+    {
+      id: 'target',
+      label: targetText,
+      prompt: targetText,
+      selectors: [{ kind: 'any-subject' }],
+    },
+  ];
+  unlock.bindingOrder = ['target'];
   unlock.availability = { kind: 'lua-predicate', source: 'can_unlock()' };
   unlock.defaultProgram = {
     instructions: [
@@ -1221,8 +1246,29 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   project.verbs.unlock = { id: 'unlock', label: 'Unlock', data: unlock };
 
   const combine = defaultVerbData('Combine');
-  combine.arity = 2;
-  combine.operandRoles = ['first', 'second'];
+  const firstText = {
+    source: { kind: 'inline' as const, text: 'first' },
+    markup: 'plain' as const,
+  };
+  const secondText = {
+    source: { kind: 'inline' as const, text: 'second' },
+    markup: 'plain' as const,
+  };
+  combine.slots = [
+    {
+      id: 'first',
+      label: firstText,
+      prompt: firstText,
+      selectors: [{ kind: 'any-subject' }],
+    },
+    {
+      id: 'second',
+      label: secondText,
+      prompt: secondText,
+      selectors: [{ kind: 'any-subject' }],
+    },
+  ];
+  combine.bindingOrder = ['first', 'second'];
   combine.defaultProgram = {
     instructions: [],
     completion: { kind: 'scene', id: 'opening' },
@@ -1235,13 +1281,18 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'room-feature',
       verb: verbReference('inspect'),
-      operands: [
+      slots: [
         {
-          kind: 'exact',
-          subject: {
-            kind: 'feature',
-            feature: { ownerKind: 'room', room: roomReference('start'), featureId: 'door' },
-          },
+          slotId: 'target',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: {
+                kind: 'feature',
+                feature: { ownerKind: 'room', room: roomReference('start'), featureId: 'door' },
+              },
+            },
+          ],
         },
       ],
       context: { kind: 'active-room', room: roomReference('start') },
@@ -1250,17 +1301,22 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'interactable-feature',
       verb: verbReference('use'),
-      operands: [
+      slots: [
         {
-          kind: 'exact',
-          subject: {
-            kind: 'feature',
-            feature: {
-              ownerKind: 'interactable',
-              interactable: interactableReference('key'),
-              featureId: 'surface',
+          slotId: 'target',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: {
+                kind: 'feature',
+                feature: {
+                  ownerKind: 'interactable',
+                  interactable: interactableReference('key'),
+                  featureId: 'surface',
+                },
+              },
             },
-          },
+          ],
         },
       ],
       context: { kind: 'any' },
@@ -1269,10 +1325,15 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'any-context',
       verb: verbReference('use'),
-      operands: [
+      slots: [
         {
-          kind: 'exact',
-          subject: { kind: 'interactable', interactable: interactableReference('key') },
+          slotId: 'target',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: { kind: 'interactable', interactable: interactableReference('key') },
+            },
+          ],
         },
       ],
       context: { kind: 'any' },
@@ -1314,7 +1375,12 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'active-room-context',
       verb: verbReference('use'),
-      operands: [{ kind: 'any-interactable' }],
+      slots: [
+        {
+          slotId: 'target',
+          selectors: [{ kind: 'family', family: 'interactable' }],
+        },
+      ],
       context: { kind: 'active-room', room: roomReference('start') },
       program: {
         instructions: [
@@ -1332,10 +1398,15 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'placement-context',
       verb: verbReference('unlock'),
-      operands: [
+      slots: [
         {
-          kind: 'exact',
-          subject: { kind: 'interactable', interactable: interactableReference('key') },
+          slotId: 'target',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: { kind: 'interactable', interactable: interactableReference('key') },
+            },
+          ],
         },
       ],
       context: { kind: 'room-placement', placement: { room: 'start', placement: 'key-placement' } },
@@ -1355,14 +1426,24 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'predicate-context',
       verb: verbReference('combine'),
-      operands: [
+      slots: [
         {
-          kind: 'exact',
-          subject: { kind: 'interactable', interactable: interactableReference('key') },
+          slotId: 'first',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: { kind: 'interactable', interactable: interactableReference('key') },
+            },
+          ],
         },
         {
-          kind: 'exact',
-          subject: { kind: 'interactable', interactable: interactableReference('coin') },
+          slotId: 'second',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: { kind: 'interactable', interactable: interactableReference('coin') },
+            },
+          ],
         },
       ],
       context: {

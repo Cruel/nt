@@ -26,7 +26,7 @@ export interface RecordedRuntimeActionInput {
   direction?: number;
   subjects?: RecordedInteractionSubject[];
   verbId?: string;
-  operands?: RecordedInteractionSubject[];
+  bindings?: Array<{ slotId: string; subject: RecordedInteractionSubject }>;
   documentId?: string;
   target?: string;
   selector?: string;
@@ -168,7 +168,12 @@ export function lowerRecordedRuntimeActionToTestStep(
           ),
           runInteraction: {
             verb: input.verbId ? testVerbRef(input.verbId) : null,
-            operands: (input.operands ?? []).filter(validRecordedSubject).map(testSubject),
+            bindings: (input.bindings ?? [])
+              .filter((binding) => binding.slotId.trim() && validRecordedSubject(binding.subject))
+              .map((binding) => ({
+                slotId: binding.slotId,
+                subject: testSubject(binding.subject),
+              })),
           },
         },
         action,

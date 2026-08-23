@@ -120,10 +120,11 @@ struct ArchetypeDefinition {
 struct VerbDefinition {
     DefinitionIdentity<VerbId> identity;
     TextContent action_text;
-    std::uint8_t arity;
+    TextContent completed_command_text;
+    std::vector<VerbSlot> slots;
+    std::vector<VerbSlotId> binding_order;
     Condition availability;
     InteractionProgram default_program;
-    std::vector<std::string> operand_roles;
     bool quick_action;
 };
 struct InteractionDefinition {

@@ -85,7 +85,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:76f4f151cc3ecf9fd2622c2115a30903");
+    CHECK(project.save_contract == "sc1:47197e39e238d657e8a006a96c8732bb");
     CHECK(project.properties.size() == 11);
     CHECK(project.assets.size() == 9);
     CHECK(project.layouts.size() == 2);
@@ -259,12 +259,14 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         const auto& rules = project.interactions.front().rules;
         CHECK(std::holds_alternative<ActiveRoomInteractionContext>(rules[0].context));
         CHECK(std::holds_alternative<AnyInteractionContext>(rules[1].context));
-        REQUIRE(std::holds_alternative<ExactOperand>(rules[0].operands.front()));
+        REQUIRE(
+            std::holds_alternative<ExactSubjectSelector>(rules[0].slots.front().selectors.front()));
         CHECK(std::holds_alternative<FeatureInteractionSubject>(
-            std::get<ExactOperand>(rules[0].operands.front()).subject));
-        REQUIRE(std::holds_alternative<ExactOperand>(rules[1].operands.front()));
+            std::get<ExactSubjectSelector>(rules[0].slots.front().selectors.front()).subject));
+        REQUIRE(
+            std::holds_alternative<ExactSubjectSelector>(rules[1].slots.front().selectors.front()));
         CHECK(std::holds_alternative<FeatureInteractionSubject>(
-            std::get<ExactOperand>(rules[1].operands.front()).subject));
+            std::get<ExactSubjectSelector>(rules[1].slots.front().selectors.front()).subject));
         CHECK(std::holds_alternative<AnyInteractionContext>(rules[2].context));
         REQUIRE(rules[2].program.instructions.size() == 6);
         CHECK(std::holds_alternative<ApplyEffectInstruction>(rules[2].program.instructions[0]));
@@ -280,9 +282,41 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(std::holds_alternative<ActiveRoomInteractionContext>(rules[3].context));
         CHECK(std::holds_alternative<PlacementInteractionContext>(rules[4].context));
         CHECK(std::holds_alternative<PredicateInteractionContext>(rules[5].context));
-        CHECK(std::holds_alternative<AnyInteractableOperand>(rules[3].operands.front()));
+        REQUIRE(std::holds_alternative<FamilySubjectSelector>(
+            rules[3].slots.front().selectors.front()));
+        CHECK(std::get<FamilySubjectSelector>(rules[3].slots.front().selectors.front()).family ==
+              SubjectFamily::Interactable);
         CHECK(std::get<MoveInteractableInstruction>(rules[4].program.instructions.front())
                   .id.text() == "room");
+    }
+
+    SECTION("all Subject Selector variants share the compiled decoder vocabulary")
+    {
+        auto document = fixture("interaction-program");
+        auto* selectors =
+            path_member(document, {"definitions", "verbs", "4", "slots", "0", "selectors"});
+        REQUIRE(selectors != nullptr);
+        *selectors = nlohmann::json::array(
+            {{{"kind", "any-subject"}},
+             {{"kind", "family"}, {"family", "interactable"}},
+             {{"kind", "trait"}, {"trait", {{"kind", "trait"}, {"id", "feature-enabled"}}}},
+             {{"kind", "item-definition"},
+              {"itemDefinition", {{"kind", "item-definition"}, {"id", "credits"}}}},
+             {{"kind", "qualified-pattern"}, {"family", "interactable"}, {"pattern", "key*"}},
+             {{"kind", "exact"},
+              {"subject",
+               {{"kind", "interactable"},
+                {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}}}});
+        auto result = decode_shared_project(document, "selector-vocabulary.json");
+        REQUIRE(result);
+        const auto& decoded = result.value().verbs[4].slots.front().selectors;
+        REQUIRE(decoded.size() == 6);
+        CHECK(std::holds_alternative<AnySubjectSelector>(decoded[0]));
+        CHECK(std::holds_alternative<FamilySubjectSelector>(decoded[1]));
+        CHECK(std::holds_alternative<TraitSubjectSelector>(decoded[2]));
+        CHECK(std::holds_alternative<ItemDefinitionSubjectSelector>(decoded[3]));
+        CHECK(std::holds_alternative<QualifiedPatternSubjectSelector>(decoded[4]));
+        CHECK(std::holds_alternative<ExactSubjectSelector>(decoded[5]));
     }
 }
 
@@ -302,7 +336,7 @@ TEST_CASE("compiled project decoder rejects specialized discriminants and incomp
          {"definitions", "interactions", "0", "rules", "2", "program", "instructions", "0"}},
         {"interaction-program", {"definitions", "interactions", "0", "rules", "2", "context"}},
         {"interaction-program",
-         {"definitions", "interactions", "0", "rules", "2", "operands", "0"}},
+         {"definitions", "interactions", "0", "rules", "2", "slots", "0", "selectors", "0"}},
     };
     for (const auto& mutation : mutations) {
         auto document = fixture(mutation.fixture_name);
@@ -930,12 +964,12 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
                        "compiled_project.hotspot_source_image_required"));
     }
 
-    SECTION("exact Feature operands require existing owner-qualified Features")
+    SECTION("exact Feature selectors require existing owner-qualified Features")
     {
         auto missing = fixture("interaction-program");
         auto* feature_id =
-            path_member(missing, {"definitions", "interactions", "0", "rules", "0", "operands", "0",
-                                  "subject", "feature", "featureId"});
+            path_member(missing, {"definitions", "interactions", "0", "rules", "0", "slots", "0",
+                                  "selectors", "0", "subject", "feature", "featureId"});
         REQUIRE(feature_id != nullptr);
         *feature_id = "missing-feature";
         auto missing_result =
@@ -945,8 +979,8 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
 
         auto wrong_owner = fixture("interaction-program");
         auto* room_id =
-            path_member(wrong_owner, {"definitions", "interactions", "0", "rules", "0", "operands",
-                                      "0", "subject", "feature", "room", "id"});
+            path_member(wrong_owner, {"definitions", "interactions", "0", "rules", "0", "slots",
+                                      "0", "selectors", "0", "subject", "feature", "room", "id"});
         REQUIRE(room_id != nullptr);
         *room_id = "hall";
         auto owner_result = noveltea::core::decode_compiled_project(
@@ -1231,16 +1265,16 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.invalid_dialogue_graph"));
     }
 
-    SECTION("interaction arity mismatch")
+    SECTION("interaction named slot mismatch")
     {
         auto document = fixture("interaction-program");
-        auto* operands =
-            path_member(document, {"definitions", "interactions", "0", "rules", "2", "operands"});
-        REQUIRE(operands != nullptr);
-        operands->clear();
+        auto* slots =
+            path_member(document, {"definitions", "interactions", "0", "rules", "2", "slots"});
+        REQUIRE(slots != nullptr);
+        slots->clear();
         auto result = noveltea::core::decode_compiled_project(document, "interaction.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled_project.interaction_arity_mismatch"));
+        CHECK(has_code(result.error(), "compiled_project.interaction_slot_mismatch"));
     }
 
     SECTION("Interactable initial location references a missing owner-qualified Inventory")

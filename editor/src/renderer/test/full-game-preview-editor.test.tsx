@@ -786,7 +786,13 @@ describe('FullGamePreviewEditor', () => {
             dialogueOptions: [],
             navigation: [],
             actions: [
-              { verbId: 'look', label: 'look', objectCount: 1, selectedCount: 1, enabled: true },
+              {
+                verbId: 'look',
+                label: 'look',
+                bindingOrder: ['target'],
+                selectedCount: 1,
+                enabled: true,
+              },
             ],
             selectedSubjects: [{ kind: 'interactable', id: 'key' }],
             clickableTargets: [],

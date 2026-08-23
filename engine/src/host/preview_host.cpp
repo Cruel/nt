@@ -504,13 +504,13 @@ bool PreviewHost::clear_subject_selection()
 }
 
 bool PreviewHost::run_interaction(const std::string& verb_id,
-                                  std::vector<core::compiled::InteractionSubject> operands)
+                                  std::vector<core::InteractionSubjectBinding> bindings)
 {
     auto verb = core::VerbId::create(verb_id);
     if (!verb)
         return false;
     return dispatch(core::RuntimeInputMessage{
-        core::InvokeInteractionInput{std::move(*verb.value_if()), std::move(operands)}});
+        core::InvokeInteractionInput{std::move(*verb.value_if()), std::move(bindings)}});
 }
 
 PreviewMutationResult PreviewHost::set_variable(const std::string& variable_id,

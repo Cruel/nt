@@ -138,7 +138,7 @@ describe('diagnostic navigation', () => {
     expect(
       resolveProjectDiagnosticTarget(
         project,
-        '/interactions/inspect/data/rules/0/operands/0/subject/feature',
+        '/interactions/inspect/data/rules/0/slots/0/selectors/0/subject/feature',
       )?.target?.id,
     ).toBe('interaction.rule.handle-rule');
     expect(resolveProjectDiagnosticTarget(project, '/project/name')?.target?.id).toBe(

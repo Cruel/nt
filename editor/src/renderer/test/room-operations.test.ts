@@ -181,8 +181,19 @@ describe('room commands', () => {
     project.characters.guard = { id: 'guard', label: 'Guard', data: defaultCharacterData('Guard') };
 
     const verb = defaultVerbData('Use');
-    verb.arity = 1;
-    verb.operandRoles = ['subject'];
+    const slotText = {
+      source: { kind: 'inline' as const, text: 'subject' },
+      markup: 'plain' as const,
+    };
+    verb.slots = [
+      {
+        id: 'subject',
+        label: slotText,
+        prompt: slotText,
+        selectors: [{ kind: 'family', family: 'interactable' }],
+      },
+    ];
+    verb.bindingOrder = ['subject'];
     project.verbs.use = { id: 'use', label: 'Use', data: verb };
     const interaction = defaultInteractionData();
     const program = defaultInteractionProgram();
@@ -201,7 +212,12 @@ describe('room commands', () => {
       {
         id: 'use-lamp',
         verb: { $ref: { collection: 'verbs', id: 'use' } },
-        operands: [{ kind: 'any-interactable' }],
+        slots: [
+          {
+            slotId: 'subject',
+            selectors: [{ kind: 'family', family: 'interactable' }],
+          },
+        ],
         context: { kind: 'room-placement', placement: { room: 'foyer', placement: 'anchor' } },
         program,
       },

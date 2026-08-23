@@ -75,7 +75,7 @@ struct RoomExitView {
 struct InteractionControlView {
     VerbId verb;
     std::string label;
-    std::uint8_t arity = 0;
+    std::vector<VerbSlotId> binding_order;
     bool quick_action = false;
     bool enabled = false;
 };
@@ -108,7 +108,7 @@ struct RoomView {
 struct InteractionView {
     VerbId verb;
     std::optional<RoomId> room;
-    std::vector<compiled::InteractionSubject> operands;
+    std::vector<InteractionSubjectBinding> bindings;
     std::optional<InteractionProgramRef> program;
     std::optional<std::string> notification;
 };

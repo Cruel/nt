@@ -12,6 +12,7 @@ import {
   type InteractionRule,
 } from '../../../shared/project-schema/authoring-interactions';
 import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
+import { SubjectSelectorEditor, defaultSubjectSelector } from './SubjectSelectorEditor';
 import {
   authoringProjectFromDocument,
   defaultInteractionProgram,
@@ -23,12 +24,12 @@ import {
 
 type InteractionData = NonNullable<ReturnType<typeof parseInteractionData>>;
 
-function defaultOperands(
-  project: AuthoringEditorProject,
-  verbId: string,
-): InteractionRule['operands'] {
+function defaultSlots(project: AuthoringEditorProject, verbId: string): InteractionRule['slots'] {
   const verb = parseVerbData(project.verbs[verbId]?.data);
-  return Array.from({ length: verb?.arity ?? 0 }, () => ({ kind: 'any-interactable' as const }));
+  return (verb?.bindingOrder ?? []).map((slotId) => ({
+    slotId,
+    selectors: [defaultSubjectSelector(project)],
+  }));
 }
 
 function ContextEditor({
@@ -189,7 +190,7 @@ function RuleEditor({
               onChange({
                 ...rule,
                 verb: typedRef('verbs', String(verbId)),
-                operands: defaultOperands(project, String(verbId)),
+                slots: defaultSlots(project, String(verbId)),
               })
             }
           >
@@ -224,139 +225,69 @@ function RuleEditor({
           Delete
         </Button>
       </div>
-      <div className="space-y-2">
-        <Label>Operands</Label>
-        {rule.operands.map((operand, operandIndex) => (
-          <div className="grid gap-2 md:grid-cols-2" key={operandIndex}>
-            <Select
-              value={operand.kind === 'exact' ? `exact-${operand.subject.kind}` : operand.kind}
-              onValueChange={(kind) => {
-                const next = [...rule.operands];
-                const firstInteractable = Object.keys(project.interactables)[0];
-                const firstCharacter = Object.keys(project.characters)[0];
-                const firstItemStack = Object.keys(project.itemStacks)[0];
-                next[operandIndex] =
-                  kind === 'exact-interactable' && firstInteractable
-                    ? {
-                        kind: 'exact',
-                        subject: {
-                          kind: 'interactable',
-                          interactable: typedRef('interactables', firstInteractable),
-                        },
-                      }
-                    : kind === 'any-character'
-                      ? { kind: 'any-character' }
-                      : kind === 'any-item-stack'
-                        ? { kind: 'any-item-stack' }
-                        : kind === 'any-subject'
-                          ? { kind: 'any-subject' }
-                          : kind === 'exact-item-stack' && firstItemStack
-                            ? {
-                                kind: 'exact',
-                                subject: {
-                                  kind: 'item-stack',
-                                  itemStack: typedRef('itemStacks', firstItemStack),
-                                },
-                              }
-                            : kind === 'exact-character' && firstCharacter
+      <div className="space-y-3">
+        <Label>Named slot selectors</Label>
+        {rule.slots.map((slot, slotIndex) => (
+          <section className="space-y-2 rounded border p-2" key={slot.slotId}>
+            <div className="text-sm font-medium">{slot.slotId}</div>
+            {slot.selectors.map((selector, selectorIndex) => (
+              <SubjectSelectorEditor
+                key={selectorIndex}
+                value={selector}
+                project={project}
+                onChange={(nextSelector) =>
+                  onChange({
+                    ...rule,
+                    slots: rule.slots.map((current, currentSlot) =>
+                      currentSlot === slotIndex
+                        ? {
+                            ...current,
+                            selectors: current.selectors.map((value, currentSelector) =>
+                              currentSelector === selectorIndex ? nextSelector : value,
+                            ),
+                          }
+                        : current,
+                    ),
+                  })
+                }
+                onDelete={
+                  slot.selectors.length > 1
+                    ? () =>
+                        onChange({
+                          ...rule,
+                          slots: rule.slots.map((current, currentSlot) =>
+                            currentSlot === slotIndex
                               ? {
-                                  kind: 'exact',
-                                  subject: {
-                                    kind: 'character',
-                                    character: typedRef('characters', firstCharacter),
-                                  },
+                                  ...current,
+                                  selectors: current.selectors.filter(
+                                    (_, currentSelector) => currentSelector !== selectorIndex,
+                                  ),
                                 }
-                              : { kind: 'any-interactable' };
-                onChange({ ...rule, operands: next });
-              }}
+                              : current,
+                          ),
+                        })
+                    : undefined
+                }
+              />
+            ))}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                onChange({
+                  ...rule,
+                  slots: rule.slots.map((current, currentSlot) =>
+                    currentSlot === slotIndex
+                      ? { ...current, selectors: [...current.selectors, { kind: 'any-subject' }] }
+                      : current,
+                  ),
+                })
+              }
             >
-              <SelectItem value="any-interactable">Any interactable</SelectItem>
-              <SelectItem value="any-character">Any character</SelectItem>
-              <SelectItem value="any-item-stack">Any item Stack</SelectItem>
-              <SelectItem value="any-subject">Any subject</SelectItem>
-              <SelectItem
-                value="exact-interactable"
-                disabled={!Object.keys(project.interactables).length}
-              >
-                Exact interactable
-              </SelectItem>
-              <SelectItem
-                value="exact-character"
-                disabled={!Object.keys(project.characters).length}
-              >
-                Exact character
-              </SelectItem>
-              <SelectItem
-                value="exact-item-stack"
-                disabled={!Object.keys(project.itemStacks).length}
-              >
-                Exact item Stack
-              </SelectItem>
-            </Select>
-            {operand.kind === 'exact' && operand.subject.kind === 'interactable' && (
-              <Select
-                value={operand.subject.interactable.$ref.id}
-                onValueChange={(id) => {
-                  const next = [...rule.operands];
-                  next[operandIndex] = {
-                    kind: 'exact',
-                    subject: {
-                      kind: 'interactable',
-                      interactable: typedRef('interactables', String(id)),
-                    },
-                  };
-                  onChange({ ...rule, operands: next });
-                }}
-              >
-                {Object.entries(project.interactables).map(([id, record]) => (
-                  <SelectItem value={id} key={id}>
-                    {record.label}
-                  </SelectItem>
-                ))}
-              </Select>
-            )}
-            {operand.kind === 'exact' && operand.subject.kind === 'character' && (
-              <Select
-                value={operand.subject.character.$ref.id}
-                onValueChange={(id) => {
-                  const next = [...rule.operands];
-                  next[operandIndex] = {
-                    kind: 'exact',
-                    subject: { kind: 'character', character: typedRef('characters', String(id)) },
-                  };
-                  onChange({ ...rule, operands: next });
-                }}
-              >
-                {Object.entries(project.characters).map(([id, record]) => (
-                  <SelectItem value={id} key={id}>
-                    {record.label}
-                  </SelectItem>
-                ))}
-              </Select>
-            )}
-            {operand.kind === 'exact' && operand.subject.kind === 'item-stack' && (
-              <Select
-                value={operand.subject.itemStack.$ref.id}
-                onValueChange={(id) => {
-                  const next = [...rule.operands];
-                  next[operandIndex] = {
-                    kind: 'exact',
-                    subject: {
-                      kind: 'item-stack',
-                      itemStack: typedRef('itemStacks', String(id)),
-                    },
-                  };
-                  onChange({ ...rule, operands: next });
-                }}
-              >
-                {Object.entries(project.itemStacks).map(([id, record]) => (
-                  <SelectItem value={id} key={id}>
-                    {record.label}
-                  </SelectItem>
-                ))}
-              </Select>
-            )}
-          </div>
+              Add selector
+            </Button>
+          </section>
         ))}
       </div>
       <ContextEditor rule={rule} project={project} onChange={onChange} />
@@ -391,7 +322,7 @@ function InteractionForm({
             'rule',
           ),
           verb: typedRef('verbs', verbId),
-          operands: defaultOperands(project, verbId),
+          slots: defaultSlots(project, verbId),
           context: { kind: 'any' },
           program: defaultInteractionProgram(),
         },

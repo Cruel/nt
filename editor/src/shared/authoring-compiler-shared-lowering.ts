@@ -45,7 +45,7 @@ import { parseDialogueData } from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
 import { parseScriptModuleData } from './project-schema/authoring-script-modules';
 import { parseVariableData } from './project-schema/authoring-variables';
-import { parseVerbData } from './project-schema/authoring-verbs';
+import { parseVerbData, type SubjectSelector } from './project-schema/authoring-verbs';
 
 type WireDefinitions = CompiledProjectWireV4['definitions'];
 type WireResources = CompiledProjectWireV4['resources'];
@@ -134,7 +134,7 @@ function compileHighlight(highlight: {
     : { kind: highlight.kind };
 }
 
-function compileInteractionSubject(subject: InteractionSubjectData) {
+export function compileInteractionSubject(subject: InteractionSubjectData) {
   if (subject.kind === 'character')
     return { kind: 'character' as const, character: characterRef(subject.character)! };
   if (subject.kind === 'interactable')
@@ -165,6 +165,28 @@ function compileInteractionSubject(subject: InteractionSubjectData) {
             featureId: subject.feature.featureId,
           },
   };
+}
+
+export function compileSubjectSelector(selector: SubjectSelector) {
+  if (selector.kind === 'any-subject') return { kind: 'any-subject' as const };
+  if (selector.kind === 'family') return { kind: 'family' as const, family: selector.family };
+  if (selector.kind === 'trait')
+    return {
+      kind: 'trait' as const,
+      trait: { kind: 'trait' as const, id: selector.trait.$ref.id },
+    };
+  if (selector.kind === 'item-definition')
+    return {
+      kind: 'item-definition' as const,
+      itemDefinition: { kind: 'item-definition' as const, id: selector.itemDefinition.$ref.id },
+    };
+  if (selector.kind === 'qualified-pattern')
+    return {
+      kind: 'qualified-pattern' as const,
+      family: selector.family,
+      pattern: selector.pattern,
+    };
+  return { kind: 'exact' as const, subject: compileInteractionSubject(selector.subject) };
 }
 
 function compileRoomHotspotTarget(target: RoomHotspotTarget) {
@@ -701,9 +723,15 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     if (data)
       verbs.push({
         ...definitionBase(id),
-        arity: data.arity,
-        operandRoles: [...data.operandRoles],
+        slots: data.slots.map((slot) => ({
+          id: slot.id,
+          label: compileText(slot.label),
+          prompt: compileText(slot.prompt),
+          selectors: slot.selectors.map(compileSubjectSelector),
+        })),
+        bindingOrder: [...data.bindingOrder],
         actionText: compileText(data.actionText),
+        completedCommandText: compileText(data.completedCommandText),
         quickAction: data.quickAction,
       });
   }

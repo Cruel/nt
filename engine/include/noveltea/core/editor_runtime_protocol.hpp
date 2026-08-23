@@ -45,6 +45,9 @@ decode_editor_runtime_value_text(std::string_view text,
 [[nodiscard]] Result<std::vector<compiled::InteractionSubject>, Diagnostics>
 decode_editor_interaction_subjects_text(std::string_view text,
                                         const EditorRuntimeProtocolLimits& limits = {});
+[[nodiscard]] Result<std::vector<InteractionSubjectBinding>, Diagnostics>
+decode_editor_interaction_bindings_text(std::string_view text,
+                                        const EditorRuntimeProtocolLimits& limits = {});
 
 [[nodiscard]] Result<TypedEditorPreviewDocument, Diagnostics>
 decode_editor_preview_document_text(std::string_view kind, std::string_view data_text,

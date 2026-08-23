@@ -332,24 +332,40 @@ describe('authoring structural dependency graph and queries', () => {
     project.interactables.item = { id: 'item', label: 'Item', data: item };
 
     const verb = defaultVerbData('Use');
-    verb.arity = 1;
-    verb.operandRoles = ['target'];
+    const slotText = {
+      source: { kind: 'inline' as const, text: 'target' },
+      markup: 'plain' as const,
+    };
+    verb.slots = [
+      {
+        id: 'target',
+        label: slotText,
+        prompt: slotText,
+        selectors: [{ kind: 'any-subject' }],
+      },
+    ];
+    verb.bindingOrder = ['target'];
     project.verbs.use = { id: 'use', label: 'Use', data: verb };
     const interaction = defaultInteractionData();
     interaction.rules.push({
       id: 'rule',
       verb: { $ref: { collection: 'verbs', id: 'use' } },
-      operands: [
+      slots: [
         {
-          kind: 'exact',
-          subject: {
-            kind: 'feature',
-            feature: {
-              ownerKind: 'interactable',
-              interactable: { $ref: { collection: 'interactables', id: 'item' } },
-              featureId: 'handle',
+          slotId: 'target',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: {
+                kind: 'feature',
+                feature: {
+                  ownerKind: 'interactable',
+                  interactable: { $ref: { collection: 'interactables', id: 'item' } },
+                  featureId: 'handle',
+                },
+              },
             },
-          },
+          ],
         },
       ],
       context: { kind: 'any' },
@@ -392,10 +408,10 @@ describe('authoring structural dependency graph and queries', () => {
     expect(findMissingAuthoringDependencyTargets(graph)).toHaveLength(2);
 
     item.presentation.hotspots.hotspot.target = { kind: 'owner-feature', featureId: 'grip' };
-    const operand = interaction.rules[0]!.operands[0];
-    if (operand?.kind !== 'exact' || operand.subject.kind !== 'feature')
+    const selector = interaction.rules[0]!.slots[0]?.selectors[0];
+    if (selector?.kind !== 'exact' || selector.subject.kind !== 'feature')
       throw new Error('Expected exact Feature subject');
-    operand.subject.feature.featureId = 'grip';
+    selector.subject.feature.featureId = 'grip';
     graph = buildAuthoringStructuralDependencyGraph(project);
     expect(findMissingAuthoringDependencyTargets(graph)).toEqual([]);
   });

@@ -269,8 +269,11 @@ export function usePreviewTransport({
       clearRuntimeSubjectSelection: () => send({ type: 'runtime-clear-subject-selection' }),
       runRuntimeInteraction: (
         verbId: string,
-        operands: import('../../shared/preview-protocol').PreviewInteractionSubject[],
-      ) => send({ type: 'runtime-run-interaction', verbId, operands }),
+        bindings: Array<{
+          slotId: string;
+          subject: import('../../shared/preview-protocol').PreviewInteractionSubject;
+        }>,
+      ) => send({ type: 'runtime-run-interaction', verbId, bindings }),
       requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
       requestAssetProfiler: (cursor?: { sessionId: bigint; afterSequence: bigint }) =>
         send<AssetProfilerWirePayload>(

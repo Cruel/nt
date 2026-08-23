@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 import { verbRefSchema } from './authoring-flow';
-import { interactionSubjectSchema, type FeatureRefData } from './authoring-features';
+import type { FeatureRefData } from './authoring-features';
 import {
   defaultInteractionProgram,
   interactionContextSchema,
@@ -9,7 +9,7 @@ import {
 } from './authoring-interaction-programs';
 import { parseInteractableData } from './authoring-interactables';
 import { parseRoomData } from './authoring-rooms';
-import { parseVerbData } from './authoring-verbs';
+import { parseVerbData, subjectSelectorSchema } from './authoring-verbs';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateInventoryReference } from './authoring-inventory-validation';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
@@ -17,18 +17,15 @@ import type { AuthoringProject, AuthoringRecordBase } from './authoring-project'
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
 export { interactionSubjectSchema } from './authoring-features';
-export const interactionOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('exact'), subject: interactionSubjectSchema }),
-  strict({ kind: z.literal('any-character') }),
-  strict({ kind: z.literal('any-interactable') }),
-  strict({ kind: z.literal('any-item-stack') }),
-  strict({ kind: z.literal('any-subject') }),
-]);
+export const interactionSlotSelectorSchema = strict({
+  slotId: entityIdSchema,
+  selectors: z.array(subjectSelectorSchema).min(1),
+});
 
 export const interactionRuleSchema = strict({
   id: entityIdSchema,
   verb: verbRefSchema,
-  operands: z.array(interactionOperandSchema).max(2),
+  slots: z.array(interactionSlotSelectorSchema),
   context: interactionContextSchema,
   program: interactionProgramSchema,
 });
@@ -38,7 +35,7 @@ export const interactionDataSchema = strict({
   rules: z.array(interactionRuleSchema),
 });
 
-export type InteractionOperand = z.infer<typeof interactionOperandSchema>;
+export type InteractionSlotSelector = z.infer<typeof interactionSlotSelectorSchema>;
 export type InteractionRule = z.infer<typeof interactionRuleSchema>;
 export type InteractionData = z.infer<typeof interactionDataSchema>;
 export interface InteractionSchemaDiagnostic {
@@ -224,6 +221,56 @@ export function validateInteractionProgram(
   return diagnostics;
 }
 
+function validateSubjectSelector(
+  project: AuthoringProject,
+  selector: InteractionRule['slots'][number]['selectors'][number],
+  path: string,
+  diagnostics: InteractionSchemaDiagnostic[],
+) {
+  if (selector.kind === 'trait') {
+    if (!project.traits[selector.trait.$ref.id])
+      diagnostics.push(
+        diagnostic(`${path}/trait/$ref`, `Missing Trait '${selector.trait.$ref.id}'.`),
+      );
+    return;
+  }
+  if (selector.kind === 'item-definition') {
+    if (!project.itemDefinitions[selector.itemDefinition.$ref.id])
+      diagnostics.push(
+        diagnostic(
+          `${path}/itemDefinition/$ref`,
+          `Missing Item Definition '${selector.itemDefinition.$ref.id}'.`,
+        ),
+      );
+    return;
+  }
+  if (selector.kind !== 'exact') return;
+  const subject = selector.subject;
+  if (subject.kind === 'interactable' && !project.interactables[subject.interactable.$ref.id])
+    diagnostics.push(
+      diagnostic(
+        `${path}/subject/interactable/$ref`,
+        `Missing interactable '${subject.interactable.$ref.id}'.`,
+      ),
+    );
+  else if (subject.kind === 'item-stack' && !project.itemStacks[subject.itemStack.$ref.id])
+    diagnostics.push(
+      diagnostic(
+        `${path}/subject/itemStack/$ref`,
+        `Missing Item Stack '${subject.itemStack.$ref.id}'.`,
+      ),
+    );
+  else if (subject.kind === 'character' && !project.characters[subject.character.$ref.id])
+    diagnostics.push(
+      diagnostic(
+        `${path}/subject/character/$ref`,
+        `Missing character '${subject.character.$ref.id}'.`,
+      ),
+    );
+  else if (subject.kind === 'feature')
+    validateFeatureRef(project, subject.feature, `${path}/subject/feature`, diagnostics);
+}
+
 export function validateInteractionData(
   project: AuthoringProject,
   interactionId: string,
@@ -249,58 +296,29 @@ export function validateInteractionData(
       diagnostics.push(
         diagnostic(`${path}/verb/$ref`, `Missing or invalid verb '${rule.verb.$ref.id}'.`),
       );
-    else if (verbData.arity !== rule.operands.length)
-      diagnostics.push(
-        diagnostic(
-          `${path}/operands`,
-          `Interaction rule operands must match verb '${rule.verb.$ref.id}' arity ${verbData.arity}.`,
-        ),
-      );
-    for (const [operandIndex, operand] of rule.operands.entries()) {
+    else {
+      const expectedSlots = new Set(verbData.bindingOrder);
+      const actualSlots = rule.slots.map((slot) => slot.slotId);
       if (
-        operand.kind === 'exact' &&
-        operand.subject.kind === 'interactable' &&
-        !project.interactables[operand.subject.interactable.$ref.id]
-      ) {
+        actualSlots.length !== expectedSlots.size ||
+        new Set(actualSlots).size !== actualSlots.length ||
+        actualSlots.some((slotId) => !expectedSlots.has(slotId))
+      )
         diagnostics.push(
           diagnostic(
-            `${path}/operands/${operandIndex}/subject/interactable/$ref`,
-            `Missing interactable '${operand.subject.interactable.$ref.id}'.`,
+            `${path}/slots`,
+            `Interaction rule slots must bind every named slot of Verb '${rule.verb.$ref.id}' exactly once.`,
           ),
-        );
-      }
-      if (
-        operand.kind === 'exact' &&
-        operand.subject.kind === 'item-stack' &&
-        !project.itemStacks[operand.subject.itemStack.$ref.id]
-      ) {
-        diagnostics.push(
-          diagnostic(
-            `${path}/operands/${operandIndex}/subject/itemStack/$ref`,
-            `Missing Item Stack '${operand.subject.itemStack.$ref.id}'.`,
-          ),
-        );
-      }
-      if (
-        operand.kind === 'exact' &&
-        operand.subject.kind === 'character' &&
-        !project.characters[operand.subject.character.$ref.id]
-      ) {
-        diagnostics.push(
-          diagnostic(
-            `${path}/operands/${operandIndex}/subject/character/$ref`,
-            `Missing character '${operand.subject.character.$ref.id}'.`,
-          ),
-        );
-      }
-      if (operand.kind === 'exact' && operand.subject.kind === 'feature')
-        validateFeatureRef(
-          project,
-          operand.subject.feature,
-          `${path}/operands/${operandIndex}/subject/feature`,
-          diagnostics,
         );
     }
+    for (const [slotIndex, slot] of rule.slots.entries())
+      for (const [selectorIndex, selector] of slot.selectors.entries())
+        validateSubjectSelector(
+          project,
+          selector,
+          `${path}/slots/${slotIndex}/selectors/${selectorIndex}`,
+          diagnostics,
+        );
     if (rule.context.kind === 'active-room' && !project.rooms[rule.context.room.$ref.id])
       diagnostics.push(
         diagnostic(`${path}/context/room/$ref`, `Missing room '${rule.context.room.$ref.id}'.`),
@@ -343,9 +361,7 @@ export function validateInteractionData(
     diagnostics.push(...validateInteractionProgram(project, rule.program, `${path}/program`));
     const key = JSON.stringify({
       verb: rule.verb.$ref.id,
-      operands: rule.operands.map((operand) =>
-        operand.kind === 'exact' ? operand.subject : operand.kind,
-      ),
+      slots: [...rule.slots].sort((left, right) => left.slotId.localeCompare(right.slotId)),
       context: rule.context,
     });
     const earlier = matchKeys.get(key);
