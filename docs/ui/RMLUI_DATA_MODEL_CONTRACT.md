@@ -53,7 +53,7 @@ Initial values are `NovelTea`, empty subtitle, and `Start`.
 | --- | --- | --- |
 | `gameplay.available` | bool | A nonzero accepted gameplay UI revision is retained. |
 | `gameplay.mode` | string | Current typed runtime UI mode, else empty. |
-| `gameplay.title` | string | Current Map title, else empty. |
+| `gameplay.title` | string | First projected Map title when present, else empty. Map components consume typed Map projections directly rather than this scalar. |
 | `gameplay.notification` | string | Typed runtime notification when nonempty, otherwise Interaction notification; empty when gameplay is unavailable. |
 | `gameplay.can_continue` | bool | Current typed Continue availability. |
 | `gameplay.active_text_available` | bool | Current ActiveText source is nonempty, with Scene then Dialogue then Room precedence. |
@@ -181,8 +181,12 @@ Each callback is a thin adapter over the same `RuntimeUiActionGateway` path used
 `Game.ui.*` or `Game.shell.*` Lua helper. The Lua APIs remain available; the model callbacks are not
 a second validation implementation.
 
-Map connection navigation intentionally remains on `Game.ui.navigate_map_connection()` while
-`nt-map-view` is provisional. Hotspot identity is presentation-only: gameplay Layout code acts on the published semantic subject/navigation APIs rather than invoking a Hotspot directly.
+Map navigation is owned by the `nt-map-view` semantic component path rather than the ordinary data
+model callbacks. `Game.ui.navigate_map_connection(map_id, connection_id)` and
+`Game.ui.navigate_map_location(map_id, location_id)` validate the currently published typed Map
+projection and dispatch the exact Exit-backed navigation target. Hotspot identity remains
+presentation-only: gameplay Layout code acts on published semantic subject/navigation APIs rather
+than invoking a Hotspot directly.
 
 ## Custom Runtime Elements
 
@@ -191,9 +195,12 @@ Ordinary state-driven UI should use the data model. Two custom tags remain excep
 - `nt-active-text` is the mature engine-rendered ActiveText host. RuntimeUI updates only the first
   tag in the active `game-hud` system document; its RmlUi content box and computed presentation
   values feed engine shaping/rendering and native hit testing.
-- `nt-map-view` is provisional. RuntimeUI updates only the first tag in the active `game-hud` and
-  active `text-log` system documents while gameplay exists. Its current generated inner RML and
-  `Game.ui.navigate_map_connection()` activation are explicitly not a final Map authoring contract.
+- `nt-map-view` consumes typed Map projections. RuntimeUI refreshes every matching occurrence in the
+  active `game-hud` and `text-log` system documents and in mounted gameplay Layout documents. The
+  `map` attribute selects a specific Map; omission is accepted when exactly one Map is authored.
+  Each occurrence independently owns open/mode/focus/pan/zoom state and exposes semantic Location
+  and Connection buttons independently of polygon hit testing. Persistence requires an explicit
+  authored Layout State Slot and Layout-side `commit_state(...)`.
 
 There is no `nt-text-log` current contract. Text Log is ordinary data-driven RML using
 `gameplay.text_log.entries`.

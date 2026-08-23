@@ -1110,7 +1110,6 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         REQUIRE(restored.value().mounted_layouts().size() == 1);
         CHECK(restored.value().mounted_layouts().front().policy.visibility ==
               LayoutVisibility::Visible);
-        CHECK_FALSE(restored.value().map_presentation());
     }
 
     SECTION("nested Dialogue frame receives fresh ownership and restores its input wait")

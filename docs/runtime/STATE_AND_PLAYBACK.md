@@ -31,8 +31,10 @@ There is no JSON property bag, fake player object, legacy parent lookup, or muta
 `ProjectDocument`.
 
 Feature-specific state publishes `TypedRuntimeUIViewState` for Room, Scene, Dialogue, Interaction,
-Inventory, TextLog, and Map presentation. The UI receives a value view and stable IDs; it cannot
-mutate state except through runtime inputs.
+Inventory, TextLog, and authored Map projections. The UI receives value views and stable IDs; it
+cannot mutate gameplay state except through runtime inputs. Map open/focus/pan/zoom/mode are not
+session state: each `<nt-map-view>` occurrence owns those values locally and may persist them only by
+explicitly committing an authored Layout State Slot.
 
 Scene-owned desired records are removed with their exact invocation frame. Current-Room records are
 removed only after a successful Room departure, while named-Room records remain stored and become
@@ -117,8 +119,10 @@ owners restore semantically; shell records are intentionally excluded. Exact aut
 definitions, while runtime mutations persist. Actor records retain only their selected idle ID.
 Runtime-selected environment records retain owner/instance/stop key, typed resource and geometry
 parameters, plane/order, clock, scroll rate, opacity, and visibility. Immutable Room environment
-defaults rebuild from `RoomDefinition` and are intentionally omitted from save bytes. Active text,
-active choice, and Map intent are retained. Runtime-selected desired Music and Ambient records retain
+defaults rebuild from `RoomDefinition` and are intentionally omitted from save bytes. Active text and
+active choice are retained. Map component focus/open/pan/zoom/mode and arbitrary RmlUi DOM state are
+not retained; only an explicitly committed validated Layout State Slot can carry authored Map-view
+state across save/restore. Runtime-selected desired Music and Ambient records retain
 stable instance/owner identity, Asset, volume, semantic fade policy, and optional replacement key.
 Transient voice, sound-effect, and non-looping playback operations are not state and are omitted.
 Semantic gameplay pause is deliberately excluded: a successful restore resumes the saved gameplay

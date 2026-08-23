@@ -62,16 +62,6 @@ core::Diagnostics index_error(std::string operation)
                              " uses zero-based indices and the index is out of range");
 }
 
-bool map_state_equal(const std::optional<core::MapPresentationState>& left,
-                     const std::optional<core::MapPresentationState>& right)
-{
-    if (left.has_value() != right.has_value())
-        return false;
-    return !left ||
-           (left->map == right->map && left->mode == right->mode &&
-            left->visible == right->visible && left->focused_location == right->focused_location);
-}
-
 core::Result<void, core::Diagnostics> require_gameplay_owner(const core::CompiledProject& project,
                                                              const core::SessionState& state,
                                                              const core::PresentationOwner& owner)
@@ -778,63 +768,37 @@ RuntimeCommandGateway::require_services(std::string operation) const
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::present_map(core::MapId map,
-                                   std::optional<core::compiled::InitialMapMode> mode, bool visible,
-                                   std::optional<core::MapLocationId> focused_location)
+RuntimeCommandGateway::activate_map_connection(core::MapId map, core::MapConnectionId connection)
 {
-    auto available = require_services("Map presentation");
-    if (!available)
-        return available;
-    const auto before = m_state.map_presentation();
-    auto changed =
-        m_services->present_map(std::move(map), mode, visible, std::move(focused_location));
-    if (changed && !map_state_equal(before, m_state.map_presentation()))
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<void, core::Diagnostics> RuntimeCommandGateway::hide_map()
-{
-    auto available = require_services("Map hiding");
-    if (!available)
-        return available;
-    const auto before = m_state.map_presentation();
-    auto changed = m_services->hide_map();
-    if (changed && !map_state_equal(before, m_state.map_presentation()))
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::select_map_location(core::MapLocationId location)
-{
-    auto available = require_services("Map selection");
-    if (!available)
-        return available;
-    const auto before = m_state.map_presentation();
-    auto changed = m_services->select_map_location(std::move(location));
-    if (changed && !map_state_equal(before, m_state.map_presentation()))
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::activate_map_connection(core::MapConnectionId connection)
-{
-    auto available = require_services("Map activation");
-    if (!available)
-        return available;
-    return m_services->activate_map_connection(std::move(connection));
-}
-
-core::Result<core::MapPresentationState, core::Diagnostics> RuntimeCommandGateway::map_state() const
-{
-    if (!m_state.map_presentation()) {
-        return core::Result<core::MapPresentationState, core::Diagnostics>::failure(
-            gateway_error("runtime.map_not_presented", "No typed Map presentation is active"));
+    const auto* definition = m_project.find_map(map);
+    if (definition == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.invalid_map", "Map definition is missing"));
+    const auto found = std::find_if(definition->connections.begin(), definition->connections.end(),
+                                    [&connection](const auto& candidate) {
+                                        return candidate.id == connection;
+                                    });
+    if (found == definition->connections.end())
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.invalid_map_connection", "Map connection is missing"));
+    const auto* active = std::get_if<core::RoomMode>(&m_state.mode());
+    if (active == nullptr || !m_state.flow_stack().empty())
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.invalid_navigation", "Map activation requires the active Room"));
+    const core::compiled::RoomExitRef* selected = nullptr;
+    for (const auto& exit : found->exits) {
+        if (exit.room != active->room)
+            continue;
+        if (selected != nullptr)
+            return core::Result<void, core::Diagnostics>::failure(gateway_error(
+                "runtime.invalid_map_connection", "Map connection has ambiguous outgoing Exits"));
+        selected = &exit;
     }
-    return core::Result<core::MapPresentationState, core::Diagnostics>::success(
-        *m_state.map_presentation());
+    if (selected == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.map_connection_unavailable",
+            "Map connection has no outgoing Exit from the active Room"));
+    return request_navigation(*selected);
 }
 
 core::Result<void, core::Diagnostics>

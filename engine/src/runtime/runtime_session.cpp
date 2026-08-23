@@ -250,45 +250,6 @@ void RuntimeSession::queue_input(core::RuntimeInputMessage input)
     m_script_inputs.push_back(std::move(input));
 }
 
-core::Result<void, core::Diagnostics>
-RuntimeSession::present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode,
-                            bool visible, std::optional<core::MapLocationId> focused_location)
-{
-    return m_kernel->present_map(map, mode, visible, std::move(focused_location));
-}
-
-core::Result<void, core::Diagnostics> RuntimeSession::hide_map() { return m_kernel->hide_map(); }
-
-core::Result<void, core::Diagnostics>
-RuntimeSession::select_map_location(core::MapLocationId location)
-{
-    auto selected = m_kernel->select_map_location(location, m_runtime_locale);
-    return selected ? core::Result<void, core::Diagnostics>::success()
-                    : core::Result<void, core::Diagnostics>::failure(
-                          as_diagnostics(std::move(selected).error()));
-}
-
-core::Result<void, core::Diagnostics>
-RuntimeSession::activate_map_connection(core::MapConnectionId connection)
-{
-    auto view = m_kernel->map_view(m_runtime_locale);
-    auto* map = view.value_if();
-    if (map == nullptr)
-        return core::Result<void, core::Diagnostics>::failure(
-            as_diagnostics(std::move(view).error()));
-    const auto selected = std::find_if(map->connections.begin(), map->connections.end(),
-                                       [&connection](const core::MapConnectionView& candidate) {
-                                           return candidate.connection == connection;
-                                       });
-    if (!map->visible || !map->current_room || selected == map->connections.end() ||
-        !selected->selectable) {
-        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
-            diagnostic("runtime.map_connection_unavailable",
-                       "Selected Map connection is not an enabled exit from the active Room")});
-    }
-    return m_kernel->gateway().request_navigation(selected->exit);
-}
-
 core::Result<void, core::Diagnostics> RuntimeSession::request_audio(
     core::compiled::AudioAction action, core::compiled::AudioChannel channel,
     std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,

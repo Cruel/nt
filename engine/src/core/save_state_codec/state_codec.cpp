@@ -1018,7 +1018,6 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                   std::move(saved_presentation->desired_audio),
                   std::move(saved_presentation->presented_text),
                   std::move(saved_presentation->active_choice),
-                  std::move(saved_presentation->map_presentation),
                   std::move(*saved_mode),
                   std::move(*saved_frames),
                   std::move(*saved_blocker)});

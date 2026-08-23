@@ -197,9 +197,6 @@ SessionState representative_state(const CompiledProject& project)
                                                 true}));
     REQUIRE(state.present_text(
         project, PresentedTextState{id<CharacterId>("hero"), "Hello", TextMarkup::Plain}));
-    REQUIRE(
-        state.set_map_presentation(project, {id<MapId>("house"), compiled::InitialMapMode::FullMap,
-                                             true, id<MapLocationId>("start-location")}));
     REQUIRE(state.upsert_desired_audio(
         project,
         DesiredAudioInstance{id<DesiredAudioInstanceId>("background-music"),
@@ -285,8 +282,6 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(hud->policy.plane == PresentationPlane::GameUi);
 
     REQUIRE(snapshot.text_and_choice.text);
-    REQUIRE(snapshot.map);
-    CHECK(snapshot.map->focused_location == id<MapLocationId>("start-location"));
     REQUIRE(snapshot.desired_audio.size() == 1);
     CHECK(snapshot.desired_audio.front().instance ==
           id<DesiredAudioInstanceId>("background-music"));
@@ -425,7 +420,6 @@ TEST_CASE("presentation projector represents absent optional families explicitly
     CHECK(projected.value().layouts.empty());
     CHECK_FALSE(projected.value().text_and_choice.text);
     CHECK_FALSE(projected.value().text_and_choice.choice);
-    CHECK_FALSE(projected.value().map);
 }
 
 TEST_CASE("active Room projection requires its complete resolved presentation")

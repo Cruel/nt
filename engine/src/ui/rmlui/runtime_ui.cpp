@@ -375,11 +375,23 @@ template<class T> T* find_first_component(Rml::ElementDocument& document, const 
     auto* element = find_first_tag(document, tag);
     return element ? rmlui_dynamic_cast<T*>(element) : nullptr;
 }
+
+template<class T, class Function>
+void for_each_component(Rml::ElementDocument& document, const char* selector, Function&& function)
+{
+    Rml::ElementList elements;
+    document.QuerySelectorAll(elements, selector);
+    for (auto* element : elements) {
+        if (auto* component = element ? rmlui_dynamic_cast<T*>(element) : nullptr)
+            function(*component);
+    }
+}
 } // namespace
 
 struct RuntimeUI::State {
     using ContextKey = ui::rmlui::LifecycleContextKey;
     void refresh_game_hud_map();
+    void refresh_mounted_maps();
     void refresh_active_text_layout();
     void load_runtime_document();
     void show_game_document();
@@ -816,9 +828,11 @@ void RuntimeUI::State::refresh_text_log_map()
     auto* document = system_document(core::compiled::SystemLayoutRole::TextLog);
     if (!document)
         return;
-    if (auto* map_view =
-            find_first_component<ui::rmlui::NtMapViewElement>(*document, "nt-map-view"))
-        map_view->set_snapshot(ui::rmlui::make_map_view_snapshot(*action_gateway->view()));
+    for_each_component<ui::rmlui::NtMapViewElement>(
+        *document, "nt-map-view", [&](ui::rmlui::NtMapViewElement& map_view) {
+            map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(
+                *action_gateway->view(), map_view.requested_map()));
+        });
 }
 
 void RuntimeUI::State::refresh_game_hud_map()
@@ -826,8 +840,29 @@ void RuntimeUI::State::refresh_game_hud_map()
     auto* doc = system_document(core::compiled::SystemLayoutRole::GameHud);
     if (!doc || !action_gateway || !action_gateway->view())
         return;
-    if (auto* map_view = find_first_component<ui::rmlui::NtMapViewElement>(*doc, "nt-map-view"))
-        map_view->set_snapshot(ui::rmlui::make_map_view_snapshot(*action_gateway->view()));
+    for_each_component<ui::rmlui::NtMapViewElement>(
+        *doc, "nt-map-view", [&](ui::rmlui::NtMapViewElement& map_view) {
+            map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(
+                *action_gateway->view(), map_view.requested_map()));
+        });
+    refresh_mounted_maps();
+}
+
+void RuntimeUI::State::refresh_mounted_maps()
+{
+    if (!action_gateway || !action_gateway->view())
+        return;
+    for (const auto& [document_id, context] : layout_mount_contexts) {
+        (void)context;
+        auto* doc = document(document_id);
+        if (!doc)
+            continue;
+        for_each_component<ui::rmlui::NtMapViewElement>(
+            *doc, "nt-map-view", [&](ui::rmlui::NtMapViewElement& map_view) {
+                map_view.set_snapshot(ui::rmlui::make_map_view_snapshot(
+                    *action_gateway->view(), map_view.requested_map()));
+            });
+    }
 }
 
 void RuntimeUI::State::refresh_active_text_layout()
@@ -1315,6 +1350,7 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
         m_state->layout_mount_contexts.insert_or_assign(id, std::move(*context));
     else
         m_state->layout_mount_contexts.erase(id);
+    m_state->refresh_mounted_maps();
 }
 
 std::optional<RuntimeUiLayoutMountContext>

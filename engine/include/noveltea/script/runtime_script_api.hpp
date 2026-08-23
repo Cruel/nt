@@ -190,15 +190,7 @@ public:
     random_integer(std::int64_t minimum, std::int64_t maximum);
     [[nodiscard]] core::Result<double, core::Diagnostics> random_unit();
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode = std::nullopt,
-                bool visible = true,
-                std::optional<core::MapLocationId> focused_location = std::nullopt);
-    [[nodiscard]] core::Result<void, core::Diagnostics> hide_map();
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    select_map_location(core::MapLocationId location);
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    activate_map_connection(core::MapConnectionId connection);
-    [[nodiscard]] core::Result<core::MapPresentationState, core::Diagnostics> map_state() const;
+    activate_map_connection(core::MapId map, core::MapConnectionId connection);
     [[nodiscard]] core::Result<std::optional<core::LayoutId>, core::Diagnostics>
     layout(core::compiled::LayoutSlot slot) const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_layout(core::compiled::LayoutSlot slot,

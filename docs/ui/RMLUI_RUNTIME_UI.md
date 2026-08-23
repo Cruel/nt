@@ -53,8 +53,9 @@ The exact field and callback schema is defined in `docs/ui/RMLUI_DATA_MODEL_CONT
 C++-backed custom elements are limited to the cases where ordinary data binding is insufficient:
 
 - ActiveText keeps parsed rich text/data for the direct text renderer;
-- MapView preserves strong Map/Room/Location/Connection/Exit IDs through an explicitly provisional
-  focused adapter.
+- MapView preserves strong Map/Room/Location/Connection/Exit IDs, normalized pointer geometry, and
+  semantic accessible targets while keeping open/mode/focus/pan/zoom local to each element
+  occurrence.
 
 Text Log is ordinary data-driven RML over `gameplay.text_log.entries`; there is no current
 `nt-text-log` component. Complex runtime widgets should use C++-backed RmlUi components only when

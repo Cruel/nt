@@ -896,7 +896,7 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
         return;
     }
     out.mode = view.mode;
-    out.title = view.map && view.map->title ? *view.map->title : std::string{};
+    out.title.clear();
     out.notification =
         typed_notification.empty() && view.interaction && view.interaction->notification
             ? *view.interaction->notification

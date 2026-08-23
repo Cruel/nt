@@ -150,14 +150,6 @@ private:
     void assert_owner_thread() const noexcept;
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode, bool visible,
-                std::optional<core::MapLocationId> focused_location) override;
-    [[nodiscard]] core::Result<void, core::Diagnostics> hide_map() override;
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    select_map_location(core::MapLocationId location) override;
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    activate_map_connection(core::MapConnectionId connection) override;
-    [[nodiscard]] core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
                   double volume, bool await_completion,

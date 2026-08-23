@@ -2254,23 +2254,4 @@ Result<void, Diagnostics> SessionState::present_choice(const CompiledProject& pr
     return Result<void, Diagnostics>::success();
 }
 
-Result<void, Diagnostics> SessionState::set_map_presentation(const CompiledProject& project,
-                                                             MapPresentationState map)
-{
-    const auto* definition = project.find_map(map.map);
-    const bool valid_focus =
-        !map.focused_location ||
-        (definition != nullptr &&
-         std::any_of(definition->locations.begin(), definition->locations.end(),
-                     [&map](const compiled::MapLocation& location) {
-                         return location.id == *map.focused_location;
-                     }));
-    if (definition == nullptr || map.mode > compiled::InitialMapMode::FullMap || !valid_focus)
-        return Result<void, Diagnostics>::failure(
-            feature_error("runtime.invalid_map_presentation",
-                          "Map presentation references invalid compiled data"));
-    m_map_presentation = std::move(map);
-    return Result<void, Diagnostics>::success();
-}
-
 } // namespace noveltea::core

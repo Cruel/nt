@@ -590,37 +590,96 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     {
       id: 'start-location',
       room: roomReference('start'),
-      position: { x: 0, y: 0 },
-      shape: { kind: 'point' },
+      regions: [
+        {
+          points: [
+            { x: 0.05, y: 0.1 },
+            { x: 0.2, y: 0.1 },
+            { x: 0.2, y: 0.3 },
+          ],
+        },
+      ],
       label: null,
+      icon: null,
+      style: null,
+      labelAnchor: { x: 0.12, y: 0.2 },
+      connectionAnchor: { x: 0.2, y: 0.2 },
+      visibility: { kind: 'always' },
+      pickOrder: 0,
+      logicalOrder: 0,
     },
     {
       id: 'hall-location',
       room: roomReference('hall'),
-      position: { x: 1, y: 0 },
-      shape: { kind: 'circle', radius: 0.25 },
+      regions: [
+        {
+          points: [
+            { x: 0.35, y: 0.1 },
+            { x: 0.55, y: 0.1 },
+            { x: 0.55, y: 0.3 },
+          ],
+        },
+      ],
       label: { markup: 'plain', source: { kind: 'inline', text: 'Hall' } },
+      icon: null,
+      style: 'main-hall',
+      labelAnchor: { x: 0.45, y: 0.2 },
+      connectionAnchor: { x: 0.55, y: 0.2 },
+      visibility: { kind: 'always' },
+      pickOrder: 1,
+      logicalOrder: 1,
     },
     {
       id: 'tower-location',
       room: roomReference('tower'),
-      position: { x: 2, y: 0 },
-      shape: { kind: 'rect', width: 0.5, height: 0.75 },
+      regions: [
+        {
+          points: [
+            { x: 0.7, y: 0.1 },
+            { x: 0.9, y: 0.1 },
+            { x: 0.9, y: 0.35 },
+            { x: 0.7, y: 0.35 },
+          ],
+        },
+      ],
       label: { markup: 'plain', source: { kind: 'localized', key: 'room-tower' } },
+      icon: null,
+      style: null,
+      labelAnchor: null,
+      connectionAnchor: null,
+      visibility: { kind: 'always' },
+      pickOrder: 2,
+      logicalOrder: 2,
     },
   ];
   map.connections = [
     {
       id: 'start-hall',
-      exit: { room: 'start', exit: 'north-exit' },
-      sourceLocation: 'start-location',
-      targetLocation: 'hall-location',
+      exits: [{ room: 'start', exit: 'north-exit' }],
+      label: null,
+      icon: null,
+      style: null,
+      visibility: { kind: 'always' },
+      logicalOrder: 0,
+      path: [
+        { x: 0.2, y: 0.2 },
+        { x: 0.35, y: 0.2 },
+      ],
+      hitRegions: [],
     },
     {
       id: 'hall-tower',
-      exit: { room: 'hall', exit: 'east-exit' },
-      sourceLocation: 'hall-location',
-      targetLocation: 'tower-location',
+      exits: [{ room: 'hall', exit: 'east-exit' }],
+      label: null,
+      icon: null,
+      style: null,
+      visibility: { kind: 'always' },
+      logicalOrder: 1,
+      path: [
+        { x: 0.55, y: 0.2 },
+        { x: 0.7, y: 0.2 },
+      ],
+      hitRegions: [],
     },
   ];
   project.maps.house = { id: 'house', label: 'House', data: map };

@@ -141,22 +141,37 @@ struct TextLogView {
 struct MapLocationView {
     MapLocationId location;
     RoomId room;
-    compiled::Vector2 position;
-    compiled::MapShape shape;
+    std::vector<compiled::MapPolygon> regions;
     std::optional<std::string> label;
-    bool focused;
+    std::optional<AssetId> icon;
+    std::optional<std::string> style;
+    std::optional<compiled::Vector2> label_anchor;
+    std::optional<compiled::Vector2> connection_anchor;
+    std::int64_t pick_order = 0;
+    std::int64_t logical_order = 0;
+    bool current = false;
+    bool visible = true;
+    bool actionable = false;
+    std::optional<compiled::RoomExitRef> convenience_exit;
 };
 struct MapConnectionView {
     MapConnectionId connection;
-    compiled::RoomExitRef exit;
+    std::vector<compiled::RoomExitRef> exits;
     MapLocationId source;
     MapLocationId target;
-    bool selectable;
+    std::optional<compiled::RoomExitRef> active_exit;
+    std::optional<std::string> label;
+    std::optional<AssetId> icon;
+    std::optional<std::string> style;
+    std::int64_t logical_order = 0;
+    std::vector<compiled::Vector2> path;
+    std::vector<compiled::MapPolygon> hit_regions;
+    bool visible = true;
+    bool actionable = false;
 };
 struct MapView {
     MapId map;
-    compiled::InitialMapMode mode;
-    bool visible;
+    compiled::InitialMapMode initial_mode;
     std::optional<RoomId> current_room;
     std::optional<std::string> title;
     std::optional<AssetId> background;
@@ -177,7 +192,7 @@ struct TypedRuntimeUIViewState {
     std::optional<InteractionView> interaction;
     InventoryView inventory;
     TextLogView text_log;
-    std::optional<MapView> map;
+    std::vector<MapView> maps;
     std::vector<compiled::InteractionSubject> selected_subjects;
     bool can_continue = false;
 };

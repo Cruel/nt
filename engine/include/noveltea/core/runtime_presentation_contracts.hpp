@@ -129,16 +129,6 @@ struct PresentationTextAndChoice {
     bool operator==(const PresentationTextAndChoice&) const = default;
 };
 
-struct PresentationMap {
-    MapId map;
-    compiled::InitialMapMode mode = compiled::InitialMapMode::Minimap;
-    bool visible = false;
-    std::optional<MapLocationId> focused_location;
-    std::optional<AssetId> background;
-    std::optional<LayoutId> layout;
-    bool operator==(const PresentationMap&) const = default;
-};
-
 struct PresentationDesiredAudio {
     DesiredAudioInstanceId instance;
     PresentationOwner owner;
@@ -185,7 +175,6 @@ struct RuntimePresentationSnapshot {
     std::vector<PresentationEnvironment> environments;
     std::vector<PresentationMountedLayout> layouts;
     PresentationTextAndChoice text_and_choice;
-    std::optional<PresentationMap> map;
     std::vector<PresentationDesiredAudio> desired_audio;
     std::vector<PresentationHotspot> hotspots;
     bool operator==(const RuntimePresentationSnapshot&) const = default;

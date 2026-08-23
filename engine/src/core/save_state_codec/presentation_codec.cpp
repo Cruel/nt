@@ -765,16 +765,6 @@ decode_choice(Decoder& d, const nlohmann::json& value, std::string_view pointer)
     return std::nullopt;
 }
 
-nlohmann::json encode_map(const std::optional<MapPresentationState>& value)
-{
-    if (!value)
-        return nullptr;
-    return {{"map", value->map.text()},
-            {"mode", encode_enum(value->mode)},
-            {"visible", value->visible},
-            {"focusedLocation", encode_optional_id(value->focused_location)}};
-}
-
 nlohmann::json encode_layout_state_owner(const SavedLayoutStateScopeOwner& owner)
 {
     return std::visit(
@@ -832,32 +822,6 @@ decode_layout_state_owner(Decoder& d, const nlohmann::json& value, std::string_v
     }
     d.error(k_variant, "Unknown Layout state scope kind '" + *kind + "'.", child(pointer, "kind"));
     return std::nullopt;
-}
-
-std::optional<std::optional<MapPresentationState>>
-decode_map(Decoder& d, const nlohmann::json& value, std::string_view pointer)
-{
-    if (value.is_null())
-        return std::optional<MapPresentationState>{};
-    if (!d.object(value, pointer, {"map", "mode", "visible", "focusedLocation"}))
-        return std::nullopt;
-    const auto* map_value = d.member(value, "map", pointer);
-    const auto* mode_value = d.member(value, "mode", pointer);
-    const auto* visible_value = d.member(value, "visible", pointer);
-    const auto* focused_value = d.member(value, "focusedLocation", pointer);
-    auto map = map_value ? d.id<MapId>(*map_value, child(pointer, "map")) : std::nullopt;
-    auto mode = mode_value ? decode_enum(d, *mode_value, child(pointer, "mode"),
-                                         compiled::InitialMapMode::FullMap)
-                           : std::nullopt;
-    auto visible =
-        visible_value ? d.boolean(*visible_value, child(pointer, "visible")) : std::nullopt;
-    auto focused = focused_value ? decode_optional_id_value<MapLocationId>(
-                                       d, *focused_value, child(pointer, "focusedLocation"))
-                                 : std::nullopt;
-    return map && mode && visible && focused
-               ? std::optional<std::optional<MapPresentationState>>{MapPresentationState{
-                     std::move(*map), *mode, *visible, std::move(*focused)}}
-               : std::nullopt;
 }
 
 } // namespace
@@ -957,8 +921,7 @@ nlohmann::json encode_presentation_records(const SaveState& save)
             {"layoutStateSlots", std::move(layout_state_slots)},
             {"desiredAudio", std::move(desired_audio)},
             {"presentedText", encode_presented_text(save.presented_text)},
-            {"activeChoice", encode_choice(save.active_choice)},
-            {"map", encode_map(save.map_presentation)}};
+            {"activeChoice", encode_choice(save.active_choice)}};
 }
 
 std::optional<SavedPresentationRecords>
@@ -966,7 +929,7 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
 {
     if (!d.object(value, pointer,
                   {"backgroundOverrides", "actors", "props", "environments", "mountedLayouts",
-                   "layoutStateSlots", "desiredAudio", "presentedText", "activeChoice", "map"}))
+                   "layoutStateSlots", "desiredAudio", "presentedText", "activeChoice"}))
         return std::nullopt;
     const auto* backgrounds_value = d.member(value, "backgroundOverrides", pointer);
     const auto* actors_value = d.member(value, "actors", pointer);
@@ -977,7 +940,6 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
     const auto* desired_audio_value = d.member(value, "desiredAudio", pointer);
     const auto* text_value = d.member(value, "presentedText", pointer);
     const auto* choice_value = d.member(value, "activeChoice", pointer);
-    const auto* map_value = d.member(value, "map", pointer);
 
     auto backgrounds =
         backgrounds_value
@@ -1410,16 +1372,15 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
     auto active_choice = choice_value
                              ? decode_choice(d, *choice_value, child(pointer, "activeChoice"))
                              : std::nullopt;
-    auto map = map_value ? decode_map(d, *map_value, child(pointer, "map")) : std::nullopt;
 
     if (!backgrounds || !actors || !props || !environments || !layouts || !layout_state_slots ||
-        !desired_audio || !presented_text || !active_choice || !map)
+        !desired_audio || !presented_text || !active_choice)
         return std::nullopt;
     return SavedPresentationRecords{std::move(*backgrounds),   std::move(*actors),
                                     std::move(*props),         std::move(*environments),
                                     std::move(*layouts),       std::move(*layout_state_slots),
                                     std::move(*desired_audio), std::move(*presented_text),
-                                    std::move(*active_choice), std::move(*map)};
+                                    std::move(*active_choice)};
 }
 
 } // namespace noveltea::core::save_state_codec

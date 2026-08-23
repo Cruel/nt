@@ -295,35 +295,12 @@ They raise a Lua error if the underlying NovelTea random operation fails.
 ## Map
 
 ```text
-noveltea.map.present(map_id, options?) -> ok, error
-noveltea.map.hide() -> ok, error
-noveltea.map.select(map_location_id) -> ok, error
-noveltea.map.activate(map_connection_id) -> ok, error
-noveltea.map.state() -> state, error
+noveltea.map.activate(map_id, map_connection_id) -> ok, error
 ```
 
-`present` options:
+Maps project authored Rooms and authoritative Room Exits; Lua does not own a separate presented-Map state. `activate` verifies that the named authored Connection has an Exit owned by the active Room, then queues that exact normal Navigation Attempt. The navigation pipeline performs the authoritative can-leave, Exit-condition, can-enter, rejection, and lifecycle-hook behavior.
 
-```lua
-{
-    mode = "minimap" | "full-map", -- optional
-    visible = true | false,         -- default true
-    focus = "map-location-id",      -- optional
-}
-```
-
-Successful `state()` returns:
-
-```lua
-{
-    map = "map-id",
-    mode = "minimap" | "full-map",
-    visible = true | false,
-    focused_location = "map-location-id", -- omitted when absent
-}
-```
-
-Map activation is validated against the currently presented map/room state; a syntactically valid stale or disabled connection can still fail.
+Map view state such as open/full-map mode, focus, pan, and zoom belongs to each `nt-map-view` Layout occurrence. It is not gameplay/session state. A Layout may persist selected view state only through its declared Layout State Slot and `Game.mount_context():commit_state(...)`.
 
 ## Layout state
 
@@ -639,16 +616,17 @@ Game.ui.continue()
 Game.ui.choose_scene(scene_choice_id)
 Game.ui.choose_dialogue(dialogue_choice_id)
 Game.ui.navigate_room(exit_id)
-Game.ui.navigate_map_connection(map_connection_id)
+Game.ui.navigate_map_connection(map_id, map_connection_id)
+Game.ui.navigate_map_location(map_id, map_location_id)
 Game.ui.toggle_interactable(interactable_id)
 Game.ui.toggle_character(character_id)
 Game.ui.clear_selection()
 Game.ui.invoke_interaction(verb_id)
 ```
 
-These return plain booleans. They are validated against the currently published gameplay view, not just ID syntax: hidden/disabled/stale choices, exits, map connections, subjects, or interactions fail. Use these in gameplay Layout event code rather than assuming the general `Game.*` index-based UI conveniences are equivalent.
+These return plain booleans. They are validated against the currently published gameplay view, not just ID syntax: hidden/disabled/stale choices, exits, Map connections/locations, subjects, or interactions fail. Use these in gameplay Layout event code rather than assuming the general `Game.*` index-based UI conveniences are equivalent.
 
-`Game.ui.navigate_map_connection` is currently part of the provisional `nt-map-view` path; do not treat generated Map markup as a stable custom-component API. See `.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md`.
+Map Location convenience succeeds only when runtime projection finds exactly one actionable Exit-backed Connection from the active Room to that Location's Room. It dispatches that exact Exit rather than performing direct Room travel. `nt-map-view` pointer geometry ultimately targets these same semantic Location/Connection controls, so non-pointer activation is independent of polygon hit testing.
 
 ## Shell Layout `Game.start` and `Game.shell.*`
 

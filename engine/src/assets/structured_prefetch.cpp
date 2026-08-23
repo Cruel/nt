@@ -865,15 +865,6 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
         for (const auto& layout : snapshot->layouts)
             m_index.m_impl->append_layout(current, layout.layout, current_diagnostics,
                                           "current mounted Layout");
-        if (snapshot->map && snapshot->map->visible) {
-            if (snapshot->map->background)
-                m_index.m_impl->append_asset(current, *snapshot->map->background,
-                                             core::compiled::AssetKind::Image, current_diagnostics,
-                                             "current map");
-            if (snapshot->map->layout)
-                m_index.m_impl->append_layout(current, *snapshot->map->layout, current_diagnostics,
-                                              "current map");
-        }
         for (const auto& audio : snapshot->desired_audio)
             m_index.m_impl->append_audio(current, audio.asset, audio.bus, current_diagnostics,
                                          "current desired audio");
