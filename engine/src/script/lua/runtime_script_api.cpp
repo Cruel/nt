@@ -484,7 +484,8 @@ RuntimeScriptApi::set_custom_layout(core::ScopedLayoutInstanceId instance, core:
                                       .escape_dismissal = options.escape_dismissal,
                                       .entrance_operation = std::nullopt,
                                       .exit_operation = std::nullopt},
-            options.scale_overrides, options.composition_group},
+            options.scale_overrides, options.composition_group, std::nullopt,
+            std::move(options.inputs), std::move(options.connected_signals)},
         entrance);
 }
 

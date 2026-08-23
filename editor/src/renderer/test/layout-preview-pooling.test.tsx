@@ -453,7 +453,7 @@ describe('LayoutEditor persistent layout preview', () => {
   it('shares preview size with Room while preserving Layout tab state', async () => {
     const view = renderGroup(group(layoutTab.id));
 
-    await waitFor(() => expect(screen.getByLabelText('source-json')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByLabelText('source-json').at(-1)).toBeInTheDocument());
     const scrollContainer = view.container.querySelector<HTMLElement>(
       '[data-layout-editor-scroll]',
     )!;
@@ -462,7 +462,9 @@ describe('LayoutEditor persistent layout preview', () => {
     const rmlEditor = screen.getByLabelText('source-rml');
     rmlEditor.scrollTop = 22;
     rmlEditor.scrollLeft = 3;
-    fireEvent.change(screen.getByLabelText('source-json'), { target: { value: '{ invalid json' } });
+    fireEvent.change(screen.getAllByLabelText('source-json').at(-1)!, {
+      target: { value: '{ invalid json' },
+    });
     act(() => {
       useEditorPreviewSplitSyncStore.getState().setSize('horizontal', 56);
       usePreferencesStore.getState().setEditorPreviewSplitSize('horizontal', 56);
@@ -495,7 +497,7 @@ describe('LayoutEditor persistent layout preview', () => {
 
     rerenderGroup(view, group(layoutTab.id));
 
-    expect(screen.getByLabelText('source-json')).toHaveValue('{ invalid json');
+    expect(screen.getAllByLabelText('source-json').at(-1)).toHaveValue('{ invalid json');
     await waitFor(() => {
       expect(
         view.container.querySelector<HTMLElement>('[data-panel-id="editor-preview"]'),

@@ -53,6 +53,7 @@ struct PendingActorOperation {
 
 struct PendingLayoutOperation {
     core::MountedLayoutPresentationKey target;
+    core::PresentationOwner owner;
     std::chrono::milliseconds duration{0};
     bool skippable = true;
     std::optional<core::PresentationFlowCompletion> completion;

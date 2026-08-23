@@ -1,4 +1,6 @@
 #include <noveltea/core/compiled_project_codec.hpp>
+#include <noveltea/core/layout_policies.hpp>
+#include <noveltea/core/property_resolver.hpp>
 #include <noveltea/presentation/room_presentation.hpp>
 #include <noveltea/presentation/runtime_presentation.hpp>
 #include <noveltea/core/session_state.hpp>
@@ -56,6 +58,40 @@ CompiledProject hotspot_fixture()
     const std::string source((std::istreambuf_iterator<char>(input)), {});
     auto decoded =
         decode_compiled_project(nlohmann::json::parse(source), "interaction-program.json");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
+CompiledProject layout_contract_fixture()
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/interaction-program.json");
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)), {});
+    auto document = nlohmann::json::parse(source);
+    auto& layouts = document["resources"]["layouts"];
+    auto layout = std::find_if(layouts.begin(), layouts.end(), [](const nlohmann::json& value) {
+        return value["id"] == "hud-inline";
+    });
+    REQUIRE(layout != layouts.end());
+    auto contract_layout = *layout;
+    contract_layout["id"] = "contract-layout";
+    contract_layout["contract"] = {
+        {"inputs", nlohmann::json::array({{{"id", "count"},
+                                           {"type", "integer"},
+                                           {"nullable", false},
+                                           {"hasDefault", false},
+                                           {"defaultValue", nullptr}}})},
+        {"signals",
+         nlohmann::json::array({{{"id", "confirmed"},
+                                 {"fields", nlohmann::json::array({{{"id", "choice"},
+                                                                    {"type", "integer"},
+                                                                    {"nullable", false},
+                                                                    {"required", true}}})}}})},
+    };
+    layouts.push_back(std::move(contract_layout));
+    auto decoded = decode_compiled_project(document, "layout-contract.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -168,6 +204,16 @@ const PresentationMountedLayout* find_layout(const RuntimePresentationSnapshot& 
 {
     const auto found = std::find_if(snapshot.layouts.begin(), snapshot.layouts.end(),
                                     [&key](const auto& value) { return value.key == key; });
+    return found == snapshot.layouts.end() ? nullptr : &*found;
+}
+
+const PresentationMountedLayout* find_layout(const RuntimePresentationSnapshot& snapshot,
+                                             const PresentationOwner& owner,
+                                             const MountedLayoutPresentationKey& key)
+{
+    const auto found =
+        std::find_if(snapshot.layouts.begin(), snapshot.layouts.end(),
+                     [&](const auto& value) { return value.owner == owner && value.key == key; });
     return found == snapshot.layouts.end() ? nullptr : &*found;
 }
 } // namespace
@@ -451,6 +497,115 @@ TEST_CASE("presentation projector canonicalizes every multi-instance family")
     CHECK(first.value().desired_audio[0].bus == compiled::AudioChannel::Music);
     CHECK(first.value().desired_audio[1].bus == compiled::AudioChannel::Ambient);
     CHECK(first.value().desired_audio[2].bus == compiled::AudioChannel::Ambient);
+}
+
+TEST_CASE("Layout Mount contracts keep owner-qualified identity and reevaluate bindings")
+{
+    const auto project = layout_contract_fixture();
+    const auto input_id = id<LayoutInputId>("count");
+    const auto signal_id = id<LayoutSignalId>("confirmed");
+    const auto field_id = id<LayoutSignalFieldId>("choice");
+
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    const auto key =
+        MountedLayoutPresentationKey{ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("widget")}};
+    const auto session_owner = PresentationOwner{state.session_presentation_owner()};
+    const auto current_room_owner = PresentationOwner{*state.current_room_presentation_owner()};
+    const auto mount = [&](PresentationOwner owner) {
+        return DesiredMountedLayout{key,
+                                    std::move(owner),
+                                    id<LayoutId>("contract-layout"),
+                                    reserved_layout_policy(compiled::LayoutSlot::Custom),
+                                    {},
+                                    PresentationCompositionGroup::Interface,
+                                    std::nullopt,
+                                    {{input_id, LayoutVariableBinding{id<PropertyId>("count")}}},
+                                    {signal_id}};
+    };
+    REQUIRE(state.upsert_mounted_layout(project, mount(session_owner)));
+    REQUIRE(state.upsert_mounted_layout(project, mount(current_room_owner)));
+    REQUIRE(state.mounted_layouts().size() >= 2);
+
+    const auto room = resolve_room(project, state);
+    auto snapshot = project_snapshot(project, state, &room);
+    if (!snapshot)
+        for (const auto& diagnostic : snapshot.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message);
+    REQUIRE(snapshot);
+    const auto* session_mount = find_layout(snapshot.value(), session_owner, key);
+    const auto* room_mount = find_layout(snapshot.value(), current_room_owner, key);
+    REQUIRE(session_mount);
+    REQUIRE(room_mount);
+    REQUIRE(session_mount->occurrence);
+    REQUIRE(room_mount->occurrence);
+    CHECK(*session_mount->occurrence != *room_mount->occurrence);
+    REQUIRE(session_mount->inputs.size() == 1);
+    CHECK(session_mount->inputs[0].value == RuntimeValue{std::int64_t{2}});
+
+    PropertyResolver properties(project, state);
+    REQUIRE(properties.set_global(id<PropertyId>("count"), RuntimeValue{std::int64_t{7}}));
+    snapshot = project_snapshot(project, state, &room);
+    REQUIRE(snapshot);
+    session_mount = find_layout(snapshot.value(), session_owner, key);
+    REQUIRE(session_mount);
+    REQUIRE(session_mount->occurrence);
+    const auto occurrence = *session_mount->occurrence;
+    REQUIRE(session_mount->inputs.size() == 1);
+    CHECK(session_mount->inputs[0].value == RuntimeValue{std::int64_t{7}});
+
+    auto invalid = mount(session_owner);
+    invalid.inputs.push_back(
+        {id<LayoutInputId>("undeclared"), LayoutLiteralInput{RuntimeValue{std::int64_t{1}}}});
+    CHECK_FALSE(state.upsert_mounted_layout(project, std::move(invalid)));
+    const auto existing = std::find_if(
+        state.mounted_layouts().begin(), state.mounted_layouts().end(),
+        [&](const auto& value) { return value.owner == session_owner && value.key == key; });
+    REQUIRE(existing != state.mounted_layouts().end());
+    REQUIRE(existing->occurrence);
+    CHECK(*existing->occurrence == occurrence);
+    CHECK(existing->inputs.size() == 1);
+
+    REQUIRE(state.validate_layout_signal(project, session_owner, key, occurrence, signal_id,
+                                         {{field_id, RuntimeValue{std::int64_t{3}}}}));
+
+    auto policy_update = mount(session_owner);
+    policy_update.policy.local_order = 42;
+    policy_update.policy.visibility = LayoutVisibility::Hidden;
+    REQUIRE(state.upsert_mounted_layout(project, std::move(policy_update)));
+    auto updated = std::find_if(
+        state.mounted_layouts().begin(), state.mounted_layouts().end(),
+        [&](const auto& value) { return value.owner == session_owner && value.key == key; });
+    REQUIRE(updated != state.mounted_layouts().end());
+    REQUIRE(updated->occurrence);
+    CHECK(*updated->occurrence == occurrence);
+    CHECK(updated->policy.local_order == 42);
+    CHECK(updated->policy.visibility == LayoutVisibility::Hidden);
+
+    auto replacement = DesiredMountedLayout{key,
+                                            session_owner,
+                                            id<LayoutId>("hud-assets"),
+                                            reserved_layout_policy(compiled::LayoutSlot::Custom),
+                                            {},
+                                            PresentationCompositionGroup::Interface,
+                                            std::nullopt,
+                                            {},
+                                            {}};
+    REQUIRE(state.upsert_mounted_layout(project, std::move(replacement)));
+    const auto replaced = std::find_if(
+        state.mounted_layouts().begin(), state.mounted_layouts().end(),
+        [&](const auto& value) { return value.owner == session_owner && value.key == key; });
+    REQUIRE(replaced != state.mounted_layouts().end());
+    REQUIRE(replaced->occurrence);
+    CHECK(*replaced->occurrence != occurrence);
+    CHECK(replaced->layout == id<LayoutId>("hud-assets"));
+    auto stale = state.validate_layout_signal(project, session_owner, key, occurrence, signal_id,
+                                              {{field_id, RuntimeValue{std::int64_t{3}}}});
+    REQUIRE_FALSE(stale);
+    REQUIRE_FALSE(stale.error().empty());
+    CHECK(stale.error().front().code == "runtime.stale_layout_signal");
 }
 
 TEST_CASE("snapshot publisher revisions only complete target changes and is failure atomic")

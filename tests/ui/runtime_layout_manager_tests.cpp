@@ -180,6 +180,43 @@ TEST_CASE("mounted Layout policies replace atomically and determine stable order
     CHECK(manager.mounted_layouts()[0].mounted.instance == high.value());
 }
 
+TEST_CASE("mounted Layout updates preserve instance identity and are failure atomic")
+{
+    FakeDocumentHost host;
+    noveltea::presentation::RuntimeLayoutManager manager;
+    manager.bind_document_host(&host);
+
+    auto request = custom_request("panel", 2);
+    request.inputs.push_back({noveltea::core::LayoutInputId::create("title").value(),
+                              noveltea::core::RuntimeValue{std::string{"First"}}});
+    const auto mounted = manager.mount(request);
+    REQUIRE(mounted);
+    const auto instance = mounted.value();
+
+    auto updated = request;
+    updated.policy.local_order = 9;
+    updated.policy.visibility = noveltea::core::LayoutVisibility::Hidden;
+    updated.inputs[0].value = noveltea::core::RuntimeValue{std::string{"Second"}};
+    REQUIRE(manager.update(instance, updated));
+    const auto* current = manager.find(instance);
+    REQUIRE(current);
+    CHECK(current->mounted.instance == instance);
+    CHECK(current->mounted.policy.local_order == 9);
+    CHECK(current->mounted.policy.visibility == noveltea::core::LayoutVisibility::Hidden);
+    REQUIRE(current->inputs.size() == 1);
+    CHECK(current->inputs[0].value == noveltea::core::RuntimeValue{std::string{"Second"}});
+
+    host.realization_succeeds = false;
+    auto rejected = updated;
+    rejected.policy.local_order = 100;
+    rejected.inputs[0].value = noveltea::core::RuntimeValue{std::string{"Rejected"}};
+    CHECK_FALSE(manager.update(instance, std::move(rejected)));
+    current = manager.find(instance);
+    REQUIRE(current);
+    CHECK(current->mounted.policy.local_order == 9);
+    CHECK(current->inputs[0].value == noveltea::core::RuntimeValue{std::string{"Second"}});
+}
+
 TEST_CASE("mounted Layout reset retires identities")
 {
     FakeDocumentHost host;

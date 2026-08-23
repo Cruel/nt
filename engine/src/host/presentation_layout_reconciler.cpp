@@ -13,6 +13,27 @@
 namespace noveltea::host {
 namespace {
 
+std::string presentation_layout_owner_text(const core::PresentationOwner& owner)
+{
+    return std::visit(
+        [](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::ScenePresentationOwner>)
+                return "scene/" + std::to_string(value.invocation.number()) + "/" +
+                       value.scene.text();
+            else if constexpr (std::is_same_v<T, core::CurrentRoomPresentationOwner>)
+                return "current-room/" + std::to_string(value.visit.number()) + "/" +
+                       value.room.text();
+            else if constexpr (std::is_same_v<T, core::RoomPresentationOwner>)
+                return "room/" + value.room.text();
+            else if constexpr (std::is_same_v<T, core::SessionPresentationOwner>)
+                return "session/" + std::to_string(value.session.number());
+            else
+                return "shell/" + std::to_string(value.scope.number());
+        },
+        owner);
+}
+
 std::string presentation_layout_key_text(const core::MountedLayoutPresentationKey& key)
 {
     return std::visit(
@@ -62,9 +83,13 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         std::string identity;
         std::optional<core::MountedLayoutPresentationKey> key;
         core::LayoutId layout;
+        std::optional<core::PresentationOwner> semantic_owner;
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
         core::MountedLayoutPolicy policy;
         core::LayoutScaleOverrides scale_overrides{};
+        std::optional<core::LayoutMountOccurrenceId> occurrence;
+        std::vector<core::LayoutResolvedInput> inputs;
+        std::vector<core::LayoutSignalId> connected_signals;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
     };
@@ -72,16 +97,20 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
     std::vector<Desired> desired;
     for (const auto& mount : snapshot.layouts) {
         desired.push_back(
-            {presentation_layout_key_text(mount.key), mount.key, mount.layout,
+            {presentation_layout_owner_text(mount.owner) + "/" +
+                 presentation_layout_key_text(mount.key),
+             mount.key, mount.layout, mount.owner,
              core::presentation_authority(mount.owner) == core::PresentationAuthority::Gameplay
                  ? core::MountedLayoutOwner::Gameplay
                  : core::MountedLayoutOwner::Shell,
-             mount.policy, mount.scale_overrides, mount.composition_group});
+             mount.policy, mount.scale_overrides, mount.occurrence, mount.inputs,
+             mount.connected_signals, mount.composition_group});
     }
     if (snapshot.map && snapshot.map->layout) {
         desired.push_back({"map/" + snapshot.map->map.text(),
                            std::nullopt,
                            *snapshot.map->layout,
+                           std::nullopt,
                            core::MountedLayoutOwner::Gameplay,
                            {.plane = core::PresentationPlane::GameUi,
                             .local_order = 300,
@@ -93,6 +122,9 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                             .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
                             .entrance_operation = std::nullopt,
                             .exit_operation = std::nullopt},
+                           {},
+                           std::nullopt,
+                           {},
                            {},
                            core::PresentationCompositionGroup::Interface});
     }
@@ -129,13 +161,15 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                   .message = "Presentation Layout is missing: " + item.layout.text()}});
         }
 
-        const bool world_overlay = item.policy.plane == core::PresentationPlane::WorldOverlay;
-        if (const auto existing = m_current.find(item.identity);
-            existing != m_current.end() && existing->second.layout == item.layout &&
+        const auto existing = m_current.find(item.identity);
+        if (existing != m_current.end() && existing->second.layout == item.layout &&
+            existing->second.semantic_owner == item.semantic_owner &&
             existing->second.owner == item.owner && existing->second.policy == item.policy &&
             existing->second.scale_overrides == item.scale_overrides &&
-            existing->second.composition_group == item.composition_group &&
-            (!world_overlay || existing->second.revision == snapshot.revision)) {
+            existing->second.occurrence == item.occurrence &&
+            existing->second.inputs == item.inputs &&
+            existing->second.connected_signals == item.connected_signals &&
+            existing->second.composition_group == item.composition_group) {
             auto reused = existing->second;
             reused.key = item.key;
             reused.revision = snapshot.revision;
@@ -148,9 +182,29 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         request.owner = item.owner;
         request.policy = item.policy;
         request.scale_overrides = item.scale_overrides;
+        request.semantic_owner = item.semantic_owner;
+        request.semantic_key = item.key;
+        request.occurrence = item.occurrence;
+        request.inputs = item.inputs;
+        request.connected_signals = item.connected_signals;
         request.source = presentation::RuntimeLayoutProjectSource{};
         request.composition_group = item.composition_group;
         request.publication_revision = snapshot.revision;
+        if (existing != m_current.end() && existing->second.layout == item.layout) {
+            auto updated = m_layouts.update(existing->second.instance, std::move(request));
+            if (!updated) {
+                rollback_new_mounts();
+                return core::Result<void, core::Diagnostics>::failure(std::move(updated).error());
+            }
+            next.insert_or_assign(
+                item.identity,
+                MountedPresentationLayout{
+                    item.key, existing->second.instance, item.layout, item.semantic_owner,
+                    item.owner, item.policy, item.scale_overrides, item.occurrence, item.inputs,
+                    item.connected_signals, item.composition_group, snapshot.revision});
+            continue;
+        }
+
         auto mounted = m_layouts.mount(std::move(request));
         if (!mounted) {
             rollback_new_mounts();
@@ -159,7 +213,9 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         newly_mounted.push_back(*mounted.value_if());
         next.insert_or_assign(
             item.identity, MountedPresentationLayout{item.key, *mounted.value_if(), item.layout,
-                                                     item.owner, item.policy, item.scale_overrides,
+                                                     item.semantic_owner, item.owner, item.policy,
+                                                     item.scale_overrides, item.occurrence,
+                                                     item.inputs, item.connected_signals,
                                                      item.composition_group, snapshot.revision});
     }
 
@@ -224,29 +280,35 @@ void PresentationLayoutReconciler::apply_transition_state(const WorldTransitionB
                                           : layout_composition_group(layout.composition_group));
     };
     const auto find_current =
-        [&](const core::MountedLayoutPresentationKey& key) -> const MountedPresentationLayout* {
-        const auto found = m_current.find(presentation_layout_key_text(key));
+        [&](const core::LayoutOperationTarget& target) -> const MountedPresentationLayout* {
+        const auto identity = presentation_layout_owner_text(target.owner) + "/" +
+                              presentation_layout_key_text(target.layout);
+        const auto found = m_current.find(identity);
         return found == m_current.end() ? nullptr : &found->second;
     };
     const auto find_retained =
         [&](core::PresentationSnapshotRevision revision,
-            const core::MountedLayoutPresentationKey& key) -> const MountedPresentationLayout* {
+            const core::LayoutOperationTarget& target) -> const MountedPresentationLayout* {
         const auto found = m_retained.find(revision.number());
         if (found == m_retained.end())
             return nullptr;
         const auto layout =
-            std::find_if(found->second.begin(), found->second.end(),
-                         [&](const auto& value) { return value.key && *value.key == key; });
+            std::find_if(found->second.begin(), found->second.end(), [&](const auto& value) {
+                return value.key && *value.key == target.layout && value.semantic_owner &&
+                       *value.semantic_owner == target.owner;
+            });
         return layout == found->second.end() ? nullptr : &*layout;
     };
-    const auto snapshot_layout = [&](core::PresentationSnapshotRevision revision,
-                                     const core::MountedLayoutPresentationKey& key)
-        -> const core::PresentationMountedLayout* {
+    const auto snapshot_layout =
+        [&](core::PresentationSnapshotRevision revision,
+            const core::LayoutOperationTarget& target) -> const core::PresentationMountedLayout* {
         const auto* snapshot = world.snapshot(revision);
         if (!snapshot)
             return nullptr;
-        const auto found = std::find_if(snapshot->layouts.begin(), snapshot->layouts.end(),
-                                        [&](const auto& layout) { return layout.key == key; });
+        const auto found = std::find_if(
+            snapshot->layouts.begin(), snapshot->layouts.end(), [&](const auto& layout) {
+                return layout.key == target.layout && layout.owner == target.owner;
+            });
         return found == snapshot->layouts.end() ? nullptr : &*found;
     };
 
@@ -273,15 +335,15 @@ void PresentationLayoutReconciler::apply_transition_state(const WorldTransitionB
     }
 
     for (const auto& state : transitions.layout_render_states()) {
-        const auto& key = state.target.layout;
-        const auto* source_record = snapshot_layout(state.revisions.source, key);
-        const auto* target_record = snapshot_layout(state.revisions.target, key);
-        const auto* source = find_retained(state.revisions.source, key);
+        const auto& operation_target = state.target;
+        const auto* source_record = snapshot_layout(state.revisions.source, operation_target);
+        const auto* target_record = snapshot_layout(state.revisions.target, operation_target);
+        const auto* source = find_retained(state.revisions.source, operation_target);
         if (!source && m_current_revision && *m_current_revision == state.revisions.source)
-            source = find_current(key);
-        const auto* target = find_current(key);
+            source = find_current(operation_target);
+        const auto* target = find_current(operation_target);
         if (!target)
-            target = find_retained(state.revisions.target, key);
+            target = find_retained(state.revisions.target, operation_target);
 
         if (source && source_record) {
             set_source_policy(*source);

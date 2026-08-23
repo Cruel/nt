@@ -153,6 +153,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #74 adds direct Room Hook Registry mappings at the preserved authoring schema version.
   // Hook kind, stable module reference, and named export all contribute runtime dependencies.
   [/^\/rooms\/\*\/data\/scriptHooks\//, OWNER],
+  // #80 adds the reusable Layout Mount contract at the preserved authoring schema version.
+  // Contract input and signal declarations change the Layout's runtime contribution and preview.
+  [/^\/layouts\/\*\/data\/contract\//, OWNER],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
 ]);
 
@@ -408,7 +411,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     inventories: 'a8c38dae',
     itemDefinitions: '255e512e',
     itemStacks: '3eaf965c',
-    layouts: '87e0b859',
+    layouts: '739829e7',
     localization: '3f6d0d11',
     maps: '9b969995',
     materials: '546711ca',

@@ -144,6 +144,17 @@ generation changes such as reset or load. Gameplay Layout events may use the adm
 presentation, audio, state, and input commands without yielding. Shell Layout events remain
 restricted to shell-safe game/save commands and cannot mutate gameplay presentation or variables.
 
+Reusable gameplay Layout Mounts are isolated one occurrence per RuntimeUI lifecycle context even when
+their plane, clock, input policy, and gameplay authority are otherwise compatible. RuntimeUI retains
+the semantic `PresentationOwner`, stable Mount key, occurrence token, resolved read-only inputs, and
+connected signal IDs beside the realized document; none of those identifiers are inferred from DOM
+structure. During that document's event dispatch `Game.mount_context()` resolves the exact Mount.
+`context:input(name)` reads the latest published typed value. `context:signal(name, payload)` sends a
+semantic `LayoutSignalInput` through the normal runtime input sink; SessionState performs the final
+owner/key/occurrence, connection, field, required-field, and type checks. Unload removes the context,
+and replacement/load reconstruction receives a fresh occurrence token so delayed DOM events cannot
+address the new realization.
+
 System Layouts use the typed `Game.shell` table. It provides start/pause/resume, settings, save/load,
 text-log, confirmation, return-to-title, quit, and optional debug-overlay commands. UI and text scale
 have independent `set_ui_scale(value)` and `set_text_scale(value)` bindings; built-in settings Layouts

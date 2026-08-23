@@ -146,6 +146,7 @@ describe('LayoutEditor', () => {
     expect(screen.getByText('RML Source')).toBeInTheDocument();
     expect(screen.getByText('RCSS Source')).toBeInTheDocument();
     expect(screen.getByText('Lua Source')).toBeInTheDocument();
+    expect(screen.getByText('Mount Contract JSON')).toBeInTheDocument();
     expect(screen.getByText('UI scale')).toBeInTheDocument();
     expect(screen.getByText('Text scale')).toBeInTheDocument();
     const preview = screen.getByTestId('derived-preview');
@@ -259,7 +260,9 @@ describe('LayoutEditor', () => {
     const rmlEditor = screen.getByLabelText('source-rml');
     rmlEditor.scrollTop = 22;
     rmlEditor.scrollLeft = 3;
-    fireEvent.change(screen.getByLabelText('source-json'), { target: { value: '{ invalid json' } });
+    fireEvent.change(screen.getAllByLabelText('source-json').at(-1)!, {
+      target: { value: '{ invalid json' },
+    });
 
     captureWorkbenchTabState(tab.id);
 
@@ -294,7 +297,7 @@ describe('LayoutEditor', () => {
 
     const restoredView = render(<LayoutEditor tab={tab} />);
 
-    expect(screen.getByLabelText('source-json')).toHaveValue('{"restored":true}');
+    expect(screen.getAllByLabelText('source-json').at(-1)).toHaveValue('{"restored":true}');
     await waitFor(() =>
       expect(
         restoredView.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollTop,

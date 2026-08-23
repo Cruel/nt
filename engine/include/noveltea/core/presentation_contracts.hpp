@@ -14,9 +14,11 @@ namespace noveltea::core {
 struct PresentationSnapshotRevisionTag;
 struct PresentationOperationSequenceTag;
 struct MountedLayoutInstanceTag;
+struct LayoutMountOccurrenceTag;
 using PresentationSnapshotRevision = SessionSequence<PresentationSnapshotRevisionTag>;
 using PresentationOperationSequence = SessionSequence<PresentationOperationSequenceTag>;
 using MountedLayoutInstanceId = SessionSequence<MountedLayoutInstanceTag>;
+using LayoutMountOccurrenceId = SessionSequence<LayoutMountOccurrenceTag>;
 
 enum class CheckpointClass : std::uint8_t {
     Reconstructible,

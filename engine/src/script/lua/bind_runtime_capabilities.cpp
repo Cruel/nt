@@ -13,6 +13,7 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace noveltea::script {
 namespace {
@@ -53,6 +54,188 @@ ObjectResult failure(sol::state_view lua, const core::Diagnostics& diagnostics)
 template<class Id> core::Result<Id, core::Diagnostics> parse_id(std::string value)
 {
     return Id::create(std::move(value));
+}
+
+core::Result<core::RuntimeValue, core::Diagnostics>
+parse_layout_runtime_value(const sol::object& object)
+{
+    using Result = core::Result<core::RuntimeValue, core::Diagnostics>;
+    if (!object.valid() || object == sol::lua_nil)
+        return Result::success(core::RuntimeValue{std::monostate{}});
+    switch (object.get_type()) {
+    case sol::type::boolean:
+        return Result::success(core::RuntimeValue{object.as<bool>()});
+    case sol::type::number:
+        if (object.is<std::int64_t>())
+            return Result::success(core::RuntimeValue{object.as<std::int64_t>()});
+        if (const double value = object.as<double>(); std::isfinite(value))
+            return Result::success(core::RuntimeValue{value});
+        break;
+    case sol::type::string:
+        return Result::success(core::RuntimeValue{object.as<std::string>()});
+    default:
+        break;
+    }
+    return Result::failure(
+        invalid("runtime.invalid_layout_input_value",
+                "Layout literal inputs must be nil, boolean, finite number, integer, or string"));
+}
+
+core::Result<core::LayoutStandardFacet, core::Diagnostics>
+parse_layout_standard_facet(const std::string& value)
+{
+    using Result = core::Result<core::LayoutStandardFacet, core::Diagnostics>;
+    if (value == "runtime-mode")
+        return Result::success(core::LayoutStandardFacet::RuntimeMode);
+    if (value == "current-room")
+        return Result::success(core::LayoutStandardFacet::CurrentRoom);
+    if (value == "gameplay-paused")
+        return Result::success(core::LayoutStandardFacet::GameplayPaused);
+    return Result::failure(invalid(
+        "runtime.invalid_layout_standard_facet",
+        "Layout standard facet must be 'runtime-mode', 'current-room', or 'gameplay-paused'"));
+}
+
+core::Result<core::PropertyTargetRef, core::Diagnostics>
+parse_layout_property_target(const sol::table& target)
+{
+    using Result = core::Result<core::PropertyTargetRef, core::Diagnostics>;
+    const auto kind = table_option<std::string>(target, "kind");
+    if (!kind)
+        return Result::failure(invalid("runtime.invalid_layout_property_target",
+                                       "Layout Property binding target requires kind"));
+    if (*kind == "global")
+        return Result::success(core::GlobalPropertyTarget{});
+    const auto target_id = table_option<std::string>(target, "id");
+    if (*kind == "room" && target_id) {
+        auto parsed = parse_id<core::RoomId>(*target_id);
+        return parsed ? Result::success(*parsed.value_if()) : Result::failure(parsed.error());
+    }
+    if (*kind == "character" && target_id) {
+        auto parsed = parse_id<core::CharacterId>(*target_id);
+        return parsed ? Result::success(*parsed.value_if()) : Result::failure(parsed.error());
+    }
+    if (*kind == "interactable" && target_id) {
+        auto parsed = parse_id<core::InteractableId>(*target_id);
+        return parsed ? Result::success(*parsed.value_if()) : Result::failure(parsed.error());
+    }
+    if (*kind == "item-stack" && target_id) {
+        auto parsed = parse_id<core::ItemStackId>(*target_id);
+        return parsed ? Result::success(*parsed.value_if()) : Result::failure(parsed.error());
+    }
+    const auto feature = table_option<std::string>(target, "feature");
+    if (*kind == "room-feature" && target_id && feature) {
+        auto room = parse_id<core::RoomId>(*target_id);
+        auto feature_id = parse_id<core::FeatureId>(*feature);
+        return room && feature_id
+                   ? Result::success(core::RoomFeatureRef{*room.value_if(), *feature_id.value_if()})
+                   : Result::failure(!room ? room.error() : feature_id.error());
+    }
+    if (*kind == "interactable-feature" && target_id && feature) {
+        auto interactable = parse_id<core::InteractableId>(*target_id);
+        auto feature_id = parse_id<core::FeatureId>(*feature);
+        return interactable && feature_id
+                   ? Result::success(core::InteractableFeatureRef{*interactable.value_if(),
+                                                                  *feature_id.value_if()})
+                   : Result::failure(!interactable ? interactable.error() : feature_id.error());
+    }
+    return Result::failure(invalid(
+        "runtime.invalid_layout_property_target",
+        "Layout Property binding target requires a valid global, room, character, interactable, "
+        "item-stack, room-feature, or interactable-feature reference"));
+}
+
+core::Result<std::vector<core::LayoutInputAssignment>, core::Diagnostics>
+parse_layout_input_assignments(const sol::optional<sol::table>& options)
+{
+    using Result = core::Result<std::vector<core::LayoutInputAssignment>, core::Diagnostics>;
+    if (!options)
+        return Result::success({});
+    const sol::object raw_inputs = (*options)["inputs"];
+    if (!raw_inputs.valid() || raw_inputs == sol::lua_nil)
+        return Result::success({});
+    if (raw_inputs.get_type() != sol::type::table)
+        return Result::failure(invalid("runtime.invalid_layout_inputs",
+                                       "Layout mount inputs must be a table keyed by input ID"));
+
+    std::vector<core::LayoutInputAssignment> inputs;
+    for (const auto& entry : raw_inputs.as<sol::table>()) {
+        const sol::object key = entry.first;
+        const sol::object source = entry.second;
+        if (key.get_type() != sol::type::string)
+            return Result::failure(invalid("runtime.invalid_layout_input_id",
+                                           "Layout mount input IDs must be strings"));
+        auto input = parse_id<core::LayoutInputId>(key.as<std::string>());
+        if (!input)
+            return Result::failure(input.error());
+
+        core::LayoutInputSource parsed_source;
+        if (source.get_type() != sol::type::table) {
+            auto literal = parse_layout_runtime_value(source);
+            if (!literal)
+                return Result::failure(literal.error());
+            parsed_source = core::LayoutLiteralInput{std::move(*literal.value_if())};
+        } else {
+            const sol::table binding = source.as<sol::table>();
+            if (const auto variable = table_option<std::string>(binding, "variable")) {
+                auto variable_id = parse_id<core::PropertyId>(*variable);
+                if (!variable_id)
+                    return Result::failure(variable_id.error());
+                parsed_source = core::LayoutVariableBinding{std::move(*variable_id.value_if())};
+            } else if (const auto property = table_option<std::string>(binding, "property")) {
+                const sol::object target_object = binding["target"];
+                if (!target_object.valid() || target_object.get_type() != sol::type::table)
+                    return Result::failure(
+                        invalid("runtime.invalid_layout_property_target",
+                                "Layout Property binding requires a target table"));
+                auto property_id = parse_id<core::PropertyId>(*property);
+                auto target = parse_layout_property_target(target_object.as<sol::table>());
+                if (!property_id)
+                    return Result::failure(property_id.error());
+                if (!target)
+                    return Result::failure(target.error());
+                parsed_source = core::LayoutPropertyBinding{std::move(*target.value_if()),
+                                                            std::move(*property_id.value_if())};
+            } else if (const auto facet = table_option<std::string>(binding, "facet")) {
+                auto parsed = parse_layout_standard_facet(*facet);
+                if (!parsed)
+                    return Result::failure(parsed.error());
+                parsed_source = core::LayoutStandardFacetBinding{*parsed.value_if()};
+            } else {
+                return Result::failure(invalid(
+                    "runtime.invalid_layout_input_binding",
+                    "Layout input binding table requires variable, property+target, or facet"));
+            }
+        }
+        inputs.push_back({std::move(*input.value_if()), std::move(parsed_source)});
+    }
+    return Result::success(std::move(inputs));
+}
+
+core::Result<std::vector<core::LayoutSignalId>, core::Diagnostics>
+parse_layout_signal_connections(const sol::optional<sol::table>& options)
+{
+    using Result = core::Result<std::vector<core::LayoutSignalId>, core::Diagnostics>;
+    if (!options)
+        return Result::success({});
+    const sol::object raw_signals = (*options)["signals"];
+    if (!raw_signals.valid() || raw_signals == sol::lua_nil)
+        return Result::success({});
+    if (raw_signals.get_type() != sol::type::table)
+        return Result::failure(invalid("runtime.invalid_layout_signals",
+                                       "Layout mount signals must be an array of signal IDs"));
+    std::vector<core::LayoutSignalId> signals;
+    for (const auto& entry : raw_signals.as<sol::table>()) {
+        const sol::object value = entry.second;
+        if (value.get_type() != sol::type::string)
+            return Result::failure(invalid("runtime.invalid_layout_signal_id",
+                                           "Layout mount signal IDs must be strings"));
+        auto signal = parse_id<core::LayoutSignalId>(value.as<std::string>());
+        if (!signal)
+            return Result::failure(signal.error());
+        signals.push_back(std::move(*signal.value_if()));
+    }
+    return Result::success(std::move(signals));
 }
 
 core::Result<core::GameplayInstanceRef, core::Diagnostics>
@@ -929,6 +1112,8 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             auto pause = parse_layout_pause(option_string("pause", "continue"));
             auto composition = parse_layout_composition(option_string("composition", "interface"));
             auto entrance = parse_layout_transition(options);
+            auto inputs = parse_layout_input_assignments(options);
+            auto signals = parse_layout_signal_connections(options);
             std::optional<core::LayoutScaleInheritance> ui_scale;
             std::optional<core::LayoutScaleInheritance> text_scale;
             if (options) {
@@ -965,6 +1150,12 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             if (!entrance)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(entrance.error()));
+            if (!inputs)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(inputs.error()));
+            if (!signals)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(signals.error()));
 
             CustomLayoutCommandOptions command_options;
             command_options.owner_scope = owner_value->scope;
@@ -987,6 +1178,8 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                     : core::EscapeDismissalPolicy::Ignore;
             command_options.composition_group = *composition.value_if();
             command_options.entrance = std::move(*entrance.value_if());
+            command_options.inputs = std::move(*inputs.value_if());
+            command_options.connected_signals = std::move(*signals.value_if());
             return mutation(view, api->set_custom_layout(std::move(*instance_value),
                                                          std::move(*layout_value),
                                                          std::move(command_options)));

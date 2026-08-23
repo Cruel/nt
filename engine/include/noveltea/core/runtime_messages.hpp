@@ -74,6 +74,14 @@ struct SetPropertyDebugInput {
     RuntimeValue value;
     bool operator==(const SetPropertyDebugInput&) const = default;
 };
+struct LayoutSignalInput {
+    PresentationOwner owner;
+    MountedLayoutPresentationKey key;
+    LayoutMountOccurrenceId occurrence;
+    LayoutSignalId signal;
+    std::vector<LayoutSignalFieldValue> fields;
+    bool operator==(const LayoutSignalInput&) const = default;
+};
 struct SaveRuntimeInput {
     TypedSaveSlotId slot;
     auto operator<=>(const SaveRuntimeInput&) const = default;
@@ -125,15 +133,14 @@ struct AcknowledgeAudioTerminationInput {
     AudioOperationId operation;
     auto operator<=>(const AcknowledgeAudioTerminationInput&) const = default;
 };
-using RuntimeInputMessage =
-    std::variant<StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput,
-                 ContinueInput, SelectSceneChoiceInput, SelectDialogueChoiceInput,
-                 NavigateRoomInput, SelectInteractionSubjectsInput,
-                 ClearInteractionSubjectSelectionInput, InvokeInteractionInput,
-                 SetVariableDebugInput, SetPropertyDebugInput, SaveRuntimeInput, LoadRuntimeInput,
-                 BeginPlaybackInput, EndPlaybackInput, ClearPlaybackInput, UndoPlaybackStepInput,
-                 ReplayPlaybackInput, CompletePresentationInput, CancelPresentationInput,
-                 CompleteAudioInput, CancelAudioInput, AcknowledgeAudioTerminationInput>;
+using RuntimeInputMessage = std::variant<
+    StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput, ContinueInput,
+    SelectSceneChoiceInput, SelectDialogueChoiceInput, NavigateRoomInput,
+    SelectInteractionSubjectsInput, ClearInteractionSubjectSelectionInput, InvokeInteractionInput,
+    SetVariableDebugInput, SetPropertyDebugInput, LayoutSignalInput, SaveRuntimeInput,
+    LoadRuntimeInput, BeginPlaybackInput, EndPlaybackInput, ClearPlaybackInput,
+    UndoPlaybackStepInput, ReplayPlaybackInput, CompletePresentationInput, CancelPresentationInput,
+    CompleteAudioInput, CancelAudioInput, AcknowledgeAudioTerminationInput>;
 
 using PresentationOperation =
     std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
@@ -213,8 +220,17 @@ struct RoomPresentationDiagnosticObservation {
     Diagnostics diagnostics;
     bool operator==(const RoomPresentationDiagnosticObservation&) const = default;
 };
+struct LayoutSignalObservation {
+    PresentationOwner owner;
+    MountedLayoutPresentationKey key;
+    LayoutMountOccurrenceId occurrence;
+    LayoutSignalId signal;
+    std::vector<LayoutSignalFieldValue> fields;
+    bool operator==(const LayoutSignalObservation&) const = default;
+};
 using RuntimeObservation =
     std::variant<PlaybackObservation, DebuggerObservation, RuntimeStateObservation,
-                 RoomPresentationDiagnosticObservation, CheckpointRuntimeObservation>;
+                 RoomPresentationDiagnosticObservation, LayoutSignalObservation,
+                 CheckpointRuntimeObservation>;
 
 } // namespace noveltea::core

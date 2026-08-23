@@ -23,6 +23,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/feature_view.hpp
     engine/include/noveltea/core/flow.hpp
     engine/include/noveltea/core/gameplay_pause.hpp
+    engine/include/noveltea/core/layout_contracts.hpp
     engine/include/noveltea/core/layout_policies.hpp
     engine/include/noveltea/core/layout_scale_policy.hpp
     engine/include/noveltea/core/loading_progress.hpp

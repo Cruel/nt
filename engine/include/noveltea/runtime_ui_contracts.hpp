@@ -18,6 +18,15 @@ struct RuntimeUiGameplayValues {
     core::TypedRuntimeUIViewState view;
 };
 
+struct RuntimeUiLayoutMountContext {
+    core::PresentationOwner owner;
+    core::MountedLayoutPresentationKey key;
+    core::LayoutMountOccurrenceId occurrence;
+    std::vector<core::LayoutResolvedInput> inputs;
+    std::vector<core::LayoutSignalId> connected_signals;
+    bool operator==(const RuntimeUiLayoutMountContext&) const = default;
+};
+
 struct RuntimeUiEventResult {
     bool consumed = false;
     bool wants_pointer = false;

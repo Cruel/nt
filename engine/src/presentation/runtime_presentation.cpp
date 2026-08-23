@@ -894,11 +894,12 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
     for (const auto& mount : state.mounted_layouts()) {
         if (!state.presentation_owner_is_active(mount.owner))
             continue;
-        if (duplicate_key(result.layouts, mount.key,
-                          [](const PresentationMountedLayout& value) { return value.key; })) {
-            diagnostics.push_back(
-                invalid("presentation.duplicate_layout_identity",
-                        "Multiple active mounted Layout records share one stable identity"));
+        if (std::any_of(result.layouts.begin(), result.layouts.end(), [&](const auto& value) {
+                return value.key == mount.key && value.owner == mount.owner;
+            })) {
+            diagnostics.push_back(invalid("presentation.duplicate_layout_identity",
+                                          "Multiple active mounted Layout records share one "
+                                          "owner-qualified stable identity"));
             continue;
         }
         if (project.find_layout(mount.layout) == nullptr) {
@@ -912,9 +913,15 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                         "Mounted Layout policy contains an invalid or not-yet-supported value"));
             continue;
         }
-        result.layouts.push_back(PresentationMountedLayout{mount.key, mount.owner, mount.layout,
-                                                           mount.policy, mount.scale_overrides,
-                                                           mount.composition_group});
+        auto inputs = state.resolve_layout_inputs(project, mount);
+        if (!inputs) {
+            append_diagnostics(diagnostics, std::move(inputs).error());
+            continue;
+        }
+        result.layouts.push_back(PresentationMountedLayout{
+            mount.key, mount.owner, mount.layout, mount.policy, mount.scale_overrides,
+            mount.composition_group, mount.occurrence, std::move(*inputs.value_if()),
+            mount.connected_signals});
     }
 
     validate_text_and_choice(project, world, state, diagnostics);

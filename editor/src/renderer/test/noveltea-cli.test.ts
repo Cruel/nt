@@ -1530,7 +1530,7 @@ describe('NovelTea headless CLI', () => {
       [capabilityBindings, 'game', 'Game', 3],
       [gameplayUiBindings, 'ui', 'Game.ui', 9],
       [shellUiBindings, 'shell', 'Game.shell', 24],
-      [shellUiBindings, 'game', 'Game', 1],
+      [shellUiBindings, 'game', 'Game', 2],
     ] as const;
     for (const [source, object, prefix, expectedCount] of groups) {
       const functions = setFunctions(source, object);

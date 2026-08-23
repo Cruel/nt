@@ -69,6 +69,60 @@ describe('authoring compiler framework', () => {
     ]);
   });
 
+  it('lowers typed Layout contracts deterministically without emitting empty contracts', () => {
+    const project = validProject();
+    const empty = defaultLayoutData('Empty', 'document');
+    const contracted = defaultLayoutData('Contracted', 'document');
+    contracted.contract = {
+      inputs: {
+        title: { type: 'string', nullable: false, defaultValue: 'Untitled' },
+        count: { type: 'integer', nullable: false },
+      },
+      signals: {
+        confirm: {
+          fields: {
+            accepted: { type: 'boolean', nullable: false, required: true },
+          },
+        },
+      },
+    };
+    project.layouts.empty = { id: 'empty', label: 'Empty', data: empty };
+    project.layouts.contracted = { id: 'contracted', label: 'Contracted', data: contracted };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const emptyLayout = result.project.resources.layouts.find((layout) => layout.id === 'empty');
+    const contractedLayout = result.project.resources.layouts.find(
+      (layout) => layout.id === 'contracted',
+    );
+    expect(emptyLayout).not.toHaveProperty('contract');
+    expect(contractedLayout?.contract).toEqual({
+      inputs: [
+        {
+          id: 'count',
+          type: 'integer',
+          nullable: false,
+          hasDefault: false,
+          defaultValue: null,
+        },
+        {
+          id: 'title',
+          type: 'string',
+          nullable: false,
+          hasDefault: true,
+          defaultValue: 'Untitled',
+        },
+      ],
+      signals: [
+        {
+          id: 'confirm',
+          fields: [{ id: 'accepted', type: 'boolean', nullable: false, required: true }],
+        },
+      ],
+    });
+  });
+
   it('derives a deterministic Save Contract from persistent executable structure only', () => {
     const baseline = compileAuthoringProject(validProject());
     expect(baseline.ok).toBe(true);

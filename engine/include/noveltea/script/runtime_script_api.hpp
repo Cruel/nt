@@ -58,6 +58,8 @@ struct CustomLayoutCommandOptions {
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;
     std::optional<LayoutTransitionCommandOptions> entrance;
+    std::vector<core::LayoutInputAssignment> inputs;
+    std::vector<core::LayoutSignalId> connected_signals;
 };
 
 struct BackgroundCommandOptions {

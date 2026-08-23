@@ -291,7 +291,8 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         if (*owner.value_if())
             save.mounted_layouts.push_back(
                 SavedMountedLayout{layout.key, **owner.value_if(), layout.layout, layout.policy,
-                                   layout.scale_overrides, layout.composition_group});
+                                   layout.scale_overrides, layout.composition_group, layout.inputs,
+                                   layout.connected_signals});
     }
     for (const auto& audio : session.m_desired_audio) {
         auto owner = save_presentation_owner(session, audio.owner);

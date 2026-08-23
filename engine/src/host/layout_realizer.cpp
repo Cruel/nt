@@ -80,6 +80,20 @@ public:
         return m_runtime_ui.set_document_opacity(document_id, opacity);
     }
 
+    bool set_mount_context(const std::string& document_id,
+                           const RuntimeMountedLayout& layout) override
+    {
+        if (layout.semantic_owner && layout.semantic_key && layout.occurrence) {
+            m_runtime_ui.set_layout_mount_context(
+                document_id, RuntimeUiLayoutMountContext{*layout.semantic_owner,
+                                                         *layout.semantic_key, *layout.occurrence,
+                                                         layout.inputs, layout.connected_signals});
+        } else {
+            m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
+        }
+        return true;
+    }
+
     bool apply_order(const std::vector<std::string>& ordered_document_ids) override
     {
         return m_runtime_ui.apply_layout_order(ordered_document_ids);
@@ -581,6 +595,11 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
                 RuntimeMountedLayout desired{.mounted = value.mounted,
                                              .source = value.source,
                                              .system_role = std::nullopt,
+                                             .semantic_owner = std::nullopt,
+                                             .semantic_key = std::nullopt,
+                                             .occurrence = std::nullopt,
+                                             .inputs = {},
+                                             .connected_signals = {},
                                              .composition_group = value.composition_group,
                                              .publication_revision = value.publication_revision};
                 if (!m_host_generation || value.host_generation != *m_host_generation)
@@ -598,6 +617,10 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
                              old.mounted.policy != desired.mounted.policy ||
                              old.mounted.scale_overrides != desired.mounted.scale_overrides ||
                              old.system_role != desired.system_role ||
+                             old.semantic_owner != desired.semantic_owner ||
+                             old.semantic_key != desired.semantic_key ||
+                             old.occurrence != desired.occurrence || old.inputs != desired.inputs ||
+                             old.connected_signals != desired.connected_signals ||
                              old.composition_group != desired.composition_group ||
                              old.publication_revision != desired.publication_revision)
                         disposition = LayoutRealizationDisposition::Updated;
@@ -880,21 +903,26 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
         bool operator==(const ContextCompatibility&) const = default;
     };
     std::optional<ContextCompatibility> previous_compatibility;
+    bool previous_isolated_mount = false;
     LayoutContextCompatibilityGroup compatibility_group = 0;
     for (auto& candidate : candidates) {
-        const auto& mounted = candidate.realized.desired.mounted;
+        const auto& desired_layout = candidate.realized.desired;
+        const auto& mounted = desired_layout.mounted;
         const ContextCompatibility compatibility{
             .plane = mounted.policy.plane,
-            .composition_group = candidate.realized.desired.composition_group,
+            .composition_group = desired_layout.composition_group,
             .clock = mounted.policy.clock,
             .input = mounted.policy.input,
             .owner = mounted.owner,
             .scale_policy = candidate.realized.scale_policy,
         };
-        if (previous_compatibility && *previous_compatibility != compatibility)
+        const bool isolated_mount = desired_layout.semantic_owner.has_value();
+        if (previous_compatibility &&
+            (*previous_compatibility != compatibility || previous_isolated_mount || isolated_mount))
             ++compatibility_group;
         candidate.realized.compatibility_group = compatibility_group;
         previous_compatibility = compatibility;
+        previous_isolated_mount = isolated_mount;
     }
 
     std::vector<std::string> previous_order;
@@ -945,6 +973,13 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
             return core::Result<void, core::Diagnostics>::failure(
                 {diagnostic("layout_realizer.policy_failed", "policy", &realized.desired, &source,
                             "RuntimeUI rejected Layout policy")});
+        }
+        if (!m_backend.set_mount_context(realized.document_id, realized.desired)) {
+            rollback();
+            const LayoutRealizationSource source = realized.desired.source;
+            return core::Result<void, core::Diagnostics>::failure({diagnostic(
+                "layout_realizer.mount_context_failed", "mount-context", &realized.desired, &source,
+                "RuntimeUI rejected Layout Mount Context publication")});
         }
         if (!m_backend.set_opacity(realized.document_id, realized.opacity)) {
             rollback();
@@ -1244,6 +1279,7 @@ LayoutRealizer::restore_previous_backend_state(const RealizedMap& previous,
         if (!m_backend.apply_policy(realized.document_id, realized.desired.mounted.policy, group,
                                     realized.desired.mounted.owner, realized.scale_policy,
                                     realized.compatibility_group) ||
+            !m_backend.set_mount_context(realized.document_id, realized.desired) ||
             !m_backend.set_opacity(realized.document_id, realized.opacity) ||
             !m_backend.set_visible(realized.document_id,
                                    realized.desired.mounted.policy.visibility ==

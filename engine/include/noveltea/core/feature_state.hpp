@@ -183,6 +183,9 @@ struct DesiredMountedLayout {
     MountedLayoutPolicy policy;
     LayoutScaleOverrides scale_overrides{};
     PresentationCompositionGroup composition_group = PresentationCompositionGroup::Interface;
+    std::optional<LayoutMountOccurrenceId> occurrence;
+    std::vector<LayoutInputAssignment> inputs;
+    std::vector<LayoutSignalId> connected_signals;
     bool operator==(const DesiredMountedLayout&) const = default;
 };
 

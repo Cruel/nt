@@ -666,10 +666,22 @@ private:
             },
             m_input.entrypoint);
         require(m_scripts, m_input.bootstrap_module, "script", "/bootstrapModule");
-        for (std::size_t index = 0; index < m_input.settings.system_layouts.size(); ++index)
-            if (m_input.settings.system_layouts[index].layout)
-                require(m_layouts, *m_input.settings.system_layouts[index].layout, "layout",
-                        "/settings/systemLayouts/" + std::to_string(index) + "/layout");
+        for (std::size_t index = 0; index < m_input.settings.system_layouts.size(); ++index) {
+            if (!m_input.settings.system_layouts[index].layout)
+                continue;
+            const auto& layout_id = *m_input.settings.system_layouts[index].layout;
+            const auto path = "/settings/systemLayouts/" + std::to_string(index) + "/layout";
+            require(m_layouts, layout_id, "layout", path);
+            const auto layout =
+                std::find_if(m_input.layouts.begin(), m_input.layouts.end(),
+                             [&](const LayoutResource& value) { return value.id == layout_id; });
+            if (layout != m_input.layouts.end() &&
+                (!layout->contract.inputs.empty() || !layout->contract.signals.empty()))
+                error("compiled_project.system_layout_custom_contract",
+                      "System Layout Roles use fixed engine contracts; project Layouts assigned to "
+                      "a System Layout Role must not declare custom inputs or signals.",
+                      path);
+        }
         if (m_input.settings.text.default_font)
             require(m_assets, *m_input.settings.text.default_font, "asset",
                     "/settings/text/defaultFont");
@@ -696,6 +708,38 @@ private:
             assets(layout.dependencies.images, "images");
             assets(layout.dependencies.scripts, "scripts");
             assets(layout.dependencies.stylesheets, "stylesheets");
+
+            std::unordered_set<LayoutInputId> input_ids;
+            for (std::size_t input_index = 0; input_index < layout.contract.inputs.size();
+                 ++input_index) {
+                const auto& input = layout.contract.inputs[input_index];
+                if (!input_ids.insert(input.id).second)
+                    error("compiled_project.duplicate_layout_input",
+                          "Layout contract input IDs must be unique.",
+                          path + "/contract/inputs/" + std::to_string(input_index) + "/id");
+                if (input.default_value &&
+                    !layout_contract_value_matches(input.shape, *input.default_value))
+                    error("compiled_project.invalid_layout_input_default",
+                          "Layout input default must match its declared type and nullability.",
+                          path + "/contract/inputs/" + std::to_string(input_index) +
+                              "/defaultValue");
+            }
+            std::unordered_set<LayoutSignalId> signal_ids;
+            for (std::size_t signal_index = 0; signal_index < layout.contract.signals.size();
+                 ++signal_index) {
+                const auto& signal = layout.contract.signals[signal_index];
+                if (!signal_ids.insert(signal.id).second)
+                    error("compiled_project.duplicate_layout_signal",
+                          "Layout contract signal IDs must be unique.",
+                          path + "/contract/signals/" + std::to_string(signal_index) + "/id");
+                std::unordered_set<LayoutSignalFieldId> field_ids;
+                for (std::size_t field_index = 0; field_index < signal.fields.size(); ++field_index)
+                    if (!field_ids.insert(signal.fields[field_index].id).second)
+                        error("compiled_project.duplicate_layout_signal_field",
+                              "Layout signal field IDs must be unique.",
+                              path + "/contract/signals/" + std::to_string(signal_index) +
+                                  "/fields/" + std::to_string(field_index) + "/id");
+            }
         }
         for (std::size_t index = 0; index < m_input.scripts.size(); ++index)
             if (const auto* source = std::get_if<AssetScriptSource>(&m_input.scripts[index].source))

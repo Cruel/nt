@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/execution_primitives.hpp"
+#include "noveltea/core/layout_contracts.hpp"
 #include "noveltea/core/layout_scale_policy.hpp"
 #include "noveltea/core/property.hpp"
 #include "noveltea/core/result.hpp"
@@ -170,6 +171,7 @@ struct LayoutResource {
     LayoutKind kind;
     LayoutTarget target;
     LayoutScalePolicy scale_policy;
+    LayoutContract contract;
     LayoutSource rml;
     LayoutSource rcss;
     LayoutSource lua;

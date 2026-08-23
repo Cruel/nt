@@ -19,6 +19,7 @@ describe('authoring layouts schema', () => {
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
 
     expect(defaultLayoutData('Main UI').preview).toEqual({ background: 'dark' });
+    expect(defaultLayoutData('Main UI').contract).toEqual({ inputs: {}, signals: {} });
     expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
     expect(layoutPreviewRevision(project, 'main')).toContain('main');
     expect(buildLayoutPreviewDocumentData(project, 'main')).toMatchObject({
@@ -28,6 +29,7 @@ describe('authoring layouts schema', () => {
       layoutKind: 'fragment',
       target: 'default-ui',
       scalePolicy: { ui: 'inherit', text: 'inherit' },
+      contract: { inputs: {}, signals: {} },
       rml: { sourceMode: 'inline' },
       rcss: { sourceMode: 'inline' },
       lua: { sourceMode: 'inline' },
@@ -38,6 +40,37 @@ describe('authoring layouts schema', () => {
         hostRcss: '/editor-assets/internal-preview/layout-fragment-host.rcss',
       },
     });
+  });
+
+  it('validates Layout contract input defaults against declared types', () => {
+    const project = createAuthoringProject();
+    const valid = defaultLayoutData('Main UI');
+    valid.contract = {
+      inputs: { count: { type: 'integer', nullable: false, defaultValue: 3 } },
+      signals: {
+        confirm: {
+          fields: { accepted: { type: 'boolean', nullable: false, required: true } },
+        },
+      },
+    };
+    project.layouts.main = { id: 'main', label: 'Main UI', data: valid };
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
+
+    project.layouts.main.data = {
+      ...valid,
+      contract: {
+        ...valid.contract,
+        inputs: { count: { type: 'integer', nullable: false, defaultValue: 'three' } },
+      },
+    };
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: expect.stringContaining('/contract/inputs/count/defaultValue'),
+          category: 'Layouts',
+        }),
+      ]),
+    );
   });
 
   it('resolves omitted scale policy from the authored target', () => {
@@ -100,6 +133,23 @@ describe('authoring layouts schema', () => {
           path: '/settings/ui/systemLayouts/title/$ref',
         }),
       ],
+    );
+  });
+
+  it('rejects custom contracts on fixed System Layout Roles', () => {
+    const project = createAuthoringProject();
+    const data = defaultLayoutData('Main UI');
+    data.contract.inputs.title = { type: 'string', nullable: false, defaultValue: 'HUD' };
+    project.layouts.main = { id: 'main', label: 'Main UI', data };
+    project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
+
+    expect(validateAuthoringProject(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/settings/ui/systemLayouts/title/$ref',
+          message: expect.stringContaining('fixed engine contract'),
+        }),
+      ]),
     );
   });
 

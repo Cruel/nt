@@ -64,6 +64,14 @@ public:
         [[nodiscard]] virtual bool set_visible(const std::string& document_id, bool visible) = 0;
         [[nodiscard]] virtual bool set_opacity(const std::string& document_id, float opacity) = 0;
         [[nodiscard]] virtual bool
+        set_mount_context(const std::string& document_id,
+                          const presentation::RuntimeMountedLayout& layout)
+        {
+            (void)document_id;
+            (void)layout;
+            return true;
+        }
+        [[nodiscard]] virtual bool
         apply_order(const std::vector<std::string>& ordered_document_ids) = 0;
         [[nodiscard]] virtual bool unload(const std::string& document_id) = 0;
         virtual void set_system_layout_documents(

@@ -123,6 +123,7 @@ protected:
     std::vector<DesiredPresentationProp> m_presentation_props;
     std::vector<DesiredPresentationEnvironment> m_presentation_environments;
     std::vector<DesiredMountedLayout> m_mounted_layouts;
+    std::uint64_t m_next_layout_mount_occurrence = 1;
     std::vector<DesiredAudioInstance> m_desired_audio;
     std::optional<PresentedTextState> m_presented_text;
     std::optional<ActiveChoiceState> m_active_choice;
@@ -374,6 +375,13 @@ public:
     layout(compiled::LayoutSlot slot) const;
     [[nodiscard]] Result<void, Diagnostics> upsert_mounted_layout(const CompiledProject& project,
                                                                   DesiredMountedLayout layout);
+    [[nodiscard]] Result<std::vector<LayoutResolvedInput>, Diagnostics>
+    resolve_layout_inputs(const CompiledProject& project, const DesiredMountedLayout& layout) const;
+    [[nodiscard]] Result<void, Diagnostics>
+    validate_layout_signal(const CompiledProject& project, const PresentationOwner& owner,
+                           const MountedLayoutPresentationKey& key,
+                           LayoutMountOccurrenceId occurrence, const LayoutSignalId& signal,
+                           const std::vector<LayoutSignalFieldValue>& fields) const;
     [[nodiscard]] Result<void, Diagnostics>
     remove_mounted_layout(const MountedLayoutPresentationKey& key, const PresentationOwner& owner);
     [[nodiscard]] Result<void, Diagnostics> set_layout(const CompiledProject& project,

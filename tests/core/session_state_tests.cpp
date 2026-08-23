@@ -810,6 +810,58 @@ TEST_CASE("session state validates Room visits overlays and Map presentation")
                                                                 true, std::nullopt}));
 }
 
+TEST_CASE("Room entry overlays receive stable Mount occurrence identity")
+{
+    const auto compiled_project = load_fixture("comprehensive.json");
+    auto state_result = SessionState::create(compiled_project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    const auto start = id<RoomId>("start");
+
+    REQUIRE(state.commit_room_entry(compiled_project, start, std::nullopt));
+    const auto overlay = std::find_if(
+        state.mounted_layouts().begin(), state.mounted_layouts().end(), [&](const auto& layout) {
+            const auto* key = std::get_if<RoomOverlayLayoutMountKey>(&layout.key);
+            return key && key->room == start && key->overlay == id<RoomOverlayId>("start-overlay");
+        });
+    REQUIRE(overlay != state.mounted_layouts().end());
+    REQUIRE(overlay->occurrence);
+    const auto occurrence = *overlay->occurrence;
+
+    REQUIRE(state.commit_room_entry(compiled_project, start, std::nullopt));
+    const auto retained = std::find_if(
+        state.mounted_layouts().begin(), state.mounted_layouts().end(), [&](const auto& layout) {
+            const auto* key = std::get_if<RoomOverlayLayoutMountKey>(&layout.key);
+            return key && key->room == start && key->overlay == id<RoomOverlayId>("start-overlay");
+        });
+    REQUIRE(retained != state.mounted_layouts().end());
+    REQUIRE(retained->occurrence);
+    CHECK(*retained->occurrence == occurrence);
+}
+
+TEST_CASE("presentation target application preserves compatible Layout Mount occurrences")
+{
+    const auto compiled_project = load_fixture("comprehensive.json");
+    auto state_result = SessionState::create(compiled_project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    const auto owner = PresentationOwner{state.session_presentation_owner()};
+    REQUIRE(state.set_layout(compiled_project, owner, compiled::LayoutSlot::Custom,
+                             id<LayoutId>("hud-inline")));
+    REQUIRE(state.mounted_layouts().size() == 1);
+    REQUIRE(state.mounted_layouts().front().occurrence);
+    const auto occurrence = *state.mounted_layouts().front().occurrence;
+
+    auto updated = state.mounted_layouts().front();
+    updated.policy.local_order = 17;
+    REQUIRE(state.apply_presentation_target(
+        compiled_project, PresentationTargetDraft{.layouts = {std::move(updated)}}));
+    REQUIRE(state.mounted_layouts().size() == 1);
+    REQUIRE(state.mounted_layouts().front().occurrence);
+    CHECK(*state.mounted_layouts().front().occurrence == occurrence);
+    CHECK(state.mounted_layouts().front().policy.local_order == 17);
+}
+
 TEST_CASE("feature views are a closed typed vocabulary without mutable state ownership")
 {
     STATIC_REQUIRE(std::variant_size_v<FeatureView> == 6);

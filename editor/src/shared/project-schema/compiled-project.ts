@@ -846,7 +846,35 @@ const layoutSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
   strict({ asset: assetReferenceSchema, kind: z.literal('asset') }),
 ]);
+const layoutContractValueTypeSchema = z.enum(['boolean', 'integer', 'number', 'string']);
+const layoutContractValueShapeSchema = strict({
+  nullable: z.boolean(),
+  type: layoutContractValueTypeSchema,
+});
 const layoutResourceSchema = strict({
+  contract: strict({
+    inputs: z.array(
+      strict({
+        defaultValue: runtimeValueSchema.nullable(),
+        hasDefault: z.boolean(),
+        id,
+        nullable: z.boolean(),
+        type: layoutContractValueTypeSchema,
+      }),
+    ),
+    signals: z.array(
+      strict({
+        fields: z.array(
+          strict({
+            id,
+            required: z.boolean(),
+            ...layoutContractValueShapeSchema.shape,
+          }),
+        ),
+        id,
+      }),
+    ),
+  }).optional(),
   dependencies: strict({
     fonts: z.array(assetReferenceSchema),
     images: z.array(assetReferenceSchema),

@@ -122,10 +122,12 @@ const core::PresentationActor* find_actor(const core::RuntimePresentationSnapsho
 
 const core::PresentationMountedLayout*
 find_layout(const core::RuntimePresentationSnapshot& snapshot,
-            const core::MountedLayoutPresentationKey& key)
+            const core::LayoutOperationTarget& target)
 {
-    const auto found = std::find_if(snapshot.layouts.begin(), snapshot.layouts.end(),
-                                    [&](const auto& layout) { return layout.key == key; });
+    const auto found =
+        std::find_if(snapshot.layouts.begin(), snapshot.layouts.end(), [&](const auto& layout) {
+            return layout.key == target.layout && layout.owner == target.owner;
+        });
     return found == snapshot.layouts.end() ? nullptr : &*found;
 }
 
@@ -218,8 +220,8 @@ validate_targeted(const WorldPresentationBackend& world,
                         failure("presentation.layout_operation_kind_unsupported",
                                 "Layout finite realization supports fade only"));
                 }
-                if (!find_layout(*source_snapshot, value.target.layout) &&
-                    !find_layout(*target_snapshot, value.target.layout)) {
+                if (!find_layout(*source_snapshot, value.target) &&
+                    !find_layout(*target_snapshot, value.target)) {
                     return core::Result<void, core::Diagnostic>::failure(failure(
                         "presentation.layout_operation_target_missing",
                         "Layout finite operation target is absent from both exact revisions"));

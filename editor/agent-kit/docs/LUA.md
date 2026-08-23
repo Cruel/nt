@@ -377,11 +377,24 @@ For Layout/presentation calls the default owner is `current-room` unless noted o
     ui_scale = "inherit" | "ignore",     -- optional
     text_scale = "inherit" | "ignore",   -- optional
 
+    inputs = {                             -- optional, keyed by declared Layout input ID
+        title = "Inventory",              -- scalar literal: nil / boolean / finite number / string
+        score = { variable = "score" },   -- read-only Variable binding
+        room_name = {
+            property = "name",
+            target = { kind = "room", id = "foyer" },
+        },
+        mode = { facet = "runtime-mode" },
+    },
+    signals = { "accepted", "cancelled" }, -- optional connected Layout Signal IDs
+
     transition = "immediate" | "fade",   -- optional
     duration_ms = positive_integer,       -- required for fade
     skippable = true | false,             -- fade default true
 }
 ```
+
+Property binding targets use `global`, `room`, `character`, `interactable`, `room-feature`, `interactable-feature`, or `item-stack`; Feature targets additionally carry `feature`. Standard facets are `runtime-mode`, `current-room`, and `gameplay-paused`. Inputs are read-only: bound values are re-resolved after settled gameplay changes. A mount request must satisfy the referenced Layout contract, and invalid replacements leave the prior Mount unchanged.
 
 Defaults are `game-ui`, order `0`, `gameplay`, `normal`, `continue`, visible, no Escape dismissal, and `interface`. `unmount` accepts the owner selector plus the same immediate/fade transition fields.
 
@@ -402,6 +415,16 @@ composition
 ```
 
 The returned state describes desired authored Layout state, not an RmlUi document or renderer handle.
+
+During a realized Layout event, `Game.mount_context()` returns the exact engine-owned Mount occurrence for the document currently dispatching the event. Outside an active semantic Mount event it returns `nil`. The context exposes read-only inputs and connected typed signal output:
+
+```lua
+local mount = Game.mount_context()
+local title = mount:input("title")
+local ok = mount:signal("accepted", { choice = 2 })
+```
+
+`mount.document_id` identifies the realized RmlUi document and `mount.occurrence` is the runtime occurrence token. `input(name)` returns the current resolved scalar value or `nil`. `signal(name, payload?)` returns a boolean and succeeds only for a signal connected by the owner and a payload matching the Layout contract. Signals enter NovelTea's ordered runtime input pipeline; events carrying a retired occurrence token are rejected as stale after unmount, replacement, load, reset, or owner termination. The occurrence token is runtime correlation state, not save-game state.
 
 ## Scoped presentation
 

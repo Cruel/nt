@@ -372,11 +372,36 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   for (const [id, record] of sortedEntries(project.layouts)) {
     const data = requireData(parseLayoutData(record.data), `/layouts/${id}/data`);
     if (!data) continue;
+    const contract = {
+      inputs: Object.entries(data.contract.inputs)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([inputId, input]) => ({
+          id: inputId,
+          type: input.type,
+          nullable: input.nullable,
+          hasDefault: Object.prototype.hasOwnProperty.call(input, 'defaultValue'),
+          defaultValue: input.defaultValue ?? null,
+        })),
+      signals: Object.entries(data.contract.signals)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([signalId, signal]) => ({
+          id: signalId,
+          fields: Object.entries(signal.fields)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([fieldId, field]) => ({
+              id: fieldId,
+              type: field.type,
+              nullable: field.nullable,
+              required: field.required,
+            })),
+        })),
+    };
     layouts.push({
       id,
       kind: data.layoutKind,
       target: data.target,
       scalePolicy: resolveLayoutScalePolicy(data.target, data.scalePolicy),
+      ...(contract.inputs.length > 0 || contract.signals.length > 0 ? { contract } : {}),
       rml: compileLayoutSource(data.rml),
       rcss: compileLayoutSource(data.rcss),
       lua: compileLayoutSource(data.lua),

@@ -67,8 +67,8 @@ public:
     };
 
     using VisibleDocumentPredicate = std::function<bool(Rml::Context*)>;
-    using LayoutEventDispatch =
-        std::function<bool(core::MountedLayoutOwner, const std::function<bool()>&)>;
+    using LayoutEventDispatch = std::function<bool(const ContextKey&, core::MountedLayoutOwner,
+                                                   const std::function<bool()>&)>;
     using ContextRenderObserver =
         std::function<void(const ContextKey&, const ResolvedContextMetrics&)>;
     using ContextInitializer = std::function<bool(Rml::Context&)>;

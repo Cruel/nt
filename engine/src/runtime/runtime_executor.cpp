@@ -1044,7 +1044,7 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                             return fault(completion.error());
                         }
                         stage_pending_presentation(
-                            PendingLayoutOperation{key,
+                            PendingLayoutOperation{key, owner,
                                                    std::chrono::milliseconds{value.duration_ms},
                                                    value.skippable, *completion.value_if()},
                             source_state, source_room);

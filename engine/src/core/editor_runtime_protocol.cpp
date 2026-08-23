@@ -1174,6 +1174,14 @@ nlohmann::json encode_observation(const RuntimeObservation& value)
                 return {{"type", "room-presentation-diagnostic"},
                         {"room", observation.room.text()},
                         {"diagnostics", std::move(diagnostics)}};
+            } else if constexpr (std::is_same_v<O, LayoutSignalObservation>) {
+                nlohmann::json fields = nlohmann::json::array();
+                for (const auto& field : observation.fields)
+                    fields.push_back({{"field", field.field.text()}});
+                return {{"type", "layout-signal-observation"},
+                        {"occurrence", observation.occurrence.number()},
+                        {"signal", observation.signal.text()},
+                        {"fields", std::move(fields)}};
             } else if constexpr (std::is_same_v<O, CheckpointRuntimeObservation>) {
                 nlohmann::json issues = nlohmann::json::array();
                 for (const auto& issue : observation.readiness.issues) {
@@ -1422,7 +1430,8 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
         exact_fields(document,
                      {"schema", "schemaVersion", "contentMode", "layoutId", "layoutKind",
                       "templateId", "sourceUrl", "defaultParent", "scopedStyles", "script", "rml",
-                      "rcss", "lua", "scalePolicy", "environment", "shaderMaterials"},
+                      "rcss", "lua", "scalePolicy", "contract", "sampleState", "environment",
+                      "shaderMaterials"},
                      diagnostics, "/");
         const auto schema = string_field(document, "schema", diagnostics, "/", limits);
         if (schema && *schema != "noveltea.layout-preview")
@@ -1449,6 +1458,15 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
             else
                 result.source_url = std::move(*value);
         }
+        const auto contract = document.find("contract");
+        if (contract != document.end() && !contract->is_object())
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Layout preview contract must be an object.", "/contract"));
+        const auto sample_state = document.find("sampleState");
+        if (sample_state != document.end() && !sample_state->is_object())
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Layout preview sampleState must be an object.",
+                                        "/sampleState"));
         auto environment = preview_authored_environment(document, diagnostics, limits);
         if (environment)
             result.environment = std::move(*environment);

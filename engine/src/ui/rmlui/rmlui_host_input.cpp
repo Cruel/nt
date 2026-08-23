@@ -64,9 +64,9 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
                                                                it->metrics);
             return process_sdl_event(*it->context, m_window, transformed);
         };
-        const bool context_consumed = dispatch_layout_event
-                                          ? dispatch_layout_event(it->key.owner, process_context)
-                                          : process_context();
+        const bool context_consumed =
+            dispatch_layout_event ? dispatch_layout_event(it->key, it->key.owner, process_context)
+                                  : process_context();
         consumed = context_consumed || consumed;
         if (stops_lower_presentation_input(it->key.input, consumed))
             break;

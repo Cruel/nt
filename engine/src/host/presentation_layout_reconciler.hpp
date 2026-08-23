@@ -54,9 +54,13 @@ private:
         std::optional<core::MountedLayoutPresentationKey> key;
         core::MountedLayoutInstanceId instance;
         core::LayoutId layout;
+        std::optional<core::PresentationOwner> semantic_owner;
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
         core::MountedLayoutPolicy policy;
         core::LayoutScaleOverrides scale_overrides{};
+        std::optional<core::LayoutMountOccurrenceId> occurrence;
+        std::vector<core::LayoutResolvedInput> inputs;
+        std::vector<core::LayoutSignalId> connected_signals;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
         core::PresentationSnapshotRevision revision =

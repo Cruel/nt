@@ -795,6 +795,25 @@ TEST_CASE("compiled image sampling is required and decodes explicitly")
 
 TEST_CASE("compiled project public decoder rejects semantic linking failures")
 {
+    SECTION("System Layout Roles reject project-defined Layout contracts")
+    {
+        auto document = fixture("comprehensive");
+        auto* layout = path_member(document, {"resources", "layouts", "1"});
+        REQUIRE(layout != nullptr);
+        (*layout)["contract"] = {
+            {"inputs", nlohmann::json::array({{{"id", "title"},
+                                               {"type", "string"},
+                                               {"nullable", false},
+                                               {"hasDefault", true},
+                                               {"defaultValue", "HUD"}}})},
+            {"signals", nlohmann::json::array()},
+        };
+        auto result =
+            noveltea::core::decode_compiled_project(document, "system-layout-contract.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.system_layout_custom_contract"));
+    }
+
     SECTION("hotspot Feature targets require a non-null stable Feature ID")
     {
         auto document = fixture("interaction-program");
