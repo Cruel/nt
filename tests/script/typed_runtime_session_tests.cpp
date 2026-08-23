@@ -520,7 +520,7 @@ execute_session_lua_with_profile(Fixture& fixture, std::string source, std::stri
 
 TEST_CASE("typed runtime session dispatches lifecycle debug mutation save and replacement requests")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 25);
+    STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 26);
     Fixture fixture;
     auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
@@ -2016,6 +2016,88 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
                layout.scale_overrides.ui == core::LayoutScaleInheritance::Ignore &&
                layout.scale_overrides.text == core::LayoutScaleInheritance::Inherit &&
                layout.policy.gameplay_pause == core::GameplayPausePolicy::PauseWhileVisible;
+    }));
+}
+
+TEST_CASE("runtime Lua custom Layout mounts accept typed contract bindings and signal connections")
+{
+    Fixture fixture("comprehensive.json", {}, [](nlohmann::json& document) {
+        auto& layouts = document["resources"]["layouts"];
+        auto source = std::find_if(layouts.begin(), layouts.end(), [](const nlohmann::json& value) {
+            return value["id"] == "hud-assets";
+        });
+        REQUIRE(source != layouts.end());
+        auto layout = *source;
+        layout["id"] = "contract-layout";
+        layout["contract"] = {
+            {"inputs", nlohmann::json::array({
+                           {{"id", "count"},
+                            {"type", "integer"},
+                            {"nullable", false},
+                            {"hasDefault", false},
+                            {"defaultValue", nullptr}},
+                           {{"id", "mood"},
+                            {"type", "string"},
+                            {"nullable", false},
+                            {"hasDefault", false},
+                            {"defaultValue", nullptr}},
+                           {{"id", "paused"},
+                            {"type", "boolean"},
+                            {"nullable", false},
+                            {"hasDefault", false},
+                            {"defaultValue", nullptr}},
+                           {{"id", "title"},
+                            {"type", "string"},
+                            {"nullable", false},
+                            {"hasDefault", false},
+                            {"defaultValue", nullptr}},
+                       })},
+            {"signals",
+             nlohmann::json::array({{{"id", "confirm"}, {"fields", nlohmann::json::array()}}})},
+        };
+        layouts.push_back(std::move(layout));
+    });
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.layouts.mount('contract-widget', 'contract-layout', {"
+        "owner='session', inputs={"
+        "count={variable='count'}, "
+        "mood={property='mood', target={kind='room', id='start'}}, "
+        "paused={facet='gameplay-paused'}, title='Status'}, "
+        "signals={'confirm'}}); assert(ok and err == nil)",
+        "typed-layout-contract-mount"));
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    const auto& layouts = fixture.session->presentation_state().mounted_layouts();
+    const auto mounted = std::ranges::find_if(layouts, [](const auto& value) {
+        const auto* key = std::get_if<core::ScopedLayoutMountKey>(&value.key);
+        return key && key->instance.text() == "contract-widget";
+    });
+    REQUIRE(mounted != layouts.end());
+    REQUIRE(mounted->occurrence);
+    CHECK(mounted->inputs.size() == 4);
+    CHECK(mounted->connected_signals ==
+          std::vector<core::LayoutSignalId>{make_id<core::LayoutSignalIdTag>("confirm")});
+    CHECK(std::ranges::any_of(mounted->inputs, [](const auto& input) {
+        return input.input.text() == "count" &&
+               std::holds_alternative<core::LayoutVariableBinding>(input.source);
+    }));
+    CHECK(std::ranges::any_of(mounted->inputs, [](const auto& input) {
+        return input.input.text() == "mood" &&
+               std::holds_alternative<core::LayoutPropertyBinding>(input.source);
+    }));
+    CHECK(std::ranges::any_of(mounted->inputs, [](const auto& input) {
+        return input.input.text() == "paused" &&
+               std::holds_alternative<core::LayoutStandardFacetBinding>(input.source);
+    }));
+    CHECK(std::ranges::any_of(mounted->inputs, [](const auto& input) {
+        const auto* literal = std::get_if<core::LayoutLiteralInput>(&input.source);
+        return input.input.text() == "title" && literal &&
+               literal->value == core::RuntimeValue{std::string{"Status"}};
     }));
 }
 

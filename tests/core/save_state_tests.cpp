@@ -1,5 +1,6 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/flow_executor.hpp>
+#include <noveltea/core/layout_policies.hpp>
 #include <noveltea/core/property_resolver.hpp>
 #include <noveltea/presentation/room_presentation.hpp>
 #include <noveltea/core/save_state.hpp>
@@ -337,6 +338,92 @@ TEST_CASE("current save-state round-trips owner-qualified Feature interaction su
     auto old_shape = encoded.value();
     old_shape["version"] = 6;
     CHECK_FALSE(decode_save_state(project, old_shape, "save-v6.json"));
+}
+
+TEST_CASE("Layout Mount bindings and signal connections survive save restore with fresh occurrence")
+{
+    const auto project = load_fixture("interaction-program.json", [](nlohmann::json& document) {
+        auto& layouts = document["resources"]["layouts"];
+        auto layout = std::find_if(layouts.begin(), layouts.end(), [](const nlohmann::json& value) {
+            return value["id"] == "hud-inline";
+        });
+        REQUIRE(layout != layouts.end());
+        auto contract_layout = *layout;
+        contract_layout["id"] = "contract-layout";
+        contract_layout["contract"] = {
+            {"inputs", nlohmann::json::array({{{"id", "count"},
+                                               {"type", "integer"},
+                                               {"nullable", false},
+                                               {"hasDefault", false},
+                                               {"defaultValue", nullptr}}})},
+            {"signals",
+             nlohmann::json::array({{{"id", "confirm"}, {"fields", nlohmann::json::array()}}})},
+        };
+        layouts.push_back(std::move(contract_layout));
+    });
+    auto state = make_state(project);
+    FlowExecutor flow(project, state);
+    finish_initial_room_transition(flow);
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+
+    const auto key = MountedLayoutPresentationKey{
+        ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("save-widget")}};
+    const auto input = id<LayoutInputId>("count");
+    const auto signal = id<LayoutSignalId>("confirm");
+    const auto original_owner = PresentationOwner{state.session_presentation_owner()};
+    REQUIRE(state.upsert_mounted_layout(
+        project, DesiredMountedLayout{key,
+                                      original_owner,
+                                      id<LayoutId>("contract-layout"),
+                                      reserved_layout_policy(compiled::LayoutSlot::Custom),
+                                      {},
+                                      PresentationCompositionGroup::Interface,
+                                      std::nullopt,
+                                      {{input, LayoutVariableBinding{id<PropertyId>("count")}}},
+                                      {signal}}));
+    const auto original =
+        std::find_if(state.mounted_layouts().begin(), state.mounted_layouts().end(),
+                     [&](const auto& value) { return value.key == key; });
+    REQUIRE(original != state.mounted_layouts().end());
+    REQUIRE(original->occurrence);
+    const auto original_occurrence = *original->occurrence;
+
+    auto saved = make_save_state(project, state);
+    REQUIRE(saved);
+    const auto saved_mount =
+        std::find_if(saved.value().mounted_layouts.begin(), saved.value().mounted_layouts.end(),
+                     [&](const auto& value) { return value.key == key; });
+    REQUIRE(saved_mount != saved.value().mounted_layouts.end());
+    CHECK(saved_mount->inputs.size() == 1);
+    CHECK(saved_mount->connected_signals == std::vector<LayoutSignalId>{signal});
+
+    auto encoded = encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    const auto encoded_mount = std::find_if(
+        encoded.value()["presentation"]["mountedLayouts"].begin(),
+        encoded.value()["presentation"]["mountedLayouts"].end(), [](const nlohmann::json& value) {
+            return value.contains("inputs") && !value["inputs"].empty();
+        });
+    REQUIRE(encoded_mount != encoded.value()["presentation"]["mountedLayouts"].end());
+    CHECK((*encoded_mount)["connectedSignals"] == nlohmann::json::array({"confirm"}));
+
+    auto decoded = decode_save_state(project, encoded.value(), "layout-mount-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    const auto restored_mount = std::find_if(restored.value().mounted_layouts().begin(),
+                                             restored.value().mounted_layouts().end(),
+                                             [&](const auto& value) { return value.key == key; });
+    REQUIRE(restored_mount != restored.value().mounted_layouts().end());
+    REQUIRE(restored_mount->occurrence);
+    CHECK(restored_mount->owner != original_owner);
+    CHECK(restored_mount->inputs.size() == 1);
+    CHECK(restored_mount->connected_signals == std::vector<LayoutSignalId>{signal});
+    auto stale = restored.value().validate_layout_signal(project, original_owner, key,
+                                                         original_occurrence, signal, {});
+    REQUIRE_FALSE(stale);
+    REQUIRE_FALSE(stale.error().empty());
+    CHECK(stale.error().front().code == "runtime.stale_layout_signal");
 }
 
 TEST_CASE("desired presentation save restore remaps Scene and current Room owners and omits shell")

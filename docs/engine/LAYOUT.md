@@ -40,6 +40,7 @@ interface LayoutData {
     ui: 'inherit' | 'ignore';
     text: 'inherit' | 'ignore';
   };
+  contract: LayoutContractData;
   rml: LayoutSourceData;
   rcss: LayoutSourceData;
   lua: LayoutSourceData;
@@ -151,6 +152,53 @@ other presentation.
 
 Presentation plane remains the sole coordinate-space authority. Scale inheritance is a separate
 Layout policy and does not alter plane, input, pause, visibility, clock, or ordering semantics.
+
+### Layout Contract and Mount Context
+
+A reusable Layout resource declares a typed `contract`. The resource is not itself a runtime
+occurrence. Each runtime occurrence is an engine-owned **Layout Mount** identified semantically by the
+pair `(PresentationOwner, MountedLayoutPresentationKey)` and carrying a separate occurrence token for
+stale-event rejection.
+
+The contract contains named scalar inputs and named semantic signals. Input and signal-field types are
+`boolean`, `integer`, `number`, and `string`; declarations also state nullability, input defaults, and
+whether each signal field is required. Empty contracts are the implicit compiled default so existing
+Layouts do not acquire wire noise merely by being compiled.
+
+Mount inputs are read-only. A Mount may supply an input from a literal value, a global Variable, an
+identity Property, or a standard engine facet. The current standard facets are runtime mode, current
+Room, and gameplay-paused state. Binding sources remain authoritative until the Mount is updated or
+removed; presentation projection reevaluates them after settled gameplay changes rather than copying a
+mutable value into Layout Lua.
+
+A custom Lua mount uses `noveltea.layouts.mount(instance, layout, options)`. `options.inputs` is keyed
+by contract input ID. A scalar value is a literal; binding tables use `{ variable = "id" }`,
+`{ property = "id", target = { ... } }`, or `{ facet = "runtime-mode" }`. `options.signals` is the
+array of signal IDs that the owner connects for that Mount. All assignments and connections validate
+atomically against the target Layout contract; a failed update leaves the prior Mount untouched.
+
+During a realized Layout input event, `Game.mount_context()` returns the exact occurrence context.
+`context:input(name)` reads the resolved typed input and `context:signal(name, payload)` submits a
+connected Layout Signal. Signals are semantic runtime inputs, not DOM events: the runtime validates
+the owner-qualified Mount identity, occurrence token, connection, field names, required fields, and
+field types before accepting them into the ordered input pipeline. An event emitted by an unmounted,
+replaced, or pre-load occurrence is stale and is rejected.
+
+Updating inputs, order, visibility, or compatible policy keeps the Mount occurrence and does not imply
+UI replacement. Replacing the referenced Layout recreates the realized UI and allocates a fresh
+occurrence token while retaining the owner-qualified semantic key; unmount ends the occurrence.
+Runtime Session, Active Room Context, and Flow ownership continue to remove their Mounts
+ deterministically when the owner ends.
+
+Save data retains reconstructible Mount intent: owner-qualified key, Layout reference, effective
+policy, literal configuration, typed binding definitions, and connected signals. It does not retain
+the occurrence token, DOM/focus state, animation progress, or arbitrary Lua state. Restore first
+reconstructs gameplay state and then allocates a fresh Mount occurrence before bindings reevaluate, so
+pre-load UI events cannot become valid again accidentally.
+
+The Layout editor exposes the contract as validated JSON alongside RML/RCSS/Lua and includes it in the
+focused-preview input/revision. Preview sample state remains editor-owned test data; it is not saved
+runtime Mount state.
 
 ### Accessibility Scale Policy
 

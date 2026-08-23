@@ -55,7 +55,8 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
                    std::is_same_v<T, core::SelectSceneChoiceInput> ||
                    std::is_same_v<T, core::SelectDialogueChoiceInput> ||
                    std::is_same_v<T, core::NavigateRoomInput> ||
-                   std::is_same_v<T, core::InvokeInteractionInput>;
+                   std::is_same_v<T, core::InvokeInteractionInput> ||
+                   std::is_same_v<T, core::LayoutSignalInput>;
         },
         input);
 }
@@ -119,8 +120,10 @@ core::PresentationOperation materialize_operation(const PendingPresentationOpera
                 return core::ActorPresentationOperation{
                     common, {value.target}, value.kind, value.completion};
             } else {
-                return core::LayoutFinitePresentationOperation{
-                    common, {value.target}, core::LayoutOperationKind::Fade, value.completion};
+                return core::LayoutFinitePresentationOperation{common,
+                                                               {value.target, value.owner},
+                                                               core::LayoutOperationKind::Fade,
+                                                               value.completion};
             }
         },
         pending);
@@ -820,7 +823,8 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                 } else if (payload.entrance &&
                            source_state.mounted_layouts() != m_kernel->state().mounted_layouts()) {
                     m_kernel->stage_pending_presentation(
-                        PendingLayoutOperation{payload.value.key, payload.entrance->duration,
+                        PendingLayoutOperation{payload.value.key, payload.value.owner,
+                                               payload.entrance->duration,
                                                payload.entrance->skippable, std::nullopt},
                         source_state, std::move(source_room));
                 }
@@ -841,7 +845,7 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                 } else if (payload.exit &&
                            source_state.mounted_layouts() != m_kernel->state().mounted_layouts()) {
                     m_kernel->stage_pending_presentation(
-                        PendingLayoutOperation{payload.key, payload.exit->duration,
+                        PendingLayoutOperation{payload.key, payload.owner, payload.exit->duration,
                                                payload.exit->skippable, std::nullopt},
                         source_state, std::move(source_room));
                 }
@@ -1455,6 +1459,15 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         m_kernel->gateway().set_property(value.owner, value.property, value.value);
                     if (!changed)
                         result.diagnostics = std::move(changed).error();
+                } else if constexpr (std::is_same_v<T, core::LayoutSignalInput>) {
+                    auto validated = m_kernel->state().validate_layout_signal(
+                        m_project, value.owner, value.key, value.occurrence, value.signal,
+                        value.fields);
+                    if (!validated)
+                        result.diagnostics = std::move(validated).error();
+                    else
+                        result.observations.emplace_back(core::LayoutSignalObservation{
+                            value.owner, value.key, value.occurrence, value.signal, value.fields});
                 } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
                     if (value.slot.is_autosave()) {
                         (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});

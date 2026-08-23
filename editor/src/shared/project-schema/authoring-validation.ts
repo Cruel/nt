@@ -19,7 +19,7 @@ import { validateDialogueData } from './authoring-dialogues';
 import { parseInteractableData, validateInteractableData } from './authoring-interactables';
 import { parseItemDefinitionData, parseItemStackData } from './authoring-items';
 import { validateInteractionData, validateInteractionProgram } from './authoring-interactions';
-import { validateLayoutData } from './authoring-layouts';
+import { validateLayoutData, validateSystemLayoutSettings } from './authoring-layouts';
 import { validateMaterialData } from './authoring-materials';
 import { validateMapData } from './authoring-maps';
 import {
@@ -657,6 +657,7 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   diagnostics.push(...validateAuthoringInventories(project));
   validateAssets(effectiveProject, diagnostics);
   diagnostics.push(...validateTypedProjectSettings(effectiveProject));
+  diagnostics.push(...validateSystemLayoutSettings(effectiveProject));
   for (const [id, record] of Object.entries(effectiveProject.layouts))
     diagnostics.push(...validateLayoutData(effectiveProject, id, record));
   for (const [id, record] of Object.entries(effectiveProject.variables))

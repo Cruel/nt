@@ -38,6 +38,7 @@ import { projectSettingsFromProject } from '../../../shared/project-schema/autho
 import {
   defaultLayoutData,
   getSystemLayoutSetting,
+  layoutContractDataSchema,
   layoutKindValues,
   layoutPreviewBackgroundValues,
   layoutScaleInheritanceValues,
@@ -47,6 +48,7 @@ import {
   resolveLayoutScalePolicy,
   validateLayoutData,
   type LayoutAssetRef,
+  type LayoutContractData,
   type LayoutData,
   type LayoutMaterialRef,
   type LayoutSourceData,
@@ -78,6 +80,21 @@ function toggleRef<T extends { $ref: { id: string } }>(refs: T[], ref: T): T[] {
 
 const jsonValueSchema = z.json();
 type JsonValue = z.infer<typeof jsonValueSchema>;
+
+function parseLayoutContract(
+  text: string,
+): { ok: true; value: LayoutContractData } | { ok: false; message: string } {
+  try {
+    const parsed = layoutContractDataSchema.safeParse(JSON.parse(text));
+    if (parsed.success) return { ok: true, value: parsed.data };
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Invalid Layout contract.' };
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Invalid Layout contract JSON.',
+    };
+  }
+}
 
 function parseSampleState(
   text: string,
@@ -220,10 +237,12 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   );
   const data = parsedData ?? fallbackData;
   const resolvedScalePolicy = resolveLayoutScalePolicy(data.target, data.scalePolicy);
+  const contractText = useMemo(() => JSON.stringify(data.contract, null, 2), [data.contract]);
   const sampleStateText = useMemo(
     () => JSON.stringify(data.sampleState, null, 2),
     [data.sampleState],
   );
+  const [contractDraft, setContractDraft] = useState(contractText);
   const [sampleStateDraft, setSampleStateDraft] = useState(sampleStateText);
   const [message, setMessage] = useState<string | null>(null);
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
@@ -235,9 +254,10 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const pendingRestoreRef = useRef<LayoutEditorTabStatePayload | null>(null);
 
   useEffect(() => {
+    setContractDraft(contractText);
     setSampleStateDraft(sampleStateText);
     setMessage(null);
-  }, [layoutId, sampleStateText]);
+  }, [contractText, layoutId, sampleStateText]);
 
   useWorkbenchEditorTabState<LayoutEditorTabState>(
     tab.id,
@@ -383,6 +403,16 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
       { ...data, [which]: { ...data[which], sourceText } },
       `Update ${which.toUpperCase()} source`,
     );
+  }
+
+  function setContractSource(sourceText: string) {
+    setContractDraft(sourceText);
+    const parsed = parseLayoutContract(sourceText);
+    if (!parsed.ok) {
+      setMessage(parsed.message);
+      return;
+    }
+    commit({ ...data, contract: parsed.value }, 'Update layout contract');
   }
 
   function setSampleStateSource(sourceText: string) {
@@ -845,6 +875,24 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                   switching back.
                 </p>
               )}
+            </section>
+
+            <section
+              className="space-y-3 rounded border p-3"
+              data-workbench-anchor="layout.contract"
+            >
+              <div>
+                <h3 className="text-sm font-medium">Mount Contract JSON</h3>
+                <p className="text-xs text-muted-foreground">
+                  Declare typed read-only inputs and typed signals exposed by each Mount occurrence.
+                </p>
+              </div>
+              <SourceEditor
+                language="json"
+                value={contractDraft}
+                onChange={setContractSource}
+                className="h-48"
+              />
             </section>
 
             <section

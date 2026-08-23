@@ -6,6 +6,7 @@
 #include "script/lua/script_runtime_internal.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -38,6 +39,39 @@ namespace noveltea {
 using presentation::RuntimeLayoutBuiltinDocument;
 
 namespace {
+
+sol::object mount_lua_value(sol::state_view lua, const core::RuntimeValue& value)
+{
+    return std::visit(
+        [&lua](const auto& item) -> sol::object {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, std::monostate>)
+                return sol::make_object(lua, sol::lua_nil);
+            else
+                return sol::make_object(lua, item);
+        },
+        value);
+}
+
+std::optional<core::RuntimeValue> mount_runtime_value(const sol::object& object)
+{
+    if (!object.valid() || object == sol::lua_nil)
+        return core::RuntimeValue{std::monostate{}};
+    switch (object.get_type()) {
+    case sol::type::boolean:
+        return core::RuntimeValue{object.as<bool>()};
+    case sol::type::number:
+        if (object.is<std::int64_t>())
+            return core::RuntimeValue{object.as<std::int64_t>()};
+        if (const double value = object.as<double>(); std::isfinite(value))
+            return core::RuntimeValue{value};
+        return std::nullopt;
+    case sol::type::string:
+        return core::RuntimeValue{object.as<std::string>()};
+    default:
+        return std::nullopt;
+    }
+}
 using ui::rmlui::kRuntimeGameDocumentId;
 using ui::rmlui::kRuntimeLoadMenuDocumentId;
 using ui::rmlui::kRuntimeModalDocumentId;
@@ -196,6 +230,7 @@ struct RuntimeUI::State {
     system_document_id(core::compiled::SystemLayoutRole role) const;
     [[nodiscard]] Rml::ElementDocument*
     system_document(core::compiled::SystemLayoutRole role) const;
+    [[nodiscard]] std::optional<std::string> mount_document(ContextKey key) const;
     Rml::Context* context_for(ContextKey key);
     Rml::ElementDocument* document(const std::string& id) const;
     struct RuntimeInputListener final : Rml::EventListener {
@@ -215,6 +250,8 @@ struct RuntimeUI::State {
     std::function<void()> game_started_handler;
     std::optional<core::RuntimeShellViewState> runtime_shell_view;
     std::unordered_map<core::compiled::SystemLayoutRole, std::string> system_layout_documents;
+    std::unordered_map<std::string, RuntimeUiLayoutMountContext> layout_mount_contexts;
+    std::optional<std::string> active_layout_mount_document;
     bool system_layout_documents_authoritative = false;
     std::string title_project;
     std::string title_subtitle;
@@ -291,6 +328,24 @@ Rml::ElementDocument* RuntimeUI::State::system_document(core::compiled::SystemLa
     return id && document_registry ? document_registry->document(*id) : nullptr;
 }
 
+std::optional<std::string> RuntimeUI::State::mount_document(ContextKey key) const
+{
+    if (!host || !document_registry)
+        return std::nullopt;
+    auto* context = host->find_context(key);
+    if (!context)
+        return std::nullopt;
+    std::optional<std::string> result;
+    for (const auto& [document_id, _] : layout_mount_contexts) {
+        if (document_registry->document_context(document_id) != context)
+            continue;
+        if (result)
+            return std::nullopt;
+        result = document_id;
+    }
+    return result;
+}
+
 void RuntimeUI::State::load_runtime_document()
 {
     if (!document_registry || !template_resolver)
@@ -349,6 +404,55 @@ void RuntimeUI::State::install_shell_lua_api()
 
     game.set_function("start", [this]() {
         return dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}});
+    });
+    game.set_function("mount_context", [this, lua](sol::optional<std::string> document_id) mutable {
+        const std::optional<std::string> selected =
+            document_id ? std::optional<std::string>{*document_id} : active_layout_mount_document;
+        if (!selected)
+            return sol::make_object(lua, sol::lua_nil);
+        const auto found = layout_mount_contexts.find(*selected);
+        if (found == layout_mount_contexts.end())
+            return sol::make_object(lua, sol::lua_nil);
+        const auto context = found->second;
+        sol::table mount = lua.create_table();
+        mount["document_id"] = *selected;
+        mount["occurrence"] = context.occurrence.number();
+        mount.set_function("input", [context, lua](std::string name) mutable {
+            auto id = core::LayoutInputId::create(std::move(name));
+            if (!id)
+                return sol::make_object(lua, sol::lua_nil);
+            const auto input =
+                std::find_if(context.inputs.begin(), context.inputs.end(),
+                             [&](const auto& value) { return value.input == *id.value_if(); });
+            return input == context.inputs.end() ? sol::make_object(lua, sol::lua_nil)
+                                                 : mount_lua_value(lua, input->value);
+        });
+        mount.set_function(
+            "signal", [this, context](std::string name, sol::optional<sol::table> payload) {
+                auto signal = core::LayoutSignalId::create(std::move(name));
+                if (!signal ||
+                    std::find(context.connected_signals.begin(), context.connected_signals.end(),
+                              *signal.value_if()) == context.connected_signals.end())
+                    return false;
+                std::vector<core::LayoutSignalFieldValue> fields;
+                if (payload) {
+                    for (const auto& entry : *payload) {
+                        const sol::object key = entry.first;
+                        const sol::object value = entry.second;
+                        if (key.get_type() != sol::type::string)
+                            return false;
+                        auto field = core::LayoutSignalFieldId::create(key.as<std::string>());
+                        auto runtime_value = mount_runtime_value(value);
+                        if (!field || !runtime_value)
+                            return false;
+                        fields.push_back({std::move(*field.value_if()), std::move(*runtime_value)});
+                    }
+                }
+                return dispatch_layout_typed_input(core::RuntimeInputMessage{
+                    core::LayoutSignalInput{context.owner, context.key, context.occurrence,
+                                            std::move(*signal.value_if()), std::move(fields)}});
+            });
+        return sol::make_object(lua, std::move(mount));
     });
 
     shell.set_function("pause", [this]() {
@@ -497,8 +601,11 @@ void RuntimeUI::State::remove_shell_lua_api() noexcept
         return;
     sol::state_view lua(lua_state);
     const sol::object game_object = lua["Game"];
-    if (game_object.valid() && game_object.get_type() == sol::type::table)
-        game_object.as<sol::table>()["shell"] = sol::lua_nil;
+    if (game_object.valid() && game_object.get_type() == sol::type::table) {
+        auto game = game_object.as<sol::table>();
+        game["shell"] = sol::lua_nil;
+        game["mount_context"] = sol::lua_nil;
+    }
 }
 
 void RuntimeUI::State::refresh_text_log_map()
@@ -738,9 +845,14 @@ RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)
             return m_state->document_registry &&
                    m_state->document_registry->has_visible_document(context);
         },
-        [this](core::MountedLayoutOwner owner, const std::function<bool()>& dispatch) {
-            return m_state->action_gateway &&
-                   m_state->action_gateway->dispatch_layout_event(owner, dispatch);
+        [this](const State::ContextKey& key, core::MountedLayoutOwner owner,
+               const std::function<bool()>& dispatch) {
+            const auto previous = m_state->active_layout_mount_document;
+            m_state->active_layout_mount_document = m_state->mount_document(key);
+            const bool handled = m_state->action_gateway &&
+                                 m_state->action_gateway->dispatch_layout_event(owner, dispatch);
+            m_state->active_layout_mount_document = previous;
+            return handled;
         });
     if (m_state->action_gateway)
         result = m_state->action_gateway->finish_event_capture();
@@ -969,7 +1081,12 @@ void ui::rmlui::RuntimeUiFacadeAccess::clear_preview_virtual_files(RuntimeUI& ru
 
 bool RuntimeUI::unload_document(const std::string& id)
 {
-    return m_state && m_state->document_registry && m_state->document_registry->unload(id);
+    if (!m_state || !m_state->document_registry)
+        return false;
+    const bool unloaded = m_state->document_registry->unload(id);
+    if (unloaded)
+        m_state->layout_mount_contexts.erase(id);
+    return unloaded;
 }
 
 bool RuntimeUI::show_document(const std::string& id)
@@ -986,6 +1103,28 @@ bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)
 {
     return m_state && m_state->document_registry &&
            m_state->document_registry->set_opacity(id, opacity);
+}
+
+void RuntimeUI::set_layout_mount_context(const std::string& id,
+                                         std::optional<RuntimeUiLayoutMountContext> context)
+{
+    if (!m_state)
+        return;
+    if (context)
+        m_state->layout_mount_contexts.insert_or_assign(id, std::move(*context));
+    else
+        m_state->layout_mount_contexts.erase(id);
+}
+
+std::optional<RuntimeUiLayoutMountContext>
+RuntimeUI::layout_mount_context(const std::string& id) const
+{
+    if (!m_state)
+        return std::nullopt;
+    const auto found = m_state->layout_mount_contexts.find(id);
+    return found == m_state->layout_mount_contexts.end()
+               ? std::nullopt
+               : std::optional<RuntimeUiLayoutMountContext>{found->second};
 }
 
 bool ui::rmlui::RuntimeUiFacadeAccess::load_title_document(RuntimeUI& runtime_ui)

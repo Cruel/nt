@@ -526,7 +526,8 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
             return Result<SessionState, Diagnostics>::failure(owner.error());
         auto restored = state->upsert_mounted_layout(
             project, DesiredMountedLayout{saved.key, *owner.value_if(), saved.layout, saved.policy,
-                                          saved.scale_overrides, saved.composition_group});
+                                          saved.scale_overrides, saved.composition_group,
+                                          std::nullopt, saved.inputs, saved.connected_signals});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }

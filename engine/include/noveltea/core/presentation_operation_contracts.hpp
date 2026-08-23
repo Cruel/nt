@@ -32,6 +32,7 @@ struct ActorOperationTarget {
 };
 struct LayoutOperationTarget {
     MountedLayoutPresentationKey layout;
+    PresentationOwner owner;
     bool operator==(const LayoutOperationTarget&) const = default;
 };
 using FinitePresentationOperationTarget =

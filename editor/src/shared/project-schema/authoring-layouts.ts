@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
+import { authoredRuntimeValueSchema } from './authoring-properties';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const layoutKindValues = ['document', 'fragment'] as const;
@@ -17,6 +18,7 @@ export const layoutTargetValues = [
 export const layoutSourceModeValues = ['inline', 'asset'] as const;
 export const layoutPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
 export const layoutScaleInheritanceValues = ['inherit', 'ignore'] as const;
+export const layoutContractValueTypeValues = ['boolean', 'integer', 'number', 'string'] as const;
 export const systemLayoutRoleValues = [
   'title',
   'game-hud',
@@ -34,6 +36,7 @@ export type LayoutTarget = (typeof layoutTargetValues)[number];
 export type LayoutSourceMode = (typeof layoutSourceModeValues)[number];
 export type LayoutPreviewBackground = (typeof layoutPreviewBackgroundValues)[number];
 export type LayoutScaleInheritance = (typeof layoutScaleInheritanceValues)[number];
+export type LayoutContractValueType = (typeof layoutContractValueTypeValues)[number];
 export type SystemLayoutRole = (typeof systemLayoutRoleValues)[number];
 
 export interface LayoutScalePolicy {
@@ -93,6 +96,59 @@ export const layoutMountDataSchema = z
   })
   .strict();
 
+const layoutContractValueShapeSchema = z
+  .object({
+    type: z.enum(layoutContractValueTypeValues),
+    nullable: z.boolean().default(false),
+  })
+  .strict();
+
+const layoutContractInputSchema = z
+  .object({
+    type: z.enum(layoutContractValueTypeValues),
+    nullable: z.boolean().default(false),
+    defaultValue: authoredRuntimeValueSchema.optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.defaultValue === undefined) return;
+    const value = input.defaultValue;
+    const valid =
+      value === null
+        ? input.nullable
+        : input.type === 'boolean'
+          ? typeof value === 'boolean'
+          : input.type === 'integer'
+            ? typeof value === 'number' && Number.isInteger(value)
+            : input.type === 'number'
+              ? typeof value === 'number'
+              : typeof value === 'string';
+    if (!valid)
+      context.addIssue({
+        code: 'custom',
+        path: ['defaultValue'],
+        message: 'Layout input defaultValue must match its declared type and nullability.',
+      });
+  });
+
+const layoutContractSignalSchema = z
+  .object({
+    fields: z
+      .record(
+        z.string().min(1),
+        layoutContractValueShapeSchema.extend({ required: z.boolean().default(true) }).strict(),
+      )
+      .default({}),
+  })
+  .strict();
+
+export const layoutContractDataSchema = z
+  .object({
+    inputs: z.record(z.string().min(1), layoutContractInputSchema).default({}),
+    signals: z.record(z.string().min(1), layoutContractSignalSchema).default({}),
+  })
+  .strict();
+
 export const layoutScalePolicySchema = z
   .object({
     ui: z.enum(layoutScaleInheritanceValues),
@@ -107,6 +163,7 @@ export const layoutDataSchema = z
     displayName: z.string().optional(),
     target: z.enum(layoutTargetValues).default('default-ui'),
     scalePolicy: layoutScalePolicySchema.optional(),
+    contract: layoutContractDataSchema.default({ inputs: {}, signals: {} }),
     rml: layoutSourceDataSchema.default({
       sourceMode: 'inline',
       sourceText: '',
@@ -164,6 +221,7 @@ export type LayoutSourceData = z.infer<typeof layoutSourceDataSchema>;
 export type LayoutDependencyData = z.infer<typeof layoutDependencyDataSchema>;
 export type LayoutScriptData = z.infer<typeof layoutScriptDataSchema>;
 export type LayoutMountData = z.infer<typeof layoutMountDataSchema>;
+export type LayoutContractData = z.infer<typeof layoutContractDataSchema>;
 export type LayoutData = z.infer<typeof layoutDataSchema>;
 export type SystemLayoutSettings = z.infer<typeof systemLayoutSettingsSchema>;
 
@@ -599,11 +657,26 @@ export function validateSystemLayoutSettings(project: AuthoringProject): LayoutS
     const ref = parsed.data[role];
     if (!ref) continue;
     const id = ref.$ref.id;
-    if (!project.layouts[id]) {
+    const layout = project.layouts[id];
+    if (!layout) {
       diagnostics.push(
         diagnostic(
           `/settings/ui/systemLayouts/${role}/$ref`,
           `Missing ${role} system layout '${id}'.`,
+        ),
+      );
+      continue;
+    }
+    const data = parseLayoutData(layout.data);
+    if (
+      data &&
+      (Object.keys(data.contract.inputs).length > 0 ||
+        Object.keys(data.contract.signals).length > 0)
+    ) {
+      diagnostics.push(
+        diagnostic(
+          `/settings/ui/systemLayouts/${role}/$ref`,
+          `System layout role '${role}' uses the fixed engine contract; Layout '${id}' must not declare custom inputs or signals.`,
         ),
       );
     }

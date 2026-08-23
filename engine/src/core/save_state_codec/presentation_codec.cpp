@@ -60,6 +60,78 @@ std::optional<std::optional<Id>> decode_optional_id_value(Decoder& d, const nloh
     return decoded ? std::optional<std::optional<Id>>{std::move(decoded.value)} : std::nullopt;
 }
 
+nlohmann::json encode_layout_input_source(const LayoutInputSource& source)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, LayoutLiteralInput>)
+                return {{"kind", "literal"}, {"value", encode_value(value.value)}};
+            else if constexpr (std::is_same_v<T, LayoutVariableBinding>)
+                return {{"kind", "variable"}, {"variable", value.variable.text()}};
+            else if constexpr (std::is_same_v<T, LayoutPropertyBinding>)
+                return {{"kind", "property"},
+                        {"target", encode_property_target(value.target)},
+                        {"property", value.property.text()}};
+            else
+                return {{"kind", "standard-facet"}, {"facet", encode_enum(value.facet)}};
+        },
+        source);
+}
+
+std::optional<LayoutInputSource> decode_layout_input_source(Decoder& d, const nlohmann::json& value,
+                                                            std::string_view pointer)
+{
+    if (!value.is_object()) {
+        d.error(k_type, "Expected a Layout input source object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = d.member(value, "kind", pointer);
+    auto kind = kind_value ? d.string(*kind_value, child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "literal") {
+        d.object(value, pointer, {"kind", "value"});
+        const auto* literal = d.member(value, "value", pointer);
+        auto decoded = literal ? decode_value(d, *literal, child(pointer, "value")) : std::nullopt;
+        return decoded ? std::optional<LayoutInputSource>{LayoutLiteralInput{std::move(*decoded)}}
+                       : std::nullopt;
+    }
+    if (*kind == "variable") {
+        d.object(value, pointer, {"kind", "variable"});
+        const auto* variable = d.member(value, "variable", pointer);
+        auto decoded =
+            variable ? d.id<PropertyId>(*variable, child(pointer, "variable")) : std::nullopt;
+        return decoded
+                   ? std::optional<LayoutInputSource>{LayoutVariableBinding{std::move(*decoded)}}
+                   : std::nullopt;
+    }
+    if (*kind == "property") {
+        d.object(value, pointer, {"kind", "target", "property"});
+        const auto* target = d.member(value, "target", pointer);
+        const auto* property = d.member(value, "property", pointer);
+        auto decoded_target =
+            target ? decode_property_target(d, *target, child(pointer, "target")) : std::nullopt;
+        auto decoded_property =
+            property ? d.id<PropertyId>(*property, child(pointer, "property")) : std::nullopt;
+        return decoded_target && decoded_property
+                   ? std::optional<LayoutInputSource>{LayoutPropertyBinding{
+                         std::move(*decoded_target), std::move(*decoded_property)}}
+                   : std::nullopt;
+    }
+    if (*kind == "standard-facet") {
+        d.object(value, pointer, {"kind", "facet"});
+        const auto* facet = d.member(value, "facet", pointer);
+        auto decoded = facet ? decode_enum(d, *facet, child(pointer, "facet"),
+                                           LayoutStandardFacet::GameplayPaused)
+                             : std::nullopt;
+        return decoded ? std::optional<LayoutInputSource>{LayoutStandardFacetBinding{*decoded}}
+                       : std::nullopt;
+    }
+    d.error(k_value, "Unknown Layout input source kind.", std::string(child(pointer, "kind")));
+    return std::nullopt;
+}
+
 nlohmann::json encode_presentation_owner(const SavedPresentationOwner& owner)
 {
     return std::visit(
@@ -780,12 +852,25 @@ nlohmann::json encode_presentation_records(const SaveState& save)
              {"visible", value.visible}});
 
     nlohmann::json layouts = nlohmann::json::array();
-    for (const auto& value : save.mounted_layouts)
-        layouts.push_back({{"key", encode_mount_key(value.key)},
-                           {"owner", encode_presentation_owner(value.owner)},
-                           {"layout", value.layout.text()},
-                           {"policy", encode_policy(value.policy, value.scale_overrides)},
-                           {"compositionGroup", encode_enum(value.composition_group)}});
+    for (const auto& value : save.mounted_layouts) {
+        nlohmann::json inputs = nlohmann::json::array();
+        for (const auto& input : value.inputs)
+            inputs.push_back({{"input", input.input.text()},
+                              {"source", encode_layout_input_source(input.source)}});
+        nlohmann::json connected_signals = nlohmann::json::array();
+        for (const auto& signal : value.connected_signals)
+            connected_signals.push_back(signal.text());
+        nlohmann::json encoded = {{"key", encode_mount_key(value.key)},
+                                  {"owner", encode_presentation_owner(value.owner)},
+                                  {"layout", value.layout.text()},
+                                  {"policy", encode_policy(value.policy, value.scale_overrides)},
+                                  {"compositionGroup", encode_enum(value.composition_group)}};
+        if (!inputs.empty())
+            encoded["inputs"] = std::move(inputs);
+        if (!connected_signals.empty())
+            encoded["connectedSignals"] = std::move(connected_signals);
+        layouts.push_back(std::move(encoded));
+    }
 
     nlohmann::json desired_audio = nlohmann::json::array();
     for (const auto& value : save.desired_audio)
@@ -1077,13 +1162,16 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   [&d](const nlohmann::json& entry,
                        const std::string& entry_pointer) -> std::optional<SavedMountedLayout> {
                       if (!d.object(entry, entry_pointer,
-                                    {"key", "owner", "layout", "policy", "compositionGroup"}))
+                                    {"key", "owner", "layout", "policy", "compositionGroup",
+                                     "inputs", "connectedSignals"}))
                           return std::nullopt;
                       const auto* key_value = d.member(entry, "key", entry_pointer);
                       const auto* owner_value = d.member(entry, "owner", entry_pointer);
                       const auto* layout_value = d.member(entry, "layout", entry_pointer);
                       const auto* policy_value = d.member(entry, "policy", entry_pointer);
                       const auto* group_value = d.member(entry, "compositionGroup", entry_pointer);
+                      const auto* inputs_value = json_access::member(entry, "inputs");
+                      const auto* signals_value = json_access::member(entry, "connectedSignals");
                       auto key = key_value
                                      ? decode_mount_key(d, *key_value, child(entry_pointer, "key"))
                                      : std::nullopt;
@@ -1101,14 +1189,49 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                                      child(entry_pointer, "compositionGroup"),
                                                      PresentationCompositionGroup::Debug)
                                        : std::nullopt;
-                      return key && owner && layout && policy && group
+                      std::optional<std::vector<LayoutInputAssignment>> inputs =
+                          std::vector<LayoutInputAssignment>{};
+                      if (inputs_value)
+                          inputs = decode_required_array<LayoutInputAssignment>(
+                              d, *inputs_value, child(entry_pointer, "inputs"),
+                              [&d](const nlohmann::json& input, const std::string& input_pointer)
+                                  -> std::optional<LayoutInputAssignment> {
+                                  if (!d.object(input, input_pointer, {"input", "source"}))
+                                      return std::nullopt;
+                                  const auto* id_value = d.member(input, "input", input_pointer);
+                                  const auto* source_value =
+                                      d.member(input, "source", input_pointer);
+                                  auto id = id_value ? d.id<LayoutInputId>(
+                                                           *id_value, child(input_pointer, "input"))
+                                                     : std::nullopt;
+                                  auto source = source_value ? decode_layout_input_source(
+                                                                   d, *source_value,
+                                                                   child(input_pointer, "source"))
+                                                             : std::nullopt;
+                                  return id && source
+                                             ? std::optional<LayoutInputAssignment>{{std::move(*id),
+                                                                                     std::move(
+                                                                                         *source)}}
+                                             : std::nullopt;
+                              });
+                      std::optional<std::vector<LayoutSignalId>> signals =
+                          std::vector<LayoutSignalId>{};
+                      if (signals_value)
+                          signals = decode_required_array<LayoutSignalId>(
+                              d, *signals_value, child(entry_pointer, "connectedSignals"),
+                              [&d](const nlohmann::json& signal, const std::string& signal_pointer)
+                                  -> std::optional<LayoutSignalId> {
+                                  return d.id<LayoutSignalId>(signal, signal_pointer);
+                              });
+                      return key && owner && layout && policy && group && inputs && signals
                                  ? std::optional<SavedMountedLayout>{{std::move(*key),
                                                                       std::move(*owner),
                                                                       std::move(*layout),
                                                                       std::move(policy->policy),
                                                                       std::move(
                                                                           policy->scale_overrides),
-                                                                      *group}}
+                                                                      *group, std::move(*inputs),
+                                                                      std::move(*signals)}}
                                  : std::nullopt;
                   })
             : std::nullopt;

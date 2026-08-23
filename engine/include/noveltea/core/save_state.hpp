@@ -213,6 +213,8 @@ struct SavedMountedLayout {
     MountedLayoutPolicy policy;
     LayoutScaleOverrides scale_overrides{};
     PresentationCompositionGroup composition_group = PresentationCompositionGroup::Interface;
+    std::vector<LayoutInputAssignment> inputs;
+    std::vector<LayoutSignalId> connected_signals;
 };
 
 struct SavedDesiredAudio {

@@ -67,6 +67,10 @@ public:
     bool show_document(const std::string& id);
     bool hide_document(const std::string& id);
     bool set_document_opacity(const std::string& id, float opacity);
+    void set_layout_mount_context(const std::string& id,
+                                  std::optional<RuntimeUiLayoutMountContext> context);
+    [[nodiscard]] std::optional<RuntimeUiLayoutMountContext>
+    layout_mount_context(const std::string& id) const;
     bool load_document_for_layout(
         const std::string& id, const std::string& path, bool show,
         const core::MountedLayoutPolicy& policy, std::uint32_t composition_group = 0,

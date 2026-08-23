@@ -230,6 +230,11 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
                     .scale_overrides = std::move(request.scale_overrides)},
         .source = std::move(request.source),
         .system_role = request.system_role,
+        .semantic_owner = std::move(request.semantic_owner),
+        .semantic_key = std::move(request.semantic_key),
+        .occurrence = request.occurrence,
+        .inputs = std::move(request.inputs),
+        .connected_signals = std::move(request.connected_signals),
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
     });
@@ -242,6 +247,59 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
                              ? 0
                              : m_next_instance_id + 1;
     return MountResult::success(instance);
+}
+
+RuntimeLayoutManager::UpdateResult RuntimeLayoutManager::update(core::MountedLayoutInstanceId id,
+                                                                RuntimeLayoutMountRequest request)
+{
+    if (!m_host)
+        return UpdateResult::failure(
+            failure("layout.host_unavailable", "Layout realization host is unavailable"));
+
+    const auto requested_visibility = request.policy.visibility;
+    if (const auto* builtin = std::get_if<RuntimeLayoutBuiltinSource>(&request.source);
+        builtin && builtin->document != RuntimeLayoutBuiltinDocument::None) {
+        if (!request.system_role)
+            request.system_role = system_role_for_builtin(builtin->document);
+        if (request.layout_id.empty()) {
+            apply_builtin_defaults(request, builtin->document);
+            request.policy.visibility = requested_visibility;
+        }
+    }
+
+    auto layout = core::LayoutId::create(request.layout_id);
+    if (!layout)
+        return UpdateResult::failure(layout.error());
+
+    auto candidate = m_mounted_layouts;
+    const auto it = std::find_if(candidate.begin(), candidate.end(),
+                                 [id](const auto& value) { return value.mounted.instance == id; });
+    if (it == candidate.end())
+        return UpdateResult::failure(
+            failure("layout.instance_missing", "Mounted Layout instance does not exist"));
+
+    *it = RuntimeMountedLayout{
+        .mounted = {.instance = id,
+                    .layout = *layout.value_if(),
+                    .owner = request.owner,
+                    .policy = std::move(request.policy),
+                    .scale_overrides = std::move(request.scale_overrides)},
+        .source = std::move(request.source),
+        .system_role = request.system_role,
+        .semantic_owner = std::move(request.semantic_owner),
+        .semantic_key = std::move(request.semantic_key),
+        .occurrence = request.occurrence,
+        .inputs = std::move(request.inputs),
+        .connected_signals = std::move(request.connected_signals),
+        .composition_group = request.composition_group,
+        .publication_revision = request.publication_revision,
+    };
+    auto reconciled = reconcile_candidate(candidate);
+    if (!reconciled)
+        return UpdateResult::failure(std::move(reconciled).error());
+
+    m_mounted_layouts = std::move(candidate);
+    return UpdateResult::success();
 }
 
 RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount_builtin_title(bool visible)

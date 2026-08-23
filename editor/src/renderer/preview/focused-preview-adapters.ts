@@ -347,6 +347,8 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
         rcss: layoutSourceComponent(context.project, layout.rcss),
         lua: layoutSourceComponent(context.project, layout.lua),
         scalePolicy,
+        contract: layout.contract,
+        sampleState: layout.sampleState,
         environment: {
           profile: {
             name: profile.name,

@@ -1,5 +1,6 @@
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/core/layout_policies.hpp"
+#include "noveltea/core/property_resolver.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -31,6 +32,79 @@ std::optional<Id> allocate_process_identity(std::atomic<std::uint64_t>& next) no
 Diagnostics feature_error(std::string code, std::string message)
 {
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
+}
+
+std::string runtime_mode_text(const RuntimeMode& mode)
+{
+    if (std::holds_alternative<RoomMode>(mode))
+        return "room";
+    if (std::holds_alternative<FlowMode>(mode))
+        return "flow";
+    return "ended";
+}
+
+Result<RuntimeValue, Diagnostics> resolve_layout_input_source(const CompiledProject& project,
+                                                              SessionState& state,
+                                                              const LayoutInputSource& source)
+{
+    return std::visit(
+        [&](const auto& value) -> Result<RuntimeValue, Diagnostics> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, LayoutLiteralInput>) {
+                if (!runtime_value_is_finite(value.value))
+                    return Result<RuntimeValue, Diagnostics>::failure(feature_error(
+                        "runtime.layout_input_non_finite", "Layout literal input must be finite"));
+                return Result<RuntimeValue, Diagnostics>::success(value.value);
+            } else if constexpr (std::is_same_v<T, LayoutVariableBinding>) {
+                PropertyResolver resolver(project, state);
+                auto result = resolver.get_global(value.variable);
+                if (!result)
+                    return Result<RuntimeValue, Diagnostics>::failure(std::move(result).error());
+                if (const auto* resolved = std::get_if<RuntimeValue>(result.value_if()))
+                    return Result<RuntimeValue, Diagnostics>::success(*resolved);
+                return Result<RuntimeValue, Diagnostics>::success(RuntimeValue{std::monostate{}});
+            } else if constexpr (std::is_same_v<T, LayoutPropertyBinding>) {
+                PropertyResolver resolver(project, state);
+                return std::visit(
+                    [&](const auto& target) -> Result<RuntimeValue, Diagnostics> {
+                        using Target = std::decay_t<decltype(target)>;
+                        if constexpr (std::is_same_v<Target, GlobalPropertyTarget>) {
+                            auto result = resolver.get_global(value.property);
+                            if (!result)
+                                return Result<RuntimeValue, Diagnostics>::failure(
+                                    std::move(result).error());
+                            if (const auto* resolved = std::get_if<RuntimeValue>(result.value_if()))
+                                return Result<RuntimeValue, Diagnostics>::success(*resolved);
+                        } else {
+                            auto result = resolver.get(PropertyOwnerRef{target}, value.property);
+                            if (!result)
+                                return Result<RuntimeValue, Diagnostics>::failure(
+                                    std::move(result).error());
+                            if (const auto* resolved = std::get_if<RuntimeValue>(result.value_if()))
+                                return Result<RuntimeValue, Diagnostics>::success(*resolved);
+                        }
+                        return Result<RuntimeValue, Diagnostics>::success(
+                            RuntimeValue{std::monostate{}});
+                    },
+                    value.target);
+            } else {
+                switch (value.facet) {
+                case LayoutStandardFacet::RuntimeMode:
+                    return Result<RuntimeValue, Diagnostics>::success(
+                        RuntimeValue{runtime_mode_text(state.mode())});
+                case LayoutStandardFacet::CurrentRoom:
+                    return Result<RuntimeValue, Diagnostics>::success(
+                        state.room_visit() ? RuntimeValue{state.room_visit()->room.text()}
+                                           : RuntimeValue{std::monostate{}});
+                case LayoutStandardFacet::GameplayPaused:
+                    return Result<RuntimeValue, Diagnostics>::success(
+                        RuntimeValue{state.gameplay_paused()});
+                }
+            }
+            return Result<RuntimeValue, Diagnostics>::failure(feature_error(
+                "runtime.invalid_layout_input_source", "Layout input source is invalid"));
+        },
+        source);
 }
 
 const compiled::RoomDefinition* runtime_room(const SessionState& state, const RoomId& id) noexcept
@@ -1370,30 +1444,23 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.history_overflow", "Room entry sequence cannot be incremented"));
 
-    std::vector<DesiredMountedLayout> mounted_layouts = m_mounted_layouts;
+    SessionState candidate = *this;
     for (const auto& overlay : definition->overlays) {
-        if (project.find_layout(overlay.layout) == nullptr)
-            return Result<void, Diagnostics>::failure(feature_error(
-                "runtime.invalid_room_overlay", "Room entry overlay references a missing Layout"));
-        const MountedLayoutPresentationKey key = RoomOverlayLayoutMountKey{room, overlay.id};
-        const auto found =
-            std::find_if(mounted_layouts.begin(), mounted_layouts.end(),
-                         [&key](const DesiredMountedLayout& state) {
-                             return state.key == key && presentation_authority(state.owner) ==
-                                                            PresentationAuthority::Gameplay;
-                         });
-        if (found == mounted_layouts.end()) {
-            mounted_layouts.push_back(
-                DesiredMountedLayout{key,
-                                     RoomPresentationOwner{room},
-                                     overlay.layout,
-                                     room_overlay_policy(overlay.order, overlay.visible),
-                                     {},
-                                     PresentationCompositionGroup::World});
-        }
+        auto mounted = candidate.upsert_mounted_layout(
+            project, DesiredMountedLayout{RoomOverlayLayoutMountKey{room, overlay.id},
+                                          RoomPresentationOwner{room},
+                                          overlay.layout,
+                                          room_overlay_policy(overlay.order, overlay.visible),
+                                          {},
+                                          PresentationCompositionGroup::World,
+                                          std::nullopt,
+                                          {},
+                                          {}});
+        if (!mounted)
+            return mounted;
     }
 
-    const auto* previous_mode = std::get_if<RoomMode>(&m_mode);
+    const auto* previous_mode = std::get_if<RoomMode>(&candidate.m_mode);
     const std::optional<RoomId> source_room = previous_mode ? std::optional(previous_mode->room)
                                               : entry_exit  ? std::optional(entry_exit->room)
                                                             : std::nullopt;
@@ -1412,23 +1479,27 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
                 feature_error("runtime.invalid_room_visit_context",
                               "Room entry exit does not match the source and target Rooms"));
     }
-    auto visit_instance = allocate_room_visit_instance_id();
+    auto visit_instance = candidate.allocate_room_visit_instance_id();
     if (!visit_instance)
         return Result<void, Diagnostics>::failure(visit_instance.error());
-    if (visit == m_room_visits.end())
-        m_room_visits.emplace(room, 1);
+    auto candidate_visit = candidate.m_room_visits.find(room);
+    if (candidate_visit == candidate.m_room_visits.end())
+        candidate.m_room_visits.emplace(room, 1);
     else
-        ++visit->second;
-    if (const auto current_owner = current_room_presentation_owner())
-        remove_presentation_owned_by(*current_owner);
-    ++m_room_entry_sequence;
-    m_room_visit = RoomVisitContext{room, source_room, std::move(entry_exit),
-                                    RoomEntryCause::DirectedRoomChange, m_room_entry_sequence,
-                                    room_visits(room)};
-    m_room_visit_instance = *visit_instance.value_if();
-    m_mounted_layouts = std::move(mounted_layouts);
-    m_presented_text.reset();
-    m_active_choice.reset();
+        ++candidate_visit->second;
+    if (const auto current_owner = candidate.current_room_presentation_owner())
+        candidate.remove_presentation_owned_by(*current_owner);
+    ++candidate.m_room_entry_sequence;
+    candidate.m_room_visit = RoomVisitContext{room,
+                                              source_room,
+                                              std::move(entry_exit),
+                                              RoomEntryCause::DirectedRoomChange,
+                                              candidate.m_room_entry_sequence,
+                                              candidate.room_visits(room)};
+    candidate.m_room_visit_instance = *visit_instance.value_if();
+    candidate.m_presented_text.reset();
+    candidate.m_active_choice.reset();
+    *this = std::move(candidate);
     return Result<void, Diagnostics>::success();
 }
 
@@ -1499,7 +1570,10 @@ SessionState::commit_room_navigation(const CompiledProject& project,
                                  overlay.layout,
                                  room_overlay_policy(authored->order, overlay.visible),
                                  {},
-                                 PresentationCompositionGroup::World});
+                                 PresentationCompositionGroup::World,
+                                 std::nullopt,
+                                 {},
+                                 {}});
         if (!mounted)
             return mounted;
     }
@@ -1582,6 +1656,7 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
                                                               DesiredMountedLayout value)
 {
     auto owner = validate_presentation_owner(project, value.owner);
+    const auto* layout_definition = project.find_layout(value.layout);
     bool key_valid = false;
     std::visit(
         [&](const auto& key) {
@@ -1609,22 +1684,205 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
             }
         },
         value.key);
-    if (!owner || project.find_layout(value.layout) == nullptr || !key_valid ||
+    if (!owner || layout_definition == nullptr || !key_valid ||
         !valid_layout_policy(value.policy) ||
         !valid_layout_scale_overrides(value.scale_overrides) ||
         value.composition_group > PresentationCompositionGroup::Debug)
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_mounted_layout",
             "Mounted Layout contains an invalid owner, key, Layout, policy, or composition group"));
+
+    std::vector<LayoutInputId> assigned_inputs;
+    assigned_inputs.reserve(value.inputs.size());
+    for (const auto& assignment : value.inputs) {
+        if (std::find(assigned_inputs.begin(), assigned_inputs.end(), assignment.input) !=
+            assigned_inputs.end())
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.duplicate_layout_input",
+                              "Mounted Layout assigns one input more than once"));
+        const auto input = std::find_if(layout_definition->contract.inputs.begin(),
+                                        layout_definition->contract.inputs.end(),
+                                        [&](const LayoutInputDefinition& definition) {
+                                            return definition.id == assignment.input;
+                                        });
+        if (input == layout_definition->contract.inputs.end())
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.undeclared_layout_input",
+                              "Mounted Layout input is not declared by the Layout contract"));
+        auto resolved = resolve_layout_input_source(project, *this, assignment.source);
+        if (!resolved || !layout_contract_value_matches(input->shape, *resolved.value_if()))
+            return Result<void, Diagnostics>::failure(
+                !resolved ? std::move(resolved).error()
+                          : feature_error("runtime.layout_input_type_mismatch",
+                                          "Mounted Layout input does not match its declared type"));
+        assigned_inputs.push_back(assignment.input);
+    }
+    for (const auto& input : layout_definition->contract.inputs) {
+        if (!input.default_value && std::find(assigned_inputs.begin(), assigned_inputs.end(),
+                                              input.id) == assigned_inputs.end())
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.layout_input_required",
+                              "Mounted Layout is missing a required contract input"));
+    }
+
+    std::vector<LayoutSignalId> connected_signals;
+    connected_signals.reserve(value.connected_signals.size());
+    for (const auto& signal : value.connected_signals) {
+        if (std::find(connected_signals.begin(), connected_signals.end(), signal) !=
+            connected_signals.end())
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.duplicate_layout_signal_connection",
+                              "Mounted Layout connects one signal more than once"));
+        if (std::none_of(
+                layout_definition->contract.signals.begin(),
+                layout_definition->contract.signals.end(),
+                [&](const LayoutSignalDefinition& definition) { return definition.id == signal; }))
+            return Result<void, Diagnostics>::failure(feature_error(
+                "runtime.undeclared_layout_signal",
+                "Mounted Layout signal connection is not declared by the Layout contract"));
+        connected_signals.push_back(signal);
+    }
+
     const auto found =
         std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
                      [&value](const DesiredMountedLayout& current) {
                          return current.key == value.key && current.owner == value.owner;
                      });
-    if (found == m_mounted_layouts.end())
+    const auto allocate_occurrence = [&]() -> std::optional<LayoutMountOccurrenceId> {
+        if (m_next_layout_mount_occurrence == 0)
+            return std::nullopt;
+        const auto occurrence =
+            LayoutMountOccurrenceId::from_number(m_next_layout_mount_occurrence);
+        m_next_layout_mount_occurrence =
+            m_next_layout_mount_occurrence == std::numeric_limits<std::uint64_t>::max()
+                ? 0
+                : m_next_layout_mount_occurrence + 1;
+        return occurrence;
+    };
+    if (found == m_mounted_layouts.end()) {
+        auto occurrence = allocate_occurrence();
+        if (!occurrence)
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.layout_mount_identity_exhausted",
+                              "Layout Mount occurrence identity space is exhausted"));
+        value.occurrence = *occurrence;
         m_mounted_layouts.push_back(std::move(value));
-    else
+    } else {
+        if (found->layout == value.layout) {
+            value.occurrence = found->occurrence;
+        } else {
+            auto occurrence = allocate_occurrence();
+            if (!occurrence)
+                return Result<void, Diagnostics>::failure(
+                    feature_error("runtime.layout_mount_identity_exhausted",
+                                  "Layout Mount occurrence identity space is exhausted"));
+            value.occurrence = *occurrence;
+        }
         *found = std::move(value);
+    }
+    return Result<void, Diagnostics>::success();
+}
+
+Result<std::vector<LayoutResolvedInput>, Diagnostics>
+SessionState::resolve_layout_inputs(const CompiledProject& project,
+                                    const DesiredMountedLayout& value) const
+{
+    const auto* layout = project.find_layout(value.layout);
+    if (!layout)
+        return Result<std::vector<LayoutResolvedInput>, Diagnostics>::failure(
+            feature_error("runtime.layout_contract_missing",
+                          "Mounted Layout references a missing Layout contract"));
+
+    std::vector<LayoutResolvedInput> resolved;
+    resolved.reserve(layout->contract.inputs.size());
+    for (const auto& definition : layout->contract.inputs) {
+        const auto assignment =
+            std::find_if(value.inputs.begin(), value.inputs.end(),
+                         [&](const auto& candidate) { return candidate.input == definition.id; });
+        RuntimeValue input_value;
+        if (assignment != value.inputs.end()) {
+            auto current = resolve_layout_input_source(project, const_cast<SessionState&>(*this),
+                                                       assignment->source);
+            if (!current)
+                return Result<std::vector<LayoutResolvedInput>, Diagnostics>::failure(
+                    std::move(current).error());
+            input_value = std::move(*current.value_if());
+        } else if (definition.default_value) {
+            input_value = *definition.default_value;
+        } else {
+            return Result<std::vector<LayoutResolvedInput>, Diagnostics>::failure(feature_error(
+                "runtime.layout_input_required", "Mounted Layout is missing a required input"));
+        }
+        if (!layout_contract_value_matches(definition.shape, input_value))
+            return Result<std::vector<LayoutResolvedInput>, Diagnostics>::failure(
+                feature_error("runtime.layout_input_type_mismatch",
+                              "Resolved Layout input no longer matches its declared type"));
+        resolved.push_back(LayoutResolvedInput{definition.id, std::move(input_value)});
+    }
+    return Result<std::vector<LayoutResolvedInput>, Diagnostics>::success(std::move(resolved));
+}
+
+Result<void, Diagnostics> SessionState::validate_layout_signal(
+    const CompiledProject& project, const PresentationOwner& owner,
+    const MountedLayoutPresentationKey& key, LayoutMountOccurrenceId occurrence,
+    const LayoutSignalId& signal, const std::vector<LayoutSignalFieldValue>& fields) const
+{
+    const auto mounted = std::find_if(
+        m_mounted_layouts.begin(), m_mounted_layouts.end(), [&](const DesiredMountedLayout& value) {
+            return value.owner == owner && value.key == key && value.occurrence &&
+                   *value.occurrence == occurrence;
+        });
+    if (mounted == m_mounted_layouts.end() || !presentation_owner_is_active(owner))
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.stale_layout_signal",
+                          "Layout Signal references a stale or retired Mount occurrence"));
+    if (std::find(mounted->connected_signals.begin(), mounted->connected_signals.end(), signal) ==
+        mounted->connected_signals.end())
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.layout_signal_not_connected",
+                          "Layout Signal is not connected for this Mount occurrence"));
+
+    const auto* layout = project.find_layout(mounted->layout);
+    if (!layout)
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.layout_contract_missing",
+                          "Mounted Layout references a missing Layout contract"));
+    const auto definition = std::find_if(
+        layout->contract.signals.begin(), layout->contract.signals.end(),
+        [&](const LayoutSignalDefinition& candidate) { return candidate.id == signal; });
+    if (definition == layout->contract.signals.end())
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.undeclared_layout_signal", "Layout Signal is not declared by the contract"));
+
+    std::vector<LayoutSignalFieldId> seen;
+    seen.reserve(fields.size());
+    for (const auto& field : fields) {
+        if (std::find(seen.begin(), seen.end(), field.field) != seen.end())
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.duplicate_layout_signal_field",
+                              "Layout Signal payload contains one field more than once"));
+        const auto field_definition =
+            std::find_if(definition->fields.begin(), definition->fields.end(),
+                         [&](const LayoutSignalFieldDefinition& candidate) {
+                             return candidate.id == field.field;
+                         });
+        if (field_definition == definition->fields.end())
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.undeclared_layout_signal_field",
+                              "Layout Signal payload contains an undeclared field"));
+        if (!runtime_value_is_finite(field.value) ||
+            !layout_contract_value_matches(field_definition->shape, field.value))
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.layout_signal_field_type_mismatch",
+                              "Layout Signal field does not match its declared type"));
+        seen.push_back(field.field);
+    }
+    for (const auto& field : definition->fields) {
+        if (field.required && std::find(seen.begin(), seen.end(), field.id) == seen.end())
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.layout_signal_field_required",
+                              "Layout Signal payload is missing a required field"));
+    }
     return Result<void, Diagnostics>::success();
 }
 
@@ -1652,13 +1910,18 @@ Result<void, Diagnostics> SessionState::set_layout(const CompiledProject& projec
                                                    LayoutScaleOverrides scale_overrides)
 {
     auto policy = reserved_layout_policy(slot);
-    return upsert_mounted_layout(
-        project,
-        DesiredMountedLayout{ReservedLayoutMountKey{slot}, std::move(owner), std::move(layout),
-                             std::move(policy), std::move(scale_overrides),
-                             slot == compiled::LayoutSlot::Overlay
-                                 ? PresentationCompositionGroup::World
-                                 : PresentationCompositionGroup::Interface});
+    return upsert_mounted_layout(project,
+                                 DesiredMountedLayout{ReservedLayoutMountKey{slot},
+                                                      std::move(owner),
+                                                      std::move(layout),
+                                                      std::move(policy),
+                                                      std::move(scale_overrides),
+                                                      slot == compiled::LayoutSlot::Overlay
+                                                          ? PresentationCompositionGroup::World
+                                                          : PresentationCompositionGroup::Interface,
+                                                      std::nullopt,
+                                                      {},
+                                                      {}});
 }
 
 Result<void, Diagnostics> SessionState::clear_layout(compiled::LayoutSlot slot)
@@ -1682,7 +1945,16 @@ SessionState::apply_presentation_target(const CompiledProject& project,
     SessionState candidate = *this;
     candidate.m_background_overrides.clear();
     candidate.m_actors.clear();
-    candidate.m_mounted_layouts.clear();
+    candidate.m_mounted_layouts.erase(
+        std::remove_if(candidate.m_mounted_layouts.begin(), candidate.m_mounted_layouts.end(),
+                       [&](const DesiredMountedLayout& mounted) {
+                           return std::none_of(target.layouts.begin(), target.layouts.end(),
+                                               [&](const DesiredMountedLayout& desired) {
+                                                   return mounted.owner == desired.owner &&
+                                                          mounted.key == desired.key;
+                                               });
+                       }),
+        candidate.m_mounted_layouts.end());
 
     for (const auto& background : target.background_overrides) {
         auto applied = candidate.upsert_background_override(project, background);
@@ -1703,6 +1975,7 @@ SessionState::apply_presentation_target(const CompiledProject& project,
     m_background_overrides = std::move(candidate.m_background_overrides);
     m_actors = std::move(candidate.m_actors);
     m_mounted_layouts = std::move(candidate.m_mounted_layouts);
+    m_next_layout_mount_occurrence = candidate.m_next_layout_mount_occurrence;
     return Result<void, Diagnostics>::success();
 }
 
@@ -1726,7 +1999,10 @@ Result<void, Diagnostics> SessionState::set_overlay(const CompiledProject& proje
                                                       found->layout,
                                                       room_overlay_policy(found->order, visible),
                                                       {},
-                                                      PresentationCompositionGroup::World});
+                                                      PresentationCompositionGroup::World,
+                                                      std::nullopt,
+                                                      {},
+                                                      {}});
 }
 
 Result<void, Diagnostics> SessionState::present_text(const CompiledProject& project,

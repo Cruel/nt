@@ -60,6 +60,11 @@ struct RuntimeMountedLayout {
     core::MountedLayoutInstance mounted;
     RuntimeLayoutSource source = RuntimeLayoutProjectSource{};
     std::optional<core::compiled::SystemLayoutRole> system_role;
+    std::optional<core::PresentationOwner> semantic_owner;
+    std::optional<core::MountedLayoutPresentationKey> semantic_key;
+    std::optional<core::LayoutMountOccurrenceId> occurrence;
+    std::vector<core::LayoutResolvedInput> inputs;
+    std::vector<core::LayoutSignalId> connected_signals;
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;
     core::PresentationSnapshotRevision publication_revision =
@@ -81,6 +86,11 @@ public:
 struct RuntimeLayoutMountRequest {
     std::string layout_id;
     core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
+    std::optional<core::PresentationOwner> semantic_owner;
+    std::optional<core::MountedLayoutPresentationKey> semantic_key;
+    std::optional<core::LayoutMountOccurrenceId> occurrence;
+    std::vector<core::LayoutResolvedInput> inputs;
+    std::vector<core::LayoutSignalId> connected_signals;
     core::MountedLayoutPolicy policy{
         .plane = core::PresentationPlane::GameUi,
         .clock = core::LayoutClockDomain::Gameplay,
@@ -125,7 +135,10 @@ public:
     void bind_document_host(RuntimeLayoutDocumentHost* host) noexcept;
 
     using MountResult = core::Result<core::MountedLayoutInstanceId, core::Diagnostics>;
+    using UpdateResult = core::Result<void, core::Diagnostics>;
     [[nodiscard]] MountResult mount(RuntimeLayoutMountRequest request);
+    [[nodiscard]] UpdateResult update(core::MountedLayoutInstanceId instance_id,
+                                      RuntimeLayoutMountRequest request);
     [[nodiscard]] MountResult mount_builtin_title(bool visible = true);
     [[nodiscard]] MountResult mount_builtin_game_hud(bool visible = true);
     [[nodiscard]] MountResult mount_builtin_pause_menu(bool visible = true);

@@ -133,6 +133,7 @@ export function buildLayoutPreviewDocumentData(
     layoutKind: data.layoutKind,
     target: data.target,
     scalePolicy: resolveLayoutScalePolicy(data.target, data.scalePolicy),
+    contract: data.contract,
     rml: sourcePayload(project, data.rml),
     rcss: sourcePayload(project, data.rcss),
     lua: sourcePayload(project, data.lua),
