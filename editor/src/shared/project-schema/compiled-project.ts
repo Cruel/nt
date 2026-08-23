@@ -851,6 +851,40 @@ const layoutContractValueShapeSchema = strict({
   nullable: z.boolean(),
   type: layoutContractValueTypeSchema,
 });
+const compiledLayoutPersistableValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.number().finite(),
+    z.string(),
+    z.array(compiledLayoutPersistableValueSchema),
+    z.record(z.string().min(1), compiledLayoutPersistableValueSchema),
+  ]),
+);
+const compiledLayoutStateShapeSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.discriminatedUnion('type', [
+    strict({
+      defaultValue: compiledLayoutPersistableValueSchema.nullable(),
+      hasDefault: z.boolean(),
+      nullable: z.boolean(),
+      type: layoutContractValueTypeSchema,
+    }),
+    strict({
+      defaultValue: compiledLayoutPersistableValueSchema.nullable(),
+      hasDefault: z.boolean(),
+      items: compiledLayoutStateShapeSchema,
+      nullable: z.boolean(),
+      type: z.literal('array'),
+    }),
+    strict({
+      defaultValue: compiledLayoutPersistableValueSchema.nullable(),
+      fields: z.array(strict({ id, required: z.boolean(), shape: compiledLayoutStateShapeSchema })),
+      hasDefault: z.boolean(),
+      nullable: z.boolean(),
+      type: z.literal('object'),
+    }),
+  ]),
+);
 const layoutResourceSchema = strict({
   contract: strict({
     inputs: z.array(
@@ -874,6 +908,7 @@ const layoutResourceSchema = strict({
         id,
       }),
     ),
+    state: compiledLayoutStateShapeSchema.nullable(),
   }).optional(),
   dependencies: strict({
     fonts: z.array(assetReferenceSchema),
@@ -1194,7 +1229,14 @@ export function computeCompiledProjectSaveContract(
     properties: project.properties as CanonicalJson,
     resources: {
       assets: project.resources.assets.map((asset) => asset.id),
-      layouts: project.resources.layouts.map((layout) => layout.id),
+      layouts: project.resources.layouts.map((layout) =>
+        layout.contract?.state
+          ? {
+              id: layout.id,
+              state: layout.contract.state as CanonicalJson,
+            }
+          : layout.id,
+      ) as CanonicalJson,
       scripts: project.resources.scripts as CanonicalJson,
     },
     traits: project.traits as CanonicalJson,
@@ -1212,5 +1254,5 @@ export function computeCompiledProjectSaveContract(
  * Compiler stages own definition sorting and authored-sequence preservation.
  */
 export function serializeCompiledProjectWireV4(value: unknown): string {
-  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV4(value)));
+  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV4(value) as CanonicalJson));
 }

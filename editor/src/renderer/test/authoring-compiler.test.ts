@@ -85,6 +85,14 @@ describe('authoring compiler framework', () => {
           },
         },
       },
+      state: {
+        type: 'object',
+        nullable: false,
+        fields: {
+          page: { required: true, shape: { type: 'integer', nullable: false } },
+        },
+        defaultValue: { page: 1 },
+      },
     };
     project.layouts.empty = { id: 'empty', label: 'Empty', data: empty };
     project.layouts.contracted = { id: 'contracted', label: 'Contracted', data: contracted };
@@ -120,6 +128,24 @@ describe('authoring compiler framework', () => {
           fields: [{ id: 'accepted', type: 'boolean', nullable: false, required: true }],
         },
       ],
+      state: {
+        type: 'object',
+        nullable: false,
+        hasDefault: true,
+        defaultValue: { page: 1 },
+        fields: [
+          {
+            id: 'page',
+            required: true,
+            shape: {
+              type: 'integer',
+              nullable: false,
+              hasDefault: false,
+              defaultValue: null,
+            },
+          },
+        ],
+      },
     });
   });
 
@@ -136,6 +162,23 @@ describe('authoring compiler framework', () => {
     expect(renamed.ok).toBe(true);
     if (!renamed.ok) return;
     expect(renamed.project.saveContract).toBe(baseline.project.saveContract);
+
+    const stateShapeChange = validProject();
+    const statefulLayout = defaultLayoutData('Stateful', 'document');
+    statefulLayout.contract.state = {
+      type: 'integer',
+      nullable: false,
+      defaultValue: 1,
+    };
+    stateShapeChange.layouts.stateful = {
+      id: 'stateful',
+      label: 'Stateful',
+      data: statefulLayout,
+    };
+    const stateChanged = compileAuthoringProject(stateShapeChange);
+    expect(stateChanged.ok).toBe(true);
+    if (!stateChanged.ok) return;
+    expect(stateChanged.project.saveContract).not.toBe(baseline.project.saveContract);
 
     const executableChange = validProject();
     executableChange.scripts.bootstrap!.data.source = {

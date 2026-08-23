@@ -71,6 +71,7 @@ public:
             (void)layout;
             return true;
         }
+        virtual void clear_mount_context(const std::string& document_id) { (void)document_id; }
         [[nodiscard]] virtual bool
         apply_order(const std::vector<std::string>& ordered_document_ids) = 0;
         [[nodiscard]] virtual bool unload(const std::string& document_id) = 0;

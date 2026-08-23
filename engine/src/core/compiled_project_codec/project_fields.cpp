@@ -708,6 +708,141 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
                          std::move(height)};
 }
 
+std::optional<LayoutStateShape>
+decode_layout_state_shape(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Layout State Shape must be an object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* type_value = decoder.member(value, "type", pointer);
+    auto type_name = type_value ? decoder.string(*type_value, pointer_child(pointer, "type"), true)
+                                : std::nullopt;
+    if (!type_name)
+        return std::nullopt;
+
+    const bool array = *type_name == "array";
+    const bool object = *type_name == "object";
+    if (array) {
+        if (!decoder.object(value, pointer,
+                            {"defaultValue", "hasDefault", "items", "nullable", "type"}))
+            return std::nullopt;
+    } else if (object) {
+        if (!decoder.object(value, pointer,
+                            {"defaultValue", "fields", "hasDefault", "nullable", "type"}))
+            return std::nullopt;
+    } else if (!decoder.object(value, pointer,
+                               {"defaultValue", "hasDefault", "nullable", "type"})) {
+        return std::nullopt;
+    }
+
+    const auto* nullable_value = decoder.member(value, "nullable", pointer);
+    const auto* has_default_value = decoder.member(value, "hasDefault", pointer);
+    const auto* default_value = decoder.member(value, "defaultValue", pointer);
+    auto nullable = nullable_value
+                        ? decoder.boolean(*nullable_value, pointer_child(pointer, "nullable"))
+                        : std::nullopt;
+    auto has_default = has_default_value ? decoder.boolean(*has_default_value,
+                                                           pointer_child(pointer, "hasDefault"))
+                                         : std::nullopt;
+    if (!nullable || !has_default || !default_value)
+        return std::nullopt;
+
+    LayoutStateShapeType type;
+    if (*type_name == "boolean")
+        type = LayoutStateShapeType::Boolean;
+    else if (*type_name == "integer")
+        type = LayoutStateShapeType::Integer;
+    else if (*type_name == "number")
+        type = LayoutStateShapeType::Number;
+    else if (*type_name == "string")
+        type = LayoutStateShapeType::String;
+    else if (array)
+        type = LayoutStateShapeType::Array;
+    else if (object)
+        type = LayoutStateShapeType::Object;
+    else {
+        decoder.error(k_code_variant, "Unknown Layout State Shape type '" + *type_name + "'.",
+                      pointer_child(pointer, "type"));
+        return std::nullopt;
+    }
+
+    LayoutStateShape shape{.type = type,
+                           .nullable = *nullable,
+                           .default_value = std::nullopt,
+                           .items = {},
+                           .fields = {}};
+    if (*has_default) {
+        auto decoded = decode_persistable_value(decoder, *default_value,
+                                                pointer_child(pointer, "defaultValue"));
+        if (!decoded)
+            return std::nullopt;
+        shape.default_value = std::move(*decoded);
+    } else if (!default_value->is_null()) {
+        decoder.error("compiled.layout_state_default_presence",
+                      "Layout State Shape without a default must encode defaultValue as null",
+                      pointer_child(pointer, "defaultValue"));
+        return std::nullopt;
+    }
+
+    if (array) {
+        const auto* items_value = decoder.member(value, "items", pointer);
+        auto items = items_value ? decode_layout_state_shape(decoder, *items_value,
+                                                             pointer_child(pointer, "items"))
+                                 : std::nullopt;
+        if (!items)
+            return std::nullopt;
+        shape.items.push_back(std::move(*items));
+    } else if (object) {
+        const auto* fields_value = decoder.member(value, "fields", pointer);
+        auto fields =
+            fields_value
+                ? decoder.array<LayoutStateObjectField>(
+                      *fields_value, pointer_child(pointer, "fields"),
+                      [&](const nlohmann::json& field, const std::string& field_pointer)
+                          -> std::optional<LayoutStateObjectField> {
+                          if (!decoder.object(field, field_pointer, {"id", "required", "shape"}))
+                              return std::nullopt;
+                          const auto* id_value = decoder.member(field, "id", field_pointer);
+                          const auto* required_value =
+                              decoder.member(field, "required", field_pointer);
+                          const auto* shape_value = decoder.member(field, "shape", field_pointer);
+                          auto id = id_value
+                                        ? decoder.string(*id_value,
+                                                         pointer_child(field_pointer, "id"), true)
+                                        : std::nullopt;
+                          auto required =
+                              required_value
+                                  ? decoder.boolean(*required_value,
+                                                    pointer_child(field_pointer, "required"))
+                                  : std::nullopt;
+                          auto child =
+                              shape_value
+                                  ? decode_layout_state_shape(decoder, *shape_value,
+                                                              pointer_child(field_pointer, "shape"))
+                                  : std::nullopt;
+                          if (!id || !required || !child)
+                              return std::nullopt;
+                          LayoutStateObjectField result{
+                              .id = std::move(*id), .required = *required, .shape = {}};
+                          result.shape.push_back(std::move(*child));
+                          return result;
+                      })
+                : std::nullopt;
+        if (!fields)
+            return std::nullopt;
+        shape.fields = std::move(*fields);
+    }
+
+    if (!layout_state_shape_valid(shape)) {
+        decoder.error("compiled.layout_state_shape_invalid",
+                      "Layout State Shape defaults or recursive members are invalid",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    return shape;
+}
+
 std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::json& value,
                                             std::string_view pointer)
 {
@@ -765,10 +900,11 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
     }
     std::optional<LayoutContract> contract = LayoutContract{};
     if (contract_value && decoder.object(*contract_value, pointer_child(pointer, "contract"),
-                                         {"inputs", "signals"})) {
+                                         {"inputs", "signals", "state"})) {
         const auto contract_pointer = pointer_child(pointer, "contract");
         const auto* inputs_value = decoder.member(*contract_value, "inputs", contract_pointer);
         const auto* signals_value = decoder.member(*contract_value, "signals", contract_pointer);
+        const auto* state_value = decoder.member(*contract_value, "state", contract_pointer);
         auto decode_shape =
             [&](const nlohmann::json& item, const std::string& item_pointer,
                 bool allow_required) -> std::optional<std::pair<LayoutContractValueShape, bool>> {
@@ -893,8 +1029,15 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
                     return LayoutSignalDefinition{std::move(*signal_id), std::move(*fields)};
                 });
         }
-        if (inputs && signals)
-            contract = LayoutContract{std::move(*inputs), std::move(*signals)};
+        std::optional<LayoutStateShape> state;
+        bool state_ok = state_value != nullptr;
+        if (state_value && !state_value->is_null()) {
+            state = decode_layout_state_shape(decoder, *state_value,
+                                              pointer_child(contract_pointer, "state"));
+            state_ok = state.has_value();
+        }
+        if (inputs && signals && state_ok)
+            contract = LayoutContract{std::move(*inputs), std::move(*signals), std::move(state)};
     }
     auto rml = rml_value ? decode_layout_source(decoder, *rml_value, pointer_child(pointer, "rml"))
                          : std::nullopt;

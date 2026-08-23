@@ -114,6 +114,40 @@ struct ScopedLayoutMountKey {
 using MountedLayoutPresentationKey =
     std::variant<ReservedLayoutMountKey, RoomOverlayLayoutMountKey, ScopedLayoutMountKey>;
 
+enum class LayoutStateScope : std::uint8_t {
+    Visit,
+    Room,
+    Flow,
+    Session,
+};
+
+struct LayoutVisitStateOwner {
+    RoomVisitInstanceId visit;
+    auto operator<=>(const LayoutVisitStateOwner&) const = default;
+};
+struct LayoutRoomStateOwner {
+    RoomId room;
+    auto operator<=>(const LayoutRoomStateOwner&) const = default;
+};
+struct LayoutFlowStateOwner {
+    FlowFrameId flow;
+    auto operator<=>(const LayoutFlowStateOwner&) const = default;
+};
+struct LayoutSessionStateOwner {
+    PresentationSessionId session;
+    auto operator<=>(const LayoutSessionStateOwner&) const = default;
+};
+using LayoutStateScopeOwner = std::variant<LayoutVisitStateOwner, LayoutRoomStateOwner,
+                                           LayoutFlowStateOwner, LayoutSessionStateOwner>;
+
+struct LayoutStateSlot {
+    LayoutStateScopeOwner scope_owner;
+    MountedLayoutPresentationKey key;
+    LayoutId layout;
+    PersistableValue value;
+    bool operator==(const LayoutStateSlot&) const = default;
+};
+
 enum class PresentationCompositionGroup : std::uint8_t {
     World,
     Interface,

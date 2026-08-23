@@ -3,6 +3,7 @@
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/feature_state.hpp"
 #include "noveltea/core/result.hpp"
+#include "noveltea/core/runtime_presentation_contracts.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -65,6 +66,8 @@ struct RuntimeMountedLayout {
     std::optional<core::LayoutMountOccurrenceId> occurrence;
     std::vector<core::LayoutResolvedInput> inputs;
     std::vector<core::LayoutSignalId> connected_signals;
+    std::optional<core::LayoutStateShape> state_shape;
+    std::vector<core::PresentationLayoutStateValue> state_values;
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;
     core::PresentationSnapshotRevision publication_revision =
@@ -91,6 +94,8 @@ struct RuntimeLayoutMountRequest {
     std::optional<core::LayoutMountOccurrenceId> occurrence;
     std::vector<core::LayoutResolvedInput> inputs;
     std::vector<core::LayoutSignalId> connected_signals;
+    std::optional<core::LayoutStateShape> state_shape;
+    std::vector<core::PresentationLayoutStateValue> state_values;
     core::MountedLayoutPolicy policy{
         .plane = core::PresentationPlane::GameUi,
         .clock = core::LayoutClockDomain::Gameplay,

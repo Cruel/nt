@@ -416,15 +416,22 @@ composition
 
 The returned state describes desired authored Layout state, not an RmlUi document or renderer handle.
 
-During a realized Layout event, `Game.mount_context()` returns the exact engine-owned Mount occurrence for the document currently dispatching the event. Outside an active semantic Mount event it returns `nil`. The context exposes read-only inputs and connected typed signal output:
+During a realized Layout event, `Game.mount_context()` returns the exact engine-owned Mount occurrence for the document currently dispatching the event. Outside an active semantic Mount event it returns `nil`. The context exposes read-only inputs, connected typed signal output, and engine-owned Layout Slot state when the Layout declares a State Shape:
 
 ```lua
 local mount = Game.mount_context()
 local title = mount:input("title")
-local ok = mount:signal("accepted", { choice = 2 })
+local room_state = mount:state("room")
+local committed = mount:commit_state("room", { page = 2, filters = { "active" } })
+local cleared = mount:clear_state("room")
+local signalled = mount:signal("accepted", { choice = 2 })
 ```
 
-`mount.document_id` identifies the realized RmlUi document and `mount.occurrence` is the runtime occurrence token. `input(name)` returns the current resolved scalar value or `nil`. `signal(name, payload?)` returns a boolean and succeeds only for a signal connected by the owner and a payload matching the Layout contract. Signals enter NovelTea's ordered runtime input pipeline; events carrying a retired occurrence token are rejected as stale after unmount, replacement, load, reset, or owner termination. The occurrence token is runtime correlation state, not save-game state.
+`mount.document_id` identifies the realized RmlUi document and `mount.occurrence` is the runtime occurrence token. `input(name)` returns the current resolved scalar value or `nil`. `signal(name, payload?)` returns a boolean and succeeds only for a signal connected by the owner and a payload matching the Layout contract. `state(scope)` returns the current validated Slot value for `visit`, `room`, `flow`, or `session` when that scope is valid for the Mount owner; when no explicit Slot value exists, the Layout State Shape default is returned. `commit_state(scope, value)` validates the complete value against the declared recursive State Shape and atomically replaces that Slot. `clear_state(scope)` removes the explicit Slot so the default becomes visible again.
+
+Layout Slot values may contain only the declared persistable scalar/array/object tree. Persisted `null` values are exposed as `mount.null`, which is the explicit sentinel to use when a nullable value must survive inside a Lua array or object without becoming Lua `nil` and disappearing. Lua tables with metatables, cycles, functions, threads, userdata/DOM objects, sparse or mixed array keys, undeclared object fields, invalid key types, or non-finite numbers are rejected. Slot state belongs to the engine, not to the Lua VM or RmlUi document. Unmounting does not clear a still-live Slot: visit Slots expire with the Active Room Context, room Slots with their Room lifetime, flow Slots with the owning Flow frame, and session Slots with the runtime session.
+
+Signals and Slot mutations enter NovelTea's ordered runtime input pipeline; operations carrying a retired occurrence token are rejected as stale after unmount, replacement, load, reset, or owner termination. The occurrence token is runtime correlation state, not save-game state. Save/checkpoint data retains only validated Slot values and semantic scope ownership, never arbitrary Lua tables, DOM/focus state, animation state, or backend handles.
 
 ## Scoped presentation
 

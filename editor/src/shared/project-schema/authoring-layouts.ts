@@ -19,6 +19,14 @@ export const layoutSourceModeValues = ['inline', 'asset'] as const;
 export const layoutPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
 export const layoutScaleInheritanceValues = ['inherit', 'ignore'] as const;
 export const layoutContractValueTypeValues = ['boolean', 'integer', 'number', 'string'] as const;
+export const layoutStateShapeTypeValues = [
+  'boolean',
+  'integer',
+  'number',
+  'string',
+  'array',
+  'object',
+] as const;
 export const systemLayoutRoleValues = [
   'title',
   'game-hud',
@@ -37,6 +45,32 @@ export type LayoutSourceMode = (typeof layoutSourceModeValues)[number];
 export type LayoutPreviewBackground = (typeof layoutPreviewBackgroundValues)[number];
 export type LayoutScaleInheritance = (typeof layoutScaleInheritanceValues)[number];
 export type LayoutContractValueType = (typeof layoutContractValueTypeValues)[number];
+export type LayoutStateShapeType = (typeof layoutStateShapeTypeValues)[number];
+export type LayoutPersistableValue =
+  | null
+  | boolean
+  | number
+  | string
+  | LayoutPersistableValue[]
+  | { [key: string]: LayoutPersistableValue };
+export type LayoutStateShapeData =
+  | {
+      type: 'boolean' | 'integer' | 'number' | 'string';
+      nullable: boolean;
+      defaultValue?: LayoutPersistableValue;
+    }
+  | {
+      type: 'array';
+      nullable: boolean;
+      items: LayoutStateShapeData;
+      defaultValue?: LayoutPersistableValue;
+    }
+  | {
+      type: 'object';
+      nullable: boolean;
+      fields: Record<string, { required: boolean; shape: LayoutStateShapeData }>;
+      defaultValue?: LayoutPersistableValue;
+    };
 export type SystemLayoutRole = (typeof systemLayoutRoleValues)[number];
 
 export interface LayoutScalePolicy {
@@ -131,6 +165,86 @@ const layoutContractInputSchema = z
       });
   });
 
+function stateValueMatchesShape(
+  shape: LayoutStateShapeData,
+  value: LayoutPersistableValue,
+): boolean {
+  if (value === null) return shape.nullable;
+  if (shape.type === 'boolean') return typeof value === 'boolean';
+  if (shape.type === 'integer') return typeof value === 'number' && Number.isInteger(value);
+  if (shape.type === 'number') return typeof value === 'number' && Number.isFinite(value);
+  if (shape.type === 'string') return typeof value === 'string';
+  if (shape.type === 'array')
+    return Array.isArray(value) && value.every((item) => stateValueMatchesShape(shape.items, item));
+  if (shape.type !== 'object' || typeof value !== 'object' || Array.isArray(value)) return false;
+  const object = value as Record<string, LayoutPersistableValue>;
+  for (const [key, member] of Object.entries(object)) {
+    const field = shape.fields[key];
+    if (!field || !stateValueMatchesShape(field.shape, member)) return false;
+  }
+  return Object.entries(shape.fields).every(
+    ([key, field]) => !field.required || Object.prototype.hasOwnProperty.call(object, key),
+  );
+}
+
+const layoutPersistableValueSchema: z.ZodType<LayoutPersistableValue> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.number().finite(),
+    z.string(),
+    z.array(layoutPersistableValueSchema),
+    z.record(z.string().min(1), layoutPersistableValueSchema),
+  ]),
+);
+
+export const layoutStateShapeSchema: z.ZodType<LayoutStateShapeData> = z.lazy(() =>
+  z
+    .discriminatedUnion('type', [
+      z
+        .object({
+          type: z.enum(['boolean', 'integer', 'number', 'string']),
+          nullable: z.boolean().default(false),
+          defaultValue: layoutPersistableValueSchema.optional(),
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal('array'),
+          nullable: z.boolean().default(false),
+          items: layoutStateShapeSchema,
+          defaultValue: layoutPersistableValueSchema.optional(),
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal('object'),
+          nullable: z.boolean().default(false),
+          fields: z
+            .record(
+              z.string().min(1),
+              z
+                .object({
+                  required: z.boolean().default(true),
+                  shape: layoutStateShapeSchema,
+                })
+                .strict(),
+            )
+            .default({}),
+          defaultValue: layoutPersistableValueSchema.optional(),
+        })
+        .strict(),
+    ])
+    .superRefine((shape, context) => {
+      if (shape.defaultValue !== undefined && !stateValueMatchesShape(shape, shape.defaultValue))
+        context.addIssue({
+          code: 'custom',
+          path: ['defaultValue'],
+          message: 'Layout state defaultValue must match its recursive State Shape.',
+        });
+    }),
+);
+
 const layoutContractSignalSchema = z
   .object({
     fields: z
@@ -146,6 +260,7 @@ export const layoutContractDataSchema = z
   .object({
     inputs: z.record(z.string().min(1), layoutContractInputSchema).default({}),
     signals: z.record(z.string().min(1), layoutContractSignalSchema).default({}),
+    state: layoutStateShapeSchema.optional(),
   })
   .strict();
 
@@ -671,12 +786,13 @@ export function validateSystemLayoutSettings(project: AuthoringProject): LayoutS
     if (
       data &&
       (Object.keys(data.contract.inputs).length > 0 ||
-        Object.keys(data.contract.signals).length > 0)
+        Object.keys(data.contract.signals).length > 0 ||
+        data.contract.state !== undefined)
     ) {
       diagnostics.push(
         diagnostic(
           `/settings/ui/systemLayouts/${role}/$ref`,
-          `System layout role '${role}' uses the fixed engine contract; Layout '${id}' must not declare custom inputs or signals.`,
+          `System layout role '${role}' uses the fixed engine contract; Layout '${id}' must not declare custom inputs, signals, or State Shapes.`,
         ),
       );
     }

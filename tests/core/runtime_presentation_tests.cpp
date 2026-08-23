@@ -89,8 +89,19 @@ CompiledProject layout_contract_fixture()
                                                                     {"type", "integer"},
                                                                     {"nullable", false},
                                                                     {"required", true}}})}}})},
+        {"state",
+         {{"type", "integer"}, {"nullable", false}, {"hasDefault", true}, {"defaultValue", 1}}},
+    };
+    auto incompatible_layout = contract_layout;
+    incompatible_layout["id"] = "contract-layout-string";
+    incompatible_layout["contract"]["state"] = {
+        {"type", "string"},
+        {"nullable", false},
+        {"hasDefault", true},
+        {"defaultValue", "default"},
     };
     layouts.push_back(std::move(contract_layout));
+    layouts.push_back(std::move(incompatible_layout));
     auto decoded = decode_compiled_project(document, "layout-contract.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
@@ -606,6 +617,192 @@ TEST_CASE("Layout Mount contracts keep owner-qualified identity and reevaluate b
     REQUIRE_FALSE(stale);
     REQUIRE_FALSE(stale.error().empty());
     CHECK(stale.error().front().code == "runtime.stale_layout_signal");
+}
+
+TEST_CASE("Layout State Slots survive unmount and expire with their semantic scope")
+{
+    const auto project = layout_contract_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+
+    const auto key =
+        MountedLayoutPresentationKey{ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("stateful")}};
+    const auto mount_current_room = [&]() {
+        return DesiredMountedLayout{
+            key,
+            PresentationOwner{*state.current_room_presentation_owner()},
+            id<LayoutId>("contract-layout"),
+            reserved_layout_policy(compiled::LayoutSlot::Custom),
+            {},
+            PresentationCompositionGroup::Interface,
+            std::nullopt,
+            {{id<LayoutInputId>("count"), LayoutVariableBinding{id<PropertyId>("count")}}},
+            {id<LayoutSignalId>("confirmed")}};
+    };
+    REQUIRE(state.upsert_mounted_layout(project, mount_current_room()));
+    auto mounted = std::find_if(state.mounted_layouts().begin(), state.mounted_layouts().end(),
+                                [&](const auto& value) { return value.key == key; });
+    REQUIRE(mounted != state.mounted_layouts().end());
+    REQUIRE(mounted->occurrence);
+    auto owner = mounted->owner;
+    auto occurrence = *mounted->occurrence;
+
+    auto visit_default =
+        state.layout_state(project, owner, key, occurrence, LayoutStateScope::Visit);
+    REQUIRE(visit_default);
+    REQUIRE(visit_default.value());
+    CHECK(*visit_default.value() == PersistableValue{std::int64_t{1}});
+
+    REQUIRE(state.commit_layout_state(project, owner, key, occurrence, LayoutStateScope::Visit,
+                                      PersistableValue{std::int64_t{2}}));
+    REQUIRE(state.commit_layout_state(project, owner, key, occurrence, LayoutStateScope::Room,
+                                      PersistableValue{std::int64_t{3}}));
+    REQUIRE(state.commit_layout_state(project, owner, key, occurrence, LayoutStateScope::Session,
+                                      PersistableValue{std::int64_t{4}}));
+    const auto slots_before_unmount = state.layout_state_slots();
+    REQUIRE(slots_before_unmount.size() == 3);
+
+    REQUIRE(state.remove_mounted_layout(key, owner));
+    CHECK(state.layout_state_slots().size() == 3);
+    REQUIRE(state.upsert_mounted_layout(project, mount_current_room()));
+    mounted = std::find_if(state.mounted_layouts().begin(), state.mounted_layouts().end(),
+                           [&](const auto& value) { return value.key == key; });
+    REQUIRE(mounted != state.mounted_layouts().end());
+    REQUIRE(mounted->occurrence);
+    owner = mounted->owner;
+    occurrence = *mounted->occurrence;
+    auto room_value = state.layout_state(project, owner, key, occurrence, LayoutStateScope::Room);
+    REQUIRE(room_value);
+    REQUIRE(room_value.value());
+    CHECK(*room_value.value() == PersistableValue{std::int64_t{3}});
+
+    auto invalid =
+        state.commit_layout_state(project, owner, key, occurrence, LayoutStateScope::Room,
+                                  PersistableValue{std::string("wrong")});
+    REQUIRE_FALSE(invalid);
+    room_value = state.layout_state(project, owner, key, occurrence, LayoutStateScope::Room);
+    REQUIRE(room_value);
+    REQUIRE(room_value.value());
+    CHECK(*room_value.value() == PersistableValue{std::int64_t{3}});
+
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    CHECK(state.layout_state_slots().size() == 2);
+    REQUIRE(state.upsert_mounted_layout(project, mount_current_room()));
+    mounted = std::find_if(state.mounted_layouts().begin(), state.mounted_layouts().end(),
+                           [&](const auto& value) { return value.key == key; });
+    REQUIRE(mounted != state.mounted_layouts().end());
+    REQUIRE(mounted->occurrence);
+    owner = mounted->owner;
+    occurrence = *mounted->occurrence;
+    visit_default = state.layout_state(project, owner, key, occurrence, LayoutStateScope::Visit);
+    REQUIRE(visit_default);
+    REQUIRE(visit_default.value());
+    CHECK(*visit_default.value() == PersistableValue{std::int64_t{1}});
+    room_value = state.layout_state(project, owner, key, occurrence, LayoutStateScope::Room);
+    REQUIRE(room_value);
+    REQUIRE(room_value.value());
+    CHECK(*room_value.value() == PersistableValue{std::int64_t{3}});
+
+    REQUIRE(state.clear_layout_state(project, owner, key, occurrence, LayoutStateScope::Room));
+    room_value = state.layout_state(project, owner, key, occurrence, LayoutStateScope::Room);
+    REQUIRE(room_value);
+    REQUIRE(room_value.value());
+    CHECK(*room_value.value() == PersistableValue{std::int64_t{1}});
+}
+
+TEST_CASE("Layout State Slot rejects incompatible remount without consuming retained state")
+{
+    const auto project = layout_contract_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+
+    const auto key = MountedLayoutPresentationKey{
+        ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("stateful-remount")}};
+    const auto owner = PresentationOwner{*state.current_room_presentation_owner()};
+    const auto mount = [&](const LayoutId& layout) {
+        return DesiredMountedLayout{
+            key,
+            owner,
+            layout,
+            reserved_layout_policy(compiled::LayoutSlot::Custom),
+            {},
+            PresentationCompositionGroup::Interface,
+            std::nullopt,
+            {{id<LayoutInputId>("count"), LayoutVariableBinding{id<PropertyId>("count")}}},
+            {id<LayoutSignalId>("confirmed")}};
+    };
+
+    REQUIRE(state.upsert_mounted_layout(project, mount(id<LayoutId>("contract-layout"))));
+    const auto mounted =
+        std::find_if(state.mounted_layouts().begin(), state.mounted_layouts().end(),
+                     [&](const auto& value) { return value.owner == owner && value.key == key; });
+    REQUIRE(mounted != state.mounted_layouts().end());
+    REQUIRE(mounted->occurrence);
+    REQUIRE(state.commit_layout_state(project, owner, key, *mounted->occurrence,
+                                      LayoutStateScope::Room, PersistableValue{std::int64_t{9}}));
+    REQUIRE(state.remove_mounted_layout(key, owner));
+
+    auto incompatible =
+        state.upsert_mounted_layout(project, mount(id<LayoutId>("contract-layout-string")));
+    REQUIRE_FALSE(incompatible);
+    REQUIRE_FALSE(incompatible.error().empty());
+    CHECK(incompatible.error().front().code == "runtime.layout_state_reconstruction_failed");
+    REQUIRE(state.layout_state_slots().size() == 1);
+    CHECK(state.layout_state_slots().front().layout == id<LayoutId>("contract-layout"));
+    CHECK(state.layout_state_slots().front().value == PersistableValue{std::int64_t{9}});
+    CHECK(
+        std::none_of(state.mounted_layouts().begin(), state.mounted_layouts().end(),
+                     [&](const auto& value) { return value.owner == owner && value.key == key; }));
+}
+
+TEST_CASE("Layout State Slot validation ignores unrelated semantic scope owners")
+{
+    const auto project = layout_contract_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+
+    const auto key = MountedLayoutPresentationKey{
+        ScopedLayoutMountKey{id<ScopedLayoutInstanceId>("room-scoped-state")}};
+    const auto current_owner = PresentationOwner{*state.current_room_presentation_owner()};
+    REQUIRE(state.upsert_mounted_layout(
+        project, DesiredMountedLayout{
+                     key,
+                     current_owner,
+                     id<LayoutId>("contract-layout"),
+                     reserved_layout_policy(compiled::LayoutSlot::Custom),
+                     {},
+                     PresentationCompositionGroup::Interface,
+                     std::nullopt,
+                     {{id<LayoutInputId>("count"), LayoutVariableBinding{id<PropertyId>("count")}}},
+                     {id<LayoutSignalId>("confirmed")}}));
+    const auto mounted = std::find_if(
+        state.mounted_layouts().begin(), state.mounted_layouts().end(),
+        [&](const auto& value) { return value.owner == current_owner && value.key == key; });
+    REQUIRE(mounted != state.mounted_layouts().end());
+    REQUIRE(mounted->occurrence);
+    REQUIRE(state.commit_layout_state(project, current_owner, key, *mounted->occurrence,
+                                      LayoutStateScope::Room, PersistableValue{std::int64_t{9}}));
+    REQUIRE(state.remove_mounted_layout(key, current_owner));
+
+    const auto hall_owner = PresentationOwner{RoomPresentationOwner{id<RoomId>("hall")}};
+    REQUIRE(state.upsert_mounted_layout(
+        project, DesiredMountedLayout{key,
+                                      hall_owner,
+                                      id<LayoutId>("hud-assets"),
+                                      reserved_layout_policy(compiled::LayoutSlot::Custom),
+                                      {},
+                                      PresentationCompositionGroup::Interface,
+                                      std::nullopt,
+                                      {},
+                                      {}}));
+    REQUIRE(state.layout_state_slots().size() == 1);
+    CHECK(state.layout_state_slots().front().layout == id<LayoutId>("contract-layout"));
 }
 
 TEST_CASE("snapshot publisher revisions only complete target changes and is failure atomic")

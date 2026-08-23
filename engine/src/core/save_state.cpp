@@ -188,6 +188,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .presentation_props = {},
         .presentation_environments = {},
         .mounted_layouts = {},
+        .layout_state_slots = {},
         .desired_audio = {},
         .presented_text = session.m_presented_text,
         .active_choice = session.m_active_choice,
@@ -293,6 +294,48 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 SavedMountedLayout{layout.key, **owner.value_if(), layout.layout, layout.policy,
                                    layout.scale_overrides, layout.composition_group, layout.inputs,
                                    layout.connected_signals});
+    }
+    for (const auto& slot : session.m_layout_state_slots) {
+        auto saved_scope_owner = std::visit(
+            [&](const auto& owner) -> Result<SavedLayoutStateScopeOwner, Diagnostics> {
+                using T = std::decay_t<decltype(owner)>;
+                if constexpr (std::is_same_v<T, LayoutVisitStateOwner>) {
+                    const auto active = session.current_room_presentation_owner();
+                    if (!active || active->visit != owner.visit)
+                        return Result<SavedLayoutStateScopeOwner,
+                                      Diagnostics>::failure(Diagnostics{Diagnostic{
+                            .code = "save.invalid_layout_state_owner",
+                            .message =
+                                "Visit Layout Slot no longer belongs to the Active Room Context"}});
+                    return Result<SavedLayoutStateScopeOwner, Diagnostics>::success(
+                        SavedVisitLayoutStateOwner{active->room});
+                } else if constexpr (std::is_same_v<T, LayoutRoomStateOwner>) {
+                    return Result<SavedLayoutStateScopeOwner, Diagnostics>::success(
+                        SavedRoomLayoutStateOwner{owner.room});
+                } else if constexpr (std::is_same_v<T, LayoutFlowStateOwner>) {
+                    const auto flow = saved_owner(session.flow_stack(), owner.flow);
+                    if (!flow)
+                        return Result<SavedLayoutStateScopeOwner, Diagnostics>::failure(
+                            Diagnostics{Diagnostic{
+                                .code = "save.invalid_layout_state_owner",
+                                .message = "Flow Layout Slot owner is not a saved flow frame"}});
+                    return Result<SavedLayoutStateScopeOwner, Diagnostics>::success(
+                        SavedFlowLayoutStateOwner{*flow});
+                } else {
+                    if (owner.session != session.presentation_session_id())
+                        return Result<SavedLayoutStateScopeOwner, Diagnostics>::failure(
+                            Diagnostics{Diagnostic{
+                                .code = "save.invalid_layout_state_owner",
+                                .message = "Session Layout Slot belongs to another session"}});
+                    return Result<SavedLayoutStateScopeOwner, Diagnostics>::success(
+                        SavedSessionLayoutStateOwner{});
+                }
+            },
+            slot.scope_owner);
+        if (!saved_scope_owner)
+            return Result<SaveState, Diagnostics>::failure(saved_scope_owner.error());
+        save.layout_state_slots.push_back(
+            SavedLayoutStateSlot{*saved_scope_owner.value_if(), slot.key, slot.layout, slot.value});
     }
     for (const auto& audio : session.m_desired_audio) {
         auto owner = save_presentation_owner(session, audio.owner);

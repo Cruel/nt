@@ -35,6 +35,63 @@ std::optional<RuntimeValue> decode_runtime_value(Decoder& decoder, const nlohman
     return std::nullopt;
 }
 
+std::optional<PersistableValue>
+decode_persistable_value(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (value.is_null())
+        return PersistableValue{std::monostate{}};
+    if (const auto decoded = json_access::get<bool>(value))
+        return PersistableValue{*decoded};
+    if (const auto* integer = value.get_ptr<const nlohmann::json::number_integer_t*>())
+        return PersistableValue{static_cast<std::int64_t>(*integer)};
+    if (const auto* integer = value.get_ptr<const nlohmann::json::number_unsigned_t*>()) {
+        if (*integer <= static_cast<nlohmann::json::number_unsigned_t>(
+                            std::numeric_limits<std::int64_t>::max()))
+            return PersistableValue{static_cast<std::int64_t>(*integer)};
+        decoder.error(k_code_number, "Integer is outside the signed 64-bit persistable range.",
+                      std::string(pointer));
+        return std::nullopt;
+    }
+    if (const auto* number = value.get_ptr<const nlohmann::json::number_float_t*>()) {
+        if (std::isfinite(*number))
+            return PersistableValue{static_cast<double>(*number)};
+        decoder.error(k_code_number, "Persistable number must be finite.", std::string(pointer));
+        return std::nullopt;
+    }
+    if (const auto decoded = json_access::get<std::string>(value))
+        return PersistableValue{*decoded};
+    if (value.is_array()) {
+        PersistableValue::Array array;
+        array.reserve(value.size());
+        for (std::size_t index = 0; index < value.size(); ++index) {
+            const auto item_pointer = pointer_child(pointer, std::to_string(index));
+            auto item = decode_persistable_value(decoder, value[index], item_pointer);
+            if (!item)
+                return std::nullopt;
+            array.push_back(std::move(*item));
+        }
+        return PersistableValue{std::move(array)};
+    }
+    if (value.is_object()) {
+        PersistableValue::Object object;
+        object.reserve(value.size());
+        for (const auto& [key, member] : value.items()) {
+            if (key.empty()) {
+                decoder.error(k_code_type, "Persistable object keys must not be empty.",
+                              std::string(pointer));
+                return std::nullopt;
+            }
+            auto decoded = decode_persistable_value(decoder, member, pointer_child(pointer, key));
+            if (!decoded)
+                return std::nullopt;
+            object.emplace_back(key, std::move(*decoded));
+        }
+        return PersistableValue{std::move(object)};
+    }
+    decoder.error(k_code_type, "Expected a recursive persistable value.", std::string(pointer));
+    return std::nullopt;
+}
+
 std::optional<TextContent> decode_text(Decoder& decoder, const nlohmann::json& value,
                                        std::string_view pointer)
 {

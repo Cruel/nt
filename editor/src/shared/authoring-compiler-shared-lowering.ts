@@ -25,6 +25,7 @@ import {
   parseLayoutData,
   resolveLayoutScalePolicy,
   type LayoutSourceData,
+  type LayoutStateShapeData,
 } from './project-schema/authoring-layouts';
 import { parseMapData } from './project-schema/authoring-maps';
 import {
@@ -305,6 +306,28 @@ function compileLayoutSource(source: LayoutSourceData) {
   return { kind: 'inline' as const, text: source.sourceText };
 }
 
+function compileLayoutStateShape(shape: LayoutStateShapeData): unknown {
+  const common = {
+    type: shape.type,
+    nullable: shape.nullable,
+    hasDefault: Object.prototype.hasOwnProperty.call(shape, 'defaultValue'),
+    defaultValue: shape.defaultValue ?? null,
+  };
+  if (shape.type === 'array') return { ...common, items: compileLayoutStateShape(shape.items) };
+  if (shape.type === 'object')
+    return {
+      ...common,
+      fields: Object.entries(shape.fields)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([id, field]) => ({
+          id,
+          required: field.required,
+          shape: compileLayoutStateShape(field.shape),
+        })),
+    };
+  return common;
+}
+
 function compileEntrypoint(
   entrypoint: NonNullable<AuthoringProject['entrypoint']>,
 ): CompiledProjectWireV4['entrypoint'] {
@@ -395,13 +418,16 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               required: field.required,
             })),
         })),
+      state: data.contract.state ? compileLayoutStateShape(data.contract.state) : null,
     };
     layouts.push({
       id,
       kind: data.layoutKind,
       target: data.target,
       scalePolicy: resolveLayoutScalePolicy(data.target, data.scalePolicy),
-      ...(contract.inputs.length > 0 || contract.signals.length > 0 ? { contract } : {}),
+      ...(contract.inputs.length > 0 || contract.signals.length > 0 || contract.state !== null
+        ? { contract }
+        : {}),
       rml: compileLayoutSource(data.rml),
       rcss: compileLayoutSource(data.rcss),
       lua: compileLayoutSource(data.lua),

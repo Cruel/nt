@@ -217,6 +217,33 @@ struct SavedMountedLayout {
     std::vector<LayoutSignalId> connected_signals;
 };
 
+struct SavedVisitLayoutStateOwner {
+    RoomId room;
+    auto operator<=>(const SavedVisitLayoutStateOwner&) const = default;
+};
+struct SavedRoomLayoutStateOwner {
+    RoomId room;
+    auto operator<=>(const SavedRoomLayoutStateOwner&) const = default;
+};
+struct SavedFlowLayoutStateOwner {
+    SavedFlowFrameId flow;
+    auto operator<=>(const SavedFlowLayoutStateOwner&) const = default;
+};
+struct SavedSessionLayoutStateOwner {
+    auto operator<=>(const SavedSessionLayoutStateOwner&) const = default;
+};
+using SavedLayoutStateScopeOwner =
+    std::variant<SavedVisitLayoutStateOwner, SavedRoomLayoutStateOwner, SavedFlowLayoutStateOwner,
+                 SavedSessionLayoutStateOwner>;
+
+struct SavedLayoutStateSlot {
+    SavedLayoutStateScopeOwner scope_owner;
+    MountedLayoutPresentationKey key;
+    LayoutId layout;
+    PersistableValue value;
+    bool operator==(const SavedLayoutStateSlot&) const = default;
+};
+
 struct SavedDesiredAudio {
     DesiredAudioInstanceId instance;
     SavedPresentationOwner owner;
@@ -254,6 +281,7 @@ struct SaveState {
     std::vector<SavedPresentationProp> presentation_props;
     std::vector<SavedPresentationEnvironment> presentation_environments;
     std::vector<SavedMountedLayout> mounted_layouts;
+    std::vector<SavedLayoutStateSlot> layout_state_slots;
     std::vector<SavedDesiredAudio> desired_audio;
     std::optional<PresentedTextState> presented_text;
     std::optional<ActiveChoiceState> active_choice;

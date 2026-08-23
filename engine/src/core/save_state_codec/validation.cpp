@@ -806,6 +806,70 @@ bool valid_layout_record(const CompiledProject& project, const SaveState& save,
         layout.key);
 }
 
+std::string saved_layout_state_owner_key(const SavedLayoutStateScopeOwner& owner)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SavedVisitLayoutStateOwner>)
+                return std::string("visit:") + value.room.text();
+            else if constexpr (std::is_same_v<T, SavedRoomLayoutStateOwner>)
+                return std::string("room:") + value.room.text();
+            else if constexpr (std::is_same_v<T, SavedFlowLayoutStateOwner>)
+                return std::string("flow:") + std::to_string(value.flow.value);
+            else
+                return std::string("session");
+        },
+        owner);
+}
+
+bool valid_layout_state_record(const CompiledProject& project, const SaveState& save,
+                               const SavedLayoutStateSlot& slot) noexcept
+{
+    const auto* layout = project.find_layout(slot.layout);
+    if (!layout || !layout->contract.state ||
+        !persistable_value_matches(*layout->contract.state, slot.value))
+        return false;
+    const bool key_valid = std::visit(
+        [&](const auto& key) {
+            using T = std::decay_t<decltype(key)>;
+            if constexpr (std::is_same_v<T, ReservedLayoutMountKey>) {
+                return key.slot <= compiled::LayoutSlot::Custom;
+            } else if constexpr (std::is_same_v<T, RoomOverlayLayoutMountKey>) {
+                auto room = resolved_room(project, save, key.room);
+                if (!room)
+                    return false;
+                const auto overlay = std::find_if(
+                    room->overlays.begin(), room->overlays.end(),
+                    [&](const compiled::RoomOverlay& value) { return value.id == key.overlay; });
+                if (overlay == room->overlays.end() || overlay->layout != slot.layout)
+                    return false;
+                if (const auto* owner = std::get_if<SavedRoomLayoutStateOwner>(&slot.scope_owner))
+                    return owner->room == key.room;
+                return std::holds_alternative<SavedSessionLayoutStateOwner>(slot.scope_owner);
+            } else {
+                return true;
+            }
+        },
+        slot.key);
+    if (!key_valid)
+        return false;
+    return std::visit(
+        [&](const auto& owner) {
+            using T = std::decay_t<decltype(owner)>;
+            if constexpr (std::is_same_v<T, SavedVisitLayoutStateOwner>) {
+                return save.active_room_visit && save.active_room_visit->room == owner.room;
+            } else if constexpr (std::is_same_v<T, SavedRoomLayoutStateOwner>) {
+                return resolved_room(project, save, owner.room).has_value();
+            } else if constexpr (std::is_same_v<T, SavedFlowLayoutStateOwner>) {
+                return saved_frame(save, owner.flow) != nullptr;
+            } else {
+                return true;
+            }
+        },
+        slot.scope_owner);
+}
+
 bool valid_desired_audio_record(const CompiledProject& project, const SaveState& save,
                                 const SavedDesiredAudio& audio) noexcept
 {
@@ -1491,6 +1555,18 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (!valid_layout_record(project, save, layout))
             error("save_codec.invalid_presentation_record",
                   "Mounted Layout has an invalid owner, identity, Layout, or policy.");
+    }
+
+    std::unordered_set<std::string> layout_state_keys;
+    for (const auto& slot : save.layout_state_slots) {
+        const auto identity =
+            saved_layout_state_owner_key(slot.scope_owner) + "|" + saved_mount_key_text(slot.key);
+        if (!layout_state_keys.insert(identity).second)
+            error("save_codec.duplicate_layout_state",
+                  "Layout State Slot identity appears more than once.");
+        if (!valid_layout_state_record(project, save, slot))
+            error("save_codec.invalid_layout_state",
+                  "Layout State Slot has an invalid owner, Layout, or State Shape value.");
     }
 
     std::unordered_set<std::string> desired_audio_ids;

@@ -102,6 +102,12 @@ struct PresentationEnvironment {
     bool operator==(const PresentationEnvironment&) const = default;
 };
 
+struct PresentationLayoutStateValue {
+    LayoutStateScope scope = LayoutStateScope::Session;
+    std::optional<PersistableValue> value;
+    bool operator==(const PresentationLayoutStateValue&) const = default;
+};
+
 struct PresentationMountedLayout {
     MountedLayoutPresentationKey key;
     PresentationOwner owner;
@@ -112,6 +118,8 @@ struct PresentationMountedLayout {
     std::optional<LayoutMountOccurrenceId> occurrence;
     std::vector<LayoutResolvedInput> inputs;
     std::vector<LayoutSignalId> connected_signals;
+    std::optional<LayoutStateShape> state_shape;
+    std::vector<PresentationLayoutStateValue> state_values;
     bool operator==(const PresentationMountedLayout&) const = default;
 };
 

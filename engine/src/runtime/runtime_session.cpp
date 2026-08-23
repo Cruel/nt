@@ -56,7 +56,9 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
                    std::is_same_v<T, core::SelectDialogueChoiceInput> ||
                    std::is_same_v<T, core::NavigateRoomInput> ||
                    std::is_same_v<T, core::InvokeInteractionInput> ||
-                   std::is_same_v<T, core::LayoutSignalInput>;
+                   std::is_same_v<T, core::LayoutSignalInput> ||
+                   std::is_same_v<T, core::CommitLayoutStateInput> ||
+                   std::is_same_v<T, core::ClearLayoutStateInput>;
         },
         input);
 }
@@ -1468,6 +1470,17 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                     else
                         result.observations.emplace_back(core::LayoutSignalObservation{
                             value.owner, value.key, value.occurrence, value.signal, value.fields});
+                } else if constexpr (std::is_same_v<T, core::CommitLayoutStateInput>) {
+                    auto committed = m_kernel->state().commit_layout_state(
+                        m_project, value.owner, value.key, value.occurrence, value.scope,
+                        value.value);
+                    if (!committed)
+                        result.diagnostics = std::move(committed).error();
+                } else if constexpr (std::is_same_v<T, core::ClearLayoutStateInput>) {
+                    auto cleared = m_kernel->state().clear_layout_state(
+                        m_project, value.owner, value.key, value.occurrence, value.scope);
+                    if (!cleared)
+                        result.diagnostics = std::move(cleared).error();
                 } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
                     if (value.slot.is_autosave()) {
                         (void)m_checkpoint_service.request(core::DeferredAutosaveRequest{});

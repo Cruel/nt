@@ -902,7 +902,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                                           "owner-qualified stable identity"));
             continue;
         }
-        if (project.find_layout(mount.layout) == nullptr) {
+        const auto* layout_definition = project.find_layout(mount.layout);
+        if (layout_definition == nullptr) {
             diagnostics.push_back(unresolved("Layout", mount.layout.text()));
             continue;
         }
@@ -918,10 +919,44 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             append_diagnostics(diagnostics, std::move(inputs).error());
             continue;
         }
+        std::vector<PresentationLayoutStateValue> state_values;
+        if (layout_definition->contract.state) {
+            if (!mount.occurrence) {
+                diagnostics.push_back(
+                    invalid("presentation.layout_state_missing_occurrence",
+                            "Stateful mounted Layout is missing its Mount occurrence identity"));
+                continue;
+            }
+            std::vector<LayoutStateScope> scopes;
+            if (std::holds_alternative<CurrentRoomPresentationOwner>(mount.owner)) {
+                scopes = {LayoutStateScope::Visit, LayoutStateScope::Room,
+                          LayoutStateScope::Session};
+            } else if (std::holds_alternative<RoomPresentationOwner>(mount.owner)) {
+                scopes = {LayoutStateScope::Room, LayoutStateScope::Session};
+            } else if (std::holds_alternative<ScenePresentationOwner>(mount.owner)) {
+                scopes = {LayoutStateScope::Flow, LayoutStateScope::Session};
+            } else if (std::holds_alternative<SessionPresentationOwner>(mount.owner)) {
+                scopes = {LayoutStateScope::Session};
+            }
+            bool state_valid = true;
+            for (const auto scope : scopes) {
+                auto value =
+                    state.layout_state(project, mount.owner, mount.key, *mount.occurrence, scope);
+                if (!value) {
+                    append_diagnostics(diagnostics, std::move(value).error());
+                    state_valid = false;
+                    break;
+                }
+                state_values.push_back(
+                    PresentationLayoutStateValue{scope, std::move(*value.value_if())});
+            }
+            if (!state_valid)
+                continue;
+        }
         result.layouts.push_back(PresentationMountedLayout{
             mount.key, mount.owner, mount.layout, mount.policy, mount.scale_overrides,
             mount.composition_group, mount.occurrence, std::move(*inputs.value_if()),
-            mount.connected_signals});
+            mount.connected_signals, layout_definition->contract.state, std::move(state_values)});
     }
 
     validate_text_and_choice(project, world, state, diagnostics);

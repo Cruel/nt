@@ -157,6 +157,9 @@ private:
 nlohmann::json encode_value(const RuntimeValue& value);
 std::optional<RuntimeValue> decode_value(Decoder& d, const nlohmann::json& value,
                                          std::string_view pointer);
+nlohmann::json encode_persistable_value(const PersistableValue& value);
+std::optional<PersistableValue> decode_persistable_value(Decoder& d, const nlohmann::json& value,
+                                                         std::string_view pointer);
 template<class Id> nlohmann::json encode_optional_id(const std::optional<Id>& value)
 {
     return value ? nlohmann::json(value->text()) : nlohmann::json(nullptr);
@@ -213,6 +216,7 @@ struct SavedPresentationRecords {
     std::vector<SavedPresentationProp> props;
     std::vector<SavedPresentationEnvironment> environments;
     std::vector<SavedMountedLayout> layouts;
+    std::vector<SavedLayoutStateSlot> layout_state_slots;
     std::vector<SavedDesiredAudio> desired_audio;
     std::optional<PresentedTextState> presented_text;
     std::optional<ActiveChoiceState> active_choice;

@@ -775,6 +775,65 @@ nlohmann::json encode_map(const std::optional<MapPresentationState>& value)
             {"focusedLocation", encode_optional_id(value->focused_location)}};
 }
 
+nlohmann::json encode_layout_state_owner(const SavedLayoutStateScopeOwner& owner)
+{
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SavedVisitLayoutStateOwner>)
+                return {{"kind", "visit"}, {"room", value.room.text()}};
+            else if constexpr (std::is_same_v<T, SavedRoomLayoutStateOwner>)
+                return {{"kind", "room"}, {"room", value.room.text()}};
+            else if constexpr (std::is_same_v<T, SavedFlowLayoutStateOwner>)
+                return {{"kind", "flow"}, {"flow", value.flow.value}};
+            else
+                return {{"kind", "session"}};
+        },
+        owner);
+}
+
+std::optional<SavedLayoutStateScopeOwner>
+decode_layout_state_owner(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!d.object(value, pointer, {"kind", "room", "flow"}))
+        return std::nullopt;
+    const auto* kind_value = d.member(value, "kind", pointer);
+    auto kind = kind_value ? d.string(*kind_value, child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "visit" || *kind == "room") {
+        if (!d.object(value, pointer, {"kind", "room"}))
+            return std::nullopt;
+        const auto* room_value = d.member(value, "room", pointer);
+        auto room = room_value ? d.id<RoomId>(*room_value, child(pointer, "room")) : std::nullopt;
+        if (!room)
+            return std::nullopt;
+        return *kind == "visit"
+                   ? std::optional<SavedLayoutStateScopeOwner>{SavedVisitLayoutStateOwner{
+                         std::move(*room)}}
+                   : std::optional<SavedLayoutStateScopeOwner>{
+                         SavedRoomLayoutStateOwner{std::move(*room)}};
+    }
+    if (*kind == "flow") {
+        if (!d.object(value, pointer, {"kind", "flow"}))
+            return std::nullopt;
+        const auto* flow_value = d.member(value, "flow", pointer);
+        auto flow = flow_value ? d.unsigned_integer<std::uint64_t>(*flow_value,
+                                                                   child(pointer, "flow"), true)
+                               : std::nullopt;
+        return flow ? std::optional<SavedLayoutStateScopeOwner>{SavedFlowLayoutStateOwner{
+                          SavedFlowFrameId{*flow}}}
+                    : std::nullopt;
+    }
+    if (*kind == "session") {
+        if (!d.object(value, pointer, {"kind"}))
+            return std::nullopt;
+        return SavedLayoutStateScopeOwner{SavedSessionLayoutStateOwner{}};
+    }
+    d.error(k_variant, "Unknown Layout state scope kind '" + *kind + "'.", child(pointer, "kind"));
+    return std::nullopt;
+}
+
 std::optional<std::optional<MapPresentationState>>
 decode_map(Decoder& d, const nlohmann::json& value, std::string_view pointer)
 {
@@ -872,6 +931,13 @@ nlohmann::json encode_presentation_records(const SaveState& save)
         layouts.push_back(std::move(encoded));
     }
 
+    nlohmann::json layout_state_slots = nlohmann::json::array();
+    for (const auto& value : save.layout_state_slots)
+        layout_state_slots.push_back({{"owner", encode_layout_state_owner(value.scope_owner)},
+                                      {"key", encode_mount_key(value.key)},
+                                      {"layout", value.layout.text()},
+                                      {"value", encode_persistable_value(value.value)}});
+
     nlohmann::json desired_audio = nlohmann::json::array();
     for (const auto& value : save.desired_audio)
         desired_audio.push_back({{"instance", value.instance.text()},
@@ -888,6 +954,7 @@ nlohmann::json encode_presentation_records(const SaveState& save)
             {"props", std::move(props)},
             {"environments", std::move(environments)},
             {"mountedLayouts", std::move(layouts)},
+            {"layoutStateSlots", std::move(layout_state_slots)},
             {"desiredAudio", std::move(desired_audio)},
             {"presentedText", encode_presented_text(save.presented_text)},
             {"activeChoice", encode_choice(save.active_choice)},
@@ -899,13 +966,14 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
 {
     if (!d.object(value, pointer,
                   {"backgroundOverrides", "actors", "props", "environments", "mountedLayouts",
-                   "desiredAudio", "presentedText", "activeChoice", "map"}))
+                   "layoutStateSlots", "desiredAudio", "presentedText", "activeChoice", "map"}))
         return std::nullopt;
     const auto* backgrounds_value = d.member(value, "backgroundOverrides", pointer);
     const auto* actors_value = d.member(value, "actors", pointer);
     const auto* props_value = d.member(value, "props", pointer);
     const auto* environments_value = d.member(value, "environments", pointer);
     const auto* layouts_value = d.member(value, "mountedLayouts", pointer);
+    const auto* layout_state_slots_value = d.member(value, "layoutStateSlots", pointer);
     const auto* desired_audio_value = d.member(value, "desiredAudio", pointer);
     const auto* text_value = d.member(value, "presentedText", pointer);
     const auto* choice_value = d.member(value, "activeChoice", pointer);
@@ -1236,6 +1304,39 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   })
             : std::nullopt;
 
+    auto layout_state_slots =
+        layout_state_slots_value
+            ? decode_required_array<SavedLayoutStateSlot>(
+                  d, *layout_state_slots_value, child(pointer, "layoutStateSlots"),
+                  [&d](const nlohmann::json& entry,
+                       const std::string& entry_pointer) -> std::optional<SavedLayoutStateSlot> {
+                      if (!d.object(entry, entry_pointer, {"owner", "key", "layout", "value"}))
+                          return std::nullopt;
+                      const auto* owner_value = d.member(entry, "owner", entry_pointer);
+                      const auto* key_value = d.member(entry, "key", entry_pointer);
+                      const auto* layout_value = d.member(entry, "layout", entry_pointer);
+                      const auto* state_value = d.member(entry, "value", entry_pointer);
+                      auto owner = owner_value ? decode_layout_state_owner(
+                                                     d, *owner_value, child(entry_pointer, "owner"))
+                                               : std::nullopt;
+                      auto key = key_value
+                                     ? decode_mount_key(d, *key_value, child(entry_pointer, "key"))
+                                     : std::nullopt;
+                      auto layout = layout_value ? d.id<LayoutId>(*layout_value,
+                                                                  child(entry_pointer, "layout"))
+                                                 : std::nullopt;
+                      auto state = state_value ? decode_persistable_value(
+                                                     d, *state_value, child(entry_pointer, "value"))
+                                               : std::nullopt;
+                      return owner && key && layout && state
+                                 ? std::optional<SavedLayoutStateSlot>{{std::move(*owner),
+                                                                        std::move(*key),
+                                                                        std::move(*layout),
+                                                                        std::move(*state)}}
+                                 : std::nullopt;
+                  })
+            : std::nullopt;
+
     auto desired_audio =
         desired_audio_value
             ? decode_required_array<SavedDesiredAudio>(
@@ -1311,13 +1412,14 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                              : std::nullopt;
     auto map = map_value ? decode_map(d, *map_value, child(pointer, "map")) : std::nullopt;
 
-    if (!backgrounds || !actors || !props || !environments || !layouts || !desired_audio ||
-        !presented_text || !active_choice || !map)
+    if (!backgrounds || !actors || !props || !environments || !layouts || !layout_state_slots ||
+        !desired_audio || !presented_text || !active_choice || !map)
         return std::nullopt;
-    return SavedPresentationRecords{
-        std::move(*backgrounds),    std::move(*actors),        std::move(*props),
-        std::move(*environments),   std::move(*layouts),       std::move(*desired_audio),
-        std::move(*presented_text), std::move(*active_choice), std::move(*map)};
+    return SavedPresentationRecords{std::move(*backgrounds),   std::move(*actors),
+                                    std::move(*props),         std::move(*environments),
+                                    std::move(*layouts),       std::move(*layout_state_slots),
+                                    std::move(*desired_audio), std::move(*presented_text),
+                                    std::move(*active_choice), std::move(*map)};
 }
 
 } // namespace noveltea::core::save_state_codec

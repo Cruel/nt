@@ -431,10 +431,71 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
     state->m_presentation_props.clear();
     state->m_presentation_environments.clear();
     state->m_mounted_layouts.clear();
+    state->m_layout_state_slots.clear();
     state->m_desired_audio.clear();
     state->m_presented_text = save.presented_text;
     state->m_active_choice = save.active_choice;
     state->m_map_presentation = save.map_presentation;
+
+    for (const auto& saved : save.layout_state_slots) {
+        const auto* layout = project.find_layout(saved.layout);
+        if (!layout || !layout->contract.state ||
+            !persistable_value_matches(*layout->contract.state, saved.value))
+            return Result<SessionState, Diagnostics>::failure(
+                restore_error("save_restore.invalid_layout_state",
+                              "Saved Layout Slot does not match its declared State Shape."));
+
+        auto scope_owner = std::visit(
+            [&](const auto& owner) -> Result<LayoutStateScopeOwner, Diagnostics> {
+                using T = std::decay_t<decltype(owner)>;
+                if constexpr (std::is_same_v<T, SavedVisitLayoutStateOwner>) {
+                    if (!state->m_room_visit || !state->m_room_visit_instance ||
+                        state->m_room_visit->room != owner.room)
+                        return Result<LayoutStateScopeOwner, Diagnostics>::failure(
+                            restore_error("save_restore.invalid_layout_state_owner",
+                                          "Saved visit Layout Slot does not belong to the restored "
+                                          "Active Room Context."));
+                    return Result<LayoutStateScopeOwner, Diagnostics>::success(
+                        LayoutVisitStateOwner{*state->m_room_visit_instance});
+                } else if constexpr (std::is_same_v<T, SavedRoomLayoutStateOwner>) {
+                    const auto room = std::find_if(
+                        state->m_runtime_rooms.begin(), state->m_runtime_rooms.end(),
+                        [&](const auto& candidate) { return candidate.id == owner.room; });
+                    if (room == state->m_runtime_rooms.end())
+                        return Result<LayoutStateScopeOwner, Diagnostics>::failure(
+                            restore_error("save_restore.invalid_layout_state_owner",
+                                          "Saved room Layout Slot references a missing Room."));
+                    return Result<LayoutStateScopeOwner, Diagnostics>::success(
+                        LayoutRoomStateOwner{owner.room});
+                } else if constexpr (std::is_same_v<T, SavedFlowLayoutStateOwner>) {
+                    const auto flow = frame_ids.find(owner.flow.value);
+                    if (flow == frame_ids.end())
+                        return Result<LayoutStateScopeOwner, Diagnostics>::failure(restore_error(
+                            "save_restore.invalid_layout_state_owner",
+                            "Saved flow Layout Slot references a missing Flow frame."));
+                    return Result<LayoutStateScopeOwner, Diagnostics>::success(
+                        LayoutFlowStateOwner{flow->second});
+                } else {
+                    return Result<LayoutStateScopeOwner, Diagnostics>::success(
+                        LayoutSessionStateOwner{state->presentation_session_id()});
+                }
+            },
+            saved.scope_owner);
+        if (!scope_owner)
+            return Result<SessionState, Diagnostics>::failure(scope_owner.error());
+        const auto duplicate = std::find_if(
+            state->m_layout_state_slots.begin(), state->m_layout_state_slots.end(),
+            [&](const LayoutStateSlot& slot) {
+                return slot.scope_owner == *scope_owner.value_if() && slot.key == saved.key;
+            });
+        if (duplicate != state->m_layout_state_slots.end())
+            return Result<SessionState, Diagnostics>::failure(
+                restore_error("save_restore.duplicate_layout_state",
+                              "Saved Layout Slot identity appears more than once."));
+        state->m_layout_state_slots.push_back(
+            LayoutStateSlot{*scope_owner.value_if(), saved.key, saved.layout, saved.value});
+    }
+
     const auto reconstruct_room_presentation =
         [&project, state](const RoomId& room) -> Result<void, Diagnostics> {
         const auto record =

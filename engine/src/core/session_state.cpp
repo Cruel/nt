@@ -554,6 +554,82 @@ Result<FlowStack, Diagnostics> initial_flow_stack(const CompiledProject& project
     return Result<FlowStack, Diagnostics>::success(std::move(stack));
 }
 
+Result<LayoutStateScopeOwner, Diagnostics>
+resolve_layout_state_scope_owner(const SessionState& state, const PresentationOwner& mount_owner,
+                                 LayoutStateScope scope)
+{
+    if (!state.presentation_owner_is_active(mount_owner) ||
+        presentation_authority(mount_owner) != PresentationAuthority::Gameplay)
+        return Result<LayoutStateScopeOwner, Diagnostics>::failure(feature_error(
+            "runtime.layout_state_stale_mount", "Layout state references an inactive Mount owner"));
+
+    switch (scope) {
+    case LayoutStateScope::Visit: {
+        const auto* owner = std::get_if<CurrentRoomPresentationOwner>(&mount_owner);
+        if (!owner)
+            return Result<LayoutStateScopeOwner, Diagnostics>::failure(
+                feature_error("runtime.layout_state_scope_mismatch",
+                              "Visit Layout state requires an Active Room Context-owned Mount"));
+        return Result<LayoutStateScopeOwner, Diagnostics>::success(
+            LayoutVisitStateOwner{owner->visit});
+    }
+    case LayoutStateScope::Room: {
+        if (const auto* owner = std::get_if<CurrentRoomPresentationOwner>(&mount_owner))
+            return Result<LayoutStateScopeOwner, Diagnostics>::success(
+                LayoutRoomStateOwner{owner->room});
+        if (const auto* owner = std::get_if<RoomPresentationOwner>(&mount_owner))
+            return Result<LayoutStateScopeOwner, Diagnostics>::success(
+                LayoutRoomStateOwner{owner->room});
+        return Result<LayoutStateScopeOwner, Diagnostics>::failure(
+            feature_error("runtime.layout_state_scope_mismatch",
+                          "Room Layout state requires an Active Room Context or Room-owned Mount"));
+    }
+    case LayoutStateScope::Flow: {
+        const auto* owner = std::get_if<ScenePresentationOwner>(&mount_owner);
+        if (!owner)
+            return Result<LayoutStateScopeOwner, Diagnostics>::failure(
+                feature_error("runtime.layout_state_scope_mismatch",
+                              "Flow Layout state requires a Flow-owned Mount"));
+        return Result<LayoutStateScopeOwner, Diagnostics>::success(
+            LayoutFlowStateOwner{owner->invocation});
+    }
+    case LayoutStateScope::Session:
+        return Result<LayoutStateScopeOwner, Diagnostics>::success(
+            LayoutSessionStateOwner{state.presentation_session_id()});
+    }
+    return Result<LayoutStateScopeOwner, Diagnostics>::failure(
+        feature_error("runtime.layout_state_scope_invalid", "Layout state scope is invalid"));
+}
+
+std::optional<LayoutStateScope> layout_state_scope(const LayoutStateScopeOwner& owner) noexcept
+{
+    return std::visit(
+        [](const auto& scoped) -> std::optional<LayoutStateScope> {
+            using T = std::decay_t<decltype(scoped)>;
+            if constexpr (std::is_same_v<T, LayoutVisitStateOwner>)
+                return LayoutStateScope::Visit;
+            else if constexpr (std::is_same_v<T, LayoutRoomStateOwner>)
+                return LayoutStateScope::Room;
+            else if constexpr (std::is_same_v<T, LayoutFlowStateOwner>)
+                return LayoutStateScope::Flow;
+            else if constexpr (std::is_same_v<T, LayoutSessionStateOwner>)
+                return LayoutStateScope::Session;
+            else
+                return std::nullopt;
+        },
+        owner);
+}
+
+bool layout_state_slot_applies_to_mount(const SessionState& state, const LayoutStateSlot& slot,
+                                        const PresentationOwner& mount_owner)
+{
+    const auto scope = layout_state_scope(slot.scope_owner);
+    if (!scope)
+        return false;
+    auto resolved = resolve_layout_state_scope_owner(state, mount_owner, *scope);
+    return resolved && *resolved.value_if() == slot.scope_owner;
+}
+
 } // namespace
 
 Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& project)
@@ -914,6 +990,26 @@ void SessionState::remove_presentation_owned_by(const PresentationOwner& owner) 
     std::erase_if(m_presentation_environments,
                   [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_mounted_layouts, [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_layout_state_slots, [&owner](const LayoutStateSlot& slot) {
+        return std::visit(
+            [&](const auto& scoped) {
+                using T = std::decay_t<decltype(scoped)>;
+                if constexpr (std::is_same_v<T, LayoutVisitStateOwner>) {
+                    const auto* current = std::get_if<CurrentRoomPresentationOwner>(&owner);
+                    return current && current->visit == scoped.visit;
+                } else if constexpr (std::is_same_v<T, LayoutRoomStateOwner>) {
+                    const auto* room = std::get_if<RoomPresentationOwner>(&owner);
+                    return room && room->room == scoped.room;
+                } else if constexpr (std::is_same_v<T, LayoutFlowStateOwner>) {
+                    const auto* flow = std::get_if<ScenePresentationOwner>(&owner);
+                    return flow && flow->invocation == scoped.flow;
+                } else {
+                    const auto* session = std::get_if<SessionPresentationOwner>(&owner);
+                    return session && session->session == scoped.session;
+                }
+            },
+            slot.scope_owner);
+    });
     std::erase_if(m_desired_audio, [&owner](const auto& value) { return value.owner == owner; });
 }
 
@@ -1692,6 +1788,16 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
             "runtime.invalid_mounted_layout",
             "Mounted Layout contains an invalid owner, key, Layout, policy, or composition group"));
 
+    for (const auto& slot : m_layout_state_slots) {
+        if (slot.key != value.key || !layout_state_slot_applies_to_mount(*this, slot, value.owner))
+            continue;
+        if (!layout_definition->contract.state ||
+            !persistable_value_matches(*layout_definition->contract.state, slot.value))
+            return Result<void, Diagnostics>::failure(feature_error(
+                "runtime.layout_state_reconstruction_failed",
+                "Persisted Layout Slot state does not match the Mount's declared State Shape"));
+    }
+
     std::vector<LayoutInputId> assigned_inputs;
     assigned_inputs.reserve(value.inputs.size());
     for (const auto& assignment : value.inputs) {
@@ -1743,6 +1849,9 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
         connected_signals.push_back(signal);
     }
 
+    const auto mounted_layout = value.layout;
+    const auto mounted_key = value.key;
+    const auto mounted_owner = value.owner;
     const auto found =
         std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
                      [&value](const DesiredMountedLayout& current) {
@@ -1779,6 +1888,11 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
             value.occurrence = *occurrence;
         }
         *found = std::move(value);
+    }
+    for (auto& slot : m_layout_state_slots) {
+        if (slot.key == mounted_key &&
+            layout_state_slot_applies_to_mount(*this, slot, mounted_owner))
+            slot.layout = mounted_layout;
     }
     return Result<void, Diagnostics>::success();
 }
@@ -1883,6 +1997,111 @@ Result<void, Diagnostics> SessionState::validate_layout_signal(
                 feature_error("runtime.layout_signal_field_required",
                               "Layout Signal payload is missing a required field"));
     }
+    return Result<void, Diagnostics>::success();
+}
+
+Result<std::optional<PersistableValue>, Diagnostics>
+SessionState::layout_state(const CompiledProject& project, const PresentationOwner& owner,
+                           const MountedLayoutPresentationKey& key,
+                           LayoutMountOccurrenceId occurrence, LayoutStateScope scope) const
+{
+    const auto mounted = std::find_if(
+        m_mounted_layouts.begin(), m_mounted_layouts.end(), [&](const DesiredMountedLayout& value) {
+            return value.owner == owner && value.key == key && value.occurrence &&
+                   *value.occurrence == occurrence;
+        });
+    if (mounted == m_mounted_layouts.end())
+        return Result<std::optional<PersistableValue>, Diagnostics>::failure(
+            feature_error("runtime.layout_state_stale_mount",
+                          "Layout state references a stale Mount occurrence"));
+    const auto* layout = project.find_layout(mounted->layout);
+    if (!layout || !layout->contract.state)
+        return Result<std::optional<PersistableValue>, Diagnostics>::failure(feature_error(
+            "runtime.layout_state_undeclared", "Layout does not declare a State Shape"));
+    auto scope_owner = resolve_layout_state_scope_owner(*this, owner, scope);
+    if (!scope_owner)
+        return Result<std::optional<PersistableValue>, Diagnostics>::failure(scope_owner.error());
+    const auto found = std::find_if(
+        m_layout_state_slots.begin(), m_layout_state_slots.end(), [&](const LayoutStateSlot& slot) {
+            return slot.scope_owner == *scope_owner.value_if() && slot.key == key;
+        });
+    if (found == m_layout_state_slots.end())
+        return Result<std::optional<PersistableValue>, Diagnostics>::success(
+            layout->contract.state->default_value);
+    if (!persistable_value_matches(*layout->contract.state, found->value))
+        return Result<std::optional<PersistableValue>, Diagnostics>::failure(
+            feature_error("runtime.layout_state_reconstruction_failed",
+                          "Persisted Layout Slot state does not match the declared State Shape"));
+    return Result<std::optional<PersistableValue>, Diagnostics>::success(found->value);
+}
+
+Result<void, Diagnostics> SessionState::commit_layout_state(const CompiledProject& project,
+                                                            const PresentationOwner& owner,
+                                                            const MountedLayoutPresentationKey& key,
+                                                            LayoutMountOccurrenceId occurrence,
+                                                            LayoutStateScope scope,
+                                                            PersistableValue state)
+{
+    const auto mounted = std::find_if(
+        m_mounted_layouts.begin(), m_mounted_layouts.end(), [&](const DesiredMountedLayout& value) {
+            return value.owner == owner && value.key == key && value.occurrence &&
+                   *value.occurrence == occurrence;
+        });
+    if (mounted == m_mounted_layouts.end())
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.layout_state_stale_mount",
+                          "Layout state references a stale Mount occurrence"));
+    const auto* layout = project.find_layout(mounted->layout);
+    if (!layout || !layout->contract.state)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.layout_state_undeclared", "Layout does not declare a State Shape"));
+    if (!persistable_value_matches(*layout->contract.state, state))
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.layout_state_shape_mismatch",
+                          "Committed Layout state does not match the declared State Shape"));
+    auto scope_owner = resolve_layout_state_scope_owner(*this, owner, scope);
+    if (!scope_owner)
+        return Result<void, Diagnostics>::failure(scope_owner.error());
+
+    auto candidate = m_layout_state_slots;
+    const auto found =
+        std::find_if(candidate.begin(), candidate.end(), [&](const LayoutStateSlot& slot) {
+            return slot.scope_owner == *scope_owner.value_if() && slot.key == key;
+        });
+    LayoutStateSlot replacement{*scope_owner.value_if(), key, mounted->layout, std::move(state)};
+    if (found == candidate.end())
+        candidate.push_back(std::move(replacement));
+    else
+        *found = std::move(replacement);
+    m_layout_state_slots = std::move(candidate);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::clear_layout_state(const CompiledProject& project,
+                                                           const PresentationOwner& owner,
+                                                           const MountedLayoutPresentationKey& key,
+                                                           LayoutMountOccurrenceId occurrence,
+                                                           LayoutStateScope scope)
+{
+    const auto mounted = std::find_if(
+        m_mounted_layouts.begin(), m_mounted_layouts.end(), [&](const DesiredMountedLayout& value) {
+            return value.owner == owner && value.key == key && value.occurrence &&
+                   *value.occurrence == occurrence;
+        });
+    if (mounted == m_mounted_layouts.end())
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.layout_state_stale_mount",
+                          "Layout state references a stale Mount occurrence"));
+    const auto* layout = project.find_layout(mounted->layout);
+    if (!layout || !layout->contract.state)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.layout_state_undeclared", "Layout does not declare a State Shape"));
+    auto scope_owner = resolve_layout_state_scope_owner(*this, owner, scope);
+    if (!scope_owner)
+        return Result<void, Diagnostics>::failure(scope_owner.error());
+    std::erase_if(m_layout_state_slots, [&](const LayoutStateSlot& slot) {
+        return slot.scope_owner == *scope_owner.value_if() && slot.key == key;
+    });
     return Result<void, Diagnostics>::success();
 }
 
