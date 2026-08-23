@@ -686,33 +686,61 @@ struct PredicateInteractionContext {
 };
 using InteractionContext = std::variant<AnyInteractionContext, ActiveRoomInteractionContext,
                                         PlacementInteractionContext, PredicateInteractionContext>;
-struct ExactOperand {
+enum class SubjectFamily : std::uint8_t {
+    Character,
+    Interactable,
+    Feature,
+    ItemStack
+};
+struct AnySubjectSelector {};
+struct FamilySubjectSelector {
+    SubjectFamily family;
+};
+struct TraitSubjectSelector {
+    TraitId trait;
+};
+struct ItemDefinitionSubjectSelector {
+    ItemDefinitionId item_definition;
+};
+struct QualifiedPatternSubjectSelector {
+    SubjectFamily family;
+    std::string pattern;
+};
+struct ExactSubjectSelector {
     InteractionSubject subject;
 };
-struct AnyCharacterOperand {};
-struct AnyInteractableOperand {};
-struct AnyItemStackOperand {};
-struct AnyInteractionSubjectOperand {};
-using InteractionOperand = std::variant<ExactOperand, AnyCharacterOperand, AnyInteractableOperand,
-                                        AnyItemStackOperand, AnyInteractionSubjectOperand>;
+using SubjectSelector = std::variant<AnySubjectSelector, FamilySubjectSelector,
+                                     TraitSubjectSelector, ItemDefinitionSubjectSelector,
+                                     QualifiedPatternSubjectSelector, ExactSubjectSelector>;
+struct InteractionSlotSelector {
+    VerbSlotId slot_id;
+    std::vector<SubjectSelector> selectors;
+};
 struct InteractionRule {
     InteractionRuleId id;
     VerbId verb;
     InteractionContext context;
-    std::vector<InteractionOperand> operands;
+    std::vector<InteractionSlotSelector> slots;
     InteractionProgram program;
 };
 struct InteractionDefinition {
     DefinitionIdentity<InteractionId> identity;
     std::vector<InteractionRule> rules;
 };
+struct VerbSlot {
+    VerbSlotId id;
+    TextContent label;
+    TextContent prompt;
+    std::vector<SubjectSelector> selectors;
+};
 struct VerbDefinition {
     DefinitionIdentity<VerbId> identity;
     TextContent action_text;
-    std::uint8_t arity;
+    TextContent completed_command_text;
+    std::vector<VerbSlot> slots;
+    std::vector<VerbSlotId> binding_order;
     Condition availability;
     InteractionProgram default_program;
-    std::vector<std::string> operand_roles;
     bool quick_action;
 };
 

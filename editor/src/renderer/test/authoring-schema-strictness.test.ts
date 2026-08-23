@@ -163,4 +163,29 @@ describe('authoring schema strictness', () => {
 
     expect(cases.filter((item) => item.accepted)).toEqual([]);
   });
+
+  it('rejects retired positional Verb and Interaction fields', () => {
+    expect(
+      verbDataSchema.safeParse({ ...defaultVerbData(), arity: 1, operandRoles: ['target'] })
+        .success,
+    ).toBe(false);
+    expect(
+      interactionDataSchema.safeParse({
+        kind: 'interaction',
+        rules: [
+          {
+            id: 'legacy-rule',
+            verb: { $ref: { collection: 'verbs', id: 'use' } },
+            operands: [{ kind: 'any-subject' }],
+            context: { kind: 'any' },
+            program: {
+              instructions: [],
+              completion: { kind: 'return' },
+              outcome: 'handled',
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
 });

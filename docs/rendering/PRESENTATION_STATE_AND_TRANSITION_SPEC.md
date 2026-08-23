@@ -424,7 +424,7 @@ The renderer does not query runtime Interactable state or Room definitions.
 ### Props
 
 Props are presentation-only world records. They have stable identity, owner, visual resource/material,
-placement/bounds, visibility, plane, and order. They cannot be selected as Interaction operands unless
+placement/bounds, visibility, plane, and order. They cannot be selected as Interaction subjects unless
 they are separately modeled as a real gameplay entity.
 
 ### Environment and reconstructible loops

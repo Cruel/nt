@@ -21,7 +21,7 @@ describe('interaction operations', () => {
     data.rules.push({
       id: 'look-rule',
       verb: { $ref: { collection: 'verbs', id: 'look' } },
-      operands: [],
+      slots: [],
       context: { kind: 'any' },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     });

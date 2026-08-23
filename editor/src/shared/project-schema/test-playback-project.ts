@@ -75,7 +75,10 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
     return {
       type: 'invoke-interaction',
       verb: refId(step.runInteraction.verb),
-      operands: step.runInteraction.operands.map(typedSubject),
+      bindings: step.runInteraction.bindings.map((binding) => ({
+        slotId: binding.slotId,
+        subject: typedSubject(binding.subject),
+      })),
     };
   }
   if (step.input === 'load-save') {

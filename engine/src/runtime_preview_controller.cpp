@@ -172,9 +172,12 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
     nlohmann::json actions = nlohmann::json::array();
     const auto& controls = view.room ? view.room->controls : view.inventory.controls;
     for (const auto& control : controls) {
+        nlohmann::json binding_order = nlohmann::json::array();
+        for (const auto& slot : control.binding_order)
+            binding_order.push_back(slot.text());
         actions.push_back({{"verbId", control.verb.text()},
                            {"label", control.label},
-                           {"objectCount", static_cast<int>(control.arity)},
+                           {"bindingOrder", std::move(binding_order)},
                            {"selectedCount", static_cast<int>(view.selected_subjects.size())},
                            {"enabled", control.enabled}});
     }
@@ -410,9 +413,9 @@ bool RuntimePreviewController::clear_subject_selection()
 }
 
 bool RuntimePreviewController::run_interaction(
-    const std::string& verb_id, std::vector<core::compiled::InteractionSubject> operands)
+    const std::string& verb_id, std::vector<core::InteractionSubjectBinding> bindings)
 {
-    return m_preview_host->run_interaction(verb_id, std::move(operands));
+    return m_preview_host->run_interaction(verb_id, std::move(bindings));
 }
 
 std::string RuntimePreviewController::set_variable(const std::string& variable_id,

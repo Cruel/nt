@@ -685,6 +685,7 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     const auto interactable = noveltea::core::InteractableId::create("key");
     const auto character = noveltea::core::CharacterId::create("alice");
     const auto verb = noveltea::core::VerbId::create("inspect");
+    const auto target_slot = noveltea::core::VerbSlotId::create("target");
     REQUIRE(scene);
     REQUIRE(step);
     REQUIRE(scene_choice);
@@ -698,6 +699,7 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
     REQUIRE(interactable);
     REQUIRE(character);
     REQUIRE(verb);
+    REQUIRE(target_slot);
 
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 1;
@@ -729,7 +731,7 @@ TEST_CASE("RuntimeUI noveltea model callbacks preserve the Lua action paths and 
                                        .visible = true}}}},
         .exits = {{exit.value(), target.value(), noveltea::core::compiled::RoomExitDirection::North,
                    "North", true}},
-        .controls = {{verb.value(), "Inspect", 1, false, true}}};
+        .controls = {{verb.value(), "Inspect", {target_slot.value()}, false, true}}};
     REQUIRE(ui.apply_gameplay_ui_values(values));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
         ui, "model-callbacks", kDataModelCallbackDocument, "preview://model-callbacks.rml", true));
@@ -1336,6 +1338,7 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
     const auto player_inventory = noveltea::core::InventoryId::create("player");
     const auto verb = noveltea::core::VerbId::create("inspect");
     const auto disabled_verb = noveltea::core::VerbId::create("use");
+    const auto target_slot = noveltea::core::VerbSlotId::create("target");
     const auto map = noveltea::core::MapId::create("map");
     REQUIRE(scene);
     REQUIRE(scene_step);
@@ -1354,6 +1357,7 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
     REQUIRE(player_inventory);
     REQUIRE(verb);
     REQUIRE(disabled_verb);
+    REQUIRE(target_slot);
     REQUIRE(map);
 
     noveltea::RuntimeUiGameplayValues values;
@@ -1394,8 +1398,8 @@ TEST_CASE("RuntimeUI renders Phase 3 gameplay collections in an ordinary non-sys
                    noveltea::core::compiled::RoomExitDirection::North, "North Hall", true},
                   {south.value(), target.value(),
                    noveltea::core::compiled::RoomExitDirection::South, "Blocked South", false}},
-        .controls = {{verb.value(), "Inspect", 1, false, true},
-                     {disabled_verb.value(), "Use", 1, false, false}}};
+        .controls = {{verb.value(), "Inspect", {target_slot.value()}, false, true},
+                     {disabled_verb.value(), "Use", {target_slot.value()}, false, false}}};
     values.view.inventory.items = {
         {.interactable = interactable.value(),
          .inventory = {noveltea::core::compiled::ProjectInventoryOwner{}, player_inventory.value()},

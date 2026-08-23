@@ -545,6 +545,8 @@ TEST_CASE("editor preview protocol rejects unresolved malformed and unsupported 
     CHECK_FALSE(decode_editor_preview_document_text("room-preview", "{}"));
     CHECK_FALSE(decode_editor_runtime_value_text("[]"));
     CHECK_FALSE(decode_editor_interaction_subjects_text(R"([{"kind":"unknown","id":"door"}])"));
+    CHECK_FALSE(decode_editor_interaction_bindings_text(
+        R"([{"slotId":"target","subject":{"kind":"unknown","id":"door"}}])"));
 }
 
 TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
@@ -564,7 +566,7 @@ TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
            {"input",
             {{"type", "invoke-interaction"},
              {"verb", "look"},
-             {"operands", nlohmann::json::array({door})}}}}}}};
+             {"bindings", nlohmann::json::array({{{"slotId", "target"}, {"subject", door}}})}}}}}}};
     auto result = decode_editor_playback_text(document.dump());
     REQUIRE(result);
     REQUIRE(result.value().steps.size() == 3);

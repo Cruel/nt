@@ -409,7 +409,7 @@ describe('preview protocol validation', () => {
         type: 'runtime-run-interaction',
         requestId: 'runtime-action',
         verbId: 'look',
-        operands: [{ kind: 'interactable', id: 'lamp' }],
+        bindings: [{ slotId: 'target', subject: { kind: 'interactable', id: 'lamp' } }],
       }),
     ).toBe(true);
     expect(
@@ -418,7 +418,7 @@ describe('preview protocol validation', () => {
         type: 'runtime-run-interaction',
         requestId: 'runtime-action-bad',
         verbId: 'look',
-        operands: [{ kind: 'interactable', id: 1 }],
+        bindings: [{ slotId: 'target', subject: { kind: 'interactable', id: 1 } }],
       }),
     ).toBe(false);
     expect(
@@ -725,7 +725,13 @@ describe('preview protocol validation', () => {
         dialogueOptions: [{ index: 0, label: 'Ask about the house', enabled: true }],
         navigation: [{ exitId: 'east-exit', direction: 1, label: 'east', enabled: true }],
         actions: [
-          { verbId: 'look', label: 'Look', objectCount: 1, selectedCount: 1, enabled: true },
+          {
+            verbId: 'look',
+            label: 'Look',
+            bindingOrder: ['target'],
+            selectedCount: 1,
+            enabled: true,
+          },
         ],
         selectedSubjects: [
           { kind: 'character', id: 'guard' },

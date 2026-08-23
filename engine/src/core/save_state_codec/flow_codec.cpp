@@ -480,9 +480,9 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                         {"position", encode_dialogue_position(value.position)},
                         {"destination", encode_destination(value.destination)}};
             else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
-                nlohmann::json operands = nlohmann::json::array();
-                for (const auto& operand : value.invocation.operands)
-                    operands.push_back(std::visit(
+                nlohmann::json bindings = nlohmann::json::array();
+                for (const auto& binding : value.invocation.bindings) {
+                    auto subject_json = std::visit(
                         [](const auto& subject) {
                             using S = std::decay_t<decltype(subject)>;
                             if constexpr (std::is_same_v<S, compiled::CharacterInteractionSubject>)
@@ -515,13 +515,16 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
                                 return nlohmann::json{{"kind", "item-stack"},
                                                       {"id", subject.item_stack.text()}};
                         },
-                        operand));
+                        binding.subject);
+                    bindings.push_back(
+                        {{"slotId", binding.slot_id.text()}, {"subject", std::move(subject_json)}});
+                }
                 return {{"kind", "interaction"},
                         {"id", value.snapshot_id.value},
                         {"invocation",
                          {{"verb", value.invocation.verb.text()},
                           {"room", encode_optional_id(value.invocation.room)},
-                          {"operands", std::move(operands)}}},
+                          {"bindings", std::move(bindings)}}},
                         {"program", encode_interaction_program(value.program)},
                         {"position", encode_interaction_position(value.position)},
                         {"destination", encode_destination(value.destination)}};
@@ -609,88 +612,97 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         const auto* position = d.member(value, "position", pointer);
         const auto* destination = d.member(value, "destination", pointer);
         if (!invocation ||
-            !d.object(*invocation, child(pointer, "invocation"), {"verb", "room", "operands"}))
+            !d.object(*invocation, child(pointer, "invocation"), {"verb", "room", "bindings"}))
             return std::nullopt;
         const auto invoke = child(pointer, "invocation");
         const auto* verb = d.member(*invocation, "verb", invoke);
         const auto* room = d.member(*invocation, "room", invoke);
-        const auto* operands = d.member(*invocation, "operands", invoke);
+        const auto* bindings = d.member(*invocation, "bindings", invoke);
         auto verb_id = verb ? d.id<VerbId>(*verb, child(invoke, "verb")) : std::nullopt;
         auto room_id = room ? d.optional_id<RoomId>(*room, child(invoke, "room"))
                             : Decoder::OptionalId<RoomId>{};
-        std::vector<compiled::InteractionSubject> decoded_operands;
-        if (!operands || !operands->is_array()) {
-            if (operands)
-                d.error(k_type, "Expected an array.", child(invoke, "operands"));
+        std::vector<InteractionSubjectBinding> decoded_bindings;
+        if (!bindings || !bindings->is_array()) {
+            if (bindings)
+                d.error(k_type, "Expected an array.", child(invoke, "bindings"));
             return std::nullopt;
         }
-        for (std::size_t item = 0; item < operands->size(); ++item) {
-            const auto* source = json_access::element(*operands, item);
-            const auto operand_path = index(child(invoke, "operands"), item);
+        for (std::size_t item = 0; item < bindings->size(); ++item) {
+            const auto* binding = json_access::element(*bindings, item);
+            const auto binding_path = index(child(invoke, "bindings"), item);
+            if (!binding || !d.object(*binding, binding_path, {"slotId", "subject"}))
+                continue;
+            const auto* slot = d.member(*binding, "slotId", binding_path);
+            const auto* source = d.member(*binding, "subject", binding_path);
+            auto slot_id =
+                slot ? d.id<VerbSlotId>(*slot, child(binding_path, "slotId")) : std::nullopt;
+            const auto subject_path = child(binding_path, "subject");
             if (!source || !source->is_object()) {
-                d.error(k_type, "Expected an Interaction subject object.", operand_path);
+                if (source)
+                    d.error(k_type, "Expected an Interaction subject object.", subject_path);
                 continue;
             }
-            const auto* kind = d.member(*source, "kind", operand_path);
-            const auto name = kind ? d.string(*kind, child(operand_path, "kind")) : std::nullopt;
+            std::optional<compiled::InteractionSubject> decoded_subject;
+            const auto* kind = d.member(*source, "kind", subject_path);
+            const auto name = kind ? d.string(*kind, child(subject_path, "kind")) : std::nullopt;
             if (name && *name == "character") {
-                d.object(*source, operand_path, {"kind", "id"});
-                const auto* id = d.member(*source, "id", operand_path);
+                d.object(*source, subject_path, {"kind", "id"});
+                const auto* id = d.member(*source, "id", subject_path);
                 auto subject_id =
-                    id ? d.id<CharacterId>(*id, child(operand_path, "id")) : std::nullopt;
+                    id ? d.id<CharacterId>(*id, child(subject_path, "id")) : std::nullopt;
                 if (subject_id)
-                    decoded_operands.emplace_back(
-                        compiled::CharacterInteractionSubject{std::move(*subject_id)});
+                    decoded_subject = compiled::CharacterInteractionSubject{std::move(*subject_id)};
             } else if (name && *name == "interactable") {
-                d.object(*source, operand_path, {"kind", "id"});
-                const auto* id = d.member(*source, "id", operand_path);
+                d.object(*source, subject_path, {"kind", "id"});
+                const auto* id = d.member(*source, "id", subject_path);
                 auto subject_id =
-                    id ? d.id<InteractableId>(*id, child(operand_path, "id")) : std::nullopt;
+                    id ? d.id<InteractableId>(*id, child(subject_path, "id")) : std::nullopt;
                 if (subject_id)
-                    decoded_operands.emplace_back(
-                        compiled::InteractableInteractionSubject{std::move(*subject_id)});
+                    decoded_subject =
+                        compiled::InteractableInteractionSubject{std::move(*subject_id)};
             } else if (name && *name == "feature") {
-                d.object(*source, operand_path, {"kind", "ownerKind", "ownerId", "featureId"});
-                const auto* owner_kind = d.member(*source, "ownerKind", operand_path);
-                const auto* owner_id = d.member(*source, "ownerId", operand_path);
-                const auto* feature_id = d.member(*source, "featureId", operand_path);
+                d.object(*source, subject_path, {"kind", "ownerKind", "ownerId", "featureId"});
+                const auto* owner_kind = d.member(*source, "ownerKind", subject_path);
+                const auto* owner_id = d.member(*source, "ownerId", subject_path);
+                const auto* feature_id = d.member(*source, "featureId", subject_path);
                 auto owner_name = owner_kind
-                                      ? d.string(*owner_kind, child(operand_path, "ownerKind"))
+                                      ? d.string(*owner_kind, child(subject_path, "ownerKind"))
                                       : std::nullopt;
                 auto parsed_feature =
-                    feature_id ? d.id<FeatureId>(*feature_id, child(operand_path, "featureId"))
+                    feature_id ? d.id<FeatureId>(*feature_id, child(subject_path, "featureId"))
                                : std::nullopt;
                 if (owner_name && *owner_name == "room") {
                     auto parsed_owner =
-                        owner_id ? d.id<RoomId>(*owner_id, child(operand_path, "ownerId"))
+                        owner_id ? d.id<RoomId>(*owner_id, child(subject_path, "ownerId"))
                                  : std::nullopt;
                     if (parsed_owner && parsed_feature)
-                        decoded_operands.emplace_back(compiled::FeatureInteractionSubject{
-                            RoomFeatureRef{std::move(*parsed_owner), std::move(*parsed_feature)}});
+                        decoded_subject = compiled::FeatureInteractionSubject{
+                            RoomFeatureRef{std::move(*parsed_owner), std::move(*parsed_feature)}};
                 } else if (owner_name && *owner_name == "interactable") {
                     auto parsed_owner =
-                        owner_id ? d.id<InteractableId>(*owner_id, child(operand_path, "ownerId"))
+                        owner_id ? d.id<InteractableId>(*owner_id, child(subject_path, "ownerId"))
                                  : std::nullopt;
                     if (parsed_owner && parsed_feature)
-                        decoded_operands.emplace_back(
+                        decoded_subject =
                             compiled::FeatureInteractionSubject{InteractableFeatureRef{
-                                std::move(*parsed_owner), std::move(*parsed_feature)}});
+                                std::move(*parsed_owner), std::move(*parsed_feature)}};
                 } else if (owner_name) {
                     d.error(k_variant, "Unknown Feature owner kind '" + *owner_name + "'.",
-                            child(operand_path, "ownerKind"));
+                            child(subject_path, "ownerKind"));
                 }
             } else if (name && *name == "item-stack") {
-                d.object(*source, operand_path, {"kind", "id"});
-                const auto* id = d.member(*source, "id", operand_path);
+                d.object(*source, subject_path, {"kind", "id"});
+                const auto* id = d.member(*source, "id", subject_path);
                 auto subject_id =
-                    id ? d.id<ItemStackId>(*id, child(operand_path, "id")) : std::nullopt;
+                    id ? d.id<ItemStackId>(*id, child(subject_path, "id")) : std::nullopt;
                 if (subject_id)
-                    decoded_operands.emplace_back(
-                        compiled::ItemStackInteractionSubject{std::move(*subject_id)});
+                    decoded_subject = compiled::ItemStackInteractionSubject{std::move(*subject_id)};
             } else if (name) {
                 d.error(k_variant, "Unknown Interaction subject kind '" + *name + "'.",
-                        child(operand_path, "kind"));
+                        child(subject_path, "kind"));
             }
+            if (slot_id && decoded_subject)
+                decoded_bindings.push_back({std::move(*slot_id), std::move(*decoded_subject)});
         }
         auto saved_program =
             program ? decode_interaction_program(d, *program, child(pointer, "program"))
@@ -705,7 +717,7 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
                    ? std::optional<SavedFlowFrame>(
                          SavedInteractionFrame{{*snapshot},
                                                {std::move(*verb_id), std::move(room_id.value),
-                                                std::move(decoded_operands)},
+                                                std::move(decoded_bindings)},
                                                std::move(*saved_program),
                                                std::move(*saved_position),
                                                std::move(*saved_destination)})

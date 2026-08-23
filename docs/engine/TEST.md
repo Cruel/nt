@@ -188,7 +188,10 @@ Each test step has this common shape:
   dialogueOption: { optionIndex: number },
   navigate: { direction: number, target: TestRoomRef | null },
   selectSubjects: { subjects: TestInteractionSubject[] },
-  runInteraction: { verb: TestVerbRef | null, operands: TestInteractionSubject[] },
+  runInteraction: {
+    verb: TestVerbRef | null,
+    bindings: Array<{ slotId: string, subject: TestInteractionSubject }>,
+  },
   loadSave: { slotId: string, payload: JsonValue },
   setEntrypoint: { entrypoint: TestEntrypointRef | null },
   assertions: TestAssertionData[],
@@ -227,7 +230,7 @@ the native playback runner names.
 | `navigate` | `navigate` | `navigate.direction`, `navigate.target` |
 | `select-subjects` | `select-subjects` | `selectSubjects.subjects` |
 | `clear-subject-selection` | `clear-selection` | none |
-| `run-interaction` | `invoke-interaction` | `runInteraction.verb`, `runInteraction.operands` |
+| `run-interaction` | `invoke-interaction` | `runInteraction.verb`, `runInteraction.bindings` |
 | `load-save` | `load_save` | `loadSave.slotId`, `loadSave.payload` |
 | `set-entrypoint` | `set_entrypoint` | `setEntrypoint.entrypoint` |
 
@@ -481,8 +484,8 @@ It serializes:
 - top-level `init` and `check` hooks;
 - per-step `delta_seconds`, `init`, and `check` when present;
 - input payloads such as typed `{ kind: "character" | "interactable", id }`
-  `subjects`/`operands`, dialogue-choice edges, navigation exits, verb ids, and
-  save payloads;
+  subject selections and named `{ slotId, subject }` Interaction bindings,
+  dialogue-choice edges, navigation exits, verb ids, and save payloads;
 - assertion payloads such as `type`, `value`, `key`, `expected`, and minimal
   `entity_ref`.
 

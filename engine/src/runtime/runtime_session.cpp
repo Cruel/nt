@@ -1404,8 +1404,15 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             runtime::MutationImpact::GameplayUiInvalidated);
                     }
                 } else if constexpr (std::is_same_v<T, core::InvokeInteractionInput>) {
-                    auto operands = value.operands.empty() ? m_selection : value.operands;
-                    auto invoked = m_kernel->interact(value.verb, std::move(operands));
+                    auto bindings = value.bindings;
+                    if (bindings.empty()) {
+                        const auto* verb = m_project.find_verb(value.verb);
+                        if (verb && verb->binding_order.size() == m_selection.size())
+                            for (std::size_t index = 0; index < m_selection.size(); ++index)
+                                bindings.push_back(core::InteractionSubjectBinding{
+                                    verb->binding_order[index], m_selection[index]});
+                    }
+                    auto invoked = m_kernel->interact(value.verb, std::move(bindings));
                     if (!invoked)
                         result.diagnostics = as_diagnostics(std::move(invoked).error());
                     else

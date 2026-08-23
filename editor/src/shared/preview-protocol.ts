@@ -186,7 +186,7 @@ export interface RuntimeDebugNavigationSnapshot {
 export interface RuntimeDebugActionSnapshot {
   verbId: string;
   label: string;
-  objectCount: number;
+  bindingOrder: string[];
   selectedCount: number;
   enabled: boolean;
   reason?: string;
@@ -357,7 +357,7 @@ export type EditorToPreviewMessage =
       type: 'runtime-run-interaction';
       requestId: string;
       verbId: string;
-      operands: PreviewInteractionSubject[];
+      bindings: Array<{ slotId: string; subject: PreviewInteractionSubject }>;
     }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
   | {
@@ -735,8 +735,8 @@ function isRuntimeDebugActionSnapshot(value: unknown): value is RuntimeDebugActi
   return (
     typeof value.verbId === 'string' &&
     typeof value.label === 'string' &&
-    typeof value.objectCount === 'number' &&
-    Number.isInteger(value.objectCount) &&
+    Array.isArray(value.bindingOrder) &&
+    value.bindingOrder.every((slotId) => typeof slotId === 'string' && slotId.length > 0) &&
     typeof value.selectedCount === 'number' &&
     Number.isInteger(value.selectedCount) &&
     typeof value.enabled === 'boolean' &&
@@ -1058,8 +1058,14 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return (
         typeof value.verbId === 'string' &&
         value.verbId.length > 0 &&
-        Array.isArray(value.operands) &&
-        value.operands.every(isPreviewInteractionSubject)
+        Array.isArray(value.bindings) &&
+        value.bindings.every(
+          (binding) =>
+            isRecord(binding) &&
+            typeof binding.slotId === 'string' &&
+            binding.slotId.length > 0 &&
+            isPreviewInteractionSubject(binding.subject),
+        )
       );
     case 'runtime-set-variable':
       return (

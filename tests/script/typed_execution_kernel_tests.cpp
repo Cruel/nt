@@ -142,10 +142,38 @@ TEST_CASE("typed execution kernel initializes each frame category from compiled 
     REQUIRE(kernel.flow().start_interaction(
         core::InteractionInvocationContext{verb_id,
                                            core::RoomId::create("start").value(),
-                                           {core::compiled::InteractableInteractionSubject{
-                                               core::InteractableId::create("key").value()}}},
+                                           {{core::VerbSlotId::create("target").value(),
+                                             core::compiled::InteractableInteractionSubject{
+                                                 core::InteractableId::create("key").value()}}}},
         core::InteractionRuleProgramRef{interaction_id, rule_id}));
     CHECK(has_root_frame<core::InteractionFrame>(kernel));
+}
+
+TEST_CASE("flow admission accepts Features on runtime-created Interactable owners")
+{
+    RuntimeFixture fixture;
+    auto project = load_fixture("interaction-program.json");
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::BeforeEnter));
+    REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::CommitRoomSwitch));
+    REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::AfterEnter));
+    REQUIRE(kernel->flow().advance_room_transition(core::RoomTransitionStage::Complete));
+    REQUIRE(kernel->flow().complete_room_transition());
+
+    auto instance = kernel->gateway().create_interactable(runtime::CompiledInstanceConfiguration{
+        core::GameplayInstanceRef{core::InteractableId::create("key").value()}});
+    REQUIRE(instance);
+    const auto subject = core::compiled::FeatureInteractionSubject{
+        core::InteractableFeatureRef{instance.value(), core::FeatureId::create("surface").value()}};
+    REQUIRE(kernel->flow().start_interaction(
+        core::InteractionInvocationContext{core::VerbId::create("use").value(),
+                                           core::RoomId::create("start").value(),
+                                           {{core::VerbSlotId::create("target").value(), subject}}},
+        core::InteractionRuleProgramRef{core::InteractionId::create("actions").value(),
+                                        core::InteractionRuleId::create("any-context").value()}));
+    CHECK(has_root_frame<core::InteractionFrame>(*kernel));
 }
 
 TEST_CASE("save projection ignores internal runtime actions")

@@ -1113,30 +1113,38 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
     });
     game.set_function(
         "run_action",
-        [host](std::string verb_id, sol::optional<sol::table> ids,
+        [host](std::string verb_id, sol::optional<sol::table> slot_bindings,
                sol::this_state state) -> MutationResult {
             sol::state_view view(state);
             auto verb = parse_id<core::VerbId>(std::move(verb_id));
             auto* verb_ref = verb.value_if();
             if (!verb_ref)
                 return mutation(view, core::Result<void, core::Diagnostics>::failure(verb.error()));
-            std::vector<core::compiled::InteractionSubject> operands;
-            if (ids) {
-                for (const auto& [_, object] : *ids) {
-                    if (object.get_type() != sol::type::table)
-                        return mutation(view, core::Result<void, core::Diagnostics>::failure(
-                                                  core::Diagnostics{core::Diagnostic{
-                                                      .code = "runtime.invalid_interaction_operand",
-                                                      .message = "Game.run_action operands must be "
-                                                                 "{kind, id} subject tables"}}));
+            std::vector<core::InteractionSubjectBinding> bindings;
+            if (slot_bindings) {
+                for (const auto& [slot, object] : *slot_bindings) {
+                    if (slot.get_type() != sol::type::string ||
+                        object.get_type() != sol::type::table)
+                        return mutation(
+                            view,
+                            core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
+                                core::Diagnostic{.code = "runtime.invalid_interaction_binding",
+                                                 .message = "Game.run_action bindings must map "
+                                                            "named Verb slots to {kind, id} "
+                                                            "subject tables"}}));
+                    auto slot_id = parse_id<core::VerbSlotId>(slot.as<std::string>());
+                    if (!slot_id)
+                        return mutation(
+                            view, core::Result<void, core::Diagnostics>::failure(slot_id.error()));
                     auto parsed = interaction_subject(object.as<sol::table>());
                     if (!parsed)
                         return mutation(
                             view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
-                    operands.push_back(std::move(*parsed.value_if()));
+                    bindings.push_back(core::InteractionSubjectBinding{
+                        std::move(*slot_id.value_if()), std::move(*parsed.value_if())});
                 }
             }
-            return mutation(view, host->run_interaction(std::move(*verb_ref), std::move(operands)));
+            return mutation(view, host->run_interaction(std::move(*verb_ref), std::move(bindings)));
         });
     game.set_function("save", [host](std::uint32_t slot, sol::this_state state) {
         return mutation(sol::state_view(state), host->save(core::TypedSaveSlotId::manual(slot)));

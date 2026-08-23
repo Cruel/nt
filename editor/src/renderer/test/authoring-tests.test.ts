@@ -71,10 +71,10 @@ describe('authoring tests schema', () => {
         label: 'Interaction',
         runInteraction: {
           verb: { $ref: { collection: 'verbs', id: 'missing-verb' } },
-          operands: [
-            testCharacterSubject('missing-character'),
-            testInteractableSubject('missing-interactable'),
-            testItemStackSubject('missing-stack'),
+          bindings: [
+            { slotId: 'character', subject: testCharacterSubject('missing-character') },
+            { slotId: 'interactable', subject: testInteractableSubject('missing-interactable') },
+            { slotId: 'item', subject: testItemStackSubject('missing-stack') },
           ],
         },
       },
@@ -105,15 +105,15 @@ describe('authoring tests schema', () => {
           severity: 'error',
         }),
         expect.objectContaining({
-          path: '/tests/smoke/data/steps/0/runInteraction/operands/0/character/$ref',
+          path: '/tests/smoke/data/steps/0/runInteraction/bindings/0/subject/character/$ref',
           severity: 'error',
         }),
         expect.objectContaining({
-          path: '/tests/smoke/data/steps/0/runInteraction/operands/1/interactable/$ref',
+          path: '/tests/smoke/data/steps/0/runInteraction/bindings/1/subject/interactable/$ref',
           severity: 'error',
         }),
         expect.objectContaining({
-          path: '/tests/smoke/data/steps/0/runInteraction/operands/2/itemStack/$ref',
+          path: '/tests/smoke/data/steps/0/runInteraction/bindings/2/subject/itemStack/$ref',
           severity: 'error',
         }),
         expect.objectContaining({

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <limits>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 
 namespace noveltea::core {
@@ -231,6 +232,29 @@ FlowExecutor::interactable_definition(const InteractableId& interactable) const 
     return m_world->resolved_configuration(interactable);
 }
 
+const compiled::FeatureDefinition*
+FlowExecutor::feature_definition(const FeatureRef& feature) const noexcept
+{
+    return std::visit(
+        [this](const auto& reference) -> const compiled::FeatureDefinition* {
+            const auto* owner = m_world->resolved_configuration([&]() {
+                using T = std::decay_t<decltype(reference)>;
+                if constexpr (std::is_same_v<T, RoomFeatureRef>)
+                    return reference.room;
+                else
+                    return reference.interactable;
+            }());
+            if (owner == nullptr)
+                return nullptr;
+            const auto found = std::find_if(
+                owner->features.begin(), owner->features.end(), [&](const auto& candidate) {
+                    return candidate.identity.id == reference.feature_id;
+                });
+            return found == owner->features.end() ? nullptr : &*found;
+        },
+        feature);
+}
+
 Result<void, Diagnostics> FlowExecutor::fail(Diagnostics diagnostics)
 {
     if (!m_state.m_execution_fault)
@@ -442,25 +466,34 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
             }
         },
         program_reference);
-    const bool operands_exist = std::all_of(
-        invocation.operands.begin(), invocation.operands.end(),
-        [this](const compiled::InteractionSubject& subject) {
-            return std::visit(
-                [this](const auto& value) {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>)
-                        return character_definition(value.character) != nullptr;
-                    else if constexpr (std::is_same_v<T, compiled::InteractableInteractionSubject>)
-                        return interactable_definition(value.interactable) != nullptr;
-                    else if constexpr (std::is_same_v<T, compiled::FeatureInteractionSubject>)
-                        return m_project.find_feature(value.feature) != nullptr;
-                    else
-                        return m_state.item_stack(value.item_stack) != nullptr;
-                },
-                subject);
-        });
+    std::unordered_set<VerbSlotId> bound_slots;
+    const bool bindings_valid =
+        verb != nullptr && invocation.bindings.size() == verb->slots.size() &&
+        std::all_of(
+            invocation.bindings.begin(), invocation.bindings.end(),
+            [this, verb, &bound_slots](const InteractionSubjectBinding& binding) {
+                const bool known_slot =
+                    std::any_of(verb->slots.begin(), verb->slots.end(),
+                                [&](const auto& slot) { return slot.id == binding.slot_id; });
+                if (!known_slot || !bound_slots.insert(binding.slot_id).second)
+                    return false;
+                return std::visit(
+                    [this](const auto& value) {
+                        using T = std::decay_t<decltype(value)>;
+                        if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>)
+                            return character_definition(value.character) != nullptr;
+                        else if constexpr (std::is_same_v<T,
+                                                          compiled::InteractableInteractionSubject>)
+                            return interactable_definition(value.interactable) != nullptr;
+                        else if constexpr (std::is_same_v<T, compiled::FeatureInteractionSubject>)
+                            return feature_definition(value.feature) != nullptr;
+                        else
+                            return m_state.item_stack(value.item_stack) != nullptr;
+                    },
+                    binding.subject);
+            });
     if (program == nullptr || verb == nullptr || room == nullptr || !m_state.m_flow_stack.empty() ||
-        !program_matches_verb || invocation.operands.size() != verb->arity || !operands_exist)
+        !program_matches_verb || !bindings_valid)
         return Result<void, Diagnostics>::failure(
             execution_error("execution.invalid_interaction_start",
                             "Interaction start requires Room mode and a matching typed program"));

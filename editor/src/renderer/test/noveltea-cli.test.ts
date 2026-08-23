@@ -1371,7 +1371,7 @@ describe('NovelTea headless CLI', () => {
       ExitProjection: ['id', 'target_id', 'direction', 'label', 'enabled', 'glyph'],
       ObjectProjection: ['subject_kind', 'subject_id', 'label', 'enabled', 'selected'],
       InventoryItemProjection: ['id', 'display_name', 'enabled', 'selected'],
-      ActionProjection: ['verb_id', 'label', 'arity', 'quick_action', 'enabled'],
+      ActionProjection: ['verb_id', 'label', 'binding_order', 'quick_action', 'enabled'],
       TextLogEntryProjection: ['sequence', 'kind', 'has_speaker', 'speaker_id', 'text', 'body_rml'],
       RoomProjection: ['available', 'has_enabled_exits', 'exits', 'objects'],
       InventoryProjection: ['items'],

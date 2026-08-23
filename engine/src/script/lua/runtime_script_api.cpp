@@ -1011,7 +1011,7 @@ core::Result<void, core::Diagnostics> RuntimeScriptApi::clear_selection()
 
 core::Result<void, core::Diagnostics>
 RuntimeScriptApi::run_interaction(core::VerbId verb,
-                                  std::vector<core::compiled::InteractionSubject> operands)
+                                  std::vector<core::InteractionSubjectBinding> bindings)
 {
     std::scoped_lock lock(m_state->mutex);
     if (!m_state->capabilities)
@@ -1022,7 +1022,7 @@ RuntimeScriptApi::run_interaction(core::VerbId verb,
         return core::Result<void, core::Diagnostics>::failure(denied("Game.run_interaction"));
     if (!gateway->active(m_state->capabilities->generation()))
         return core::Result<void, core::Diagnostics>::failure(stale());
-    return gateway->run_interaction(std::move(verb), std::move(operands));
+    return gateway->run_interaction(std::move(verb), std::move(bindings));
 }
 
 core::Result<void, core::Diagnostics> RuntimeScriptApi::save(core::TypedSaveSlotId slot)

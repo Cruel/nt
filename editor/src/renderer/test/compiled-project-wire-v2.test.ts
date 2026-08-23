@@ -186,10 +186,11 @@ function representativeWireFixture() {
       verbs: [
         {
           id: 'look',
-          arity: 0,
-          operandRoles: [],
+          slots: [],
+          bindingOrder: [],
           quickAction: true,
           actionText: { markup: 'plain', source: { kind: 'inline', text: 'Look' } },
+          completedCommandText: { markup: 'plain', source: { kind: 'inline', text: 'Look' } },
           availability: { kind: 'always' },
           defaultProgram: {
             instructions: [],
@@ -205,7 +206,7 @@ function representativeWireFixture() {
             {
               id: 'look-key-rule',
               verb: { kind: 'verb', id: 'look' },
-              operands: [],
+              slots: [],
               context: { kind: 'any' },
               program: {
                 instructions: [

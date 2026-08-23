@@ -6,7 +6,10 @@ import {
   resolveAuthoringSymbol,
   resolveNestedAuthoringSymbol,
 } from '../../shared/authoring-compiler';
-import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
+import {
+  compileSubjectSelector,
+  lowerSharedAuthoringProject,
+} from '../../shared/authoring-compiler-shared-lowering';
 import { lowerSceneAndRoomPrograms } from '../../shared/authoring-compiler-scene-room-lowering';
 import { lowerDialogueAndInteractionPrograms } from '../../shared/authoring-compiler-dialogue-interaction-lowering';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
@@ -46,6 +49,41 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('lowers the complete reusable Subject Selector vocabulary without positional rewriting', () => {
+    const selectors = [
+      { kind: 'any-subject' as const },
+      { kind: 'family' as const, family: 'feature' as const },
+      {
+        kind: 'trait' as const,
+        trait: { $ref: { collection: 'traits' as const, id: 'portable' } },
+      },
+      {
+        kind: 'item-definition' as const,
+        itemDefinition: { $ref: { collection: 'itemDefinitions' as const, id: 'credits' } },
+      },
+      { kind: 'qualified-pattern' as const, family: 'interactable' as const, pattern: 'runtime-*' },
+      {
+        kind: 'exact' as const,
+        subject: {
+          kind: 'interactable' as const,
+          interactable: { $ref: { collection: 'interactables' as const, id: 'key' } },
+        },
+      },
+    ];
+
+    expect(selectors.map(compileSubjectSelector)).toEqual([
+      { kind: 'any-subject' },
+      { kind: 'family', family: 'feature' },
+      { kind: 'trait', trait: { kind: 'trait', id: 'portable' } },
+      { kind: 'item-definition', itemDefinition: { kind: 'item-definition', id: 'credits' } },
+      { kind: 'qualified-pattern', family: 'interactable', pattern: 'runtime-*' },
+      {
+        kind: 'exact',
+        subject: { kind: 'interactable', interactable: { kind: 'interactable', id: 'key' } },
+      },
+    ]);
+  });
+
   it('normalizes a detached input and publishes only a strict, canonical complete project', () => {
     const project = validProject();
     const before = JSON.stringify(project);
@@ -647,8 +685,19 @@ describe('authoring compiler framework', () => {
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
 
     const baseVerb = defaultVerbData('Use');
-    baseVerb.arity = 1;
-    baseVerb.operandRoles = ['target'];
+    const targetText = {
+      source: { kind: 'inline' as const, text: 'target' },
+      markup: 'plain' as const,
+    };
+    baseVerb.slots = [
+      {
+        id: 'target',
+        label: targetText,
+        prompt: targetText,
+        selectors: [{ kind: 'any-subject' }],
+      },
+    ];
+    baseVerb.bindingOrder = ['target'];
     baseVerb.availability = { kind: 'lua-predicate', source: 'base_available()' };
     baseVerb.defaultProgram = {
       instructions: [
@@ -663,8 +712,15 @@ describe('authoring compiler framework', () => {
     };
     project.verbs.use = { id: 'use', label: 'Use', data: baseVerb };
     const childVerb = defaultVerbData('Unlock');
-    childVerb.arity = 1;
-    childVerb.operandRoles = ['target'];
+    childVerb.slots = [
+      {
+        id: 'target',
+        label: targetText,
+        prompt: targetText,
+        selectors: [{ kind: 'any-subject' }],
+      },
+    ];
+    childVerb.bindingOrder = ['target'];
     childVerb.availability = { kind: 'always' };
     childVerb.defaultProgram = {
       instructions: [
@@ -684,13 +740,18 @@ describe('authoring compiler framework', () => {
       {
         id: 'unlock-key',
         verb: { $ref: { collection: 'verbs', id: 'unlock' } },
-        operands: [
+        slots: [
           {
-            kind: 'exact',
-            subject: {
-              kind: 'interactable',
-              interactable: { $ref: { collection: 'interactables', id: 'key' } },
-            },
+            slotId: 'target',
+            selectors: [
+              {
+                kind: 'exact',
+                subject: {
+                  kind: 'interactable',
+                  interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                },
+              },
+            ],
           },
         ],
         context: { kind: 'room-placement', placement: { room: 'foyer', placement: 'key-place' } },
@@ -743,7 +804,12 @@ describe('authoring compiler framework', () => {
       {
         id: 'any-key',
         verb: { $ref: { collection: 'verbs', id: 'unlock' } },
-        operands: [{ kind: 'any-interactable' }],
+        slots: [
+          {
+            slotId: 'target',
+            selectors: [{ kind: 'family', family: 'interactable' }],
+          },
+        ],
         context: { kind: 'predicate', condition: { kind: 'always' } },
         program: defaultInteractionProgram(),
       },
@@ -788,8 +854,8 @@ describe('authoring compiler framework', () => {
       ),
     ).toEqual(['effect', 'move', 'state', 'notify', 'scene', 'dialogue']);
     expect(
-      compiled.definitions.interactions[0]!.rules.map((rule) => rule.operands[0]!.kind),
-    ).toEqual(['exact', 'any-interactable']);
+      compiled.definitions.interactions[0]!.rules.map((rule) => rule.slots[0]!.selectors[0]!.kind),
+    ).toEqual(['exact', 'family']);
   });
 
   it('rejects type-invalid Dialogue, Interaction, and Verb variable usage before lowering', () => {
@@ -829,7 +895,7 @@ describe('authoring compiler framework', () => {
       {
         id: 'typed-rule',
         verb: { $ref: { collection: 'verbs', id: 'use' } },
-        operands: [],
+        slots: [],
         context: {
           kind: 'predicate',
           condition: {
@@ -1218,7 +1284,7 @@ describe('authoring compiler framework', () => {
       {
         id: 'look-rule',
         verb: { $ref: { collection: 'verbs', id: 'look' } },
-        operands: [],
+        slots: [],
         context: { kind: 'any' },
         program: {
           instructions: [

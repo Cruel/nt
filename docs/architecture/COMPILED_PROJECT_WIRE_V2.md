@@ -104,8 +104,8 @@ flow-target, resource-source, location, matching, variable, property, and persis
 `decode_compiled_project` is the public native gameplay boundary. It consumes all seven
 canonical documents through strict internal DTOs, reuses the native strong-ID and closed primitive
 vocabulary, and returns `core::Diagnostics` for structural or semantic failures. Scene instructions,
-Dialogue blocks/segments/edges, Interaction rules/instructions/contexts/operands, Verb default
-programs, and Room hooks decode losslessly with owner-scoped nested IDs. A separate linker validates
+Dialogue blocks/segments/edges, Interaction rules/instructions/contexts/named slot selectors, Verb
+slots/binding order/default programs, and Room hooks decode losslessly with owner-scoped nested IDs. A separate linker validates
 all gameplay references, Property/Trait declarations and attachments, nested targets, resource closure, and topology, then publishes one immutable indexed `CompiledProject` only after every check passes. Source JSON is
 never retained. Material references remain typed IDs until the separately versioned material manifest
 is validated and assembled with the compiled package.

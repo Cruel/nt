@@ -136,9 +136,10 @@ bool flow_frame_references(const core::FlowFrame& frame,
                 if (const auto* room = std::get_if<core::RoomId>(&instance);
                     room != nullptr && value.invocation.room == *room)
                     return true;
-                if (std::any_of(value.invocation.operands.begin(), value.invocation.operands.end(),
-                                [&](const auto& operand) {
-                                    return interaction_subject_references(operand, instance);
+                if (std::any_of(value.invocation.bindings.begin(), value.invocation.bindings.end(),
+                                [&](const auto& binding) {
+                                    return interaction_subject_references(binding.subject,
+                                                                          instance);
                                 }))
                     return true;
             } else if constexpr (std::is_same_v<T, core::RoomTransitionFrame>) {
@@ -588,9 +589,9 @@ core::Result<void, core::Diagnostics> RuntimeWorld::validate_room_configuration_
         const auto* interaction = std::get_if<core::InteractionFrame>(&frame);
         if (interaction == nullptr)
             continue;
-        for (const auto& operand : interaction->invocation.operands) {
+        for (const auto& binding : interaction->invocation.bindings) {
             const auto* feature_subject =
-                std::get_if<core::compiled::FeatureInteractionSubject>(&operand);
+                std::get_if<core::compiled::FeatureInteractionSubject>(&binding.subject);
             if (feature_subject == nullptr)
                 continue;
             const auto* feature = std::get_if<core::RoomFeatureRef>(&feature_subject->feature);
@@ -708,9 +709,9 @@ core::Result<void, core::Diagnostics> RuntimeWorld::validate_interactable_config
         const auto* interaction = std::get_if<core::InteractionFrame>(&frame);
         if (interaction == nullptr)
             continue;
-        for (const auto& operand : interaction->invocation.operands) {
+        for (const auto& binding : interaction->invocation.bindings) {
             const auto* feature_subject =
-                std::get_if<core::compiled::FeatureInteractionSubject>(&operand);
+                std::get_if<core::compiled::FeatureInteractionSubject>(&binding.subject);
             if (feature_subject == nullptr)
                 continue;
             const auto* feature =

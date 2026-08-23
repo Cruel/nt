@@ -82,7 +82,7 @@ Collection members are exact:
   placements are preserved.
 - `gameplay.inventory.items[]`: `id`, `display_name`, `enabled`, `selected`. Invisible items are
   omitted.
-- `gameplay.interaction.actions[]`: `verb_id`, `label`, `arity`, `quick_action`, `enabled`.
+- `gameplay.interaction.actions[]`: `verb_id`, `label`, `binding_order`, `quick_action`, `enabled`.
 - `gameplay.text_log.entries[]`: `sequence`, `kind` (`line`, `choice`, or `notification`),
   `has_speaker`, `speaker_id`, `text`, `body_rml`. `body_rml` is engine-generated sanitized rich RML
   and is the only model field intended for `data-rml`.

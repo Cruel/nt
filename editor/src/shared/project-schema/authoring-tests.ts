@@ -5,6 +5,7 @@ import { parseInteractableData } from './authoring-interactables';
 import { parseRoomData } from './authoring-rooms';
 import { itemStackRefSchema } from './authoring-items';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { parseVerbData } from './authoring-verbs';
 
 export const testInputTypeValues = [
   'tick',
@@ -120,10 +121,14 @@ export const testStepDataSchema = z
     runInteraction: z
       .object({
         verb: testVerbRefSchema.nullable().default(null),
-        operands: z.array(testInteractionSubjectSchema).default([]),
+        bindings: z
+          .array(
+            z.object({ slotId: entityIdSchema, subject: testInteractionSubjectSchema }).strict(),
+          )
+          .default([]),
       })
       .strict()
-      .default({ verb: null, operands: [] }),
+      .default({ verb: null, bindings: [] }),
     loadSave: z
       .object({ slotId: z.string().default(''), payload: z.json().default(null) })
       .strict()
@@ -413,11 +418,29 @@ function validateStep(
     );
   if (step.input === 'run-interaction') {
     validateRef(project, step.runInteraction.verb, `${path}/runInteraction/verb`, diagnostics);
-    step.runInteraction.operands.forEach((subject, index) =>
+    const verbRecord = step.runInteraction.verb
+      ? project.verbs[step.runInteraction.verb.$ref.id]
+      : undefined;
+    const verb = verbRecord ? parseVerbData(verbRecord.data) : null;
+    const expectedSlots = new Set(verb?.bindingOrder ?? []);
+    const actualSlots = step.runInteraction.bindings.map((binding) => binding.slotId);
+    if (
+      verb &&
+      (actualSlots.length !== expectedSlots.size ||
+        new Set(actualSlots).size !== actualSlots.length ||
+        actualSlots.some((slotId) => !expectedSlots.has(slotId)))
+    )
+      diagnostics.push(
+        diagnostic(
+          `${path}/runInteraction/bindings`,
+          'Run Interaction must bind every named Verb slot exactly once.',
+        ),
+      );
+    step.runInteraction.bindings.forEach((binding, index) =>
       validateInteractionSubject(
         project,
-        subject,
-        `${path}/runInteraction/operands/${index}`,
+        binding.subject,
+        `${path}/runInteraction/bindings/${index}/subject`,
         diagnostics,
       ),
     );

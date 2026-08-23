@@ -416,6 +416,22 @@ private:
             subject);
     }
 
+    void validate_subject_selector(const SubjectSelector& selector, const std::string& path)
+    {
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, TraitSubjectSelector>)
+                    require(m_traits, value.trait, "Trait", path + "/trait");
+                else if constexpr (std::is_same_v<T, ItemDefinitionSubjectSelector>)
+                    require(m_item_definitions, value.item_definition, "item definition",
+                            path + "/itemDefinition");
+                else if constexpr (std::is_same_v<T, ExactSubjectSelector>)
+                    validate_interaction_subject(value.subject, path + "/subject");
+            },
+            selector);
+    }
+
     template<class Definition>
     void validate_features(const Definition& owner, const std::string& path)
     {
@@ -1150,6 +1166,33 @@ private:
             const auto& value = m_input.verbs[index];
             const auto path = item("/definitions/verbs", index);
             validate_text(value.action_text, path + "/actionText");
+            validate_text(value.completed_command_text, path + "/completedCommandText");
+            std::unordered_set<VerbSlotId> slot_ids;
+            for (std::size_t slot_index = 0; slot_index < value.slots.size(); ++slot_index) {
+                const auto& slot = value.slots[slot_index];
+                const auto slot_path = path + "/slots/" + std::to_string(slot_index);
+                slot_ids.insert(slot.id);
+                validate_text(slot.label, slot_path + "/label");
+                validate_text(slot.prompt, slot_path + "/prompt");
+                for (std::size_t selector_index = 0; selector_index < slot.selectors.size();
+                     ++selector_index)
+                    validate_subject_selector(slot.selectors[selector_index],
+                                              slot_path + "/selectors/" +
+                                                  std::to_string(selector_index));
+            }
+            std::unordered_set<VerbSlotId> binding_ids;
+            for (std::size_t order_index = 0; order_index < value.binding_order.size();
+                 ++order_index) {
+                const auto& slot_id = value.binding_order[order_index];
+                const auto order_path = path + "/bindingOrder/" + std::to_string(order_index);
+                if (!binding_ids.insert(slot_id).second || !slot_ids.contains(slot_id))
+                    error("compiled_project.invalid_verb_binding_order",
+                          "Verb bindingOrder must contain every slot exactly once.", order_path);
+            }
+            if (binding_ids.size() != slot_ids.size())
+                error("compiled_project.invalid_verb_binding_order",
+                      "Verb bindingOrder must contain every slot exactly once.",
+                      path + "/bindingOrder");
             validate_condition(value.availability, path + "/availability");
             validate_program(value.default_program, path + "/defaultProgram");
         }
@@ -1161,11 +1204,32 @@ private:
                 const auto rule_path = path + "/rules/" + std::to_string(rule_index);
                 require(m_verbs, rule.verb, "verb", rule_path + "/verb");
                 const auto verb = m_verbs.find(rule.verb);
-                if (verb != m_verbs.end() &&
-                    rule.operands.size() != m_input.verbs[verb->second].arity)
-                    error("compiled_project.interaction_arity_mismatch",
-                          "Interaction operand count does not match its Verb arity.",
-                          rule_path + "/operands");
+                std::unordered_set<VerbSlotId> rule_slots;
+                for (std::size_t slot_index = 0; slot_index < rule.slots.size(); ++slot_index) {
+                    const auto& slot = rule.slots[slot_index];
+                    const auto slot_path = rule_path + "/slots/" + std::to_string(slot_index);
+                    if (!rule_slots.insert(slot.slot_id).second)
+                        error("compiled_project.duplicate_nested_id",
+                              "Duplicate Interaction slot ID.", slot_path + "/slotId");
+                    for (std::size_t selector_index = 0; selector_index < slot.selectors.size();
+                         ++selector_index)
+                        validate_subject_selector(slot.selectors[selector_index],
+                                                  slot_path + "/selectors/" +
+                                                      std::to_string(selector_index));
+                }
+                if (verb != m_verbs.end()) {
+                    const auto& verb_definition = m_input.verbs[verb->second];
+                    const bool all_known =
+                        std::all_of(rule_slots.begin(), rule_slots.end(), [&](const auto& slot_id) {
+                            return std::any_of(
+                                verb_definition.slots.begin(), verb_definition.slots.end(),
+                                [&](const auto& slot) { return slot.id == slot_id; });
+                        });
+                    if (!all_known || rule_slots.size() != verb_definition.slots.size())
+                        error("compiled_project.interaction_slot_mismatch",
+                              "Interaction rule must define every named Verb slot exactly once.",
+                              rule_path + "/slots");
+                }
                 std::visit(
                     [&](const auto& context) {
                         using T = std::decay_t<decltype(context)>;
@@ -1182,13 +1246,6 @@ private:
                             validate_condition(context.condition, rule_path + "/context/condition");
                     },
                     rule.context);
-                for (std::size_t operand = 0; operand < rule.operands.size(); ++operand) {
-                    const auto* exact = std::get_if<ExactOperand>(&rule.operands[operand]);
-                    if (!exact)
-                        continue;
-                    const auto operand_path = rule_path + "/operands/" + std::to_string(operand);
-                    validate_interaction_subject(exact->subject, operand_path + "/subject");
-                }
                 validate_program(rule.program, rule_path + "/program");
             }
         }

@@ -405,12 +405,12 @@ struct InventoryItemProjection {
 struct ActionProjection {
     std::string verb_id;
     std::string label;
-    int arity = 0;
+    std::vector<std::string> binding_order;
     bool quick_action = false;
     bool enabled = false;
     std::string get_verb_id() { return verb_id; }
     std::string get_label() { return label; }
-    int get_arity() { return arity; }
+    std::vector<std::string>& get_binding_order() { return binding_order; }
     bool get_quick_action() { return quick_action; }
     bool get_enabled() { return enabled; }
 };
@@ -652,9 +652,10 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(InventoryItemProjection, display_name),
             NT_MEMBER(InventoryItemProjection, enabled),
             NT_MEMBER(InventoryItemProjection, selected));
+        ok &= c.RegisterArray<std::vector<std::string>>();
         ok &= register_struct<ActionProjection>(
             c, NT_MEMBER(ActionProjection, verb_id), NT_MEMBER(ActionProjection, label),
-            NT_MEMBER(ActionProjection, arity), NT_MEMBER(ActionProjection, quick_action),
+            NT_MEMBER(ActionProjection, binding_order), NT_MEMBER(ActionProjection, quick_action),
             NT_MEMBER(ActionProjection, enabled));
         ok &= register_struct<TextLogEntryProjection>(
             c, NT_MEMBER(TextLogEntryProjection, sequence), NT_MEMBER(TextLogEntryProjection, kind),
@@ -967,9 +968,15 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
     }
     out.interaction.has_selection = !view.selected_subjects.empty();
     const auto& controls = view.room ? view.room->controls : view.inventory.controls;
-    for (const auto& control : controls)
-        out.interaction.actions.push_back({control.verb.text(), control.label, control.arity,
-                                           control.quick_action, control.enabled});
+    for (const auto& control : controls) {
+        std::vector<std::string> binding_order;
+        binding_order.reserve(control.binding_order.size());
+        for (const auto& slot : control.binding_order)
+            binding_order.push_back(slot.text());
+        out.interaction.actions.push_back({control.verb.text(), control.label,
+                                           std::move(binding_order), control.quick_action,
+                                           control.enabled});
+    }
     for (std::size_t i = 0; i < view.text_log.entries.size(); ++i) {
         const auto& entry = view.text_log.entries[i];
         out.text_log.entries.push_back({static_cast<std::uint64_t>(i), text_log_kind(entry.kind),

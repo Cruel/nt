@@ -77,10 +77,15 @@ struct DialogueFramePosition {
     auto operator<=>(const DialogueFramePosition&) const = default;
 };
 
+struct InteractionSubjectBinding {
+    VerbSlotId slot_id;
+    compiled::InteractionSubject subject;
+    bool operator==(const InteractionSubjectBinding&) const = default;
+};
 struct InteractionInvocationContext {
     VerbId verb;
     std::optional<RoomId> room;
-    std::vector<compiled::InteractionSubject> operands;
+    std::vector<InteractionSubjectBinding> bindings;
 };
 struct InteractionRuleProgramRef {
     InteractionId interaction;

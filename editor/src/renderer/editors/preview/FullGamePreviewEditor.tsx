@@ -97,7 +97,7 @@ interface RecordedRuntimeAction {
     exitId?: string;
     subjects?: PreviewInteractionSubject[];
     verbId?: string;
-    operands?: PreviewInteractionSubject[];
+    bindings?: Array<{ slotId: string; subject: PreviewInteractionSubject }>;
     documentId?: string;
     target?: string;
     selector?: string;
@@ -457,7 +457,7 @@ function executeRecordedAction(
     case 'run-interaction':
       return context.controller.runRuntimeInteraction(
         action.input.verbId ?? '',
-        action.input.operands ?? [],
+        action.input.bindings ?? [],
       );
   }
 }
@@ -685,7 +685,14 @@ function InputAvailabilityPanel({
           onClick={() =>
             controller &&
             onCommand(
-              () => controller.runRuntimeInteraction(action.verbId, inputs.selectedSubjects),
+              () =>
+                controller.runRuntimeInteraction(
+                  action.verbId,
+                  action.bindingOrder.map((slotId, index) => ({
+                    slotId,
+                    subject: inputs.selectedSubjects[index]!,
+                  })),
+                ),
               `Interaction ${action.verbId} sent`,
               {
                 recordedAction: createRecordedAction(
@@ -694,14 +701,18 @@ function InputAvailabilityPanel({
                   {
                     type: 'run-interaction',
                     verbId: action.verbId,
-                    operands: inputs.selectedSubjects,
+                    bindings: action.bindingOrder.map((slotId, index) => ({
+                      slotId,
+                      subject: inputs.selectedSubjects[index]!,
+                    })),
                   },
                 ),
               },
             )
           }
         >
-          {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/{action.objectCount})
+          {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/
+          {action.bindingOrder.length})
         </Button>
       ))}
       {semanticTargets.map((target, index) => (

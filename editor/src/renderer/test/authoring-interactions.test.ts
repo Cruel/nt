@@ -11,6 +11,41 @@ import {
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 
+const slotText = (text: string) => ({
+  source: { kind: 'inline' as const, text },
+  markup: 'plain' as const,
+});
+const oneSlotVerb = (label: string, id = 'target') => ({
+  ...defaultVerbData(label),
+  slots: [
+    {
+      id,
+      label: slotText(id),
+      prompt: slotText(id),
+      selectors: [{ kind: 'any-subject' as const }],
+    },
+  ],
+  bindingOrder: [id],
+});
+const twoSlotVerb = (label: string) => ({
+  ...defaultVerbData(label),
+  slots: [
+    {
+      id: 'first',
+      label: slotText('first'),
+      prompt: slotText('first'),
+      selectors: [{ kind: 'any-subject' as const }],
+    },
+    {
+      id: 'second',
+      label: slotText('second'),
+      prompt: slotText('second'),
+      selectors: [{ kind: 'any-subject' as const }],
+    },
+  ],
+  bindingOrder: ['first', 'second'],
+});
+
 describe('authoring interactions', () => {
   it('does not warn that rules with different active-room contexts have equal specificity', () => {
     const project = createAuthoringProject();
@@ -38,14 +73,14 @@ describe('authoring interactions', () => {
       {
         id: 'a',
         verb: { $ref: { collection: 'verbs', id: 'look' } },
-        operands: [],
+        slots: [],
         context: { kind: 'active-room', room: { $ref: { collection: 'rooms', id: 'a' } } },
         program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
       },
       {
         id: 'b',
         verb: { $ref: { collection: 'verbs', id: 'look' } },
-        operands: [],
+        slots: [],
         context: { kind: 'active-room', room: { $ref: { collection: 'rooms', id: 'b' } } },
         program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
       },
@@ -68,7 +103,7 @@ describe('authoring interactions', () => {
       {
         id: 'look-rule',
         verb: { $ref: { collection: 'verbs', id: 'look' } },
-        operands: [],
+        slots: [],
         context: { kind: 'any' },
         program: {
           instructions: [
@@ -113,19 +148,24 @@ describe('authoring interactions', () => {
     project.verbs.use = {
       id: 'use',
       label: 'Use',
-      data: { ...defaultVerbData('Use'), arity: 1, operandRoles: ['target'] },
+      data: oneSlotVerb('Use'),
     };
     const interaction = defaultInteractionData();
     interaction.rules.push({
       id: 'use-key',
       verb: { $ref: { collection: 'verbs', id: 'use' } },
-      operands: [
+      slots: [
         {
-          kind: 'exact',
-          subject: {
-            kind: 'interactable',
-            interactable: { $ref: { collection: 'interactables', id: 'key' } },
-          },
+          slotId: 'target',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: {
+                kind: 'interactable',
+                interactable: { $ref: { collection: 'interactables', id: 'key' } },
+              },
+            },
+          ],
         },
       ],
       context: { kind: 'any' },
@@ -141,7 +181,7 @@ describe('authoring interactions', () => {
     expect(findUsages(index, { collection: 'interactables', id: 'key' })).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: '/interactions/use/data/rules/0/operands/0/subject/interactable/$ref',
+          path: '/interactions/use/data/rules/0/slots/0/selectors/0/subject/interactable/$ref',
         }),
       ]),
     );
@@ -159,7 +199,7 @@ describe('authoring interactions', () => {
     project.verbs.combine = {
       id: 'combine',
       label: 'Combine',
-      data: { ...defaultVerbData('Combine'), arity: 2, operandRoles: ['first', 'second'] },
+      data: twoSlotVerb('Combine'),
     };
     const data = defaultInteractionData();
     const program = {
@@ -171,20 +211,30 @@ describe('authoring interactions', () => {
       {
         id: 'exact',
         verb: { $ref: { collection: 'verbs', id: 'combine' } },
-        operands: [
+        slots: [
           {
-            kind: 'exact',
-            subject: {
-              kind: 'character',
-              character: { $ref: { collection: 'characters', id: 'guard' } },
-            },
+            slotId: 'first',
+            selectors: [
+              {
+                kind: 'exact',
+                subject: {
+                  kind: 'character',
+                  character: { $ref: { collection: 'characters', id: 'guard' } },
+                },
+              },
+            ],
           },
           {
-            kind: 'exact',
-            subject: {
-              kind: 'interactable',
-              interactable: { $ref: { collection: 'interactables', id: 'key' } },
-            },
+            slotId: 'second',
+            selectors: [
+              {
+                kind: 'exact',
+                subject: {
+                  kind: 'interactable',
+                  interactable: { $ref: { collection: 'interactables', id: 'key' } },
+                },
+              },
+            ],
           },
         ],
         context: { kind: 'any' },
@@ -193,14 +243,20 @@ describe('authoring interactions', () => {
       {
         id: 'characters',
         verb: { $ref: { collection: 'verbs', id: 'combine' } },
-        operands: [{ kind: 'any-character' }, { kind: 'any-subject' }],
+        slots: [
+          { slotId: 'first', selectors: [{ kind: 'family', family: 'character' }] },
+          { slotId: 'second', selectors: [{ kind: 'any-subject' }] },
+        ],
         context: { kind: 'any' },
         program,
       },
       {
         id: 'interactables',
         verb: { $ref: { collection: 'verbs', id: 'combine' } },
-        operands: [{ kind: 'any-interactable' }, { kind: 'any-subject' }],
+        slots: [
+          { slotId: 'first', selectors: [{ kind: 'family', family: 'interactable' }] },
+          { slotId: 'second', selectors: [{ kind: 'any-subject' }] },
+        ],
         context: { kind: 'any' },
         program,
       },
@@ -217,7 +273,12 @@ describe('authoring interactions', () => {
     expect(
       parseInteractionData({
         ...data,
-        rules: [{ ...data.rules[0], operands: [{ kind: 'any-object' }] }],
+        rules: [
+          {
+            ...data.rules[0],
+            slots: [{ slotId: 'first', selectors: [{ kind: 'any-object' }] }],
+          },
+        ],
       }),
     ).toBeNull();
   });

@@ -133,6 +133,8 @@ private:
     character_definition(const CharacterId& character) const noexcept;
     [[nodiscard]] const compiled::InteractableDefinition*
     interactable_definition(const InteractableId& interactable) const noexcept;
+    [[nodiscard]] const compiled::FeatureDefinition*
+    feature_definition(const FeatureRef& feature) const noexcept;
     void clear_blocker_for(const FlowFrameId& owner) noexcept;
     [[nodiscard]] bool& running_flag() noexcept;
 

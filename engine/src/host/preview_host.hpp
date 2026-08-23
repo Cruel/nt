@@ -109,7 +109,7 @@ public:
     [[nodiscard]] bool select_subjects(std::vector<core::compiled::InteractionSubject> subjects);
     [[nodiscard]] bool clear_subject_selection();
     [[nodiscard]] bool run_interaction(const std::string& verb_id,
-                                       std::vector<core::compiled::InteractionSubject> operands);
+                                       std::vector<core::InteractionSubjectBinding> bindings);
 
     [[nodiscard]] PreviewMutationResult set_variable(const std::string& variable_id,
                                                      core::RuntimeValue value);

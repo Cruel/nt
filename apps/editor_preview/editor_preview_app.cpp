@@ -315,18 +315,18 @@ EMSCRIPTEN_KEEPALIVE int noveltea_runtime_clear_subject_selection()
 }
 
 EMSCRIPTEN_KEEPALIVE int noveltea_runtime_run_interaction(const char* verb_id,
-                                                          const char* operands_json)
+                                                          const char* bindings_json)
 {
     auto* preview = preview_controller();
     if (!preview || !verb_id)
         return 0;
-    auto operands = noveltea::core::editor::decode_editor_interaction_subjects_text(
-        operands_json ? operands_json : "[]");
-    if (!operands) {
-        preview->report_diagnostics(std::move(operands).error());
+    auto bindings = noveltea::core::editor::decode_editor_interaction_bindings_text(
+        bindings_json ? bindings_json : "[]");
+    if (!bindings) {
+        preview->report_diagnostics(std::move(bindings).error());
         return 0;
     }
-    return preview->run_interaction(verb_id, std::move(*operands.value_if())) ? 1 : 0;
+    return preview->run_interaction(verb_id, std::move(*bindings.value_if())) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_set_variable(const char* variable_id,

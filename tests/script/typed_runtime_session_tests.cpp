@@ -914,9 +914,11 @@ TEST_CASE("internal runtime commands settle before checkpoint evaluation")
                 .diagnostics.empty());
     const auto use = make_id<core::VerbIdTag>("use");
     const auto key = make_id<core::InteractableIdTag>("key");
-    auto invoked = dispatch_settled(
-        *fixture.session, core::RuntimeInputMessage{core::InvokeInteractionInput{
-                              use, {core::compiled::InteractableInteractionSubject{key}}}});
+    auto invoked = dispatch_settled(*fixture.session,
+                                    core::RuntimeInputMessage{core::InvokeInteractionInput{
+                                        use,
+                                        {{make_id<core::VerbSlotIdTag>("target"),
+                                          core::compiled::InteractableInteractionSubject{key}}}}});
     REQUIRE(invoked.disposition == runtime::RuntimeInputDisposition::Handled);
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location = fixture.session->gateway().interactable_location(key);
@@ -933,10 +935,10 @@ TEST_CASE("deferred runtime commands execute inside one outer transaction")
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{
-        core::InvokeInteractionInput{make_id<core::VerbIdTag>("use"),
-                                     {core::compiled::InteractableInteractionSubject{
-                                         make_id<core::InteractableIdTag>("key")}}}});
+    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{core::InvokeInteractionInput{
+        make_id<core::VerbIdTag>("use"),
+        {{make_id<core::VerbSlotIdTag>("target"), core::compiled::InteractableInteractionSubject{
+                                                      make_id<core::InteractableIdTag>("key")}}}}});
     REQUIRE(invoked.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location =
@@ -1588,13 +1590,13 @@ TEST_CASE(
     CHECK_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
 }
 
-TEST_CASE("runtime script API routes autosave and rejects malformed interaction operands")
+TEST_CASE("runtime script API routes autosave and rejects malformed interaction bindings")
 {
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
                 .diagnostics.empty());
     REQUIRE(execute_session_lua(fixture,
-                                "local ok, err = Game.run_action('use', { 'key', 5 })\n"
+                                "local ok, err = Game.run_action('use', { target = 5 })\n"
                                 "assert(not ok and err ~= nil)\n"
                                 "ok, err = Game.autosave()\n"
                                 "assert(ok and err == nil)",
@@ -1637,7 +1639,7 @@ TEST_CASE("runtime script API uses owner-qualified Feature subjects and Properti
         "assert(present and value == false and err == nil)\n"
         "ok, err = noveltea.properties.unset_feature('room', 'start', 'door', 'enabled')\n"
         "assert(ok and err == nil)\n"
-        "ok, err = Game.run_action('inspect', {{kind='feature', ownerKind='room', "
+        "ok, err = Game.run_action('inspect', {target={kind='feature', ownerKind='room', "
         "ownerId='start', featureId='door'}})\n"
         "assert(ok and err == nil)",
         "script-api-feature"));
@@ -1646,7 +1648,7 @@ TEST_CASE("runtime script API uses owner-qualified Feature subjects and Properti
 
     REQUIRE(execute_session_lua(
         fixture,
-        "local ok, err = Game.run_action('inspect', {{kind='feature', ownerKind='unknown', "
+        "local ok, err = Game.run_action('inspect', {target={kind='feature', ownerKind='unknown', "
         "ownerId='start', featureId='door'}})\n"
         "assert(not ok and err ~= nil)",
         "script-api-feature-invalid-owner"));

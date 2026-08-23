@@ -100,6 +100,7 @@ TEST_CASE("compiled wire identity families remain strongly separated")
     STATIC_REQUIRE(!std::is_convertible_v<RoomOverlayId, RoomPlacementId>);
     STATIC_REQUIRE(!std::is_convertible_v<SceneBranchId, SceneChoiceOptionId>);
     STATIC_REQUIRE(!std::is_convertible_v<InteractionRuleId, InteractionInstructionId>);
+    STATIC_REQUIRE(!std::is_convertible_v<VerbSlotId, InteractionRuleId>);
     STATIC_REQUIRE(!std::is_convertible_v<MapLocationId, MapConnectionId>);
 }
 
@@ -111,7 +112,7 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractableLocation> == 3);
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractionInstruction> == 6);
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractionContext> == 4);
-    STATIC_REQUIRE(std::variant_size_v<compiled::InteractionOperand> == 5);
+    STATIC_REQUIRE(std::variant_size_v<compiled::SubjectSelector> == 6);
     STATIC_REQUIRE(std::variant_size_v<compiled::SceneInstruction> == 13);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueSegment> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueBlock> == 3);

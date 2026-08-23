@@ -11,6 +11,14 @@ import { defaultScriptModuleData } from '../../shared/project-schema/authoring-s
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 
+function oneSlotVerb(label = 'Use') {
+  const verb = defaultVerbData(label);
+  const text = { source: { kind: 'inline' as const, text: 'target' }, markup: 'plain' as const };
+  verb.slots = [{ id: 'target', label: text, prompt: text, selectors: [{ kind: 'any-subject' }] }];
+  verb.bindingOrder = ['target'];
+  return verb;
+}
+
 describe('runtime-content authoring contracts', () => {
   it('links typed Verb, Interaction, Map, and Script Module records without generic action payloads', () => {
     const project = createAuthoringProject();
@@ -32,21 +40,24 @@ describe('runtime-content authoring contracts', () => {
       properties: {},
       data: key,
     };
-    const verb = defaultVerbData('Use');
-    verb.arity = 1;
-    verb.operandRoles = ['target'];
+    const verb = oneSlotVerb('Use');
     project.verbs.use = { id: 'use', label: 'Use', data: verb };
     const interaction = defaultInteractionData();
     interaction.rules.push({
       id: 'use-key',
       verb: { $ref: { collection: 'verbs', id: 'use' } },
-      operands: [
+      slots: [
         {
-          kind: 'exact',
-          subject: {
-            kind: 'interactable',
-            interactable: { $ref: { collection: 'interactables', id: 'key' } },
-          },
+          slotId: 'target',
+          selectors: [
+            {
+              kind: 'exact',
+              subject: {
+                kind: 'interactable',
+                interactable: { $ref: { collection: 'interactables', id: 'key' } },
+              },
+            },
+          ],
         },
       ],
       context: { kind: 'active-room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
@@ -105,17 +116,15 @@ describe('runtime-content authoring contracts', () => {
     );
   });
 
-  it('rejects mismatched operands, nested unknown program fields, and nonexclusive Script Module source data', () => {
+  it('rejects mismatched slots, nested unknown program fields, and nonexclusive Script Module source data', () => {
     const project = createAuthoringProject();
-    const verb = defaultVerbData();
-    verb.arity = 1;
-    verb.operandRoles = ['target'];
+    const verb = oneSlotVerb();
     project.verbs.use = { id: 'use', label: 'Use', data: verb };
     const interaction = defaultInteractionData();
     interaction.rules.push({
       id: 'bad-rule',
       verb: { $ref: { collection: 'verbs', id: 'use' } },
-      operands: [],
+      slots: [],
       context: { kind: 'any' },
       program: { instructions: [], completion: { kind: 'end' }, outcome: 'handled' },
     });
@@ -126,7 +135,7 @@ describe('runtime-content authoring contracts', () => {
     };
     expect(validateAuthoringProject(project)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/interactions/actions/data/rules/0/operands' }),
+        expect.objectContaining({ path: '/interactions/actions/data/rules/0/slots' }),
       ]),
     );
     expect(

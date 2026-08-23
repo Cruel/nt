@@ -155,8 +155,12 @@ core::LoadedCompiledPackage collector_package()
         {"kind", "scene"}, {"scene", {{"id", "opening"}, {"kind", "scene"}}}};
     auto use_verb = document["definitions"]["verbs"][0];
     use_verb["id"] = "use";
-    use_verb["arity"] = 1;
-    use_verb["operandRoles"] = nlohmann::json::array({"target"});
+    use_verb["slots"] = nlohmann::json::array(
+        {{{"id", "target"},
+          {"label", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Target"}}}}},
+          {"prompt", {{"markup", "plain"}, {"source", {{"kind", "inline"}, {"text", "Target"}}}}},
+          {"selectors", nlohmann::json::array({{{"kind", "any-subject"}}})}}});
+    use_verb["bindingOrder"] = nlohmann::json::array({"target"});
     use_verb["quickAction"] = false;
     document["definitions"]["verbs"].push_back(std::move(use_verb));
     const auto alpha_hotspot = nlohmann::json{{"kind", "sprite-alpha"},

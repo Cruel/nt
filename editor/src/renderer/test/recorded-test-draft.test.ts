@@ -55,9 +55,9 @@ describe('recorded test draft conversion', () => {
             input: {
               type: 'run-interaction',
               verbId: 'show',
-              operands: [
-                { kind: 'character', id: 'guard' },
-                { kind: 'interactable', id: 'lamp' },
+              bindings: [
+                { slotId: 'recipient', subject: { kind: 'character', id: 'guard' } },
+                { slotId: 'object', subject: { kind: 'interactable', id: 'lamp' } },
               ],
             },
           },
@@ -107,11 +107,20 @@ describe('recorded test draft conversion', () => {
           input: 'run-interaction',
           runInteraction: {
             verb: { $ref: { collection: 'verbs', id: 'show' } },
-            operands: [
-              { kind: 'character', character: { $ref: { collection: 'characters', id: 'guard' } } },
+            bindings: [
               {
-                kind: 'interactable',
-                interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
+                slotId: 'recipient',
+                subject: {
+                  kind: 'character',
+                  character: { $ref: { collection: 'characters', id: 'guard' } },
+                },
+              },
+              {
+                slotId: 'object',
+                subject: {
+                  kind: 'interactable',
+                  interactable: { $ref: { collection: 'interactables', id: 'lamp' } },
+                },
               },
             ],
           },
