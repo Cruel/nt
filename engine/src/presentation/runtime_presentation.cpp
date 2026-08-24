@@ -430,10 +430,11 @@ void canonicalize(RuntimePresentationSnapshot& result)
         return std::tie(a.policy.plane, a.policy.local_order, a.key) <
                std::tie(b.policy.plane, b.policy.local_order, b.key);
     });
-    std::sort(
-        result.desired_audio.begin(), result.desired_audio.end(), [](const auto& a, const auto& b) {
-            return std::tie(a.bus, a.owner, a.instance) < std::tie(b.bus, b.owner, b.instance);
-        });
+    std::sort(result.desired_audio.begin(), result.desired_audio.end(),
+              [](const auto& a, const auto& b) {
+                  return std::tie(a.purpose, a.owner, a.instance) <
+                         std::tie(b.purpose, b.owner, b.instance);
+              });
 }
 
 RoomPresentationVisualCatalog
@@ -986,6 +987,22 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
     validate_text_and_choice(project, world, state, diagnostics);
     result.text_and_choice = {state.presented_text(), state.active_choice()};
 
+    result.active_audio_owners.push_back(state.session_presentation_owner());
+    result.active_audio_owners.push_back(state.shell_presentation_owner());
+    if (const auto room_owner = state.current_room_presentation_owner()) {
+        result.active_audio_owners.push_back(*room_owner);
+        result.active_audio_owners.push_back(RoomPresentationOwner{room_owner->room});
+    }
+    for (const auto& frame : state.flow_stack()) {
+        if (const auto* scene = std::get_if<SceneFrame>(&frame))
+            result.active_audio_owners.push_back(
+                ScenePresentationOwner{scene->frame_id, scene->scene});
+    }
+    std::sort(result.active_audio_owners.begin(), result.active_audio_owners.end());
+    result.active_audio_owners.erase(
+        std::unique(result.active_audio_owners.begin(), result.active_audio_owners.end()),
+        result.active_audio_owners.end());
+
     for (const auto& audio : state.desired_audio()) {
         if (!state.presentation_owner_is_active(audio.owner))
             continue;
@@ -1000,9 +1017,16 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         }
         validate_asset(project, std::optional<AssetId>{audio.asset}, compiled::AssetKind::Audio,
                        "desired audio asset", diagnostics);
-        result.desired_audio.push_back({audio.instance, audio.owner, audio.bus, audio.asset,
-                                        audio.volume, audio.fade_in, audio.fade_out,
-                                        audio.replacement_key});
+        auto resolved_pan =
+            state.resolve_audio_pan(project, audio.owner, audio.pan, audio.pan_source);
+        if (!resolved_pan) {
+            append_diagnostics(diagnostics, std::move(resolved_pan).error());
+            continue;
+        }
+        result.desired_audio.push_back({audio.instance, audio.owner, audio.purpose,
+                                        audio.pause_policy, audio.asset, audio.gain,
+                                        *resolved_pan.value_if(), audio.pan_source, audio.fade_in,
+                                        audio.fade_out, audio.replacement_key});
     }
 
     canonicalize(result);

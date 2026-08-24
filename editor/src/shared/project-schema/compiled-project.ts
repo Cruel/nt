@@ -690,12 +690,25 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     ...sceneInstructionCommon,
     action: z.enum(['play', 'stop', 'fade-in', 'fade-out']),
     asset: assetReferenceSchema.nullable(),
-    channel: z.enum(['sound-effect', 'music', 'voice', 'ambient']),
+    purpose: z.enum(['music', 'ambience', 'voice', 'sound-effect', 'ui-sound']),
+    lifetime: z.enum(['desired-loop', 'one-shot']),
+    pausePolicy: z.enum(['gameplay', 'owner', 'unscaled']),
+    gain: finiteNumber.min(0).max(1),
+    pan: finiteNumber.min(-1).max(1),
+    panSource: z
+      .discriminatedUnion('kind', [
+        strict({ kind: z.literal('scene-actor'), slotId: id }),
+        strict({ kind: z.literal('room-anchor'), room: roomReferenceSchema, anchorId: id }),
+      ])
+      .nullable(),
     fadeMs: z.number().int().nonnegative(),
     kind: z.literal('audio-cue'),
-    loop: z.boolean(),
-    volume: finiteNumber.min(0).max(1),
     waitForCompletion: z.boolean(),
+    causality: z.enum(['causal', 'disposable']),
+    synchronized: z.boolean(),
+    skipBehavior: z.enum(['stop', 'suppress', 'play']),
+    instanceId: id.nullable(),
+    replacementGroup: id.nullable(),
   }),
   strict({
     ...sceneInstructionCommon,
@@ -1022,6 +1035,20 @@ const runtimeSettingsSchema = strict({
       enabled: z.boolean(),
       maximum: positiveFiniteNumber,
       minimum: positiveFiniteNumber,
+    }),
+  }),
+  audio: strict({
+    purposes: strict({
+      music: strict({ volume: finiteNumber.min(0).max(1), muted: z.boolean() }),
+      ambience: strict({ volume: finiteNumber.min(0).max(1), muted: z.boolean() }),
+      voice: strict({ volume: finiteNumber.min(0).max(1), muted: z.boolean() }),
+      'sound-effect': strict({ volume: finiteNumber.min(0).max(1), muted: z.boolean() }),
+      'ui-sound': strict({ volume: finiteNumber.min(0).max(1), muted: z.boolean() }),
+    }),
+    voiceDucking: strict({
+      enabled: z.boolean(),
+      musicGain: finiteNumber.min(0).max(1),
+      ambienceGain: finiteNumber.min(0).max(1),
     }),
   }),
   systemLayouts: z.array(

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
+import { DEFAULT_PROJECT_AUDIO_SETTINGS, projectAudioSettingsSchema } from './authoring-audio';
 import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
 import { systemLayoutRoleValues, systemLayoutSettingsSchema } from './authoring-layouts';
 import {
@@ -221,6 +222,7 @@ export const typedProjectSettingsSchema = z
     accessibility: projectAccessibilitySettingsSchema.default(
       DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS,
     ),
+    audio: projectAudioSettingsSchema.default(DEFAULT_PROJECT_AUDIO_SETTINGS),
     presentation: z
       .object({
         roomNavigationTransition: roomNavigationTransitionSchema,
@@ -334,6 +336,9 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
   const rawUiScale = objectValue(rawAccessibility.uiScale);
   const rawTextScale = objectValue(rawAccessibility.textScale);
   const rawPresentation = objectValue(raw.presentation);
+  const rawAudio = objectValue(raw.audio);
+  const rawAudioPurposes = objectValue(rawAudio.purposes);
+  const rawVoiceDucking = objectValue(rawAudio.voiceDucking);
   const rawTransition = objectValue(rawPresentation.roomNavigationTransition);
   const defaults = defaultProjectAppIdentity(project);
   const app = {
@@ -387,6 +392,31 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
         ...DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS.textScale,
         ...rawTextScale,
       },
+    },
+    audio: {
+      purposes: {
+        music: {
+          ...DEFAULT_PROJECT_AUDIO_SETTINGS.purposes.music,
+          ...objectValue(rawAudioPurposes.music),
+        },
+        ambience: {
+          ...DEFAULT_PROJECT_AUDIO_SETTINGS.purposes.ambience,
+          ...objectValue(rawAudioPurposes.ambience),
+        },
+        voice: {
+          ...DEFAULT_PROJECT_AUDIO_SETTINGS.purposes.voice,
+          ...objectValue(rawAudioPurposes.voice),
+        },
+        'sound-effect': {
+          ...DEFAULT_PROJECT_AUDIO_SETTINGS.purposes['sound-effect'],
+          ...objectValue(rawAudioPurposes['sound-effect']),
+        },
+        'ui-sound': {
+          ...DEFAULT_PROJECT_AUDIO_SETTINGS.purposes['ui-sound'],
+          ...objectValue(rawAudioPurposes['ui-sound']),
+        },
+      },
+      voiceDucking: { ...DEFAULT_PROJECT_AUDIO_SETTINGS.voiceDucking, ...rawVoiceDucking },
     },
     presentation: {
       ...rawPresentation,

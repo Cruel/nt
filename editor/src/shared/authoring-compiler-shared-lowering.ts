@@ -1156,6 +1156,16 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         uiScale: { ...settings.accessibility.uiScale },
         textScale: { ...settings.accessibility.textScale },
       },
+      audio: {
+        purposes: {
+          music: { ...settings.audio.purposes.music },
+          ambience: { ...settings.audio.purposes.ambience },
+          voice: { ...settings.audio.purposes.voice },
+          'sound-effect': { ...settings.audio.purposes['sound-effect'] },
+          'ui-sound': { ...settings.audio.purposes['ui-sound'] },
+        },
+        voiceDucking: { ...settings.audio.voiceDucking },
+      },
       text: { defaultFont: assetRef(settings.text.defaultFont) },
       titleScreen: {
         titleImage: assetRef(settings.titleScreen.titleImage),

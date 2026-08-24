@@ -185,11 +185,16 @@ bool valid_scene_instruction(const compiled::SceneInstruction& instruction) noex
                            ? value.duration_ms == 0 &&
                                  std::holds_alternative<ImmediateWait>(value.wait)
                            : value.duration_ms > 0;
-            } else if constexpr (std::is_same_v<T, compiled::AudioCueInstruction>)
+            } else if constexpr (std::is_same_v<T, compiled::AudioCueInstruction>) {
                 return enum_at_most(value.action, compiled::AudioAction::FadeOut) &&
-                       enum_at_most(value.channel, compiled::AudioChannel::Ambient) &&
-                       finite(value.volume) && value.volume >= 0.0 && value.volume <= 1.0;
-            else if constexpr (std::is_same_v<T, compiled::ConditionalBranchInstruction>)
+                       enum_at_most(value.purpose, compiled::AudioPurpose::UiSound) &&
+                       enum_at_most(value.lifetime, compiled::AudioLifetime::OneShot) &&
+                       enum_at_most(value.pause_policy, compiled::AudioPausePolicy::Unscaled) &&
+                       enum_at_most(value.causality, compiled::AudioCausality::Disposable) &&
+                       enum_at_most(value.skip_behavior, compiled::AudioSkipBehavior::Play) &&
+                       finite(value.gain) && value.gain >= 0.0 && value.gain <= 1.0 &&
+                       finite(value.pan) && value.pan >= -1.0 && value.pan <= 1.0;
+            } else if constexpr (std::is_same_v<T, compiled::ConditionalBranchInstruction>)
                 return true;
             else if constexpr (std::is_same_v<T, compiled::ChoiceSceneInstruction>)
                 return !value.options.empty();
@@ -275,6 +280,19 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         !valid_accessibility_policy(input.settings.accessibility.ui_scale) ||
         !valid_accessibility_policy(input.settings.accessibility.text_scale)) {
         diagnostics = invalid_model("Runtime display settings are invalid");
+        return false;
+    }
+    const auto valid_audio_mix = [](const compiled::AudioPurposeMixSettings& mix) {
+        return finite(mix.volume) && mix.volume >= 0.0 && mix.volume <= 1.0;
+    };
+    const auto& audio = input.settings.audio;
+    if (!valid_audio_mix(audio.music) || !valid_audio_mix(audio.ambience) ||
+        !valid_audio_mix(audio.voice) || !valid_audio_mix(audio.sound_effect) ||
+        !valid_audio_mix(audio.ui_sound) || !finite(audio.voice_ducking.music_gain) ||
+        audio.voice_ducking.music_gain < 0.0 || audio.voice_ducking.music_gain > 1.0 ||
+        !finite(audio.voice_ducking.ambience_gain) || audio.voice_ducking.ambience_gain < 0.0 ||
+        audio.voice_ducking.ambience_gain > 1.0) {
+        diagnostics = invalid_model("Runtime audio settings are invalid");
         return false;
     }
     for (const auto& layout : input.settings.system_layouts) {

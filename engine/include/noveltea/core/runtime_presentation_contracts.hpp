@@ -138,9 +138,12 @@ struct PresentationTextAndChoice {
 struct PresentationDesiredAudio {
     DesiredAudioInstanceId instance;
     PresentationOwner owner;
-    compiled::AudioChannel bus = compiled::AudioChannel::Music;
+    compiled::AudioPurpose purpose = compiled::AudioPurpose::Music;
+    compiled::AudioPausePolicy pause_policy = compiled::AudioPausePolicy::Gameplay;
     AssetId asset;
-    double volume = 1.0;
+    double gain = 1.0;
+    double pan = 0.0;
+    std::optional<compiled::AudioPanSource> pan_source;
     std::chrono::milliseconds fade_in{0};
     std::chrono::milliseconds fade_out{0};
     std::optional<DesiredAudioReplacementKey> replacement_key;
@@ -182,6 +185,7 @@ struct RuntimePresentationSnapshot {
     std::vector<PresentationEnvironment> environments;
     std::vector<PresentationMountedLayout> layouts;
     PresentationTextAndChoice text_and_choice;
+    std::vector<PresentationOwner> active_audio_owners;
     std::vector<PresentationDesiredAudio> desired_audio;
     std::vector<PresentationHotspot> hotspots;
     bool operator==(const RuntimePresentationSnapshot&) const = default;

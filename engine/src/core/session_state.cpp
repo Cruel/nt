@@ -1292,15 +1292,40 @@ Result<void, Diagnostics> SessionState::upsert_desired_audio(const CompiledProje
 {
     auto owner = validate_presentation_owner(project, value.owner);
     const auto* asset = project.find_asset(value.asset);
-    const bool bus_valid =
-        value.bus == compiled::AudioChannel::Music || value.bus == compiled::AudioChannel::Ambient;
-    if (!owner || !bus_valid || asset == nullptr || asset->kind != compiled::AssetKind::Audio ||
-        !std::isfinite(value.volume) || value.volume < 0.0 || value.volume > 1.0 ||
-        value.fade_in.count() < 0 || value.fade_out.count() < 0)
+    const bool purpose_valid = value.purpose == compiled::AudioPurpose::Music ||
+                               value.purpose == compiled::AudioPurpose::Ambience;
+    const bool pan_source_valid =
+        !value.pan_source ||
+        std::visit(
+            [&](const auto& source) {
+                using T = std::decay_t<decltype(source)>;
+                if constexpr (std::is_same_v<T, compiled::SceneActorAudioPanSource>) {
+                    const auto* scene_owner = std::get_if<ScenePresentationOwner>(&value.owner);
+                    return scene_owner && std::ranges::any_of(
+                                              m_actors, [&](const DesiredActorPresentation& actor) {
+                                                  const auto* key =
+                                                      std::get_if<SceneActorKey>(&actor.key);
+                                                  return key && key->owner == *scene_owner &&
+                                                         key->slot == source.slot;
+                                              });
+                } else {
+                    const auto* room = project.find_room(source.room);
+                    return room && std::ranges::any_of(room->anchors,
+                                                       [&](const compiled::RoomAnchor& anchor) {
+                                                           return anchor.id == source.anchor;
+                                                       });
+                }
+            },
+            *value.pan_source);
+    if (!owner || !purpose_valid || asset == nullptr || asset->kind != compiled::AssetKind::Audio ||
+        !std::isfinite(value.gain) || value.gain < 0.0 || value.gain > 1.0 ||
+        !std::isfinite(value.pan) || value.pan < -1.0 || value.pan > 1.0 || !pan_source_valid ||
+        value.pause_policy > compiled::AudioPausePolicy::Unscaled || value.fade_in.count() < 0 ||
+        value.fade_out.count() < 0)
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_desired_audio",
-            "Desired audio requires an active owner, Music or Ambient bus, audio Asset, valid "
-            "volume, and nonnegative fade policy"));
+            "Desired audio requires an active owner, Music or Ambience Purpose, Audio Asset, valid "
+            "Pause Policy/gain/pan/Pan Source, and nonnegative fade policy"));
 
     if (value.replacement_key) {
         std::erase_if(m_desired_audio, [&value](const DesiredAudioInstance& current) {
@@ -1330,17 +1355,82 @@ Result<void, Diagnostics> SessionState::remove_desired_audio(const DesiredAudioI
     return Result<void, Diagnostics>::success();
 }
 
-Result<void, Diagnostics> SessionState::remove_desired_audio_bus(compiled::AudioChannel bus,
-                                                                 const PresentationOwner& owner)
+Result<void, Diagnostics> SessionState::remove_desired_audio_purpose(compiled::AudioPurpose purpose,
+                                                                     const PresentationOwner& owner)
 {
-    if (bus != compiled::AudioChannel::Music && bus != compiled::AudioChannel::Ambient)
+    if (purpose != compiled::AudioPurpose::Music && purpose != compiled::AudioPurpose::Ambience)
         return Result<void, Diagnostics>::failure(
-            feature_error("runtime.invalid_desired_audio_bus",
-                          "Only Music and Ambient are persistent desired-audio buses"));
-    std::erase_if(m_desired_audio, [&bus, &owner](const DesiredAudioInstance& value) {
-        return value.bus == bus && value.owner == owner;
+            feature_error("runtime.invalid_desired_audio_purpose",
+                          "Only Music and Ambience are persistent desired-audio Purposes"));
+    std::erase_if(m_desired_audio, [&purpose, &owner](const DesiredAudioInstance& value) {
+        return value.purpose == purpose && value.owner == owner;
     });
     return Result<void, Diagnostics>::success();
+}
+
+Result<double, Diagnostics>
+SessionState::resolve_audio_pan(const CompiledProject& project, const PresentationOwner& owner,
+                                double fixed_pan,
+                                const std::optional<compiled::AudioPanSource>& source) const
+{
+    if (!std::isfinite(fixed_pan) || fixed_pan < -1.0 || fixed_pan > 1.0)
+        return Result<double, Diagnostics>::failure(feature_error(
+            "runtime.invalid_audio_pan", "Audio pan must be finite and between -1 and 1"));
+    if (!source)
+        return Result<double, Diagnostics>::success(fixed_pan);
+
+    const auto source_pan = std::visit(
+        [&](const auto& value) -> std::optional<double> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::SceneActorAudioPanSource>) {
+                const auto* scene_owner = std::get_if<ScenePresentationOwner>(&owner);
+                if (scene_owner == nullptr)
+                    return std::nullopt;
+                const auto actor =
+                    std::find_if(m_actors.begin(), m_actors.end(),
+                                 [&](const DesiredActorPresentation& candidate) {
+                                     const auto* key = std::get_if<SceneActorKey>(&candidate.key);
+                                     return key != nullptr && key->owner == *scene_owner &&
+                                            key->slot == value.slot;
+                                 });
+                if (actor == m_actors.end())
+                    return std::nullopt;
+                double normalized_x = 0.5;
+                switch (actor->placement.position) {
+                case compiled::ActorPosition::Left:
+                    normalized_x = 0.25;
+                    break;
+                case compiled::ActorPosition::Right:
+                    normalized_x = 0.75;
+                    break;
+                case compiled::ActorPosition::Center:
+                case compiled::ActorPosition::Custom:
+                    break;
+                }
+                normalized_x += actor->placement.offset.x;
+                return std::clamp(normalized_x * 2.0 - 1.0, -1.0, 1.0);
+            } else {
+                const auto* room = runtime_room(*this, value.room);
+                if (room == nullptr)
+                    room = project.find_room(value.room);
+                if (room == nullptr)
+                    return std::nullopt;
+                const auto anchor = std::find_if(room->anchors.begin(), room->anchors.end(),
+                                                 [&](const compiled::RoomAnchor& candidate) {
+                                                     return candidate.id == value.anchor;
+                                                 });
+                if (anchor == room->anchors.end())
+                    return std::nullopt;
+                const double normalized_x = anchor->bounds.x + anchor->bounds.width * 0.5;
+                return std::clamp(normalized_x * 2.0 - 1.0, -1.0, 1.0);
+            }
+        },
+        *source);
+    if (!source_pan)
+        return Result<double, Diagnostics>::failure(feature_error(
+            "runtime.audio_pan_source_unavailable",
+            "Audio Pan Source is stale, unavailable, or incompatible with its Owner"));
+    return Result<double, Diagnostics>::success(std::clamp(fixed_pan + *source_pan, -1.0, 1.0));
 }
 
 const InteractableState* SessionState::interactable(const InteractableId& id) const noexcept

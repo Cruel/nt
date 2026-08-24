@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 import {
+  audioCausalityValues,
+  audioLifetimeValues,
+  audioPanSourceSchema,
+  audioPausePolicyValues,
+  audioPurposeValues,
+  audioSkipBehaviorValues,
+} from './authoring-audio';
+import {
   assetRefSchema,
   characterRefSchema,
   conditionSchema,
@@ -45,7 +53,7 @@ export const sceneBackgroundTransitionValues = ['none', 'fade', 'cut'] as const;
 export const sceneCharacterActionValues = ['show', 'hide', 'move', 'pose', 'expression'] as const;
 export const sceneCharacterPositionValues = ['left', 'center', 'right', 'custom'] as const;
 export const sceneCharacterTransitionValues = ['none', 'fade', 'slide'] as const;
-export const sceneAudioChannelValues = ['sound-effect', 'music', 'voice', 'ambient'] as const;
+export const sceneAudioPurposeValues = audioPurposeValues;
 export const sceneAudioActionValues = ['play', 'stop', 'fade-in', 'fade-out'] as const;
 export const sceneLayoutActionValues = ['show', 'hide', 'swap'] as const;
 export const sceneLayoutSlotValues = ['hud', 'dialogue-box', 'overlay', 'custom'] as const;
@@ -128,12 +136,20 @@ const audioCueStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('audio-cue'),
   asset: sceneAssetRefSchema.nullable(),
-  channel: z.enum(sceneAudioChannelValues),
+  purpose: z.enum(audioPurposeValues),
   action: z.enum(sceneAudioActionValues),
-  loop: z.boolean(),
-  volume: z.number().finite().min(0).max(1),
+  lifetime: z.enum(audioLifetimeValues),
+  pausePolicy: z.enum(audioPausePolicyValues),
+  gain: z.number().finite().min(0).max(1),
+  pan: z.number().finite().min(-1).max(1),
+  panSource: audioPanSourceSchema.nullable(),
   fadeMs: z.number().int().nonnegative(),
   waitForCompletion: z.boolean(),
+  causality: z.enum(audioCausalityValues),
+  synchronized: z.boolean(),
+  skipBehavior: z.enum(audioSkipBehaviorValues),
+  instanceId: entityIdSchema.nullable(),
+  replacementGroup: entityIdSchema.nullable(),
 });
 const setVariableStepSchema = strict({
   ...commonRuntimeStep,
@@ -367,12 +383,20 @@ function buildDefaultSceneStep(type: SceneStepType, label?: string): SceneStepDa
         ...common,
         type,
         asset: null,
-        channel: 'sound-effect',
+        purpose: 'sound-effect',
         action: 'play',
-        loop: false,
-        volume: 1,
+        lifetime: 'one-shot',
+        pausePolicy: 'gameplay',
+        gain: 1,
+        pan: 0,
+        panSource: null,
         fadeMs: 0,
         waitForCompletion: false,
+        causality: 'disposable',
+        synchronized: false,
+        skipBehavior: 'suppress',
+        instanceId: null,
+        replacementGroup: null,
       };
     case 'set-variable':
       return { ...common, type, variable: sceneVariableRef('variable'), value: false };
@@ -591,8 +615,119 @@ export function validateSceneData(
       requireRecord('dialogues', step.dialogue.$ref.id, `${path}/dialogue`);
     if (step.type === 'show-text' && step.speaker)
       requireRecord('characters', step.speaker.$ref.id, `${path}/speaker`);
-    if (step.type === 'audio-cue' && step.asset)
-      requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
+    if (step.type === 'audio-cue') {
+      if (step.asset) requireRecord('assets', step.asset.$ref.id, `${path}/asset`);
+      const playing = step.action === 'play' || step.action === 'fade-in';
+      if (playing && !step.asset)
+        diagnostics.push(diagnostic(`${path}/asset`, 'Audio playback requires an Audio Asset.'));
+      if (!playing && step.asset)
+        diagnostics.push(
+          diagnostic(`${path}/asset`, 'Audio stop and fade-out actions cannot name an Asset.'),
+        );
+      if (step.lifetime === 'desired-loop') {
+        if (!step.instanceId)
+          diagnostics.push(
+            diagnostic(
+              `${path}/instanceId`,
+              'Desired looping audio requires a stable instance ID.',
+            ),
+          );
+        if (step.purpose !== 'music' && step.purpose !== 'ambience')
+          diagnostics.push(
+            diagnostic(
+              `${path}/purpose`,
+              'Desired looping audio is supported only for Music and Ambience.',
+            ),
+          );
+        if (step.waitForCompletion)
+          diagnostics.push(
+            diagnostic(
+              `${path}/waitForCompletion`,
+              'Desired looping audio cannot wait for decoder completion.',
+            ),
+          );
+        if (step.causality !== 'causal')
+          diagnostics.push(
+            diagnostic(
+              `${path}/causality`,
+              'Desired looping audio is reconstructible state, not disposable work.',
+            ),
+          );
+        if (step.synchronized)
+          diagnostics.push(
+            diagnostic(
+              `${path}/synchronized`,
+              'Desired looping audio cannot be a synchronized one-shot cue.',
+            ),
+          );
+        if (step.skipBehavior !== 'stop')
+          diagnostics.push(
+            diagnostic(
+              `${path}/skipBehavior`,
+              'Desired looping audio uses durable target state rather than one-shot skip behavior.',
+            ),
+          );
+      } else {
+        if (step.action === 'stop' || step.action === 'fade-out')
+          diagnostics.push(
+            diagnostic(
+              `${path}/action`,
+              'One-shot Scene audio starts a new playback; stop/fade-out require desired-loop targeting.',
+            ),
+          );
+        if (step.replacementGroup !== null)
+          diagnostics.push(
+            diagnostic(
+              `${path}/replacementGroup`,
+              'One-shot audio cannot declare a replacement group.',
+            ),
+          );
+        if ((step.waitForCompletion || step.synchronized) && step.causality !== 'causal')
+          diagnostics.push(
+            diagnostic(`${path}/causality`, 'Awaited or synchronized one-shots must be causal.'),
+          );
+        if (step.purpose === 'ui-sound') {
+          if (step.causality !== 'disposable' || step.waitForCompletion || step.synchronized)
+            diagnostics.push(
+              diagnostic(
+                `${path}/purpose`,
+                'UI Sound is disposable and cannot await, synchronize with, or control gameplay.',
+              ),
+            );
+          if (step.pausePolicy !== 'unscaled')
+            diagnostics.push(
+              diagnostic(
+                `${path}/pausePolicy`,
+                'UI Sound must continue on unscaled presentation time.',
+              ),
+            );
+        }
+      }
+      if (step.panSource?.kind === 'room-anchor') {
+        const panSource = step.panSource;
+        requireRecord('rooms', panSource.room.$ref.id, `${path}/panSource/room`);
+        const room = project.rooms[panSource.room.$ref.id];
+        if (room && !room.data.anchors.some((anchor) => anchor.id === panSource.anchorId))
+          diagnostics.push(
+            diagnostic(
+              `${path}/panSource/anchorId`,
+              `Room Anchor '${panSource.anchorId}' does not exist.`,
+            ),
+          );
+      } else if (step.panSource?.kind === 'scene-actor') {
+        const panSource = step.panSource;
+        const slotExists = data.steps.some(
+          (candidate) => candidate.type === 'actor-cue' && candidate.slotId === panSource.slotId,
+        );
+        if (!slotExists)
+          diagnostics.push(
+            diagnostic(
+              `${path}/panSource/slotId`,
+              `Scene Actor slot '${panSource.slotId}' does not exist.`,
+            ),
+          );
+      }
+    }
     if (step.type === 'set-variable')
       validateVariableValue(step.variable.$ref.id, step.value, `${path}/value`);
     if (step.type === 'set-layout') {

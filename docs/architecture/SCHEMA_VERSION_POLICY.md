@@ -39,6 +39,13 @@ closed image-only classification map are noncanonical V1 data and are discarded 
 current contract contains server URL, per-request timeout, and generic default-workflow mappings only; editor enablement
 and periodic connection cadence are intentionally outside this machine-level contract.
 
+Issue #89 explicitly preserves authoring-project `schemaVersion: 4`, compiled-project
+`schemaVersion: 4`, and save-state `version: 8` while atomically replacing the retired audio
+channel/loop/volume model with semantic Purpose, Owner, Pause Policy, lifetime, causality/skip,
+gain/pan/Pan Source, replacement, and project-mix fields. Normal readers accept only the new
+same-version canonical shapes: retired audio fields and V8 desired-audio records using `bus` or
+`volume` are rejected rather than inferred, migrated, or dual-read.
+
 ## Definitions
 
 - **Current version:** the one version emitted and accepted for a particular contract. Different

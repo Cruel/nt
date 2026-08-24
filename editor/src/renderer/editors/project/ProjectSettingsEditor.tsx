@@ -30,6 +30,11 @@ import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
+  audioPurposeValues,
+  type AudioPurpose,
+  type ProjectAudioSettings,
+} from '../../../shared/project-schema/authoring-audio';
+import {
   getSystemLayoutSetting,
   systemLayoutRoleValues,
   type SystemLayoutRole,
@@ -67,6 +72,7 @@ import {
   MonitorCog,
   ShieldCheck,
   Sparkles,
+  Volume2,
 } from 'lucide-react';
 import {
   captureScrollViewState,
@@ -85,10 +91,19 @@ import {
 
 const PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.project-settings';
 
+const AUDIO_PURPOSE_LABELS: Record<AudioPurpose, string> = {
+  music: 'Music',
+  ambience: 'Ambience',
+  voice: 'Voice',
+  'sound-effect': 'Sound Effects',
+  'ui-sound': 'UI Sound',
+};
+
 type ProjectSettingsCategory =
   | 'general'
   | 'runtime'
   | 'display'
+  | 'audio'
   | 'title-screen'
   | 'app-identity'
   | 'integrations'
@@ -113,6 +128,12 @@ const projectSettingsCategories: readonly CategorizedEditorCategory<ProjectSetti
     label: 'Display',
     description: 'Canvas, raster, presentation, and accessibility scaling.',
     icon: MonitorCog,
+  },
+  {
+    id: 'audio',
+    label: 'Audio',
+    description: 'Purpose mixing, mute defaults, and Voice ducking.',
+    icon: Volume2,
   },
   {
     id: 'title-screen',
@@ -176,6 +197,11 @@ function projectSettingsCategoryForTarget(targetId: string): ProjectSettingsCate
   )
     return 'display';
   if (
+    targetId.startsWith('projectSettings.audio') ||
+    targetId.startsWith('projectSettings.field.audio')
+  )
+    return 'audio';
+  if (
     targetId.startsWith('projectSettings.titleScreen') ||
     targetId.startsWith('projectSettings.field.titleImage') ||
     targetId.startsWith('projectSettings.field.startLabel')
@@ -212,6 +238,20 @@ const PROJECT_SETTINGS_FIELD_ANCHORS: Record<string, string> = {
   '/settings/accessibility/textScale/enabled': 'projectSettings.field.textScaleEnabled',
   '/settings/accessibility/textScale/minimum': 'projectSettings.field.textScaleMinimum',
   '/settings/accessibility/textScale/maximum': 'projectSettings.field.textScaleMaximum',
+  '/settings/audio/purposes/music/volume': 'projectSettings.field.audioMusicVolume',
+  '/settings/audio/purposes/music/muted': 'projectSettings.field.audioMusicMuted',
+  '/settings/audio/purposes/ambience/volume': 'projectSettings.field.audioAmbienceVolume',
+  '/settings/audio/purposes/ambience/muted': 'projectSettings.field.audioAmbienceMuted',
+  '/settings/audio/purposes/voice/volume': 'projectSettings.field.audioVoiceVolume',
+  '/settings/audio/purposes/voice/muted': 'projectSettings.field.audioVoiceMuted',
+  '/settings/audio/purposes/sound-effect/volume': 'projectSettings.field.audioSoundEffectVolume',
+  '/settings/audio/purposes/sound-effect/muted': 'projectSettings.field.audioSoundEffectMuted',
+  '/settings/audio/purposes/ui-sound/volume': 'projectSettings.field.audioUiSoundVolume',
+  '/settings/audio/purposes/ui-sound/muted': 'projectSettings.field.audioUiSoundMuted',
+  '/settings/audio/voiceDucking/enabled': 'projectSettings.field.audioVoiceDuckingEnabled',
+  '/settings/audio/voiceDucking/musicGain': 'projectSettings.field.audioVoiceDuckingMusicGain',
+  '/settings/audio/voiceDucking/ambienceGain':
+    'projectSettings.field.audioVoiceDuckingAmbienceGain',
   '/settings/titleScreen/titleImage': 'projectSettings.field.titleImage',
   '/settings/titleScreen/startLabel': 'projectSettings.field.startLabel',
   '/settings/app/displayName': 'projectSettings.field.appDisplayName',
@@ -676,6 +716,34 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
+  function setAudio(audio: ProjectAudioSettings) {
+    return commandSucceeded(
+      runProjectCommand('project.setAudio', { audio }, 'Update project audio settings'),
+    );
+  }
+
+  function setAudioPurpose(
+    purpose: AudioPurpose,
+    patch: Partial<ProjectAudioSettings['purposes'][AudioPurpose]>,
+  ) {
+    if (!settings) return false;
+    return setAudio({
+      ...settings.audio,
+      purposes: {
+        ...settings.audio.purposes,
+        [purpose]: { ...settings.audio.purposes[purpose], ...patch },
+      },
+    });
+  }
+
+  function setVoiceDucking(patch: Partial<ProjectAudioSettings['voiceDucking']>) {
+    if (!settings) return false;
+    return setAudio({
+      ...settings.audio,
+      voiceDucking: { ...settings.audio.voiceDucking, ...patch },
+    });
+  }
+
   function openResolutionDialog() {
     if (!settings) return;
     setResolutionWidth(String(settings.display.referenceResolution.width));
@@ -1127,6 +1195,110 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 </div>
               );
             })}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeCategory === 'audio' ? (
+        <Card data-workbench-anchor="projectSettings.audio">
+          <CardHeader>
+            <CardTitle>Audio Mix</CardTitle>
+            <CardDescription>
+              Configure the authored default mix by semantic Purpose. Runtime previews consume these
+              settings through the same compiled-project audio contract as exported games.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-2">
+              {audioPurposeValues.map((purpose) => {
+                const mix = settings.audio.purposes[purpose];
+                const basePath = `/settings/audio/purposes/${purpose}`;
+                return (
+                  <div
+                    key={purpose}
+                    className="grid gap-3 rounded-md border p-3 md:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1fr)_auto] md:items-center"
+                  >
+                    <div>
+                      <Label>{AUDIO_PURPOSE_LABELS[purpose]}</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {purpose === 'ui-sound'
+                          ? 'Disposable shell/UI feedback; never a gameplay blocker.'
+                          : purpose === 'voice'
+                            ? 'Dialogue and other spoken playback.'
+                            : purpose === 'sound-effect'
+                              ? 'Gameplay sound effects and synchronized cues.'
+                              : 'Reconstructible desired loops and transient playback.'}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor={`audio-${purpose}-volume`}>
+                        {AUDIO_PURPOSE_LABELS[purpose]} volume
+                      </Label>
+                      <PendingDecimalInput
+                        id={`audio-${purpose}-volume`}
+                        path={`${basePath}/volume`}
+                        value={mix.volume}
+                        invalid={fieldInvalid(`${basePath}/volume`)}
+                        onCommit={(volume) => setAudioPurpose(purpose, { volume })}
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs">
+                      <Switch
+                        checked={mix.muted}
+                        aria-invalid={fieldInvalid(`${basePath}/muted`)}
+                        data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[`${basePath}/muted`]}
+                        onCheckedChange={(muted) => setAudioPurpose(purpose, { muted })}
+                      />
+                      {AUDIO_PURPOSE_LABELS[purpose]} muted
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Label>Voice ducking</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Optionally reduce Music and Ambience while Voice playback is active.
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 text-xs">
+                  <Switch
+                    checked={settings.audio.voiceDucking.enabled}
+                    aria-invalid={fieldInvalid('/settings/audio/voiceDucking/enabled')}
+                    data-workbench-anchor={
+                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/audio/voiceDucking/enabled']
+                    }
+                    onCheckedChange={(enabled) => setVoiceDucking({ enabled })}
+                  />
+                  Enabled
+                </label>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="audio-duck-music">Music gain while Voice is active</Label>
+                  <PendingDecimalInput
+                    id="audio-duck-music"
+                    path="/settings/audio/voiceDucking/musicGain"
+                    value={settings.audio.voiceDucking.musicGain}
+                    invalid={fieldInvalid('/settings/audio/voiceDucking/musicGain')}
+                    onCommit={(musicGain) => setVoiceDucking({ musicGain })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="audio-duck-ambience">Ambience gain while Voice is active</Label>
+                  <PendingDecimalInput
+                    id="audio-duck-ambience"
+                    path="/settings/audio/voiceDucking/ambienceGain"
+                    value={settings.audio.voiceDucking.ambienceGain}
+                    invalid={fieldInvalid('/settings/audio/voiceDucking/ambienceGain')}
+                    onCommit={(ambienceGain) => setVoiceDucking({ ambienceGain })}
+                  />
+                </div>
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : null}

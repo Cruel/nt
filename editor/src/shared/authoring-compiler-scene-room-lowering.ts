@@ -215,12 +215,29 @@ function compileSceneStep(
         ...base,
         kind: 'audio-cue',
         asset: assetRef(step.asset),
-        channel: step.channel,
+        purpose: step.purpose,
         action: step.action,
-        loop: step.loop,
-        volume: step.volume,
+        lifetime: step.lifetime,
+        pausePolicy: step.pausePolicy,
+        gain: step.gain,
+        pan: step.pan,
+        panSource:
+          step.panSource?.kind === 'room-anchor'
+            ? {
+                kind: 'room-anchor' as const,
+                room: { kind: 'room' as const, id: step.panSource.room.$ref.id },
+                anchorId: step.panSource.anchorId,
+              }
+            : step.panSource
+              ? { kind: 'scene-actor' as const, slotId: step.panSource.slotId }
+              : null,
         fadeMs: step.fadeMs,
         waitForCompletion: step.waitForCompletion,
+        causality: step.causality,
+        synchronized: step.synchronized,
+        skipBehavior: step.skipBehavior,
+        instanceId: step.instanceId,
+        replacementGroup: step.replacementGroup,
       };
     case 'set-variable':
       return {

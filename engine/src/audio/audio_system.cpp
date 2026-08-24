@@ -191,6 +191,7 @@ AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id,
     playback.bus = desc.bus;
     playback.volume = desc.fade_in_seconds > 0.0f ? 0.0f : clamp_volume(desc.volume);
     playback.pitch = desc.pitch;
+    playback.pan = std::clamp(desc.pan, -1.0f, 1.0f);
     playback.loop = desc.loop;
     const AudioVoiceHandle voice = play(std::move(asset), playback);
     if (!voice)
@@ -216,6 +217,46 @@ void AudioSystem::stop_track(const AudioTrackId& track_id, float fade_seconds)
     for (auto& voice : it->second) {
         fade_voice(voice, 0.0f, fade_seconds, true);
     }
+}
+
+void AudioSystem::set_track_volume(const AudioTrackId& track_id, float volume)
+{
+    const auto found = m_tracks.find(track_id.empty() ? AudioTrackId{"bgm"} : track_id);
+    if (found == m_tracks.end())
+        return;
+    const float clamped = clamp_volume(volume);
+    for (auto& voice : found->second) {
+        voice.base_volume = clamped;
+        if (voice.fade_duration <= 0.0f) {
+            voice.current_volume = clamped;
+            voice.fade_from = clamped;
+            voice.fade_to = clamped;
+            set_volume(voice.voice, clamped);
+        }
+    }
+}
+
+void AudioSystem::set_track_paused(const AudioTrackId& track_id, bool paused)
+{
+    if (!m_backend || !m_initialized)
+        return;
+    const auto found = m_tracks.find(track_id.empty() ? AudioTrackId{"bgm"} : track_id);
+    if (found == m_tracks.end())
+        return;
+    for (auto& voice : found->second)
+        m_backend->set_paused(voice.voice, paused);
+}
+
+void AudioSystem::set_track_pan(const AudioTrackId& track_id, float pan)
+{
+    if (!m_backend || !m_initialized)
+        return;
+    const auto found = m_tracks.find(track_id.empty() ? AudioTrackId{"bgm"} : track_id);
+    if (found == m_tracks.end())
+        return;
+    const float clamped = std::clamp(pan, -1.0F, 1.0F);
+    for (auto& voice : found->second)
+        m_backend->set_pan(voice.voice, clamped);
 }
 
 bool AudioSystem::track_active(const AudioTrackId& track_id) const noexcept

@@ -71,17 +71,19 @@ private:
                                                               : MaterialTextureSampler::ClampLinear;
 }
 
-[[nodiscard]] AudioClipKind audio_kind(core::compiled::AudioChannel channel) noexcept
+[[nodiscard]] AudioClipKind audio_kind(core::compiled::AudioPurpose channel) noexcept
 {
     switch (channel) {
-    case core::compiled::AudioChannel::SoundEffect:
+    case core::compiled::AudioPurpose::SoundEffect:
         return AudioClipKind::Sfx;
-    case core::compiled::AudioChannel::Music:
+    case core::compiled::AudioPurpose::Music:
         return AudioClipKind::Music;
-    case core::compiled::AudioChannel::Voice:
+    case core::compiled::AudioPurpose::Voice:
         return AudioClipKind::Voice;
-    case core::compiled::AudioChannel::Ambient:
+    case core::compiled::AudioPurpose::Ambience:
         return AudioClipKind::Ambience;
+    case core::compiled::AudioPurpose::UiSound:
+        return AudioClipKind::Sfx;
     }
     return AudioClipKind::Auto;
 }
@@ -122,7 +124,7 @@ hotspot_mask_descriptor(HotspotMaskAssetRequest request, AssetSourceGeneration g
 }
 
 [[nodiscard]] StructuredAssetRequestDescriptor
-audio_descriptor(const core::compiled::AssetResource& asset, core::compiled::AudioChannel channel,
+audio_descriptor(const core::compiled::AssetResource& asset, core::compiled::AudioPurpose channel,
                  AssetSourceGeneration generation)
 {
     AudioAssetRequest request{.path = logical_project_path(asset.path),
@@ -215,7 +217,7 @@ struct StructuredAssetDependencyIndex::Impl {
     }
 
     void append_audio(DescriptorAccumulator& output, const core::AssetId& id,
-                      core::compiled::AudioChannel channel,
+                      core::compiled::AudioPurpose channel,
                       core::Diagnostics& collection_diagnostics, std::string_view context) const
     {
         const auto* asset = find_asset(id);
@@ -513,7 +515,7 @@ struct StructuredAssetDependencyIndex::Impl {
                                       collection_diagnostics, traversal);
                     } else if constexpr (std::is_same_v<T, core::compiled::AudioCueInstruction>) {
                         if (value.asset)
-                            append_audio(output, *value.asset, value.channel,
+                            append_audio(output, *value.asset, value.purpose,
                                          collection_diagnostics, "Scene audio cue");
                     } else if constexpr (std::is_same_v<T, core::compiled::SetLayoutInstruction>) {
                         if (value.layout)
@@ -866,7 +868,7 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
             m_index.m_impl->append_layout(current, layout.layout, current_diagnostics,
                                           "current mounted Layout");
         for (const auto& audio : snapshot->desired_audio)
-            m_index.m_impl->append_audio(current, audio.asset, audio.bus, current_diagnostics,
+            m_index.m_impl->append_audio(current, audio.asset, audio.purpose, current_diagnostics,
                                          "current desired audio");
     }
     for (const auto role : context.required_system_layouts) {

@@ -642,21 +642,23 @@ parse_presentation_owner_options(const sol::optional<sol::table>& options,
         std::move(result));
 }
 
-core::Result<core::compiled::AudioChannel, core::Diagnostics>
-parse_audio_channel(const std::string& value)
+core::Result<core::compiled::AudioPurpose, core::Diagnostics>
+parse_audio_purpose(const std::string& value)
 {
-    using Result = core::Result<core::compiled::AudioChannel, core::Diagnostics>;
-    if (value == "sound-effect")
-        return Result::success(core::compiled::AudioChannel::SoundEffect);
+    using Result = core::Result<core::compiled::AudioPurpose, core::Diagnostics>;
     if (value == "music")
-        return Result::success(core::compiled::AudioChannel::Music);
+        return Result::success(core::compiled::AudioPurpose::Music);
+    if (value == "ambience")
+        return Result::success(core::compiled::AudioPurpose::Ambience);
     if (value == "voice")
-        return Result::success(core::compiled::AudioChannel::Voice);
-    if (value == "ambient")
-        return Result::success(core::compiled::AudioChannel::Ambient);
-    return Result::failure(
-        invalid("runtime.invalid_audio_channel",
-                "Audio channel must be 'sound-effect', 'music', 'voice', or 'ambient'"));
+        return Result::success(core::compiled::AudioPurpose::Voice);
+    if (value == "sound-effect")
+        return Result::success(core::compiled::AudioPurpose::SoundEffect);
+    if (value == "ui-sound")
+        return Result::success(core::compiled::AudioPurpose::UiSound);
+    return Result::failure(invalid(
+        "runtime.invalid_audio_purpose",
+        "Audio Purpose must be 'music', 'ambience', 'voice', 'sound-effect', or 'ui-sound'"));
 }
 
 std::chrono::milliseconds option_fade(const sol::optional<sol::table>& options)
@@ -667,20 +669,47 @@ std::chrono::milliseconds option_fade(const sol::optional<sol::table>& options)
     return std::chrono::milliseconds{value.value_or(0)};
 }
 
-double option_volume(const sol::optional<sol::table>& options)
+double option_gain(const sol::optional<sol::table>& options)
 {
     if (!options)
         return 1.0;
-    const auto value = table_option<double>(*options, "volume");
-    return value.value_or(1.0);
+    return table_option<double>(*options, "gain").value_or(1.0);
 }
 
-bool option_loop(const sol::optional<sol::table>& options)
+double option_pan(const sol::optional<sol::table>& options)
 {
     if (!options)
-        return false;
-    const auto value = table_option<bool>(*options, "loop");
-    return value.value_or(false);
+        return 0.0;
+    return table_option<double>(*options, "pan").value_or(0.0);
+}
+
+core::compiled::AudioPausePolicy
+option_audio_pause_policy(const sol::optional<sol::table>& options,
+                          core::compiled::AudioPausePolicy fallback)
+{
+    if (!options)
+        return fallback;
+    const auto value = table_option<std::string>(*options, "pause_policy");
+    if (!value)
+        return fallback;
+    if (*value == "owner")
+        return core::compiled::AudioPausePolicy::Owner;
+    if (*value == "unscaled")
+        return core::compiled::AudioPausePolicy::Unscaled;
+    return core::compiled::AudioPausePolicy::Gameplay;
+}
+
+core::compiled::AudioSkipBehavior
+option_audio_skip_behavior(const sol::optional<sol::table>& options)
+{
+    if (!options)
+        return core::compiled::AudioSkipBehavior::Suppress;
+    const auto value = table_option<std::string>(*options, "skip_behavior");
+    if (value && *value == "stop")
+        return core::compiled::AudioSkipBehavior::Stop;
+    if (value && *value == "play")
+        return core::compiled::AudioSkipBehavior::Play;
+    return core::compiled::AudioSkipBehavior::Suppress;
 }
 
 std::chrono::milliseconds option_fade_in(const sol::optional<sol::table>& options)
@@ -699,17 +728,19 @@ std::chrono::milliseconds option_fade_out(const sol::optional<sol::table>& optio
     return specific ? std::chrono::milliseconds{*specific} : option_fade(options);
 }
 
-std::string audio_channel_name(core::compiled::AudioChannel channel)
+std::string audio_purpose_name(core::compiled::AudioPurpose purpose)
 {
-    switch (channel) {
-    case core::compiled::AudioChannel::SoundEffect:
-        return "sound-effect";
-    case core::compiled::AudioChannel::Music:
+    switch (purpose) {
+    case core::compiled::AudioPurpose::Music:
         return "music";
-    case core::compiled::AudioChannel::Voice:
+    case core::compiled::AudioPurpose::Ambience:
+        return "ambience";
+    case core::compiled::AudioPurpose::Voice:
         return "voice";
-    case core::compiled::AudioChannel::Ambient:
-        return "ambient";
+    case core::compiled::AudioPurpose::SoundEffect:
+        return "sound-effect";
+    case core::compiled::AudioPurpose::UiSound:
+        return "ui-sound";
     }
     return "unknown";
 }
@@ -964,13 +995,13 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             auto* map_value = parsed_map.value_if();
             auto* connection_value = parsed_connection.value_if();
             if (!map_value)
-                return mutation(
-                    view, core::Result<void, core::Diagnostics>::failure(parsed_map.error()));
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(parsed_map.error()));
             if (!connection_value)
-                return mutation(
-                    view, core::Result<void, core::Diagnostics>::failure(parsed_connection.error()));
+                return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                          parsed_connection.error()));
             return mutation(view, api->activate_map_connection(std::move(*map_value),
-                                                                std::move(*connection_value)));
+                                                               std::move(*connection_value)));
         });
     noveltea["map"] = map;
 
@@ -1660,26 +1691,32 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
     sol::table audio = lua.create_table();
     audio.set_function(
         "_play",
-        [api](std::string asset_id, std::string channel_name, sol::optional<sol::table> options,
+        [api](std::string asset_id, std::string purpose_name, sol::optional<sol::table> options,
               bool await_completion, sol::this_state state) -> MutationResult {
             sol::state_view view(state);
             auto asset = parse_id<core::AssetId>(std::move(asset_id));
-            auto channel = parse_audio_channel(channel_name);
+            auto purpose = parse_audio_purpose(purpose_name);
             auto* asset_value = asset.value_if();
-            const auto* channel_value = channel.value_if();
+            const auto* purpose_value = purpose.value_if();
             if (!asset_value)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(asset.error()));
-            if (!channel_value)
+            if (!purpose_value)
                 return mutation(view,
-                                core::Result<void, core::Diagnostics>::failure(channel.error()));
+                                core::Result<void, core::Diagnostics>::failure(purpose.error()));
             const auto fade = option_fade(options);
             const auto action = fade.count() == 0 ? core::compiled::AudioAction::Play
                                                   : core::compiled::AudioAction::FadeIn;
-            return mutation(view,
-                            api->request_audio(action, *channel_value, std::move(*asset_value),
-                                               fade, option_loop(options), option_volume(options),
-                                               await_completion));
+            return mutation(
+                view,
+                api->request_audio(
+                    action, *purpose_value, std::move(*asset_value), fade, option_gain(options),
+                    option_pan(options), await_completion,
+                    (await_completion || *purpose_value == core::compiled::AudioPurpose::Voice)
+                        ? core::compiled::AudioCausality::Causal
+                        : core::compiled::AudioCausality::Disposable,
+                    option_audio_pause_policy(options, core::compiled::AudioPausePolicy::Gameplay),
+                    option_audio_skip_behavior(options)));
         });
     audio.set_function(
         "play_ui",
@@ -1691,43 +1728,48 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             if (!asset_value)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(asset.error()));
-            return mutation(view, api->request_audio(core::compiled::AudioAction::Play,
-                                                     core::compiled::AudioChannel::SoundEffect,
-                                                     std::move(*asset_value),
-                                                     std::chrono::milliseconds{0}, false,
-                                                     option_volume(options), false,
-                                                     core::AudioOperationPurpose::UiCosmetic));
+            return mutation(
+                view, api->request_audio(core::compiled::AudioAction::Play,
+                                         core::compiled::AudioPurpose::UiSound,
+                                         std::move(*asset_value), std::chrono::milliseconds{0},
+                                         option_gain(options), option_pan(options), false,
+                                         core::compiled::AudioCausality::Disposable,
+                                         core::compiled::AudioPausePolicy::Unscaled,
+                                         core::compiled::AudioSkipBehavior::Suppress));
         });
     audio.set_function(
         "_stop",
-        [api](std::string channel_name, sol::optional<sol::table> options, bool await_completion,
+        [api](std::string purpose_name, sol::optional<sol::table> options, bool await_completion,
               sol::this_state state) -> MutationResult {
             sol::state_view view(state);
-            auto channel = parse_audio_channel(channel_name);
-            const auto* channel_value = channel.value_if();
-            if (!channel_value)
+            auto purpose = parse_audio_purpose(purpose_name);
+            const auto* purpose_value = purpose.value_if();
+            if (!purpose_value)
                 return mutation(view,
-                                core::Result<void, core::Diagnostics>::failure(channel.error()));
+                                core::Result<void, core::Diagnostics>::failure(purpose.error()));
             const auto fade = option_fade(options);
             const auto action = fade.count() == 0 ? core::compiled::AudioAction::Stop
                                                   : core::compiled::AudioAction::FadeOut;
-            return mutation(view,
-                            api->request_audio(action, *channel_value, std::nullopt, fade, false,
-                                               option_volume(options), await_completion));
+            return mutation(
+                view, api->request_audio(action, *purpose_value, std::nullopt, fade, 1.0, 0.0,
+                                         await_completion, core::compiled::AudioCausality::Causal,
+                                         option_audio_pause_policy(
+                                             options, core::compiled::AudioPausePolicy::Gameplay),
+                                         core::compiled::AudioSkipBehavior::Stop));
         });
     audio.set_function(
         "set_loop",
-        [api](std::string instance_name, std::string asset_name, std::string bus_name,
+        [api](std::string instance_name, std::string asset_name, std::string purpose_name,
               sol::optional<sol::table> options, sol::this_state state) -> MutationResult {
             sol::state_view view(state);
             auto instance = parse_id<core::DesiredAudioInstanceId>(std::move(instance_name));
             auto asset = parse_id<core::AssetId>(std::move(asset_name));
-            auto bus = parse_audio_channel(bus_name);
+            auto purpose = parse_audio_purpose(purpose_name);
             auto owner = parse_presentation_owner_options(
                 options, runtime::RuntimePresentationOwnerScope::Session);
             auto* instance_value = instance.value_if();
             auto* asset_value = asset.value_if();
-            const auto* bus_value = bus.value_if();
+            const auto* purpose_value = purpose.value_if();
             auto* owner_value = owner.value_if();
             if (!instance_value)
                 return mutation(view,
@@ -1735,15 +1777,19 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             if (!asset_value)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(asset.error()));
-            if (!bus_value)
-                return mutation(view, core::Result<void, core::Diagnostics>::failure(bus.error()));
+            if (!purpose_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(purpose.error()));
             if (!owner_value)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(owner.error()));
             DesiredAudioCommandOptions command_options;
             command_options.owner_scope = owner_value->scope;
             command_options.room = std::move(owner_value->room);
-            command_options.volume = option_volume(options);
+            command_options.gain = option_gain(options);
+            command_options.pan = option_pan(options);
+            command_options.pause_policy =
+                option_audio_pause_policy(options, core::compiled::AudioPausePolicy::Gameplay);
             command_options.fade_in = option_fade_in(options);
             command_options.fade_out = option_fade_out(options);
             if (options) {
@@ -1759,7 +1805,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                     command_options.replacement_key = std::move(*replacement_value);
                 }
             }
-            return mutation(view, api->set_desired_audio(std::move(*instance_value), *bus_value,
+            return mutation(view, api->set_desired_audio(std::move(*instance_value), *purpose_value,
                                                          std::move(*asset_value),
                                                          std::move(command_options)));
         });
@@ -1784,12 +1830,15 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             DesiredAudioCommandOptions command_options;
             command_options.owner_scope = owner_value->scope;
             command_options.room = std::move(owner_value->room);
-            command_options.volume = option_volume(options);
+            command_options.gain = option_gain(options);
+            command_options.pan = option_pan(options);
+            command_options.pause_policy =
+                option_audio_pause_policy(options, core::compiled::AudioPausePolicy::Gameplay);
             command_options.fade_in = option_fade_in(options);
             command_options.fade_out = option_fade_out(options);
             command_options.replacement_key = *replacement.value_if();
             return mutation(view, api->set_desired_audio(
-                                      *instance.value_if(), core::compiled::AudioChannel::Music,
+                                      *instance.value_if(), core::compiled::AudioPurpose::Music,
                                       std::move(*asset_value), std::move(command_options)));
         });
     audio.set_function(
@@ -1813,22 +1862,24 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                                      std::move(owner_value->room)));
         });
     audio.set_function(
-        "clear_bus",
-        [api](std::string bus_name, sol::optional<sol::table> options,
+        "clear_purpose",
+        [api](std::string purpose_name, sol::optional<sol::table> options,
               sol::this_state state) -> MutationResult {
             sol::state_view view(state);
-            auto bus = parse_audio_channel(bus_name);
+            auto purpose = parse_audio_purpose(purpose_name);
             auto owner = parse_presentation_owner_options(
                 options, runtime::RuntimePresentationOwnerScope::Session);
-            const auto* bus_value = bus.value_if();
+            const auto* purpose_value = purpose.value_if();
             auto* owner_value = owner.value_if();
-            if (!bus_value)
-                return mutation(view, core::Result<void, core::Diagnostics>::failure(bus.error()));
+            if (!purpose_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(purpose.error()));
             if (!owner_value)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(owner.error()));
-            return mutation(view, api->clear_desired_audio_bus(*bus_value, owner_value->scope,
-                                                               std::move(owner_value->room)));
+            return mutation(view,
+                            api->clear_desired_audio_purpose(*purpose_value, owner_value->scope,
+                                                             std::move(owner_value->room)));
         });
     audio.set_function("state",
                        [api](std::string instance_name, sol::optional<sol::table> options,
@@ -1854,8 +1905,9 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                return {nil(view), nil(view)};
                            sol::table object = view.create_table();
                            object["asset"] = (*value)->asset.text();
-                           object["bus"] = audio_channel_name((*value)->bus);
-                           object["volume"] = (*value)->volume;
+                           object["purpose"] = audio_purpose_name((*value)->purpose);
+                           object["gain"] = (*value)->gain;
+                           object["pan"] = (*value)->pan;
                            object["fade_in_ms"] = (*value)->fade_in.count();
                            object["fade_out_ms"] = (*value)->fade_out.count();
                            if ((*value)->replacement_key)
@@ -1864,15 +1916,15 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                        });
     lua["audio"] = audio;
     const auto wrappers = lua.safe_script(
-        "audio.play = function(asset, channel, options) "
-        "return audio._play(asset, channel, options, false) end\n"
-        "audio.stop = function(channel, options) "
-        "return audio._stop(channel, options, false) end\n"
-        "audio.play_and_wait = function(asset, channel, options) "
-        "local ok, err = audio._play(asset, channel, options, true); "
+        "audio.play = function(asset, purpose, options) "
+        "return audio._play(asset, purpose, options, false) end\n"
+        "audio.stop = function(purpose, options) "
+        "return audio._stop(purpose, options, false) end\n"
+        "audio.play_and_wait = function(asset, purpose, options) "
+        "local ok, err = audio._play(asset, purpose, options, true); "
         "if not ok then return false, err end; coroutine.yield(); return true, nil end\n"
-        "audio.stop_and_wait = function(channel, options) "
-        "local ok, err = audio._stop(channel, options, true); "
+        "audio.stop_and_wait = function(purpose, options) "
+        "local ok, err = audio._stop(purpose, options, true); "
         "if not ok then return false, err end; coroutine.yield(); return true, nil end",
         sol::script_pass_on_error);
     (void)wrappers;

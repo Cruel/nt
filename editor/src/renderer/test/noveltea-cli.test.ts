@@ -1621,7 +1621,7 @@ describe('NovelTea headless CLI', () => {
       'set_loop',
       'set_music',
       'clear_loop',
-      'clear_bus',
+      'clear_purpose',
       'state',
     ]);
     for (const name of audioFunctions.filter((name) => !name.startsWith('_')))

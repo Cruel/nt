@@ -1156,14 +1156,16 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.invalid_audio_cue"));
     }
 
-    SECTION("persistent audio loop requires Music or Ambient and cannot await completion")
+    SECTION("desired audio requires Music or Ambience and cannot await decoder completion")
     {
-        auto invalid_bus = fixture("scene-program");
+        auto invalid_purpose = fixture("scene-program");
         auto* instruction = path_member(
-            invalid_bus, {"definitions", "scenes", "1", "program", "instructions", "6"});
+            invalid_purpose, {"definitions", "scenes", "1", "program", "instructions", "6"});
         REQUIRE(instruction != nullptr);
-        (*instruction)["loop"] = true;
-        auto result = noveltea::core::decode_compiled_project(invalid_bus, "scene-audio.json");
+        (*instruction)["lifetime"] = "desired-loop";
+        (*instruction)["instanceId"] = "voice-loop";
+        (*instruction)["waitForCompletion"] = false;
+        auto result = noveltea::core::decode_compiled_project(invalid_purpose, "scene-audio.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.invalid_audio_cue"));
 
@@ -1171,8 +1173,9 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         instruction = path_member(awaited_loop,
                                   {"definitions", "scenes", "1", "program", "instructions", "6"});
         REQUIRE(instruction != nullptr);
-        (*instruction)["channel"] = "music";
-        (*instruction)["loop"] = true;
+        (*instruction)["purpose"] = "music";
+        (*instruction)["lifetime"] = "desired-loop";
+        (*instruction)["instanceId"] = "background-music";
         auto awaited = noveltea::core::decode_compiled_project(awaited_loop, "scene-audio.json");
         REQUIRE_FALSE(awaited);
         CHECK(has_code(awaited.error(), "compiled_project.invalid_audio_cue"));

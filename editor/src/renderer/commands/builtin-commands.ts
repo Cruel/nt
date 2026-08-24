@@ -72,6 +72,7 @@ import { replaceTestDataPatches } from '@/project/test-operations';
 import { replaceLayoutDataPatches } from '@/project/layout-operations';
 import {
   setProjectAccessibilityScalePatches,
+  setProjectAudioPatches,
   setProjectDefaultFontPatches,
   setProjectDisplayPatches,
   setProjectEntrypointPatches,
@@ -86,6 +87,7 @@ import {
   setProjectUndefinedInteractionProgramPatches,
   updateProjectMetadataPatches,
 } from '@/project/project-settings-operations';
+import { projectAudioSettingsSchema } from '../../shared/project-schema/authoring-audio';
 import { systemLayoutRoleValues } from '../../shared/project-schema/authoring-layouts';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../shared/project-schema/project-display-contract';
 import {
@@ -809,6 +811,7 @@ const projectAccessibilityScaleSchema = z.object({
     maximum: z.number().finite(),
   }),
 });
+const projectAudioSchema = z.object({ audio: projectAudioSettingsSchema });
 const projectDefaultFontSchema = z.object({ assetId: entityIdSchema.nullable() });
 const projectTitleScreenSchema = z.object({
   titleImageId: entityIdSchema.nullable().optional(),
@@ -1380,6 +1383,11 @@ export const projectSetAccessibilityScaleCommand: CommandHandler = ({ document, 
     setProjectAccessibilityScalePatches(document, parsed),
   );
 
+export const projectSetAudioCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectAudioSchema, payload, (parsed) =>
+    setProjectAudioPatches(document, parsed),
+  );
+
 export const projectSetSystemLayoutCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(setSystemLayoutSchema, payload, (parsed) =>
     setProjectSystemLayoutPatches(document, parsed),
@@ -1522,6 +1530,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.setDisplay': projectSetDisplayCommand,
     'project.setReferenceResolution': projectSetReferenceResolutionCommand,
     'project.setAccessibilityScale': projectSetAccessibilityScaleCommand,
+    'project.setAudio': projectSetAudioCommand,
     'project.setSystemLayout': projectSetSystemLayoutCommand,
     'project.setDefaultFont': projectSetDefaultFontCommand,
     'project.setTitleScreen': projectSetTitleScreenCommand,
@@ -1640,6 +1649,8 @@ export function labelForCommand(type: string): string {
       return 'Change project reference resolution';
     case 'project.setAccessibilityScale':
       return 'Update project accessibility scale';
+    case 'project.setAudio':
+      return 'Update project audio settings';
     case 'project.setSystemLayout':
       return 'Set project system layout';
     case 'project.setDefaultFont':

@@ -277,6 +277,65 @@ std::optional<SavedActorPresentationKey> decode_actor_key(Decoder& d, const nloh
     return std::nullopt;
 }
 
+nlohmann::json encode_audio_pan_source(const std::optional<compiled::AudioPanSource>& source)
+{
+    if (!source)
+        return nullptr;
+    return std::visit(
+        [](const auto& value) -> nlohmann::json {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::SceneActorAudioPanSource>)
+                return {{"kind", "scene-actor"}, {"slotId", value.slot.text()}};
+            else
+                return {{"kind", "room-anchor"},
+                        {"room", value.room.text()},
+                        {"anchorId", value.anchor.text()}};
+        },
+        *source);
+}
+
+std::optional<std::optional<compiled::AudioPanSource>>
+decode_audio_pan_source(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (value.is_null())
+        return std::optional<compiled::AudioPanSource>{};
+    if (!value.is_object()) {
+        d.error(k_type, "Expected an Audio Pan Source object or null.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = d.member(value, "kind", pointer);
+    auto kind = kind_value ? d.string(*kind_value, child(pointer, "kind")) : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "scene-actor") {
+        if (!d.object(value, pointer, {"kind", "slotId"}))
+            return std::nullopt;
+        const auto* slot_value = d.member(value, "slotId", pointer);
+        auto slot =
+            slot_value ? d.id<ActorSlotId>(*slot_value, child(pointer, "slotId")) : std::nullopt;
+        return slot ? std::optional<
+                          std::optional<compiled::AudioPanSource>>{compiled::AudioPanSource{
+                          compiled::SceneActorAudioPanSource{std::move(*slot)}}}
+                    : std::nullopt;
+    }
+    if (*kind == "room-anchor") {
+        if (!d.object(value, pointer, {"anchorId", "kind", "room"}))
+            return std::nullopt;
+        const auto* room_value = d.member(value, "room", pointer);
+        const auto* anchor_value = d.member(value, "anchorId", pointer);
+        auto room = room_value ? d.id<RoomId>(*room_value, child(pointer, "room")) : std::nullopt;
+        auto anchor = anchor_value ? d.id<RoomAnchorId>(*anchor_value, child(pointer, "anchorId"))
+                                   : std::nullopt;
+        return room && anchor
+                   ? std::optional<
+                         std::optional<compiled::AudioPanSource>>{compiled::AudioPanSource{
+                         compiled::RoomAnchorAudioPanSource{std::move(*room), std::move(*anchor)}}}
+                   : std::nullopt;
+    }
+    d.error(k_variant, "Unknown Audio Pan Source kind '" + *kind + "'.", child(pointer, "kind"));
+    return std::nullopt;
+}
+
 nlohmann::json encode_background(const compiled::BackgroundPresentation& value)
 {
     return {{"asset", encode_optional_id(value.asset)},
@@ -915,9 +974,12 @@ nlohmann::json encode_presentation_records(const SaveState& save)
     for (const auto& value : save.desired_audio)
         desired_audio.push_back({{"instance", value.instance.text()},
                                  {"owner", encode_presentation_owner(value.owner)},
-                                 {"bus", encode_enum(value.bus)},
+                                 {"purpose", encode_enum(value.purpose)},
+                                 {"pausePolicy", encode_enum(value.pause_policy)},
                                  {"asset", value.asset.text()},
-                                 {"volume", value.volume},
+                                 {"gain", value.gain},
+                                 {"pan", value.pan},
+                                 {"panSource", encode_audio_pan_source(value.pan_source)},
                                  {"fadeInMs", value.fade_in.count()},
                                  {"fadeOutMs", value.fade_out.count()},
                                  {"replacementKey", encode_optional_id(value.replacement_key)}});
@@ -1370,14 +1432,18 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   [&d](const nlohmann::json& entry,
                        const std::string& entry_pointer) -> std::optional<SavedDesiredAudio> {
                       if (!d.object(entry, entry_pointer,
-                                    {"instance", "owner", "bus", "asset", "volume", "fadeInMs",
-                                     "fadeOutMs", "replacementKey"}))
+                                    {"instance", "owner", "purpose", "pausePolicy", "asset", "gain",
+                                     "pan", "panSource", "fadeInMs", "fadeOutMs",
+                                     "replacementKey"}))
                           return std::nullopt;
                       const auto* instance_value = d.member(entry, "instance", entry_pointer);
                       const auto* owner_value = d.member(entry, "owner", entry_pointer);
-                      const auto* bus_value = d.member(entry, "bus", entry_pointer);
+                      const auto* purpose_value = d.member(entry, "purpose", entry_pointer);
+                      const auto* pause_value = d.member(entry, "pausePolicy", entry_pointer);
                       const auto* asset_value = d.member(entry, "asset", entry_pointer);
-                      const auto* volume_value = d.member(entry, "volume", entry_pointer);
+                      const auto* gain_value = d.member(entry, "gain", entry_pointer);
+                      const auto* pan_value = d.member(entry, "pan", entry_pointer);
+                      const auto* pan_source_value = d.member(entry, "panSource", entry_pointer);
                       const auto* fade_in_value = d.member(entry, "fadeInMs", entry_pointer);
                       const auto* fade_out_value = d.member(entry, "fadeOutMs", entry_pointer);
                       const auto* replacement_value =
@@ -1389,15 +1455,29 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                       auto owner = owner_value ? decode_presentation_owner(
                                                      d, *owner_value, child(entry_pointer, "owner"))
                                                : std::nullopt;
-                      auto bus = bus_value ? decode_enum(d, *bus_value, child(entry_pointer, "bus"),
-                                                         compiled::AudioChannel::Ambient)
-                                           : std::nullopt;
+                      auto purpose = purpose_value ? decode_enum(d, *purpose_value,
+                                                                 child(entry_pointer, "purpose"),
+                                                                 compiled::AudioPurpose::UiSound)
+                                                   : std::nullopt;
+                      auto pause_policy =
+                          pause_value
+                              ? decode_enum(d, *pause_value, child(entry_pointer, "pausePolicy"),
+                                            compiled::AudioPausePolicy::Unscaled)
+                              : std::nullopt;
                       auto asset = asset_value
                                        ? d.id<AssetId>(*asset_value, child(entry_pointer, "asset"))
                                        : std::nullopt;
-                      auto volume = volume_value ? decode_number(d, *volume_value,
-                                                                 child(entry_pointer, "volume"))
-                                                 : std::nullopt;
+                      auto gain = gain_value
+                                      ? decode_number(d, *gain_value, child(entry_pointer, "gain"))
+                                      : std::nullopt;
+                      auto pan = pan_value
+                                     ? decode_number(d, *pan_value, child(entry_pointer, "pan"))
+                                     : std::nullopt;
+                      auto pan_source =
+                          pan_source_value
+                              ? decode_audio_pan_source(d, *pan_source_value,
+                                                        child(entry_pointer, "panSource"))
+                              : std::nullopt;
                       auto fade_in = fade_in_value
                                          ? d.unsigned_integer<std::uint64_t>(
                                                *fade_in_value, child(entry_pointer, "fadeInMs"))
@@ -1411,8 +1491,8 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                               ? decode_optional_id_value<DesiredAudioReplacementKey>(
                                     d, *replacement_value, child(entry_pointer, "replacementKey"))
                               : std::nullopt;
-                      if (!instance || !owner || !bus || !asset || !volume || !fade_in ||
-                          !fade_out || !replacement ||
+                      if (!instance || !owner || !purpose || !pause_policy || !asset || !gain ||
+                          !pan || !pan_source || !fade_in || !fade_out || !replacement ||
                           *fade_in > static_cast<std::uint64_t>(
                                          std::numeric_limits<std::int64_t>::max()) ||
                           *fade_out >
@@ -1421,9 +1501,12 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                       return SavedDesiredAudio{
                           std::move(*instance),
                           std::move(*owner),
-                          *bus,
+                          *purpose,
+                          *pause_policy,
                           std::move(*asset),
-                          *volume,
+                          *gain,
+                          *pan,
+                          std::move(*pan_source),
                           std::chrono::milliseconds{static_cast<std::int64_t>(*fade_in)},
                           std::chrono::milliseconds{static_cast<std::int64_t>(*fade_out)},
                           std::move(*replacement)};

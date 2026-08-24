@@ -33,6 +33,7 @@ RuntimePresentationBridge::RuntimePresentationBridge(RuntimeAudioAdapter& audio)
 core::Result<void, core::Diagnostics>
 RuntimePresentationBridge::reconcile_snapshot(const core::RuntimePresentationSnapshot& snapshot)
 {
+    m_audio.cancel_inactive_owners(snapshot.active_audio_owners);
     return m_coordinator.reconcile_snapshot(snapshot);
 }
 
@@ -60,7 +61,7 @@ RuntimePresentationBridge::accept(const core::AudioOperation& operation)
                                  operation.action == core::compiled::AudioAction::FadeIn;
     const bool covered_by_mandatory_gate =
         m_pending_mandatory_snapshot && m_mandatory_asset_gate && starts_playback &&
-        operation.purpose != core::AudioOperationPurpose::UiCosmetic;
+        operation.causality != core::compiled::AudioCausality::Disposable;
     if (m_pending_mandatory_snapshot && m_mandatory_asset_gate) {
         auto included = m_mandatory_asset_gate->include_audio_operation_on_owner(operation);
         if (!included) {

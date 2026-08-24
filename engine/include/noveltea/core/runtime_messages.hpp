@@ -211,31 +211,31 @@ struct DesiredAudioOperationTarget {
     PresentationOwner owner;
     bool operator==(const DesiredAudioOperationTarget&) const = default;
 };
-struct AudioBusOperationTarget {
-    compiled::AudioChannel bus;
-    auto operator<=>(const AudioBusOperationTarget&) const = default;
+struct AudioPurposeOperationTarget {
+    compiled::AudioPurpose purpose;
+    PresentationOwner owner;
+    bool operator==(const AudioPurposeOperationTarget&) const = default;
 };
 using AudioOperationTarget = std::variant<NewAudioPlaybackTarget, AudioPlaybackOperationTarget,
-                                          DesiredAudioOperationTarget, AudioBusOperationTarget>;
-
-enum class AudioOperationPurpose : std::uint8_t {
-    Gameplay,
-    UiCosmetic,
-};
+                                          DesiredAudioOperationTarget, AudioPurposeOperationTarget>;
 
 struct AudioOperation {
     AudioOperationId id;
     compiled::AudioAction action;
-    compiled::AudioChannel channel;
+    compiled::AudioPurpose purpose = compiled::AudioPurpose::SoundEffect;
+    compiled::AudioPausePolicy pause_policy = compiled::AudioPausePolicy::Gameplay;
+    std::optional<PresentationOwner> audio_owner;
     std::optional<AssetId> asset;
     std::chrono::milliseconds fade{0};
-    bool loop = false;
-    double volume = 1.0;
-    std::optional<FlowFrameId> owner;
+    double gain = 1.0;
+    double pan = 0.0;
+    std::optional<compiled::AudioPanSource> pan_source;
+    std::optional<FlowFrameId> completion_owner;
     std::optional<AudioCompletionHandle> completion;
     AudioOperationTarget target = NewAudioPlaybackTarget{};
-    AudioOperationPurpose purpose = AudioOperationPurpose::Gameplay;
-    bool skippable = true;
+    compiled::AudioCausality causality = compiled::AudioCausality::Causal;
+    bool synchronized = false;
+    compiled::AudioSkipBehavior skip_behavior = compiled::AudioSkipBehavior::Suppress;
     bool operator==(const AudioOperation&) const = default;
 };
 

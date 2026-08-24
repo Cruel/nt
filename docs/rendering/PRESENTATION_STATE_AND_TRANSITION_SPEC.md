@@ -542,14 +542,14 @@ Persistent desired looping audio is desired presentation state. Each record incl
 
 - stable `DesiredAudioInstanceId`;
 - owner;
-- semantic bus such as Music or Ambient;
+- semantic Purpose such as Music or Ambience;
 - asset;
 - loop flag, which must be true for reconstructible desired V1 records;
 - volume and other validated semantic parameters;
 - optional explicit replacement group/key;
 - pause/clock behavior where supported by the final audio policy.
 
-Multiple desired Ambient instances may coexist. A convenience Music key may enforce one selected BGM
+Multiple desired Ambience instances may coexist. A convenience Music key may enforce one selected BGM
 without constraining the underlying model.
 
 Voice and ordinary one-shot `audio.play()` calls are distinct transient operations. They may create

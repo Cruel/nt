@@ -44,9 +44,10 @@ AudioOperation audio(std::uint64_t number)
 {
     return {.id = AudioOperationId::from_number(number),
             .action = compiled::AudioAction::Play,
-            .channel = compiled::AudioChannel::SoundEffect,
-            .asset = id<AssetId>("sound"),
-            .loop = false};
+            .purpose = compiled::AudioPurpose::SoundEffect,
+            .pause_policy = compiled::AudioPausePolicy::Gameplay,
+            .audio_owner = SessionPresentationOwner{PresentationSessionId::from_number(1)},
+            .asset = id<AssetId>("sound")};
 }
 
 ActorPresentationOperation actor(std::uint64_t number, const char* character, bool skippable = true)
@@ -99,7 +100,9 @@ TEST_CASE("coordinator assigns one total order and registers causal barriers syn
     auto first = coordinator.accept(PresentationOperation{transition(1)});
     auto second = coordinator.accept(audio(1));
     auto disposable_audio = audio(2);
-    disposable_audio.purpose = AudioOperationPurpose::UiCosmetic;
+    disposable_audio.purpose = compiled::AudioPurpose::UiSound;
+    disposable_audio.pause_policy = compiled::AudioPausePolicy::Unscaled;
+    disposable_audio.causality = compiled::AudioCausality::Disposable;
     auto third = coordinator.accept(disposable_audio);
     REQUIRE(first);
     REQUIRE(second);
@@ -235,6 +238,34 @@ TEST_CASE("finite skip completes skippable work and stops at non-skippable work"
     CHECK(direct_skip.error().front().code == "presentation.operation_not_skippable");
 }
 
+TEST_CASE("audio skip behavior distinguishes running stop from suppress and play-on-skip")
+{
+    PresentationCoordinator stop_coordinator;
+    auto stopped_audio = audio(41);
+    stopped_audio.skip_behavior = compiled::AudioSkipBehavior::Stop;
+    auto stop = stop_coordinator.accept(stopped_audio);
+    REQUIRE(stop);
+    auto skipped = stop_coordinator.fast_forward_one();
+    REQUIRE(skipped);
+    CHECK(skipped.value().disposition ==
+          PresentationFastForwardDisposition::CompletedSkippableOperation);
+    CHECK(skipped.value().operation == stop.value().metadata.operation);
+
+    for (const auto behavior :
+         {compiled::AudioSkipBehavior::Suppress, compiled::AudioSkipBehavior::Play}) {
+        PresentationCoordinator coordinator;
+        auto operation = audio(42 + static_cast<std::uint64_t>(behavior));
+        operation.skip_behavior = behavior;
+        auto accepted = coordinator.accept(operation);
+        REQUIRE(accepted);
+        auto blocked = coordinator.fast_forward_one();
+        REQUIRE(blocked);
+        CHECK(blocked.value().disposition ==
+              PresentationFastForwardDisposition::StoppedAtNonSkippableOperation);
+        CHECK(blocked.value().operation == accepted.value().metadata.operation);
+    }
+}
+
 TEST_CASE("coordinator reset cancellation is terminal without fabricated completion")
 {
     FakeBackend backend;
@@ -334,16 +365,16 @@ TEST_CASE("coordinator rejects contradictory operations before sequence allocati
     CHECK(valid.value().metadata.sequence.number() == 1);
 
     auto invalid_audio = audio(3);
-    invalid_audio.volume = std::numeric_limits<double>::quiet_NaN();
+    invalid_audio.gain = std::numeric_limits<double>::quiet_NaN();
     rejected = coordinator.accept(invalid_audio);
     REQUIRE_FALSE(rejected);
     CHECK(rejected.error().front().code == "presentation.invalid_audio_operation");
 
     invalid_audio = audio(4);
-    invalid_audio.loop = true;
+    invalid_audio.audio_owner.reset();
     rejected = coordinator.accept(invalid_audio);
     REQUIRE_FALSE(rejected);
-    CHECK(rejected.error().front().code == "presentation.transient_audio_cannot_loop");
+    CHECK(rejected.error().front().code == "presentation.invalid_audio_operation");
 
     auto next = coordinator.accept(audio(5));
     REQUIRE(next);
@@ -483,7 +514,8 @@ TEST_CASE("coordinator reports reconstructible desired activity independently of
     snapshot.desired_audio.push_back(PresentationDesiredAudio{
         .instance = DesiredAudioInstanceId::create("ambience").value(),
         .owner = SessionPresentationOwner{PresentationSessionId::from_number(1)},
-        .bus = compiled::AudioChannel::Ambient,
+        .purpose = compiled::AudioPurpose::Ambience,
+        .pause_policy = compiled::AudioPausePolicy::Gameplay,
         .asset = AssetId::create("rain-audio").value()});
 
     REQUIRE(coordinator.reconcile_snapshot(snapshot));

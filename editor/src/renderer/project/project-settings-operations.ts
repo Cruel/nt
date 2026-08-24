@@ -11,6 +11,7 @@ import {
   type ProjectAccessibilityScalePolicy,
   type ProjectAppSettings,
 } from '../../shared/project-schema/authoring-project-settings';
+import type { ProjectAudioSettings } from '../../shared/project-schema/authoring-audio';
 import {
   type AuthoringProject,
   type ProjectEntrypoint,
@@ -60,6 +61,10 @@ export interface SetProjectReferenceResolutionPayload {
 export interface SetProjectAccessibilityScalePayload {
   scale: 'uiScale' | 'textScale';
   policy: ProjectAccessibilityScalePolicy;
+}
+
+export interface SetProjectAudioPayload {
+  audio: ProjectAudioSettings;
 }
 
 export interface SetProjectSystemLayoutPayload {
@@ -230,6 +235,19 @@ export function setProjectAccessibilityScalePatches(
   const path = buildJsonPointer(['settings', 'accessibility', payload.scale]);
   patches.push(patchValue(documentValue, path, payload.policy));
   return { patches, affectedPaths: [path] };
+}
+
+export function setProjectAudioPatches(
+  document: unknown,
+  payload: SetProjectAudioPayload,
+): EntityOperationResult {
+  if (!projectForCommand(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  const documentValue = toJsonValue(document);
+  return {
+    patches: [patchValue(documentValue, '/settings/audio', payload.audio)],
+    affectedPaths: ['/settings/audio'],
+  };
 }
 
 export function setProjectSystemLayoutPatches(

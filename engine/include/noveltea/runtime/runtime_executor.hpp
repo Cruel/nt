@@ -61,14 +61,19 @@ struct PendingLayoutOperation {
 
 struct PendingAudioOperation {
     core::compiled::AudioAction action = core::compiled::AudioAction::Play;
-    core::compiled::AudioChannel channel = core::compiled::AudioChannel::SoundEffect;
+    core::compiled::AudioPurpose purpose = core::compiled::AudioPurpose::SoundEffect;
+    core::compiled::AudioPausePolicy pause_policy = core::compiled::AudioPausePolicy::Gameplay;
+    core::PresentationOwner owner;
     std::optional<core::AssetId> asset;
     std::chrono::milliseconds fade{0};
-    double volume = 1.0;
+    double gain = 1.0;
+    double pan = 0.0;
+    std::optional<core::compiled::AudioPanSource> pan_source;
     std::optional<core::AudioFlowCompletion> completion;
     core::AudioOperationTarget target = core::NewAudioPlaybackTarget{};
-    core::AudioOperationPurpose purpose = core::AudioOperationPurpose::Gameplay;
-    bool skippable = true;
+    core::compiled::AudioCausality causality = core::compiled::AudioCausality::Causal;
+    bool synchronized = false;
+    core::compiled::AudioSkipBehavior skip_behavior = core::compiled::AudioSkipBehavior::Suppress;
 };
 
 using PendingPresentationOperation =

@@ -286,4 +286,34 @@ describe('project settings operations', () => {
       },
     });
   });
+
+  it('updates the complete semantic audio mix atomically and rejects out-of-range gain', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
+    const audio = {
+      purposes: {
+        music: { volume: 0.7, muted: false },
+        ambience: { volume: 0.6, muted: true },
+        voice: { volume: 0.9, muted: false },
+        'sound-effect': { volume: 0.8, muted: false },
+        'ui-sound': { volume: 0.5, muted: false },
+      },
+      voiceDucking: { enabled: true, musicGain: 0.35, ambienceGain: 0.45 },
+    };
+    const result = executeCommand(state, { type: 'project.setAudio', payload: { audio } });
+    expect(result.ok).toBe(true);
+    expect(result.state.document).toMatchObject({ settings: { audio } });
+    expect(undoCommand(result.state).state.document).not.toMatchObject({ settings: { audio } });
+
+    expect(
+      executeCommand(state, {
+        type: 'project.setAudio',
+        payload: {
+          audio: {
+            ...audio,
+            purposes: { ...audio.purposes, music: { volume: 1.1, muted: false } },
+          },
+        },
+      }).ok,
+    ).toBe(false);
+  });
 });

@@ -546,7 +546,8 @@ TEST_CASE("structured collector builds typed ordered closure without dynamic sou
     snapshot.desired_audio.push_back(core::PresentationDesiredAudio{
         .instance = id<core::DesiredAudioInstanceId>("voice-current"),
         .owner = core::RoomPresentationOwner{id<core::RoomId>("start")},
-        .bus = core::compiled::AudioChannel::Voice,
+        .purpose = core::compiled::AudioPurpose::Voice,
+        .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
         .asset = id<core::AssetId>("audio-voice")});
 
     assets::StructuredAssetDependencyContext context;
@@ -1101,16 +1102,16 @@ TEST_CASE("mandatory gate includes transient audio in publication leases",
     auto begun = gate.begin_on_owner(snapshot);
     REQUIRE(begun.disposition == assets::MandatoryAssetGateDisposition::Ready);
 
-    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(17),
-                                         .action = core::compiled::AudioAction::Play,
-                                         .channel = core::compiled::AudioChannel::Voice,
-                                         .asset = id<core::AssetId>("audio-voice"),
-                                         .fade = std::chrono::milliseconds{0},
-                                         .loop = false,
-                                         .volume = 1.0,
-                                         .owner = std::nullopt,
-                                         .completion = std::nullopt,
-                                         .purpose = core::AudioOperationPurpose::Gameplay};
+    const core::AudioOperation operation{
+        .id = core::AudioOperationId::from_number(17),
+        .action = core::compiled::AudioAction::Play,
+        .purpose = core::compiled::AudioPurpose::Voice,
+        .pause_policy = core::compiled::AudioPausePolicy::Gameplay,
+        .audio_owner = core::SessionPresentationOwner{core::PresentationSessionId::from_number(1)},
+        .asset = id<core::AssetId>("audio-voice"),
+        .fade = std::chrono::milliseconds{0},
+        .gain = 1.0,
+        .causality = core::compiled::AudioCausality::Causal};
     auto included = gate.include_audio_operation_on_owner(operation);
     REQUIRE(included);
     REQUIRE(gate.overlay_visible_on_owner());
