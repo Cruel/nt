@@ -31,7 +31,6 @@ const TEST_TAB_STATE_SCHEMA = 'noveltea.editor.test-tab-state';
 function state(value: string): WorkbenchTabStatePayload {
   return {
     schema: TEST_TAB_STATE_SCHEMA,
-    schemaVersion: 1,
     payload: { value },
   };
 }
@@ -76,10 +75,8 @@ vi.mock('@/workbench/default-editors', async () => {
     const handle = React.useMemo(
       () => ({
         schema: TEST_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
         captureTabState: () => ({
           schema: TEST_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
           payload: { value: lifecycle.currentValues.get(tab.id) ?? 'unset' },
         }),
         restoreTabState: (nextState: WorkbenchTabStatePayload) => {
@@ -99,7 +96,6 @@ vi.mock('@/workbench/default-editors', async () => {
     const handle = React.useMemo(
       () => ({
         schema: TEST_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
         captureTabState: () => state(lifecycle.currentValues.get(tab.id) ?? 'keep-mounted'),
         restoreTabState: (nextState: WorkbenchTabStatePayload) => {
           lifecycle.restoredValues.push({
@@ -167,7 +163,6 @@ function ChangingHandleEditor({
 }) {
   useWorkbenchEditorTabState(tabId, {
     schema: TEST_TAB_STATE_SCHEMA,
-    schemaVersion: 1,
     captureTabState: () => state(`captured:${version}`),
     restoreTabState: (nextState) => onRestore(`${version}:${payloadValue(nextState)}`),
   });
@@ -222,7 +217,6 @@ describe('workbench tab-state registry', () => {
     const restores: string[] = [];
     const unregister = registerWorkbenchTabStateHandle('tab:one', {
       schema: TEST_TAB_STATE_SCHEMA,
-      schemaVersion: 1,
       captureTabState: () => {
         captures.push('capture');
         return state('captured');
@@ -253,7 +247,6 @@ describe('workbench tab-state registry', () => {
 
     registerWorkbenchTabStateHandle('tab:late', {
       schema: TEST_TAB_STATE_SCHEMA,
-      schemaVersion: 1,
       captureTabState: () => state('captured'),
       restoreTabState: (nextState) => {
         restores.push(payloadValue(nextState) ?? 'missing');
@@ -263,28 +256,14 @@ describe('workbench tab-state registry', () => {
     expect(restores).toEqual(['pending']);
   });
 
-  it('rejects persisted tab state with an unsupported identity or version', () => {
+  it('rejects persisted tab state with an unsupported schema identity', () => {
     const restores: string[] = [];
-    setWorkbenchTabState('tab:unsupported-version', {
-      ...state('unsupported-version'),
-      schemaVersion: 2,
-    });
-    registerWorkbenchTabStateHandle('tab:unsupported-version', {
-      schema: TEST_TAB_STATE_SCHEMA,
-      schemaVersion: 1,
-      captureTabState: () => state('captured'),
-      restoreTabState: (nextState) => {
-        restores.push(payloadValue(nextState) ?? 'missing');
-      },
-    });
-
     setWorkbenchTabState('tab:unsupported-schema', {
       ...state('unsupported-schema'),
       schema: 'noveltea.editor.retired-tab-state',
     });
     registerWorkbenchTabStateHandle('tab:unsupported-schema', {
       schema: TEST_TAB_STATE_SCHEMA,
-      schemaVersion: 1,
       captureTabState: () => state('captured'),
       restoreTabState: (nextState) => {
         restores.push(payloadValue(nextState) ?? 'missing');

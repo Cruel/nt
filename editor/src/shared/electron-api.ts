@@ -96,6 +96,10 @@ interface NovelTeaElectronApiContract {
   saveUserExportConfig(
     value: import('./project-schema/platform-export-contracts').UserExportConfig,
   ): Promise<import('./project-schema/platform-export-contracts').UserExportConfig>;
+  loadUserPreferences(): Promise<import('./user-config').NovelTeaUserPreferences>;
+  saveUserPreferences(
+    value: import('./user-config').NovelTeaUserPreferences,
+  ): Promise<import('./user-config').NovelTeaUserPreferences>;
   compileShaders(
     projectSessionId: string,
     shaderProject: unknown,

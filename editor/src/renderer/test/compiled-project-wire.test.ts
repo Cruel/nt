@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
   compiledDiagnosticSchema,
-  compiledProjectWireV4Schema,
-  parseCompiledProjectWireV4,
-  serializeCompiledProjectWireV4,
+  compiledProjectWireSchema,
+  parseCompiledProjectWire,
+  serializeCompiledProjectWire,
 } from '../../shared/project-schema/compiled-project';
 
 function representativeWireFixture() {
   return {
     schema: 'noveltea.compiled.project',
-    schemaVersion: 4,
+    schemaVersion: 1,
     saveContract: 'sc1:0123456789abcdef0123456789abcdef',
     project: {
       id: 'wire-demo',
@@ -325,10 +325,10 @@ function representativeWireFixture() {
 
 describe('CompiledProject Wire V4', () => {
   it('round-trips a representative wire document for every runtime-content family', () => {
-    const parsed = parseCompiledProjectWireV4(representativeWireFixture());
-    const serialized = serializeCompiledProjectWireV4(parsed);
+    const parsed = parseCompiledProjectWire(representativeWireFixture());
+    const serialized = serializeCompiledProjectWire(parsed);
 
-    expect(parseCompiledProjectWireV4(JSON.parse(serialized))).toEqual(parsed);
+    expect(parseCompiledProjectWire(JSON.parse(serialized))).toEqual(parsed);
     expect(parsed.definitions).toMatchObject({
       characters: [{ id: 'hero' }],
       rooms: [{ id: 'foyer' }],
@@ -343,9 +343,9 @@ describe('CompiledProject Wire V4', () => {
 
   it('rejects editor-only fields, legacy names, comments, and unknown nested fields', () => {
     const fixture = representativeWireFixture();
-    expect(compiledProjectWireV4Schema.safeParse({ ...fixture, editor: {} }).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse({ ...fixture, editor: {} }).success).toBe(false);
     expect(
-      compiledProjectWireV4Schema.safeParse({
+      compiledProjectWireSchema.safeParse({
         ...fixture,
         categories: [],
         tags: [],
@@ -368,7 +368,7 @@ describe('CompiledProject Wire V4', () => {
         ],
       },
     };
-    expect(compiledProjectWireV4Schema.safeParse(commentFixture).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(commentFixture).success).toBe(false);
 
     const nestedUnknownFixture = {
       ...representativeWireFixture(),
@@ -385,13 +385,13 @@ describe('CompiledProject Wire V4', () => {
         ],
       },
     };
-    expect(compiledProjectWireV4Schema.safeParse(nestedUnknownFixture).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(nestedUnknownFixture).success).toBe(false);
 
     const duplicateIdFixture = {
       ...fixture,
       properties: [...fixture.properties, { ...fixture.properties[0]! }],
     };
-    expect(compiledProjectWireV4Schema.safeParse(duplicateIdFixture).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(duplicateIdFixture).success).toBe(false);
 
     expect(
       compiledDiagnosticSchema.safeParse({
@@ -419,13 +419,13 @@ describe('CompiledProject Wire V4', () => {
         scenes: [{ ...fixture.definitions.scenes[0]!, traits: [], propertyAssignments: [] }],
       },
     };
-    expect(compiledProjectWireV4Schema.safeParse(sceneWithState).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(sceneWithState).success).toBe(false);
 
     const propertyWithProgramOwner = {
       ...fixture,
       properties: [{ ...fixture.properties[0]!, ownerKinds: ['scene'] }],
     };
-    expect(compiledProjectWireV4Schema.safeParse(propertyWithProgramOwner).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(propertyWithProgramOwner).success).toBe(false);
   });
 
   it('rejects the provisional V1 display shape and version', () => {
@@ -443,7 +443,7 @@ describe('CompiledProject Wire V4', () => {
       },
     };
 
-    expect(compiledProjectWireV4Schema.safeParse(provisional).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(provisional).success).toBe(false);
   });
 
   it('requires sampling on images and forbids it on non-image resources', () => {
@@ -457,7 +457,7 @@ describe('CompiledProject Wire V4', () => {
         assets: [{ id: image.id, kind: image.kind, path: image.path, aliases: image.aliases }],
       },
     };
-    expect(compiledProjectWireV4Schema.safeParse(missingImageSampling).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(missingImageSampling).success).toBe(false);
 
     const nonImageSampling = {
       ...fixture,
@@ -475,7 +475,7 @@ describe('CompiledProject Wire V4', () => {
         ],
       },
     };
-    expect(compiledProjectWireV4Schema.safeParse(nonImageSampling).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(nonImageSampling).success).toBe(false);
   });
 
   it('accepts explicit linear and nearest image sampling', () => {
@@ -483,7 +483,7 @@ describe('CompiledProject Wire V4', () => {
     const image = fixture.resources.assets[0]!;
     fixture.resources.assets.push({ ...image, id: 'pixel-image', sampling: 'nearest' });
 
-    const parsed = parseCompiledProjectWireV4(fixture);
+    const parsed = parseCompiledProjectWire(fixture);
     expect(parsed.resources.assets).toEqual([
       expect.objectContaining({ id: 'foyer-image', kind: 'image', sampling: 'linear' }),
       expect.objectContaining({ id: 'pixel-image', kind: 'image', sampling: 'nearest' }),
@@ -514,18 +514,18 @@ describe('CompiledProject Wire V4', () => {
       },
     };
 
-    expect(compiledProjectWireV4Schema.safeParse(fractionalDurationFixture).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(fractionalDurationFixture).success).toBe(false);
   });
 
   it('rejects reference dimensions above the runtime display limit', () => {
     const fixture = representativeWireFixture();
     fixture.settings.display.referenceResolution.width = 10_001;
 
-    expect(compiledProjectWireV4Schema.safeParse(fixture).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(fixture).success).toBe(false);
   });
 
   it('canonicalizes object keys without changing compiler-owned array order', () => {
-    const fixture = parseCompiledProjectWireV4(representativeWireFixture());
+    const fixture = parseCompiledProjectWire(representativeWireFixture());
     fixture.definitions.scenes.push({
       id: 'after-opening',
       displayName: 'After opening',
@@ -535,8 +535,8 @@ describe('CompiledProject Wire V4', () => {
       program: { instructions: [{ id: 'pause', kind: 'wait-input', skippable: false }] },
     });
 
-    const serialized = serializeCompiledProjectWireV4(fixture);
-    const decoded = parseCompiledProjectWireV4(JSON.parse(serialized));
+    const serialized = serializeCompiledProjectWire(fixture);
+    const decoded = parseCompiledProjectWire(JSON.parse(serialized));
     expect(decoded.definitions.scenes.map((scene) => scene.id)).toEqual([
       'opening',
       'after-opening',
@@ -544,6 +544,6 @@ describe('CompiledProject Wire V4', () => {
     expect(serialized.indexOf('"definitions"')).toBeLessThan(serialized.indexOf('"entrypoint"'));
 
     const reorderedRoot = Object.fromEntries(Object.entries(fixture).reverse());
-    expect(serializeCompiledProjectWireV4(reorderedRoot)).toBe(serialized);
+    expect(serializeCompiledProjectWire(reorderedRoot)).toBe(serialized);
   });
 });

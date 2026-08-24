@@ -125,7 +125,7 @@ try {
 }
 
 const evidence = {
-  format: 'noveltea.web-export-browser-certification', formatVersion: 1,
+  format: 'noveltea.web-export-browser-certification',
   generatedAt: new Date().toISOString(), browser: 'chromium', results, requests,
 };
 const serialized = `${JSON.stringify(evidence, null, 2)}\n`;

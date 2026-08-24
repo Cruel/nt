@@ -35,7 +35,7 @@ The editor's assembled model supports a strict mutually exclusive source union: 
 script Asset. The workspace codec maps the inline branch only to/from its explicit file source and
 rejects persisted Script Module `inline-lua` JSON. Validation confirms that an asset-backed source is
 a script asset. The compiler preserves either assembled source in the canonical compiled artifact and
-emits the Project's stable `bootstrapModule` reference and Room `scriptHooks` mappings without changing compiled schema version 4.
+emits the Project's stable `bootstrapModule` reference and Room `scriptHooks` mappings in the current compiled-project format.
 
 The native Project loader gives every Script Module a module-local environment with an `import(id, export?)`
 function. First import executes the target once in the current Project VM, requires the module to return an

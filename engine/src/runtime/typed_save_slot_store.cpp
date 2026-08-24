@@ -12,8 +12,7 @@
 namespace noveltea::core {
 namespace {
 
-constexpr std::string_view checkpoint_bundle_magic = "NTCHKPT1";
-constexpr std::uint32_t checkpoint_bundle_version = 1;
+constexpr std::string_view save_file_magic = "NTSAVE";
 constexpr std::string_view png_signature = "\x89PNG\r\n\x1a\n";
 
 Diagnostics slot_error(std::string code, std::string message)
@@ -68,16 +67,20 @@ std::optional<std::string> read_string(std::string_view input, std::size_t& offs
 
 Result<std::string, Diagnostics> encode_checkpoint_bundle(const TypedSaveSlotCheckpoint& checkpoint)
 {
-    if (!checkpoint.metadata)
-        return Result<std::string, Diagnostics>::success(checkpoint.encoded_save);
-    const auto& metadata = *checkpoint.metadata;
+    if (!checkpoint.metadata && checkpoint.thumbnail)
+        return Result<std::string, Diagnostics>::failure(slot_error(
+            "save_slot.invalid_checkpoint_thumbnail",
+            "Save checkpoint thumbnails require checkpoint metadata."));
     std::string output;
-    output.reserve(checkpoint_bundle_magic.size() + checkpoint.encoded_save.size() +
+    output.reserve(save_file_magic.size() + checkpoint.encoded_save.size() +
                    (checkpoint.thumbnail ? checkpoint.thumbnail->bytes.size() : 0u) + 160u);
-    output.append(checkpoint_bundle_magic);
-    append_integer(output, checkpoint_bundle_version);
+    output.append(save_file_magic);
+    append_integer(output, save_file_format_version);
     append_string(output, checkpoint.encoded_save);
-    append_integer(output, metadata.save_format_version);
+    output.push_back(checkpoint.metadata ? '\1' : '\0');
+    if (!checkpoint.metadata)
+        return Result<std::string, Diagnostics>::success(std::move(output));
+    const auto& metadata = *checkpoint.metadata;
     append_string(output, metadata.project.text());
     append_string(output, metadata.project_version);
     append_string(output, metadata.save_contract);
@@ -98,15 +101,27 @@ Result<std::string, Diagnostics> encode_checkpoint_bundle(const TypedSaveSlotChe
 
 Result<TypedSaveSlotCheckpoint, Diagnostics> decode_checkpoint_bundle(std::string bytes)
 {
-    if (!std::string_view(bytes).starts_with(checkpoint_bundle_magic))
-        return Result<TypedSaveSlotCheckpoint, Diagnostics>::success(
-            TypedSaveSlotCheckpoint{std::move(bytes), std::nullopt, std::nullopt});
+    if (!std::string_view(bytes).starts_with(save_file_magic))
+        return Result<TypedSaveSlotCheckpoint, Diagnostics>::failure(
+            slot_error("save_slot.invalid_save_file", "Save file is malformed or unsupported."));
 
     const std::string_view input(bytes);
-    std::size_t offset = checkpoint_bundle_magic.size();
+    std::size_t offset = save_file_magic.size();
     const auto version = read_integer<std::uint32_t>(input, offset);
     auto encoded_save = read_string(input, offset);
-    const auto format_version = read_integer<std::uint32_t>(input, offset);
+    if (!version || *version != save_file_format_version || !encoded_save || offset >= input.size())
+        return Result<TypedSaveSlotCheckpoint, Diagnostics>::failure(
+            slot_error("save_slot.invalid_checkpoint_bundle",
+                       "Save checkpoint bundle is malformed or unsupported."));
+    const bool has_metadata = input[offset++] != '\0';
+    if (!has_metadata) {
+        if (offset != input.size())
+            return Result<TypedSaveSlotCheckpoint, Diagnostics>::failure(
+                slot_error("save_slot.invalid_checkpoint_bundle",
+                           "Save checkpoint bundle contains trailing data."));
+        return Result<TypedSaveSlotCheckpoint, Diagnostics>::success(
+            TypedSaveSlotCheckpoint{std::move(*encoded_save), std::nullopt, std::nullopt});
+    }
     auto project_text = read_string(input, offset);
     auto project_version = read_string(input, offset);
     auto save_contract = read_string(input, offset);
@@ -115,8 +130,7 @@ Result<TypedSaveSlotCheckpoint, Diagnostics> decode_checkpoint_bundle(std::strin
     const auto captured_structural = read_integer<std::uint64_t>(input, offset);
     const auto time = read_integer<std::uint64_t>(input, offset);
     const auto captured_time = read_integer<std::uint64_t>(input, offset);
-    if (!version || *version != checkpoint_bundle_version || !encoded_save || !format_version ||
-        !project_text || !project_version || !save_contract || !play_time || !structural ||
+    if (!project_text || !project_version || !save_contract || !play_time || !structural ||
         !captured_structural || !time || !captured_time || offset >= input.size()) {
         return Result<TypedSaveSlotCheckpoint, Diagnostics>::failure(
             slot_error("save_slot.invalid_checkpoint_bundle",
@@ -156,7 +170,6 @@ Result<TypedSaveSlotCheckpoint, Diagnostics> decode_checkpoint_bundle(std::strin
                        "Save checkpoint bundle contains trailing data."));
 
     SaveCheckpointMetadata metadata{
-        .save_format_version = *format_version,
         .project = std::move(*project_value),
         .project_version = std::move(*project_version),
         .save_contract = std::move(*save_contract),
@@ -327,7 +340,11 @@ TypedFilesystemSaveSlotStore::read_checkpoint(TypedSaveSlotId slot) const
 Result<void, Diagnostics> TypedFilesystemSaveSlotStore::write_slot(TypedSaveSlotId slot,
                                                                    std::string_view bytes)
 {
-    return write_file_atomically(m_root, slot_path(slot), bytes);
+    auto encoded = encode_checkpoint_bundle(
+        TypedSaveSlotCheckpoint{std::string(bytes), std::nullopt, std::nullopt});
+    if (!encoded)
+        return Result<void, Diagnostics>::failure(std::move(encoded).error());
+    return write_file_atomically(m_root, slot_path(slot), *encoded.value_if());
 }
 
 Result<void, Diagnostics>

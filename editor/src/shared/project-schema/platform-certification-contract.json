@@ -1,5 +1,4 @@
 {
-  "formatVersion": 1,
   "universalChecks": [
     "artifact-claims",
     "descriptor-file-integrity",

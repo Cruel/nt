@@ -8,7 +8,7 @@ specified in `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md`.
 The editor has one gameplay producer:
 
 ```text
-AuthoringProject V2
+Current AuthoringProject
   -> publishCompiledArtifact
   -> canonical noveltea.compiled.project v1 gameplay JSON
 ```
@@ -123,7 +123,7 @@ When automatic template resolution finds more than one compatible installation i
 exact `<template-id>@<build-id>` choices; no lexical or inferred-version winner is selected. The
 editor shows a template selector only when there is a real choice, and when no compatible template
 exists it offers Download and Install actions in place. Editor Settings has a separate installed
-Template manager with Install/Delete only. The editor and CLI share `~/.noveltea/templates/v1`.
+Template manager with Install/Delete only. The editor and CLI share `~/.noveltea/templates`.
 
 Export profiles do not expose capabilities. NovelTea derives the fixed requirements consumed by
 template compatibility and platform packaging: external-URL launching is required where supported,

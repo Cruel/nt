@@ -5,7 +5,7 @@
 Full-game preview, authoring-test playback, and `.ntpkg` export use `prepareRuntimeArtifact` as their
 single project-derived compilation and runtime-readiness interface. Play and test-playback intents
 are effect-free; shader compiler effects are reserved for explicit export intents. The published
-value is canonical `noveltea.compiled.project` V4 plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
+value is canonical `noveltea.compiled.project` Format V1 plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 
 Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
@@ -29,7 +29,7 @@ path as packaged playback;
 `runtime::RuntimeSession`.
 
 The transport message name is an external protocol operation, not a schema name. Its `project`
-payload must be `noveltea.compiled.project` version 4.
+payload must be `noveltea.compiled.project` format version 1.
 
 Live commands lower to stable typed inputs for start/stop/reset/time, continue, dialogue choice,
 navigation, semantic subject selection, interaction invocation, declared variable changes, inventory
@@ -44,7 +44,7 @@ Interaction subject plus label or a Room Exit plus label. A pointer Hotspot and 
 therefore converge on the same subject/navigation input. Hidden, disabled, absent, condition-false,
 and otherwise ineligible geometry does not produce enabled preview controls.
 
-Focused Room preview remains `noveltea.room-preview` version 2 and is passive: its projected snapshot
+Focused Room preview uses the current `noveltea.room-preview` document and is passive: its projected snapshot
 contains no hotspot values and it does not install world hotspot input. Play preview uses the normal
 runtime projection and world controller in the same preview executable.
 

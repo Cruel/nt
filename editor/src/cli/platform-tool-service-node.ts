@@ -2,7 +2,6 @@ import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   EDITOR_EXPORT_LOCAL_STATE_FORMAT,
-  EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION,
   parseEditorExportLocalState,
 } from '../shared/project-schema/platform-export-contracts';
 import { exportProjectToPlatform } from '../main/services/platform-export-orchestration-service';
@@ -85,7 +84,6 @@ export function createNovelTeaCliPlatformToolService(
         );
       const value = parseEditorExportLocalState({
         format: EDITOR_EXPORT_LOCAL_STATE_FORMAT,
-        formatVersion: EDITOR_EXPORT_LOCAL_STATE_FORMAT_VERSION,
         templateRoots: [],
         toolchains: {},
         signing: {},

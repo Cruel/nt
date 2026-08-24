@@ -40,9 +40,9 @@ import {
 } from '../../shared/project-schema/authoring-materials';
 import { parseRoomData, type RoomData } from '../../shared/project-schema/authoring-rooms';
 import {
-  roomPreviewDocumentV2Schema,
-  type RoomPreviewDocumentV2,
-} from '../../shared/project-schema/room-preview-v2';
+  roomPreviewDocumentSchema,
+  type RoomPreviewDocument,
+} from '../../shared/project-schema/room-preview';
 import { parseScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
 import {
   canonicalRuntimeShaderOutputPath,
@@ -60,9 +60,9 @@ import type { ShaderVariant } from '../../shared/shader-variants';
 import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 
 type Diagnostic = AuthoringDependencyGraphDiagnostic;
-type FocusedCondition = RoomPreviewDocumentV2['world']['cast'][number]['condition'];
-type FocusedText = RoomPreviewDocumentV2['ui']['description'];
-type FocusedVisual = RoomPreviewDocumentV2['world']['cast'][number]['visual'];
+type FocusedCondition = RoomPreviewDocument['world']['cast'][number]['condition'];
+type FocusedText = RoomPreviewDocument['ui']['description'];
+type FocusedVisual = RoomPreviewDocument['world']['cast'][number]['visual'];
 
 export interface BuildFocusedRoomPreviewOptions {
   project: AuthoringProject;
@@ -75,7 +75,7 @@ export interface BuildFocusedRoomPreviewOptions {
 }
 
 export interface FocusedRoomPreviewBuildResult {
-  data: RoomPreviewDocumentV2;
+  data: RoomPreviewDocument;
   resources: PreviewResourceManifestEntry[];
   diagnostics: Diagnostic[];
 }
@@ -293,11 +293,11 @@ function buildLayouts(
   analyses: readonly AuthoringSourceAnalysisArtifact<Diagnostic>[],
   diagnostics: Diagnostic[],
 ) {
-  const output: RoomPreviewDocumentV2['layouts'] = [];
+  const output: RoomPreviewDocument['layouts'] = [];
   const append = (
     layoutId: string | null,
     instanceId: string,
-    mount: RoomPreviewDocumentV2['layouts'][number]['mount'],
+    mount: RoomPreviewDocument['layouts'][number]['mount'],
   ) => {
     if (layoutId === null) {
       output.push({
@@ -630,7 +630,7 @@ function structuredConditionVariableIds(room: RoomData): string[] {
   ].sort();
 }
 
-function collectVisualIds(data: RoomPreviewDocumentV2) {
+function collectVisualIds(data: RoomPreviewDocument) {
   const assets = new Set<string>();
   const materials = new Set<string>();
   const addAsset = (id: string | null) => id && assets.add(id);
@@ -678,7 +678,7 @@ function completeMaterialClosure(project: AuthoringProject, materialIds: Set<str
   return { shaderIds, assetIds };
 }
 
-function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocumentV2['layouts']) {
+function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocument['layouts']) {
   const assets = new Set<string>();
   const materials = new Set<string>();
   for (const layout of layouts) {
@@ -823,7 +823,7 @@ export async function buildFocusedRoomPreview(
         ),
       );
 
-  const persistentCharacters: RoomPreviewDocumentV2['world']['persistentCharacters'] = [];
+  const persistentCharacters: RoomPreviewDocument['world']['persistentCharacters'] = [];
   const interactables = [...room.interactables]
     .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
     .flatMap((instance) => {
@@ -865,9 +865,8 @@ export async function buildFocusedRoomPreview(
     options.inputs.displayPreference,
     project.settings.display,
   );
-  const data: RoomPreviewDocumentV2 = {
+  const data: RoomPreviewDocument = {
     schema: 'noveltea.room-preview',
-    schemaVersion: 2,
     environment: {
       profile: { name: profile.name, nativeResolution: profile.nativeResolution },
       project: {
@@ -883,9 +882,9 @@ export async function buildFocusedRoomPreview(
       displayName: room.displayName,
       visit: { visitIndex: 1, sourceRoomId: null, entryExitId: null },
     },
-    luaAdmission: admission as RoomPreviewDocumentV2['luaAdmission'],
-    queryState: state as RoomPreviewDocumentV2['queryState'],
-    shaderMaterials: { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} },
+    luaAdmission: admission as RoomPreviewDocument['luaAdmission'],
+    queryState: state as RoomPreviewDocument['queryState'],
+    shaderMaterials: { schema: 'noveltea.shader-materials', shaders: {}, materials: {} },
     world: {
       presentationSpace: {
         size: { ...room.presentationSpace.size },
@@ -1084,5 +1083,5 @@ export async function buildFocusedRoomPreview(
     activeShaderVariant,
     diagnostics,
   );
-  return { data: roomPreviewDocumentV2Schema.parse(data), resources, diagnostics };
+  return { data: roomPreviewDocumentSchema.parse(data), resources, diagnostics };
 }

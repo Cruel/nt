@@ -85,7 +85,6 @@ describe('workbench tabs', () => {
     };
     setWorkbenchTabState(roomTab.id, {
       schema: 'noveltea.editor.tab-state.room',
-      schemaVersion: 4,
       payload: { activeCategory: 'general', previewCollapsed: false },
     });
     useWorkbenchStore.getState().openTab(roomTab);

@@ -57,10 +57,8 @@ export function SettingsTabEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: SETTINGS_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
         captureTabState: () => ({
           schema: SETTINGS_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
           payload: { activeCategory },
         }),
         restoreTabState: (state: SettingsEditorTabState) => {

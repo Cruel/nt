@@ -4,6 +4,7 @@ import type { AuthoringProject } from '../shared/project-schema/authoring-projec
 import { projectSettingsFromProject } from '../shared/project-schema/authoring-project-settings';
 import { editorProjectStateSchema } from '../shared/project-schema/editor-project-state';
 import {
+  PLAYER_RUNTIME_API_VERSION,
   parseEditorExportLocalState,
   parseProjectPlatformExportSettings,
   projectPlatformExportSettingsSchema,
@@ -13,6 +14,7 @@ import {
   type PlatformStageDiagnostic,
   type ProjectPlatformExportRequest,
 } from '../shared/project-schema/platform-export-contracts';
+import { COMPILED_PROJECT_FORMAT_VERSION } from '../shared/project-schema/compiled-project';
 import { evaluateTemplateCompatibility } from '../shared/project-schema/template-compatibility';
 import { derivedPlatformCapabilities } from '../shared/project-schema/platform-deployment';
 import { cliDiagnostic, NOVELTEA_CLI_EXIT_CODES } from './contracts';
@@ -248,8 +250,8 @@ async function profileRows(
       if (template.status === 'corrupted') return false;
       return evaluateTemplateCompatibility(template.descriptor, {
         profile,
-        runtimePackageApi: 2,
-        playerConfigApi: 2,
+        compiledProjectFormatVersion: COMPILED_PROJECT_FORMAT_VERSION,
+        playerRuntimeApiVersion: PLAYER_RUNTIME_API_VERSION,
         shaderVariants: runtimeProfile.shaderVariants,
         graphicsBackends: [],
         capabilities: derivedPlatformCapabilities(profile.target),

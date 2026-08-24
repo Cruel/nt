@@ -14,9 +14,6 @@
 namespace noveltea::core {
 
 struct SaveStateMetadata {
-    static constexpr std::uint32_t current_format_version = 8;
-
-    std::uint32_t format_version = current_format_version;
     ProjectId project;
     std::string project_version;
     std::string save_contract;

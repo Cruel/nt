@@ -248,10 +248,8 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: TESTS_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
         captureTabState: () => ({
           schema: TESTS_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
           payload: {
             scroll: captureScrollViewState(scrollRef.current),
             sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),

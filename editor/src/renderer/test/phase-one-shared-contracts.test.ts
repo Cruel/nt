@@ -26,7 +26,7 @@ import {
 } from '../../shared/project-schema/authoring-lua-analysis';
 import { conditionSchema, textSourceSchema } from '../../shared/project-schema/authoring-flow';
 import { defaultRoomData, roomDataSchema } from '../../shared/project-schema/authoring-rooms';
-import { roomPreviewDocumentV2Schema } from '../../shared/project-schema/room-preview-v2';
+import { roomPreviewDocumentSchema } from '../../shared/project-schema/room-preview';
 import { defaultLayoutData, layoutDataSchema } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
@@ -123,7 +123,7 @@ describe('Phase 1 shared contracts', () => {
     ).toThrow();
     const request = focusedEditorDocumentRequestEnvelopeSchema.parse({
       protocol: 'noveltea.focused-editor-document',
-      protocolVersion: 2,
+      protocolVersion: 1,
       requestId: 'request-1',
       applySequence: 1,
       projectInstanceId: 'project',
@@ -135,9 +135,9 @@ describe('Phase 1 shared contracts', () => {
       resources: projectNativeManifest([manifest]),
       data: {},
     });
-    expect(encodeFocusedEditorDocumentRequest(request)).toContain('"protocolVersion":2');
+    expect(encodeFocusedEditorDocumentRequest(request)).toContain('"protocolVersion":1');
     expect(() =>
-      focusedEditorDocumentRequestEnvelopeSchema.parse({ ...request, protocolVersion: 1 }),
+      focusedEditorDocumentRequestEnvelopeSchema.parse({ ...request, protocolVersion: 2 }),
     ).toThrow();
     expect(() =>
       previewResourceManifestEntrySchema.parse({ ...manifest, unknown: true }),
@@ -340,10 +340,9 @@ describe('Phase 1 shared contracts', () => {
     }
   });
 
-  it('defines the production Room v2 document strictly', () => {
+  it('defines the production Room document strictly', () => {
     const base = {
       schema: 'noveltea.room-preview',
-      schemaVersion: 2,
       environment: {
         profile: { name: 'Desktop', nativeResolution: { width: 1920, height: 1080 } },
         project: {
@@ -371,7 +370,7 @@ describe('Phase 1 shared contracts', () => {
         compositionDraftInteractableIds: [],
       },
       queryState: { variables: [], properties: [], definitions: [], interactableLocations: [] },
-      shaderMaterials: { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} },
+      shaderMaterials: { schema: 'noveltea.shader-materials', shaders: {}, materials: {} },
       world: {
         presentationSpace: {
           size: { width: 1920, height: 1080 },
@@ -407,10 +406,10 @@ describe('Phase 1 shared contracts', () => {
       },
       composition: null,
     } as const;
-    expect(roomPreviewDocumentV2Schema.parse(base).schemaVersion).toBe(2);
-    expect(() => roomPreviewDocumentV2Schema.parse({ ...base, unknown: true })).toThrow();
+    expect(roomPreviewDocumentSchema.parse(base).schema).toBe('noveltea.room-preview');
+    expect(() => roomPreviewDocumentSchema.parse({ ...base, unknown: true })).toThrow();
     expect(() =>
-      roomPreviewDocumentV2Schema.parse({
+      roomPreviewDocumentSchema.parse({
         ...base,
         environment: {
           ...base.environment,
@@ -419,19 +418,19 @@ describe('Phase 1 shared contracts', () => {
       }),
     ).toThrow();
     expect(() =>
-      roomPreviewDocumentV2Schema.parse({
+      roomPreviewDocumentSchema.parse({
         ...base,
         world: { ...base.world, background: { ...base.world.background, unknown: true } },
       }),
     ).toThrow();
     expect(() =>
-      roomPreviewDocumentV2Schema.parse({
+      roomPreviewDocumentSchema.parse({
         ...base,
         world: { ...base.world, background: undefined },
       }),
     ).toThrow();
     expect(() =>
-      roomPreviewDocumentV2Schema.parse({
+      roomPreviewDocumentSchema.parse({
         ...base,
         layouts: [
           {
@@ -448,7 +447,7 @@ describe('Phase 1 shared contracts', () => {
       }),
     ).toThrow();
     expect(() =>
-      roomPreviewDocumentV2Schema.parse({
+      roomPreviewDocumentSchema.parse({
         ...base,
         composition: { moduleId: 'compose', exportName: 'compose', source: { kind: 'inline' } },
       }),

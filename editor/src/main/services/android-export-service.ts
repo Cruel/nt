@@ -15,9 +15,8 @@ import { buildPlatformDeployment } from '../../shared/project-schema/platform-de
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import {
   PLAYER_CONFIG_FORMAT,
-  PLAYER_CONFIG_FORMAT_VERSION,
+  PLAYER_RUNTIME_API_VERSION,
   PLATFORM_EXPORT_MANIFEST_FORMAT,
-  PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION,
   type PlatformExportManifest,
   type PlatformStageDiagnostic,
   type PlatformStageRequest,
@@ -245,7 +244,7 @@ export async function generateAndroidInputs(
   const packageHash = sha256(packageData);
   const playerConfig = {
     format: PLAYER_CONFIG_FORMAT,
-    formatVersion: PLAYER_CONFIG_FORMAT_VERSION,
+    formatVersion: PLAYER_RUNTIME_API_VERSION,
     displayName: request.identity.displayName,
     applicationId: request.identity.applicationId,
     saveNamespace: request.identity.saveNamespace,
@@ -254,7 +253,6 @@ export async function generateAndroidInputs(
     package: {
       path: 'game.ntpkg',
       sha256: packageHash,
-      runtimePackageApi: request.runtimePackageApi,
     },
     capabilities: deployment.capabilities,
     display: request.runtimeDisplay,
@@ -276,7 +274,6 @@ export async function generateAndroidInputs(
   const files = await trackedFiles(generatedRoot);
   const exportManifest: PlatformExportManifest = {
     format: PLATFORM_EXPORT_MANIFEST_FORMAT,
-    formatVersion: PLATFORM_EXPORT_MANIFEST_FORMAT_VERSION,
     deployment,
     files,
   };
@@ -530,7 +527,6 @@ export async function exportAndroidPlatform(
     const reportName = `${stem}-export-report.json`;
     const report = {
       format: 'noveltea.android-export-report',
-      formatVersion: 1,
       operationId: request.operationId,
       deployment: built.model.android,
       template: { id: descriptor.templateId, buildId: descriptor.buildId },

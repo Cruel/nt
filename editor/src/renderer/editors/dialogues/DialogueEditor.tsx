@@ -63,7 +63,7 @@ import {
 } from '../../../shared/project-schema/dialogue-project';
 import { DialogueGraph } from './DialogueGraph';
 
-const DIALOGUE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.dialogue.v2';
+const DIALOGUE_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.dialogue';
 
 interface DialogueEditorTabStatePayload {
   scroll?: ScrollViewState;
@@ -481,10 +481,8 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: DIALOGUE_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 2,
         captureTabState: () => ({
           schema: DIALOGUE_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 2,
           payload: {
             scroll: captureScrollViewState(scrollRef.current),
             graphViewport: graphViewportRef.current ?? undefined,
@@ -967,7 +965,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
       </p>
       {!parsedData ? (
         <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-          Dialogue data is invalid; editable V2 defaults are shown.
+          Dialogue data is invalid; editable current defaults are shown.
         </div>
       ) : null}
 

@@ -28,8 +28,6 @@ import {
 } from './agent-kit/source';
 
 export const NOVELTEA_AGENT_KIT_SCHEMA = 'noveltea.agent-kit.manifest' as const;
-export const NOVELTEA_AGENT_KIT_SCHEMA_VERSION = 2 as const;
-export const NOVELTEA_AGENT_KIT_VERSION = 1 as const;
 
 const provenanceSourceIdSchema = z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/);
 const provenanceSourceSchema = z.discriminatedUnion('kind', [
@@ -243,7 +241,6 @@ function systemLayoutManifestText(
 
   return jsonText({
     schema: 'noveltea.agent-kit.system-layouts',
-    schemaVersion: 2,
     baselines: {
       implicit: true,
       appliesTo: [
@@ -327,8 +324,6 @@ export function createNovelTeaAgentKitPayload(
   );
   const manifest = {
     schema: NOVELTEA_AGENT_KIT_SCHEMA,
-    schemaVersion: NOVELTEA_AGENT_KIT_SCHEMA_VERSION,
-    agentKitVersion: NOVELTEA_AGENT_KIT_VERSION,
     cliVersion: NOVELTEA_CLI_VERSION,
     projectWorkspaceVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
     files: hashes,

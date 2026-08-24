@@ -15,7 +15,7 @@ _See_: `docs/editor/project/PROJECT_WORKSPACE_FORMAT.md`
 
 **Compiled Project**:
 The generated gameplay representation produced from a Project for consumption by the native runtime. It is neither editable project source nor the distributable package around that runtime data.
-_See_: `docs/architecture/COMPILED_PROJECT_WIRE_V2.md`
+_See_: `docs/architecture/COMPILED_PROJECT_WIRE.md`
 
 **Runtime Package**:
 The distributable `.ntpkg` artifact containing a Compiled Project and the runtime resources needed to run it.

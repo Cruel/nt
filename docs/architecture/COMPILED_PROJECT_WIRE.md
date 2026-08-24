@@ -1,7 +1,7 @@
-# CompiledProject Wire V4
+# CompiledProject Wire
 
 `editor/src/shared/project-schema/compiled-project.ts` is the sole executable contract for
-`noveltea.compiled.project` version 4. The native decoder consumes this contract and may add
+`noveltea.compiled.project` format version 1. The native decoder consumes this contract and may add
 defensive validation, but must not invent a second wire shape.
 
 The document contains immutable gameplay definitions (Characters, Rooms, Interactables, Verbs,
@@ -10,7 +10,7 @@ Interactions, Scenes, Dialogues, and Maps), typed properties and variables, type
 one deterministic `saveContract`, and one Room/Scene/Dialogue entrypoint. `saveContract` uses canonical
 `sc1:<32 lowercase hex digits>` spelling and is compiler-owned; native decoding validates and retains
 it but never recomputes or repairs it. Cross-references, including references into separately
-versioned material data, are typed discriminated references; generic collection/id
+material data, are typed discriminated references; generic collection/id
 references, authoring collection maps, legacy Object/Action names, comments, categories, tags, and
 editor state are not legal fields.
 
@@ -18,11 +18,11 @@ The wire contains closed `SceneProgram`, `DialogueProgram`, `InteractionProgram`
 representations. Program and nested IDs remain stable. Definition arrays are compiler-sorted by ID;
 the compiler preserves the authored order of all semantically ordered arrays inside a definition.
 
-`serializeCompiledProjectWireV2` is the only serializer. It validates the strict wire shape,
+`serializeCompiledProjectWire` is the only serializer. It validates the strict wire shape,
 serializes compact UTF-8 JSON without a BOM or insignificant whitespace, orders object keys by Unicode
 code point recursively, normalizes negative zero to zero, rejects non-finite values through schema
 validation, and never reorders arrays. Package manifests and shader/material metadata remain separate
-versioned documents.
+documents.
 
 Runtime settings publish the canonical reference resolution, project-wide world raster policy, and
 independent UI/text accessibility policies. Aspect ratio and orientation are not compiled fields;
@@ -50,11 +50,11 @@ failures, not migration or repair inputs.
 
 The compiler uses a separate `CompiledProjectSharedDraft` implementation type while specialized
 programs are still incomplete. That draft contains all shared declarations, resources, definitions, Trait declarations/attachments, and authored Property assignments, but omits program-owned fields entirely. It is never
-accepted by `compiledProjectWireV2Schema`, serialized as gameplay JSON, or exposed to consumers.
+accepted by `compiledProjectWireSchema`, serialized as gameplay JSON, or exposed to consumers.
 
 ## Scene TransitionGroup wire contract
 
-The targetless Scene instruction `{ "kind": "transition", ... }` is not a V2 variant and has no
+The targetless Scene instruction `{ "kind": "transition", ... }` is not a current variant and has no
 compatibility interpretation. The only grouped transition instruction is
 `{ "kind": "transition-group", ... }` with a non-empty `children` array, stable unique child IDs,
 `transitionKind`, `durationMs`, `color`, `waitForCompletion`, and `skippable`.

@@ -231,7 +231,7 @@ the authored target resolves these defaults:
 | `WorldOverlay` | `ignore` | `inherit` |
 | screen-space planes | `inherit` | `inherit` |
 
-The version 2 compiled Layout wire carries the fully resolved policy. Per-instance Scene or Lua
+The current compiled Layout wire carries the fully resolved policy. Per-instance Scene or Lua
 mounts may override either field without mutating the reusable Layout resource; omitted override
 fields retain the compiled Layout policy.
 
@@ -443,7 +443,7 @@ Asset-backed sources show a message indicating source is loaded from an asset an
 
 ## Editor Preview
 
-Layout preview uses the focused Layout adapter and the `noveltea.layout-preview.v1` preview schema.
+Layout preview uses the focused Layout adapter and the `noveltea.layout-preview` preview schema.
 The pure adapter reads the current graph closure and produces a canonical document revision, resource
 revision, and explicit resource manifest. The preview payload includes:
 

@@ -102,20 +102,21 @@ therefore retains the built-in workflow catalog and execution contracts without 
 files, project-local JavaScript, Node, or Sharp. User and Project packages remain external mutable sources layered over
 those embedded built-ins by normal `project > user > built-in` precedence.
 
-Shared user packages live under `<NovelTea user config>/comfyui/workflows/`. The strict
-`noveltea.comfyui-user-config` version 1 document at `<NovelTea user config>/comfyui/config-v1.json` owns the server URL,
-per-request timeout, and logical default-workflow mappings keyed by arbitrary valid dotted classifications. The canonical
-V1 config has no singular default-workflow alias. Editor enablement and periodic connection-check cadence are
-editor-local preferences and are not part of that shared file. `NOVELTEA_USER_CONFIG_ROOT` therefore provides hermetic
-ComfyUI configuration, workflow, and cache storage for CI. An invocation `--server` override is ephemeral and does not
-rewrite the shared configuration.
+Shared user packages live under `<NovelTea user config>/comfyui/workflows/`. The versioned
+`noveltea.user-config` document at `<NovelTea user config>/config.json` owns durable user preferences,
+shared ComfyUI settings, and shared export configuration. Its ComfyUI section contains the server URL,
+per-request timeout, and logical default-workflow mappings keyed by arbitrary valid dotted classifications;
+editor enablement and periodic connection-check cadence live in the preferences section rather than the
+ComfyUI machine-settings section. `NOVELTEA_USER_CONFIG_ROOT` therefore provides hermetic user configuration,
+workflow, and cache storage for CI. An invocation `--server` override is ephemeral and does not rewrite the
+shared configuration.
 
 The editor's Generate Image and Edit Image surfaces are thin Project-session adapters over this same execution core.
 They use the same catalog/default resolution, verification, public bindings, HTTP history polling, prompt-specific
 cancellation, image validation, and publication preparation. Edit Image first reads the selected source Asset through
 editor-owned Project authority, then hands a private temporary local image to the shared secure media handler. Therefore
 `localhost` is not an editor exception: use a literal loopback server such as `http://127.0.0.1:<port>` when local image
-bytes must be uploaded. The workflow manager retains image-specific automatic inference, while its strict V2 manual
+bytes must be uploaded. The workflow manager retains image-specific automatic inference, while its strict current manual
 manifest editor can author or repair arbitrary named generic contracts and future classifications.
 
 Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, headless test/UI-test playback, and package export. Runtime Package export also accepts `--include-unused-assets` and `--include-shader-sources` as explicit developer overrides of the normal pruning/source-stripping policy. `noveltea --help` is authoritative for the installed version's exact syntax.
@@ -161,9 +162,9 @@ Unused assets are excluded by default using the same authoring dependency graph 
 `--include-shader-sources` preserves authored shader sources that normal runtime packaging strips.
 These are the headless equivalents of the Export pane's Developer Mode options.
 
-The editor and CLI share reusable machine-level state beneath the NovelTea user configuration root. Export configuration
-is stored at `~/.noveltea/export-config-v1.json`; shared ComfyUI configuration, workflows, and disposable verification
-cache are under `~/.noveltea/comfyui/`.
+The editor and CLI share reusable machine-level state beneath the NovelTea user configuration root. Durable preferences,
+export configuration, and shared ComfyUI configuration are sections of `~/.noveltea/config.json`; user ComfyUI workflows
+and the disposable verification cache are under `~/.noveltea/comfyui/`.
 Export configuration contains toolchain paths plus named Windows, macOS, and Android signing configurations. Signing
 secrets remain explicit `env:NAME` references. `NOVELTEA_USER_CONFIG_ROOT` provides a hermetic override for the shared
 NovelTea user-config directory, including both export and ComfyUI catalog state, in CI. The optional `--config` file continues to use the
@@ -171,7 +172,7 @@ NovelTea user-config directory, including both export and ComfyUI catalog state,
 secret-free skeleton with `platform config init`. `--config` does not combine with
 `--signing-profile`.
 
-The editor and CLI also share the per-user template registry at `~/.noveltea/templates/v1`;
+The editor and CLI also share the per-user template registry at `~/.noveltea/templates`;
 `NOVELTEA_TEMPLATE_REGISTRY_ROOT` provides a hermetic override for CI.
 
 The Node reference/editor-hosted command and Linux x64 and Windows x64 self-contained scriptc

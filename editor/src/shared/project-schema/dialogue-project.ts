@@ -12,7 +12,7 @@ import {
 import type { Condition, Effect } from './authoring-flow';
 import type { AuthoringProject } from './authoring-project';
 
-export const DIALOGUE_PREVIEW_SCHEMA = 'noveltea.dialogue-preview.v2' as const;
+export const DIALOGUE_PREVIEW_SCHEMA = 'noveltea.dialogue-preview' as const;
 
 export interface DialoguePreviewOptions {
   selectedBlockId?: string | null;

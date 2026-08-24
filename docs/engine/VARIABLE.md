@@ -4,7 +4,7 @@
 
 Variable is the editor-facing name for a Global Property. NovelTea has one runtime Property system for typed custom gameplay state; Variables are not a second runtime value family.
 
-The Variables editor remains the convenient authoring surface for globally scoped flags, counters, numbers, strings, and enums. Compilation lowers those records into ordinary `PropertyDefinition` entries with `scope: "global"` in `noveltea.compiled.project` V4.
+The Variables editor remains the convenient authoring surface for globally scoped flags, counters, numbers, strings, and enums. Compilation lowers those records into ordinary `PropertyDefinition` entries with `scope: "global"` in the current `noveltea.compiled.project` format.
 
 ## Authoring model
 
@@ -85,7 +85,7 @@ Do not encode "unset" as `null`.
 
 Every authoritative runtime Property override participates in checkpoints and saves. There is no `Session` versus `Save` Property persistence class.
 
-`noveltea.save.state` V8 serializes only sparse Property overrides. Direct authored assignments, Trait configuration, declaration defaults, and other effective values are not materialized into the save. A missing override record means unset; a saved nullable null remains an explicit override.
+The Save File V1 payload serializes only sparse Property overrides. Direct authored assignments, Trait configuration, declaration defaults, and other effective values are not materialized into the save. A missing override record means unset; a saved nullable null remains an explicit override.
 
 Loading validates every saved target, declaration, and value before restoring the candidate session.
 
@@ -119,7 +119,7 @@ Preview/debug "set variable" operations are editor-facing commands only. They pa
 
 ## Validation and strict-version policy
 
-Current authoring is `noveltea.authoring.project` V4 and current compiled gameplay data is `noveltea.compiled.project` V4. Normal readers reject unsupported versions and retired shapes; there is no dual reader for the former compiled `variables[]` representation or Property persistence field.
+Current authoring uses the stable `noveltea.authoring.project` identity and current compiled gameplay data uses `noveltea.compiled.project` Format V1. Normal readers reject unsupported boundary versions and retired shapes; there is no dual reader for the former compiled `variables[]` representation or Property persistence field.
 
 The cross-language golden corpus is the contract evidence: editor compiler output, canonical checked-in JSON, and the native decoder/linker must move together.
 

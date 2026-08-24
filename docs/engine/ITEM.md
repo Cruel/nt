@@ -8,9 +8,10 @@ authored Property assignments, and an optional positive Stack limit. An Item Sta
 authoritative identity containing exactly one definition, a positive checked quantity, one direct
 Location, attached Traits, and sparse runtime Property overrides.
 
-The authoring and compiled Project contracts remain V4, and SaveState remains V8. Issue #78 replaces
-each already-selected current shape atomically; normal readers require the new fields and reject the
-replaced V4/V8 shapes. There is no compatibility reader, missing-field default, or version bump.
+The authoring Project uses a current-only source schema, compiled gameplay uses Compiled Project
+Format V1, and persistence uses Save File V1. Current shapes are replaced atomically across those
+boundaries; normal readers require the current fields and reject retired shapes. There is no
+compatibility reader or missing-field compatibility default.
 
 ## Identity and arithmetic
 
@@ -58,7 +59,7 @@ Definition for a complete command's exact live Stack reference.
 
 ## Save, Lua, and editor surfaces
 
-SaveState V8 stores every live Stack exactly, its declared/runtime provenance flag, direct Location,
+The Save File V1 payload stores every live Stack exactly, its declared/runtime provenance flag, direct Location,
 Traits, sparse Property overrides, and the next allocator value. Restore validates all definitions,
 limits, Locations, Traits, owners, references, and allocator ordering before atomically publishing a
 fresh SessionState.

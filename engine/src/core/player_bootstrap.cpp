@@ -23,6 +23,7 @@ namespace noveltea::core {
 namespace {
 
 using json = nlohmann::json;
+constexpr std::string_view runtime_package_format = "noveltea.runtime-package";
 constexpr std::array<std::string_view, 10> known_capabilities = {
     "network.client", "external-url", "clipboard.read", "clipboard.write",   "gamepad",
     "vibration",      "microphone",   "notifications",  "custom-url-scheme", "billing"};
@@ -113,8 +114,8 @@ bool verify_manifest(std::span<const std::byte> bytes, PlayerBootstrapResult& re
                                 static_cast<const char*>(data) + size, nullptr, false);
     mz_free(data);
     if (!manifest.is_object() ||
-        json_access::value_or(manifest, "format", std::string()) != "noveltea.runtime-package" ||
-        json_access::value_or(manifest, "format_version", 0) != 2) {
+        json_access::value_or(manifest, "format", std::string()) != runtime_package_format ||
+        json_access::value_or(manifest, "runtime_api_version", 0) != player_runtime_api_version) {
         fail(result, PlayerBootstrapError::PackageContent, "/package/manifest.json",
              "unsupported runtime package manifest");
         return false;
@@ -235,7 +236,7 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         return result;
     }
     if (*format != "noveltea.player-config" ||
-        format_version->get<std::int64_t>() != player_config_format_version) {
+        format_version->get<std::int64_t>() != player_runtime_api_version) {
         fail(result, PlayerBootstrapError::ConfigParse, "/formatVersion",
              "unsupported player config format");
         return result;
@@ -253,20 +254,17 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         config.default_locale = locale->get<std::string>();
     }
     const auto& package = *package_it;
-    if (!exact_keys(package, {"path", "sha256", "runtimePackageApi"}, {}, result, "/package"))
+    if (!exact_keys(package, {"path", "sha256"}, {}, result, "/package"))
         return result;
     const auto package_path = package.find("path");
     const auto package_sha = package.find("sha256");
-    const auto package_api = package.find("runtimePackageApi");
-    if (!package_path->is_string() || !package_sha->is_string() ||
-        !package_api->is_number_unsigned()) {
+    if (!package_path->is_string() || !package_sha->is_string()) {
         fail(result, PlayerBootstrapError::ConfigParse, "/package",
              "package fields have invalid types");
         return result;
     }
     config.package_path = package_path->get<std::string>();
     config.package_sha256 = package_sha->get<std::string>();
-    config.runtime_package_api = package_api->get<std::uint32_t>();
     const auto& display = *display_it;
     if (!exact_keys(display, {"referenceResolution", "worldRasterPolicy", "barColor"}, {}, result,
                     "/display"))
@@ -459,9 +457,6 @@ verify_player_config_and_package_view(std::string_view text,
     auto result = parse_player_config(text);
     if (!result.success())
         return result;
-    if (result.config.runtime_package_api != runtime_package_api_version)
-        fail(result, PlayerBootstrapError::PackageApi, "/package/runtimePackageApi",
-             "unsupported runtime package API");
     for (const auto& capability : result.config.capabilities) {
         if (std::find(supported.begin(), supported.end(), capability) == supported.end())
             fail(result, PlayerBootstrapError::Capability, "/capabilities",
@@ -592,8 +587,6 @@ const char* player_bootstrap_error_name(PlayerBootstrapError error) noexcept
         return "package-discovery";
     case PlayerBootstrapError::PackageChecksum:
         return "package-checksum";
-    case PlayerBootstrapError::PackageApi:
-        return "package-api";
     case PlayerBootstrapError::Capability:
         return "capability";
     case PlayerBootstrapError::PackageContent:

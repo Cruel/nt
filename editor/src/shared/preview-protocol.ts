@@ -67,10 +67,10 @@ export type PreviewDocument =
     };
 
 const legacyPreviewDocumentSchemas = {
-  'character-preview': 'noveltea.character-preview.v1',
-  'dialogue-preview': 'noveltea.dialogue-preview.v2',
-  'scene-preview': 'noveltea.scene-preview.v2',
-  'layout-preview': 'noveltea.layout-preview.v1',
+  'character-preview': 'noveltea.character-preview',
+  'dialogue-preview': 'noveltea.dialogue-preview',
+  'scene-preview': 'noveltea.scene-preview',
+  'layout-preview': 'noveltea.layout-preview',
 } as const;
 
 type DataPreviewDocument = Exclude<PreviewDocument, { kind: 'symbolic' }>;

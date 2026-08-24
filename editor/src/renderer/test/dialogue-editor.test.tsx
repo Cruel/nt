@@ -201,8 +201,7 @@ describe('DialogueEditor', () => {
 
     captureWorkbenchTabState(tab.id);
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
-      schema: 'noveltea.editor.tab-state.dialogue.v2',
-      schemaVersion: 2,
+      schema: 'noveltea.editor.tab-state.dialogue',
       payload: {
         scroll: { scrollTop: 180, scrollLeft: 8 },
         graphViewport: { x: 25, y: 40, zoom: 1.5 },
@@ -213,8 +212,7 @@ describe('DialogueEditor', () => {
 
     view.unmount();
     setWorkbenchTabState(tab.id, {
-      schema: 'noveltea.editor.tab-state.dialogue.v2',
-      schemaVersion: 2,
+      schema: 'noveltea.editor.tab-state.dialogue',
       payload: {
         scroll: { scrollTop: 72, scrollLeft: 5 },
         graphViewport: { x: 9, y: 12, zoom: 0.75 },

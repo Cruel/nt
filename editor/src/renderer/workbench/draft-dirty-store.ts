@@ -11,7 +11,6 @@ export interface DraftDirtyEntry {
   dirty: boolean;
   label?: string;
   schema?: string;
-  schemaVersion?: number;
   payload?: JsonValue;
   apply?: DraftDirtyAction;
   discard?: DraftDirtyAction;
@@ -49,7 +48,6 @@ export const useDraftDirtyStore = create<DraftDirtyStoreState>()((set) => ({
         existing.dirty === true &&
         existing.label === entry.label &&
         existing.schema === entry.schema &&
-        existing.schemaVersion === entry.schemaVersion &&
         jsonPayloadEqual(existing.payload, entry.payload) &&
         existing.apply === entry.apply &&
         existing.discard === entry.discard
@@ -74,7 +72,6 @@ export const useDraftDirtyStore = create<DraftDirtyStoreState>()((set) => ({
             dirty: true,
             label: draft.label,
             schema: draft.schema,
-            schemaVersion: draft.schemaVersion,
             payload: draft.payload as JsonValue,
           } satisfies DraftDirtyEntry,
         ]),
@@ -126,13 +123,12 @@ export function serializeDraftDirtyState(
     Object.entries(state.entriesByKey)
       .filter(
         ([, entry]) =>
-          entry.dirty && entry.schema && entry.schemaVersion && entry.payload !== undefined,
+          entry.dirty && entry.schema && entry.payload !== undefined,
       )
       .map(([key, entry]) => [
         key,
         {
           schema: entry.schema!,
-          schemaVersion: entry.schemaVersion!,
           tabId: entry.tabId,
           label: entry.label,
           payload: entry.payload,
@@ -158,7 +154,6 @@ export interface EditorDraftDirtyOptions {
   key?: string;
   label?: string;
   schema?: string;
-  schemaVersion?: number;
   payload?: JsonValue;
   apply?: DraftDirtyAction;
   discard?: DraftDirtyAction;
@@ -168,12 +163,9 @@ export interface EditorDraftDirtyOptions {
 export function restoredDraftPayload<T extends JsonValue>(
   key: string,
   schema: string,
-  schemaVersion: number,
 ): T | undefined {
   const entry = useDraftDirtyStore.getState().entriesByKey[key];
-  return entry?.schema === schema && entry.schemaVersion === schemaVersion
-    ? (entry.payload as T | undefined)
-    : undefined;
+  return entry?.schema === schema ? (entry.payload as T | undefined) : undefined;
 }
 
 export function useEditorDraftDirty(
@@ -200,7 +192,6 @@ export function useEditorDraftDirty(
       dirty,
       label: options.label,
       schema: options.schema,
-      schemaVersion: options.schemaVersion,
       payload: options.payload,
       apply: hasApply ? applyWrapperRef.current : undefined,
       discard: hasDiscard ? discardWrapperRef.current : undefined,
@@ -212,7 +203,6 @@ export function useEditorDraftDirty(
           dirty: true,
           label: options.label,
           schema: options.schema,
-          schemaVersion: options.schemaVersion,
           payload: options.payload,
         });
         return;
@@ -229,7 +219,6 @@ export function useEditorDraftDirty(
     options.payload,
     preserveOnUnmount,
     options.schema,
-    options.schemaVersion,
     setDraftDirty,
     tabId,
   ]);

@@ -56,18 +56,12 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: 'noveltea.editor.asset-detail-tab-state',
-        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: 'noveltea.editor.asset-detail-tab-state',
-          schemaVersion: 1,
           payload: { aliasDraft, renameFrom, renameTo },
         }),
         restoreTabState: (state: WorkbenchTabStatePayload) => {
-          if (
-            state.schema !== 'noveltea.editor.asset-detail-tab-state' ||
-            state.schemaVersion !== 1
-          )
-            return;
+          if (state.schema !== 'noveltea.editor.asset-detail-tab-state') return;
           const payload = state.payload;
           if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
           const values = payload as Record<string, unknown>;

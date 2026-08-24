@@ -267,7 +267,7 @@ const sortedSchemaLeafPaths = [...schemaLeafPaths].sort();
 // Relocate the old export-config code block to the new schema position and normalize it to `none` so
 // unrelated field classifications retain their reviewed alignment.
 const exportLeafCount = sortedSchemaLeafPaths.filter((path) => path.startsWith('/export/')).length;
-const retiredExportLeafCount = 2; // capabilityOverrides and signingProfileId
+const retiredExportLeafCount = 3; // capabilityOverrides, signingProfileId, and formatVersion
 const legacyExportLeafCount = exportLeafCount + retiredExportLeafCount;
 const exportFirstLeafIndex = sortedSchemaLeafPaths.findIndex((path) => path.startsWith('/export/'));
 const settingsPresentationLeafIndex = sortedSchemaLeafPaths.findIndex((path) =>
@@ -424,6 +424,9 @@ const legacySchemaLeafPaths = [
         !path.startsWith('/traits/') && !isArchetypeContractLeaf(path) && !isItemContractLeaf(path),
     )
     .map(preservedReviewedPath),
+  // The assembled AuthoringProject no longer owns a compatibility epoch. Preserve its retired
+  // top-level version leaf only for alignment with the reviewed pre-refactor graph-effect sequence.
+  '/schemaVersion' as JsonPointer,
   ...retiredPropertyBearingRoots.flatMap((root) => [
     `/${root}/*/extends` as JsonPointer,
     `/${root}/*/properties/*` as JsonPointer,
@@ -571,7 +574,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     characters: '50e127f4',
     dialogues: 'bfadec81',
     entrypoint: 'a61673d4',
-    export: 'b9fd529f',
+    export: 'cb4dc794',
     interactables: '86412986',
     interactions: 'dfffc1a2',
     inventories: 'a8c38dae',
@@ -586,7 +589,6 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     rooms: '78de04a2',
     scenes: '85280f9a',
     schema: '63fb9bb9',
-    schemaVersion: '4b5325a3',
     scripts: 'f3482815',
     settings: '220e14ad',
     shaders: '94d3aa6e',

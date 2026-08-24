@@ -42,8 +42,7 @@ TEST_CASE("typed save slots preserve checkpoint metadata and thumbnail with exac
     const TypedSaveSlotCheckpoint checkpoint{
         .encoded_save = "{\"exact\":\"save\"}",
         .metadata =
-            SaveCheckpointMetadata{.save_format_version = 7,
-                                   .project = ProjectId::create("checkpoint-project").value(),
+            SaveCheckpointMetadata{.project = ProjectId::create("checkpoint-project").value(),
                                    .project_version = "9C",
                                    .save_contract = "sc1:0123456789abcdef0123456789abcdef",
                                    .play_time = std::chrono::milliseconds{3210},

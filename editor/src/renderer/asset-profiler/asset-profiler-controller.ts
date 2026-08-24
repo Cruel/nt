@@ -41,7 +41,6 @@ function errorMessage(error: unknown) {
 function isTerminalProtocolError(code: string | undefined) {
   return (
     code === 'asset-profiler.invalid-payload' ||
-    code === 'asset-profiler.unsupported-schema' ||
     code === 'asset-profiler.missing-payload' ||
     code === 'asset-profiler.duplicate-payload'
   );

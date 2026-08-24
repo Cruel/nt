@@ -208,7 +208,7 @@ describe('authoring scenes v2', () => {
     });
     project.scenes.opening = { id: 'opening', label: 'Opening', data };
     expect(buildScenePreviewDocumentData(project, 'opening', 'line')).toMatchObject({
-      schema: 'noveltea.scene-preview.v2',
+      schema: 'noveltea.scene-preview',
       selectedStepId: 'line',
       selectedStep: { type: 'show-text' },
     });

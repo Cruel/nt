@@ -95,6 +95,10 @@ import {
   loadUserExportConfig,
   saveUserExportConfig,
 } from './main/services/user-export-config-service';
+import {
+  loadNovelTeaUserPreferences,
+  saveNovelTeaUserPreferences,
+} from './main/services/user-config-service';
 import type { CreateProjectRequest } from './shared/editor-tooling';
 import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
@@ -160,6 +164,7 @@ import {
   saveProjectEditorMetadataArgumentsSchema,
   restoreProjectAssetFilesArgumentsSchema,
   saveUserExportConfigArgumentsSchema,
+  saveUserPreferencesArgumentsSchema,
   selectDirectoryArgumentsSchema,
   stagePlatformExportArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
@@ -624,7 +629,7 @@ void app.whenReady().then(async () => {
   if (!isDev) registerPackagedEditorProtocol();
   configureTemplateRegistryRoot(
     process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
-      path.join(app.getPath('home'), '.noveltea', 'templates', 'v1'),
+      path.join(app.getPath('home'), '.noveltea', 'templates'),
   );
   installApplicationMenu();
 
@@ -660,6 +665,18 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.SAVE_USER_EXPORT_CONFIG,
     (arguments_) => saveUserExportConfigArgumentsSchema.parse(arguments_),
     (config) => saveUserExportConfig(config),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.LOAD_USER_PREFERENCES,
+    (arguments_) => noArgumentsSchema.parse(arguments_),
+    () => loadNovelTeaUserPreferences(),
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.SAVE_USER_PREFERENCES,
+    (arguments_) => saveUserPreferencesArgumentsSchema.parse(arguments_),
+    (preferences) => saveNovelTeaUserPreferences(preferences),
   );
 
   guardedIpc.handle(

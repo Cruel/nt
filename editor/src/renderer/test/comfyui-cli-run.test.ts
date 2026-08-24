@@ -27,7 +27,7 @@ function tempRoot() {
 
 function manifest(id = 'scalar-run') {
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     id,
     label: 'Scalar Run',
     provider: 'comfyui',
@@ -160,16 +160,17 @@ function writeMultiPackage(root: string, id = 'multi-run') {
 }
 
 function writeUserConfig(configRoot: string, defaultWorkflows: Record<string, string>) {
-  const directory = path.join(configRoot, 'comfyui');
-  fs.mkdirSync(directory, { recursive: true });
+  fs.mkdirSync(configRoot, { recursive: true });
   fs.writeFileSync(
-    path.join(directory, 'config-v1.json'),
+    path.join(configRoot, 'config.json'),
     `${JSON.stringify({
-      format: 'noveltea.comfyui-user-config',
+      format: 'noveltea.user-config',
       formatVersion: 1,
-      serverUrl: 'http://127.0.0.1:8000',
-      requestTimeoutMs: 15000,
-      defaultWorkflows,
+      comfyui: {
+        serverUrl: 'http://127.0.0.1:8000',
+        requestTimeoutMs: 15000,
+        defaultWorkflows,
+      },
     })}\n`,
   );
 }
@@ -211,7 +212,7 @@ function libraryOptions(builtInRoot: string, userRoot: string): WorkflowLibraryS
     roots: {
       builtInRoot,
       userRoot,
-      cacheFile: path.join(path.dirname(userRoot), 'verification-cache-v1.json'),
+      cacheFile: path.join(path.dirname(userRoot), 'verification-cache.json'),
     },
   };
 }

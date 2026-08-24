@@ -8,7 +8,7 @@ text steps and does not use a universal entity program.
 
 Dialogue is an immutable conversation definition, not a stateful Property or Trait owner. Mutable cursor, history, show-once, and choice state belong to each Dialogue frame/invocation in the Runtime Session.
 
-## Authoring V2 structure
+## Authoring structure
 
 The authoritative Dialogue authoring boundary lives in
 `editor/src/shared/project-schema/authoring-dialogues.ts`.
@@ -19,7 +19,7 @@ The authoritative Dialogue authoring boundary lives in
 - Comment blocks are editor-only and cannot be entry blocks or flow targets.
 
 Every block, segment, edge, condition, effect, text value, settings object, and completion target is a
-strict schema. A variant stores only fields valid for that variant. The normal V2 parser rejects the
+strict schema. A variant stores only fields valid for that variant. The current parser rejects the
 old `linear`/`branch`/`link` shape, Link edges, `allowDisabledChoiceSelection`, embedded graph
 coordinates, and embedded preview state.
 
@@ -83,8 +83,8 @@ The Dialogue editor supports:
 - atomic creation paths that never publish an invalid intermediate Choice block.
 
 Graph positions, viewport, selected block/segment, collapsed blocks, preview background, and condition
-display are stored in `noveltea.editor.tab-state.dialogue.v2`, not in Dialogue content. The preview
-adapter emits `noveltea.dialogue-preview.v2` from Dialogue data plus those editor-owned options.
+display are stored in `noveltea.editor.tab-state.dialogue`, not in Dialogue content. The preview
+adapter emits the current `noveltea.dialogue-preview` document from Dialogue data plus those editor-owned options.
 
 ## Typed runtime execution
 
@@ -123,7 +123,7 @@ tests/script/typed_dialogue_execution_tests.cpp
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific graph record with strict blocks/segments/edges, entry block, settings, and completion target.
+- **Authoring:** collection-specific graph record with strict blocks/segments/edges, entry block, settings, and completion target.
 - **Compiled:** linked immutable `DialogueDefinition`/`DialogueProgram` with redirects, ordered choices, and safe points.
 - **Mutable:** Dialogue frame cursor, show-once/history/visit state, and waits in `SessionState`; the Dialogue definition itself has no Property/Trait state.
 - **Tooling only:** graph coordinates, viewport, selection, collapsed state, preview settings,

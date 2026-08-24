@@ -772,7 +772,6 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     };
     const nlohmann::json layout = {
         {"schema", "noveltea.layout-preview"},
-        {"schemaVersion", 1},
         {"contentMode", "layout"},
         {"layoutId", "record"},
         {"environment", environment},
@@ -787,7 +786,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {"script", {{"enabled", false}, {"namespace", nullptr}}},
         {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v2"},
+         {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
     };
@@ -810,7 +809,6 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
 
     const nlohmann::json room = {
         {"schema", "noveltea.room-preview"},
-        {"schemaVersion", 2},
         {"environment",
          {{"profile",
            {{"name", "desktop"}, {"nativeResolution", {{"width", 1280}, {"height", 720}}}}},
@@ -839,7 +837,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"definitions", nlohmann::json::array()},
           {"interactableLocations", nlohmann::json::array()}}},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v2"},
+         {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
         {"world",
@@ -873,12 +871,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
 
     const nlohmann::json shader = {
         {"schema", "noveltea.shader-preview"},
-        {"schemaVersion", 1},
         {"contentMode", "shader"},
         {"templateId", "shader-square-v1"},
         {"activeShaderVariant", "glsl-120"},
         {"shaderMaterials",
-         {{"schema", "noveltea.shader-materials.v2"},
+         {{"schema", "noveltea.shader-materials"},
           {"shaders", nlohmann::json::object()},
           {"materials", nlohmann::json::object()}}},
     };

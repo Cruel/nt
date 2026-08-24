@@ -157,7 +157,6 @@ describe('dirty tab close guard', () => {
     openTestTab();
     setWorkbenchTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.test',
-      schemaVersion: 1,
       payload: { scroll: { scrollTop: 33, scrollLeft: 4 } },
     });
     render(<DirtyCloseDialog />);

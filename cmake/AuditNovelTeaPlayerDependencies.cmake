@@ -67,5 +67,5 @@ if(DEFINED NOVELTEA_AUDIT_REPORT)
   get_filename_component(audit_report_directory "${NOVELTEA_AUDIT_REPORT}" DIRECTORY)
   file(MAKE_DIRECTORY "${audit_report_directory}")
   file(WRITE "${NOVELTEA_AUDIT_REPORT}"
-    "{\"format\":\"noveltea-player-dependency-audit\",\"formatVersion\":1,\"platform\":\"${audit_platform}\",\"status\":\"passed\",\"checks\":[${audit_checks}],\"detail\":\"${audit_detail}\"}\n")
+    "{\"format\":\"noveltea-player-dependency-audit\",\"platform\":\"${audit_platform}\",\"status\":\"passed\",\"checks\":[${audit_checks}],\"detail\":\"${audit_detail}\"}\n")
 endif()

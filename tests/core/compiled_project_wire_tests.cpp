@@ -115,7 +115,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.localization.catalogs.size() == 2);
 }
 
-TEST_CASE("compiled project Item Stack boundary is strict within V4")
+TEST_CASE("compiled project Item Stack boundary is strict within the current format")
 {
     SECTION("required root collection")
     {
@@ -607,7 +607,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
     {
         auto document = fixture("minimal");
         document["schema"] = "noveltea.runtime.project";
-        document["schemaVersion"] = 1;
+        document["schemaVersion"] = 2;
         auto result = decode_shared_project(document, "minimal.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.unsupported_provisional_schema"));

@@ -95,7 +95,7 @@ describe('preferences-store', () => {
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 
-  it('persists only editor-local ComfyUI enablement and check cadence', () => {
+  it('keeps ComfyUI preferences out of browser-local persistence', () => {
     usePreferencesStore.getState().setComfyUiConfig({
       enabled: true,
       serverUrl: 'https://comfy.example.test',
@@ -105,13 +105,10 @@ describe('preferences-store', () => {
     });
 
     const persisted = JSON.parse(localStorage.getItem('noveltea-preferences')!);
-    expect(persisted.state.comfyUiConfig).toEqual({
-      enabled: true,
-      connectionCheckIntervalMs: 6789,
-    });
+    expect(persisted.state.comfyUiConfig).toBeUndefined();
   });
 
-  it('stores only editor-local export conveniences outside project data', () => {
+  it('keeps export preferences out of browser-local persistence', () => {
     usePreferencesStore.getState().setExportPreferences({
       defaultOutputDirectory: '/tmp/exports',
       profileTemplateTokens: { release: 'windows/build-1' },
@@ -123,21 +120,18 @@ describe('preferences-store', () => {
       profileSigningProfileIds: { release: 'windows-release' },
     });
     const persisted = JSON.parse(localStorage.getItem('noveltea-preferences')!);
-    expect(persisted.state.exportPreferences.profileSigningProfileIds.release).toBe(
-      'windows-release',
-    );
+    expect(persisted.state.exportPreferences).toBeUndefined();
   });
 
-  it('persists to localStorage', () => {
-    // Zustand persist middleware writes to localStorage on state change
+  it('does not duplicate durable user preferences in localStorage', () => {
     usePreferencesStore.getState().setTheme('dark');
     usePreferencesStore.getState().setPreviewFpsCap(30);
     usePreferencesStore.getState().setPreviewRmlUiRasterSnap('geometry');
     const stored = localStorage.getItem('noveltea-preferences');
     expect(stored).toBeTruthy();
     const parsed = JSON.parse(stored!);
-    expect(parsed.state.theme).toBe('dark');
-    expect(parsed.state.previewFpsCap).toBe(30);
-    expect(parsed.state.previewRmlUiRasterSnap).toBe('geometry');
+    expect(parsed.state.theme).toBeUndefined();
+    expect(parsed.state.previewFpsCap).toBeUndefined();
+    expect(parsed.state.previewRmlUiRasterSnap).toBeUndefined();
   });
 });

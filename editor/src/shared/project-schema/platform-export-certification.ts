@@ -7,7 +7,6 @@ import {
 } from './platform-export-contracts';
 
 export const PLATFORM_CERTIFICATION_FORMAT = 'noveltea-platform-certification' as const;
-export const PLATFORM_CERTIFICATION_FORMAT_VERSION = 1 as const;
 export const PLATFORM_CERTIFICATION_FIXTURE_ID = 'platform-export-acceptance' as const;
 
 const checkStatusSchema = z.enum(['passed', 'failed', 'skipped']);
@@ -39,7 +38,6 @@ const evidenceSchema = z
 export const platformCertificationReportSchema = z
   .object({
     format: z.literal(PLATFORM_CERTIFICATION_FORMAT),
-    formatVersion: z.literal(PLATFORM_CERTIFICATION_FORMAT_VERSION),
     generatedAt: z.string().datetime(),
     template: z
       .object({
@@ -74,8 +72,8 @@ export const platformCertificationReportSchema = z
       .strict(),
     exercised: z
       .object({
-        packageApis: z.array(z.number().int().nonnegative()),
-        playerConfigApis: z.array(z.number().int().nonnegative()),
+        compiledProjectFormatVersions: z.array(z.number().int().positive()),
+        playerRuntimeApiVersions: z.array(z.number().int().positive()),
         packageAccessModes: z.array(z.string()).min(1),
       })
       .strict(),
@@ -98,7 +96,6 @@ export interface CertificationResult {
 }
 
 type CertificationContract = {
-  formatVersion: number;
   universalChecks: string[];
   targetChecks: Record<(typeof exportPlatformValues)[number], string[]>;
   conditionalChecks: Array<{
@@ -154,28 +151,18 @@ export function certifyTemplateDescriptor(
   mismatch('architecture', report.template.architecture, descriptor.architecture);
   mismatch('buildFlavor', report.template.buildFlavor, descriptor.buildFlavor);
 
-  for (
-    let api = descriptor.runtimePackageApi.minimum;
-    api <= descriptor.runtimePackageApi.maximum;
-    api += 1
-  )
-    if (!report.exercised.packageApis.includes(api))
-      diagnostics.push({
-        code: 'certification-package-api-unexercised',
-        path: '/exercised/packageApis',
-        message: `Descriptor package API ${api} was not exercised.`,
-      });
-  for (
-    let api = descriptor.playerConfigApi.minimum;
-    api <= descriptor.playerConfigApi.maximum;
-    api += 1
-  )
-    if (!report.exercised.playerConfigApis.includes(api))
-      diagnostics.push({
-        code: 'certification-player-config-api-unexercised',
-        path: '/exercised/playerConfigApis',
-        message: `Descriptor player config API ${api} was not exercised.`,
-      });
+  if (!report.exercised.compiledProjectFormatVersions.includes(descriptor.compiledProjectFormatVersion))
+    diagnostics.push({
+      code: 'certification-compiled-project-format-unexercised',
+      path: '/exercised/compiledProjectFormatVersions',
+      message: `Compiled project format ${descriptor.compiledProjectFormatVersion} was not exercised.`,
+    });
+  if (!report.exercised.playerRuntimeApiVersions.includes(descriptor.playerRuntimeApiVersion))
+    diagnostics.push({
+      code: 'certification-player-runtime-api-unexercised',
+      path: '/exercised/playerRuntimeApiVersions',
+      message: `Player runtime API ${descriptor.playerRuntimeApiVersion} was not exercised.`,
+    });
   for (const mode of report.exercised.packageAccessModes)
     if (!descriptor.packageAccessModes.some((declaredMode) => declaredMode === mode))
       diagnostics.push({

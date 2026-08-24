@@ -109,7 +109,7 @@ if(EXISTS "${_compiled_package_source}/game")
     file(WRITE "${_compiled_package_tmp}/manifest.json"
 "{
   \"format\": \"noveltea.runtime-package\",
-  \"format_version\": 2,
+  \"runtime_api_version\": 1,
   \"kind\": \"runtime\",
   \"created_by\": \"StageNovelTeaAssets.cmake\",
   \"project\": {

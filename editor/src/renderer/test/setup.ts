@@ -216,6 +216,8 @@ Object.defineProperty(window, 'noveltea', {
       signingProfiles: [],
     }),
     saveUserExportConfig: vi.fn().mockImplementation(async (value) => value),
+    loadUserPreferences: vi.fn().mockResolvedValue({}),
+    saveUserPreferences: vi.fn().mockImplementation(async (value) => value),
     compileShaders: vi
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [], outputs: [] }),

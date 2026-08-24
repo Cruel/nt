@@ -126,7 +126,6 @@ const telemetryChange = {
 
 const full = {
   kind: 'full',
-  schemaVersion: 3,
   sessionId: '18446744073709551615',
   latestSequence: '6',
   capturedAtNs: '40',
@@ -174,7 +173,6 @@ describe('asset profiler protocol', () => {
     ).toBe(true);
     const delta = {
       kind: 'delta',
-      schemaVersion: 3,
       sessionId: full.sessionId,
       afterSequence: '0',
       latestSequence: '6',
@@ -213,7 +211,7 @@ describe('asset profiler protocol', () => {
   });
 
   it('rejects unsupported schemas, enum ordinals, and invalid delta cursor combinations', () => {
-    expect(isAssetProfilerWirePayload({ ...full, schemaVersion: 2 })).toBe(false);
+    expect(isAssetProfilerWirePayload({ ...full, unexpected: true })).toBe(false);
     expect(
       isAssetProfilerWirePayload({
         ...full,

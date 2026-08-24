@@ -49,7 +49,7 @@ void write_file(const std::filesystem::path& path, std::string_view text)
 nlohmann::json make_material_metadata()
 {
     return nlohmann::json::parse(R"json({
-      "schema":"noveltea.shader-materials.v2",
+      "schema":"noveltea.shader-materials",
       "shaders":{
         "ui/noise_panel":{
           "display_name":"Packaged RmlUi Noise Panel",

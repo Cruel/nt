@@ -356,9 +356,8 @@ export const focusedRoomCompositionDefinitionSchema = strict({
 
 export const focusedShaderMaterialProjectSchema = shaderMaterialProjectWireSchema;
 
-export const roomPreviewDocumentV2Schema = strict({
+export const roomPreviewDocumentSchema = strict({
   schema: z.literal('noveltea.room-preview'),
-  schemaVersion: z.literal(2),
   environment: focusedRoomPreviewEnvironmentSchema,
   room: focusedRoomIdentityAndVisitSchema,
   luaAdmission: focusedLuaAdmissionSchema,
@@ -691,4 +690,4 @@ export const roomPreviewDocumentV2Schema = strict({
   );
 });
 
-export type RoomPreviewDocumentV2 = z.infer<typeof roomPreviewDocumentV2Schema>;
+export type RoomPreviewDocument = z.infer<typeof roomPreviewDocumentSchema>;

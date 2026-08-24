@@ -8,7 +8,6 @@ import { spawn } from 'node:child_process';
 
 const FORMAT = 'noveltea-platform-certification';
 const RESULTS_FORMAT = 'noveltea-platform-certification-results';
-const VERSION = 1;
 const FIXTURE_ID = 'platform-export-acceptance';
 const contract = JSON.parse(
   await readFile(
@@ -16,8 +15,6 @@ const contract = JSON.parse(
     'utf8',
   ),
 );
-if (contract.formatVersion !== 1)
-  throw new Error(`Unsupported platform certification contract version ${contract.formatVersion}.`);
 
 function requiredChecks(descriptor) {
   const checks = [...contract.universalChecks, ...(contract.targetChecks[descriptor.platform] ?? [])];
@@ -91,7 +88,6 @@ function validate(descriptor, report) {
     if (actual !== expected) errors.push(`${label}: expected '${expected}', got '${actual}'.`);
   };
   requireEqual('format', report.format, FORMAT);
-  requireEqual('formatVersion', report.formatVersion, VERSION);
   requireEqual('fixture.id', report.fixture?.id, FIXTURE_ID);
   for (const field of ['templateId', 'buildId']) requireEqual(`template.${field}`, report.template?.[field], descriptor[field]);
   requireEqual('template.target', report.template?.target, descriptor.platform);
@@ -106,7 +102,11 @@ function validate(descriptor, report) {
     if (!report.environment?.[field]) errors.push(`environment.${field} is required.`);
   }
   const exercised = report.exercised ?? {};
-  const expectedExercisedKeys = ['packageAccessModes', 'packageApis', 'playerConfigApis'];
+  const expectedExercisedKeys = [
+    'compiledProjectFormatVersions',
+    'packageAccessModes',
+    'playerRuntimeApiVersions',
+  ];
   const exercisedKeys = Object.keys(exercised).sort();
   if (
     exercisedKeys.length !== expectedExercisedKeys.length ||
@@ -118,8 +118,10 @@ function validate(descriptor, report) {
   if (!Array.isArray(exercised.packageAccessModes) || exercised.packageAccessModes.length === 0)
     errors.push('At least one canonical package access mode must be recorded.');
   const contains = (field, value) => Array.isArray(exercised[field]) && exercised[field].includes(value);
-  for (let api = descriptor.runtimePackageApi.minimum; api <= descriptor.runtimePackageApi.maximum; api += 1) if (!contains('packageApis', api)) errors.push(`Package API ${api} was not exercised.`);
-  for (let api = descriptor.playerConfigApi.minimum; api <= descriptor.playerConfigApi.maximum; api += 1) if (!contains('playerConfigApis', api)) errors.push(`Player config API ${api} was not exercised.`);
+  if (!contains('compiledProjectFormatVersions', descriptor.compiledProjectFormatVersion))
+    errors.push(`Compiled project format ${descriptor.compiledProjectFormatVersion} was not exercised.`);
+  if (!contains('playerRuntimeApiVersions', descriptor.playerRuntimeApiVersion))
+    errors.push(`Player runtime API ${descriptor.playerRuntimeApiVersion} was not exercised.`);
   for (const mode of exercised.packageAccessModes ?? []) {
     if (!descriptor.packageAccessModes.includes(mode))
       errors.push(`Exercised package access mode '${mode}' is not declared by the template.`);
@@ -162,9 +164,8 @@ async function create(options) {
   const outputPath = path.resolve(options.output);
   const resultsPath = path.resolve(options.results);
   const evidenceInput = JSON.parse(await readFile(resultsPath, 'utf8'));
-  if (evidenceInput.format !== RESULTS_FORMAT || evidenceInput.formatVersion !== VERSION) {
-    throw new Error(`Results input must use ${RESULTS_FORMAT} version ${VERSION}.`);
-  }
+  if (evidenceInput.format !== RESULTS_FORMAT)
+    throw new Error(`Results input must use ${RESULTS_FORMAT}.`);
   if (!Array.isArray(evidenceInput.evidence) || evidenceInput.evidence.length === 0) {
     throw new Error('Results input must contain explicit per-check evidence records.');
   }
@@ -172,7 +173,11 @@ async function create(options) {
     if (!evidenceInput[field]) throw new Error(`Results input requires '${field}'.`);
   }
   const exercisedKeys = Object.keys(evidenceInput.exercised).sort();
-  const expectedExercisedKeys = ['packageAccessModes', 'packageApis', 'playerConfigApis'];
+  const expectedExercisedKeys = [
+    'compiledProjectFormatVersions',
+    'packageAccessModes',
+    'playerRuntimeApiVersions',
+  ];
   if (
     exercisedKeys.length !== expectedExercisedKeys.length ||
     exercisedKeys.some((key, index) => key !== expectedExercisedKeys[index])
@@ -200,7 +205,6 @@ async function create(options) {
   }
   const report = {
     format: FORMAT,
-    formatVersion: VERSION,
     generatedAt: new Date().toISOString(),
     template: {
       templateId: descriptor.templateId,

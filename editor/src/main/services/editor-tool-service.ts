@@ -11,7 +11,6 @@ import {
   createProjectWorkspaceSnapshot,
   publishProjectWorkspaceSnapshot,
 } from '../../shared/project-workspace/project-workspace-service';
-import { AUTHORING_PROJECT_SCHEMA_VERSION } from '../../shared/project-schema/authoring-collections';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseTestData } from '../../shared/project-schema/authoring-tests';
 import {
@@ -90,7 +89,7 @@ export function listPlaybackTests(project: unknown) {
           severity: 'error',
           category: 'Project schema',
           path: '/schema',
-          message: `Project must use noveltea.authoring.project version ${AUTHORING_PROJECT_SCHEMA_VERSION}.`,
+          message: 'Project must use the current noveltea.authoring.project schema.',
         },
       ],
     });

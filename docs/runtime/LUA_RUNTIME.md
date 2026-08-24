@@ -214,7 +214,7 @@ The standalone `--demo rmlui` sandbox boots a small compiled-project fixture and
 
 ## Determinism, Map, layout, pause, and text log
 
-Random state is owned by `SessionState` and persisted in save format V2. Invalid ranges fail before
+Random state is owned by `SessionState` and persisted in the current save state inside Save File V1. Invalid ranges fail before
 consuming a draw. Gameplay pause is session-only: it stops typed flow/time/input advancement before
 the next instruction, remains visible in typed UI/debug views, permits control operations such as
 resume and load, and is reset by save restoration.

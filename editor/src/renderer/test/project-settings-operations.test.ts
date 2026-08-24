@@ -128,9 +128,8 @@ describe('project settings operations', () => {
     );
   });
 
-  it('sets and clears the optional Project undefined Interaction behavior without changing schema versions', () => {
+  it('sets and clears the optional Project undefined Interaction behavior', () => {
     const project = projectWithSettingsTargets();
-    const authoringVersion = project.schemaVersion;
     let state = createInitialCommandBusState(toJsonValue(project));
     const set = executeCommand(state, {
       type: 'project.setUndefinedInteractionProgram',
@@ -150,7 +149,6 @@ describe('project settings operations', () => {
     });
     expect(set.ok).toBe(true);
     expect(set.state.document).toMatchObject({
-      schemaVersion: authoringVersion,
       undefinedInteractionProgram: {
         instructions: [{ id: 'fallback-notice', kind: 'notify' }],
         outcome: 'handled',
@@ -163,7 +161,6 @@ describe('project settings operations', () => {
     });
     expect(clear.ok).toBe(true);
     expect(clear.state.document).toMatchObject({
-      schemaVersion: authoringVersion,
       undefinedInteractionProgram: null,
     });
   });

@@ -84,8 +84,8 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
     minimumPlatformVersion: 'glibc 2.39',
     graphicsBackends: ['opengl'],
     shaderVariants,
-    runtimePackageApi: { minimum: 2, maximum: 2 },
-    playerConfigApi: { minimum: 2, maximum: 2 },
+    compiledProjectFormatVersion: 1,
+    playerRuntimeApiVersion: 1,
     compiledFeatures: ['lua'],
     capabilities: [],
     buildFlavor: 'release',
@@ -114,7 +114,6 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
     path.join(templateRoot, '.noveltea-template.json'),
     JSON.stringify({
       format: 'noveltea.template-registry',
-      formatVersion: 1,
       templateId: descriptor.templateId,
       buildId: descriptor.buildId,
       descriptorSha256: createHash('sha256').update(descriptorText).digest('hex'),

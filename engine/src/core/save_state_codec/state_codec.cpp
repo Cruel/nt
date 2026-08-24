@@ -478,7 +478,6 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
         frames.push_back(encode_frame(value));
     return Result<nlohmann::json, Diagnostics>::success(
         {{"schema", std::string(k_schema)},
-         {"version", SaveStateMetadata::current_format_version},
          {"metadata",
           {{"project", save.metadata.project.text()},
            {"projectVersion", save.metadata.project_version},
@@ -509,7 +508,6 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     Decoder d(std::move(source_path));
     d.object(document, "",
              {"schema",
-              "version",
               "metadata",
               "playTimeMs",
               "randomState",
@@ -530,7 +528,6 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
               "flowStack",
               "blocker"});
     const auto* schema = d.member(document, "schema", "");
-    const auto* version = d.member(document, "version", "");
     const auto* metadata = d.member(document, "metadata", "");
     const auto* play_time = d.member(document, "playTimeMs", "");
     const auto* random_state = d.member(document, "randomState", "");
@@ -551,11 +548,8 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     const auto* frames = d.member(document, "flowStack", "");
     const auto* blocker = d.member(document, "blocker", "");
     auto schema_name = schema ? d.string(*schema, "/schema") : std::nullopt;
-    auto format = version ? d.unsigned_integer<std::uint32_t>(*version, "/version") : std::nullopt;
     if (schema_name && *schema_name != k_schema)
         d.error(k_value, "Unsupported save schema.", "/schema");
-    if (format && *format != SaveStateMetadata::current_format_version)
-        d.error(k_value, "Unsupported save format version.", "/version");
     std::optional<SaveStateMetadata> saved_metadata;
     if (metadata &&
         d.object(*metadata, "/metadata", {"project", "projectVersion", "saveContract"})) {
@@ -567,9 +561,8 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
             project_version ? d.string(*project_version, "/metadata/projectVersion") : std::nullopt;
         auto saved_contract =
             save_contract ? d.string(*save_contract, "/metadata/saveContract") : std::nullopt;
-        if (format && project_id && saved_version && saved_contract)
-            saved_metadata = SaveStateMetadata{.format_version = *format,
-                                               .project = std::move(*project_id),
+        if (project_id && saved_version && saved_contract)
+            saved_metadata = SaveStateMetadata{.project = std::move(*project_id),
                                                .project_version = std::move(*saved_version),
                                                .save_contract = std::move(*saved_contract)};
     }

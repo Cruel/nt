@@ -257,7 +257,7 @@ describe('RoomEditor persistent room preview', () => {
     expect(payload).toMatchObject({
       kind: 'room-preview',
       recordId: 'room-b',
-      data: expect.objectContaining({ schema: 'noveltea.room-preview', schemaVersion: 2 }),
+      data: expect.objectContaining({ schema: 'noveltea.room-preview' }),
     });
     expect(payload?.revision).toEqual(expect.any(String));
     expect(payload?.revision.length).toBeGreaterThan(0);

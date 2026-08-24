@@ -309,7 +309,7 @@ export type FocusedRecordPreviewDocument = z.infer<typeof focusedRecordPreviewDo
 
 export const focusedEditorDocumentRequestEnvelopeSchema = strict({
   protocol: z.literal('noveltea.focused-editor-document'),
-  protocolVersion: z.literal(2),
+  protocolVersion: z.literal(1),
   requestId: z.string().min(1),
   applySequence: z.number().int().nonnegative().safe(),
   projectInstanceId: z.string().min(1),

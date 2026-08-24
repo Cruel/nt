@@ -1,5 +1,4 @@
 export const AUTHORING_PROJECT_SCHEMA = 'noveltea.authoring.project' as const;
-export const AUTHORING_PROJECT_SCHEMA_VERSION = 4 as const;
 
 export const authoringCollectionKeys = [
   'assets',

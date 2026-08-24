@@ -65,7 +65,6 @@ function profileFor(
   if (options.target === 'web') {
     return parsePlatformExportProfile({
       format: 'noveltea.platform-export-profile',
-      formatVersion: 1,
       id: 'canonical-web',
       label: 'Canonical Web',
       target: 'web',
@@ -88,7 +87,6 @@ function profileFor(
     const abi = options.androidAbi ?? 'x86_64';
     return parsePlatformExportProfile({
       format: 'noveltea.platform-export-profile',
-      formatVersion: 1,
       id: `canonical-android-${flavor}`,
       label: `Canonical Android ${flavor}`,
       target: 'android',
@@ -106,7 +104,6 @@ function profileFor(
     options.target === 'macos' ? 'app-bundle' : options.target === 'linux' ? 'tar' : 'zip';
   return parsePlatformExportProfile({
     format: 'noveltea.platform-export-profile',
-    formatVersion: 1,
     id: `canonical-${options.target}`,
     label: `Canonical ${options.target}`,
     target: options.target,

@@ -36,6 +36,7 @@ import {
   createPlatformExportValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import {
+  PLAYER_RUNTIME_API_VERSION,
   parseProjectPlatformExportSettings,
   parseProjectPlatformExportRequest,
   type ProjectPlatformExportRequest,
@@ -44,6 +45,7 @@ import {
   type PlatformStageResult,
   type TemplateResolveResult,
 } from '../../shared/project-schema/platform-export-contracts';
+import { COMPILED_PROJECT_FORMAT_VERSION } from '../../shared/project-schema/compiled-project';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
 import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import type { OpenProjectResponse, PackageExportResponse } from '../../shared/editor-tooling';
@@ -408,8 +410,8 @@ export async function exportProjectToPlatform(
     checkPlatformExportCancelled(operationId);
     const templateRequirements = {
       profile,
-      runtimePackageApi: 2,
-      playerConfigApi: 2,
+      compiledProjectFormatVersion: COMPILED_PROJECT_FORMAT_VERSION,
+      playerRuntimeApiVersion: PLAYER_RUNTIME_API_VERSION,
       shaderVariants: targetRuntimeProfile.shaderVariants,
       graphicsBackends: [],
       capabilities: derivedPlatformCapabilities(profile.target),
@@ -583,7 +585,7 @@ export async function exportProjectToPlatform(
           textScale: { ...accessibility.text_scale },
         },
         capabilities: derivedPlatformCapabilities(profile.target),
-        runtimePackageApi: 2,
+        playerRuntimeApiVersion: PLAYER_RUNTIME_API_VERSION,
         host,
         windowsSigning:
           signingRequested && profile.target === 'windows' ? localSigning?.windows : undefined,

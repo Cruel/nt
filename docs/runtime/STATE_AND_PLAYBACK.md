@@ -106,7 +106,7 @@ or mismatched Save Contract, stale declaration/reference, invalid value/type, or
 rejects the save without migration, repair, or partial restoration. The saved Project version remains
 metadata and need not equal the currently loaded Project version when identity and Save Contract match.
 
-Save format V8 persists the deterministic random-generator position and authoritative desired
+Save File V1 persists the deterministic random-generator position and authoritative desired
 presentation. It also persists every exact live Item Stack, the deterministic next-Stack allocator,
 and validated engine-owned Layout State Slots. Ended Stack identities and authoritative references to
 them are invalid. Layout Slot values are recursive Persistable Value trees validated against the

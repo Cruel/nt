@@ -3,7 +3,10 @@ import { Outlet, createRootRoute } from '@tanstack/react-router';
 import { AppShell } from '@/components/app-shell';
 import { editorI18n, resolveEditorLanguage } from '@/i18n';
 import { useProjectStore } from '@/project/project-store';
-import { usePreferencesStore } from '@/stores/preferences-store';
+import {
+  initializeSharedPreferencesPersistence,
+  usePreferencesStore,
+} from '@/stores/preferences-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 
@@ -18,6 +21,19 @@ function RootLayout() {
   const activeTabTitle = useWorkbenchStore((state) =>
     activeTabId ? (state.tabsById[activeTabId]?.title ?? null) : null,
   );
+
+  useEffect(() => {
+    let mounted = true;
+    let dispose: () => void = () => undefined;
+    void initializeSharedPreferencesPersistence().then((unsubscribe) => {
+      if (mounted) dispose = unsubscribe;
+      else unsubscribe();
+    });
+    return () => {
+      mounted = false;
+      dispose();
+    };
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;

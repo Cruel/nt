@@ -6,7 +6,6 @@ import {
 } from './project-workspace-file-system';
 
 export const PROJECT_WORKSPACE_TRANSACTION_SCHEMA = 'noveltea.workspace.transaction' as const;
-export const PROJECT_WORKSPACE_TRANSACTION_SCHEMA_VERSION = 1 as const;
 export const PROJECT_WORKSPACE_ABSENT_REVISION = 'absent' as const;
 
 export type ProjectWorkspaceExpectedRevision = `sha256:${string}` | 'absent';
@@ -35,7 +34,6 @@ interface JournalTarget {
 
 interface JournalManifest {
   schema: typeof PROJECT_WORKSPACE_TRANSACTION_SCHEMA;
-  schemaVersion: typeof PROJECT_WORKSPACE_TRANSACTION_SCHEMA_VERSION;
   transactionId: string;
   state: 'prepared' | 'writing' | 'committed' | 'rolled-back';
   writerOwnerToken: string;
@@ -129,7 +127,6 @@ function parseManifest(value: unknown, expectedId: string): JournalManifest | nu
   const manifest = value as Record<string, unknown>;
   if (
     manifest.schema !== PROJECT_WORKSPACE_TRANSACTION_SCHEMA ||
-    manifest.schemaVersion !== PROJECT_WORKSPACE_TRANSACTION_SCHEMA_VERSION ||
     manifest.transactionId !== expectedId ||
     !['prepared', 'writing', 'committed', 'rolled-back'].includes(String(manifest.state)) ||
     typeof manifest.writerOwnerToken !== 'string' ||
@@ -230,7 +227,6 @@ export class ProjectWorkspaceTransactionService {
             const journalTargets: JournalTarget[] = [];
             let manifest: JournalManifest = {
               schema: PROJECT_WORKSPACE_TRANSACTION_SCHEMA,
-              schemaVersion: PROJECT_WORKSPACE_TRANSACTION_SCHEMA_VERSION,
               transactionId,
               state: 'prepared',
               writerOwnerToken: lock.ownerToken,

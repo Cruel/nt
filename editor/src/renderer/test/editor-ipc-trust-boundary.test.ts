@@ -274,7 +274,7 @@ describe('guarded editor IPC registrar', () => {
       shaderService,
     );
     const sessionId = '11111111-1111-4111-8111-111111111111';
-    const shaderProject = { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} };
+    const shaderProject = { schema: 'noveltea.shader-materials', shaders: {}, materials: {} };
 
     await expect(ipcMain.invoke('preview-session', harness.event, sessionId)).resolves.toBe(
       sessionId,
@@ -561,8 +561,6 @@ describe('guarded editor IPC registrar', () => {
 
   it('admits only shared ComfyUI machine settings through the user-config IPC contract', () => {
     const shared = {
-      format: 'noveltea.comfyui-user-config',
-      formatVersion: 1,
       serverUrl: 'http://127.0.0.1:8188',
       requestTimeoutMs: 15_000,
       defaultWorkflows: {

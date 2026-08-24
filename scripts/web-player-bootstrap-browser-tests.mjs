@@ -45,7 +45,7 @@ try {
       byte.toString(16).padStart(2, '0')).join('');
     const configBytes = async (packageBytes) => encoder.encode(JSON.stringify({
       format: 'noveltea.player-config',
-      formatVersion: 2,
+      formatVersion: 1,
       displayName: 'Browser Bootstrap Test',
       applicationId: 'org.example.browser-bootstrap',
       saveNamespace: 'org.example.browser-bootstrap',
@@ -53,7 +53,6 @@ try {
       package: {
         path: 'game.ntpkg',
         sha256: hex(await crypto.subtle.digest('SHA-256', packageBytes)),
-        runtimePackageApi: 2,
       },
       capabilities: [],
       display: {

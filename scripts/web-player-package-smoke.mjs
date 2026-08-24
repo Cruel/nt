@@ -59,7 +59,7 @@ try {
   const checksum = createHash('sha256').update(packageBytes).digest('hex');
   const config = {
     format: 'noveltea.player-config',
-    formatVersion: 2,
+    formatVersion: 1,
     displayName: 'NovelTea Web Package Smoke',
     applicationId: 'org.noveltea.web-package-smoke',
     saveNamespace: 'org.noveltea.web-package-smoke',
@@ -67,7 +67,6 @@ try {
     package: {
       path: 'game.ntpkg',
       sha256: checksum,
-      runtimePackageApi: 2,
     },
     capabilities: [],
     display: {

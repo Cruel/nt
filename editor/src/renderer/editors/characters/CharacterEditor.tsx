@@ -161,10 +161,8 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: CHARACTER_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
         captureTabState: () => ({
           schema: CHARACTER_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
           payload: {
             scroll: captureScrollViewState(scrollRef.current),
           },

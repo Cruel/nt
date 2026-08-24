@@ -14,6 +14,8 @@
 
 namespace noveltea::core {
 
+inline constexpr std::uint32_t save_file_format_version = 1;
+
 struct CheckpointBarrierTag;
 struct CheckpointStatusRevisionTag;
 struct CheckpointReadinessRevisionTag;
@@ -122,7 +124,6 @@ struct CheckpointGenerationState {
 };
 
 struct SaveCheckpointMetadata {
-    std::uint32_t save_format_version = SaveStateMetadata::current_format_version;
     ProjectId project;
     std::string project_version;
     std::string save_contract;

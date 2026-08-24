@@ -154,7 +154,7 @@ describe('authoring characters schema', () => {
 
     expect(characterPreviewRevision(project, 'iris')).toContain('hash-image');
     expect(buildCharacterPreviewDocumentData(project, 'iris')).toMatchObject({
-      schema: 'noveltea.character-preview.v1',
+      schema: 'noveltea.character-preview',
       characterId: 'iris',
       resolvedSprite: { id: 'iris', kind: 'image', contentHash: 'hash-image' },
     });

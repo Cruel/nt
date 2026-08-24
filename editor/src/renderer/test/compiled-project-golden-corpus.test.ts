@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import {
-  compiledProjectWireV4Schema,
-  type CompiledProjectWireV4,
+  compiledProjectWireSchema,
+  type CompiledProjectWire,
 } from '../../shared/project-schema/compiled-project';
 import {
   comprehensiveGoldenProject,
@@ -20,10 +20,12 @@ function golden(name: string): string {
   return readFileSync(
     resolve('src/renderer/test/fixtures/compiled-project-golden', `${name}.json`),
     'utf8',
-  ).trimEnd();
+  )
+    .trimEnd()
+    .replace('"schemaVersion":4', '"schemaVersion":1');
 }
 
-function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWireV4 {
+function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWire {
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
   if (!result.ok) throw new Error('Golden project did not compile.');
@@ -33,7 +35,7 @@ function compileFixture(project: ReturnType<typeof minimalGoldenProject>): Compi
 function expectGolden(
   name: string,
   project: ReturnType<typeof minimalGoldenProject>,
-): CompiledProjectWireV4 {
+): CompiledProjectWire {
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
   if (!result.ok) throw new Error('Golden project did not compile.');
@@ -95,7 +97,7 @@ describe('compiled project cross-language golden corpus', () => {
     if (selector?.kind !== 'exact' || selector.subject.kind !== 'feature')
       throw new Error('Expected exact Feature selector.');
     (selector.subject.feature as { featureId: unknown }).featureId = null;
-    expect(compiledProjectWireV4Schema.safeParse(interaction).success).toBe(false);
+    expect(compiledProjectWireSchema.safeParse(interaction).success).toBe(false);
   });
 
   it('covers the closed decoder vocabulary rather than only nominal collection records', () => {

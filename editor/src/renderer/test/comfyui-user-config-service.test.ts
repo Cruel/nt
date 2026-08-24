@@ -54,19 +54,17 @@ describe('ComfyUI shared user config service', () => {
         'audio.generate': 'custom-audio',
       },
     });
-    expect(comfyUiUserConfigPath()).toBe(path.join(configRoot, 'comfyui', 'config-v1.json'));
+    expect(comfyUiUserConfigPath()).toBe(path.join(configRoot, 'config.json'));
     await expect(loadComfyUiUserConfig()).resolves.toEqual(saved);
   });
 
-  it('discards replaced or malformed same-version config data instead of migrating it', async () => {
+  it('does not migrate the retired standalone ComfyUI config file', async () => {
     const configRoot = root();
     const file = path.join(configRoot, 'comfyui', 'config-v1.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(
       file,
       `${JSON.stringify({
-        format: 'noveltea.comfyui-user-config',
-        formatVersion: 1,
         serverUrl: 'http://127.0.0.1:9000',
         requestTimeoutMs: 1000,
         defaultWorkflowId: 'retired-singular-alias',

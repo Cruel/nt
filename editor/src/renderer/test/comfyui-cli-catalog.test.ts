@@ -31,7 +31,7 @@ function workflow(prompt = 'Tea') {
 
 function manifest(id: string, label: string, description = `${label} description`) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     id,
     label,
     provider: 'comfyui',
@@ -99,22 +99,23 @@ function libraryOptions(builtInRoot: string, userRoot: string): WorkflowLibraryS
     roots: {
       builtInRoot,
       userRoot,
-      cacheFile: path.join(path.dirname(userRoot), 'verification-cache-v1.json'),
+      cacheFile: path.join(path.dirname(userRoot), 'verification-cache.json'),
     },
   };
 }
 
 function writeUserConfig(root: string, serverUrl = 'http://127.0.0.1:8188') {
-  const comfyUiRoot = path.join(root, 'comfyui');
-  fs.mkdirSync(comfyUiRoot, { recursive: true });
+  fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(
-    path.join(comfyUiRoot, 'config-v1.json'),
+    path.join(root, 'config.json'),
     `${JSON.stringify({
-      format: 'noveltea.comfyui-user-config',
+      format: 'noveltea.user-config',
       formatVersion: 1,
-      serverUrl,
-      requestTimeoutMs: 1000,
-      defaultWorkflows: { 'image.generate': 'starter' },
+      comfyui: {
+        serverUrl,
+        requestTimeoutMs: 1000,
+        defaultWorkflows: { 'image.generate': 'starter' },
+      },
     })}\n`,
   );
 }
@@ -191,7 +192,7 @@ describe('noveltea comfyui workflow catalog CLI', () => {
       expect.any(Object),
     );
 
-    fs.rmSync(path.join(configRoot, 'comfyui', 'config-v1.json'));
+    fs.rmSync(path.join(configRoot, 'config.json'));
     const fallback = await runNovelTeaCli(['--json', 'comfyui', 'status'], { cwd: root });
     expect(envelope(fallback)).toMatchObject({ serverUrl: 'http://127.0.0.1:8000' });
 
@@ -233,9 +234,8 @@ describe('noveltea comfyui workflow catalog CLI', () => {
       ],
     });
     const cache = JSON.parse(
-      fs.readFileSync(path.join(configRoot, 'comfyui', 'verification-cache-v1.json'), 'utf8'),
-    ) as { schemaVersion: number; records: Array<{ serverIdentity: string }> };
-    expect(cache.schemaVersion).toBe(1);
+      fs.readFileSync(path.join(configRoot, 'comfyui', 'verification-cache.json'), 'utf8'),
+    ) as { records: Array<{ serverIdentity: string }> };
     expect(cache.records).toContainEqual(
       expect.objectContaining({ serverIdentity: 'http://127.0.0.1:8188' }),
     );

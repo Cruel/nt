@@ -42,6 +42,7 @@ import { evaluateTemplateCompatibility } from '../../shared/project-schema/templ
 import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import {
   defaultPlatformExportProfile,
+  PLAYER_RUNTIME_API_VERSION,
   parsePlatformExportProfile,
   parseProjectPlatformExportSettings,
   userSigningProfileToExportSigningState,
@@ -50,6 +51,7 @@ import {
   type ProjectPlatformExportSettings,
   type UserExportConfig,
 } from '../../shared/project-schema/platform-export-contracts';
+import { COMPILED_PROJECT_FORMAT_VERSION } from '../../shared/project-schema/compiled-project';
 import { runPackageExportWorkflow } from './package-export-workflow';
 import { usePackageExportStore } from './package-export-store';
 import {
@@ -434,8 +436,8 @@ export function PackageExportDialog({
         item,
         compatibility: evaluateTemplateCompatibility(item.descriptor, {
           profile: selectedPlatformProfile,
-          runtimePackageApi: 2,
-          playerConfigApi: 2,
+          compiledProjectFormatVersion: COMPILED_PROJECT_FORMAT_VERSION,
+          playerRuntimeApiVersion: PLAYER_RUNTIME_API_VERSION,
           shaderVariants: platformRuntimeProfile?.shaderVariants ?? [],
           graphicsBackends: [],
           capabilities: derivedPlatformCapabilities(selectedPlatformProfile.target),

@@ -31,7 +31,7 @@ const unzipTool = () => process.env.NOVELTEA_UNZIP ?? 'unzip';
 const zipInfoTool = () => process.env.NOVELTEA_ZIPINFO ?? 'zipinfo';
 let registryRoot =
   process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
-  path.join(os.homedir(), '.noveltea', 'templates', 'v1');
+  path.join(os.homedir(), '.noveltea', 'templates');
 const digest = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 const issue = (
   code: string,
@@ -270,7 +270,6 @@ export async function installPlayerTemplate(
       throw new Error('Official provenance does not match the archive and descriptor.');
     const entry: TemplateRegistryEntry = {
       format: 'noveltea.template-registry',
-      formatVersion: 1,
       templateId: descriptor.templateId,
       buildId: descriptor.buildId,
       descriptorSha256,

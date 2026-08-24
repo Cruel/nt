@@ -27,7 +27,6 @@ import {
 } from '../../shared/project-schema/authoring-tags';
 import {
   EDITOR_PROJECT_STATE_SCHEMA,
-  EDITOR_PROJECT_STATE_SCHEMA_VERSION,
 } from '../../shared/project-schema/editor-project-state';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
@@ -124,7 +123,6 @@ function ensureEditorTagObjects(patches: JsonPatchOperation[], documentValue: Js
       path: '/editor',
       value: toJsonValue({
         schema: EDITOR_PROJECT_STATE_SCHEMA,
-        schemaVersion: EDITOR_PROJECT_STATE_SCHEMA_VERSION,
         tags: { records: {} },
       }),
     });

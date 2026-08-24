@@ -13,7 +13,6 @@ import {
 } from './runtime-artifact-test-helpers';
 import {
   PREPARED_RUNTIME_ARTIFACT_SCHEMA,
-  PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION,
   verifyPreparedRuntimeArtifact,
 } from '../../shared/runtime-artifact-preparation';
 import {
@@ -74,7 +73,7 @@ describe('Prepared Runtime Artifact module', () => {
     expect(result.ready).toBe(true);
     expect(result.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project',
-      schemaVersion: 4,
+      schemaVersion: 1,
       project: { name: 'Export Demo', version: '2.0.0', author: 'NovelTea' },
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
       definitions: {
@@ -646,7 +645,6 @@ describe('Prepared Runtime Artifact module', () => {
     if (prepared.status !== 'prepared') return;
     expect(prepared.artifact).toMatchObject({
       schema: PREPARED_RUNTIME_ARTIFACT_SCHEMA,
-      schemaVersion: PREPARED_RUNTIME_ARTIFACT_SCHEMA_VERSION,
     });
     expect(
       (

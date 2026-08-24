@@ -28,7 +28,7 @@ testing, and activation work described by
   JavaScript linkage. Android `:app:assembleDebug` passed.
 - Direct native headless package export passed with empty valid shader/material metadata. The returned
   manifest, archived package manifest, and embedded `shader-materials.json` all declared
-  `noveltea.shader-materials.v2`.
+  `noveltea.shader-materials`.
 
 ## Final review corrections
 

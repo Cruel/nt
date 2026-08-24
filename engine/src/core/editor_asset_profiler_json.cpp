@@ -530,7 +530,6 @@ bool parse_asset_profiler_decimal(std::string_view text, std::uint64_t& value) n
 std::string serialize_asset_profiler_snapshot(const AssetProfilerSnapshot& value)
 {
     Json payload{{"kind", "full"},
-                 {"schemaVersion", value.schema_version},
                  {"sessionId", decimal(value.session_id.value)},
                  {"latestSequence", decimal(value.latest_sequence.value)},
                  {"capturedAtNs", decimal(value.captured_at_ns)},
@@ -548,7 +547,6 @@ std::string serialize_asset_profiler_snapshot(const AssetProfilerSnapshot& value
 std::string serialize_asset_profiler_delta(const AssetProfilerDelta& value)
 {
     Json payload{{"kind", "delta"},
-                 {"schemaVersion", value.schema_version},
                  {"sessionId", decimal(value.session_id.value)},
                  {"afterSequence", decimal(value.after_sequence.value)},
                  {"latestSequence", decimal(value.latest_sequence.value)},

@@ -12,15 +12,13 @@
 
 namespace noveltea::core {
 
-inline constexpr std::uint32_t player_config_format_version = 2;
-inline constexpr std::uint32_t runtime_package_api_version = 2;
+inline constexpr std::uint32_t player_runtime_api_version = 1;
 
 enum class PlayerBootstrapError {
     ConfigDiscovery,
     ConfigParse,
     PackageDiscovery,
     PackageChecksum,
-    PackageApi,
     Capability,
     PackageContent,
     WritableRoot,
@@ -68,7 +66,6 @@ struct PlayerBootstrapConfig {
     std::string default_locale;
     std::filesystem::path package_path;
     std::string package_sha256;
-    std::uint32_t runtime_package_api = 0;
     std::vector<std::string> capabilities;
     PlayerDisplayConfig display;
     PlayerAccessibilityConfig accessibility;

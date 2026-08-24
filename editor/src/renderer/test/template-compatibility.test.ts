@@ -17,8 +17,8 @@ const descriptor = parseTemplateDescriptor({
   minimumPlatformVersion: 'glibc 2.39',
   graphicsBackends: ['opengl'],
   shaderVariants: ['glsl-120'],
-  runtimePackageApi: { minimum: 2, maximum: 2 },
-  playerConfigApi: { minimum: 2, maximum: 2 },
+  compiledProjectFormatVersion: 1,
+  playerRuntimeApiVersion: 1,
   compiledFeatures: ['lua'],
   capabilities: ['gamepad'],
   buildFlavor: 'release',
@@ -36,7 +36,6 @@ const descriptor = parseTemplateDescriptor({
 });
 const profile = parsePlatformExportProfile({
   format: 'noveltea.platform-export-profile',
-  formatVersion: 1,
   id: 'linux',
   label: 'Linux',
   target: 'linux',
@@ -51,8 +50,8 @@ describe('template compatibility', () => {
     expect(
       evaluateTemplateCompatibility(descriptor, {
         profile,
-        runtimePackageApi: 2,
-        playerConfigApi: 2,
+        compiledProjectFormatVersion: 1,
+        playerRuntimeApiVersion: 1,
         shaderVariants: ['glsl-120'],
         graphicsBackends: ['opengl'],
         capabilities: ['gamepad'],
@@ -66,23 +65,26 @@ describe('template compatibility', () => {
       buildFlavor: 'debug',
       packageAccess: 'bundle-resource',
     });
-    const result = evaluateTemplateCompatibility(descriptor, {
+    const result = evaluateTemplateCompatibility(
+      { ...descriptor, compiledProjectFormatVersion: 2, playerRuntimeApiVersion: 2 },
+      {
       profile: incompatibleProfile,
-      runtimePackageApi: 3,
-      playerConfigApi: 3,
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       shaderVariants: ['essl-300'],
       graphicsBackends: ['vulkan'],
       capabilities: ['microphone'],
       requiredFeatures: ['rmlui'],
       host: { platform: 'windows', availableTools: [] },
-    });
+      },
+    );
     expect(result.diagnostics.map((item) => item.code)).toEqual(
       expect.arrayContaining([
         'template-architecture-mismatch',
         'template-flavor-mismatch',
         'template-package-access-mismatch',
-        'template-runtime-package-api-mismatch',
-        'template-player-config-api-mismatch',
+        'template-compiled-project-format-mismatch',
+        'template-player-runtime-api-mismatch',
         'template-shader-variant-mismatch',
         'template-renderer-mismatch',
         'template-capability-mismatch',
@@ -93,7 +95,6 @@ describe('template compatibility', () => {
   it('checks every Android template contract dimension', () => {
     const androidProfile = parsePlatformExportProfile({
       format: 'noveltea.platform-export-profile',
-      formatVersion: 1,
       id: 'android',
       label: 'Android',
       target: 'android',
@@ -149,8 +150,8 @@ describe('template compatibility', () => {
     });
     const result = evaluateTemplateCompatibility(androidDescriptor, {
       profile: androidProfile,
-      runtimePackageApi: 2,
-      playerConfigApi: 2,
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       shaderVariants: [],
       graphicsBackends: [],
       capabilities: [],

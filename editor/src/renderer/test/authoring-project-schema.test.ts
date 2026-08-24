@@ -11,12 +11,11 @@ import {
   stripEditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 
-describe('authoring project V4 schema', () => {
-  it('creates a complete V4 project root with an explicit Bootstrap Module', () => {
+describe('authoring project schema', () => {
+  it('creates a complete current project root with an explicit Bootstrap Module', () => {
     const project = createAuthoringProject({ id: 'demo-project', name: 'Demo Project' });
     expect(project).toMatchObject({
       schema: 'noveltea.authoring.project',
-      schemaVersion: 4,
       project: { id: 'demo-project', name: 'Demo Project' },
       bootstrapModule: { $ref: { collection: 'scripts', id: 'bootstrap' } },
       entrypoint: null,

@@ -10,7 +10,7 @@ Scene is an immutable orchestration definition, not a stateful Property or Trait
 
 ## Program
 
-Authoring V2 uses the strict step union: SetBackground, ActorCue, CallDialogue, ShowText, AudioCue,
+Current Scene authoring uses the strict step union: SetBackground, ActorCue, CallDialogue, ShowText, AudioCue,
 SetVariable, RunLua, Wait, ConditionalBranch, Choice, SetLayout, TransitionGroup, and Comment. Comment is
 editor-only and removed by compilation. Each step contains only fields valid for its variant,
 including condition, wait, and safe-point data where meaningful. Stable step IDs support diagnostics
@@ -47,9 +47,9 @@ stable instance ID and optional replacement group; it becomes reconstructible De
 State and cannot wait for decoder completion. One-shot Voice and Sound Effect cues may be causal,
 awaited/synchronized, disposable, or explicitly play-on-skip as admitted by validation. UI Sound is
 always disposable, unscaled, and cannot control gameplay. The retired `channel`, `loop`, and
-`volume` Scene audio representation is not accepted by the current authoring or compiled V4 shape.
+`volume` Scene audio representation is not accepted by the current authoring or compiled-project shape.
 
-The standalone targetless `Transition` action has been removed from authoring, compiler, wire V2, and
+The standalone targetless `Transition` action has been removed from authoring, compiler, compiled wire, and
 the native compiled program. It has no compatibility interpretation. A group never consumes earlier
 or later Scene steps implicitly.
 
@@ -93,7 +93,7 @@ realization and leaves the already-published target authoritative.
 
 ## Authoring, compiled, and state disposition
 
-- **Authoring V2:** collection-specific Scene record with strict ordered steps and explicit terminal continuation.
+- **Authoring:** collection-specific Scene record with strict ordered steps and explicit terminal continuation.
 - **Compiled:** immutable `SceneDefinition` plus `SceneProgram`, linked typed references, and compiler-marked safe points.
 - **Mutable:** Scene `FlowFrame`, actor state, logical waits, and invocation-local execution data in `SessionState`; the Scene definition itself has no Property/Trait state.
 - **Tooling only:** comments, selected step, timeline/graph coordinates, preview playback/background,
@@ -119,7 +119,7 @@ where they are meaningful.
 The editor supports ordered creation, selection, duplication, deletion, reordering, type replacement,
 variant-specific editing, explicit continuation editing, diagnostics, undo/redo, and a derived Scene
 preview. The preview receives its selected step from editor state and emits
-`noveltea.scene-preview.v2`; it does not mutate or annotate the authoring record.
+`noveltea.scene-preview`; it does not mutate or annotate the authoring record.
 
 Scene edits publish through `scene.replaceData`. The command validates the complete proposed strict
 payload before replacing `/scenes/{sceneId}/data`, preserving deterministic command history and

@@ -4,11 +4,11 @@ import {
 } from './project-schema/authoring-collections';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import {
-  compiledProjectWireV4Schema,
+  compiledProjectWireSchema,
   computeCompiledProjectSaveContract,
-  serializeCompiledProjectWireV4,
+  serializeCompiledProjectWire,
   type CompiledDiagnostic,
-  type CompiledProjectWireV4,
+  type CompiledProjectWire,
 } from './project-schema/compiled-project';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
@@ -111,7 +111,7 @@ interface CompilerContext {
 
 interface LoweringResult {
   diagnostics: CompiledDiagnostic[];
-  project?: CompiledProjectWireV4;
+  project?: CompiledProjectWire;
 }
 
 interface ResourceReferenceClosure {
@@ -121,7 +121,7 @@ interface ResourceReferenceClosure {
   scripts: ReadonlySet<string>;
 }
 
-function collectResourceReferenceClosure(project: CompiledProjectWireV4): ResourceReferenceClosure {
+function collectResourceReferenceClosure(project: CompiledProjectWire): ResourceReferenceClosure {
   const assets = new Set<string>();
   const layouts = new Set<string>();
   const materials = new Set<string>();
@@ -145,7 +145,7 @@ function collectResourceReferenceClosure(project: CompiledProjectWireV4): Resour
   return { assets, layouts, materials, scripts };
 }
 
-function validateResourceClosure(project: CompiledProjectWireV4): CompiledDiagnostic[] {
+function validateResourceClosure(project: CompiledProjectWire): CompiledDiagnostic[] {
   const closure = collectResourceReferenceClosure(project);
   const availableAssets = new Set(project.resources.assets.map((resource) => resource.id));
   const availableLayouts = new Set(project.resources.layouts.map((resource) => resource.id));
@@ -293,7 +293,7 @@ function normalizeAuthoringProject(value: unknown, context: CompilerContext): vo
     return;
   }
 
-  // Zod parsing publishes a detached V2 value. Settings then receive their
+  // Zod parsing publishes a detached current value. Settings then receive their
   // explicit project-identity defaults without flattening Trait configuration or
   // authored property assignments.
   context.normalizedProject = { ...parsed.data, settings: projectSettingsFromProject(parsed.data) };
@@ -628,7 +628,7 @@ function finish(context: CompilerContext): CompileFailure {
  * The one public authoring-to-gameplay compiler boundary. It is pure: input is
  * parsed into a normalized copy and no project/editor state is mutated.
  */
-export function compileAuthoringProject(project: unknown): CompileResult<CompiledProjectWireV4> {
+export function compileAuthoringProject(project: unknown): CompileResult<CompiledProjectWire> {
   const context: CompilerContext = { diagnostics: [], stages: [] };
   normalizeAuthoringProject(project, context);
   if (!context.normalizedProject) {
@@ -689,7 +689,7 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
   // compiler-produced persistent Save Contract before publication.
   lowered.project.saveContract = computeCompiledProjectSaveContract(lowered.project);
   addStage(context, 'assemble', 'completed');
-  const validated = compiledProjectWireV4Schema.safeParse(lowered.project);
+  const validated = compiledProjectWireSchema.safeParse(lowered.project);
   if (!validated.success) {
     validated.error.issues.forEach((issue) =>
       context.diagnostics.push(
@@ -716,7 +716,7 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
   return {
     ok: true,
     project: validated.data,
-    canonicalJson: serializeCompiledProjectWireV4(validated.data),
+    canonicalJson: serializeCompiledProjectWire(validated.data),
     diagnostics,
     stages: context.stages,
   };

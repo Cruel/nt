@@ -3,6 +3,7 @@
 
 #include "noveltea/core/json_access.hpp"
 #include "noveltea/core/package_export.hpp"
+#include "noveltea/core/player_bootstrap.hpp"
 #include "noveltea/render/shader_manifest.hpp"
 #include "noveltea/render/material_codec.hpp"
 
@@ -24,7 +25,7 @@ namespace noveltea::core {
 namespace {
 
 constexpr std::string_view package_format = "noveltea.runtime-package";
-constexpr std::string_view shader_schema = "noveltea.shader-materials.v2";
+constexpr std::string_view shader_schema = "noveltea.shader-materials";
 
 class Decoder {
 public:
@@ -458,13 +459,13 @@ decode_runtime_package_manifest(const nlohmann::json& value, std::string source_
     Decoder decoder(std::move(source_path), "runtime_package");
     RuntimePackageManifest output;
     if (!decoder.object(value, "",
-                        {"format", "format_version", "kind", "created_by", "project", "display",
+                        {"format", "runtime_api_version", "kind", "created_by", "project", "display",
                          "accessibility", "platform", "shader_variants", "shader_materials",
                          "entries", "checksums"}))
         return Result<RuntimePackageManifest, Diagnostics>::failure(decoder.take());
 
     const auto* format = decoder.required(value, "format", "");
-    const auto* version = decoder.required(value, "format_version", "");
+    const auto* version = decoder.required(value, "runtime_api_version", "");
     const auto* kind = decoder.required(value, "kind", "");
     const auto* created_by = decoder.required(value, "created_by", "");
     const auto* project = decoder.required(value, "project", "");
@@ -477,10 +478,11 @@ decode_runtime_package_manifest(const nlohmann::json& value, std::string source_
     if (decoded_format && *decoded_format != package_format)
         decoder.error("unsupported_schema", "Unsupported runtime package format.", "/format");
     auto decoded_version =
-        version ? decoder.integer<std::uint32_t>(*version, "/format_version", true) : std::nullopt;
-    if (decoded_version && *decoded_version != 2)
-        decoder.error("unsupported_version", "Unsupported runtime package version.",
-                      "/format_version");
+        version ? decoder.integer<std::uint32_t>(*version, "/runtime_api_version", true)
+                : std::nullopt;
+    if (decoded_version && *decoded_version != player_runtime_api_version)
+        decoder.error("unsupported_version", "Unsupported player runtime API version.",
+                      "/runtime_api_version");
     auto decoded_kind = kind ? decoder.string(*kind, "/kind") : std::nullopt;
     if (decoded_kind) {
         if (*decoded_kind == "runtime")

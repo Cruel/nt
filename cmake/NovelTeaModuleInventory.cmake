@@ -81,7 +81,7 @@ function(noveltea_add_module_dependency_inventory)
     list(REMOVE_DUPLICATES _all_targets)
     list(SORT _all_targets)
 
-    set(_report "format: noveltea.module-dependency-inventory.v1\n")
+    set(_report "format: noveltea.module-dependency-inventory\n")
     string(APPEND _report "system: ${CMAKE_SYSTEM_NAME}\n")
     string(APPEND _report "processor: ${CMAKE_SYSTEM_PROCESSOR}\n")
     string(APPEND _report "build_type: ${CMAKE_BUILD_TYPE}\n")

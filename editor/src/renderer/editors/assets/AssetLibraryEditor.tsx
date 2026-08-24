@@ -130,14 +130,12 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: ASSET_LIBRARY_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: ASSET_LIBRARY_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
           payload: { query, kind, selectedTags },
         }),
         restoreTabState: (state: WorkbenchTabStatePayload) => {
-          if (state.schema !== ASSET_LIBRARY_TAB_STATE_SCHEMA || state.schemaVersion !== 1) return;
+          if (state.schema !== ASSET_LIBRARY_TAB_STATE_SCHEMA) return;
           const payload = state.payload;
           if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
           const values = payload as Record<string, unknown>;

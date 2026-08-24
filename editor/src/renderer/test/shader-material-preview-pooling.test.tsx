@@ -319,7 +319,7 @@ describe('Shader and Material persistent previews', () => {
       recordId: 'panel',
       data: expect.objectContaining({
         materialId: 'panel',
-        shaderMaterials: expect.objectContaining({ schema: 'noveltea.shader-materials.v2' }),
+        shaderMaterials: expect.objectContaining({ schema: 'noveltea.shader-materials' }),
         preview: expect.objectContaining({ geometry: 'quad', background: 'checker' }),
         diagnostics: [],
       }),
@@ -347,7 +347,7 @@ describe('Shader and Material persistent previews', () => {
         contentMode: 'shader',
         shaderId: 'noise',
         previewMaterialId: 'editor/preview/shader/noise',
-        shaderMaterials: expect.objectContaining({ schema: 'noveltea.shader-materials.v2' }),
+        shaderMaterials: expect.objectContaining({ schema: 'noveltea.shader-materials' }),
         templateId: 'shader-square-v1',
       }),
     });

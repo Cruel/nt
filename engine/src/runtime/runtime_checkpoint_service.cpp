@@ -255,15 +255,13 @@ RuntimeCheckpointService::prepare_loaded_checkpoint(
         return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
             std::move(revision).error());
     const core::SaveCheckpointMetadata decoded_metadata{
-        .save_format_version = decoded.metadata.format_version,
         .project = decoded.metadata.project,
         .project_version = decoded.metadata.project_version,
         .save_contract = decoded.metadata.save_contract,
         .play_time = decoded.play_time,
         .generations = {}};
     if (stored_metadata &&
-        (stored_metadata->save_format_version != decoded_metadata.save_format_version ||
-         stored_metadata->project != decoded_metadata.project ||
+        (stored_metadata->project != decoded_metadata.project ||
          stored_metadata->project_version != decoded_metadata.project_version ||
          stored_metadata->save_contract != decoded_metadata.save_contract ||
          stored_metadata->play_time != decoded_metadata.play_time)) {
@@ -417,7 +415,6 @@ core::Result<void, core::Diagnostics> RuntimeCheckpointService::publish_candidat
                 auto* encoded_value = encoded.value_if();
                 const auto* revision_value = revision.value_if();
                 const core::SaveCheckpointMetadata metadata{
-                    .save_format_version = projected->metadata.format_version,
                     .project = projected->metadata.project,
                     .project_version = projected->metadata.project_version,
                     .save_contract = projected->metadata.save_contract,

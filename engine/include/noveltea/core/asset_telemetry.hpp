@@ -122,7 +122,6 @@ public:
 
 inline constexpr std::size_t production_asset_telemetry_event_capacity = 0;
 inline constexpr std::size_t editor_asset_profiler_change_capacity = 8192;
-inline constexpr std::uint32_t asset_profiler_snapshot_schema_version = 3;
 
 class AssetTelemetryRecorder final : public AssetTelemetrySink {
 public:
@@ -366,7 +365,6 @@ struct AssetProfilerChange {
 };
 
 struct AssetProfilerSnapshot {
-    std::uint32_t schema_version = asset_profiler_snapshot_schema_version;
     AssetProfilerSessionId session_id;
     AssetProfilerSequence latest_sequence;
     std::uint64_t captured_at_ns = 0;
@@ -381,7 +379,6 @@ struct AssetProfilerSnapshot {
 };
 
 struct AssetProfilerDelta {
-    std::uint32_t schema_version = asset_profiler_snapshot_schema_version;
     AssetProfilerSessionId session_id;
     AssetProfilerSequence after_sequence;
     AssetProfilerSequence latest_sequence;

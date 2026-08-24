@@ -519,10 +519,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 2,
         captureTabState: () => ({
           schema: PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 2,
           payload: {
             activeCategory,
             scroll: captureScrollViewState(scrollRef.current),

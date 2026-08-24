@@ -79,7 +79,7 @@ function workflow(prompt = 'Tea') {
 
 function manifest(id: string, label = id, workflowFile = `${id}.workflow.json`) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 1,
     id,
     label,
     provider: 'comfyui',
@@ -669,7 +669,6 @@ describe('comfyui workflow library service', () => {
     };
     expect(cache).toMatchObject({
       schema: 'noveltea.comfyui-workflow-verification-cache',
-      schemaVersion: 1,
     });
     expect(new Set(cache.records.map((record) => record.comfyUiVersion))).toEqual(
       new Set(['1.0.0', '2.0.0']),

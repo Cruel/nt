@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
   certifyTemplateDescriptor,
   PLATFORM_CERTIFICATION_FORMAT,
-  PLATFORM_CERTIFICATION_FORMAT_VERSION,
   requiredPlatformCertificationChecks,
   type PlatformCertificationReport,
 } from '../../shared/project-schema/platform-export-certification';
@@ -20,8 +19,8 @@ const descriptor = parseTemplateDescriptor({
   minimumPlatformVersion: 'Chrome 121',
   graphicsBackends: ['webgl2'],
   shaderVariants: ['essl-300'],
-  runtimePackageApi: { minimum: 2, maximum: 2 },
-  playerConfigApi: { minimum: 2, maximum: 2 },
+  compiledProjectFormatVersion: 1,
+  playerRuntimeApiVersion: 1,
   capabilities: ['external-url'],
   compiledFeatures: [],
   packageAccessModes: ['web-fetch'],
@@ -40,7 +39,6 @@ const descriptor = parseTemplateDescriptor({
 const checks = requiredPlatformCertificationChecks(descriptor);
 const report = (): PlatformCertificationReport => ({
   format: PLATFORM_CERTIFICATION_FORMAT,
-  formatVersion: PLATFORM_CERTIFICATION_FORMAT_VERSION,
   generatedAt: '2026-07-11T12:00:00.000Z',
   template: {
     templateId: descriptor.templateId,
@@ -68,8 +66,8 @@ const report = (): PlatformCertificationReport => ({
     target: 'web',
   },
   exercised: {
-    packageApis: [2],
-    playerConfigApis: [2],
+    compiledProjectFormatVersions: [1],
+    playerRuntimeApiVersions: [1],
     packageAccessModes: ['web-fetch'],
   },
   evidence: checks.map((check, index) => ({
@@ -100,24 +98,24 @@ describe('platform export certification gate', () => {
       certified: true,
       diagnostics: [],
     }));
-  it('rejects an unexercised package API and a failed required release check', () => {
+  it('rejects an unexercised compiled-project format and a failed required release check', () => {
     const value = report();
-    value.exercised.packageApis = [];
+    value.exercised.compiledProjectFormatVersions = [];
     value.evidence.find((item) => item.check === 'canonical-export')!.status = 'failed';
     const result = certifyTemplateDescriptor(descriptor, value);
     expect(result.certified).toBe(false);
     expect(result.diagnostics.map((item) => item.code)).toEqual(
       expect.arrayContaining([
-        'certification-package-api-unexercised',
+        'certification-compiled-project-format-unexercised',
         'certification-check-not-passed',
       ]),
     );
   });
   it('does not encode exhaustive runtime feature declarations as platform exercise evidence', () => {
     expect(Object.keys(report().exercised).sort()).toEqual([
+      'compiledProjectFormatVersions',
       'packageAccessModes',
-      'packageApis',
-      'playerConfigApis',
+      'playerRuntimeApiVersions',
     ]);
   });
   it('rejects a package access mode that the certified template does not declare', () => {

@@ -3,6 +3,7 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_package_codec.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/player_bootstrap.hpp"
 #include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/presentation/runtime_presentation_model.hpp"
 
@@ -250,7 +251,7 @@ make_loose_project_load_input(nlohmann::json gameplay,
 
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 2},
+        {"runtime_api_version", core::player_runtime_api_version},
         {"kind", "runtime"},
         {"created_by", "noveltea-loose-project"},
         {"project",
@@ -307,7 +308,7 @@ make_loose_project_load_input(nlohmann::json gameplay,
         manifest["entries"] = std::move(entries);
         manifest["shader_variants"] = std::move(variants);
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
-                                        {"schema", "noveltea.shader-materials.v2"},
+                                        {"schema", "noveltea.shader-materials"},
                                         {"sources_stripped", true}};
         typed_shader_materials = std::move(*decoded_materials.value_if());
     }

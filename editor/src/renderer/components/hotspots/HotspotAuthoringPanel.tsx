@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { HotspotImageStage } from '@/components/image-stage/HotspotImageStage';
-import type { HotspotEditorViewStateV1 } from '@/components/image-stage/hotspot-view-state';
+import type { HotspotEditorViewState } from '@/components/image-stage/hotspot-view-state';
 import {
   roomBackgroundTransform,
   type RoomBackgroundFit,
@@ -48,7 +48,7 @@ interface Props {
   projectFilePath: string | null;
   assetId: string | null;
   hotspots: readonly EditableHotspot[];
-  selectedView: HotspotEditorViewStateV1;
+  selectedView: HotspotEditorViewState;
   ownerKind: 'room' | 'interactable';
   ownerId: string;
   localFeatures: readonly { id: string; label: string }[];
@@ -56,7 +56,7 @@ interface Props {
   alphaMode?: boolean;
   roomVisibleGuide?: { referenceSize: StageSize; fit: RoomBackgroundFit };
   anchorPrefix: 'room' | 'interactable';
-  onViewChange(next: HotspotEditorViewStateV1): void;
+  onViewChange(next: HotspotEditorViewState): void;
   onAdd(bounds: ImageNormalizedRect, target: EditableHotspotTarget): void;
   onDelete(id: string): void;
   onRename(id: string, nextId: string): void;
@@ -203,7 +203,7 @@ export function HotspotAuthoringPanel(props: Props) {
     return options;
   }, [props.exits, props.localFeatures, props.ownerId, props.ownerKind, props.project, t]);
 
-  const updateView = (patch: Partial<HotspotEditorViewStateV1>) =>
+  const updateView = (patch: Partial<HotspotEditorViewState>) =>
     props.onViewChange({ ...props.selectedView, ...patch });
   const updateSelected = (patch: Partial<Omit<EditableHotspot, 'id' | 'shape'>>) => {
     if (!selected) return;

@@ -269,7 +269,6 @@ describe('LayoutEditor', () => {
     const captured = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     expect(captured).toMatchObject({
       schema: 'noveltea.editor.tab-state.layout',
-      schemaVersion: 2,
       payload: {
         leftScroll: { scrollTop: 128, scrollLeft: 12 },
         sourceViewStates: {
@@ -283,7 +282,6 @@ describe('LayoutEditor', () => {
     view.unmount();
     setWorkbenchTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.layout',
-      schemaVersion: 2,
       payload: {
         leftScroll: { scrollTop: 64, scrollLeft: 4 },
         sourceViewStates: {

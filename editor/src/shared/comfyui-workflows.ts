@@ -24,11 +24,10 @@ export type ComfyUiSemanticInput =
   | 'cfg'
   | 'filenamePrefix';
 export type ComfyUiSemanticOutput = 'images';
-export const COMFYUI_WORKFLOW_SCHEMA_VERSION = 2 as const;
+export const COMFYUI_WORKFLOW_SCHEMA_VERSION = 1 as const;
 export type ComfyUiWorkflowSchemaVersion = typeof COMFYUI_WORKFLOW_SCHEMA_VERSION;
 export const COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA =
   'noveltea.comfyui-workflow-verification-cache' as const;
-export const COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION = 1 as const;
 export type ComfyUiWorkflowEditorField =
   | 'textarea'
   | 'text'
@@ -195,7 +194,6 @@ export interface ComfyUiWorkflowVerificationRecord {
 
 export interface ComfyUiWorkflowVerificationCacheDocument {
   schema: typeof COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA;
-  schemaVersion: typeof COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION;
   records: ComfyUiWorkflowVerificationRecord[];
 }
 

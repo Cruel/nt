@@ -17,8 +17,6 @@ function deferred<T>() {
 beforeEach(() => {
   vi.mocked(window.noveltea.loadComfyUiUserConfig).mockReset();
   vi.mocked(window.noveltea.loadComfyUiUserConfig).mockResolvedValue({
-    format: 'noveltea.comfyui-user-config',
-    formatVersion: 1,
     serverUrl: 'http://127.0.0.1:8000',
     requestTimeoutMs: 15000,
     defaultWorkflows: {
@@ -81,8 +79,6 @@ describe('useComfyUiStore', () => {
       connectionCheckIntervalMs: 4321,
     });
     vi.mocked(window.noveltea.loadComfyUiUserConfig).mockResolvedValueOnce({
-      format: 'noveltea.comfyui-user-config',
-      formatVersion: 1,
       serverUrl: 'https://comfy.example.test',
       requestTimeoutMs: 2222,
       defaultWorkflows: {

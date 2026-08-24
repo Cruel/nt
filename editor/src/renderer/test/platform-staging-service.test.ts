@@ -211,8 +211,8 @@ async function fixture() {
     minimumPlatformVersion: 'provisional',
     graphicsBackends: ['opengl'],
     shaderVariants: ['glsl-120'],
-    runtimePackageApi: { minimum: 2, maximum: 2 },
-    playerConfigApi: { minimum: 2, maximum: 2 },
+    compiledProjectFormatVersion: 1,
+    playerRuntimeApiVersion: 1,
     compiledFeatures: [],
     capabilities: [],
     buildFlavor: 'release',
@@ -236,7 +236,6 @@ async function fixture() {
     path.join(templateRoot, '.noveltea-template.json'),
     JSON.stringify({
       format: 'noveltea.template-registry',
-      formatVersion: 1,
       templateId: 'linux-x64',
       buildId: 'build-1',
       descriptorSha256: sha(descriptorData),
@@ -257,7 +256,6 @@ async function fixture() {
     operationId: 'one',
     profile: {
       format: PLATFORM_EXPORT_PROFILE_FORMAT,
-      formatVersion: 1,
       id: 'linux',
       label: 'Linux',
       target: 'linux',
@@ -300,7 +298,7 @@ async function fixture() {
       uiScale: { enabled: true, minimum: 1, maximum: 2 },
       textScale: { enabled: true, minimum: 1, maximum: 2 },
     },
-    runtimePackageApi: 2,
+    playerRuntimeApiVersion: 1,
   };
   return { root, request, templateRoot };
 }
@@ -463,8 +461,8 @@ describe('platform staging service', () => {
       minimumPlatformVersion: 'modern',
       graphicsBackends: ['webgl2'],
       shaderVariants: ['essl-300'],
-      runtimePackageApi: { minimum: 2, maximum: 2 },
-      playerConfigApi: { minimum: 2, maximum: 2 },
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       compiledFeatures: ['web-single-threaded'],
       capabilities: [],
       buildFlavor: 'release',
@@ -486,7 +484,6 @@ describe('platform staging service', () => {
       path.join(templateRoot, '.noveltea-template.json'),
       JSON.stringify({
         format: 'noveltea.template-registry',
-        formatVersion: 1,
         templateId: 'web-wasm32',
         buildId: 'build-1',
         descriptorSha256: sha(descriptorData),
@@ -504,7 +501,6 @@ describe('platform staging service', () => {
       outputDirectory: path.join(root, 'web-out'),
       profile: {
         format: PLATFORM_EXPORT_PROFILE_FORMAT,
-        formatVersion: 1,
         id: 'web',
         label: 'Web',
         target: 'web',
@@ -612,7 +608,6 @@ describe('platform staging service', () => {
       path.join(templateRoot, '.noveltea-template.json'),
       JSON.stringify({
         format: 'noveltea.template-registry',
-        formatVersion: 1,
         templateId: 'web-wasm32',
         buildId: 'build-1',
         descriptorSha256: sha(threadedDescriptorData),
@@ -679,8 +674,8 @@ describe('platform staging service', () => {
       minimumPlatformVersion: '10',
       graphicsBackends: ['opengl'],
       shaderVariants: ['glsl-120'],
-      runtimePackageApi: { minimum: 2, maximum: 2 },
-      playerConfigApi: { minimum: 2, maximum: 2 },
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       compiledFeatures: [],
       capabilities: [],
       buildFlavor: 'release',
@@ -703,7 +698,6 @@ describe('platform staging service', () => {
       path.join(templateRoot, '.noveltea-template.json'),
       JSON.stringify({
         format: 'noveltea.template-registry',
-        formatVersion: 1,
         templateId: 'windows-x64',
         buildId: 'build-1',
         descriptorSha256: sha(descriptorData),
@@ -721,7 +715,6 @@ describe('platform staging service', () => {
       outputDirectory: path.join(root, 'windows out Ω'),
       profile: {
         format: PLATFORM_EXPORT_PROFILE_FORMAT,
-        formatVersion: 1,
         id: 'windows',
         label: 'Windows',
         target: 'windows',
@@ -850,8 +843,8 @@ describe('platform staging service', () => {
       minimumPlatformVersion: 'macOS 13',
       graphicsBackends: ['metal'],
       shaderVariants: ['glsl-120'],
-      runtimePackageApi: { minimum: 2, maximum: 2 },
-      playerConfigApi: { minimum: 2, maximum: 2 },
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       compiledFeatures: [],
       capabilities: ['network.client', 'microphone'],
       buildFlavor: 'release',
@@ -886,7 +879,6 @@ describe('platform staging service', () => {
       path.join(templateRoot, '.noveltea-template.json'),
       JSON.stringify({
         format: 'noveltea.template-registry',
-        formatVersion: 1,
         templateId: 'macos-arm64',
         buildId: 'build-1',
         descriptorSha256: sha(descriptorData),
@@ -904,7 +896,6 @@ describe('platform staging service', () => {
       outputDirectory: path.join(root, 'Tea Game.app'),
       profile: {
         format: PLATFORM_EXPORT_PROFILE_FORMAT,
-        formatVersion: 1,
         id: 'macos',
         label: 'macOS',
         target: 'macos',
@@ -1006,8 +997,8 @@ describe('platform staging service', () => {
       minimumPlatformVersion: 'macOS 13',
       graphicsBackends: ['metal'],
       shaderVariants: ['glsl-120'],
-      runtimePackageApi: { minimum: 2, maximum: 2 },
-      playerConfigApi: { minimum: 2, maximum: 2 },
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
       compiledFeatures: [],
       capabilities: [],
       buildFlavor: 'release',
@@ -1047,7 +1038,6 @@ describe('platform staging service', () => {
       path.join(templateRoot, '.noveltea-template.json'),
       JSON.stringify({
         format: 'noveltea.template-registry',
-        formatVersion: 1,
         templateId: 'macos-arm64',
         buildId: 'build-rollback',
         descriptorSha256: sha(descriptorData),
@@ -1070,7 +1060,6 @@ describe('platform staging service', () => {
       outputDirectory,
       profile: {
         format: PLATFORM_EXPORT_PROFILE_FORMAT,
-        formatVersion: 1,
         id: 'macos',
         label: 'macOS',
         target: 'macos',
@@ -1126,7 +1115,6 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
         operationId: 'windows-native-smoke',
         profile: {
           format: PLATFORM_EXPORT_PROFILE_FORMAT,
-          formatVersion: 1,
           id: 'windows-native-smoke',
           label: 'Windows native smoke',
           target: 'windows',
@@ -1169,7 +1157,7 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
           uiScale: { enabled: true, minimum: 1, maximum: 2 },
           textScale: { enabled: true, minimum: 1, maximum: 2 },
         },
-        runtimePackageApi: 2,
+        playerRuntimeApiVersion: 1,
       });
       expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);
       expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);
@@ -1283,7 +1271,6 @@ describe.runIf(
       operationId: 'linux-native-smoke',
       profile: {
         format: PLATFORM_EXPORT_PROFILE_FORMAT,
-        formatVersion: 1,
         id: 'linux-native-smoke',
         label: 'Linux native smoke',
         target: 'linux',
@@ -1326,7 +1313,7 @@ describe.runIf(
         uiScale: { enabled: true, minimum: 1, maximum: 2 },
         textScale: { enabled: true, minimum: 1, maximum: 2 },
       },
-      runtimePackageApi: 2,
+      playerRuntimeApiVersion: 1,
       linuxAppImageTool,
     });
     expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);
@@ -1448,7 +1435,6 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
         operationId: 'macos-native-smoke',
         profile: {
           format: PLATFORM_EXPORT_PROFILE_FORMAT,
-          formatVersion: 1,
           id: 'macos-native-smoke',
           label: 'macOS native smoke',
           target: 'macos',
@@ -1493,7 +1479,7 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
           textScale: { enabled: true, minimum: 1, maximum: 2 },
         },
         capabilities: ['network.client'],
-        runtimePackageApi: 2,
+        playerRuntimeApiVersion: 1,
         macosDmg: { command: 'hdiutil', args: ['create', '-volname', 'Tea Game', '-srcfolder'] },
       });
       expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);

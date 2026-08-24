@@ -412,7 +412,6 @@ TEST_CASE("loaded checkpoint becomes exact retained baseline and service reset c
     REQUIRE(decoded);
     const std::string exact_bytes = "exact loaded slot bytes";
     const core::SaveCheckpointMetadata metadata{
-        .save_format_version = decoded.value().metadata.format_version,
         .project = decoded.value().metadata.project,
         .project_version = decoded.value().metadata.project_version,
         .save_contract = decoded.value().metadata.save_contract,
@@ -615,7 +614,6 @@ TEST_CASE("loaded checkpoint rejects metadata that describes different save cont
     auto decoded = core::make_save_state(project, state);
     REQUIRE(decoded);
     core::SaveCheckpointMetadata mismatched{
-        .save_format_version = decoded.value().metadata.format_version,
         .project = decoded.value().metadata.project,
         .project_version = decoded.value().metadata.project_version,
         .save_contract = decoded.value().metadata.save_contract,
