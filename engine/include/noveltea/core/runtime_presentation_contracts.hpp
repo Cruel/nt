@@ -25,6 +25,12 @@ struct PresentationBackground {
     bool operator==(const PresentationBackground&) const = default;
 };
 
+struct PresentationCamera {
+    compiled::WorldPresentationSpace space;
+    compiled::CameraView view;
+    bool operator==(const PresentationCamera&) const = default;
+};
+
 struct PresentationActor {
     ActorPresentationKey key;
     CharacterId character;
@@ -169,6 +175,7 @@ struct RuntimePresentationSnapshot {
     PresentationRuntimeMode mode = PresentationRuntimeMode::Flow;
     std::optional<RoomId> current_room;
     std::optional<PresentationBackground> background;
+    std::optional<PresentationCamera> camera;
     std::vector<PresentationActor> actors;
     std::vector<PresentationInteractable> interactables;
     std::vector<PresentationProp> props;

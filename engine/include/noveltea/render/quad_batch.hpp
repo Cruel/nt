@@ -39,6 +39,8 @@ struct QuadCommand {
     bool hotspot_hovered = false;
     bool hotspot_pressed = false;
     float depth = 0.0f;
+    float rotation_degrees = 0.0f;
+    Vec2 rotation_origin{};
     GameLayer layer = GameLayer::Main;
 };
 

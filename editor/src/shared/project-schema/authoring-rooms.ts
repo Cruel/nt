@@ -54,6 +54,39 @@ export const roomNormalizedRectSchema = strict({
   width: z.number().finite().positive().max(1),
   height: z.number().finite().positive().max(1),
 });
+export const roomWorldPointSchema = strict({
+  x: z.number().finite(),
+  y: z.number().finite(),
+});
+export const roomWorldRectSchema = strict({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().positive(),
+  height: z.number().finite().positive(),
+});
+export const roomCameraViewSchema = strict({
+  center: roomWorldPointSchema,
+  zoom: z.number().finite().positive(),
+  rotationDegrees: z.number().finite(),
+});
+export const roomNamedCameraViewSchema = strict({
+  id: entityIdSchema,
+  view: roomCameraViewSchema,
+});
+export const roomPresentationSpaceSchema = strict({
+  size: strict({
+    width: z.number().finite().positive(),
+    height: z.number().finite().positive(),
+  }),
+  bounds: roomWorldRectSchema.nullable(),
+  edgePolicy: z.enum(['contain', 'overscan']),
+  defaultView: roomCameraViewSchema,
+  views: z.array(roomNamedCameraViewSchema),
+});
+export const roomAnchorDataSchema = strict({
+  id: entityIdSchema,
+  bounds: roomNormalizedRectSchema,
+});
 
 export const roomBackgroundDataSchema = strict({
   asset: roomAssetRefSchema.nullable(),
@@ -164,6 +197,8 @@ export const roomDataSchema = strict({
   displayName: z.string(),
   background: roomBackgroundDataSchema,
   description: textContentSchema,
+  presentationSpace: roomPresentationSpaceSchema,
+  anchors: z.array(roomAnchorDataSchema),
   overlays: z.array(roomOverlayDataSchema),
   cast: z.array(roomCastDataSchema),
   props: z.array(roomPropDataSchema),
@@ -183,6 +218,9 @@ export type RoomLayoutRef = z.infer<typeof roomLayoutRefSchema>;
 export type RoomCharacterRef = z.infer<typeof roomCharacterRefSchema>;
 export type RoomRoomRef = z.infer<typeof roomRoomRefSchema>;
 export type RoomNormalizedRect = z.infer<typeof roomNormalizedRectSchema>;
+export type RoomCameraView = z.infer<typeof roomCameraViewSchema>;
+export type RoomPresentationSpace = z.infer<typeof roomPresentationSpaceSchema>;
+export type RoomAnchorData = z.infer<typeof roomAnchorDataSchema>;
 export type RoomOverlayData = z.infer<typeof roomOverlayDataSchema>;
 export type RoomPlacementData = z.infer<typeof roomPlacementDataSchema>;
 export type RoomCastData = z.infer<typeof roomCastDataSchema>;
@@ -225,6 +263,14 @@ export function defaultRoomData(label = 'Room'): RoomData {
     displayName: label,
     background: { asset: null, material: null, fit: 'cover', color: null },
     description: inlineTextContent(),
+    presentationSpace: {
+      size: { width: 1920, height: 1080 },
+      bounds: null,
+      edgePolicy: 'contain',
+      defaultView: { center: { x: 960, y: 540 }, zoom: 1, rotationDegrees: 0 },
+      views: [],
+    },
+    anchors: [],
     overlays: [],
     placements: [],
     cast: [],
@@ -359,6 +405,13 @@ export function validateRoomData(
         `Missing material '${data.background.material.$ref.id}'.`,
       ),
     );
+  uniqueIds(
+    data.presentationSpace.views,
+    `${base}/presentationSpace/views`,
+    'Camera View',
+    diagnostics,
+  );
+  uniqueIds(data.anchors, `${base}/anchors`, 'Anchor', diagnostics);
   uniqueIds(data.overlays, `${base}/overlays`, 'overlay', diagnostics);
   uniqueIds(data.exits, `${base}/exits`, 'exit', diagnostics);
   const exitDirections = new Set<RoomExitData['direction']>();
@@ -379,6 +432,39 @@ export function validateRoomData(
   uniqueIds(data.environments, `${base}/environments`, 'environment', diagnostics);
   uniqueIds(data.features, `${base}/features`, 'Feature', diagnostics);
   uniqueIds(data.hotspots, `${base}/hotspots`, 'hotspot', diagnostics);
+  const presentationBounds = data.presentationSpace.bounds ?? {
+    x: 0,
+    y: 0,
+    width: data.presentationSpace.size.width,
+    height: data.presentationSpace.size.height,
+  };
+  if (
+    presentationBounds.x < 0 ||
+    presentationBounds.y < 0 ||
+    presentationBounds.x + presentationBounds.width > data.presentationSpace.size.width ||
+    presentationBounds.y + presentationBounds.height > data.presentationSpace.size.height
+  )
+    diagnostics.push(
+      diagnostic(
+        `${base}/presentationSpace/bounds`,
+        'Presentation bounds must stay inside the World Presentation Space size.',
+      ),
+    );
+  const validateView = (view: RoomCameraView, path: string) => {
+    if (
+      view.center.x < presentationBounds.x ||
+      view.center.y < presentationBounds.y ||
+      view.center.x > presentationBounds.x + presentationBounds.width ||
+      view.center.y > presentationBounds.y + presentationBounds.height
+    )
+      diagnostics.push(
+        diagnostic(`${path}/center`, 'Camera View center must stay inside presentation bounds.'),
+      );
+  };
+  validateView(data.presentationSpace.defaultView, `${base}/presentationSpace/defaultView`);
+  data.presentationSpace.views.forEach((entry, index) =>
+    validateView(entry.view, `${base}/presentationSpace/views/${index}/view`),
+  );
   const placements = new Set(data.placements.map((placement) => placement.id));
   data.overlays.forEach((overlay, index) => {
     const layout = project.layouts[overlay.layout.$ref.id];

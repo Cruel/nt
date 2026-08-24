@@ -194,7 +194,9 @@ using RuntimeInputMessage = std::variant<
 
 using PresentationOperation =
     std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
-                 BackgroundPresentationOperation, ActorPresentationOperation,
+                 BackgroundPresentationOperation, CameraPanOperation, CameraZoomOperation,
+                 CameraRotationOperation, CameraFocusOperation, CameraShakeOperation,
+                 CameraPunchOperation, CameraFlashOperation, ActorPresentationOperation,
                  LayoutFinitePresentationOperation>;
 
 struct NewAudioPlaybackTarget {

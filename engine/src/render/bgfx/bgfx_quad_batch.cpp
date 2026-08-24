@@ -72,6 +72,18 @@ bool set_quad_buffers(const QuadCommand& command)
         {x + w, y + h, u1, v1, color.r, color.g, color.b, color.a},
         {x, y + h, u0, v1, color.r, color.g, color.b, color.a},
     };
+    if (command.rotation_degrees != 0.0f) {
+        constexpr float degrees_to_radians = 0.017453292519943295769f;
+        const float radians = command.rotation_degrees * degrees_to_radians;
+        const float sine = std::sin(radians);
+        const float cosine = std::cos(radians);
+        for (auto& vertex : vertices) {
+            const float local_x = vertex.x - command.rotation_origin.x;
+            const float local_y = vertex.y - command.rotation_origin.y;
+            vertex.x = command.rotation_origin.x + local_x * cosine - local_y * sine;
+            vertex.y = command.rotation_origin.y + local_x * sine + local_y * cosine;
+        }
+    }
 
     bgfx::VertexLayout layout;
     layout.begin()

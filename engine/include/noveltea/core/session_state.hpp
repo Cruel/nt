@@ -119,6 +119,7 @@ protected:
     PresentationSessionId m_presentation_session;
     ShellPresentationScopeId m_shell_presentation_scope;
     std::vector<DesiredBackgroundOverride> m_background_overrides;
+    std::vector<DesiredCameraView> m_camera_views;
     std::vector<DesiredActorPresentation> m_actors;
     std::vector<DesiredPresentationProp> m_presentation_props;
     std::vector<DesiredPresentationEnvironment> m_presentation_environments;
@@ -232,6 +233,15 @@ public:
     upsert_background_override(const CompiledProject& project, DesiredBackgroundOverride value);
     [[nodiscard]] Result<void, Diagnostics>
     remove_background_override(const PresentationOwner& owner);
+    [[nodiscard]] const std::vector<DesiredCameraView>& camera_views() const noexcept
+    {
+        return m_camera_views;
+    }
+    [[nodiscard]] const DesiredCameraView*
+    camera_view(const PresentationOwner& owner) const noexcept;
+    [[nodiscard]] Result<void, Diagnostics> set_camera_view(const CompiledProject& project,
+                                                            DesiredCameraView value);
+    [[nodiscard]] Result<void, Diagnostics> remove_camera_view(const PresentationOwner& owner);
     [[nodiscard]] Result<void, Diagnostics>
     set_background(const CompiledProject& project, PresentationOwner owner,
                    compiled::BackgroundPresentation background);

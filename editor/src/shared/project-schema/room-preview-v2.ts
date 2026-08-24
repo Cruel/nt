@@ -178,7 +178,26 @@ const focusedCharacterVisualSchema = strict({
     .nullable(),
 });
 
+const focusedCameraViewSchema = strict({
+  center: vector2,
+  zoom: z.number().finite().positive(),
+  rotationDegrees: z.number().finite(),
+});
+const focusedWorldRectSchema = strict({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().positive(),
+  height: z.number().finite().positive(),
+});
+
 export const focusedRoomWorldDefinitionSchema = strict({
+  presentationSpace: strict({
+    size: strict({ width: z.number().finite().positive(), height: z.number().finite().positive() }),
+    bounds: focusedWorldRectSchema.nullable(),
+    edgePolicy: z.enum(['contain', 'overscan']),
+    view: focusedCameraViewSchema,
+  }),
+  anchors: z.array(strict({ id: z.string().min(1), bounds: normalizedRect })),
   background: strict({
     assetId: z.string().min(1).nullable(),
     materialId: z.string().min(1).nullable(),

@@ -153,6 +153,10 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #74 adds direct Room Hook Registry mappings at the preserved authoring schema version.
   // Hook kind, stable module reference, and named export all contribute runtime dependencies.
   [/^\/rooms\/\*\/data\/scriptHooks\//, OWNER],
+  // #88 adds logical world framing without changing the preserved authoring schema version.
+  // Presentation-space, Camera View, and Anchor leaves all affect the owning Room's compiled
+  // presentation contribution and focused-preview invalidation.
+  [/^\/rooms\/\*\/data\/(?:presentationSpace|anchors)\//, OWNER],
   // #80/#81 add the reusable Layout Mount contract at the preserved authoring schema version.
   // Inputs, signals, and recursive State Shapes change the Layout runtime/save contribution and preview.
   [/^\/layouts\/\*\/data\/contract\//, OWNER],
@@ -551,7 +555,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '546711ca',
     project: 'da3be83d',
     properties: 'c35941e2',
-    rooms: 'b303f7f6',
+    rooms: '78de04a2',
     scenes: '911d4458',
     schema: '63fb9bb9',
     schemaVersion: '4b5325a3',

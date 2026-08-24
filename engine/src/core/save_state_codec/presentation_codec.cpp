@@ -833,6 +833,15 @@ nlohmann::json encode_presentation_records(const SaveState& save)
         backgrounds.push_back({{"owner", encode_presentation_owner(value.owner)},
                                {"background", encode_background(value.background)}});
 
+    nlohmann::json camera_views = nlohmann::json::array();
+    for (const auto& value : save.camera_views)
+        camera_views.push_back(
+            {{"owner", encode_presentation_owner(value.owner)},
+             {"view",
+              {{"center", {{"x", value.view.center.x}, {"y", value.view.center.y}}},
+               {"zoom", value.view.zoom},
+               {"rotationDegrees", value.view.rotation_degrees}}}});
+
     nlohmann::json actors = nlohmann::json::array();
     for (const auto& value : save.actors)
         actors.push_back({{"key", encode_actor_key(value.key)},
@@ -914,6 +923,7 @@ nlohmann::json encode_presentation_records(const SaveState& save)
                                  {"replacementKey", encode_optional_id(value.replacement_key)}});
 
     return {{"backgroundOverrides", std::move(backgrounds)},
+            {"cameraViews", std::move(camera_views)},
             {"actors", std::move(actors)},
             {"props", std::move(props)},
             {"environments", std::move(environments)},
@@ -928,10 +938,12 @@ std::optional<SavedPresentationRecords>
 decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string_view pointer)
 {
     if (!d.object(value, pointer,
-                  {"backgroundOverrides", "actors", "props", "environments", "mountedLayouts",
-                   "layoutStateSlots", "desiredAudio", "presentedText", "activeChoice"}))
+                  {"backgroundOverrides", "cameraViews", "actors", "props", "environments",
+                   "mountedLayouts", "layoutStateSlots", "desiredAudio", "presentedText",
+                   "activeChoice"}))
         return std::nullopt;
     const auto* backgrounds_value = d.member(value, "backgroundOverrides", pointer);
+    const auto* camera_views_value = d.member(value, "cameraViews", pointer);
     const auto* actors_value = d.member(value, "actors", pointer);
     const auto* props_value = d.member(value, "props", pointer);
     const auto* environments_value = d.member(value, "environments", pointer);
@@ -962,6 +974,58 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                  ? std::optional<SavedBackgroundOverride>{{std::move(*owner),
                                                                            std::move(*background)}}
                                  : std::nullopt;
+                  })
+            : std::nullopt;
+
+    auto camera_views =
+        camera_views_value
+            ? decode_required_array<SavedCameraView>(
+                  d, *camera_views_value, child(pointer, "cameraViews"),
+                  [&d](const nlohmann::json& entry,
+                       const std::string& entry_pointer) -> std::optional<SavedCameraView> {
+                      if (!d.object(entry, entry_pointer, {"owner", "view"}))
+                          return std::nullopt;
+                      const auto* owner_value = d.member(entry, "owner", entry_pointer);
+                      const auto* view_value = d.member(entry, "view", entry_pointer);
+                      auto owner = owner_value ? decode_presentation_owner(
+                                                     d, *owner_value, child(entry_pointer, "owner"))
+                                               : std::nullopt;
+                      std::optional<compiled::CameraView> view;
+                      if (view_value && d.object(*view_value, child(entry_pointer, "view"),
+                                                 {"center", "rotationDegrees", "zoom"})) {
+                          const auto view_pointer = child(entry_pointer, "view");
+                          const auto* center_value = d.member(*view_value, "center", view_pointer);
+                          const auto* zoom_value = d.member(*view_value, "zoom", view_pointer);
+                          const auto* rotation_value =
+                              d.member(*view_value, "rotationDegrees", view_pointer);
+                          std::optional<compiled::Vector2> center;
+                          if (center_value &&
+                              d.object(*center_value, child(view_pointer, "center"), {"x", "y"})) {
+                              const auto center_pointer = child(view_pointer, "center");
+                              const auto* x_value = d.member(*center_value, "x", center_pointer);
+                              const auto* y_value = d.member(*center_value, "y", center_pointer);
+                              auto x = x_value
+                                           ? decode_number(d, *x_value, child(center_pointer, "x"))
+                                           : std::nullopt;
+                              auto y = y_value
+                                           ? decode_number(d, *y_value, child(center_pointer, "y"))
+                                           : std::nullopt;
+                              if (x && y)
+                                  center = compiled::Vector2{*x, *y};
+                          }
+                          auto zoom = zoom_value ? decode_number(d, *zoom_value,
+                                                                 child(view_pointer, "zoom"))
+                                                 : std::nullopt;
+                          auto rotation =
+                              rotation_value ? decode_number(d, *rotation_value,
+                                                             child(view_pointer, "rotationDegrees"))
+                                             : std::nullopt;
+                          if (center && zoom && *zoom > 0.0 && rotation)
+                              view = compiled::CameraView{std::move(*center), *zoom, *rotation};
+                      }
+                      return owner && view ? std::optional<SavedCameraView>{{std::move(*owner),
+                                                                             std::move(*view)}}
+                                           : std::nullopt;
                   })
             : std::nullopt;
 
@@ -1373,13 +1437,18 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                              ? decode_choice(d, *choice_value, child(pointer, "activeChoice"))
                              : std::nullopt;
 
-    if (!backgrounds || !actors || !props || !environments || !layouts || !layout_state_slots ||
-        !desired_audio || !presented_text || !active_choice)
+    if (!backgrounds || !camera_views || !actors || !props || !environments || !layouts ||
+        !layout_state_slots || !desired_audio || !presented_text || !active_choice)
         return std::nullopt;
-    return SavedPresentationRecords{std::move(*backgrounds),   std::move(*actors),
-                                    std::move(*props),         std::move(*environments),
-                                    std::move(*layouts),       std::move(*layout_state_slots),
-                                    std::move(*desired_audio), std::move(*presented_text),
+    return SavedPresentationRecords{std::move(*backgrounds),
+                                    std::move(*camera_views),
+                                    std::move(*actors),
+                                    std::move(*props),
+                                    std::move(*environments),
+                                    std::move(*layouts),
+                                    std::move(*layout_state_slots),
+                                    std::move(*desired_audio),
+                                    std::move(*presented_text),
                                     std::move(*active_choice)};
 }
 

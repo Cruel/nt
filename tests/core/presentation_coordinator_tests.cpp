@@ -382,6 +382,83 @@ TEST_CASE("finite presentation requests preserve typed targets and revision meta
     CHECK_FALSE(coordinator.has_active_visual_operation());
 }
 
+TEST_CASE("camera finite operations are typed disposable operations with shared replacement target")
+{
+    PresentationCoordinator coordinator;
+    const compiled::CameraView source{{960.0, 540.0}, 1.0, 0.0};
+    const compiled::CameraView panned{{720.0, 540.0}, 1.0, 0.0};
+    auto pan_common = finite_common(10);
+    pan_common.easing = PresentationEasing::EaseOut;
+    auto pan = coordinator.accept(PresentationOperation{CameraPanOperation{
+        .common = pan_common,
+        .target = {},
+        .source_view = source,
+        .target_view = panned,
+    }});
+    REQUIRE(pan);
+    CHECK(pan.value().metadata.checkpoint_class == CheckpointClass::Disposable);
+    CHECK(std::holds_alternative<CameraOperationTarget>(
+        operation_target(FinitePresentationOperation{CameraPanOperation{
+            .common = pan_common,
+            .target = {},
+            .source_view = source,
+            .target_view = panned,
+        }})));
+
+    auto zoom = coordinator.accept(PresentationOperation{CameraZoomOperation{
+        .common = finite_common(11, 2, 3),
+        .target = {},
+        .source_view = panned,
+        .target_view = {{720.0, 540.0}, 1.5, 0.0},
+    }});
+    REQUIRE(zoom);
+    const auto* replacement =
+        std::get_if<PresentationOperationReplaced>(&coordinator.lifecycles()[0].state);
+    REQUIRE(replacement != nullptr);
+    CHECK(replacement->replacement == zoom.value().metadata.operation);
+
+    auto focus = coordinator.accept(PresentationOperation{CameraFocusOperation{
+        .common = finite_common(12, 3, 4),
+        .target = {},
+        .capture = {RoomAnchorFocusSource{id<RoomId>("room"), id<RoomAnchorId>("desk")},
+                    {200.0, 300.0, 400.0, 250.0}},
+        .return_view = {{720.0, 540.0}, 1.5, 0.0},
+    }});
+    REQUIRE(focus);
+    CHECK(focus.value().metadata.checkpoint_class == CheckpointClass::Disposable);
+    CHECK(operation_skippable(FinitePresentationOperation{CameraFocusOperation{
+        .common = finite_common(13, 4, 5),
+        .target = {},
+        .capture = {RoomAnchorFocusSource{id<RoomId>("room"), id<RoomAnchorId>("desk")},
+                    {200.0, 300.0, 400.0, 250.0}},
+        .return_view = {{720.0, 540.0}, 1.5, 0.0},
+    }}));
+}
+
+TEST_CASE("camera finite operations validate axis-specific and captured-focus semantics")
+{
+    PresentationCoordinator coordinator;
+    const compiled::CameraView source{{960.0, 540.0}, 1.0, 0.0};
+    auto invalid_pan = coordinator.accept(PresentationOperation{CameraPanOperation{
+        .common = finite_common(20),
+        .target = {},
+        .source_view = source,
+        .target_view = {{720.0, 540.0}, 2.0, 0.0},
+    }});
+    REQUIRE_FALSE(invalid_pan);
+    CHECK(invalid_pan.error().front().code == "presentation.invalid_camera_operation");
+
+    auto invalid_focus = coordinator.accept(PresentationOperation{CameraFocusOperation{
+        .common = finite_common(21),
+        .target = {},
+        .capture = {RoomAnchorFocusSource{id<RoomId>("room"), id<RoomAnchorId>("desk")},
+                    {200.0, 300.0, 0.0, 250.0}},
+        .return_view = source,
+    }});
+    REQUIRE_FALSE(invalid_focus);
+    CHECK(invalid_focus.error().front().code == "presentation.invalid_camera_operation");
+}
+
 TEST_CASE("coordinator reports reconstructible desired activity independently of operations")
 {
     PresentationCoordinator coordinator;
@@ -530,11 +607,15 @@ TEST_CASE("TransitionGroup target construction is atomic and rejects excluded pl
     auto valid_layout = invalid_layout;
     valid_layout.policy.plane = PresentationPlane::WorldOverlay;
     valid_layout.composition_group = PresentationCompositionGroup::World;
+    const DesiredCameraView camera{owner, {{640.0, 360.0}, 1.5, 12.0}};
     auto built =
         build_transition_group_target(source, {TransitionGroupRemoveActorTarget{actor_key, owner},
+                                               TransitionGroupUpsertCameraTarget{camera},
                                                TransitionGroupUpsertLayoutTarget{valid_layout}});
     REQUIRE(built);
     CHECK(built.value().actors.empty());
+    REQUIRE(built.value().camera_views.size() == 1);
+    CHECK(built.value().camera_views.front() == camera);
     REQUIRE(built.value().layouts.size() == 1);
     REQUIRE(source.actors.size() == 1);
     CHECK(source.layouts.empty());

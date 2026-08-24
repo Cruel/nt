@@ -104,6 +104,14 @@ describe('asset operations', () => {
           color: null,
         },
         description: { source: { kind: 'inline', text: '' }, markup: 'plain' },
+        presentationSpace: {
+          size: { width: 1920, height: 1080 },
+          bounds: null,
+          edgePolicy: 'contain',
+          defaultView: { center: { x: 960, y: 540 }, zoom: 1, rotationDegrees: 0 },
+          views: [],
+        },
+        anchors: [],
         lifecycle: {
           canEnter: { kind: 'always' },
           canLeave: { kind: 'always' },

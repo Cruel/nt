@@ -408,6 +408,12 @@ bool valid_background(const CompiledProject& project,
            (!background.asset || project.find_asset(*background.asset) != nullptr);
 }
 
+bool valid_camera_view(const compiled::CameraView& view) noexcept
+{
+    return std::isfinite(view.center.x) && std::isfinite(view.center.y) &&
+           std::isfinite(view.zoom) && view.zoom > 0.0 && std::isfinite(view.rotation_degrees);
+}
+
 bool valid_plane(PresentationPlane plane) noexcept { return plane <= PresentationPlane::Debug; }
 
 bool valid_layout_policy(const MountedLayoutPolicy& policy) noexcept
@@ -984,6 +990,7 @@ void SessionState::remove_presentation_owned_by(const PresentationOwner& owner) 
 {
     std::erase_if(m_background_overrides,
                   [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_camera_views, [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_actors, [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_presentation_props,
                   [&owner](const auto& value) { return value.owner == owner; });
@@ -1047,6 +1054,41 @@ Result<void, Diagnostics> SessionState::remove_background_override(const Present
         [&owner](const DesiredBackgroundOverride& value) { return value.owner == owner; });
     if (found != m_background_overrides.end())
         m_background_overrides.erase(found);
+    return Result<void, Diagnostics>::success();
+}
+
+const DesiredCameraView* SessionState::camera_view(const PresentationOwner& owner) const noexcept
+{
+    const auto found =
+        std::find_if(m_camera_views.begin(), m_camera_views.end(),
+                     [&owner](const DesiredCameraView& value) { return value.owner == owner; });
+    return found == m_camera_views.end() ? nullptr : &*found;
+}
+
+Result<void, Diagnostics> SessionState::set_camera_view(const CompiledProject& project,
+                                                        DesiredCameraView value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    if (!owner || !valid_camera_view(value.view))
+        return Result<void, Diagnostics>::failure(
+            !owner ? owner.error()
+                   : feature_error("runtime.invalid_camera_view",
+                                   "Camera View must use finite coordinates, positive zoom, and "
+                                   "finite rotation"));
+    const auto found = std::find_if(
+        m_camera_views.begin(), m_camera_views.end(),
+        [&value](const DesiredCameraView& current) { return current.owner == value.owner; });
+    if (found == m_camera_views.end())
+        m_camera_views.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::remove_camera_view(const PresentationOwner& owner)
+{
+    std::erase_if(m_camera_views,
+                  [&owner](const DesiredCameraView& value) { return value.owner == owner; });
     return Result<void, Diagnostics>::success();
 }
 
@@ -1537,8 +1579,8 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.history_overflow", "Room visit counter cannot be incremented"));
     if (m_room_entry_sequence == std::numeric_limits<std::uint64_t>::max())
-        return Result<void, Diagnostics>::failure(feature_error(
-            "runtime.history_overflow", "Room entry sequence cannot be incremented"));
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.history_overflow", "Room entry sequence cannot be incremented"));
 
     SessionState candidate = *this;
     for (const auto& overlay : definition->overlays) {
@@ -1617,9 +1659,9 @@ SessionState::commit_room_navigation(const CompiledProject& project,
         target_visit.visit_index != expected_visit + 1 ||
         m_room_entry_sequence == std::numeric_limits<std::uint64_t>::max() ||
         target_visit.entry_sequence != m_room_entry_sequence + 1)
-        return Result<void, Diagnostics>::failure(feature_error(
-            "runtime.invalid_room_visit_context",
-            "Prepared Room navigation context does not follow committed history"));
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.invalid_room_visit_context",
+                          "Prepared Room navigation context does not follow committed history"));
 
     if (target_visit.entry_exit) {
         const auto* source = runtime_room(*this, target_visit.entry_exit->room);
@@ -2163,6 +2205,7 @@ SessionState::apply_presentation_target(const CompiledProject& project,
 {
     SessionState candidate = *this;
     candidate.m_background_overrides.clear();
+    candidate.m_camera_views.clear();
     candidate.m_actors.clear();
     candidate.m_mounted_layouts.erase(
         std::remove_if(candidate.m_mounted_layouts.begin(), candidate.m_mounted_layouts.end(),
@@ -2180,6 +2223,11 @@ SessionState::apply_presentation_target(const CompiledProject& project,
         if (!applied)
             return applied;
     }
+    for (const auto& camera : target.camera_views) {
+        auto applied = candidate.set_camera_view(project, camera);
+        if (!applied)
+            return applied;
+    }
     for (const auto& actor : target.actors) {
         auto applied = candidate.set_actor(project, actor);
         if (!applied)
@@ -2192,6 +2240,7 @@ SessionState::apply_presentation_target(const CompiledProject& project,
     }
 
     m_background_overrides = std::move(candidate.m_background_overrides);
+    m_camera_views = std::move(candidate.m_camera_views);
     m_actors = std::move(candidate.m_actors);
     m_mounted_layouts = std::move(candidate.m_mounted_layouts);
     m_next_layout_mount_occurrence = candidate.m_next_layout_mount_occurrence;

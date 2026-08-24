@@ -5,18 +5,33 @@ import { assetDataFromImportMetadata } from '../../shared/project-schema/authori
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
   defaultRoomData,
+  parseRoomData,
   roomAssetRef,
   roomRoomRef,
   validateRoomData,
 } from '../../shared/project-schema/authoring-rooms';
 
 describe('authoring rooms schema', () => {
+  it('rejects the retired same-version Room shape without camera fields', () => {
+    const current = defaultRoomData('Foyer');
+    const { presentationSpace: _presentationSpace, anchors: _anchors, ...retired } = current;
+    expect(parseRoomData(retired)).toBeNull();
+  });
+
   it('provides typed room defaults', () => {
     expect(defaultRoomData('Foyer')).toMatchObject({
       kind: 'room',
       displayName: 'Foyer',
       background: { asset: null, material: null, fit: 'cover' },
       description: { markup: 'active-text', source: { kind: 'inline', text: '' } },
+      presentationSpace: {
+        size: { width: 1920, height: 1080 },
+        bounds: null,
+        edgePolicy: 'contain',
+        defaultView: { center: { x: 960, y: 540 }, zoom: 1, rotationDegrees: 0 },
+        views: [],
+      },
+      anchors: [],
       lifecycle: {
         canEnter: { kind: 'always' },
         canLeave: { kind: 'always' },
@@ -113,6 +128,46 @@ describe('authoring rooms schema', () => {
           category: 'Rooms',
           path: '/rooms/foyer/data/description',
           severity: 'warning',
+        }),
+      ]),
+    );
+  });
+
+  it('validates Camera Views, presentation bounds, and Anchor identities', () => {
+    const project = createAuthoringProject();
+    const data = defaultRoomData('Foyer');
+    data.presentationSpace.bounds = { x: 100, y: 100, width: 1000, height: 700 };
+    data.presentationSpace.defaultView.center = { x: 50, y: 50 };
+    data.presentationSpace.views = [
+      {
+        id: 'close-up',
+        view: { center: { x: 400, y: 300 }, zoom: 2, rotationDegrees: 0 },
+      },
+      {
+        id: 'close-up',
+        view: { center: { x: 1200, y: 300 }, zoom: 1, rotationDegrees: 0 },
+      },
+    ];
+    data.anchors = [
+      { id: 'desk', bounds: { x: 0.2, y: 0.4, width: 0.2, height: 0.2 } },
+      { id: 'desk', bounds: { x: 0.5, y: 0.4, width: 0.2, height: 0.2 } },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
+
+    expect(validateRoomData(project, 'foyer', project.rooms.foyer)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/rooms/foyer/data/presentationSpace/views/1/id',
+          severity: 'error',
+        }),
+        expect.objectContaining({ path: '/rooms/foyer/data/anchors/1/id', severity: 'error' }),
+        expect.objectContaining({
+          path: '/rooms/foyer/data/presentationSpace/defaultView/center',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/rooms/foyer/data/presentationSpace/views/1/view/center',
+          severity: 'error',
         }),
       ]),
     );

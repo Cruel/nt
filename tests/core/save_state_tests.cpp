@@ -171,6 +171,40 @@ TEST_CASE("save state preserves deterministic random position and excludes gamep
     CHECK_FALSE(decode_save_state_wire(missing_random, "missing-random-state.json"));
 }
 
+TEST_CASE("SaveState persists desired Camera View but no finite interpolation progress")
+{
+    const auto project = load_fixture("trait-properties-localization.json");
+    auto state = make_state(project);
+    const auto owner = state.session_presentation_owner();
+    const DesiredCameraView desired{owner, {{720.0, 420.0}, 1.75, 8.0}};
+    REQUIRE(state.set_camera_view(project, desired));
+
+    auto snapshot = make_save_state(project, state);
+    REQUIRE(snapshot);
+    REQUIRE(snapshot.value().camera_views.size() == 1);
+    CHECK(snapshot.value().camera_views.front().view == desired.view);
+
+    auto encoded = encode_save_state(project, snapshot.value());
+    REQUIRE(encoded);
+    REQUIRE(encoded.value()["presentation"]["cameraViews"].size() == 1);
+    CHECK(encoded.value()["presentation"].find("cameraInterpolation") ==
+          encoded.value()["presentation"].end());
+
+    auto retired_shape = encoded.value();
+    retired_shape["presentation"].erase("cameraViews");
+    CHECK_FALSE(decode_save_state_wire(retired_shape, "camera-view-retired-shape.json"));
+
+    auto decoded = decode_save_state(project, encoded.value(), "camera-view-save.json");
+    REQUIRE(decoded);
+    REQUIRE(decoded.value().camera_views.size() == 1);
+    CHECK(decoded.value().camera_views.front().view == desired.view);
+
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    REQUIRE(restored.value().camera_views().size() == 1);
+    CHECK(restored.value().camera_views().front().view == desired.view);
+}
+
 TEST_CASE("native SaveState projects all typed Property overrides")
 {
     STATIC_REQUIRE(std::variant_size_v<SavedFlowFrame> == 4);

@@ -67,8 +67,8 @@ TEST_CASE("presentation and checkpoint identities are strong domain types")
 TEST_CASE("closed presentation contract vocabularies have their frozen alternatives")
 {
     STATIC_REQUIRE(std::variant_size_v<PresentationOperationRef> == 2);
-    STATIC_REQUIRE(std::variant_size_v<PresentationOperation> == 5);
-    STATIC_REQUIRE(std::variant_size_v<CoordinatedPresentationOperation> == 7);
+    STATIC_REQUIRE(std::variant_size_v<PresentationOperation> == 12);
+    STATIC_REQUIRE(std::variant_size_v<CoordinatedPresentationOperation> == 14);
     STATIC_REQUIRE(std::variant_size_v<PresentationCompletionTarget> == 4);
     STATIC_REQUIRE(std::variant_size_v<PresentationOperationState> == 6);
     STATIC_REQUIRE(std::variant_size_v<CheckpointBarrierSource> == 5);

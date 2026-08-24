@@ -297,7 +297,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         rooms, rooms, RoomDefinition, PropertyOwnerKind::Room, "/definitions/rooms",
         (compiled::RoomDefinition{
             std::move(*identity), std::move(value.display_name), std::move(value.description),
-            std::move(value.background),
+            std::move(value.background), std::move(value.presentation_space),
+            std::move(value.anchors),
             compiled::RoomLifecycle{std::move(value.lifecycle.can_enter),
                                     std::move(value.lifecycle.can_leave)},
             std::move(value.overlays), std::move(value.cast), std::move(value.interactables),
@@ -338,6 +339,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                     std::move(room->display_name),
                     std::move(room->description),
                     std::move(room->background),
+                    std::move(room->presentation_space),
+                    std::move(room->anchors),
                     compiled::RoomLifecycle{std::move(room->lifecycle.can_enter),
                                             std::move(room->lifecycle.can_leave)},
                     std::move(room->overlays),
@@ -384,12 +387,12 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
             archetypes.push_back(compiled::ArchetypeDefinition{
                 std::move(archetype.id), archetype.kind, std::move(*configuration)});
     }
-    LINK_DEFINITIONS(
-        verbs, verbs, VerbDefinition, VerbId,
-        (compiled::VerbDefinition{std::move(identity), std::move(value.action_text),
-                                  std::move(value.completed_command_text), std::move(value.slots),
-                                  std::move(value.binding_order), std::move(value.offers),
-                                  std::move(value.availability), std::move(value.default_program)}));
+    LINK_DEFINITIONS(verbs, verbs, VerbDefinition, VerbId,
+                     (compiled::VerbDefinition{
+                         std::move(identity), std::move(value.action_text),
+                         std::move(value.completed_command_text), std::move(value.slots),
+                         std::move(value.binding_order), std::move(value.offers),
+                         std::move(value.availability), std::move(value.default_program)}));
     LINK_DEFINITIONS(
         interactions, interactions, InteractionDefinition, InteractionId,
         (compiled::InteractionDefinition{std::move(identity), std::move(value.rules)}));

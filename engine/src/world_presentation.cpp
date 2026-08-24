@@ -146,6 +146,67 @@ bool valid_viewport(Size viewport) noexcept
            viewport.width > 0.0f && viewport.height > 0.0f;
 }
 
+core::PresentationCamera resolved_camera(core::PresentationCamera camera) noexcept
+{
+    if (camera.space.edge_policy != core::compiled::WorldPresentationEdgePolicy::Contain)
+        return camera;
+    const auto bounds = camera.space.bounds.value_or(
+        core::compiled::WorldPresentationRect{0.0, 0.0, camera.space.size.x, camera.space.size.y});
+    constexpr double degrees_to_radians = 0.017453292519943295769;
+    const double radians = camera.view.rotation_degrees * degrees_to_radians;
+    const double cosine = std::abs(std::cos(radians));
+    const double sine = std::abs(std::sin(radians));
+    const double half_width =
+        (cosine * camera.space.size.x + sine * camera.space.size.y) / (2.0 * camera.view.zoom);
+    const double half_height =
+        (sine * camera.space.size.x + cosine * camera.space.size.y) / (2.0 * camera.view.zoom);
+    const auto clamp_axis = [](double center, double start, double extent, double half_extent) {
+        if (half_extent * 2.0 >= extent)
+            return start + extent * 0.5;
+        return std::clamp(center, start + half_extent, start + extent - half_extent);
+    };
+    camera.view.center.x = clamp_axis(camera.view.center.x, bounds.x, bounds.width, half_width);
+    camera.view.center.y = clamp_axis(camera.view.center.y, bounds.y, bounds.height, half_height);
+    return camera;
+}
+
+void apply_camera(QuadCommand& command, const core::PresentationCamera& camera,
+                  Size viewport) noexcept
+{
+    const float center_x =
+        static_cast<float>(camera.view.center.x / camera.space.size.x) * viewport.width;
+    const float center_y =
+        static_cast<float>(camera.view.center.y / camera.space.size.y) * viewport.height;
+    const float zoom = static_cast<float>(camera.view.zoom);
+    command.rect.x = (command.rect.x - center_x) * zoom + viewport.width * 0.5f;
+    command.rect.y = (command.rect.y - center_y) * zoom + viewport.height * 0.5f;
+    command.rect.width *= zoom;
+    command.rect.height *= zoom;
+    command.rotation_degrees = static_cast<float>(-camera.view.rotation_degrees);
+    command.rotation_origin = {viewport.width * 0.5f, viewport.height * 0.5f};
+}
+
+Vec2 inverse_camera_point(Vec2 point, const core::PresentationCamera& camera,
+                          Size viewport) noexcept
+{
+    const float origin_x = viewport.width * 0.5f;
+    const float origin_y = viewport.height * 0.5f;
+    constexpr float degrees_to_radians = 0.017453292519943295769f;
+    const float radians = static_cast<float>(camera.view.rotation_degrees) * degrees_to_radians;
+    const float sine = std::sin(radians);
+    const float cosine = std::cos(radians);
+    const float local_x = point.x - origin_x;
+    const float local_y = point.y - origin_y;
+    const float unrotated_x = origin_x + local_x * cosine - local_y * sine;
+    const float unrotated_y = origin_y + local_x * sine + local_y * cosine;
+    const float center_x =
+        static_cast<float>(camera.view.center.x / camera.space.size.x) * viewport.width;
+    const float center_y =
+        static_cast<float>(camera.view.center.y / camera.space.size.y) * viewport.height;
+    const float zoom = static_cast<float>(camera.view.zoom);
+    return {(unrotated_x - origin_x) / zoom + center_x, (unrotated_y - origin_y) / zoom + center_y};
+}
+
 bool valid_draw_plane(core::PresentationPlane plane) noexcept
 {
     return layer_for_plane(plane) != GameLayer::Count;
@@ -469,6 +530,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
 
     WorldPresentationFrame candidate;
     candidate.revision = snapshot.revision;
+    if (snapshot.camera)
+        candidate.camera = resolved_camera(*snapshot.camera);
     core::Diagnostics diagnostics;
     const Rect full_viewport{0.0f, 0.0f, viewport.width, viewport.height};
     const Rect full_uv{0.0f, 0.0f, 1.0f, 1.0f};
@@ -726,6 +789,15 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     if (!diagnostics.empty())
         return core::Result<bool, core::Diagnostics>::failure(std::move(diagnostics));
 
+    if (candidate.camera) {
+        for (auto& draw : candidate.draws)
+            if (draw.plane != core::PresentationPlane::GameUi)
+                apply_camera(draw.command, *candidate.camera, viewport);
+        for (auto& surface : candidate.hotspot_surfaces)
+            if (surface.overlay.plane != core::PresentationPlane::GameUi)
+                apply_camera(surface.overlay.command, *candidate.camera, viewport);
+    }
+
     std::sort(candidate.draws.begin(), candidate.draws.end(), [](const auto& lhs, const auto& rhs) {
         return std::tie(lhs.plane, lhs.family, lhs.order, lhs.stable_identity, lhs.sublayer) <
                std::tie(rhs.plane, rhs.family, rhs.order, rhs.stable_identity, rhs.sublayer);
@@ -791,6 +863,8 @@ std::optional<core::compiled::HotspotRef> WorldHotspotController::hit_test(Vec2 
     const auto* frame = m_backend.frame();
     if (frame == nullptr)
         return std::nullopt;
+    if (frame->camera)
+        point = inverse_camera_point(point, *frame->camera, m_backend.viewport());
     for (const auto& target : frame->hotspot_hit_targets) {
         if (hotspot_target_contains(target, point))
             return target.ref;
@@ -812,8 +886,13 @@ WorldHotspotController::hit_target(const core::compiled::HotspotRef& ref) const
 
 bool WorldHotspotController::contains(const core::compiled::HotspotRef& ref, Vec2 point) const
 {
+    const auto* frame = m_backend.frame();
     const auto* target = hit_target(ref);
-    return target != nullptr && hotspot_target_contains(*target, point);
+    if (frame == nullptr || target == nullptr)
+        return false;
+    if (frame->camera)
+        point = inverse_camera_point(point, *frame->camera, m_backend.viewport());
+    return hotspot_target_contains(*target, point);
 }
 
 void WorldHotspotController::set_visual_state(std::optional<core::compiled::HotspotRef> hovered,
@@ -983,15 +1062,11 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
             command.time_seconds = static_cast<float>(elapsed_seconds);
         }
 
-        frame.base_batch.draw_material_textured_quad(
-            command.rect, command.material, command.texture, command.uv, command.color,
-            command.depth, command.layer, command.time_seconds, command.texture_sampler);
+        frame.base_batch.draw(command);
         QuadBatch& composition_batch = draw.plane == core::PresentationPlane::GameUi
                                            ? frame.base_game_ui_underlay_batch
                                            : frame.base_world_composition_batch;
-        composition_batch.draw_material_textured_quad(
-            command.rect, command.material, command.texture, command.uv, command.color,
-            command.depth, command.layer, command.time_seconds, command.texture_sampler);
+        composition_batch.draw(std::move(command));
     }
     rebuild_hotspot_overlays(frame);
 }

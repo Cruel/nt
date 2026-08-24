@@ -52,7 +52,7 @@ Feature and therefore produce the same runtime subject identity.
 The final animated request contract is `RoomNavigationTransitionOperation`. It is deliberately
 distinct from `SceneTransitionGroupOperation`, but both embed the same
 `FinitePresentationOperationCommon`: operation ID, positive duration, skippability, gameplay clock,
-and exact source/target `PresentationSnapshotRevision` binding. The navigation target carries the
+easing, and exact source/target `PresentationSnapshotRevision` binding. The navigation target carries the
 source Room when present and the target Room, and the request always carries an exact
 `PresentationFlowCompletion`; animated Room navigation is therefore a `CausalBarrier`. `Fade` and
 `Dissolve` are finite kinds, while `Cut` is immediate and allocates no lifecycle.
@@ -64,6 +64,19 @@ cancellation or backend failure after commit preserves the committed target with
 successful completion.
 
 ## Placements and view
+
+Each Room also owns a logical `WorldPresentationSpace`. Its authored size defines camera coordinates,
+its optional world-space bounds constrain framing, and its edge policy is either `contain` or
+`overscan`. `contain` clamps the effective Camera View so rotated/zoomed framing remains inside the
+authored bounds when possible; `overscan` allows the camera to reveal space outside them. The Room
+owns one reconstructible default `CameraView { center, zoom, rotationDegrees }` plus zero or more
+stable named Camera Views. These are presentation data only: changing camera coordinates never changes
+Character or Interactable Location.
+
+A Room may additionally own stable `RoomAnchor` regions. Anchors use normalized Room-space bounds and
+exist only as reusable presentation targets. Captured Focus resolves an occurrence or Anchor once at
+operation acceptance and stores those captured world bounds in the finite operation; it does not track
+the source live while the effect is running.
 
 A `RoomPlacement` is an occupant-free anchor with stable nested identity, normalized bounds,
 presentation metadata, and deterministic order. Character and Interactable initial declarations may
@@ -86,8 +99,12 @@ with explicit presentation owners use the scoped desired-state path and are pers
 
 The current version-4 authoring schema uses strict Room records with typed descriptions,
 conditions/effects, owner-local Features, semantic Hotspot targets, exits and optional transition
-overrides, placements, cast, props, environment loops, overlays, composition hooks, and required
-`scriptHooks` storage for zero or more direct lifecycle handler mappings. Validation
+overrides, World Presentation Space, default/named Camera Views, Anchors, placements, cast, props,
+environment loops, overlays, composition hooks, and required `scriptHooks` storage for zero or more
+direct lifecycle handler mappings. Issue #88 preserves compiled-project v4 while atomically replacing
+its current Room shape: every v4 producer now emits World Presentation Space and Anchor fields, and
+both TypeScript and native v4 consumers require that same shape. The canonical default remains a
+1920×1080 centered View with no Anchors. Validation
 rejects duplicate nested IDs, stale Room/Character/Interactable/Feature/Layout/resource/Script
 references, incompatible Feature Trait/Property assignments, invalid owner-local Feature or Exit
 Hotspot targets, invalid placement ownership, invalid pose/expression/idle combinations, invalid
@@ -96,9 +113,11 @@ transition precedence contract is explicit request, selected exit override, then
 Live realization uses the final revision-bound Room-navigation operation contract described above.
 
 The Room editor uses the shared categorized-editor shell also used by Settings and Project Settings.
-General, Composition, Hotspots, Navigation, Contents, and Behavior categories keep only the selected
-group mounted, retain the selected category as Room tab state, and route workbench targets to their
-owning category before reveal. Composition contains the command-backed Interactable placement editor.
+General, Camera, Composition, Hotspots, Navigation, Contents, and Behavior categories keep only the
+selected group mounted, retain the selected category as Room tab state, and route workbench targets
+to their owning category before reveal. Camera edits the logical presentation-space size, optional
+bounds, Contain/Overscan policy, default/named Views, and Anchors; focused Room preview consumes the
+same values immediately. Composition contains the command-backed Interactable placement editor.
 Hotspots contains both nested Feature authoring and the shared React image stage. Feature editing
 covers stable ID, label, compatible Traits, and compatible Properties. The image stage uses direct
 manipulation: click a Hotspot to select it, drag a rectangular Hotspot or its handles to move/resize
@@ -116,7 +135,8 @@ package. The editor queries the current Room closure, including incoming Charact
 placement relationships, and builds one strict `noveltea.room-preview` document plus an explicit
 hash-verified resource manifest. The document carries deterministic preview query state, resolved
 non-Lua text, deferred condition/text expressions, composition source, exact material metadata,
-mounted Layout definitions, Game HUD state, and the native display environment.
+World Presentation Space, current Camera View, Anchors, mounted Layout definitions, Game HUD state,
+and the native display environment.
 
 The native `FocusedPreviewPresenter` prepares typed asset leases, an isolated Lua environment,
 focused query capabilities, Layout realizations, RuntimeUI values, passive input, and a complete
@@ -145,9 +165,15 @@ exit instead of adding a duplicate.
 - `tests/core/flow_executor_tests.cpp` covers hook ordering, commit behavior, and failed transitions.
 - `tests/script/typed_room_execution_tests.cpp` and
   `tests/script/typed_runtime_session_tests.cpp` cover Room views, navigation, and typed inputs.
-- `tests/core/session_state_tests.cpp` covers Room state, placements, Trait-backed Property resolution, and owner-local overrides.
-- `tests/core/save_state_tests.cpp` covers definition-derived Room-loop reconstruction, scoped
-  environment persistence, stale-owner/missing-resource rejection, and failure-atomic restore.
+- `tests/core/session_state_tests.cpp` covers Room state, placements, Trait-backed Property resolution,
+  and owner-local overrides.
+- `tests/core/save_state_tests.cpp` covers definition-derived Room-loop reconstruction, desired Camera
+  View persistence without interpolation progress, scoped environment persistence,
+  stale-owner/missing-resource rejection, and failure-atomic restore.
+- `tests/core/presentation_coordinator_tests.cpp` covers typed Camera operation validation,
+  replacement, skippability, and checkpoint classification.
+- `tests/render/world_transition_tests.cpp` covers exact-revision Camera View interpolation and
+  temporary Focus/Flash realization over unchanged desired framing.
 - `tests/render/world_presentation_tests.cpp` covers typed environment realization and phase-zero
   backend restart.
 

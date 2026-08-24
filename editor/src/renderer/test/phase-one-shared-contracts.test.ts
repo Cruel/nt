@@ -373,6 +373,13 @@ describe('Phase 1 shared contracts', () => {
       queryState: { variables: [], properties: [], definitions: [], interactableLocations: [] },
       shaderMaterials: { schema: 'noveltea.shader-materials.v2', shaders: {}, materials: {} },
       world: {
+        presentationSpace: {
+          size: { width: 1920, height: 1080 },
+          bounds: null,
+          edgePolicy: 'contain',
+          view: { center: { x: 960, y: 540 }, zoom: 1, rotationDegrees: 0 },
+        },
+        anchors: [],
         background: { assetId: null, materialId: null, fit: 'cover', color: null },
         placements: [],
         persistentCharacters: [],

@@ -79,6 +79,8 @@ struct RoomDefinition {
     std::string display_name;
     TextContent description;
     BackgroundPresentation background;
+    WorldPresentationSpace presentation_space;
+    std::vector<RoomAnchor> anchors;
     RoomLifecycle lifecycle;
     std::vector<RoomOverlay> overlays;
     std::vector<RoomCastEntry> cast;

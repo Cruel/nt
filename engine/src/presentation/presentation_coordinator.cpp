@@ -19,18 +19,19 @@ bool terminal(const PresentationOperationState& state)
            !std::holds_alternative<PresentationOperationRunning>(state);
 }
 
-Result<void, Diagnostics> validate_finite_common(PresentationOperationId id,
-                                                 std::chrono::milliseconds duration,
-                                                 LayoutClockDomain clock,
-                                                 const PresentationRevisionBinding& revisions)
+Result<void, Diagnostics>
+validate_finite_common(PresentationOperationId id, std::chrono::milliseconds duration,
+                       LayoutClockDomain clock, const PresentationRevisionBinding& revisions,
+                       PresentationEasing easing = PresentationEasing::Linear)
 {
     if (id.number() == 0 || duration.count() <= 0 || clock != LayoutClockDomain::Gameplay ||
         revisions.source.number() == 0 || revisions.target.number() == 0 ||
-        revisions.target.number() <= revisions.source.number())
+        revisions.target.number() <= revisions.source.number() ||
+        easing > PresentationEasing::EaseInOut)
         return Result<void, Diagnostics>::failure({diagnostic(
             "presentation.invalid_finite_operation",
             "Finite presentation operations require a nonzero identity, positive duration, "
-            "gameplay clock, and increasing source/target revisions")});
+            "gameplay clock, increasing source/target revisions, and valid easing")});
     return Result<void, Diagnostics>::success();
 }
 
@@ -105,6 +106,101 @@ normalize(const BackgroundPresentationOperation& operation)
          .completion = completion_target(operation.completion)});
 }
 
+bool valid_camera_view(const compiled::CameraView& view) noexcept
+{
+    return std::isfinite(view.center.x) && std::isfinite(view.center.y) &&
+           std::isfinite(view.zoom) && view.zoom > 0.0 && std::isfinite(view.rotation_degrees);
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
+normalize_camera_common(const FinitePresentationOperationCommon& common,
+                        const std::optional<PresentationFlowCompletion>& completion,
+                        bool payload_valid, std::string message)
+{
+    auto valid = validate_finite_common(common.id, common.duration, common.clock, common.revisions,
+                                        common.easing);
+    if (!valid || !payload_valid)
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            valid ? Diagnostics{diagnostic("presentation.invalid_camera_operation",
+                                           std::move(message))}
+                  : valid.error());
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class =
+             completion ? CheckpointClass::CausalBarrier : CheckpointClass::Disposable,
+         .completion = completion_target(completion)});
+}
+
+Result<PresentationOperationMetadata, Diagnostics> normalize(const CameraPanOperation& operation)
+{
+    return normalize_camera_common(
+        operation.common, operation.completion,
+        valid_camera_view(operation.source_view) && valid_camera_view(operation.target_view) &&
+            operation.source_view.zoom == operation.target_view.zoom &&
+            operation.source_view.rotation_degrees == operation.target_view.rotation_degrees,
+        "Pan requires valid Camera Views and may only change center");
+}
+
+Result<PresentationOperationMetadata, Diagnostics> normalize(const CameraZoomOperation& operation)
+{
+    return normalize_camera_common(
+        operation.common, operation.completion,
+        valid_camera_view(operation.source_view) && valid_camera_view(operation.target_view) &&
+            operation.source_view.center == operation.target_view.center &&
+            operation.source_view.rotation_degrees == operation.target_view.rotation_degrees,
+        "Zoom requires valid Camera Views and may only change zoom");
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
+normalize(const CameraRotationOperation& operation)
+{
+    return normalize_camera_common(
+        operation.common, operation.completion,
+        valid_camera_view(operation.source_view) && valid_camera_view(operation.target_view) &&
+            operation.source_view.center == operation.target_view.center &&
+            operation.source_view.zoom == operation.target_view.zoom,
+        "Rotation requires valid Camera Views and may only change rotation");
+}
+
+Result<PresentationOperationMetadata, Diagnostics> normalize(const CameraFocusOperation& operation)
+{
+    const auto& bounds = operation.capture.bounds;
+    return normalize_camera_common(
+        operation.common, operation.completion,
+        valid_camera_view(operation.return_view) && std::isfinite(bounds.x) &&
+            std::isfinite(bounds.y) && std::isfinite(bounds.width) &&
+            std::isfinite(bounds.height) && bounds.width > 0.0 && bounds.height > 0.0,
+        "Focus requires captured positive finite bounds and a valid return View");
+}
+
+Result<PresentationOperationMetadata, Diagnostics> normalize(const CameraShakeOperation& operation)
+{
+    return normalize_camera_common(
+        operation.common, operation.completion,
+        std::isfinite(operation.amplitude.x) && std::isfinite(operation.amplitude.y) &&
+            std::isfinite(operation.frequency_hz) && operation.frequency_hz > 0.0,
+        "Shake requires finite amplitude and positive finite frequency");
+}
+
+Result<PresentationOperationMetadata, Diagnostics> normalize(const CameraPunchOperation& operation)
+{
+    return normalize_camera_common(
+        operation.common, operation.completion,
+        std::isfinite(operation.translation.x) && std::isfinite(operation.translation.y) &&
+            std::isfinite(operation.zoom_delta) && std::isfinite(operation.rotation_degrees),
+        "Punch requires finite translation, zoom delta, and rotation");
+}
+
+Result<PresentationOperationMetadata, Diagnostics> normalize(const CameraFlashOperation& operation)
+{
+    return normalize_camera_common(operation.common, operation.completion,
+                                   !operation.color.empty() && std::isfinite(operation.opacity) &&
+                                       operation.opacity >= 0.0 && operation.opacity <= 1.0,
+                                   "Flash requires a color and opacity in [0, 1]");
+}
+
 Result<PresentationOperationMetadata, Diagnostics>
 normalize(const ActorPresentationOperation& operation)
 {
@@ -152,6 +248,13 @@ finite_target(const CoordinatedPresentationOperation& operation)
             if constexpr (std::is_same_v<T, SceneTransitionGroupOperation> ||
                           std::is_same_v<T, RoomNavigationTransitionOperation> ||
                           std::is_same_v<T, BackgroundPresentationOperation> ||
+                          std::is_same_v<T, CameraPanOperation> ||
+                          std::is_same_v<T, CameraZoomOperation> ||
+                          std::is_same_v<T, CameraRotationOperation> ||
+                          std::is_same_v<T, CameraFocusOperation> ||
+                          std::is_same_v<T, CameraShakeOperation> ||
+                          std::is_same_v<T, CameraPunchOperation> ||
+                          std::is_same_v<T, CameraFlashOperation> ||
                           std::is_same_v<T, ActorPresentationOperation> ||
                           std::is_same_v<T, LayoutFinitePresentationOperation>)
                 return operation_target(FinitePresentationOperation{value});
@@ -169,6 +272,13 @@ std::optional<bool> finite_skippable(const CoordinatedPresentationOperation& ope
             if constexpr (std::is_same_v<T, SceneTransitionGroupOperation> ||
                           std::is_same_v<T, RoomNavigationTransitionOperation> ||
                           std::is_same_v<T, BackgroundPresentationOperation> ||
+                          std::is_same_v<T, CameraPanOperation> ||
+                          std::is_same_v<T, CameraZoomOperation> ||
+                          std::is_same_v<T, CameraRotationOperation> ||
+                          std::is_same_v<T, CameraFocusOperation> ||
+                          std::is_same_v<T, CameraShakeOperation> ||
+                          std::is_same_v<T, CameraPunchOperation> ||
+                          std::is_same_v<T, CameraFlashOperation> ||
                           std::is_same_v<T, ActorPresentationOperation> ||
                           std::is_same_v<T, LayoutFinitePresentationOperation>)
                 return operation_skippable(FinitePresentationOperation{value});

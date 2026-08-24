@@ -2806,9 +2806,95 @@ decode_editor_room_preview_document_text(std::string_view data_text,
 
     if (const auto* world = object("world")) {
         exact_fields(*world,
-                     {"background", "placements", "persistentCharacters", "cast", "interactables",
-                      "props", "environments", "overlays"},
+                     {"presentationSpace", "anchors", "background", "placements",
+                      "persistentCharacters", "cast", "interactables", "props", "environments",
+                      "overlays"},
                      diagnostics, "/world");
+        if (const auto presentation = world->find("presentationSpace");
+            presentation != world->end() && presentation->is_object()) {
+            exact_fields(*presentation, {"size", "bounds", "edgePolicy", "view"}, diagnostics,
+                         "/world/presentationSpace");
+            const auto finite = [&](const nlohmann::json& value, std::string_view field,
+                                    std::string_view path, double fallback = 0.0) {
+                const auto parsed = json_access::member_as<double>(value, field);
+                if (!parsed || !std::isfinite(*parsed)) {
+                    diagnostics.push_back(error("editor_preview.invalid_number",
+                                                std::string(field) + " must be finite.",
+                                                std::string(path) + "/" + std::string(field)));
+                    return fallback;
+                }
+                return *parsed;
+            };
+            if (const auto size = presentation->find("size");
+                size != presentation->end() && size->is_object()) {
+                exact_fields(*size, {"width", "height"}, diagnostics,
+                             "/world/presentationSpace/size");
+                result.world.presentation_space.size = {
+                    finite(*size, "width", "/world/presentationSpace/size", 1920.0),
+                    finite(*size, "height", "/world/presentationSpace/size", 1080.0)};
+                if (result.world.presentation_space.size.x <= 0.0 ||
+                    result.world.presentation_space.size.y <= 0.0)
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Presentation Space size must be positive.",
+                                                "/world/presentationSpace/size"));
+            } else {
+                diagnostics.push_back(error("editor_preview.wrong_type", "size must be an object.",
+                                            "/world/presentationSpace/size"));
+            }
+            if (const auto bounds = presentation->find("bounds");
+                bounds != presentation->end() && !bounds->is_null()) {
+                if (!bounds->is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "bounds must be an object or null.",
+                                                "/world/presentationSpace/bounds"));
+                } else {
+                    exact_fields(*bounds, {"x", "y", "width", "height"}, diagnostics,
+                                 "/world/presentationSpace/bounds");
+                    result.world.presentation_space.bounds = compiled::WorldPresentationRect{
+                        finite(*bounds, "x", "/world/presentationSpace/bounds"),
+                        finite(*bounds, "y", "/world/presentationSpace/bounds"),
+                        finite(*bounds, "width", "/world/presentationSpace/bounds"),
+                        finite(*bounds, "height", "/world/presentationSpace/bounds")};
+                }
+            }
+            const auto edge =
+                required_string(*presentation, "edgePolicy", "/world/presentationSpace");
+            if (edge == "overscan")
+                result.world.presentation_space.edge_policy =
+                    compiled::WorldPresentationEdgePolicy::Overscan;
+            else if (edge != "contain")
+                diagnostics.push_back(error("editor_preview.invalid_value",
+                                            "edgePolicy must be contain or overscan.",
+                                            "/world/presentationSpace/edgePolicy"));
+            if (const auto view = presentation->find("view");
+                view != presentation->end() && view->is_object()) {
+                exact_fields(*view, {"center", "zoom", "rotationDegrees"}, diagnostics,
+                             "/world/presentationSpace/view");
+                if (const auto center = view->find("center");
+                    center != view->end() && center->is_object()) {
+                    exact_fields(*center, {"x", "y"}, diagnostics,
+                                 "/world/presentationSpace/view/center");
+                    result.world.presentation_space.view.center = {
+                        finite(*center, "x", "/world/presentationSpace/view/center"),
+                        finite(*center, "y", "/world/presentationSpace/view/center")};
+                }
+                result.world.presentation_space.view.zoom =
+                    finite(*view, "zoom", "/world/presentationSpace/view", 1.0);
+                result.world.presentation_space.view.rotation_degrees =
+                    finite(*view, "rotationDegrees", "/world/presentationSpace/view");
+                if (result.world.presentation_space.view.zoom <= 0.0)
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Camera View zoom must be positive.",
+                                                "/world/presentationSpace/view/zoom"));
+            } else {
+                diagnostics.push_back(error("editor_preview.wrong_type", "view must be an object.",
+                                            "/world/presentationSpace/view"));
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "presentationSpace must be an object.",
+                                        "/world/presentationSpace"));
+        }
         if (const auto background = world->find("background");
             background != world->end() && background->is_object()) {
             exact_fields(*background, {"assetId", "materialId", "fit", "color"}, diagnostics,
@@ -2834,6 +2920,19 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             }
             return &*found;
         };
+        if (const auto* anchors = array("anchors"))
+            for (std::size_t index = 0; index < anchors->size(); ++index) {
+                const auto& value = (*anchors)[index];
+                const auto path = "/world/anchors/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(
+                        error("editor_preview.wrong_type", "Anchor must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"id", "bounds"}, diagnostics, path);
+                result.world.anchors.push_back({.id = required_string(value, "id", path),
+                                                .bounds = rect(value["bounds"], path + "/bounds")});
+            }
         if (const auto* placements = array("placements"))
             for (std::size_t index = 0; index < placements->size(); ++index) {
                 const auto& value = (*placements)[index];

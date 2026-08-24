@@ -45,7 +45,10 @@ struct WorldTransitionScenePlan {
 make_world_transition_scene_plan(const WorldTransitionRenderState& state) noexcept;
 
 using TargetedPresentationOperation =
-    std::variant<core::BackgroundPresentationOperation, core::ActorPresentationOperation,
+    std::variant<core::BackgroundPresentationOperation, core::CameraPanOperation,
+                 core::CameraZoomOperation, core::CameraRotationOperation,
+                 core::CameraFocusOperation, core::CameraShakeOperation, core::CameraPunchOperation,
+                 core::CameraFlashOperation, core::ActorPresentationOperation,
                  core::LayoutFinitePresentationOperation>;
 
 struct TargetedPresentationRenderState {
