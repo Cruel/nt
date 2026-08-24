@@ -22,7 +22,7 @@ afterEach(async () => {
   );
 });
 
-describe('Phase 5 project text source reads', () => {
+describe('project text source reads', () => {
   it('binds opaque sessions, preserves request ordering, verifies hashes, and isolates failures', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'noveltea-source-read-'));
     temporaryRoots.push(root);
@@ -62,7 +62,7 @@ describe('Phase 5 project text source reads', () => {
   });
 });
 
-describe('Phase 5 incremental authoring graph service', () => {
+describe('incremental authoring graph service', () => {
   it('publishes full-build equivalence and advances graph-stable revisions without graph work', async () => {
     const project = createAuthoringProject() as StructurallyAdmittedAuthoringProject;
     project.rooms.foyer = {

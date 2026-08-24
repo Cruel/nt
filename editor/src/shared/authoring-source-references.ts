@@ -39,7 +39,7 @@ export interface AuthoringSourceReferenceRecognizerInput {
 
 /**
  * Extension seam for future, explicitly designed Lua/RML semantic APIs.
- * Phase 5 intentionally registers no product recognizers.
+ * No product recognizers are registered until a concrete semantic API requires one.
  */
 export interface AuthoringSourceReferenceRecognizer {
   readonly id: string;

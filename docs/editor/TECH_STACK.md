@@ -207,8 +207,8 @@ schema/model directory rather than being hidden inside UI components.
 Keep Zustand as the lightweight renderer state store, but do not use it as an
 implicit project mutation mechanism.
 
-Persistent project edits must go through the command bus described in
-`docs/editor/plans/IMPLEMENTATION_PLAN.md`.
+Persistent project edits must go through the command bus; current ownership and behavior are documented
+by the editor architecture and project-service docs rather than the archived implementation plan.
 
 Recommended division:
 

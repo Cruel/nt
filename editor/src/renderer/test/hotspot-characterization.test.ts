@@ -53,7 +53,7 @@ function fitBackground(viewport: Size, image: Size, fit: Fit): { rect: Rect; uv:
   };
 }
 
-describe('hotspot Phase 2 current contracts', () => {
+describe('hotspot current contracts', () => {
   it('requires exact Room and Interactable hotspot shapes and rejects missing or alternate fields', () => {
     const room = defaultRoomData('Foyer');
     const interactable = defaultInteractableData('Key');

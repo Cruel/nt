@@ -33,7 +33,7 @@ import {
 
 function snapshot(edges: readonly AuthoringDependencyEdge[]): AuthoringDependencyGraphSnapshot {
   return {
-    projectInstanceId: 'project:phase-six',
+    projectInstanceId: 'project:graph-consumers',
     projectRevision: 7,
     graphRevision: 3,
     graph: {
@@ -112,7 +112,7 @@ function confirmedAssetEdge(): AuthoringDependencyEdge {
   };
 }
 
-describe('Phase 6 graph consumers and structural preflight', () => {
+describe('graph consumers and structural preflight', () => {
   beforeEach(() => {
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();
@@ -178,7 +178,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     expect(
       preflightGraphCommand({
         snapshot: null,
-        projectInstanceId: 'project:phase-six',
+        projectInstanceId: 'project:graph-consumers',
         projectRevision: 7,
         target: { collection: 'rooms', id: 'hall' },
         operation: 'delete',
@@ -187,7 +187,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     expect(
       preflightGraphCommand({
         snapshot: snapshot([]),
-        projectInstanceId: 'project:phase-six',
+        projectInstanceId: 'project:graph-consumers',
         projectRevision: 8,
         target: { collection: 'rooms', id: 'hall' },
         operation: 'rename',
@@ -206,7 +206,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     expect(
       preflightGraphCommand({
         snapshot: current,
-        projectInstanceId: 'project:phase-six',
+        projectInstanceId: 'project:graph-consumers',
         projectRevision: 7,
         target: { collection: 'rooms', id: 'hall' },
         operation: 'rename',
@@ -218,7 +218,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     const current = snapshot([edge('explicit:1', 'lua-explicit-reference')]);
     const base = {
       snapshot: current,
-      projectInstanceId: 'project:phase-six',
+      projectInstanceId: 'project:graph-consumers',
       projectRevision: 7,
       target: { collection: 'rooms' as const, id: 'hall' },
     };
@@ -321,7 +321,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       payload: { collection: 'rooms', fromId: 'shared', toId: 'renamed' },
       request: {} as never,
       graphSnapshot: snapshot([exact, possible]),
-      projectInstanceId: 'project:phase-six',
+      projectInstanceId: 'project:graph-consumers',
       projectRevision: 7,
     });
     expect(result.diagnostics).toEqual([
@@ -338,7 +338,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     expect(
       preflightGraphCommand({
         snapshot: snapshot([exact]),
-        projectInstanceId: 'project:phase-six',
+        projectInstanceId: 'project:graph-consumers',
         projectRevision: 7,
         target,
         operation: 'delete',
@@ -419,7 +419,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       payload: { collection: 'rooms', fromId: 'shared', toId: 'renamed' },
       request: {} as never,
       graphSnapshot: snapshot([exact]),
-      projectInstanceId: 'project:phase-six',
+      projectInstanceId: 'project:graph-consumers',
       projectRevision: 7,
     });
     expect(result.patches).toContainEqual({
@@ -441,7 +441,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     expect(
       preflightRoomPlacementDeletion({
         snapshot: current,
-        projectInstanceId: 'project:phase-six',
+        projectInstanceId: 'project:graph-consumers',
         projectRevision: 7,
         roomId: 'hall',
         placementId: 'door',

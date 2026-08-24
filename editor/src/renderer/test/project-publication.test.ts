@@ -6,7 +6,7 @@ import {
   classifyAuthoringGraphMutation,
 } from '../../shared/authoring-graph-input-classifier';
 
-describe('Phase 4 authoritative project publication', () => {
+describe('authoritative project publication', () => {
   beforeEach(() => {
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();

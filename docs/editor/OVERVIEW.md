@@ -102,15 +102,14 @@ When changing ComfyUI workflows, update the user-facing import doc when behavior
 - `docs/editor/export/EXPORT_AND_PACKAGING.md` — editor export/package workflow, profiles, authoring-to-runtime export builder, assets, shaders, IPC surface, and verification.
 - `docs/runtime/PACKAGE_EXPORT.md` — runtime package layout and manifest details.
 
-## Plans
+## Implementation History
 
-- `docs/editor/plans/IMPLEMENTATION_PLAN.md` — broad editor implementation plan and workbench/project-service architecture.
-- `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` — workbench shell milestone plan.
+- `docs/archive/plans/EDITOR_IMPLEMENTATION_PLAN.md` — archived broad editor implementation plan.
+- `docs/archive/plans/EDITOR_MILESTONE_1_WORKBENCH_PLAN.md` — archived workbench-shell milestone plan.
 - `docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md` — permanent cross-cutting contract
   for nested Features, the reusable React Hotspot editor, semantic pointer targets, and
   compiled/runtime integration.
-Plans should not silently become stale. When planned work is complete or superseded, update its status,
-move durable behavior into a current subsystem document, and archive the implementation history.
+Completed plans belong under `docs/archive/plans/`; current behavior belongs in subsystem documentation.
 
 ## Editor Rules To Keep Centralized
 

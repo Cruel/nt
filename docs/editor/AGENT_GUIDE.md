@@ -26,7 +26,7 @@ Use these documents as the main references for editor work:
   requests, lifecycle, clearing, and full-source exceptions.
 - `docs/editor/IPC_TRUST_BOUNDARY.md` owns renderer-to-main sender authorization, runtime argument
   admission, approved editor documents, and navigation denial.
-- `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` describes the workbench milestone direction.
+- `docs/editor/OVERVIEW.md` and the subsystem docs it links describe the current workbench behavior.
 - the editor agent guide describes tab-state preservation and preview host ownership.
 - `docs/editor/LOCALIZATION.md` describes localization status and conventions.
 - `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md` describes renderer-to-preview communication.

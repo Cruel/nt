@@ -74,7 +74,6 @@ add_custom_target(noveltea-schema-version-policy
         -DCONTRACTS=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/contracts.tsv
         -DRULES=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/rules.tsv
         -DEXCEPTIONS=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/exceptions.tsv
-        -DTEMPORARY_DEBT=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/temporary_debt.tsv
         -P ${CMAKE_SOURCE_DIR}/cmake/CheckSchemaVersionPolicy.cmake
     COMMAND "${CMAKE_COMMAND}"
         -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
@@ -89,7 +88,6 @@ if(BUILD_TESTING)
             -DCONTRACTS=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/contracts.tsv
             -DRULES=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/rules.tsv
             -DEXCEPTIONS=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/exceptions.tsv
-            -DTEMPORARY_DEBT=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/temporary_debt.tsv
             -P ${CMAKE_SOURCE_DIR}/cmake/CheckSchemaVersionPolicy.cmake)
 endif()
 

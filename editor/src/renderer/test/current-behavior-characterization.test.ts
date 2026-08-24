@@ -8,7 +8,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
 import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
 
-describe('Phase 1 current-behavior characterization', () => {
+describe('current-behavior characterization', () => {
   it('pins ReferenceIndex output and delete preflight to the same usage records', () => {
     const project = createAuthoringProject();
     const foyer = defaultRoomData('Foyer');
@@ -100,7 +100,7 @@ describe('Phase 1 current-behavior characterization', () => {
   });
 });
 
-describe('Phase 1 authoritative document route behavior', () => {
+describe('authoritative document route behavior', () => {
   beforeEach(() => {
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();

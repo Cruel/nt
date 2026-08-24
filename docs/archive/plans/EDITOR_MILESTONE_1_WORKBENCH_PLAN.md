@@ -15,7 +15,7 @@ narrow interfaces and placeholders where later milestones need stable seams.
 
 ## Inputs Reviewed
 
-- `docs/editor/plans/IMPLEMENTATION_PLAN.md`
+- `docs/archive/plans/EDITOR_IMPLEMENTATION_PLAN.md`
 - `docs/editor/TECH_STACK.md`
 - `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md`
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md`
@@ -731,5 +731,5 @@ feature components to append arbitrary UI outside the panel registry.
 ## Suggested Implementation Prompt
 
 ```text
-@dev nt Implement Milestone 1 using `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` as the source plan. Read `docs/editor/plans/IMPLEMENTATION_PLAN.md`, `docs/editor/TECH_STACK.md`, `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md`, and the current `editor/src` structure first. Keep this to the workbench shell only: add a pure workbench tab/group/split model, a Zustand workbench store, editor registry, split-tab UI with `react-resizable-panels`, fallback raw JSON editor, primary engine preview editor tab, project explorer record opening into tabs, and global bottom panel scaffolding. Do not implement the persistent command bus, undo/redo, save/autosave, new schema conversion, typed entity editors, PreviewManager pooling, or any changes under `refs/`. Preserve existing project open/validate/playback/export and preview behavior. Add tests for the pure workbench model and registry, then run `cd editor && pnpm -C editor run typecheck && pnpm -C editor run test && pnpm lint`.
+Historical implementation prompt retained for reference; this milestone is complete and the plan is archived.
 ```
