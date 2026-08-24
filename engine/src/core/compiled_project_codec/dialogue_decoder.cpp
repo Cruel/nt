@@ -383,19 +383,215 @@ std::optional<DialogueSemanticCue> decode_dialogue_semantic_cue(Decoder& decoder
                           : std::nullopt;
     }
     if (*kind == "gesture") {
-        decoder.object(value, pointer, {"gestureId", "id", "kind", "position", "slotId"});
+        decoder.object(
+            value, pointer,
+            {"gestureId", "id", "kind", "position", "skippable", "slotId", "waitForCompletion"});
         const auto* slot_value = decoder.member(value, "slotId", pointer);
         const auto* gesture_value = decoder.member(value, "gestureId", pointer);
+        const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
+        const auto* skippable_value = decoder.member(value, "skippable", pointer);
         auto slot = slot_value ? decoder.id<DialogueStageSlotId>(*slot_value,
                                                                  pointer_child(pointer, "slotId"))
                                : std::nullopt;
         auto gesture = gesture_value ? decoder.id<CharacterGestureId>(
                                            *gesture_value, pointer_child(pointer, "gestureId"))
                                      : std::nullopt;
-        return slot && gesture
-                   ? std::optional<DialogueSemanticCue>(DialogueGestureCue{
-                         std::move(*id), *position, std::move(*slot), std::move(*gesture)})
+        auto wait = wait_value
+                        ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
+                        : std::nullopt;
+        auto skippable =
+            skippable_value ? decoder.boolean(*skippable_value, pointer_child(pointer, "skippable"))
+                            : std::nullopt;
+        return slot && gesture && wait && skippable
+                   ? std::optional<DialogueSemanticCue>(
+                         DialogueGestureCue{std::move(*id), *position, std::move(*slot),
+                                            std::move(*gesture), *wait, *skippable})
                    : std::nullopt;
+    }
+    if (*kind == "voice" || *kind == "sound-effect") {
+        if (*kind == "voice")
+            decoder.object(value, pointer,
+                           {"asset", "gain", "id", "kind", "pan", "pausePolicy", "position",
+                            "skipBehavior", "waitForCompletion"});
+        else
+            decoder.object(value, pointer,
+                           {"asset", "causality", "gain", "id", "kind", "pan", "pausePolicy",
+                            "position", "skipBehavior", "synchronized", "waitForCompletion"});
+        const auto* asset_value = decoder.member(value, "asset", pointer);
+        const auto* pause_value = decoder.member(value, "pausePolicy", pointer);
+        const auto* gain_value = decoder.member(value, "gain", pointer);
+        const auto* pan_value = decoder.member(value, "pan", pointer);
+        const auto* wait_value = decoder.member(value, "waitForCompletion", pointer);
+        const auto* skip_value = decoder.member(value, "skipBehavior", pointer);
+        auto asset = asset_value
+                         ? decode_reference<AssetId>(decoder, *asset_value,
+                                                     pointer_child(pointer, "asset"), "asset")
+                         : std::nullopt;
+        auto pause = pause_value ? decoder.enumeration<AudioPausePolicy>(
+                                       *pause_value, pointer_child(pointer, "pausePolicy"),
+                                       {{"gameplay", AudioPausePolicy::Gameplay},
+                                        {"owner", AudioPausePolicy::Owner},
+                                        {"unscaled", AudioPausePolicy::Unscaled}})
+                                 : std::nullopt;
+        auto gain = gain_value ? decoder.finite_number(*gain_value, pointer_child(pointer, "gain"))
+                               : std::nullopt;
+        auto pan = pan_value ? decoder.finite_number(*pan_value, pointer_child(pointer, "pan"))
+                             : std::nullopt;
+        auto wait = wait_value
+                        ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
+                        : std::nullopt;
+        auto skip = skip_value ? decoder.enumeration<AudioSkipBehavior>(
+                                     *skip_value, pointer_child(pointer, "skipBehavior"),
+                                     {{"stop", AudioSkipBehavior::Stop},
+                                      {"suppress", AudioSkipBehavior::Suppress},
+                                      {"play", AudioSkipBehavior::Play}})
+                               : std::nullopt;
+        if (!asset || !pause || !gain || !pan || !wait || !skip)
+            return std::nullopt;
+        if (*kind == "voice")
+            return DialogueVoiceCue{
+                std::move(*id), *position, std::move(*asset), *pause, *gain, *pan, *wait, *skip};
+        const auto* causality_value = decoder.member(value, "causality", pointer);
+        const auto* synchronized_value = decoder.member(value, "synchronized", pointer);
+        auto causality = causality_value
+                             ? decoder.enumeration<AudioCausality>(
+                                   *causality_value, pointer_child(pointer, "causality"),
+                                   {{"causal", AudioCausality::Causal},
+                                    {"disposable", AudioCausality::Disposable}})
+                             : std::nullopt;
+        auto synchronized =
+            synchronized_value
+                ? decoder.boolean(*synchronized_value, pointer_child(pointer, "synchronized"))
+                : std::nullopt;
+        return causality && synchronized
+                   ? std::optional<DialogueSemanticCue>(DialogueSoundEffectCue{
+                         std::move(*id), *position, std::move(*asset), *pause, *gain, *pan, *wait,
+                         *causality, *synchronized, *skip})
+                   : std::nullopt;
+    }
+    if (*kind == "camera") {
+        decoder.object(value, pointer, {"emphasis", "id", "kind", "position"});
+        const auto* emphasis_value = decoder.member(value, "emphasis", pointer);
+        if (emphasis_value == nullptr || !emphasis_value->is_object()) {
+            decoder.error(k_code_type, "Expected Dialogue camera emphasis object.",
+                          pointer_child(pointer, "emphasis"));
+            return std::nullopt;
+        }
+        const auto emphasis_pointer = pointer_child(pointer, "emphasis");
+        const auto* emphasis_kind_value = decoder.member(*emphasis_value, "kind", emphasis_pointer);
+        auto emphasis_kind =
+            emphasis_kind_value
+                ? decoder.string(*emphasis_kind_value, pointer_child(emphasis_pointer, "kind"))
+                : std::nullopt;
+        if (!emphasis_kind)
+            return std::nullopt;
+        const auto decode_common = [&]() -> std::optional<std::tuple<std::uint64_t, bool, bool>> {
+            const auto* duration_value =
+                decoder.member(*emphasis_value, "durationMs", emphasis_pointer);
+            const auto* skippable_value =
+                decoder.member(*emphasis_value, "skippable", emphasis_pointer);
+            const auto* wait_value =
+                decoder.member(*emphasis_value, "waitForCompletion", emphasis_pointer);
+            auto duration =
+                duration_value ? decoder.unsigned_integer<std::uint64_t>(
+                                     *duration_value, pointer_child(emphasis_pointer, "durationMs"))
+                               : std::nullopt;
+            auto skippable = skippable_value
+                                 ? decoder.boolean(*skippable_value,
+                                                   pointer_child(emphasis_pointer, "skippable"))
+                                 : std::nullopt;
+            auto wait = wait_value
+                            ? decoder.boolean(*wait_value,
+                                              pointer_child(emphasis_pointer, "waitForCompletion"))
+                            : std::nullopt;
+            return duration && skippable && wait
+                       ? std::optional<std::tuple<std::uint64_t, bool, bool>>{std::tuple{
+                             *duration, *skippable, *wait}}
+                       : std::nullopt;
+        };
+        if (*emphasis_kind == "shake") {
+            decoder.object(*emphasis_value, emphasis_pointer,
+                           {"amplitude", "durationMs", "frequencyHz", "kind", "skippable",
+                            "waitForCompletion"});
+            auto common = decode_common();
+            const auto* amplitude_value =
+                decoder.member(*emphasis_value, "amplitude", emphasis_pointer);
+            const auto* frequency_value =
+                decoder.member(*emphasis_value, "frequencyHz", emphasis_pointer);
+            auto amplitude = amplitude_value
+                                 ? decode_vector2(decoder, *amplitude_value,
+                                                  pointer_child(emphasis_pointer, "amplitude"))
+                                 : std::nullopt;
+            auto frequency =
+                frequency_value
+                    ? decoder.finite_number(*frequency_value,
+                                            pointer_child(emphasis_pointer, "frequencyHz"))
+                    : std::nullopt;
+            if (common && amplitude && frequency) {
+                const auto [duration, skippable, wait] = *common;
+                return DialogueCameraCue{
+                    std::move(*id), *position,
+                    DialogueCameraShakeEmphasis{*amplitude, *frequency, duration, skippable, wait}};
+            }
+            return std::nullopt;
+        }
+        if (*emphasis_kind == "punch") {
+            decoder.object(*emphasis_value, emphasis_pointer,
+                           {"durationMs", "kind", "rotationDegrees", "skippable", "translation",
+                            "waitForCompletion", "zoomDelta"});
+            auto common = decode_common();
+            const auto* translation_value =
+                decoder.member(*emphasis_value, "translation", emphasis_pointer);
+            const auto* zoom_value = decoder.member(*emphasis_value, "zoomDelta", emphasis_pointer);
+            const auto* rotation_value =
+                decoder.member(*emphasis_value, "rotationDegrees", emphasis_pointer);
+            auto translation = translation_value
+                                   ? decode_vector2(decoder, *translation_value,
+                                                    pointer_child(emphasis_pointer, "translation"))
+                                   : std::nullopt;
+            auto zoom = zoom_value ? decoder.finite_number(
+                                         *zoom_value, pointer_child(emphasis_pointer, "zoomDelta"))
+                                   : std::nullopt;
+            auto rotation =
+                rotation_value
+                    ? decoder.finite_number(*rotation_value,
+                                            pointer_child(emphasis_pointer, "rotationDegrees"))
+                    : std::nullopt;
+            if (common && translation && zoom && rotation) {
+                const auto [duration, skippable, wait] = *common;
+                return DialogueCameraCue{std::move(*id), *position,
+                                         DialogueCameraPunchEmphasis{*translation, *zoom, *rotation,
+                                                                     duration, skippable, wait}};
+            }
+            return std::nullopt;
+        }
+        if (*emphasis_kind == "flash") {
+            decoder.object(
+                *emphasis_value, emphasis_pointer,
+                {"color", "durationMs", "kind", "opacity", "skippable", "waitForCompletion"});
+            auto common = decode_common();
+            const auto* color_value = decoder.member(*emphasis_value, "color", emphasis_pointer);
+            const auto* opacity_value =
+                decoder.member(*emphasis_value, "opacity", emphasis_pointer);
+            auto color =
+                color_value ? decoder.string(*color_value, pointer_child(emphasis_pointer, "color"))
+                            : std::nullopt;
+            auto opacity = opacity_value
+                               ? decoder.finite_number(*opacity_value,
+                                                       pointer_child(emphasis_pointer, "opacity"))
+                               : std::nullopt;
+            if (common && color && opacity) {
+                const auto [duration, skippable, wait] = *common;
+                return DialogueCameraCue{std::move(*id), *position,
+                                         DialogueCameraFlashEmphasis{std::move(*color), *opacity,
+                                                                     duration, skippable, wait}};
+            }
+            return std::nullopt;
+        }
+        decoder.error(k_code_variant,
+                      "Unknown Dialogue camera emphasis variant '" + *emphasis_kind + "'.",
+                      pointer_child(emphasis_pointer, "kind"));
+        return std::nullopt;
     }
     if (*kind == "stage" || *kind == "media") {
         decoder.object(value, pointer, {"id", "kind", "mutation", "position"});

@@ -83,6 +83,9 @@ function addEffectDependencies(
 
 function dependencyRevision(project: AuthoringProject, data: DialogueData): string[] {
   const dependencies = new Set<string>();
+  const addAsset = (id: string) => {
+    dependencies.add(`asset:${id}:${JSON.stringify(project.assets[id]?.data ?? null)}`);
+  };
   const addCharacter = (ref: DialogueCharacterRef | null) => {
     if (!ref) return;
     const id = ref.$ref.id;
@@ -94,8 +97,7 @@ function dependencyRevision(project: AuthoringProject, data: DialogueData): stri
       addCharacter(media.character);
       return;
     }
-    const id = media.asset.$ref.id;
-    dependencies.add(`asset:${id}:${JSON.stringify(project.assets[id]?.data ?? null)}`);
+    addAsset(media.asset.$ref.id);
   };
   addCharacter(data.defaultSpeaker);
   for (const slot of data.stageSlots) if (slot.initial) addCharacter(slot.initial.character);
@@ -109,6 +111,7 @@ function dependencyRevision(project: AuthoringProject, data: DialogueData): stri
         for (const cue of segment.cues) {
           if (cue.kind === 'stage' && cue.mutation.character) addCharacter(cue.mutation.character);
           if (cue.kind === 'media') addMedia(cue.mutation.content ?? null);
+          if (cue.kind === 'voice' || cue.kind === 'sound-effect') addAsset(cue.asset.$ref.id);
         }
         addConditionDependency(project, segment.condition, dependencies);
         addEffectDependencies(project, segment.effects, dependencies);

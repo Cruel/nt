@@ -27,6 +27,12 @@ struct ScenePresentationOwner {
     auto operator<=>(const ScenePresentationOwner&) const = default;
 };
 
+struct DialoguePresentationOwner {
+    FlowFrameId invocation;
+    DialogueId dialogue;
+    auto operator<=>(const DialoguePresentationOwner&) const = default;
+};
+
 struct CurrentRoomPresentationOwner {
     RoomVisitInstanceId visit;
     RoomId room;
@@ -49,8 +55,8 @@ struct ShellPresentationOwner {
 };
 
 using PresentationOwner =
-    std::variant<ScenePresentationOwner, CurrentRoomPresentationOwner, RoomPresentationOwner,
-                 SessionPresentationOwner, ShellPresentationOwner>;
+    std::variant<ScenePresentationOwner, DialoguePresentationOwner, CurrentRoomPresentationOwner,
+                 RoomPresentationOwner, SessionPresentationOwner, ShellPresentationOwner>;
 
 enum class PresentationAuthority : std::uint8_t {
     Gameplay,

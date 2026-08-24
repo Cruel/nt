@@ -73,6 +73,8 @@ struct DialogueFramePosition {
     } stage = Stage::EnterBlock;
     std::size_t next_effect = 0;
     bool awaiting_completion = false;
+    std::size_t next_cue = 0;
+    std::uint64_t reveal_offset = 0;
 
     auto operator<=>(const DialogueFramePosition&) const = default;
 };

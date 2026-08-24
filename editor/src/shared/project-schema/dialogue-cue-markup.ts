@@ -78,7 +78,15 @@ function parseSemanticToken(
     return { message: 'Semantic cue data must decode to an object.' };
 
   const candidate = { id, kind, position, ...payload };
-  if (kind !== 'speaker-expression' && kind !== 'stage' && kind !== 'media' && kind !== 'gesture')
+  if (
+    kind !== 'speaker-expression' &&
+    kind !== 'stage' &&
+    kind !== 'media' &&
+    kind !== 'gesture' &&
+    kind !== 'voice' &&
+    kind !== 'sound-effect' &&
+    kind !== 'camera'
+  )
     return { message: `Unknown semantic cue kind '${kind}'.` };
   return { cue: candidate as DialogueLineCue };
 }

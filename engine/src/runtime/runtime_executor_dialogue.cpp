@@ -209,11 +209,6 @@ RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
                 return fault(execution_error("runtime.history_overflow",
                                              "Dialogue line history cannot be incremented"));
 
-            auto presentation =
-                m_flow.apply_dialogue_cues(frame.dialogue, frame.position, speaker, line->cues);
-            if (!presentation)
-                return fault(presentation.error());
-
             auto waiting = begin(core::WaitSpec{core::InputWait{}});
             if (!waiting)
                 return fault(waiting.error());
@@ -464,7 +459,10 @@ core::Result<core::DialogueView, core::Diagnostics> RuntimeExecutor::dialogue_vi
     if (frame == nullptr)
         return core::Result<core::DialogueView, core::Diagnostics>::failure(execution_error(
             "execution.dialogue_view_unavailable", "Active flow frame is not a Dialogue"));
-    core::DialogueView view{.dialogue = frame->dialogue,
+    core::DialogueView view{.frame = frame->frame_id,
+                            .dialogue = frame->dialogue,
+                            .segment = frame->position.segment,
+                            .reveal_offset = frame->position.reveal_offset,
                             .line = m_state.presented_text(),
                             .choice = std::nullopt,
                             .stage_slots = {},

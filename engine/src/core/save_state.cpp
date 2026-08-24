@@ -60,6 +60,16 @@ save_presentation_owner(const SessionState& session, const PresentationOwner& ow
                             .message = "Scene presentation owner is not a saved flow frame"}});
                 return Result<std::optional<SavedPresentationOwner>, Diagnostics>::success(
                     SavedPresentationOwner{SavedScenePresentationOwner{*invocation, value.scene}});
+            } else if constexpr (std::is_same_v<T, DialoguePresentationOwner>) {
+                const auto invocation = saved_owner(session.flow_stack(), value.invocation);
+                if (!invocation)
+                    return Result<std::optional<SavedPresentationOwner>, Diagnostics>::failure(
+                        Diagnostics{Diagnostic{
+                            .code = "save.invalid_presentation_owner",
+                            .message = "Dialogue presentation owner is not a saved flow frame"}});
+                return Result<std::optional<SavedPresentationOwner>, Diagnostics>::success(
+                    SavedPresentationOwner{
+                        SavedDialoguePresentationOwner{*invocation, value.dialogue}});
             } else if constexpr (std::is_same_v<T, CurrentRoomPresentationOwner>) {
                 const auto active = session.current_room_presentation_owner();
                 if (!active || *active != value)

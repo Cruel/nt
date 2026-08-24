@@ -114,6 +114,8 @@ std::string presentation_owner_key(const core::PresentationOwner& owner)
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, core::ScenePresentationOwner>)
                 return std::string{"scene/"} + std::to_string(value.invocation.number());
+            else if constexpr (std::is_same_v<T, core::DialoguePresentationOwner>)
+                return std::string{"dialogue/"} + std::to_string(value.invocation.number());
             else if constexpr (std::is_same_v<T, core::CurrentRoomPresentationOwner>)
                 return std::string{"visit/"} + std::to_string(value.visit.number());
             else if constexpr (std::is_same_v<T, core::RoomPresentationOwner>)

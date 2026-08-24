@@ -1115,9 +1115,12 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
     if (m_state && m_state->host && !m_state->host->contexts().empty()) {
         m_state->host->begin_frame(clocks);
         const float delta_time = std::chrono::duration<float>(clocks.gameplay_delta).count();
-        if (m_state->active_text_presenter)
-            m_state->active_text_presenter->advance(
+        if (m_state->active_text_presenter) {
+            auto reveal_input = m_state->active_text_presenter->advance(
                 m_state->action_gateway ? m_state->action_gateway->view() : nullptr, delta_time);
+            if (reveal_input && m_state->action_gateway)
+                (void)m_state->action_gateway->dispatch_input(*reveal_input);
+        }
         m_state->refresh_game_hud_map();
         m_state->host->update_contexts();
         m_state->refresh_active_text_layout();

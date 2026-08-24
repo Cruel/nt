@@ -101,6 +101,20 @@ private:
         bool room_navigation = false;
     };
 
+    struct DialogueCueWait {
+        core::FlowFrameId frame;
+        core::DialogueId dialogue;
+        core::DialogueSegmentId segment;
+        std::uint64_t target_offset = 0;
+        bool skipping = false;
+    };
+    struct DialogueAudioWait : DialogueCueWait {
+        core::AudioFlowBlockerHandle completion;
+    };
+    struct DialoguePresentationWait : DialogueCueWait {
+        core::PresentationFlowBlockerHandle completion;
+    };
+
     struct RoomDescriptionVisit {
         core::RoomId room;
         std::uint64_t visits = 0;
@@ -145,6 +159,8 @@ private:
                                                    const core::FlowFrameId& owner,
                                                    const core::AudioCompletionHandle& completion,
                                                    bool cancel);
+    [[nodiscard]] core::Diagnostics
+    advance_dialogue_reveal(const core::AdvanceDialogueRevealInput& input);
     void drain_script_inputs(std::vector<RuntimeEvent>& events,
                              std::vector<core::RuntimeObservation>& observations,
                              core::Diagnostics& diagnostics);
@@ -210,6 +226,8 @@ private:
     bool m_room_description_visible = false;
     std::optional<PendingPresentationCompletion> m_pending_presentation;
     std::optional<core::AudioOperation> m_pending_audio;
+    std::optional<DialogueAudioWait> m_dialogue_audio_wait;
+    std::optional<DialoguePresentationWait> m_dialogue_presentation_wait;
     std::vector<RuntimeEvent> m_pending_events;
     std::uint64_t m_next_presentation_id = 1;
     std::uint64_t m_next_audio_id = 1;

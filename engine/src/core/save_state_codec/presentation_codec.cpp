@@ -141,6 +141,10 @@ nlohmann::json encode_presentation_owner(const SavedPresentationOwner& owner)
                 return {{"kind", "scene"},
                         {"invocation", value.invocation.value},
                         {"scene", value.scene.text()}};
+            else if constexpr (std::is_same_v<T, SavedDialoguePresentationOwner>)
+                return {{"kind", "dialogue"},
+                        {"invocation", value.invocation.value},
+                        {"dialogue", value.dialogue.text()}};
             else if constexpr (std::is_same_v<T, SavedCurrentRoomPresentationOwner>)
                 return {{"kind", "current-room"}, {"room", value.room.text()}};
             else if constexpr (std::is_same_v<T, SavedRoomPresentationOwner>)
@@ -175,6 +179,22 @@ decode_presentation_owner(Decoder& d, const nlohmann::json& value, std::string_v
         return invocation && scene
                    ? std::optional<SavedPresentationOwner>{SavedScenePresentationOwner{
                          SavedFlowFrameId{*invocation}, std::move(*scene)}}
+                   : std::nullopt;
+    }
+    if (*kind == "dialogue") {
+        d.object(value, pointer, {"kind", "invocation", "dialogue"});
+        const auto* invocation_value = d.member(value, "invocation", pointer);
+        const auto* dialogue_value = d.member(value, "dialogue", pointer);
+        auto invocation =
+            invocation_value ? d.unsigned_integer<std::uint64_t>(*invocation_value,
+                                                                 child(pointer, "invocation"), true)
+                             : std::nullopt;
+        auto dialogue = dialogue_value
+                            ? d.id<DialogueId>(*dialogue_value, child(pointer, "dialogue"))
+                            : std::nullopt;
+        return invocation && dialogue
+                   ? std::optional<SavedPresentationOwner>{SavedDialoguePresentationOwner{
+                         SavedFlowFrameId{*invocation}, std::move(*dialogue)}}
                    : std::nullopt;
     }
     if (*kind == "current-room" || *kind == "room") {

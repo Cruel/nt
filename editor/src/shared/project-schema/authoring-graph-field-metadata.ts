@@ -613,7 +613,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
     characters: 'ea350f01',
-    dialogues: 'a4e5e485',
+    dialogues: '730f0063',
     entrypoint: 'a61673d4',
     export: 'cb4dc794',
     interactables: '86412986',

@@ -166,12 +166,40 @@ function compileDialogueSemanticCue(
           : { content: compileDialogueMedia(cue.mutation.content) }),
       },
     };
-  return {
-    ...common,
-    kind: cue.kind,
-    slotId: cue.slotId,
-    gestureId: cue.gestureId,
-  };
+  if (cue.kind === 'gesture')
+    return {
+      ...common,
+      kind: cue.kind,
+      slotId: cue.slotId,
+      gestureId: cue.gestureId,
+      waitForCompletion: cue.waitForCompletion,
+      skippable: cue.skippable,
+    };
+  if (cue.kind === 'voice')
+    return {
+      ...common,
+      kind: cue.kind,
+      asset: { kind: 'asset' as const, id: cue.asset.$ref.id },
+      pausePolicy: cue.pausePolicy,
+      gain: cue.gain,
+      pan: cue.pan,
+      waitForCompletion: cue.waitForCompletion,
+      skipBehavior: cue.skipBehavior,
+    };
+  if (cue.kind === 'sound-effect')
+    return {
+      ...common,
+      kind: cue.kind,
+      asset: { kind: 'asset' as const, id: cue.asset.$ref.id },
+      pausePolicy: cue.pausePolicy,
+      gain: cue.gain,
+      pan: cue.pan,
+      waitForCompletion: cue.waitForCompletion,
+      causality: cue.causality,
+      synchronized: cue.synchronized,
+      skipBehavior: cue.skipBehavior,
+    };
+  return { ...common, kind: cue.kind, emphasis: cue.emphasis };
 }
 
 function compileInventoryReference(inventory: InventoryReferenceData) {

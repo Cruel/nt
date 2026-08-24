@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
   defaultDialogueBlock,
@@ -7,6 +8,7 @@ import {
   dialogueCharacterRef,
   dialogueDataSchema,
   validateDialogueData,
+  type DialogueLineCue,
 } from '../../shared/project-schema/authoring-dialogues';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -80,6 +82,113 @@ describe('authoring dialogues schema', () => {
           path: '/dialogues/intro/data/blocks/0/segments/0/cues/0',
           severity: 'error',
           message: expect.stringContaining('Malformed Dialogue markup'),
+        }),
+      ]),
+    );
+  });
+
+  it('round-trips and validates Voice SFX and camera cues through preview dependencies', () => {
+    const project = createAuthoringProject();
+    project.assets.voice = {
+      id: 'voice',
+      label: 'Voice',
+      data: assetDataFromImportMetadata({
+        kind: 'audio',
+        projectRelativePath: 'assets/audio/voice.ogg',
+        extension: '.ogg',
+        byteSize: 10,
+        contentHash: 'voice-hash-a',
+        importedAt: '2026-01-01T00:00:00.000Z',
+        originalName: 'voice.ogg',
+        originalPath: '/tmp/voice.ogg',
+        imageMetadata: null,
+      }),
+    };
+    const data = defaultDialogueData('Intro');
+    const block = data.blocks[0]!;
+    if (block.type !== 'sequence' || block.segments[0]?.type !== 'line')
+      throw new Error('Expected default line.');
+    block.segments[0].text = inlineTextContent('ABCDE');
+    const cues: DialogueLineCue[] = [
+      {
+        id: 'voice',
+        kind: 'voice',
+        position: { offset: 1, order: 0 },
+        asset: { $ref: { collection: 'assets', id: 'voice' } },
+        pausePolicy: 'gameplay',
+        gain: 0.8,
+        pan: -0.2,
+        waitForCompletion: true,
+        skipBehavior: 'stop',
+      },
+      {
+        id: 'sfx',
+        kind: 'sound-effect',
+        position: { offset: 2, order: 0 },
+        asset: { $ref: { collection: 'assets', id: 'voice' } },
+        pausePolicy: 'owner',
+        gain: 0.5,
+        pan: 0.25,
+        waitForCompletion: false,
+        causality: 'disposable',
+        synchronized: false,
+        skipBehavior: 'suppress',
+      },
+      {
+        id: 'camera',
+        kind: 'camera',
+        position: { offset: 3, order: 0 },
+        emphasis: {
+          kind: 'shake',
+          amplitude: { x: 4, y: 2 },
+          frequencyHz: 12,
+          durationMs: 150,
+          skippable: true,
+          waitForCompletion: false,
+        },
+      },
+    ];
+    block.segments[0].cues = cues;
+    project.dialogues.intro = { id: 'intro', label: 'Intro', data };
+
+    expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual([]);
+    const source = serializeDialogueCueMarkup('ABCDE', cues);
+    const parsed = parseDialogueCueMarkup(source);
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.text).toBe('ABCDE');
+    expect(parsed.cues).toEqual(cues);
+    expect(buildDialoguePreviewDocumentData(project, 'intro')).toMatchObject({
+      selectedSegment: { cues },
+    });
+
+    const before = dialoguePreviewRevision(project, 'intro');
+    project.assets.voice = {
+      ...project.assets.voice,
+      data: assetDataFromImportMetadata({
+        kind: 'audio',
+        projectRelativePath: 'assets/audio/voice.ogg',
+        extension: '.ogg',
+        byteSize: 11,
+        contentHash: 'voice-hash-b',
+        importedAt: '2026-01-01T00:00:00.000Z',
+        originalName: 'voice.ogg',
+        originalPath: '/tmp/voice.ogg',
+        imageMetadata: null,
+      }),
+    };
+    expect(dialoguePreviewRevision(project, 'intro')).not.toBe(before);
+
+    const sfx = cues.find(
+      (cue): cue is Extract<DialogueLineCue, { kind: 'sound-effect' }> =>
+        cue.kind === 'sound-effect',
+    );
+    if (!sfx) throw new Error('Expected SFX cue.');
+    block.segments[0].cues = [{ ...sfx, waitForCompletion: true }];
+    expect(validateDialogueData(project, 'intro', project.dialogues.intro)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/dialogues/intro/data/blocks/0/segments/0/cues/0/causality',
+          severity: 'error',
         }),
       ]),
     );

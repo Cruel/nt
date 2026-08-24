@@ -21,6 +21,9 @@ std::string presentation_layout_owner_text(const core::PresentationOwner& owner)
             if constexpr (std::is_same_v<T, core::ScenePresentationOwner>)
                 return "scene/" + std::to_string(value.invocation.number()) + "/" +
                        value.scene.text();
+            else if constexpr (std::is_same_v<T, core::DialoguePresentationOwner>)
+                return "dialogue/" + std::to_string(value.invocation.number()) + "/" +
+                       value.dialogue.text();
             else if constexpr (std::is_same_v<T, core::CurrentRoomPresentationOwner>)
                 return "current-room/" + std::to_string(value.visit.number()) + "/" +
                        value.room.text();

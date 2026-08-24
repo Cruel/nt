@@ -39,6 +39,14 @@ struct AdvanceTimeInput {
 struct ContinueInput {
     auto operator<=>(const ContinueInput&) const = default;
 };
+struct AdvanceDialogueRevealInput {
+    FlowFrameId frame;
+    DialogueId dialogue;
+    DialogueSegmentId segment;
+    std::uint64_t offset = 0;
+    bool skipping = false;
+    auto operator<=>(const AdvanceDialogueRevealInput&) const = default;
+};
 struct SelectSceneChoiceInput {
     SceneChoiceOptionId option;
     auto operator<=>(const SelectSceneChoiceInput&) const = default;
@@ -182,9 +190,9 @@ struct AcknowledgeAudioTerminationInput {
 };
 using RuntimeInputMessage = std::variant<
     StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput, ContinueInput,
-    SelectSceneChoiceInput, SelectDialogueChoiceInput, NavigateRoomInput,
-    SelectInteractionSubjectsInput, ClearInteractionSubjectSelectionInput, PrimaryActivateInput,
-    OpenVerbMenuInput, InvokeInteractionInput, BeginCommandBuilderInput,
+    AdvanceDialogueRevealInput, SelectSceneChoiceInput, SelectDialogueChoiceInput,
+    NavigateRoomInput, SelectInteractionSubjectsInput, ClearInteractionSubjectSelectionInput,
+    PrimaryActivateInput, OpenVerbMenuInput, InvokeInteractionInput, BeginCommandBuilderInput,
     CommandBuilderSubjectPressInput, UpdateCommandBuilderWatchInput, SubmitCommandBuilderInput,
     CancelCommandBuilderInput, SetVariableDebugInput, SetPropertyDebugInput, LayoutSignalInput,
     CommitLayoutStateInput, ClearLayoutStateInput, SaveRuntimeInput, LoadRuntimeInput,

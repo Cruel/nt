@@ -111,7 +111,13 @@ function cuesFromPresentationEditorView(
   presentation: DialogueLinePresentationEditorView,
 ): DialogueLineCue[] {
   const retained: DialogueLineCue[] = segment.cues.filter(
-    (cue) => cue.kind === 'active-text' || cue.kind === 'invalid-markup' || cue.kind === 'gesture',
+    (cue) =>
+      cue.kind === 'active-text' ||
+      cue.kind === 'invalid-markup' ||
+      cue.kind === 'gesture' ||
+      cue.kind === 'voice' ||
+      cue.kind === 'sound-effect' ||
+      cue.kind === 'camera',
   );
   const oldStage = segment.cues.filter(
     (cue): cue is Extract<DialogueLineCue, { kind: 'stage' }> => cue.kind === 'stage',
@@ -719,6 +725,16 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
       ),
     )
     .map(([id, asset]) => ({ id, label: asset.label }));
+  const audioAssets = Object.entries(project.assets)
+    .filter(([, asset]) =>
+      Boolean(
+        asset.data &&
+        typeof asset.data === 'object' &&
+        'kind' in asset.data &&
+        asset.data.kind === 'audio',
+      ),
+    )
+    .map(([id, asset]) => ({ id, label: asset.label }));
   const variables = Object.entries(project.variables).map(([id, variable]) => ({
     id,
     label: variable.label,
@@ -950,6 +966,19 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
   ) {
     const { presentation: _, ...line } = segment;
     replaceSegment(block, { ...line, cues });
+  }
+
+  function replaceLineCueAt(
+    block: DialogueSequenceBlockData,
+    segment: DialogueLineEditorSegment,
+    cueIndex: number,
+    cue: DialogueLineCue,
+  ) {
+    replaceLineCues(
+      block,
+      segment,
+      segment.cues.map((candidate, index) => (index === cueIndex ? cue : candidate)),
+    );
   }
 
   function renameSegment(block: DialogueSequenceBlockData, oldId: string, newId: string) {
@@ -2133,37 +2162,169 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                           resolves cues at the same offset.
                         </p>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={data.stageSlots.length === 0}
-                        onClick={() => {
-                          const existingIds = data.blocks.flatMap((block) =>
-                            block.type === 'sequence'
-                              ? block.segments.flatMap((segment) =>
-                                  segment.type === 'line' ? segment.cues.map((cue) => cue.id) : [],
-                                )
-                              : [],
-                          );
-                          const cue: DialogueLineCue = {
-                            id: nextUniqueId(existingIds, 'gesture-cue'),
-                            kind: 'gesture',
-                            position: {
-                              offset: 0,
-                              order:
-                                Math.max(
-                                  -1,
-                                  ...activeSegment.cues.map((item) => item.position.order),
-                                ) + 1,
-                            },
-                            slotId: data.stageSlots[0]!.id,
-                            gestureId: 'gesture',
-                          };
-                          replaceLineCues(activeBlock, activeSegment, [...activeSegment.cues, cue]);
-                        }}
-                      >
-                        Add Gesture cue
-                      </Button>
+                      <div className="flex flex-wrap gap-1">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={audioAssets.length === 0}
+                          onClick={() => {
+                            const existingIds = data.blocks.flatMap((block) =>
+                              block.type === 'sequence'
+                                ? block.segments.flatMap((segment) =>
+                                    segment.type === 'line'
+                                      ? segment.cues.map((cue) => cue.id)
+                                      : [],
+                                  )
+                                : [],
+                            );
+                            const cue: DialogueLineCue = {
+                              id: nextUniqueId(existingIds, 'voice-cue'),
+                              kind: 'voice',
+                              position: {
+                                offset: 0,
+                                order:
+                                  Math.max(
+                                    -1,
+                                    ...activeSegment.cues.map((item) => item.position.order),
+                                  ) + 1,
+                              },
+                              asset: { $ref: { collection: 'assets', id: audioAssets[0]!.id } },
+                              pausePolicy: 'gameplay',
+                              gain: 1,
+                              pan: 0,
+                              waitForCompletion: false,
+                              skipBehavior: 'stop',
+                            };
+                            replaceLineCues(activeBlock, activeSegment, [
+                              ...activeSegment.cues,
+                              cue,
+                            ]);
+                          }}
+                        >
+                          Add Voice
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={audioAssets.length === 0}
+                          onClick={() => {
+                            const existingIds = data.blocks.flatMap((block) =>
+                              block.type === 'sequence'
+                                ? block.segments.flatMap((segment) =>
+                                    segment.type === 'line'
+                                      ? segment.cues.map((cue) => cue.id)
+                                      : [],
+                                  )
+                                : [],
+                            );
+                            const cue: DialogueLineCue = {
+                              id: nextUniqueId(existingIds, 'sfx-cue'),
+                              kind: 'sound-effect',
+                              position: {
+                                offset: 0,
+                                order:
+                                  Math.max(
+                                    -1,
+                                    ...activeSegment.cues.map((item) => item.position.order),
+                                  ) + 1,
+                              },
+                              asset: { $ref: { collection: 'assets', id: audioAssets[0]!.id } },
+                              pausePolicy: 'gameplay',
+                              gain: 1,
+                              pan: 0,
+                              waitForCompletion: false,
+                              causality: 'disposable',
+                              synchronized: false,
+                              skipBehavior: 'suppress',
+                            };
+                            replaceLineCues(activeBlock, activeSegment, [
+                              ...activeSegment.cues,
+                              cue,
+                            ]);
+                          }}
+                        >
+                          Add SFX
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const existingIds = data.blocks.flatMap((block) =>
+                              block.type === 'sequence'
+                                ? block.segments.flatMap((segment) =>
+                                    segment.type === 'line'
+                                      ? segment.cues.map((cue) => cue.id)
+                                      : [],
+                                  )
+                                : [],
+                            );
+                            const cue: DialogueLineCue = {
+                              id: nextUniqueId(existingIds, 'camera-cue'),
+                              kind: 'camera',
+                              position: {
+                                offset: 0,
+                                order:
+                                  Math.max(
+                                    -1,
+                                    ...activeSegment.cues.map((item) => item.position.order),
+                                  ) + 1,
+                              },
+                              emphasis: {
+                                kind: 'shake',
+                                amplitude: { x: 8, y: 8 },
+                                frequencyHz: 12,
+                                durationMs: 250,
+                                skippable: true,
+                                waitForCompletion: false,
+                              },
+                            };
+                            replaceLineCues(activeBlock, activeSegment, [
+                              ...activeSegment.cues,
+                              cue,
+                            ]);
+                          }}
+                        >
+                          Add Camera
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={data.stageSlots.length === 0}
+                          onClick={() => {
+                            const existingIds = data.blocks.flatMap((block) =>
+                              block.type === 'sequence'
+                                ? block.segments.flatMap((segment) =>
+                                    segment.type === 'line'
+                                      ? segment.cues.map((cue) => cue.id)
+                                      : [],
+                                  )
+                                : [],
+                            );
+                            const cue: DialogueLineCue = {
+                              id: nextUniqueId(existingIds, 'gesture-cue'),
+                              kind: 'gesture',
+                              position: {
+                                offset: 0,
+                                order:
+                                  Math.max(
+                                    -1,
+                                    ...activeSegment.cues.map((item) => item.position.order),
+                                  ) + 1,
+                              },
+                              slotId: data.stageSlots[0]!.id,
+                              gestureId: 'gesture',
+                              waitForCompletion: false,
+                              skippable: true,
+                            };
+                            replaceLineCues(activeBlock, activeSegment, [
+                              ...activeSegment.cues,
+                              cue,
+                            ]);
+                          }}
+                        >
+                          Add Gesture
+                        </Button>
+                      </div>
                     </div>
                     {activeSegment.cues.length === 0 ? (
                       <p className="text-xs text-muted-foreground">No inline cues.</p>
@@ -2236,47 +2397,499 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
                           </Button>
                         </div>
                         {cue.kind === 'gesture' ? (
-                          <div className="grid gap-2 md:grid-cols-2">
-                            <Label>
-                              Stage Slot
-                              <Select
-                                value={cue.slotId}
-                                onValueChange={(value) =>
-                                  replaceLineCues(
-                                    activeBlock,
-                                    activeSegment,
-                                    activeSegment.cues.map((candidate, index) =>
-                                      index === cueIndex && candidate.kind === 'gesture'
-                                        ? { ...candidate, slotId: String(value) }
-                                        : candidate,
-                                    ),
-                                  )
-                                }
-                              >
-                                {data.stageSlots.map((slot) => (
-                                  <SelectItem key={slot.id} value={slot.id}>
-                                    {slot.label} ({slot.id})
-                                  </SelectItem>
-                                ))}
-                              </Select>
-                            </Label>
-                            <Label>
-                              Gesture ID
-                              <Input
-                                value={cue.gestureId}
-                                onChange={(event) =>
-                                  replaceLineCues(
-                                    activeBlock,
-                                    activeSegment,
-                                    activeSegment.cues.map((candidate, index) =>
-                                      index === cueIndex && candidate.kind === 'gesture'
-                                        ? { ...candidate, gestureId: event.currentTarget.value }
-                                        : candidate,
-                                    ),
-                                  )
-                                }
-                              />
-                            </Label>
+                          <div className="space-y-2">
+                            <div className="grid gap-2 md:grid-cols-2">
+                              <Label>
+                                Stage Slot
+                                <Select
+                                  value={cue.slotId}
+                                  onValueChange={(value) =>
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      slotId: String(value),
+                                    })
+                                  }
+                                >
+                                  {data.stageSlots.map((slot) => (
+                                    <SelectItem key={slot.id} value={slot.id}>
+                                      {slot.label} ({slot.id})
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </Label>
+                              <Label>
+                                Gesture ID
+                                <Input
+                                  value={cue.gestureId}
+                                  onChange={(event) =>
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      gestureId: event.currentTarget.value,
+                                    })
+                                  }
+                                />
+                              </Label>
+                            </div>
+                            <div className="flex flex-wrap gap-4 text-xs">
+                              <Label className="flex items-center gap-2">
+                                <Switch
+                                  checked={cue.waitForCompletion}
+                                  onCheckedChange={(checked) =>
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      waitForCompletion: Boolean(checked),
+                                    })
+                                  }
+                                />
+                                Wait for completion
+                              </Label>
+                              <Label className="flex items-center gap-2">
+                                <Switch
+                                  checked={cue.skippable}
+                                  onCheckedChange={(checked) =>
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      skippable: Boolean(checked),
+                                    })
+                                  }
+                                />
+                                Skippable
+                              </Label>
+                            </div>
+                          </div>
+                        ) : null}
+                        {cue.kind === 'voice' || cue.kind === 'sound-effect' ? (
+                          <div className="space-y-2">
+                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                              <Label>
+                                Audio Asset
+                                <Select
+                                  value={cue.asset.$ref.id}
+                                  onValueChange={(value) =>
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      asset: {
+                                        $ref: { collection: 'assets', id: String(value) },
+                                      },
+                                    })
+                                  }
+                                >
+                                  {audioAssets.map((asset) => (
+                                    <SelectItem key={asset.id} value={asset.id}>
+                                      {asset.label} ({asset.id})
+                                    </SelectItem>
+                                  ))}
+                                </Select>
+                              </Label>
+                              <Label>
+                                Pause Policy
+                                <Select
+                                  value={cue.pausePolicy}
+                                  onValueChange={(value) =>
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      pausePolicy: value as typeof cue.pausePolicy,
+                                    })
+                                  }
+                                >
+                                  <SelectItem value="gameplay">Gameplay</SelectItem>
+                                  <SelectItem value="owner">Owner</SelectItem>
+                                  <SelectItem value="unscaled">Unscaled</SelectItem>
+                                </Select>
+                              </Label>
+                              <Label>
+                                Gain
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="1"
+                                  step="0.05"
+                                  value={cue.gain}
+                                  onChange={(event) => {
+                                    const gain = Number(event.currentTarget.value);
+                                    if (!Number.isFinite(gain) || gain < 0 || gain > 1) return;
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      gain,
+                                    });
+                                  }}
+                                />
+                              </Label>
+                              <Label>
+                                Pan
+                                <Input
+                                  type="number"
+                                  min="-1"
+                                  max="1"
+                                  step="0.05"
+                                  value={cue.pan}
+                                  onChange={(event) => {
+                                    const pan = Number(event.currentTarget.value);
+                                    if (!Number.isFinite(pan) || pan < -1 || pan > 1) return;
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      pan,
+                                    });
+                                  }}
+                                />
+                              </Label>
+                            </div>
+                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                              <Label>
+                                Skip Behavior
+                                <Select
+                                  value={cue.skipBehavior}
+                                  onValueChange={(value) => {
+                                    const skipBehavior = value as typeof cue.skipBehavior;
+                                    if (cue.kind === 'sound-effect' && skipBehavior === 'play') {
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        skipBehavior,
+                                        causality: 'causal',
+                                      });
+                                      return;
+                                    }
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      skipBehavior,
+                                    });
+                                  }}
+                                >
+                                  <SelectItem value="stop">Stop</SelectItem>
+                                  <SelectItem value="suppress">Suppress</SelectItem>
+                                  <SelectItem value="play">Play on skip</SelectItem>
+                                </Select>
+                              </Label>
+                              {cue.kind === 'sound-effect' ? (
+                                <Label>
+                                  Causality
+                                  <Select
+                                    value={cue.causality}
+                                    onValueChange={(value) => {
+                                      const causality = value as typeof cue.causality;
+                                      if (
+                                        causality === 'disposable' &&
+                                        (cue.waitForCompletion ||
+                                          cue.synchronized ||
+                                          cue.skipBehavior === 'play')
+                                      )
+                                        return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        causality,
+                                      });
+                                    }}
+                                  >
+                                    <SelectItem value="causal">Causal</SelectItem>
+                                    <SelectItem value="disposable">Disposable</SelectItem>
+                                  </Select>
+                                </Label>
+                              ) : null}
+                              <Label className="flex items-end gap-2 pb-2">
+                                <Switch
+                                  checked={cue.waitForCompletion}
+                                  onCheckedChange={(checked) => {
+                                    const waitForCompletion = Boolean(checked);
+                                    replaceLineCueAt(
+                                      activeBlock,
+                                      activeSegment,
+                                      cueIndex,
+                                      cue.kind === 'sound-effect' && waitForCompletion
+                                        ? { ...cue, waitForCompletion, causality: 'causal' }
+                                        : { ...cue, waitForCompletion },
+                                    );
+                                  }}
+                                />
+                                Wait for completion
+                              </Label>
+                              {cue.kind === 'sound-effect' ? (
+                                <Label className="flex items-end gap-2 pb-2">
+                                  <Switch
+                                    checked={cue.synchronized}
+                                    onCheckedChange={(checked) => {
+                                      const synchronized = Boolean(checked);
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        synchronized,
+                                        ...(synchronized ? { causality: 'causal' as const } : {}),
+                                      });
+                                    }}
+                                  />
+                                  Synchronized
+                                </Label>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                        {cue.kind === 'camera' ? (
+                          <div className="space-y-2">
+                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                              <Label>
+                                Emphasis
+                                <Select
+                                  value={cue.emphasis.kind}
+                                  onValueChange={(value) => {
+                                    const kind = String(value);
+                                    const common = {
+                                      durationMs: cue.emphasis.durationMs,
+                                      skippable: cue.emphasis.skippable,
+                                      waitForCompletion: cue.emphasis.waitForCompletion,
+                                    };
+                                    const emphasis: typeof cue.emphasis =
+                                      kind === 'punch'
+                                        ? {
+                                            kind: 'punch',
+                                            translation: { x: 0, y: 0 },
+                                            zoomDelta: 0.1,
+                                            rotationDegrees: 0,
+                                            ...common,
+                                          }
+                                        : kind === 'flash'
+                                          ? {
+                                              kind: 'flash',
+                                              color: '#ffffff',
+                                              opacity: 1,
+                                              ...common,
+                                            }
+                                          : {
+                                              kind: 'shake',
+                                              amplitude: { x: 8, y: 8 },
+                                              frequencyHz: 12,
+                                              ...common,
+                                            };
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      emphasis,
+                                    });
+                                  }}
+                                >
+                                  <SelectItem value="shake">Shake</SelectItem>
+                                  <SelectItem value="punch">Punch</SelectItem>
+                                  <SelectItem value="flash">Flash</SelectItem>
+                                </Select>
+                              </Label>
+                              <Label>
+                                Duration (ms)
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  value={cue.emphasis.durationMs}
+                                  onChange={(event) => {
+                                    const durationMs = Number(event.currentTarget.value);
+                                    if (!Number.isInteger(durationMs) || durationMs <= 0) return;
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      emphasis: { ...cue.emphasis, durationMs },
+                                    });
+                                  }}
+                                />
+                              </Label>
+                              <Label className="flex items-end gap-2 pb-2">
+                                <Switch
+                                  checked={cue.emphasis.waitForCompletion}
+                                  onCheckedChange={(checked) =>
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      emphasis: {
+                                        ...cue.emphasis,
+                                        waitForCompletion: Boolean(checked),
+                                      },
+                                    })
+                                  }
+                                />
+                                Wait for completion
+                              </Label>
+                              <Label className="flex items-end gap-2 pb-2">
+                                <Switch
+                                  checked={cue.emphasis.skippable}
+                                  onCheckedChange={(checked) =>
+                                    replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                      ...cue,
+                                      emphasis: {
+                                        ...cue.emphasis,
+                                        skippable: Boolean(checked),
+                                      },
+                                    })
+                                  }
+                                />
+                                Skippable
+                              </Label>
+                            </div>
+                            {cue.emphasis.kind === 'shake' ? (
+                              <div className="grid gap-2 md:grid-cols-3">
+                                <Label>
+                                  Amplitude X
+                                  <Input
+                                    type="number"
+                                    value={cue.emphasis.amplitude.x}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'shake') return;
+                                      const x = Number(event.currentTarget.value);
+                                      if (!Number.isFinite(x)) return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: {
+                                          ...cue.emphasis,
+                                          amplitude: { ...cue.emphasis.amplitude, x },
+                                        },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                                <Label>
+                                  Amplitude Y
+                                  <Input
+                                    type="number"
+                                    value={cue.emphasis.amplitude.y}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'shake') return;
+                                      const y = Number(event.currentTarget.value);
+                                      if (!Number.isFinite(y)) return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: {
+                                          ...cue.emphasis,
+                                          amplitude: { ...cue.emphasis.amplitude, y },
+                                        },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                                <Label>
+                                  Frequency (Hz)
+                                  <Input
+                                    type="number"
+                                    min="0.01"
+                                    step="0.5"
+                                    value={cue.emphasis.frequencyHz}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'shake') return;
+                                      const frequencyHz = Number(event.currentTarget.value);
+                                      if (!Number.isFinite(frequencyHz) || frequencyHz <= 0) return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: { ...cue.emphasis, frequencyHz },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                              </div>
+                            ) : null}
+                            {cue.emphasis.kind === 'punch' ? (
+                              <div className="grid gap-2 md:grid-cols-4">
+                                <Label>
+                                  Translation X
+                                  <Input
+                                    type="number"
+                                    value={cue.emphasis.translation.x}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'punch') return;
+                                      const x = Number(event.currentTarget.value);
+                                      if (!Number.isFinite(x)) return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: {
+                                          ...cue.emphasis,
+                                          translation: { ...cue.emphasis.translation, x },
+                                        },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                                <Label>
+                                  Translation Y
+                                  <Input
+                                    type="number"
+                                    value={cue.emphasis.translation.y}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'punch') return;
+                                      const y = Number(event.currentTarget.value);
+                                      if (!Number.isFinite(y)) return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: {
+                                          ...cue.emphasis,
+                                          translation: { ...cue.emphasis.translation, y },
+                                        },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                                <Label>
+                                  Zoom Delta
+                                  <Input
+                                    type="number"
+                                    step="0.05"
+                                    value={cue.emphasis.zoomDelta}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'punch') return;
+                                      const zoomDelta = Number(event.currentTarget.value);
+                                      if (!Number.isFinite(zoomDelta)) return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: { ...cue.emphasis, zoomDelta },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                                <Label>
+                                  Rotation
+                                  <Input
+                                    type="number"
+                                    step="0.5"
+                                    value={cue.emphasis.rotationDegrees}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'punch') return;
+                                      const rotationDegrees = Number(event.currentTarget.value);
+                                      if (!Number.isFinite(rotationDegrees)) return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: { ...cue.emphasis, rotationDegrees },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                              </div>
+                            ) : null}
+                            {cue.emphasis.kind === 'flash' ? (
+                              <div className="grid gap-2 md:grid-cols-2">
+                                <Label>
+                                  Color
+                                  <Input
+                                    value={cue.emphasis.color}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'flash') return;
+                                      const color = event.currentTarget.value;
+                                      if (!color) return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: { ...cue.emphasis, color },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                                <Label>
+                                  Opacity
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max="1"
+                                    step="0.05"
+                                    value={cue.emphasis.opacity}
+                                    onChange={(event) => {
+                                      if (cue.emphasis.kind !== 'flash') return;
+                                      const opacity = Number(event.currentTarget.value);
+                                      if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1)
+                                        return;
+                                      replaceLineCueAt(activeBlock, activeSegment, cueIndex, {
+                                        ...cue,
+                                        emphasis: { ...cue.emphasis, opacity },
+                                      });
+                                    }}
+                                  />
+                                </Label>
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                         {cue.kind === 'invalid-markup' ? (

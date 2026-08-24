@@ -15,6 +15,11 @@ import {
   type TextContent,
 } from './authoring-flow';
 import { parseCharacterData } from './authoring-characters';
+import {
+  audioCausalityValues,
+  audioPausePolicyValues,
+  audioSkipBehaviorValues,
+} from './authoring-audio';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 
@@ -152,6 +157,65 @@ const dialogueGestureCueSchema = strict({
   position: dialogueCuePositionSchema,
   slotId: entityIdSchema,
   gestureId: entityIdSchema,
+  waitForCompletion: z.boolean(),
+  skippable: z.boolean(),
+});
+const dialogueVoiceCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('voice'),
+  position: dialogueCuePositionSchema,
+  asset: assetRefSchema,
+  pausePolicy: z.enum(audioPausePolicyValues),
+  gain: z.number().finite().min(0).max(1),
+  pan: z.number().finite().min(-1).max(1),
+  waitForCompletion: z.boolean(),
+  skipBehavior: z.enum(audioSkipBehaviorValues),
+});
+const dialogueSoundEffectCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('sound-effect'),
+  position: dialogueCuePositionSchema,
+  asset: assetRefSchema,
+  pausePolicy: z.enum(audioPausePolicyValues),
+  gain: z.number().finite().min(0).max(1),
+  pan: z.number().finite().min(-1).max(1),
+  waitForCompletion: z.boolean(),
+  causality: z.enum(audioCausalityValues),
+  synchronized: z.boolean(),
+  skipBehavior: z.enum(audioSkipBehaviorValues),
+});
+const dialogueCameraEmphasisSchema = z.discriminatedUnion('kind', [
+  strict({
+    kind: z.literal('shake'),
+    amplitude: strict({ x: z.number().finite(), y: z.number().finite() }),
+    frequencyHz: z.number().finite().positive(),
+    durationMs: z.number().int().positive(),
+    skippable: z.boolean(),
+    waitForCompletion: z.boolean(),
+  }),
+  strict({
+    kind: z.literal('punch'),
+    translation: strict({ x: z.number().finite(), y: z.number().finite() }),
+    zoomDelta: z.number().finite(),
+    rotationDegrees: z.number().finite(),
+    durationMs: z.number().int().positive(),
+    skippable: z.boolean(),
+    waitForCompletion: z.boolean(),
+  }),
+  strict({
+    kind: z.literal('flash'),
+    color: z.string().min(1),
+    opacity: z.number().finite().min(0).max(1),
+    durationMs: z.number().int().positive(),
+    skippable: z.boolean(),
+    waitForCompletion: z.boolean(),
+  }),
+]);
+const dialogueCameraCueSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('camera'),
+  position: dialogueCuePositionSchema,
+  emphasis: dialogueCameraEmphasisSchema,
 });
 
 export const dialogueLineCueSchema = z.discriminatedUnion('kind', [
@@ -161,6 +225,9 @@ export const dialogueLineCueSchema = z.discriminatedUnion('kind', [
   dialogueStageCueSchema,
   dialogueMediaCueSchema,
   dialogueGestureCueSchema,
+  dialogueVoiceCueSchema,
+  dialogueSoundEffectCueSchema,
+  dialogueCameraCueSchema,
 ]);
 
 const lineSegmentSchema = strict({
@@ -697,21 +764,58 @@ export function validateDialogueData(
               return;
             }
 
-            const slot = data.stageSlots.find((candidate) => candidate.id === cue.slotId);
-            if (!slot)
-              diagnostics.push(
-                diagnostic(`${cuePath}/slotId`, `Missing Stage Slot '${cue.slotId}'.`),
-              );
-            const character = slot?.initial
-              ? parseCharacterData(project.characters[slot.initial.character.$ref.id]?.data)
-              : null;
-            if (character && !character.gestures.some((gesture) => gesture.id === cue.gestureId))
-              diagnostics.push(
-                diagnostic(
-                  `${cuePath}/gestureId`,
-                  `Missing Gesture '${cue.gestureId}' on the Stage Slot's initial Character.`,
-                ),
-              );
+            if (cue.kind === 'gesture') {
+              const slot = data.stageSlots.find((candidate) => candidate.id === cue.slotId);
+              if (!slot)
+                diagnostics.push(
+                  diagnostic(`${cuePath}/slotId`, `Missing Stage Slot '${cue.slotId}'.`),
+                );
+              const character = slot?.initial
+                ? parseCharacterData(project.characters[slot.initial.character.$ref.id]?.data)
+                : null;
+              if (character && !character.gestures.some((gesture) => gesture.id === cue.gestureId))
+                diagnostics.push(
+                  diagnostic(
+                    `${cuePath}/gestureId`,
+                    `Missing Gesture '${cue.gestureId}' on the Stage Slot's initial Character.`,
+                  ),
+                );
+              return;
+            }
+            if (cue.kind === 'voice' || cue.kind === 'sound-effect') {
+              const asset = project.assets[cue.asset.$ref.id];
+              if (!asset)
+                diagnostics.push(
+                  diagnostic(`${cuePath}/asset`, `Missing Audio Asset '${cue.asset.$ref.id}'.`),
+                );
+              else if (asset.data.kind !== 'audio')
+                diagnostics.push(
+                  diagnostic(`${cuePath}/asset`, `Cue Asset '${cue.asset.$ref.id}' is not audio.`),
+                );
+              if (
+                cue.kind === 'sound-effect' &&
+                (cue.waitForCompletion || cue.synchronized) &&
+                cue.causality !== 'causal'
+              )
+                diagnostics.push(
+                  diagnostic(
+                    `${cuePath}/causality`,
+                    'Awaited or synchronized Sound Effect cues must be causal.',
+                  ),
+                );
+              if (
+                cue.kind === 'sound-effect' &&
+                cue.skipBehavior === 'play' &&
+                cue.causality !== 'causal'
+              )
+                diagnostics.push(
+                  diagnostic(
+                    `${cuePath}/causality`,
+                    'Play-on-skip Sound Effect cues must be causal.',
+                  ),
+                );
+              return;
+            }
           });
           if (inlineTextIsEmpty(segment.text))
             diagnostics.push(

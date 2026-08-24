@@ -326,6 +326,27 @@ FlowExecutor::apply_dialogue_cues(const DialogueId& dialogue,
     return Result<void, Diagnostics>::success();
 }
 
+Result<void, Diagnostics>
+FlowExecutor::advance_dialogue_reveal(const DialogueId& dialogue,
+                                      const DialogueFramePosition& expected_position,
+                                      std::size_t next_cue, std::uint64_t reveal_offset)
+{
+    if (m_state.m_execution_fault)
+        return Result<void, Diagnostics>::failure(*m_state.m_execution_fault);
+    auto* frame = !m_state.m_flow_stack.empty()
+                      ? std::get_if<DialogueFrame>(&m_state.m_flow_stack.back())
+                      : nullptr;
+    if (frame == nullptr || frame->dialogue != dialogue || frame->position != expected_position)
+        return fail(execution_error("execution.stale_dialogue_position",
+                                    "Dialogue reveal progress does not match the active position"));
+    if (next_cue < frame->position.next_cue || reveal_offset < frame->position.reveal_offset)
+        return fail(execution_error("execution.invalid_dialogue_reveal_progress",
+                                    "Dialogue reveal progress must be monotonic"));
+    frame->position.next_cue = next_cue;
+    frame->position.reveal_offset = reveal_offset;
+    return Result<void, Diagnostics>::success();
+}
+
 Result<void, Diagnostics> FlowExecutor::choose_dialogue_option(const FlowFrameId& owner,
                                                                const InputFlowBlockerHandle& handle,
                                                                const DialogueEdgeId& edge)

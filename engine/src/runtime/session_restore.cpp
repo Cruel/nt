@@ -119,6 +119,14 @@ restore_presentation_owner(const SavedPresentationOwner& owner,
                                       "Saved Scene presentation owner could not be remapped."));
                 return Result<PresentationOwner, Diagnostics>::success(
                     ScenePresentationOwner{invocation->second, value.scene});
+            } else if constexpr (std::is_same_v<T, SavedDialoguePresentationOwner>) {
+                const auto invocation = frame_ids.find(value.invocation.value);
+                if (invocation == frame_ids.end())
+                    return Result<PresentationOwner, Diagnostics>::failure(
+                        restore_error("save_restore.invalid_presentation_owner",
+                                      "Saved Dialogue presentation owner could not be remapped."));
+                return Result<PresentationOwner, Diagnostics>::success(
+                    DialoguePresentationOwner{invocation->second, value.dialogue});
             } else if constexpr (std::is_same_v<T, SavedCurrentRoomPresentationOwner>) {
                 const auto current = state.current_room_presentation_owner();
                 if (!current || current->room != value.room)
